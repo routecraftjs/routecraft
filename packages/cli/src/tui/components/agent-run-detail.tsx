@@ -1,21 +1,11 @@
 import { Box, Text } from "ink";
 import type { ExchangeRecord, AgentRunInfo, ToolCallRow } from "../types.js";
-import { statusColor, formatDuration, col } from "../utils.js";
+import { statusColor, formatDuration, col, toolStatusColor } from "../utils.js";
+import { theme, selectedProps } from "../theme.js";
 import { PANEL_TABLE_CHROME } from "../layout.js";
 import { Panel } from "./panel.js";
 import { Table, type ColumnDef } from "./table.js";
 import { selectorColumn } from "./event-columns.js";
-
-function toolStatusColor(status: ToolCallRow["status"]): string {
-  switch (status) {
-    case "result":
-      return "green";
-    case "error":
-      return "red";
-    default:
-      return "yellow";
-  }
-}
 
 const toolCallColumns: ColumnDef<ToolCallRow>[] = [
   selectorColumn<ToolCallRow>(),
@@ -23,9 +13,7 @@ const toolCallColumns: ColumnDef<ToolCallRow>[] = [
     header: "Tool",
     width: "flex",
     render: (row, selected) => (
-      <Text {...(selected ? { color: "cyan" as const } : {})} bold={selected}>
-        {row.toolName}
-      </Text>
+      <Text {...selectedProps(selected)}>{row.toolName}</Text>
     ),
   },
   {
@@ -66,7 +54,7 @@ export function AgentRunDetail({
   scrollOffset,
   width,
   height,
-  color = "cyan",
+  color = theme.accent,
 }: {
   agentKey: string;
   run: ExchangeRecord;
@@ -93,7 +81,7 @@ export function AgentRunDetail({
       <Panel width={width}>
         <Text>
           Agent:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {agentKey}
           </Text>
         </Text>

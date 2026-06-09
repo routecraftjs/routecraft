@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import { Box, Text } from "ink";
+import { theme } from "../theme.js";
 
 export function Panel({
   title,
   subtitle,
-  color = "gray",
+  color = theme.muted,
   width,
   flexGrow,
   paddingX = 1,
@@ -24,7 +25,7 @@ export function Panel({
   return (
     <Box
       flexDirection="column"
-      borderStyle="round"
+      borderStyle="single"
       borderColor={color}
       paddingX={paddingX}
       width={width}
@@ -32,11 +33,13 @@ export function Panel({
     >
       {title && (
         <>
-          <Text bold>
+          {/* Uppercase muted labels mirror the site's mono-label treatment;
+              focus is conveyed by the border accent, not the title. */}
+          <Text bold dimColor>
             {title}
             {subtitle && <> {subtitle}</>}
           </Text>
-          <Text dimColor>{"\u2500".repeat(Math.max(innerWidth, 1))}</Text>
+          <Text dimColor>{"─".repeat(Math.max(innerWidth, 1))}</Text>
         </>
       )}
       {children}

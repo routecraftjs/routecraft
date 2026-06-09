@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import type { ExchangeRecord, RouteSummary, RouteActivity } from "../types.js";
 import { statusColor, formatDuration, col } from "../utils.js";
 import { PANEL_TABLE_CHROME } from "../layout.js";
+import { theme, selectedProps } from "../theme.js";
 import { Panel } from "./panel.js";
 import { RouteHeader } from "./route-header.js";
 import { DotGraph, DEFAULT_STEPS } from "./dot-graph.js";
@@ -14,9 +15,7 @@ const exchangeColumns: ColumnDef<ExchangeRecord>[] = [
     header: "ID",
     width: "flex",
     render: (row, selected) => (
-      <Text {...(selected ? { color: "cyan" as const } : {})} bold={selected}>
-        {row.id}
-      </Text>
+      <Text {...selectedProps(selected)}>{row.id}</Text>
     ),
   },
   {
@@ -51,7 +50,7 @@ export function CenterExchangeList({
   scrollOffset,
   width,
   height,
-  color = "gray",
+  color = theme.muted,
   activity,
   title: titleOverride,
 }: {

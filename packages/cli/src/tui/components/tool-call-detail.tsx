@@ -1,19 +1,9 @@
 import { Box, Text } from "ink";
 import type { ToolCallRow } from "../types.js";
-import { formatDuration, truncate } from "../utils.js";
+import { formatDuration, truncate, toolStatusColor } from "../utils.js";
+import { theme } from "../theme.js";
 import { Panel } from "./panel.js";
 import { formatJson, ColoredJsonLine } from "./json-format.js";
-
-function toolStatusColor(status: ToolCallRow["status"]): string {
-  switch (status) {
-    case "result":
-      return "green";
-    case "error":
-      return "red";
-    default:
-      return "yellow";
-  }
-}
 
 /**
  * Build the scrollable lines for a tool call: input, output and error
@@ -70,7 +60,7 @@ export function ToolCallDetail({
   width,
   height,
   scrollOffset,
-  color = "cyan",
+  color = theme.accent,
 }: {
   call: ToolCallRow;
   width: number;
@@ -91,13 +81,13 @@ export function ToolCallDetail({
       <Panel width={width}>
         <Text>
           Tool:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {truncate(call.toolName, width - 10)}
           </Text>
         </Text>
         <Text>
           Exchange:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {truncate(call.exchangeId, width - 14)}
           </Text>
         </Text>
@@ -131,7 +121,7 @@ export function ToolCallDetail({
         {visible.map((line, i) => {
           if (line === "INPUT" || line === "OUTPUT" || line === "ERROR") {
             return (
-              <Text key={scrollOffset + i} bold color="yellow">
+              <Text key={scrollOffset + i} bold color={theme.accent}>
                 {line}
               </Text>
             );

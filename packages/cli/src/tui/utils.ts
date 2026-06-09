@@ -26,6 +26,20 @@ export function statusColor(status: string): string {
   }
 }
 
+/** Semantic color for a correlated tool-call status. */
+export function toolStatusColor(
+  status: "invoked" | "result" | "error",
+): string {
+  switch (status) {
+    case "result":
+      return "green";
+    case "error":
+      return "red";
+    default:
+      return "yellow";
+  }
+}
+
 export function col(str: string, len: number | undefined): string {
   if (len === undefined) return str;
   if (len <= 0) return "";

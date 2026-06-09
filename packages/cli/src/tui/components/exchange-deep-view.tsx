@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import type { ExchangeRecord, ExchangeSnapshot } from "../types.js";
 import { statusColor, formatDuration, truncate } from "../utils.js";
+import { theme } from "../theme.js";
 import { Panel } from "./panel.js";
 import { formatJson, ColoredJsonLine } from "./json-format.js";
 
@@ -36,7 +37,7 @@ export function ExchangeDeepView({
   width,
   height,
   scrollOffset,
-  color = "cyan",
+  color = theme.accent,
 }: {
   exchange: ExchangeRecord;
   snapshot: ExchangeSnapshot | null;
@@ -69,13 +70,13 @@ export function ExchangeDeepView({
       <Panel width={width}>
         <Text>
           Capability:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {exchange.routeId}
           </Text>
         </Text>
         <Text>
           Exchange:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {truncate(exchange.id, width - 14)}
           </Text>
         </Text>
@@ -109,7 +110,7 @@ export function ExchangeDeepView({
         {visible.map((line, i) => {
           if (line === "HEADERS" || line === "BODY") {
             return (
-              <Text key={scrollOffset + i} bold color="yellow">
+              <Text key={scrollOffset + i} bold color={theme.accent}>
                 {line}
               </Text>
             );

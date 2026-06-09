@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import type { EventRecord } from "../types.js";
+import { theme } from "../theme.js";
 import { Panel } from "./panel.js";
 import { formatJson, ColoredJsonLine, parseDetails } from "./json-format.js";
 
@@ -8,7 +9,7 @@ export function EventDetail({
   width,
   height,
   scrollOffset,
-  color = "cyan",
+  color = theme.accent,
 }: {
   event: EventRecord;
   width: number;
@@ -38,14 +39,14 @@ export function EventDetail({
       <Panel width={width}>
         <Text>
           Context:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {event.contextId}
           </Text>
         </Text>
         {routeId && (
           <Text>
             Capability:{" "}
-            <Text bold color="cyan">
+            <Text bold color={theme.accent}>
               {routeId}
             </Text>
           </Text>
@@ -53,14 +54,14 @@ export function EventDetail({
         {exchangeId && (
           <Text>
             Exchange:{" "}
-            <Text bold color="cyan">
+            <Text bold color={theme.accent}>
               {exchangeId}
             </Text>
           </Text>
         )}
         <Text>
           Event:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {event.eventName}
           </Text>
         </Text>

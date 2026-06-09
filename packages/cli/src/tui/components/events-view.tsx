@@ -2,6 +2,7 @@ import { Text } from "ink";
 import type { EventRecord } from "../types.js";
 import { col } from "../utils.js";
 import { PANEL_TABLE_CHROME } from "../layout.js";
+import { theme, selectedProps } from "../theme.js";
 import { Panel } from "./panel.js";
 import { Table, type ColumnDef } from "./table.js";
 import { selectorColumn, eventDetailColumns } from "./event-columns.js";
@@ -12,7 +13,7 @@ const eventColumns: ColumnDef<EventRecord>[] = [
     header: "Time",
     width: 19,
     render: (row, selected, w) => (
-      <Text {...(selected ? { color: "cyan" as const } : {})} bold={selected}>
+      <Text {...selectedProps(selected)}>
         {col(row.timestamp.replace("T", " ").slice(0, 19), w)}
       </Text>
     ),
@@ -20,7 +21,7 @@ const eventColumns: ColumnDef<EventRecord>[] = [
   {
     header: "Event",
     width: "flex",
-    render: (row) => <Text color="cyan">{row.eventName}</Text>,
+    render: (row) => <Text>{row.eventName}</Text>,
   },
   ...eventDetailColumns<EventRecord>((row) => row),
 ];
@@ -31,7 +32,7 @@ export function EventsView({
   scrollOffset,
   width,
   height,
-  color = "gray",
+  color = theme.muted,
 }: {
   events: EventRecord[];
   selectedIndex: number;

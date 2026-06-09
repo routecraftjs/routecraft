@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import type { ExchangeRecord, EventRecord } from "../types.js";
 import { statusColor, formatDuration, col, truncate } from "../utils.js";
 import { DETAIL_INFO_CHROME } from "../layout.js";
+import { theme } from "../theme.js";
 import { Panel } from "./panel.js";
 import { Table, type ColumnDef } from "./table.js";
 import { selectorColumn, eventDetailColumns } from "./event-columns.js";
@@ -73,7 +74,7 @@ const detailColumns: ColumnDef<DisplayRow>[] = [
     width: "flex",
     render: (row) => {
       if (!row.event) return <Text />;
-      return <Text color="cyan">{row.event.eventName}</Text>;
+      return <Text>{row.event.eventName}</Text>;
     },
   },
   ...eventDetailColumns<DisplayRow>((row) => row.event),
@@ -86,7 +87,7 @@ export function CenterExchangeDetail({
   height,
   scrollOffset,
   selectedIndex = -1,
-  color = "gray",
+  color = theme.muted,
 }: {
   exchange: ExchangeRecord;
   events: EventRecord[];
@@ -129,13 +130,13 @@ export function CenterExchangeDetail({
       <Panel width={width}>
         <Text>
           Capability:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {exchange.routeId}
           </Text>
         </Text>
         <Text>
           Exchange:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {truncate(exchange.id, width - 14)}
           </Text>
         </Text>
@@ -186,7 +187,7 @@ export function CenterExchangeDetail({
           emptyMessage="No related events found"
           renderFullRow={(row) =>
             row.type === "header" ? (
-              <Text bold color="yellow">
+              <Text bold color={theme.accent}>
                 {row.text}
               </Text>
             ) : undefined

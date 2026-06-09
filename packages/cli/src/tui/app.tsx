@@ -25,13 +25,33 @@ import { CenterExchangeDetail } from "./components/center-exchange-detail.js";
 import { EventsView } from "./components/events-view.js";
 import { EventDetail } from "./components/event-detail.js";
 import { ExchangeDeepView } from "./components/exchange-deep-view.js";
-import { CapabilityList } from "./components/capability-list.js";
-import { AgentList } from "./components/agent-list.js";
-import { ToolList } from "./components/tool-list.js";
+import { NavList } from "./components/nav-list.js";
 import { AgentRunDetail } from "./components/agent-run-detail.js";
 import { ToolCallList } from "./components/tool-call-list.js";
 import { ToolCallDetail } from "./components/tool-call-detail.js";
+import { theme, selectedProps } from "./theme.js";
 import { version } from "../../package.json";
+
+/** Status dot for a capability in the left nav. */
+function routeDot(route: RouteSummary): string {
+  if (route.failedExchanges > 0) return theme.error;
+  if (route.totalExchanges > 0) return theme.success;
+  return theme.warn;
+}
+
+/** Status dot for an agent: red on errors, green once run, yellow when idle. */
+function agentDot(agent: AgentSummary): string {
+  if (agent.errorCount > 0) return theme.error;
+  if (agent.runCount > 0) return theme.success;
+  return theme.warn;
+}
+
+/** Status dot for a tool: red on errors, green once called, yellow when idle. */
+function toolDot(tool: ToolSummary): string {
+  if (tool.errorCount > 0) return theme.error;
+  if (tool.callCount > 0) return theme.success;
+  return theme.warn;
+}
 
 /**
  * Focus tracks which panel owns the cursor.
@@ -116,7 +136,9 @@ function App({ db }: { db: TelemetryDb }) {
   const leftWidth = Math.max(Math.min(Math.floor(width * 0.18), 26), 16);
   const rightWidth = Math.max(Math.min(Math.floor(width * 0.22), 30), 20);
   const centerWidth = Math.max(width - leftWidth - rightWidth, 30);
-  const bodyHeight = Math.max(height - 5, 10);
+  // 1 header line + 2 rows of slack (matches the previous 3-row title
+  // bar + 2 slack arithmetic).
+  const bodyHeight = Math.max(height - 3, 10);
   const navHeaderRows = 10;
   const navListHeight = Math.max(bodyHeight - navHeaderRows, 3);
 
@@ -688,13 +710,13 @@ function App({ db }: { db: TelemetryDb }) {
 
   return (
     <Box flexDirection="column" width={width} height={height}>
-      {/* Title bar */}
-      <Box borderStyle="round" borderColor="cyan" paddingX={1} width={width}>
-        <Text bold color="cyan">
-          ROUTECRAFT TUI
+      {/* Header: wordmark + product term, single line (brand: the wordmark
+          is never all-capped; cobalt stays reserved for active states). */}
+      <Box paddingX={1} width={width}>
+        <Text bold>Routecraft</Text>
+        <Text dimColor>
+          {"  "}craft tui{"  "}v{version}
         </Text>
-        <Text> </Text>
-        <Text dimColor>v{version}</Text>
       </Box>
 
       {/* 3-column body */}
@@ -703,7 +725,7 @@ function App({ db }: { db: TelemetryDb }) {
         <Box flexDirection="column" width={leftWidth}>
           <Panel
             title="NAVIGATION"
-            color={navActive ? "cyan" : "gray"}
+            color={navActive ? theme.accent : theme.muted}
             width={leftWidth}
             flexGrow={1}
           >
@@ -717,12 +739,7 @@ function App({ db }: { db: TelemetryDb }) {
                 )}
                 {section.items.map((item) => (
                   <Text key={item.key}>
-                    <Text
-                      bold={activeNav === item.key}
-                      {...(activeNav === item.key
-                        ? { color: "cyan" as const }
-                        : {})}
-                    >
+                    <Text {...selectedProps(activeNav === item.key)}>
                       {activeNav === item.key ? "> " : "  "}
                       {item.label}
                     </Text>
@@ -733,8 +750,12 @@ function App({ db }: { db: TelemetryDb }) {
             ))}
 
             {activeNav === "capabilities" && (
-              <CapabilityList
-                routes={routes}
+              <NavList
+                items={routes}
+                itemKey={(r) => r.id}
+                label={(r) => r.id}
+                dotColor={routeDot}
+                emptyText="No capabilities"
                 selectedIndex={routeScroll.selectedIndex}
                 listOffset={routeScroll.scrollOffset}
                 visibleRows={navListHeight}
@@ -742,8 +763,12 @@ function App({ db }: { db: TelemetryDb }) {
               />
             )}
             {activeNav === "agents" && (
-              <AgentList
-                agents={agents}
+              <NavList
+                items={agents}
+                itemKey={(a) => a.key}
+                label={(a) => a.key}
+                dotColor={agentDot}
+                emptyText="No agents"
                 selectedIndex={agentScroll.selectedIndex}
                 listOffset={agentScroll.scrollOffset}
                 visibleRows={navListHeight}
@@ -751,8 +776,12 @@ function App({ db }: { db: TelemetryDb }) {
               />
             )}
             {activeNav === "tools" && (
-              <ToolList
-                tools={tools}
+              <NavList
+                items={tools}
+                itemKey={(t) => t.name}
+                label={(t) => t.name}
+                dotColor={toolDot}
+                emptyText="No tools"
                 selectedIndex={toolScroll.selectedIndex}
                 listOffset={toolScroll.scrollOffset}
                 visibleRows={navListHeight}
@@ -774,7 +803,7 @@ function App({ db }: { db: TelemetryDb }) {
             scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
             width={centerWidth}
             height={bodyHeight}
-            color={centerActive ? "cyan" : "gray"}
+            color={centerActive ? theme.accent : theme.muted}
             activity={selectedRouteActivity}
           />
         )}
@@ -785,7 +814,7 @@ function App({ db }: { db: TelemetryDb }) {
             width={centerWidth}
             height={bodyHeight}
             scrollOffset={deepViewScroll}
-            color="cyan"
+            color={theme.accent}
           />
         )}
         {activeNav === "capabilities" &&
@@ -800,7 +829,7 @@ function App({ db }: { db: TelemetryDb }) {
               height={bodyHeight}
               selectedIndex={detailScroll.selectedIndex}
               scrollOffset={detailScroll.scrollOffset}
-              color="cyan"
+              color={theme.accent}
             />
           )}
         {activeNav === "capabilities" &&
@@ -813,7 +842,7 @@ function App({ db }: { db: TelemetryDb }) {
               width={centerWidth}
               height={bodyHeight}
               scrollOffset={eventDetailScroll}
-              color="cyan"
+              color={theme.accent}
             />
           )}
         {/* Agents tab */}
@@ -828,7 +857,7 @@ function App({ db }: { db: TelemetryDb }) {
             scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
             width={centerWidth}
             height={bodyHeight}
-            color={focus === "center" ? "cyan" : "gray"}
+            color={focus === "center" ? theme.accent : theme.muted}
           />
         )}
         {activeNav === "agents" &&
@@ -844,7 +873,7 @@ function App({ db }: { db: TelemetryDb }) {
               scrollOffset={agentRunScroll.scrollOffset}
               width={centerWidth}
               height={bodyHeight}
-              color="cyan"
+              color={theme.accent}
             />
           )}
         {activeNav === "agents" && showToolCallDetail && selectedToolCall && (
@@ -853,7 +882,7 @@ function App({ db }: { db: TelemetryDb }) {
             width={centerWidth}
             height={bodyHeight}
             scrollOffset={toolCallDetailScroll}
-            color="cyan"
+            color={theme.accent}
           />
         )}
 
@@ -868,7 +897,7 @@ function App({ db }: { db: TelemetryDb }) {
             scrollOffset={focus === "center" ? toolCallScroll.scrollOffset : 0}
             width={centerWidth}
             height={bodyHeight}
-            color={focus === "center" ? "cyan" : "gray"}
+            color={focus === "center" ? theme.accent : theme.muted}
           />
         )}
         {activeNav === "tools" && showToolCallDetail && selectedToolCall && (
@@ -877,7 +906,7 @@ function App({ db }: { db: TelemetryDb }) {
             width={centerWidth}
             height={bodyHeight}
             scrollOffset={toolCallDetailScroll}
-            color="cyan"
+            color={theme.accent}
           />
         )}
 
@@ -891,7 +920,7 @@ function App({ db }: { db: TelemetryDb }) {
             scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
             width={centerWidth}
             height={bodyHeight}
-            color={focus === "center" ? "cyan" : "gray"}
+            color={focus === "center" ? theme.accent : theme.muted}
           />
         )}
         {activeNav === "exchanges" && showDeepView && selectedExchange && (
@@ -901,7 +930,7 @@ function App({ db }: { db: TelemetryDb }) {
             width={centerWidth}
             height={bodyHeight}
             scrollOffset={deepViewScroll}
-            color="cyan"
+            color={theme.accent}
           />
         )}
         {activeNav === "exchanges" &&
@@ -916,7 +945,7 @@ function App({ db }: { db: TelemetryDb }) {
               height={bodyHeight}
               selectedIndex={detailScroll.selectedIndex}
               scrollOffset={detailScroll.scrollOffset}
-              color="cyan"
+              color={theme.accent}
             />
           )}
         {activeNav === "exchanges" &&
@@ -929,7 +958,7 @@ function App({ db }: { db: TelemetryDb }) {
               width={centerWidth}
               height={bodyHeight}
               scrollOffset={eventDetailScroll}
-              color="cyan"
+              color={theme.accent}
             />
           )}
         {activeNav === "errors" && !showDetail && (
@@ -942,7 +971,7 @@ function App({ db }: { db: TelemetryDb }) {
             scrollOffset={focus === "center" ? exchangeScroll.scrollOffset : 0}
             width={centerWidth}
             height={bodyHeight}
-            color={focus === "center" ? "cyan" : "gray"}
+            color={focus === "center" ? theme.accent : theme.muted}
           />
         )}
         {activeNav === "errors" && showDeepView && selectedExchange && (
@@ -952,7 +981,7 @@ function App({ db }: { db: TelemetryDb }) {
             width={centerWidth}
             height={bodyHeight}
             scrollOffset={deepViewScroll}
-            color="cyan"
+            color={theme.accent}
           />
         )}
         {activeNav === "errors" &&
@@ -967,7 +996,7 @@ function App({ db }: { db: TelemetryDb }) {
               height={bodyHeight}
               selectedIndex={detailScroll.selectedIndex}
               scrollOffset={detailScroll.scrollOffset}
-              color="cyan"
+              color={theme.accent}
             />
           )}
         {activeNav === "errors" &&
@@ -980,7 +1009,7 @@ function App({ db }: { db: TelemetryDb }) {
               width={centerWidth}
               height={bodyHeight}
               scrollOffset={eventDetailScroll}
-              color="cyan"
+              color={theme.accent}
             />
           )}
         {activeNav === "events" && !showEventDetail && (
@@ -990,7 +1019,7 @@ function App({ db }: { db: TelemetryDb }) {
             scrollOffset={focus === "center" ? eventScroll.scrollOffset : 0}
             width={centerWidth}
             height={bodyHeight}
-            color={focus === "center" ? "cyan" : "gray"}
+            color={focus === "center" ? theme.accent : theme.muted}
           />
         )}
         {activeNav === "events" && showEventDetail && selectedEvent && (
@@ -999,7 +1028,7 @@ function App({ db }: { db: TelemetryDb }) {
             width={centerWidth}
             height={bodyHeight}
             scrollOffset={eventDetailScroll}
-            color="cyan"
+            color={theme.accent}
           />
         )}
 
@@ -1032,7 +1061,7 @@ function App({ db }: { db: TelemetryDb }) {
             </Text>
             {(
               [
-                ["Exchanges", fmtNum(metrics.totalExchanges), "cyan"],
+                ["Exchanges", fmtNum(metrics.totalExchanges), theme.accent],
                 ["Completed", fmtNum(metrics.completedExchanges), "green"],
                 [
                   "Errors",
@@ -1089,7 +1118,7 @@ function App({ db }: { db: TelemetryDb }) {
               <Box key={item.key}>
                 <Text>{item.action}</Text>
                 <Box flexGrow={1} justifyContent="flex-end">
-                  <Text color="yellow">[{item.key}]</Text>
+                  <Text color={theme.accentSoft}>[{item.key}]</Text>
                 </Box>
               </Box>
             ))}

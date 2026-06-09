@@ -1,13 +1,14 @@
 import { Text } from "ink";
 import type { RouteSummary } from "../types.js";
 import { statusColor, fmtNum, formatDuration } from "../utils.js";
+import { theme } from "../theme.js";
 
 export function RouteHeader({ route }: { route: RouteSummary }) {
   return (
     <>
       <Text>
         Capability:{" "}
-        <Text bold color="cyan">
+        <Text bold color={theme.accent}>
           {route.id}
         </Text>
       </Text>

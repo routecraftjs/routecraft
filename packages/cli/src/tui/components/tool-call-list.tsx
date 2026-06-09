@@ -1,21 +1,11 @@
 import { Box, Text } from "ink";
 import type { ToolCallRow } from "../types.js";
-import { formatDuration, col } from "../utils.js";
+import { formatDuration, col, toolStatusColor } from "../utils.js";
+import { theme, selectedProps } from "../theme.js";
 import { PANEL_TABLE_CHROME } from "../layout.js";
 import { Panel } from "./panel.js";
 import { Table, type ColumnDef } from "./table.js";
 import { selectorColumn } from "./event-columns.js";
-
-function toolStatusColor(status: ToolCallRow["status"]): string {
-  switch (status) {
-    case "result":
-      return "green";
-    case "error":
-      return "red";
-    default:
-      return "yellow";
-  }
-}
 
 const callColumns: ColumnDef<ToolCallRow>[] = [
   selectorColumn<ToolCallRow>(),
@@ -23,9 +13,7 @@ const callColumns: ColumnDef<ToolCallRow>[] = [
     header: "Route",
     width: "flex",
     render: (row, selected) => (
-      <Text {...(selected ? { color: "cyan" as const } : {})} bold={selected}>
-        {row.routeId || "-"}
-      </Text>
+      <Text {...selectedProps(selected)}>{row.routeId || "-"}</Text>
     ),
   },
   {
@@ -67,7 +55,7 @@ export function ToolCallList({
   scrollOffset,
   width,
   height,
-  color = "gray",
+  color = theme.muted,
 }: {
   toolName: string;
   calls: ToolCallRow[];

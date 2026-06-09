@@ -1,6 +1,7 @@
 import { Text } from "ink";
 import type { EventRecord } from "../types.js";
 import { col, formatDetailColumns, type DetailColumns } from "../utils.js";
+import { selectedProps } from "../theme.js";
 import type { ColumnDef } from "./table.js";
 
 /**
@@ -76,9 +77,7 @@ export function selectorColumn<T>(): ColumnDef<T> {
     header: "",
     width: 2,
     render: (_row, selected) => (
-      <Text {...(selected ? { color: "cyan" as const } : {})} bold={selected}>
-        {selected ? "> " : "  "}
-      </Text>
+      <Text {...selectedProps(selected)}>{selected ? "> " : "  "}</Text>
     ),
   };
 }
