@@ -11,8 +11,14 @@ import {
 } from "../exchange.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
-import type { Adapter, EventName, Step } from "../types.ts";
-import { WrapperStep, type WrapperOutcome } from "./wrapper.ts";
+import type {
+  Adapter,
+  EventName,
+  Step,
+  StepContext,
+  StepOutcome,
+} from "../types.ts";
+import { WrapperStep } from "./wrapper.ts";
 import {
   type CacheProvider,
   defaultMemoryCacheProvider,
@@ -169,8 +175,8 @@ export class CacheWrapperStep<
 
   protected override async runInner(
     exchange: Exchange,
-    innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-  ): Promise<WrapperOutcome> {
+    ctx: StepContext,
+  ): Promise<StepOutcome> {
     const route = getExchangeRoute(exchange);
     const context = getExchangeContext(exchange);
     const routeId = route?.definition.id;
@@ -219,38 +225,32 @@ export class CacheWrapperStep<
         key,
         async () => {
           ranInner = true;
-          // Run the inner step against an isolated local buffer so the
-          // shared `innerQueue` is populated uniformly from the cache
-          // result below. Concurrent callers waiting on this loader
-          // never see the inner's intermediate pushes.
-          const localQueue: {
-            exchange: Exchange;
-            steps: Step<Adapter>[];
-          }[] = [];
-          await this.inner.execute(exchange, [], localQueue);
-          // A genuine drop is signalled by the framework's dropped flag
-          // (filter reject / halt), NOT by an undefined body: a step
-          // such as `transform(() => undefined)` legitimately sets the
-          // body to undefined and must not be misread as a drop.
-          if (isDropped(exchange) || localQueue.length === 0) {
+          const outcome = await this.inner.execute(exchange, ctx);
+          // A genuine drop is signalled by the drop outcome (filter
+          // reject / halt), NOT by an undefined body: a step such as
+          // `transform(() => undefined)` legitimately sets the body to
+          // undefined and must not be misread as a drop.
+          if (outcome.kind === "drop" || isDropped(exchange)) {
             // Abort via sentinel so `getOrCompute` writes nothing.
             throw new CacheLoaderDrop();
           }
-          if (localQueue.length > 1) {
-            // The wrapper caches and replays a single output. A
-            // multi-emit inner step would have all but one output
-            // silently dropped, so fail loud instead. split / aggregate
-            // are already blocked at construction by WrapperStep.
+          if (outcome.kind === "fanOut" || outcome.kind === "branch") {
+            // The wrapper caches and replays a single output. Fan-out
+            // would lose all but one child; a branch outcome carries
+            // live steps that cannot be cached. split / aggregate are
+            // already blocked at construction by WrapperStep; this
+            // guards choice and custom steps explicitly (the
+            // pre-outcome engine silently discarded a wrapped choice's
+            // branch steps instead).
             throw rcError("RC5003", undefined, {
               message:
-                `.cache() cannot wrap "${stepLabel}": the step emitted ${localQueue.length} ` +
-                `exchanges, but cache replays a single output. Wrap a single-output step instead.`,
+                `.cache() cannot wrap "${stepLabel}": the step produced a "${outcome.kind}" ` +
+                `outcome, but cache replays a single output. Wrap a single-output step instead.`,
             });
           }
-          const produced = localQueue[0]!;
-          producedExchange = produced.exchange;
+          producedExchange = outcome.exchange;
           loaderResolved = true;
-          return produced.exchange.body;
+          return outcome.exchange.body;
         },
         this.#options.ttl,
       );
@@ -271,7 +271,7 @@ export class CacheWrapperStep<
             dropped: true,
           });
         }
-        return "ok";
+        return { kind: "drop" };
       }
       // Attribute the failure:
       // - `"get"`   provider read threw before the inner ran.
@@ -339,7 +339,6 @@ export class CacheWrapperStep<
       ranInner && producedExchange !== undefined
         ? producedExchange
         : DefaultExchange.rewrap(exchange, { body: computed });
-    innerQueue.push({ exchange: forwarded, steps: [] });
-    return "ok";
+    return { kind: "continue", exchange: forwarded };
   }
 }

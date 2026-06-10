@@ -57,15 +57,50 @@ export interface Step<T extends Adapter> {
   metadata?: Record<string, unknown>;
 
   /**
-   * Execute this step. The exchange is typed as Exchange at runtime (body is unknown);
-   * the builder chain preserves body types for the next step, but custom steps receive
-   * an untyped exchange. Narrow or assert body type if needed.
+   * Execute this step and report what happened. The executor owns all
+   * scheduling: steps no longer see the work queue or the remaining
+   * pipeline, they describe an outcome and the engine routes it.
+   *
+   * The exchange is typed as Exchange at runtime (body is unknown);
+   * the builder chain preserves body types for the next step, but custom
+   * steps receive an untyped exchange. Narrow or assert body type if needed.
    */
-  execute(
-    exchange: Exchange,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-  ): Promise<void>;
+  execute(exchange: Exchange, ctx: StepContext): Promise<StepOutcome>;
+}
+
+/**
+ * What a step did with its exchange. Returned from {@link Step.execute};
+ * the pipeline executor translates outcomes into scheduling:
+ *
+ * - `continue`: run the remaining steps against `exchange` (the common case;
+ *   `exchange` is usually a rewrapped derivation of the input).
+ * - `complete`: skip the remaining steps and complete the exchange
+ *   successfully (route-scope cache hit).
+ * - `drop`: halt the exchange. The step has already called `markDropped`
+ *   and emitted its drop events (filter reject, choice unmatched,
+ *   parse-drop); the executor schedules nothing.
+ * - `branch`: run `steps` and then the remaining steps against `exchange`
+ *   (choice routes into the matched branch).
+ * - `fanOut`: schedule each child exchange independently through the
+ *   remaining steps (split).
+ */
+export type StepOutcome =
+  | { kind: "continue"; exchange: Exchange }
+  | { kind: "complete"; exchange: Exchange }
+  | { kind: "drop" }
+  | { kind: "branch"; exchange: Exchange; steps: Step<Adapter>[] }
+  | { kind: "fanOut"; exchanges: Exchange[] };
+
+/**
+ * Narrow executor capability handed to {@link Step.execute}.
+ *
+ * `takePending` atomically removes and returns pending sibling exchanges
+ * matching the predicate; it exists for join-style steps (aggregate) that
+ * consume their split siblings. The queue itself is never exposed, so
+ * steps cannot reorder, duplicate, or corrupt scheduling.
+ */
+export interface StepContext {
+  takePending(predicate: (exchange: Exchange) => boolean): Exchange[];
 }
 
 // MessageChannel lives with channel adapter now

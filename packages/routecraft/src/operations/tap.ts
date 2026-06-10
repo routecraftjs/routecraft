@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type Adapter, type Step } from "../types.ts";
+import { type Step, type StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -63,11 +63,7 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
     this.adapter = typeof adapter === "function" ? { send: adapter } : adapter;
   }
 
-  async execute(
-    exchange: Exchange<T>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
 
@@ -123,6 +119,6 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
 
     route.trackTask(promise);
 
-    queue.push({ exchange, steps: remainingSteps });
+    return { kind: "continue", exchange };
   }
 }

@@ -12,7 +12,12 @@ import {
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
-import { type Adapter, type Step, getAdapterLabel } from "../types.ts";
+import {
+  type Adapter,
+  type Step,
+  type StepContext,
+  getAdapterLabel,
+} from "../types.ts";
 import { buildParseStep } from "./synthetic-steps.ts";
 import type { ForwardFn, Route, RouteDefinition } from "../route.ts";
 
@@ -129,6 +134,25 @@ export async function runPipeline(
     ? new Set(parentMap.keys())
     : new Set<string>();
 
+  // Narrow capability handed to steps. takePending implements the same
+  // splice scan aggregate used to run against the raw queue, so join
+  // semantics (including filter-dropped children: only survivors are
+  // collected, nothing waits) are byte-identical to the pre-outcome engine.
+  const stepContext: StepContext = {
+    takePending(predicate: (candidate: Exchange) => boolean): Exchange[] {
+      const taken: Exchange[] = [];
+      for (let i = 0; i < queue.length; ) {
+        if (predicate(queue[i].exchange)) {
+          taken.push(queue[i].exchange);
+          queue.splice(i, 1);
+        } else {
+          i++;
+        }
+      }
+      return taken;
+    },
+  };
+
   while (queue.length > 0) {
     const popped = queue.shift()!;
     const { steps } = popped;
@@ -221,7 +245,34 @@ export async function runPipeline(
     }
 
     try {
-      await step.execute(exchange, remainingSteps, queue);
+      const outcome = await step.execute(exchange, stepContext);
+
+      // The executor owns scheduling: translate the outcome into queue
+      // entries. Pushes carry no events, so push-vs-emit ordering below
+      // is observationally identical to the old in-step pushes.
+      switch (outcome.kind) {
+        case "continue":
+          queue.push({ exchange: outcome.exchange, steps: remainingSteps });
+          break;
+        case "complete":
+          queue.push({ exchange: outcome.exchange, steps: [] });
+          break;
+        case "branch":
+          queue.push({
+            exchange: outcome.exchange,
+            steps: [...outcome.steps, ...remainingSteps],
+          });
+          break;
+        case "fanOut":
+          for (const child of outcome.exchanges) {
+            queue.push({ exchange: child, steps: remainingSteps });
+          }
+          break;
+        case "drop":
+          // The step marked the exchange dropped and emitted its drop
+          // events; schedule nothing.
+          break;
+      }
 
       // Emit step:completed event unless the step manages its own events
       if (!step.skipStepEvents) {

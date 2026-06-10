@@ -226,6 +226,8 @@ export {
   type EventName,
   type EventHandler,
   type Step,
+  type StepContext,
+  type StepOutcome,
 } from "./types.ts";
 
 export { SimpleConsumer } from "./consumers/simple.ts";

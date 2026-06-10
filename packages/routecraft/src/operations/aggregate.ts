@@ -1,6 +1,12 @@
-import { type Adapter, type Step } from "../types.ts";
+import {
+  type Adapter,
+  type Step,
+  type StepContext,
+  type StepOutcome,
+} from "../types.ts";
 import {
   type Exchange,
+  type ExchangeHeaders,
   OperationType,
   HeadersKeys,
   getExchangeContext,
@@ -12,7 +18,21 @@ import { rcError } from "../error.ts";
 import { SPLIT_PARENT_STORE } from "./split.ts";
 
 /**
- * Function form of an aggregator: takes an array of exchanges and returns one combined exchange.
+ * What an aggregator returns: the combined body plus optional headers for
+ * the resulting exchange. When `headers` is omitted the engine keeps the
+ * base exchange's headers. The engine always rewraps the result onto the
+ * parent exchange's identity, so aggregators no longer fabricate a fake
+ * `Exchange`; returning a full exchange still works structurally.
+ *
+ * @template R - Result body type
+ */
+export type AggregateResult<R = unknown> = {
+  body: R;
+  headers?: ExchangeHeaders;
+};
+
+/**
+ * Function form of an aggregator: takes an array of exchanges and returns the combined result.
  * Use with `.aggregate(aggregator)`. Default aggregator collects bodies into an array.
  *
  * @template T - Body type of incoming exchanges
@@ -20,7 +40,7 @@ import { SPLIT_PARENT_STORE } from "./split.ts";
  */
 export type CallableAggregator<T = unknown, R = T> = (
   exchanges: Exchange<T>[],
-) => Promise<Exchange<R>> | Exchange<R>;
+) => Promise<AggregateResult<R>> | AggregateResult<R>;
 
 /**
  * Helper type to extract the element type from an array type, or return the type itself.
@@ -52,7 +72,7 @@ type FlattenedAggregateResult<T> = T extends Array<infer U> ? U[] : T[];
  */
 export const defaultAggregate = <T>(
   exchanges: Exchange<T>[],
-): Exchange<FlattenedAggregateResult<T>> => {
+): AggregateResult<FlattenedAggregateResult<T>> => {
   if (exchanges.length === 0) {
     throw rcError("RC5002", undefined, {
       message: "Aggregator received empty array of exchanges",
@@ -84,14 +104,14 @@ export const defaultAggregate = <T>(
     return {
       headers: exchanges[0].headers,
       body: flattened as FlattenedAggregateResult<T>,
-    } as Exchange<FlattenedAggregateResult<T>>;
+    };
   }
 
   // No arrays found, return array of bodies (original behavior)
   return {
     headers: exchanges[0].headers,
     body: exchanges.map((x) => x.body) as FlattenedAggregateResult<T>,
-  } as Exchange<FlattenedAggregateResult<T>>;
+  };
 };
 
 /**
@@ -121,11 +141,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       typeof adapter === "function" ? { aggregate: adapter } : adapter;
   }
 
-  async execute(
-    exchange: Exchange<T>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<T>, ctx: StepContext): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
     const routeId =
@@ -161,12 +177,12 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
 
     // If there's no split hierarchy, just aggregate the single exchange
     if (!splitHierarchy) {
-      const aggregatedExchange = await Promise.resolve(
+      const aggregated = await Promise.resolve(
         this.adapter.aggregate([exchange]),
       );
       const next = DefaultExchange.rewrap<R>(exchange, {
-        body: aggregatedExchange.body,
-        headers: aggregatedExchange.headers,
+        body: aggregated.body,
+        headers: aggregated.headers ?? exchange.headers,
       });
 
       if (context) {
@@ -180,27 +196,22 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
         });
       }
 
-      queue.push({
-        exchange: next,
-        steps: remainingSteps,
-      });
-      return;
+      return { kind: "continue", exchange: next };
     }
 
-    const aggregationGroup: Exchange[] = [exchange];
-
-    for (let i = 0; i < queue.length; ) {
-      const item = queue[i];
-      const itemHierarchy = item.exchange.headers[
-        HeadersKeys.SPLIT_HIERARCHY
-      ] as string[];
-      if (itemHierarchy?.at(-1) === currentGroupId) {
-        aggregationGroup.push(item.exchange);
-        queue.splice(i, 1);
-      } else {
-        i++;
-      }
-    }
+    // Join point: atomically consume pending siblings from the same split
+    // group via the executor capability. Only survivors are collected
+    // (children dropped by an intermediate filter are simply absent), so
+    // this never waits on children that will not arrive.
+    const aggregationGroup: Exchange[] = [
+      exchange,
+      ...ctx.takePending((candidate: Exchange) => {
+        const candidateHierarchy = candidate.headers[
+          HeadersKeys.SPLIT_HIERARCHY
+        ] as string[];
+        return candidateHierarchy?.at(-1) === currentGroupId;
+      }),
+    ];
 
     // Emit exchange:completed for each child being aggregated
     if (context) {
@@ -215,9 +226,9 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       }
     }
 
-    let aggregatedExchange: Exchange<R>;
+    let aggregated: AggregateResult<R>;
     try {
-      aggregatedExchange = await Promise.resolve(
+      aggregated = await Promise.resolve(
         this.adapter.aggregate(aggregationGroup as Exchange<T>[]),
       );
     } finally {
@@ -240,14 +251,14 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     const remainingHierarchy = splitHierarchy.slice(0, -1);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
     const { [HeadersKeys.SPLIT_HIERARCHY]: _stripped, ...restHeaders } =
-      aggregatedExchange.headers;
+      aggregated.headers ?? exchange.headers;
     const finalHeaders =
       remainingHierarchy.length > 0
         ? { ...restHeaders, [HeadersKeys.SPLIT_HIERARCHY]: remainingHierarchy }
         : restHeaders;
 
     const next = DefaultExchange.rewrap<R>(baseExchange, {
-      body: aggregatedExchange.body,
+      body: aggregated.body,
       headers: finalHeaders,
     });
 
@@ -262,9 +273,6 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       });
     }
 
-    queue.push({
-      exchange: next,
-      steps: remainingSteps,
-    });
+    return { kind: "continue", exchange: next };
   }
 }

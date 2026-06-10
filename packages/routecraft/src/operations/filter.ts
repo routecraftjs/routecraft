@@ -3,6 +3,7 @@ import {
   type Step,
   getAdapterLabel,
   type EventName,
+  type StepOutcome,
 } from "../types.ts";
 import {
   type Exchange,
@@ -65,11 +66,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
       typeof adapter === "function" ? { filter: adapter } : adapter;
   }
 
-  async execute(
-    exchange: Exchange<T>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
     const routeId =
@@ -140,7 +137,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
             exchange,
           });
         }
-        return;
+        return { kind: "drop" };
       }
     } catch (error: unknown) {
       if (context) {
@@ -171,7 +168,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
       });
     }
 
-    queue.push({ exchange, steps: remainingSteps });
+    return { kind: "continue", exchange };
   }
 }
 

@@ -1,4 +1,4 @@
-import { type Adapter, type Step } from "../types.ts";
+import { type Adapter, type Step, type StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -64,14 +64,7 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
     this.adapter = typeof adapter === "function" ? { send: adapter } : adapter;
   }
 
-  async execute(
-    exchange: Exchange<T>,
-    remainingSteps: Step<Adapter>[],
-    queue: {
-      exchange: Exchange<ToResultBody<T, R>>;
-      steps: Step<Adapter>[];
-    }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     // Resolve a test-time override (if any) registered on the context.
     // When present, the mock handler stands in for adapter.send; if the mock
     // has no handler, the call is silently swallowed (a noop destination).
@@ -115,6 +108,6 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
           })
         : (exchange as Exchange<ToResultBody<T, R>>);
 
-    queue.push({ exchange: next, steps: remainingSteps });
+    return { kind: "continue", exchange: next };
   }
 }

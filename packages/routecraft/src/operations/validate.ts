@@ -1,5 +1,5 @@
 import { type StandardSchemaV1 } from "@standard-schema/spec";
-import { type Adapter, type Step } from "../types.ts";
+import { type Adapter, type Step, type StepOutcome } from "../types.ts";
 import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
 import { formatSchemaIssues, rcError } from "../error.ts";
 
@@ -47,18 +47,14 @@ export class ValidateStep<T = unknown, R = T> implements Step<Validator<T, R>> {
       typeof adapter === "function" ? { validate: adapter } : adapter;
   }
 
-  async execute(
-    exchange: Exchange,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange): Promise<StepOutcome> {
     const result = await Promise.resolve(
       this.adapter.validate(exchange as Exchange<T>),
     );
-    queue.push({
+    return {
+      kind: "continue",
       exchange: DefaultExchange.rewrap<R>(exchange, { body: result }),
-      steps: remainingSteps,
-    });
+    };
   }
 }
 

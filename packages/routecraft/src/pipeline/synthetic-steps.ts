@@ -63,7 +63,7 @@ export function buildParseStep(
     label: "parse",
     adapter: PARSE_STEP_ADAPTER,
     skipStepEvents: true,
-    async execute(exchange, remainingSteps, queue) {
+    async execute(exchange) {
       const internals = EXCHANGE_INTERNALS.get(exchange);
       const context = internals?.context;
       const route = internals?.route;
@@ -132,7 +132,7 @@ export function buildParseStep(
             reason: PARSE_DROPPED_REASON,
             exchange,
           });
-          return;
+          return { kind: "drop" } as const;
         }
         // 'fail' / 'abort': throw RC5016 so the step loop's catch path
         // emits exchange:failed (or invokes the route's `.error()`).
@@ -154,8 +154,8 @@ export function buildParseStep(
       }
 
       emitStepCompleted();
-      // Hand control back to the step loop with the user's pipeline.
-      queue.push({ exchange: parsed, steps: remainingSteps });
+      // Hand control back to the executor with the parsed exchange.
+      return { kind: "continue", exchange: parsed } as const;
     },
   };
 }
@@ -201,7 +201,7 @@ export function buildCacheCheckStep(
     label: "cache-check",
     adapter: CACHE_CHECK_STEP_ADAPTER,
     skipStepEvents: true,
-    async execute(exchange, remainingSteps, queue) {
+    async execute(exchange) {
       const internals = EXCHANGE_INTERNALS.get(exchange);
       const context = internals?.context;
       const route = internals?.route;
@@ -283,11 +283,12 @@ export function buildCacheCheckStep(
           correlationId,
           source: "cache",
         });
-        queue.push({
+        // Complete: skip the rest of the pipeline (including the matching
+        // cache-store step) and finish the exchange with the cached body.
+        return {
+          kind: "complete",
           exchange: DefaultExchange.rewrap(exchange, { body: cached }),
-          steps: [],
-        });
-        return;
+        } as const;
       }
 
       // MISS: continue the pipeline.
@@ -299,7 +300,7 @@ export function buildCacheCheckStep(
         scope: "route",
         key,
       });
-      queue.push({ exchange, steps: remainingSteps });
+      return { kind: "continue", exchange } as const;
     },
   };
 }
@@ -332,7 +333,7 @@ export function buildCacheStoreStep(
     label: "cache-store",
     adapter: CACHE_STORE_STEP_ADAPTER,
     skipStepEvents: true,
-    async execute(exchange, remainingSteps, queue) {
+    async execute(exchange) {
       const internals = EXCHANGE_INTERNALS.get(exchange);
       const context = internals?.context;
       const route = internals?.route;
@@ -373,7 +374,7 @@ export function buildCacheStoreStep(
           });
         }
       }
-      queue.push({ exchange, steps: remainingSteps });
+      return { kind: "continue", exchange } as const;
     },
   };
 }

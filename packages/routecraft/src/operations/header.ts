@@ -1,4 +1,4 @@
-import { type Adapter, type Step } from "../types.ts";
+import { type Adapter, type Step, type StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -64,15 +64,11 @@ export class HeaderStep<T = unknown> implements Step<HeaderSetter<T>> {
     this.adapter = { key, set };
   }
 
-  async execute(
-    exchange: Exchange<T>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const value = await Promise.resolve(this.adapter.set(exchange));
     const next = DefaultExchange.rewrap<T>(exchange, {
       headers: { ...exchange.headers, [this.adapter.key]: value },
     });
-    queue.push({ exchange: next, steps: remainingSteps });
+    return { kind: "continue", exchange: next };
   }
 }

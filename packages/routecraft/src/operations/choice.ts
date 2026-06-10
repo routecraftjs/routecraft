@@ -1,4 +1,9 @@
-import { type Adapter, type Step, type EventName } from "../types.ts";
+import {
+  type Adapter,
+  type Step,
+  type EventName,
+  type StepOutcome,
+} from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -56,7 +61,7 @@ export class HaltStep implements Step<HaltAdapter> {
   operation: OperationType = OperationType.HALT;
   adapter: HaltAdapter = { adapterId: "routecraft.operation.halt" };
 
-  async execute(exchange: Exchange): Promise<void> {
+  async execute(exchange: Exchange): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
     const routeId =
@@ -79,6 +84,8 @@ export class HaltStep implements Step<HaltAdapter> {
         exchange,
       });
     }
+
+    return { kind: "drop" };
   }
 }
 
@@ -236,11 +243,7 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
 
   constructor(private readonly branches: ChoiceBranch[]) {}
 
-  async execute(
-    exchange: Exchange<In>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<In>): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
     const routeId =
@@ -318,7 +321,7 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
           exchange,
         });
       }
-      return;
+      return { kind: "drop" };
     }
 
     if (context) {
@@ -339,9 +342,6 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
       });
     }
 
-    queue.push({
-      exchange,
-      steps: [...matchedBranch.steps, ...remainingSteps],
-    });
+    return { kind: "branch", exchange, steps: matchedBranch.steps };
   }
 }
