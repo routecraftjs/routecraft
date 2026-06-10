@@ -26,13 +26,13 @@ describe("Exchange and Step Lifecycle Events", () => {
       .to(log());
 
     t = await testContext()
-      .on("route:*:exchange:started" as const, ({ details }) => {
+      .on("route:exchange:started", ({ details }) => {
         events.push({
           type: "exchange:started",
           routeId: details.routeId,
         });
       })
-      .on("route:*:exchange:completed" as const, ({ details }) => {
+      .on("route:exchange:completed", ({ details }) => {
         events.push({
           type: "exchange:completed",
           routeId: details.routeId,
@@ -78,13 +78,13 @@ describe("Exchange and Step Lifecycle Events", () => {
     }> = [];
 
     t = await testContext()
-      .on("route:*:exchange:started" as const, ({ details }) => {
+      .on("route:exchange:started", ({ details }) => {
         events.push({
           type: "exchange:started",
           routeId: details.routeId,
         });
       })
-      .on("route:*:exchange:failed" as const, ({ details }) => {
+      .on("route:exchange:failed", ({ details }) => {
         events.push({
           type: "exchange:failed",
           routeId: details.routeId,
@@ -144,14 +144,14 @@ describe("Exchange and Step Lifecycle Events", () => {
       .to(log());
 
     t = await testContext()
-      .on("route:*:step:started" as const, ({ details }) => {
+      .on("route:step:started", ({ details }) => {
         events.push({
           type: "step:started",
           routeId: details.routeId,
           operation: details.operation,
         });
       })
-      .on("route:*:step:completed" as const, ({ details }) => {
+      .on("route:step:completed", ({ details }) => {
         events.push({
           type: "step:completed",
           routeId: details.routeId,
@@ -201,10 +201,10 @@ describe("Exchange and Step Lifecycle Events", () => {
       .to(log());
 
     t = await testContext()
-      .on("route:*:exchange:started" as const, (payload) => {
+      .on("route:exchange:started", (payload) => {
         exchangePayload = payload;
       })
-      .on("route:*:step:started" as const, (payload) => {
+      .on("route:step:started", (payload) => {
         stepPayload = payload;
       })
       .routes(route)
@@ -239,7 +239,7 @@ describe("Exchange and Step Lifecycle Events", () => {
       .to(log());
 
     t = await testContext()
-      .on("route:*:exchange:started" as const, ({ details }) => {
+      .on("route:exchange:started", ({ details }) => {
         correlationIds.add(details.correlationId);
       })
       .routes(route)

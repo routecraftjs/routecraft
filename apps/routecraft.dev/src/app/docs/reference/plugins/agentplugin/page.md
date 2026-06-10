@@ -451,11 +451,11 @@ Agents emit on two distinct channels with different shapes and use cases:
 All events also carry `routeId`, `exchangeId`, `correlationId`. Wildcard subscriptions (`route:*:agent:tool:*`) work as expected.
 
 ```ts
-ctx.on("route:*:agent:tool:invoked", ({ details }) => {
+ctx.on("route:agent:tool:invoked", ({ details }) => {
   console.log(`[${details.routeId}] tool ${details.toolName} called with`, details.input);
 });
 
-ctx.on("route:*:agent:finished", ({ details }) => {
+ctx.on("route:agent:finished", ({ details }) => {
   metrics.increment("agent.calls.total", { route: details.routeId });
   metrics.histogram("agent.tokens.total", details.totalTokens ?? 0);
 });

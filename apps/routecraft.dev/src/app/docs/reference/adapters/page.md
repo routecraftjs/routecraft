@@ -36,7 +36,7 @@ craft().from(csv({ path: './daily.csv', chunked: true, onParseError: 'abort' }))
 craft().from(mail('INBOX', { onParseError: 'drop' })).to(process())
 
 // Subscribe to parse drops across all routes:
-ctx.on('route:*:exchange:dropped', ({ details }) => {
+ctx.on('route:exchange:dropped', ({ details }) => {
   if (details.reason === 'parse-failed') metrics.increment('source.parse.dropped')
 })
 ```

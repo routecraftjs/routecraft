@@ -2,7 +2,6 @@ import {
   HeadersKeys,
   rcError,
   type CraftContext,
-  type EventName,
   type Exchange,
 } from "@routecraft/routecraft";
 import { isBlockLoaderCall, summariseBlockLoads } from "../block/resolve.ts";
@@ -269,7 +268,7 @@ export class AgentSession {
     // string. Falls back to "unknown" only when the provider didn't
     // report one.
     const finishReason = result.finishReason ?? "unknown";
-    ctx.emit(`route:${id.routeId}:agent:finished` as EventName, {
+    ctx.emit("route:agent:finished", {
       routeId: id.routeId,
       exchangeId: id.exchangeId,
       correlationId: id.correlationId,
@@ -300,7 +299,7 @@ export class AgentSession {
     const id = this.input.dispatchIdentity;
     const ctx = this.input.context;
     if (!id || !ctx) return;
-    ctx.emit(`route:${id.routeId}:agent:error` as EventName, {
+    ctx.emit("route:agent:error", {
       routeId: id.routeId,
       exchangeId: id.exchangeId,
       correlationId: id.correlationId,

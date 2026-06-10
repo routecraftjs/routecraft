@@ -166,13 +166,13 @@ describe("Error handler (.error())", () => {
     const events: string[] = [];
 
     t = await testContext()
-      .on("route:*:step:*:error" as const, () => {
+      .on("route:step:error", () => {
         events.push("step:error");
       })
-      .on("route:*:error:caught" as const, () => {
+      .on("route:error:caught", () => {
         events.push("error:caught");
       })
-      .on("route:*:exchange:failed" as const, () => {
+      .on("route:exchange:failed", () => {
         events.push("exchange:failed");
       })
       .routes(
@@ -202,16 +202,16 @@ describe("Error handler (.error())", () => {
     const events: string[] = [];
 
     t = await testContext()
-      .on("route:*:step:*:error" as const, () => {
+      .on("route:step:error", () => {
         events.push("step:error");
       })
-      .on("route:*:error" as const, () => {
+      .on("route:error", () => {
         events.push("route:error");
       })
       .on("context:error", () => {
         events.push("context:error");
       })
-      .on("route:*:exchange:failed" as const, () => {
+      .on("route:exchange:failed", () => {
         events.push("exchange:failed");
       })
       .routes(
@@ -247,10 +247,10 @@ describe("Error handler (.error())", () => {
       .on("context:error", () => {
         events.push("error");
       })
-      .on("route:*:exchange:failed" as const, () => {
+      .on("route:exchange:failed", () => {
         events.push("exchange:failed");
       })
-      .on("route:*:error-handler:invoked" as const, () => {
+      .on("route:error-handler:invoked", () => {
         events.push("error:invoked");
       })
       .routes(

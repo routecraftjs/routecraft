@@ -173,7 +173,7 @@ class TelemetryPlugin implements CraftPlugin {
 
   private subscribeAll(ctx: CraftContext): void {
     this.unsubscribers.push(
-      ctx.on("**", ((payload: {
+      ctx.on("*", ((payload: {
         ts: string;
         contextId: string;
         details: unknown;
@@ -207,92 +207,79 @@ class TelemetryPlugin implements CraftPlugin {
   private subscribeRouteLifecycle(ctx: CraftContext): void {
     // Route registered
     this.unsubscribers.push(
-      ctx.on(
-        "route:*:registered" as EventName,
-        ((payload: {
-          ts: string;
-          contextId: string;
-          details: { route: { definition: { id: string } } };
-        }) => {
-          const routeId = payload.details.route.definition.id;
-          const key = `${routeId}:${payload.contextId}`;
+      ctx.on("route:registered", ((payload: {
+        ts: string;
+        contextId: string;
+        details: { route: { definition: { id: string } } };
+      }) => {
+        const routeId = payload.details.route.definition.id;
+        const key = `${routeId}:${payload.contextId}`;
 
-          // SQLite
-          this.spanProcessor?.writeRoute(
-            routeId,
-            payload.contextId,
-            payload.ts,
-          );
+        // SQLite
+        this.spanProcessor?.writeRoute(routeId, payload.contextId, payload.ts);
 
-          // OTel
-          if (this.tracer) {
-            const span = this.tracer.startSpan(`route:${routeId}`, {
-              attributes: {
-                [ATTR.SPAN_KIND]: SPAN_KIND.ROUTE,
-                [ATTR.ROUTE_ID]: routeId,
-                [ATTR.CONTEXT_ID]: payload.contextId,
-              },
-            });
-            this.routeSpans.set(key, span);
-          }
-        }) as EventHandler<EventName>,
-      ),
+        // OTel
+        if (this.tracer) {
+          const span = this.tracer.startSpan(`route:${routeId}`, {
+            attributes: {
+              [ATTR.SPAN_KIND]: SPAN_KIND.ROUTE,
+              [ATTR.ROUTE_ID]: routeId,
+              [ATTR.CONTEXT_ID]: payload.contextId,
+            },
+          });
+          this.routeSpans.set(key, span);
+        }
+      }) as EventHandler<EventName>),
     );
 
     // Route started
     this.unsubscribers.push(
-      ctx.on(
-        "route:*:started" as EventName,
-        ((payload: {
-          ts: string;
-          contextId: string;
-          details: { route: { definition: { id: string } } };
-        }) => {
-          const routeId = payload.details.route.definition.id;
+      ctx.on("route:started", ((payload: {
+        ts: string;
+        contextId: string;
+        details: { route: { definition: { id: string } } };
+      }) => {
+        const routeId = payload.details.route.definition.id;
 
-          // SQLite
-          this.spanProcessor?.updateRouteStatus(
-            routeId,
-            payload.contextId,
-            "started",
-          );
+        // SQLite
+        this.spanProcessor?.updateRouteStatus(
+          routeId,
+          payload.contextId,
+          "started",
+        );
 
-          // OTel: add event to existing span
-          const key = `${routeId}:${payload.contextId}`;
-          const span = this.routeSpans.get(key);
-          span?.addEvent("started");
-        }) as EventHandler<EventName>,
-      ),
+        // OTel: add event to existing span
+        const key = `${routeId}:${payload.contextId}`;
+        const span = this.routeSpans.get(key);
+        span?.addEvent("started");
+      }) as EventHandler<EventName>),
     );
 
     // Route stopped
     this.unsubscribers.push(
-      ctx.on(
-        "route:*:stopped" as EventName,
-        ((payload: {
-          ts: string;
-          contextId: string;
-          details: { route: { definition: { id: string } } };
-        }) => {
-          const routeId = payload.details.route.definition.id;
+      ctx.on("route:stopped", ((payload: {
+        ts: string;
+        contextId: string;
+        details: { route: { definition: { id: string } } };
+      }) => {
+        const routeId = payload.details.route.definition.id;
 
-          // SQLite
-          this.spanProcessor?.updateRouteStatus(
-            routeId,
-            payload.contextId,
-            "stopped",
-          );
+        // SQLite
+        this.spanProcessor?.updateRouteStatus(
+          routeId,
+          payload.contextId,
+          "stopped",
+        );
 
-          // OTel: end the route span
-          const key = `${routeId}:${payload.contextId}`;
-          const span = this.routeSpans.get(key);
-          if (span) {
-            span.addEvent("stopped");
-            span.end();
-            this.routeSpans.delete(key);
-          }
-        }) as EventHandler<EventName>,
-      ),
+        // OTel: end the route span
+        const key = `${routeId}:${payload.contextId}`;
+        const span = this.routeSpans.get(key);
+        if (span) {
+          span.addEvent("stopped");
+          span.end();
+          this.routeSpans.delete(key);
+        }
+      }) as EventHandler<EventName>),
     );
   }
 
@@ -328,7 +315,7 @@ class TelemetryPlugin implements CraftPlugin {
   private subscribeExchangeLifecycle(ctx: CraftContext): void {
     // Exchange started
     this.unsubscribers.push(
-      ctx.on("route:*:exchange:started", ((payload: {
+      ctx.on("route:exchange:started", ((payload: {
         ts: string;
         contextId: string;
         details: {
@@ -367,7 +354,7 @@ class TelemetryPlugin implements CraftPlugin {
 
     // Exchange completed
     this.unsubscribers.push(
-      ctx.on("route:*:exchange:completed", ((payload: {
+      ctx.on("route:exchange:completed", ((payload: {
         ts: string;
         contextId: string;
         details: {
@@ -408,7 +395,7 @@ class TelemetryPlugin implements CraftPlugin {
 
     // Exchange failed
     this.unsubscribers.push(
-      ctx.on("route:*:exchange:failed", ((payload: {
+      ctx.on("route:exchange:failed", ((payload: {
         ts: string;
         contextId: string;
         details: {
@@ -457,7 +444,7 @@ class TelemetryPlugin implements CraftPlugin {
 
     // Exchange dropped
     this.unsubscribers.push(
-      ctx.on("route:*:exchange:dropped", ((payload: {
+      ctx.on("route:exchange:dropped", ((payload: {
         ts: string;
         contextId: string;
         details: {
@@ -604,17 +591,14 @@ function extractEventName(payload: { details: unknown }): string {
   }
 
   if ("routeId" in d && "exchangeId" in d) {
-    const routeId = d["routeId"] as string;
-    if ("error" in d && "duration" in d)
-      return `route:${routeId}:exchange:failed`;
-    if ("duration" in d) return `route:${routeId}:exchange:completed`;
-    return `route:${routeId}:exchange:started`;
+    if ("error" in d && "duration" in d) return "route:exchange:failed";
+    if ("duration" in d) return "route:exchange:completed";
+    return "route:exchange:started";
   }
 
   if ("routeId" in d && "operation" in d) {
-    const routeId = d["routeId"] as string;
-    if ("duration" in d) return `route:${routeId}:step:completed`;
-    return `route:${routeId}:step:started`;
+    if ("duration" in d) return "route:step:completed";
+    return "route:step:started";
   }
 
   if ("pluginId" in d) return "plugin:event";

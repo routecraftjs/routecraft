@@ -273,13 +273,13 @@ describe(".error() step scope: dual-mode wrapper", () => {
       .build();
 
     t.ctx.on(
-      "route:event-scope:error-handler:invoked" as never,
+      "route:error-handler:invoked" as never,
       ({ details }: { details: unknown }) => {
         events.push({ name: "invoked", details });
       },
     );
     t.ctx.on(
-      "route:event-scope:error-handler:recovered" as never,
+      "route:error-handler:recovered" as never,
       ({ details }: { details: unknown }) => {
         events.push({ name: "recovered", details });
       },
@@ -462,7 +462,7 @@ describe(".error() step scope: dual-mode wrapper", () => {
       .build();
 
     t.ctx.on(
-      "route:no-double-events:step:started" as never,
+      "route:step:started" as never,
       ({ details }: { details: unknown }) => {
         const d = details as { operation?: string };
         if (d.operation === "tap") startedEvents.push(details);
@@ -529,19 +529,19 @@ describe(".error() step scope: dual-mode wrapper", () => {
       .routes(builder.transform((b) => `pre-${b as string}`).to(sink))
       .build();
     t.ctx.on(
-      "route:balanced-events:step:started" as never,
+      "route:step:started" as never,
       ({ details }: { details: { operation: string } }) => {
         events.push(`started:${details.operation}`);
       },
     );
     t.ctx.on(
-      "route:balanced-events:step:failed" as never,
+      "route:step:failed" as never,
       ({ details }: { details: { operation: string } }) => {
         events.push(`failed:${details.operation}`);
       },
     );
     t.ctx.on(
-      "route:balanced-events:step:completed" as never,
+      "route:step:completed" as never,
       ({ details }: { details: { operation: string } }) => {
         events.push(`completed:${details.operation}`);
       },
@@ -659,7 +659,7 @@ describe(".error() step scope: dual-mode wrapper", () => {
       .build();
 
     t.ctx.on(
-      "route:adapter-meta:step:started" as never,
+      "route:step:started" as never,
       ({ details }: { details: { operation: string; adapter?: string } }) => {
         if (details.operation === "transform") adapters.push(details.adapter);
       },

@@ -99,7 +99,7 @@ export class TestContext {
 
   /**
    * Build a promise that resolves once every route has emitted
-   * `route:*:started`, or rejects on `context:error` or the configured
+   * `route:started`, or rejects on `context:error` or the configured
    * routes-ready timeout. Shared by {@link startAndWaitReady} and {@link test}.
    */
   private awaitRoutesReady(): Promise<void> {
@@ -118,17 +118,14 @@ export class TestContext {
         this.routesReadyTimeoutMs,
       );
 
-      const offRouteStarted = ctx.on(
-        "route:*:started" as EventName,
-        (() => {
-          if (settled) return;
-          ready++;
-          if (ready >= total) {
-            cleanup();
-            resolve();
-          }
-        }) as EventHandler<EventName>,
-      );
+      const offRouteStarted = ctx.on("route:started", (() => {
+        if (settled) return;
+        ready++;
+        if (ready >= total) {
+          cleanup();
+          resolve();
+        }
+      }) as EventHandler<EventName>);
       const offError = ctx.on("context:error", (payload) => {
         if (settled) return;
         cleanup();
@@ -149,7 +146,7 @@ export class TestContext {
   }
 
   /**
-   * Start context and resolve once every route has emitted `route:*:started`.
+   * Start context and resolve once every route has emitted `route:started`.
    * Does not drain or stop. Does not await `ctx.start()` completion, which
    * lets this method work with long-running sources (direct, mcp, HTTP, etc.)
    * whose subscribe blocks until the route is aborted. The start promise is
@@ -160,7 +157,7 @@ export class TestContext {
    * `stop()` when done.
    *
    * If `ctx.start()` rejects (synchronously or before any route emits
-   * `route:*:started`), the rejection surfaces here via the
+   * `route:started`), the rejection surfaces here via the
    * `context:error` listener installed by `awaitRoutesReady`. A no-op
    * catch is attached to `startedPromise` as a safety net so that a
    * slow rejection does not trigger an `unhandledRejection` before

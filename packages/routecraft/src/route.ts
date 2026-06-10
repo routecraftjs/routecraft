@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type CraftContext } from "./context.ts";
-import type { EventName } from "./types.ts";
 import {
   type Exchange,
   HeadersKeys,
@@ -346,12 +345,14 @@ export class DefaultRoute implements Route {
     // Emit routeStopping/routeStopped when the controller is aborted externally
     this.abortController.signal.addEventListener("abort", (event) => {
       try {
-        this.context.emit(`route:${this.definition.id}:stopping` as EventName, {
+        this.context.emit("route:stopping", {
+          routeId: this.definition.id,
           route: this,
           reason: (event as unknown as { reason?: unknown })?.reason,
         });
       } finally {
-        this.context.emit(`route:${this.definition.id}:stopped` as EventName, {
+        this.context.emit("route:stopped", {
+          routeId: this.definition.id,
           route: this,
         });
       }
@@ -494,7 +495,8 @@ export class DefaultRoute implements Route {
       readyIndices.add(index);
       if (!startedEmitted && readyIndices.size === total) {
         startedEmitted = true;
-        this.context.emit(`route:${this.definition.id}:started` as EventName, {
+        this.context.emit("route:started", {
+          routeId: this.definition.id,
           route: this,
         });
       }
@@ -703,7 +705,7 @@ export class DefaultRoute implements Route {
     const correlationId = exchange.headers[
       HeadersKeys.CORRELATION_ID
     ] as string;
-    this.context.emit(`route:${this.definition.id}:exchange:started` as const, {
+    this.context.emit("route:exchange:started", {
       routeId: this.definition.id,
       exchangeId: exchange.id,
       correlationId,
@@ -746,16 +748,13 @@ export class DefaultRoute implements Route {
         const correlationId = exchange.headers[
           HeadersKeys.CORRELATION_ID
         ] as string;
-        this.context.emit(
-          `route:${this.definition.id}:exchange:completed` as const,
-          {
-            routeId: this.definition.id,
-            exchangeId: exchange.id,
-            correlationId,
-            duration,
-            exchange: finalResult.exchange,
-          },
-        );
+        this.context.emit("route:exchange:completed", {
+          routeId: this.definition.id,
+          exchangeId: exchange.id,
+          correlationId,
+          duration,
+          exchange: finalResult.exchange,
+        });
       }
 
       // Reject so callers (CraftClient, direct channel) can handle the error.

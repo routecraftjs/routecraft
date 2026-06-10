@@ -26,7 +26,7 @@ const config: CraftConfig = {
     'error': ({ details: { error, route } }) => {
       console.error(`Error in ${route?.definition.id ?? 'context'}`, error)
     },
-    'route:*:exchange:failed': ({ details: { routeId, error } }) => {
+    'route:exchange:failed': ({ details: { routeId, error } }) => {
       alerts.send(routeId, error)
     },
   },
@@ -110,10 +110,10 @@ ctx.on('route:order-processor:**', ({ ts, details }) => {
 })
 
 // Exchange completed or failed on any capability
-ctx.on('route:*:exchange:completed', ({ details }) => {
+ctx.on('route:exchange:completed', ({ details }) => {
   metrics.increment('exchange.completed')
 })
-ctx.on('route:*:exchange:failed', ({ details: { error } }) => {
+ctx.on('route:exchange:failed', ({ details: { error } }) => {
   alerts.send(error)
 })
 
@@ -169,11 +169,11 @@ The metadata appears under `details.metadata` in the corresponding `operation:to
 ### Log every exchange result
 
 ```ts
-ctx.on('route:*:exchange:completed', ({ details: { routeId, exchangeId, duration } }) => {
+ctx.on('route:exchange:completed', ({ details: { routeId, exchangeId, duration } }) => {
   logger.info({ routeId, exchangeId, duration }, 'exchange completed')
 })
 
-ctx.on('route:*:exchange:failed', ({ details: { routeId, exchangeId, error } }) => {
+ctx.on('route:exchange:failed', ({ details: { routeId, exchangeId, error } }) => {
   logger.error({ routeId, exchangeId, error }, 'exchange failed')
 })
 ```

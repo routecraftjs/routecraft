@@ -1,4 +1,3 @@
-import type { EventName } from "../types.ts";
 import {
   type Exchange,
   HeadersKeys,
@@ -76,7 +75,7 @@ export function buildParseStep(
       const stepStart = Date.now();
 
       const emitStepStarted = () => {
-        context?.emit(`route:${routeId}:step:started` as EventName, {
+        context?.emit("route:step:started", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -85,7 +84,7 @@ export function buildParseStep(
         });
       };
       const emitStepCompleted = () => {
-        context?.emit(`route:${routeId}:step:completed` as EventName, {
+        context?.emit("route:step:completed", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -95,7 +94,7 @@ export function buildParseStep(
         });
       };
       const emitStepFailed = (err: unknown) => {
-        context?.emit(`route:${routeId}:step:failed` as EventName, {
+        context?.emit("route:step:failed", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -125,7 +124,7 @@ export function buildParseStep(
           // correct state. The route engine reads it after `runSteps`
           // to skip `exchange:completed`.
           markDropped(exchange);
-          context?.emit(`route:${routeId}:exchange:dropped` as EventName, {
+          context?.emit("route:exchange:dropped", {
             routeId,
             exchangeId: exchange.id,
             correlationId,
@@ -216,7 +215,7 @@ export function buildCacheCheckStep(
       try {
         key = cacheConfig.key(exchange);
       } catch (err) {
-        context?.emit(`route:${routeId}:cache:failed` as EventName, {
+        context?.emit("route:cache:failed", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -248,7 +247,7 @@ export function buildCacheCheckStep(
       try {
         cached = await cacheConfig.provider.get(key);
       } catch (err) {
-        context?.emit(`route:${routeId}:cache:failed` as EventName, {
+        context?.emit("route:cache:failed", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -269,7 +268,7 @@ export function buildCacheCheckStep(
         // HIT: short-circuit the pipeline by pushing the rewrapped
         // exchange with no remaining steps. The matching cache-store
         // step (tail of initialSteps) is therefore skipped too.
-        context?.emit(`route:${routeId}:cache:hit` as EventName, {
+        context?.emit("route:cache:hit", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -277,7 +276,7 @@ export function buildCacheCheckStep(
           scope: "route",
           key,
         });
-        context?.emit(`route:${routeId}:exchange:restored` as EventName, {
+        context?.emit("route:exchange:restored", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -292,7 +291,7 @@ export function buildCacheCheckStep(
       }
 
       // MISS: continue the pipeline.
-      context?.emit(`route:${routeId}:cache:miss` as EventName, {
+      context?.emit("route:cache:miss", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -352,7 +351,7 @@ export function buildCacheStoreStep(
       if (key !== undefined && exchange.body !== undefined) {
         try {
           await cacheConfig.provider.set(key, exchange.body, cacheConfig.ttl);
-          context?.emit(`route:${routeId}:cache:stored` as EventName, {
+          context?.emit("route:cache:stored", {
             routeId,
             exchangeId: exchange.id,
             correlationId,
@@ -362,7 +361,7 @@ export function buildCacheStoreStep(
             ...(cacheConfig.ttl !== undefined ? { ttl: cacheConfig.ttl } : {}),
           });
         } catch (err) {
-          context?.emit(`route:${routeId}:cache:failed` as EventName, {
+          context?.emit("route:cache:failed", {
             routeId,
             exchangeId: exchange.id,
             correlationId,

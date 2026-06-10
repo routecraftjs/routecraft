@@ -301,13 +301,13 @@ export class CraftContext {
         const pluginId = this.getPluginId(plugin as CraftPlugin, pluginIndex);
 
         // Emit registered event
-        this.emit(`plugin:${pluginId}:registered` as EventName, {
+        this.emit("plugin:registered", {
           pluginId,
           pluginIndex,
         });
 
         // Emit starting event
-        this.emit(`plugin:${pluginId}:starting` as EventName, {
+        this.emit("plugin:starting", {
           pluginId,
           pluginIndex,
         });
@@ -315,7 +315,7 @@ export class CraftContext {
         await (plugin as CraftPlugin).apply(this);
 
         // Emit started event
-        this.emit(`plugin:${pluginId}:started` as EventName, {
+        this.emit("plugin:started", {
           pluginId,
           pluginIndex,
         });
@@ -384,9 +384,9 @@ export class CraftContext {
    * ```
    */
   on<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
-  on(event: string, handler: EventHandler<EventName>): () => void;
-  on(event: EventName | string, handler: EventHandler<EventName>): () => void {
-    return this.events.on(event, handler);
+  on(event: "*", handler: EventHandler<EventName>): () => void;
+  on(event: EventName | "*", handler: EventHandler<EventName>): () => void {
+    return this.events.on(event as EventName, handler);
   }
 
   /**
@@ -413,12 +413,9 @@ export class CraftContext {
    * ```
    */
   once<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
-  once(event: string, handler: EventHandler<EventName>): () => void;
-  once(
-    event: EventName | string,
-    handler: EventHandler<EventName>,
-  ): () => void {
-    return this.events.once(event, handler);
+  once(event: "*", handler: EventHandler<EventName>): () => void;
+  once(event: EventName | "*", handler: EventHandler<EventName>): () => void {
+    return this.events.once(event as EventName, handler);
   }
 
   /**
@@ -501,7 +498,7 @@ export class CraftContext {
       this.controllers.set(definition.id, controller);
       const route = new DefaultRoute(this, definition, controller);
       this.routes.push(route);
-      this.emit(`route:${definition.id}:registered` as EventName, { route });
+      this.emit("route:registered", { routeId: definition.id, route });
     }
   }
 
@@ -617,7 +614,8 @@ export class CraftContext {
       this.routes.map(async (route) => {
         try {
           this.logger.info({ route: route.definition.id }, "Starting route");
-          this.emit(`route:${route.definition.id}:starting` as EventName, {
+          this.emit("route:starting", {
+            routeId: route.definition.id,
             route,
           });
           await route.start();
@@ -741,7 +739,7 @@ export class CraftContext {
         const pluginId = this.getPluginId(plugin, i);
 
         // Emit stopping event
-        this.emit(`plugin:${pluginId}:stopping` as EventName, {
+        this.emit("plugin:stopping", {
           pluginId,
           pluginIndex: i,
         });
@@ -750,7 +748,7 @@ export class CraftContext {
           await Promise.resolve(plugin.teardown(this));
 
           // Emit stopped event
-          this.emit(`plugin:${pluginId}:stopped` as EventName, {
+          this.emit("plugin:stopped", {
             pluginId,
             pluginIndex: i,
           });

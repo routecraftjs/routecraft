@@ -11,13 +11,7 @@ import {
 } from "../exchange.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
-import type {
-  Adapter,
-  EventName,
-  Step,
-  StepContext,
-  StepOutcome,
-} from "../types.ts";
+import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import {
   type CacheProvider,
@@ -191,7 +185,7 @@ export class CacheWrapperStep<
       key = this.#options.key(exchange);
     } catch (err) {
       if (shouldEmit) {
-        context.emit(`route:${routeId}:cache:failed` as EventName, {
+        context.emit("route:cache:failed", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -261,7 +255,7 @@ export class CacheWrapperStep<
         // forwards a drop, not a live exchange.
         markDropped(exchange);
         if (shouldEmit) {
-          context.emit(`route:${routeId}:cache:miss` as EventName, {
+          context.emit("route:cache:miss", {
             routeId,
             exchangeId: exchange.id,
             correlationId,
@@ -279,7 +273,7 @@ export class CacheWrapperStep<
       // - `"set"`   the inner succeeded but the provider write threw.
       const phase = !ranInner ? "get" : loaderResolved ? "set" : "inner";
       if (shouldEmit) {
-        context.emit(`route:${routeId}:cache:failed` as EventName, {
+        context.emit("route:cache:failed", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -303,19 +297,16 @@ export class CacheWrapperStep<
     }
 
     if (shouldEmit) {
-      context.emit(
-        `route:${routeId}:cache:${ranInner ? "miss" : "hit"}` as EventName,
-        {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          stepLabel,
-          scope: "step",
-          key,
-        },
-      );
+      context.emit(ranInner ? "route:cache:miss" : "route:cache:hit", {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel,
+        scope: "step",
+        key,
+      });
       if (ranInner) {
-        context.emit(`route:${routeId}:cache:stored` as EventName, {
+        context.emit("route:cache:stored", {
           routeId,
           exchangeId: exchange.id,
           correlationId,

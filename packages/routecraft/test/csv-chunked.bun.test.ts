@@ -278,7 +278,7 @@ describe("CSV Adapter - Chunked Mode", () => {
       .build();
 
     t.ctx.on(
-      "route:csv-chunked-drop:exchange:dropped" as never,
+      "route:exchange:dropped" as never,
       ((payload: { details: { reason: string } }) => {
         dropped.push({ reason: payload.details.reason });
       }) as never,

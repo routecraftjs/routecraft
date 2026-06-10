@@ -8,13 +8,7 @@ import {
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import type { ErrorHandler } from "../route.ts";
-import type {
-  Adapter,
-  EventName,
-  Step,
-  StepContext,
-  StepOutcome,
-} from "../types.ts";
+import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 
 /**
@@ -86,7 +80,7 @@ export class ErrorWrapperStep<
           });
       const routeId = route?.definition.id;
       if (route && context && routeId) {
-        context.emit(`route:${routeId}:error-handler:invoked` as EventName, {
+        context.emit("route:error-handler:invoked", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -116,24 +110,21 @@ export class ErrorWrapperStep<
         });
 
         if (route && context && routeId) {
-          context.emit(
-            `route:${routeId}:error-handler:recovered` as EventName,
-            {
-              routeId,
-              exchangeId: exchange.id,
-              correlationId,
-              originalError: innerError,
-              failedOperation: stepLabel,
-              recoveryStrategy: "step-error-handler",
-              scope: "step",
-              stepLabel,
-            },
-          );
+          context.emit("route:error-handler:recovered", {
+            routeId,
+            exchangeId: exchange.id,
+            correlationId,
+            originalError: innerError,
+            failedOperation: stepLabel,
+            recoveryStrategy: "step-error-handler",
+            scope: "step",
+            stepLabel,
+          });
         }
         return { kind: "continue", exchange: recoveredExchange };
       } catch (handlerError) {
         if (route && context && routeId) {
-          context.emit(`route:${routeId}:error-handler:failed` as EventName, {
+          context.emit("route:error-handler:failed", {
             routeId,
             exchangeId: exchange.id,
             correlationId,

@@ -26,7 +26,7 @@ describe("Event Source Adapter", () => {
 
     const eventRoute = craft()
       .id("event-listener")
-      .from(event("route:*:started"))
+      .from(event("route:started"))
       .to((ex) => {
         events.push(ex.body);
       });
@@ -63,7 +63,7 @@ describe("Event Source Adapter", () => {
 
     const eventRoute = craft()
       .id("multi-event-listener")
-      .from(event(["route:*:started", "route:*:stopped"]))
+      .from(event(["route:started", "route:stopped"]))
       .to((ex) => {
         events.push(ex.body);
       });
@@ -94,7 +94,7 @@ describe("Event Source Adapter", () => {
 
     const eventRoute = craft()
       .id("route-wildcard-listener")
-      .from(event("route:*:*"))
+      .from(event("route:*"))
       .to((ex) => {
         events.push(ex.body);
       });
@@ -131,11 +131,11 @@ describe("Event Source Adapter", () => {
       .from(
         event([
           "context:*",
-          "route:*:registered",
-          "route:*:starting",
-          "route:*:started",
-          "route:*:stopping",
-          "route:*:stopped",
+          "route:registered",
+          "route:starting",
+          "route:started",
+          "route:stopping",
+          "route:stopped",
         ]),
       )
       .to((ex) => {
@@ -167,7 +167,7 @@ describe("Event Source Adapter", () => {
 
     const eventRoute = craft()
       .id("unsubscribe-test")
-      .from(event("route:*:started"))
+      .from(event("route:started"))
       .to((ex) => {
         events.push(ex.body);
       });
@@ -204,7 +204,7 @@ describe("Event Source Adapter", () => {
 
     const eventRoute = craft()
       .id("payload-test")
-      .from(event("route:*:started"))
+      .from(event("route:started"))
       .to((ex) => {
         if (!payload) {
           payload = ex.body;
@@ -241,7 +241,7 @@ describe("Event Source Adapter", () => {
 
     const monitorRoute = craft()
       .id("event-monitor")
-      .from(event(["context:error", "route:*:started", "route:*:stopped"]))
+      .from(event(["context:error", "route:started", "route:stopped"]))
       .to((ex) => {
         const payload = ex.body;
         logged.push({

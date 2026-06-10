@@ -107,7 +107,7 @@ describe("Multi-ingress routes", () => {
       )
       .build();
 
-    t.ctx.on("route:dual:started", () => {
+    t.ctx.on("route:started", () => {
       startedCount++;
     });
 
@@ -167,7 +167,7 @@ describe("Multi-ingress routes", () => {
       )
       .build();
 
-    t.ctx.on("route:batched-dual:batch:flushed", ({ details }) => {
+    t.ctx.on("route:batch:flushed", ({ details }) => {
       flushed.push({
         batchId: (details as { batchId: string }).batchId,
         batchSize: (details as { batchSize: number }).batchSize,

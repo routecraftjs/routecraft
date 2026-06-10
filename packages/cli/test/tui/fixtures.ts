@@ -48,7 +48,7 @@ export function makeEvent(overrides?: Partial<EventRecord>): EventRecord {
     id: 1,
     timestamp: "2026-03-20T10:00:00.000Z",
     contextId: "ctx-001",
-    eventName: "route:test-route:exchange:started",
+    eventName: "route:exchange:started",
     details: JSON.stringify({
       routeId: "test-route",
       exchangeId: "ex-001",

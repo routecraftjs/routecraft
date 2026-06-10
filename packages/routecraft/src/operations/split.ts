@@ -86,7 +86,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     const adapterLabel = getAdapterLabel(this.adapter);
     const stepStart = Date.now();
 
-    context.emit(`route:${routeId}:step:started` as const, {
+    context.emit("route:step:started", {
       routeId,
       exchangeId: exchange.id,
       correlationId,
@@ -98,7 +98,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     try {
       splitExchanges = await Promise.resolve(this.adapter.split(exchange));
     } catch (error: unknown) {
-      context.emit(`route:${routeId}:step:failed` as const, {
+      context.emit("route:step:failed", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -168,7 +168,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       children.push(postProcessedExchange);
     }
 
-    context.emit(`route:${routeId}:step:completed` as const, {
+    context.emit("route:step:completed", {
       routeId,
       exchangeId: exchange.id,
       correlationId,

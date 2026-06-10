@@ -4,7 +4,6 @@ import {
   isAuthentic,
   markAuthentic,
   type CraftContext,
-  type EventName,
   type Principal,
 } from "@routecraft/routecraft";
 import { isBlockLoaderTool } from "../block/resolve.ts";
@@ -67,7 +66,7 @@ export async function buildVercelTools(
     // from the agent's user-tool usage.
     const isLoader = isBlockLoaderTool(r);
     const blockName = isLoader
-      ? (r as { blockName?: string }).blockName
+      ? ((r as { blockName?: string }).blockName ?? r.name)
       : undefined;
     out[r.name] = tool({
       description: r.description,
@@ -97,17 +96,14 @@ export async function buildVercelTools(
         const start = Date.now();
 
         if (!isLoader && ctx && dispatchIdentity) {
-          ctx.emit(
-            `route:${dispatchIdentity.routeId}:agent:tool:invoked` as EventName,
-            {
-              routeId: dispatchIdentity.routeId,
-              exchangeId: dispatchIdentity.exchangeId,
-              correlationId: dispatchIdentity.correlationId,
-              toolCallId,
-              toolName: r.name,
-              input,
-            },
-          );
+          ctx.emit("route:agent:tool:invoked", {
+            routeId: dispatchIdentity.routeId,
+            exchangeId: dispatchIdentity.exchangeId,
+            correlationId: dispatchIdentity.correlationId,
+            toolCallId,
+            toolName: r.name,
+            input,
+          });
         }
 
         try {
@@ -115,62 +111,50 @@ export async function buildVercelTools(
           const output = await handler(input, callCtx);
           if (ctx && dispatchIdentity) {
             if (isLoader) {
-              ctx.emit(
-                `route:${dispatchIdentity.routeId}:agent:block:loaded` as EventName,
-                {
-                  routeId: dispatchIdentity.routeId,
-                  exchangeId: dispatchIdentity.exchangeId,
-                  correlationId: dispatchIdentity.correlationId,
-                  toolCallId,
-                  blockName,
-                  output,
-                  duration: Date.now() - start,
-                },
-              );
+              ctx.emit("route:agent:block:loaded", {
+                routeId: dispatchIdentity.routeId,
+                exchangeId: dispatchIdentity.exchangeId,
+                correlationId: dispatchIdentity.correlationId,
+                toolCallId,
+                blockName: blockName!,
+                output,
+                duration: Date.now() - start,
+              });
             } else {
-              ctx.emit(
-                `route:${dispatchIdentity.routeId}:agent:tool:result` as EventName,
-                {
-                  routeId: dispatchIdentity.routeId,
-                  exchangeId: dispatchIdentity.exchangeId,
-                  correlationId: dispatchIdentity.correlationId,
-                  toolCallId,
-                  toolName: r.name,
-                  output,
-                  duration: Date.now() - start,
-                },
-              );
+              ctx.emit("route:agent:tool:result", {
+                routeId: dispatchIdentity.routeId,
+                exchangeId: dispatchIdentity.exchangeId,
+                correlationId: dispatchIdentity.correlationId,
+                toolCallId,
+                toolName: r.name,
+                output,
+                duration: Date.now() - start,
+              });
             }
           }
           return output;
         } catch (err) {
           if (ctx && dispatchIdentity) {
             if (isLoader) {
-              ctx.emit(
-                `route:${dispatchIdentity.routeId}:agent:block:error` as EventName,
-                {
-                  routeId: dispatchIdentity.routeId,
-                  exchangeId: dispatchIdentity.exchangeId,
-                  correlationId: dispatchIdentity.correlationId,
-                  toolCallId,
-                  blockName,
-                  error: err,
-                  duration: Date.now() - start,
-                },
-              );
+              ctx.emit("route:agent:block:error", {
+                routeId: dispatchIdentity.routeId,
+                exchangeId: dispatchIdentity.exchangeId,
+                correlationId: dispatchIdentity.correlationId,
+                toolCallId,
+                blockName: blockName!,
+                error: err,
+                duration: Date.now() - start,
+              });
             } else {
-              ctx.emit(
-                `route:${dispatchIdentity.routeId}:agent:tool:error` as EventName,
-                {
-                  routeId: dispatchIdentity.routeId,
-                  exchangeId: dispatchIdentity.exchangeId,
-                  correlationId: dispatchIdentity.correlationId,
-                  toolCallId,
-                  toolName: r.name,
-                  error: err,
-                  duration: Date.now() - start,
-                },
-              );
+              ctx.emit("route:agent:tool:error", {
+                routeId: dispatchIdentity.routeId,
+                exchangeId: dispatchIdentity.exchangeId,
+                correlationId: dispatchIdentity.correlationId,
+                toolCallId,
+                toolName: r.name,
+                error: err,
+                duration: Date.now() - start,
+              });
             }
           }
           throw err;

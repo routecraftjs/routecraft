@@ -20,7 +20,7 @@ craft().from(event(['route:started', 'route:stopped'])).to(log())
 
 **Filter (`EventFilter`):** an event name, an array of names, or a wildcard pattern.
 
-- `*` (single-level) matches exactly one colon-separated segment: `route:*` matches `route:started` but not `route:pay:exchange:started`.
+- `*` (single-level) matches exactly one colon-separated segment: `route:*` matches `route:started` but not `route:exchange:started`.
 - `**` (globstar) matches zero or more segments at any depth: `route:**` matches every route event; `route:*:operation:**` matches operations at any adapter depth.
 - `*` on its own matches all events.
 

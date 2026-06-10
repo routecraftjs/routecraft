@@ -106,16 +106,13 @@ export class BatchConsumer implements Consumer<BatchOptions> {
         batchStartTime = null;
 
         // Emit batch:flushed event
-        this.context.emit(
-          `route:${this.definition.id}:batch:flushed` as const,
-          {
-            routeId: this.definition.id,
-            batchSize: currentBatch.length,
-            batchId,
-            waitTime,
-            reason,
-          },
-        );
+        this.context.emit("route:batch:flushed", {
+          routeId: this.definition.id,
+          batchSize: currentBatch.length,
+          batchId,
+          waitTime,
+          reason,
+        });
 
         try {
           const merged = this.options.merge!(currentBatch);
@@ -188,14 +185,11 @@ export class BatchConsumer implements Consumer<BatchOptions> {
       if (batch.length === 1) {
         batchStartTime = Date.now();
 
-        this.context.emit(
-          `route:${this.definition.id}:batch:started` as const,
-          {
-            routeId: this.definition.id,
-            batchSize: this.options.size!,
-            batchId,
-          },
-        );
+        this.context.emit("route:batch:started", {
+          routeId: this.definition.id,
+          batchSize: this.options.size!,
+          batchId,
+        });
 
         if (timer) {
           clearTimeout(timer);
@@ -212,35 +206,31 @@ export class BatchConsumer implements Consumer<BatchOptions> {
     });
 
     // Listen for route stopping to emit batch:stopped
-    const unsubscribe = this.context.on(
-      "route:*:stopping" as EventName,
-      ((payload: { details: { route: { definition: { id: string } } } }) => {
-        if (payload.details.route.definition.id === this.definition.id) {
-          // Clear any pending timer
-          if (timer) {
-            clearTimeout(timer);
-            timer = null;
-          }
-
-          // Reject all pending promises to prevent memory leaks
-          for (const { reject } of resolvers) {
-            reject(new Error("BatchConsumerStopped: Route is shutting down"));
-          }
-          resolvers.length = 0;
-
-          // Emit batch:stopped event
-          this.context.emit(
-            `route:${this.definition.id}:batch:stopped` as const,
-            {
-              routeId: this.definition.id,
-              batchId,
-            },
-          );
-
-          // Unsubscribe after emitting
-          unsubscribe();
+    const unsubscribe = this.context.on("route:stopping", ((payload: {
+      details: { route: { definition: { id: string } } };
+    }) => {
+      if (payload.details.route.definition.id === this.definition.id) {
+        // Clear any pending timer
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
         }
-      }) as EventHandler<EventName>,
-    );
+
+        // Reject all pending promises to prevent memory leaks
+        for (const { reject } of resolvers) {
+          reject(new Error("BatchConsumerStopped: Route is shutting down"));
+        }
+        resolvers.length = 0;
+
+        // Emit batch:stopped event
+        this.context.emit("route:batch:stopped", {
+          routeId: this.definition.id,
+          batchId,
+        });
+
+        // Unsubscribe after emitting
+        unsubscribe();
+      }
+    }) as EventHandler<EventName>);
   }
 }

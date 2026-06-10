@@ -1,12 +1,7 @@
 import { type } from "arktype";
 import { afterEach, describe, expect, expectTypeOf, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import {
-  craft,
-  BranchBuilder,
-  type Source,
-  type EventName,
-} from "@routecraft/routecraft";
+import { craft, BranchBuilder, type Source } from "@routecraft/routecraft";
 
 type Order = { priority: "urgent" | "normal"; amount: number };
 
@@ -186,7 +181,7 @@ describe("choice operation", () => {
           ),
       )
       .on(
-        "route:choice-events-match:operation:choice:matched" as EventName,
+        "route:operation:choice:matched",
         // EventName union does not narrow handler type for dynamic route IDs
         ((payload: { details: unknown }) => {
           const d = payload.details as {
@@ -229,7 +224,7 @@ describe("choice operation", () => {
           ),
       )
       .on(
-        "route:choice-events-unmatch:operation:choice:unmatched" as EventName,
+        "route:operation:choice:unmatched",
         // EventName union does not narrow handler type for dynamic route IDs
         (() => {
           unmatchedCount += 1;
@@ -447,16 +442,16 @@ describe("choice operation", () => {
     const events: string[] = [];
 
     t = await testContext()
-      .on("route:*:step:*:error" as const, () => {
+      .on("route:step:error", () => {
         events.push("step:error");
       })
-      .on("route:*:error" as const, () => {
+      .on("route:error", () => {
         events.push("route:error");
       })
       .on("context:error", () => {
         events.push("context:error");
       })
-      .on("route:*:exchange:failed" as const, () => {
+      .on("route:exchange:failed", () => {
         events.push("exchange:failed");
       })
       .routes(
@@ -575,16 +570,16 @@ describe("choice operation", () => {
     const events: string[] = [];
 
     t = await testContext()
-      .on("route:*:step:*:error" as const, () => {
+      .on("route:step:error", () => {
         events.push("step:error");
       })
-      .on("route:*:error" as const, () => {
+      .on("route:error", () => {
         events.push("route:error");
       })
       .on("context:error", () => {
         events.push("context:error");
       })
-      .on("route:*:exchange:failed" as const, () => {
+      .on("route:exchange:failed", () => {
         events.push("exchange:failed");
       })
       .routes(
@@ -753,10 +748,10 @@ describe("choice operation", () => {
     const events: string[] = [];
 
     t = await testContext()
-      .on("route:*:step:*:error" as const, () => {
+      .on("route:step:error", () => {
         events.push("step:error");
       })
-      .on("route:*:exchange:failed" as const, () => {
+      .on("route:exchange:failed", () => {
         events.push("exchange:failed");
       })
       .routes(

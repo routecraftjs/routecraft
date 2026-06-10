@@ -62,49 +62,70 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
       "Subscribing to events",
     );
 
-    // Subscribe to each resolved event
-    for (const eventName of eventNames) {
-      const unsubscribe = context.on(
-        eventName as EventName,
-        async (payload: EventPayload<EventName>) => {
-          if (!sub.signal.aborted) {
-            // Initialize route ID on first event if needed
-            if (!initialized) {
-              initialized = true;
-            }
+    const deliver = async (
+      eventName: string,
+      payload: EventPayload<EventName>,
+    ): Promise<void> => {
+      if (!sub.signal.aborted) {
+        // Initialize route ID on first event if needed
+        if (!initialized) {
+          initialized = true;
+        }
 
-            // Note: All event patterns (including operation/exchange patterns) are now
-            // passed directly to context.on() for matching. Be careful to avoid circular
-            // routes where operation events trigger handlers that emit more operation events.
+        // Be careful to avoid circular routes where operation events
+        // trigger handlers that emit more operation events.
 
-            try {
-              await sub.emit({ message: payload });
-            } catch (err) {
-              const metaMessage =
-                typeof err === "object" &&
-                err !== null &&
-                "meta" in err &&
-                typeof (err as { meta?: { message?: unknown } }).meta
-                  ?.message === "string"
-                  ? (err as { meta: { message: string } }).meta.message
-                  : undefined;
-              const errorMessage =
-                typeof err === "object" &&
-                err !== null &&
-                "message" in err &&
-                typeof (err as { message?: unknown }).message === "string"
-                  ? (err as { message: string }).message
-                  : undefined;
+        try {
+          await sub.emit({ message: payload });
+        } catch (err) {
+          const metaMessage =
+            typeof err === "object" &&
+            err !== null &&
+            "meta" in err &&
+            typeof (err as { meta?: { message?: unknown } }).meta?.message ===
+              "string"
+              ? (err as { meta: { message: string } }).meta.message
+              : undefined;
+          const errorMessage =
+            typeof err === "object" &&
+            err !== null &&
+            "message" in err &&
+            typeof (err as { message?: unknown }).message === "string"
+              ? (err as { message: string }).message
+              : undefined;
 
-              context.logger.warn(
-                { adapter: "event", event: eventName, err },
-                metaMessage ?? errorMessage ?? "Event handler failed",
-              );
-            }
-          }
-        },
+          context.logger.warn(
+            { adapter: "event", event: eventName, err },
+            metaMessage ?? errorMessage ?? "Event handler failed",
+          );
+        }
+      }
+    };
+
+    // Exact names subscribe directly; patterns (legacy wildcard syntax)
+    // attach ONE catch-all subscription and match the emitted name per
+    // event. The matcher cost is scoped to routes that use event() with
+    // patterns; the context's event bus itself stays pattern-free.
+    const exactNames = eventNames.filter((n) => !n.includes("*"));
+    const patterns = eventNames.filter((n) => n.includes("*"));
+
+    for (const eventName of exactNames) {
+      unsubscribers.push(
+        context.on(eventName as EventName, (payload) =>
+          deliver(eventName, payload as EventPayload<EventName>),
+        ),
       );
-      unsubscribers.push(unsubscribe);
+    }
+    if (patterns.length > 0) {
+      unsubscribers.push(
+        context.on("*", (payload) => {
+          const emitted = (payload as { _event: string })._event;
+          if (patterns.some((p) => matchesEventPattern(emitted, p))) {
+            return deliver(emitted, payload as EventPayload<EventName>);
+          }
+          return undefined;
+        }),
+      );
     }
 
     // Cleanup on abort
@@ -133,11 +154,9 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
   }
 
   /**
-   * Resolve event names from filters.
-   *
-   * Since context.on() supports wildcard matching (including ** globstar),
-   * we simply pass patterns through without expansion. This allows
-   * hierarchical patterns like "route:*:operation:**" to work correctly.
+   * Resolve event names from filters. Exact names subscribe directly;
+   * names containing `*` are treated as patterns matched against emitted
+   * event names via the adapter's local matcher.
    */
   private resolveEventNames(filters: string[]): string[] {
     // Deduplicate filters
@@ -149,4 +168,45 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
 
     return Array.from(resolved);
   }
+}
+
+/**
+ * Match an emitted event name against a colon-segmented pattern.
+ * `*` matches one segment; `**` matches zero or more segments; a bare
+ * `"*"` pattern matches everything. Local to the event source adapter:
+ * the framework's event names are a fixed set and the bus has no pattern
+ * matching, but this adapter keeps the pattern UX for observability
+ * routes (cold path, per-subscription).
+ */
+export function matchesEventPattern(event: string, pattern: string): boolean {
+  if (pattern === "*" || pattern === "**") return true;
+  if (!pattern.includes("*")) return event === pattern;
+
+  const eventSegments = event.split(":");
+  const patternSegments = pattern.split(":");
+
+  let e = 0;
+  let p = 0;
+  while (p < patternSegments.length) {
+    const seg = patternSegments[p];
+    if (seg === "**") {
+      if (p === patternSegments.length - 1) return true;
+      const rest = patternSegments.slice(p + 1).join(":");
+      for (let i = e; i <= eventSegments.length; i++) {
+        if (matchesEventPattern(eventSegments.slice(i).join(":"), rest)) {
+          return true;
+        }
+      }
+      return false;
+    } else if (seg === "*") {
+      if (e >= eventSegments.length) return false;
+      e++;
+      p++;
+    } else {
+      if (e >= eventSegments.length || eventSegments[e] !== seg) return false;
+      e++;
+      p++;
+    }
+  }
+  return e === eventSegments.length;
 }

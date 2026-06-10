@@ -622,7 +622,7 @@ describe("HTML Adapter", () => {
         .build();
 
       t.ctx.on(
-        "route:html-source-drop:exchange:dropped" as never,
+        "route:exchange:dropped" as never,
         ((payload: { details: { reason: string } }) => {
           dropped.push({ reason: payload.details.reason });
         }) as never,
@@ -670,7 +670,7 @@ describe("HTML Adapter", () => {
         .build();
 
       t.ctx.on(
-        "route:html-source-abort:exchange:failed" as never,
+        "route:exchange:failed" as never,
         ((payload: { details: { error: unknown } }) => {
           failed.push({ error: payload.details.error });
         }) as never,

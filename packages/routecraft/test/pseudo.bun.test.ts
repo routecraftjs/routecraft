@@ -198,7 +198,7 @@ describe("Pseudo adapter", () => {
         .to(simple());
       const started = mock();
       const t = await testContext()
-        .on("route:*:started" as const, started)
+        .on("route:started", started)
         .routes(route)
         .build();
       await t.ctx.start();

@@ -1,10 +1,4 @@
-import type {
-  Adapter,
-  EventName,
-  Step,
-  StepContext,
-  StepOutcome,
-} from "../types.ts";
+import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { getAdapterLabel } from "../types.ts";
 import {
   type Exchange,
@@ -143,7 +137,7 @@ export abstract class WrapperStep<
     const shouldEmitEvents = !innerOwnsEvents && route && context && routeId;
 
     if (shouldEmitEvents) {
-      context.emit(`route:${routeId}:step:started` as EventName, {
+      context.emit("route:step:started", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -163,7 +157,7 @@ export abstract class WrapperStep<
       // recovers; without this, the inner wrapper's started event
       // would never have a closing event.
       if (shouldEmitEvents) {
-        context.emit(`route:${routeId}:step:failed` as EventName, {
+        context.emit("route:step:failed", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -177,7 +171,7 @@ export abstract class WrapperStep<
     }
 
     if (shouldEmitEvents) {
-      context.emit(`route:${routeId}:step:completed` as EventName, {
+      context.emit("route:step:completed", {
         routeId,
         exchangeId: exchange.id,
         correlationId,

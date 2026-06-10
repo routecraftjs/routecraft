@@ -2,7 +2,6 @@ import {
   type Adapter,
   type Step,
   getAdapterLabel,
-  type EventName,
   type StepOutcome,
 } from "../types.ts";
 import {
@@ -81,7 +80,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
 
     // Emit step:started
     if (context) {
-      context.emit(`route:${routeId}:step:started` as EventName, {
+      context.emit("route:step:started", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -120,7 +119,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
 
         if (context) {
           // Emit step:completed first, then exchange:dropped
-          context.emit(`route:${routeId}:step:completed` as EventName, {
+          context.emit("route:step:completed", {
             routeId,
             exchangeId: exchange.id,
             correlationId,
@@ -129,7 +128,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
             duration: Date.now() - stepStart,
           });
 
-          context.emit(`route:${routeId}:exchange:dropped` as EventName, {
+          context.emit("route:exchange:dropped", {
             routeId,
             exchangeId: exchange.id,
             correlationId,
@@ -141,7 +140,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
       }
     } catch (error: unknown) {
       if (context) {
-        context.emit(`route:${routeId}:step:failed` as EventName, {
+        context.emit("route:step:failed", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -158,7 +157,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
 
     // Emit step:completed for passed exchanges
     if (context) {
-      context.emit(`route:${routeId}:step:completed` as EventName, {
+      context.emit("route:step:completed", {
         routeId,
         exchangeId: exchange.id,
         correlationId,

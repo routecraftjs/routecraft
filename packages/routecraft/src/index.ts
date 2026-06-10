@@ -228,8 +228,11 @@ export {
 export {
   type Adapter,
   type Consumer,
+  type EventDetailsMap,
   type EventName,
   type EventHandler,
+  type EventPayload,
+  forRoute,
   type Step,
   type StepContext,
   type StepOutcome,

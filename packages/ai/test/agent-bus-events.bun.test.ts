@@ -117,13 +117,13 @@ describe("agent context-bus events", () => {
 
     const events: Array<{ name: string; details: unknown }> = [];
     t.ctx.on(
-      "route:with-tool:agent:tool:invoked" as never,
+      "route:agent:tool:invoked" as never,
       ({ details }: { details: unknown }) => {
         events.push({ name: "invoked", details });
       },
     );
     t.ctx.on(
-      "route:with-tool:agent:tool:result" as never,
+      "route:agent:tool:result" as never,
       ({ details }: { details: unknown }) => {
         events.push({ name: "result", details });
       },
@@ -179,13 +179,13 @@ describe("agent context-bus events", () => {
       .build();
 
     const events: string[] = [];
-    t.ctx.on("route:with-throwing-tool:agent:tool:invoked" as never, () => {
+    t.ctx.on("route:agent:tool:invoked" as never, () => {
       events.push("invoked");
     });
-    t.ctx.on("route:with-throwing-tool:agent:tool:result" as never, () => {
+    t.ctx.on("route:agent:tool:result" as never, () => {
       events.push("result");
     });
-    t.ctx.on("route:with-throwing-tool:agent:tool:error" as never, () => {
+    t.ctx.on("route:agent:tool:error" as never, () => {
       events.push("error");
     });
 
@@ -216,7 +216,7 @@ describe("agent context-bus events", () => {
 
     const finished: unknown[] = [];
     t.ctx.on(
-      "route:simple-agent:agent:finished" as never,
+      "route:agent:finished" as never,
       ({ details }: { details: unknown }) => {
         finished.push(details);
       },

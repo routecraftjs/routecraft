@@ -79,7 +79,7 @@ craft()
 
 The handler signature is identical in both positions: `(error, exchange, forward) => unknown | Promise<unknown>`.
 
-**Cascade rule.** When a step-scope handler itself throws, the wrapper rethrows. The route-scope handler (when set) catches it; otherwise the default error path fires (`route:*:error`, `context:error`, `exchange:failed`). The route is NOT stopped.
+**Cascade rule.** When a step-scope handler itself throws, the wrapper rethrows. The route-scope handler (when set) catches it; otherwise the default error path fires (`route:error`, `context:error`, `exchange:failed`). The route is NOT stopped.
 
 ```ts
 craft()

@@ -1,6 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { CraftContext } from "../context.ts";
-import type { EventName } from "../types.ts";
 import {
   type Exchange,
   type ExchangeHeaders,
@@ -157,12 +156,12 @@ export function emitInputValidationFailure(
     message: `${direction === "body" ? "Body" : "Header"} validation failed for route "${routeId}"`,
   });
 
-  deps.context.emit(`route:${routeId}:exchange:started` as EventName, {
+  deps.context.emit("route:exchange:started", {
     routeId,
     exchangeId: exchange.id,
     correlationId,
   });
-  deps.context.emit(`route:${routeId}:exchange:dropped` as EventName, {
+  deps.context.emit("route:exchange:dropped", {
     routeId,
     exchangeId: exchange.id,
     correlationId,
@@ -199,7 +198,8 @@ export async function handleOutputValidationFailure(
   const routeId = deps.routeId;
   const correlationId = exchange.headers[HeadersKeys.CORRELATION_ID] as string;
 
-  deps.context.emit(`route:${routeId}:step:output:error` as EventName, {
+  deps.context.emit("route:step:error", {
+    routeId,
     error,
     route: deps.route,
     exchange,
@@ -222,14 +222,15 @@ export async function handleOutputValidationFailure(
         DefaultExchange.rewrap(exchange, { body: recovered }),
         schemas,
       );
-      deps.context.emit(`route:${routeId}:error:caught` as EventName, {
+      deps.context.emit("route:error:caught", {
+        routeId,
         error,
         route: deps.route,
         exchange: recoveredExchange,
       });
       return { exchange: recoveredExchange, failed: false, dropped: false };
     } catch (handlerErr) {
-      deps.context.emit(`route:${routeId}:exchange:failed` as const, {
+      deps.context.emit("route:exchange:failed", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -241,7 +242,7 @@ export async function handleOutputValidationFailure(
     }
   }
 
-  deps.context.emit(`route:${routeId}:exchange:failed` as const, {
+  deps.context.emit("route:exchange:failed", {
     routeId,
     exchangeId: exchange.id,
     correlationId,

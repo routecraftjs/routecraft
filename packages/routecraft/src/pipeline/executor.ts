@@ -1,5 +1,4 @@
 import type { CraftContext } from "../context.ts";
-import type { EventName } from "../types.ts";
 import {
   type Exchange,
   HeadersKeys,
@@ -171,7 +170,7 @@ export async function runPipeline(
         const correlationId = exchange.headers[
           HeadersKeys.CORRELATION_ID
         ] as string;
-        deps.context.emit(`route:${deps.routeId}:exchange:completed` as const, {
+        deps.context.emit("route:exchange:completed", {
           routeId: deps.routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -199,7 +198,7 @@ export async function runPipeline(
       const correlationId = exchange.headers[
         HeadersKeys.CORRELATION_ID
       ] as string;
-      deps.context.emit(`route:${deps.routeId}:exchange:started` as const, {
+      deps.context.emit("route:exchange:started", {
         routeId: deps.routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -235,7 +234,7 @@ export async function runPipeline(
 
     // Emit step:started event unless the step manages its own events
     if (!step.skipStepEvents) {
-      deps.context.emit(`route:${deps.routeId}:step:started` as const, {
+      deps.context.emit("route:step:started", {
         routeId: deps.routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -280,7 +279,7 @@ export async function runPipeline(
         const correlationId = exchange.headers[
           HeadersKeys.CORRELATION_ID
         ] as string;
-        deps.context.emit(`route:${deps.routeId}:step:completed` as const, {
+        deps.context.emit("route:step:completed", {
           routeId: deps.routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -297,30 +296,25 @@ export async function runPipeline(
       const duration = Date.now() - startTime;
 
       // Emit step-level error
-      deps.context.emit(
-        `route:${deps.routeId}:step:${stepLabel}:error` as EventName,
-        {
-          error: err,
-          route: deps.route,
-          exchange,
-          operation: stepLabel,
-        },
-      );
+      deps.context.emit("route:step:error", {
+        routeId: deps.routeId,
+        error: err,
+        route: deps.route,
+        exchange,
+        operation: stepLabel,
+      });
 
       if (deps.definition.errorHandler) {
         // Route-scope error-handler events. Step-scope wrappers
         // emit the same set with `scope: "step"` and `stepLabel`.
-        deps.context.emit(
-          `route:${deps.routeId}:error-handler:invoked` as const,
-          {
-            routeId: deps.routeId,
-            exchangeId: exchange.id,
-            correlationId,
-            originalError: err,
-            failedOperation: stepLabel,
-            scope: "route",
-          },
-        );
+        deps.context.emit("route:error-handler:invoked", {
+          routeId: deps.routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          originalError: err,
+          failedOperation: stepLabel,
+          scope: "route",
+        });
 
         try {
           const forward = deps.buildForward();
@@ -338,23 +332,21 @@ export async function runPipeline(
           lastProcessedExchange = recovered;
 
           // Error handler recovered
-          deps.context.emit(`route:${deps.routeId}:error:caught` as EventName, {
+          deps.context.emit("route:error:caught", {
+            routeId: deps.routeId,
             error: err,
             route: deps.route,
             exchange: recovered,
           });
-          deps.context.emit(
-            `route:${deps.routeId}:error-handler:recovered` as const,
-            {
-              routeId: deps.routeId,
-              exchangeId: recovered.id,
-              correlationId,
-              originalError: err,
-              failedOperation: stepLabel,
-              recoveryStrategy: "route-error-handler",
-              scope: "route",
-            },
-          );
+          deps.context.emit("route:error-handler:recovered", {
+            routeId: deps.routeId,
+            exchangeId: recovered.id,
+            correlationId,
+            originalError: err,
+            failedOperation: stepLabel,
+            recoveryStrategy: "route-error-handler",
+            scope: "route",
+          });
         } catch (handlerError) {
           const handlerErr = processError(stepLabel, handlerError);
           exchange.logger.error(
@@ -365,20 +357,18 @@ export async function runPipeline(
             },
             handlerErr.meta.message,
           );
-          deps.context.emit(
-            `route:${deps.routeId}:error-handler:failed` as const,
-            {
-              routeId: deps.routeId,
-              exchangeId: exchange.id,
-              correlationId,
-              originalError: err,
-              failedOperation: stepLabel,
-              recoveryStrategy: "route-error-handler",
-              scope: "route",
-            },
-          );
+          deps.context.emit("route:error-handler:failed", {
+            routeId: deps.routeId,
+            exchangeId: exchange.id,
+            correlationId,
+            originalError: err,
+            failedOperation: stepLabel,
+            recoveryStrategy: "route-error-handler",
+            scope: "route",
+          });
           // Error handler rethrew -- route-level + context-level error
-          deps.context.emit(`route:${deps.routeId}:error` as EventName, {
+          deps.context.emit("route:error", {
+            routeId: deps.routeId,
             error: handlerErr,
             route: deps.route,
             exchange,
@@ -388,7 +378,7 @@ export async function runPipeline(
             route: deps.route,
             exchange,
           });
-          deps.context.emit(`route:${deps.routeId}:exchange:failed` as const, {
+          deps.context.emit("route:exchange:failed", {
             routeId: deps.routeId,
             exchangeId: exchange.id,
             correlationId,
@@ -423,7 +413,8 @@ export async function runPipeline(
         err.meta.message,
       );
       // No error handler -- route-level + context-level error
-      deps.context.emit(`route:${deps.routeId}:error` as EventName, {
+      deps.context.emit("route:error", {
+        routeId: deps.routeId,
         error: err,
         route: deps.route,
         exchange,
@@ -433,7 +424,7 @@ export async function runPipeline(
         route: deps.route,
         exchange,
       });
-      deps.context.emit(`route:${deps.routeId}:exchange:failed` as const, {
+      deps.context.emit("route:exchange:failed", {
         routeId: deps.routeId,
         exchangeId: exchange.id,
         correlationId,

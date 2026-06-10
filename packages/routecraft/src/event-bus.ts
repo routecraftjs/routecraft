@@ -1,3 +1,4 @@
+import { rcError } from "./error.ts";
 import {
   type EventHandler,
   type EventName,
@@ -16,10 +17,12 @@ type EventBusLogger = {
 /**
  * In-process event bus backing `CraftContext.on/once/emit`.
  *
- * Owns handler registration (exact and wildcard patterns), payload
- * construction, dispatch, and handler-error containment. Extracted from
- * `CraftContext` so eventing is a single-responsibility unit; the context
- * exposes the same public API via 1-line delegation.
+ * Event names are a fixed, finite set (see `EventDetailsMap`); identity
+ * (route id, plugin id, step label) lives in the payload. Subscription is
+ * by exact name, plus the single catch-all `"*"` for telemetry-style taps
+ * that observe every event. There is no pattern matching: emit is one Map
+ * lookup plus the catch-all set, so the per-step hot path stays flat no
+ * matter how many subscriptions exist.
  *
  * Not exported from the package index: the public subscription surface is
  * `CraftContext.on/once`. Tests may import this module directly.
@@ -27,13 +30,12 @@ type EventBusLogger = {
  * @internal
  */
 export class EventBus {
-  /** Registered event handlers */
+  /** Exact-name event handlers */
   private readonly handlers: Map<EventName, Set<EventHandler<EventName>>> =
     new Map();
 
-  /** Wildcard event handlers (for pattern matching like "route:*" or "*") */
-  private readonly wildcardHandlers: Map<string, Set<EventHandler<EventName>>> =
-    new Map();
+  /** Catch-all handlers subscribed via `"*"` (receive every event) */
+  private readonly catchAllHandlers: Set<EventHandler<EventName>> = new Set();
 
   constructor(
     private readonly contextId: string,
@@ -41,56 +43,59 @@ export class EventBus {
   ) {}
 
   /**
-   * Subscribe to an event name or wildcard pattern.
+   * Subscribe to an exact event name, or `"*"` for every event.
    *
-   * @param event - Event name or wildcard pattern (e.g. `route:started`, `route:*`, `route:**`)
+   * Legacy wildcard patterns (`route:*`, `route:**`, ...) are rejected
+   * loudly: identity moved into event payloads, so per-route filtering is
+   * `ctx.on("route:exchange:failed", forRoute("orders", handler))`.
+   *
+   * @param event - Exact event name or `"*"`
    * @param handler - Callback receiving `{ ts, contextId, details }`
    * @returns Unsubscribe function (call to remove the handler)
    */
   on<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
-  on(event: string, handler: EventHandler<EventName>): () => void;
-  on(event: EventName | string, handler: EventHandler<EventName>): () => void {
-    // Check if this is a wildcard pattern
-    const isWildcard = typeof event === "string" && event.includes("*");
-
-    if (isWildcard) {
-      const set = this.wildcardHandlers.get(event) ?? new Set();
-      set.add(handler as unknown as EventHandler<EventName>);
-      this.wildcardHandlers.set(event, set);
+  on(event: "*", handler: EventHandler<EventName>): () => void;
+  on(event: EventName | "*", handler: EventHandler<EventName>): () => void {
+    if (event === "*") {
+      this.catchAllHandlers.add(handler);
       return () => {
-        set.delete(handler as unknown as EventHandler<EventName>);
-      };
-    } else {
-      const set = this.handlers.get(event as EventName) ?? new Set();
-      set.add(handler as unknown as EventHandler<EventName>);
-      this.handlers.set(event as EventName, set);
-      return () => {
-        set.delete(handler as unknown as EventHandler<EventName>);
+        this.catchAllHandlers.delete(handler);
       };
     }
+    if (typeof event === "string" && event.includes("*")) {
+      throw rcError("RC2001", undefined, {
+        message:
+          `Event pattern "${event}" is not supported: event names are a fixed set and identity lives in the payload. ` +
+          `Subscribe to the exact name (e.g. "route:exchange:failed") and filter with forRoute(routeId, handler), ` +
+          `or use "*" to observe every event.`,
+      });
+    }
+    const set = this.handlers.get(event) ?? new Set();
+    set.add(handler as unknown as EventHandler<EventName>);
+    this.handlers.set(event, set);
+    return () => {
+      set.delete(handler as unknown as EventHandler<EventName>);
+    };
   }
 
   /**
    * Subscribe to an event for a single occurrence. The handler is
    * automatically removed after the first time the event is emitted.
    *
-   * Supports the same wildcard patterns as `on()`.
+   * Accepts the same names as `on()` (exact names or `"*"`).
    *
-   * @param event - Event name or wildcard pattern
+   * @param event - Exact event name or `"*"`
    * @param handler - Callback receiving `{ ts, contextId, details }`
    * @returns Unsubscribe function (call to remove the handler before it fires)
    */
   once<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
-  once(event: string, handler: EventHandler<EventName>): () => void;
-  once(
-    event: EventName | string,
-    handler: EventHandler<EventName>,
-  ): () => void {
+  once(event: "*", handler: EventHandler<EventName>): () => void;
+  once(event: EventName | "*", handler: EventHandler<EventName>): () => void {
     const wrappedHandler: EventHandler<EventName> = (payload) => {
       unsubscribe();
       return handler(payload);
     };
-    const unsubscribe = this.on(event, wrappedHandler);
+    const unsubscribe = this.on(event as EventName, wrappedHandler);
     return unsubscribe;
   }
 
@@ -104,6 +109,10 @@ export class EventBus {
     event: K,
     details: EventPayload<K>["details"],
   ): void {
+    const exactSet = this.handlers.get(event);
+    const exactCount = exactSet ? exactSet.size : 0;
+    if (exactCount === 0 && this.catchAllHandlers.size === 0) return;
+
     const payload: EventPayload<K> = {
       ts: new Date().toISOString(),
       contextId: this.contextId,
@@ -112,23 +121,15 @@ export class EventBus {
 
     payload._event = event;
 
-    // Collect all matching handlers (exact match + wildcards)
+    // Snapshot so handlers that unsubscribe (once) or subscribe during
+    // dispatch do not affect this emit.
     const matchingHandlers: EventHandler<EventName>[] = [];
-
-    // 1. Exact match handlers
-    const exactSet = this.handlers.get(event);
-    if (exactSet && exactSet.size > 0) {
+    if (exactSet && exactCount > 0) {
       matchingHandlers.push(...Array.from(exactSet));
     }
-
-    // 2. Wildcard handlers
-    for (const [pattern, handlerSet] of this.wildcardHandlers) {
-      if (this.matchesPattern(event, pattern)) {
-        matchingHandlers.push(...Array.from(handlerSet));
-      }
+    if (this.catchAllHandlers.size > 0) {
+      matchingHandlers.push(...Array.from(this.catchAllHandlers));
     }
-
-    if (matchingHandlers.length === 0) return;
 
     // Execute all matching handlers
     for (const handler of matchingHandlers) {
@@ -161,112 +162,5 @@ export class EventBus {
         }
       }
     }
-  }
-
-  /**
-   * Check if an event name matches a wildcard pattern.
-   * Supports:
-   * - "*" matches all events
-   * - "route:*" matches all route events (route:started, route:stopped, etc.)
-   * - "exchange:*" matches all exchange events
-   * - "route:myroute:*" matches all events for a specific route
-   * - "route:*:step:*" matches hierarchical patterns at any level
-   *
-   * @param event - Event name to match
-   * @param pattern - Wildcard pattern
-   * @returns True if the event matches the pattern
-   */
-  private matchesPattern(event: string, pattern: string): boolean {
-    // Special case: "*" matches everything
-    if (pattern === "*") return true;
-
-    // Exact match (no wildcards)
-    if (!pattern.includes("*")) return event === pattern;
-
-    // Check for ** globstar wildcard (multi-level matching)
-    if (pattern.includes("**")) {
-      return this.matchesGlobstarPattern(event, pattern);
-    }
-
-    // Tokenize both event and pattern on ":"
-    const eventSegments = event.split(":");
-    const patternSegments = pattern.split(":");
-
-    // Must have same number of segments
-    if (eventSegments.length !== patternSegments.length) return false;
-
-    // Match each segment (exact match or wildcard)
-    for (let i = 0; i < patternSegments.length; i++) {
-      const patternSeg = patternSegments[i];
-      const eventSeg = eventSegments[i];
-
-      // Wildcard matches any segment
-      if (patternSeg === "*") continue;
-
-      // Exact match required
-      if (patternSeg !== eventSeg) return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Match event against pattern with ** globstar wildcards.
-   * ** matches zero or more segments at any level.
-   *
-   * Examples:
-   * - "route:**" matches "route:started", "route:payment:exchange:started", etc.
-   * - "route:*:step:**" matches "route:api:step:started", etc.
-   */
-  private matchesGlobstarPattern(event: string, pattern: string): boolean {
-    const eventSegments = event.split(":");
-    const patternSegments = pattern.split(":");
-
-    let eventIdx = 0;
-    let patternIdx = 0;
-
-    while (patternIdx < patternSegments.length) {
-      const patternSeg = patternSegments[patternIdx];
-
-      if (patternSeg === "**") {
-        // ** is the last segment - matches everything remaining
-        if (patternIdx === patternSegments.length - 1) {
-          return true;
-        }
-
-        // Try to match remaining pattern at each possible position in event
-        const remainingPattern = patternSegments
-          .slice(patternIdx + 1)
-          .join(":");
-
-        // Try matching from current position onwards
-        for (let i = eventIdx; i <= eventSegments.length; i++) {
-          const remainingEvent = eventSegments.slice(i).join(":");
-          if (this.matchesPattern(remainingEvent, remainingPattern)) {
-            return true;
-          }
-        }
-
-        return false;
-      } else if (patternSeg === "*") {
-        // Single-level wildcard - must have a segment to match
-        if (eventIdx >= eventSegments.length) return false;
-        eventIdx++;
-        patternIdx++;
-      } else {
-        // Exact match required
-        if (
-          eventIdx >= eventSegments.length ||
-          eventSegments[eventIdx] !== patternSeg
-        ) {
-          return false;
-        }
-        eventIdx++;
-        patternIdx++;
-      }
-    }
-
-    // All pattern segments matched - event must be fully consumed too
-    return eventIdx === eventSegments.length;
   }
 }

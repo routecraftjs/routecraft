@@ -44,7 +44,7 @@ export const craftConfig: CraftConfig = {
     'error': ({ details: { error, route } }) => {
       console.error(`Error in ${route?.definition.id ?? 'context'}`, error)
     },
-    'route:*:exchange:failed': ({ details: { routeId, error } }) => {
+    'route:exchange:failed': ({ details: { routeId, error } }) => {
       alerts.send(routeId, error)
     },
   },

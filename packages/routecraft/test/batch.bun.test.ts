@@ -5,7 +5,7 @@ import { CraftContext } from "../src/context.ts";
 import { InMemoryProcessingQueue } from "../src/queue.ts";
 import type { Exchange } from "../src/exchange.ts";
 import type { RouteDefinition } from "../src/route.ts";
-import type { EventName, Message } from "../src/types.ts";
+import type { Message } from "../src/types.ts";
 
 function createRouteDefinition(id: string): RouteDefinition {
   return {
@@ -52,10 +52,10 @@ describe("BatchConsumer", () => {
     const started: unknown[] = [];
     const flushed: unknown[] = [];
 
-    ctx.on("route:batched-route:batch:started", ({ details }) => {
+    ctx.on("route:batch:started", ({ details }) => {
       started.push(details);
     });
-    ctx.on("route:batched-route:batch:flushed", ({ details }) => {
+    ctx.on("route:batch:flushed", ({ details }) => {
       flushed.push(details);
     });
 
@@ -295,7 +295,7 @@ describe("BatchConsumer", () => {
     );
 
     const stopped: unknown[] = [];
-    ctx.on(`route:${routeId}:batch:stopped` as EventName, ({ details }) => {
+    ctx.on("route:batch:stopped", ({ details }) => {
       stopped.push(details);
     });
 
@@ -308,12 +308,9 @@ describe("BatchConsumer", () => {
       } as Exchange;
     });
 
-    ctx.emit(
-      `route:${routeId}:stopping` as EventName,
-      {
-        route: { definition: { id: routeId } },
-      } as never,
-    );
+    ctx.emit("route:stopping", {
+      route: { definition: { id: routeId } },
+    } as never);
 
     expect(stopped).toHaveLength(1);
     expect(stopped[0]).toMatchObject({ routeId });

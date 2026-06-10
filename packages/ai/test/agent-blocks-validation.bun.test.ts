@@ -170,7 +170,7 @@ describe("agent blocks: construction-time validation", () => {
       )
       .build();
     t.ctx.on(
-      "route:inject-throws:exchange:failed" as never,
+      "route:exchange:failed" as never,
       ({ details }: { details: { error: unknown } }) => {
         errors.push(details.error);
       },
@@ -218,7 +218,7 @@ describe("agent blocks: construction-time validation", () => {
       )
       .build();
     t.ctx.on(
-      "route:collide:exchange:failed" as never,
+      "route:exchange:failed" as never,
       ({ details }: { details: { error: unknown } }) => {
         errors.push(details.error);
       },

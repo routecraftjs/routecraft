@@ -16,14 +16,9 @@ describe("CraftContext event subscription type safety", () => {
       expectTypeOf(payload.details.reason).toEqualTypeOf<unknown | undefined>();
     });
 
-    ctx.once(
-      "route:test:started" as EventName,
-      ((payload: EventPayload<`route:test:started`>) => {
-        expectTypeOf(
-          payload.details.route.definition.id,
-        ).toEqualTypeOf<string>();
-      }) as EventHandler<EventName>,
-    );
+    ctx.once("route:started", ((payload: EventPayload<`route:started`>) => {
+      expectTypeOf(payload.details.route.definition.id).toEqualTypeOf<string>();
+    }) as EventHandler<EventName>);
   });
 
   /**
@@ -46,7 +41,7 @@ describe("CraftContext event subscription type safety", () => {
     expectTypeOf(onWildcard).toBeFunction();
     expectTypeOf(onceWildcard).toBeFunction();
 
-    ctx.on("route:*", (payload) => {
+    ctx.on("*", (payload) => {
       expectTypeOf(payload).toMatchTypeOf<EventPayload<EventName>>();
     });
 

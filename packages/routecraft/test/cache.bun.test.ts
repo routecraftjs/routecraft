@@ -366,7 +366,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
 
     for (const name of ["hit", "miss", "stored", "failed"] as const) {
       t.ctx.on(
-        `route:cache-events:cache:${name}` as never,
+        `route:cache:${name}` as never,
         (payload: { details: { scope?: string; stepLabel?: string } }) => {
           events.push(name);
           expect(payload.details.scope).toBe("step");
@@ -1117,7 +1117,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
 
     for (const name of ["hit", "miss", "stored"] as const) {
       t.ctx.on(
-        `route:route-cache-events:cache:${name}` as never,
+        `route:cache:${name}` as never,
         (payload: {
           details: { scope?: string; stepLabel?: string; key?: string };
         }) => {
@@ -1165,7 +1165,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
       .build();
 
     t.ctx.on(
-      `route:route-cache-restored:exchange:restored` as never,
+      `route:exchange:restored` as never,
       (payload: { details: { source?: string } }) => {
         restored.push({ source: payload.details.source });
       },
@@ -1305,7 +1305,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
           })
           .to(noop()),
       )
-      .on("route:auth-before-cache:exchange:failed", ({ details }) => {
+      .on("route:exchange:failed", ({ details }) => {
         guestErrors.push((details as { error: { rc?: string } }).error);
       })
       .build();

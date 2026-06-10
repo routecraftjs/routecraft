@@ -12,6 +12,22 @@ import { registerErrorCodes, type RCMeta } from "@routecraft/routecraft";
  * renumbered when the codes moved into this package.
  */
 declare module "@routecraft/routecraft" {
+  interface EventDetailsMap {
+    /** MCP HTTP transport opened a session. */
+    "plugin:mcp:session:created": { sessionId: string };
+    /** MCP HTTP transport closed a session. */
+    "plugin:mcp:session:closed": { sessionId: string };
+    /** MCP HTTP server bound its port. */
+    "plugin:mcp:server:listening": { host: string; port: number; path: string };
+    /** Tool list assembled and exposed to clients. */
+    "plugin:mcp:server:tools:exposed": { tools: string[]; count: number };
+    /** Inbound MCP tool call dispatched to a route. */
+    "plugin:mcp:tool:called": { tool: string; args: unknown };
+    /** MCP tool call completed successfully. */
+    "plugin:mcp:tool:completed": { tool: string };
+    /** MCP tool call failed. */
+    "plugin:mcp:tool:failed": { tool: string; error: string };
+  }
   interface ErrorCodeRegistry {
     /** Agent block resolution failed (formerly RC5025) */
     AI1001: RCMeta;

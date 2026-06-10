@@ -167,7 +167,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     const stepExchangeId = parentExchange?.id ?? exchange.id;
 
     if (context) {
-      context.emit(`route:${routeId}:step:started` as const, {
+      context.emit("route:step:started", {
         routeId,
         exchangeId: stepExchangeId,
         correlationId,
@@ -186,7 +186,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       });
 
       if (context) {
-        context.emit(`route:${routeId}:step:completed` as const, {
+        context.emit("route:step:completed", {
           routeId,
           exchangeId: next.id,
           correlationId: next.headers[HeadersKeys.CORRELATION_ID] as string,
@@ -217,7 +217,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     if (context) {
       for (const child of aggregationGroup) {
         const childStart = getStartedAt(child) ?? Date.now();
-        context.emit(`route:${routeId}:exchange:completed` as const, {
+        context.emit("route:exchange:completed", {
           routeId,
           exchangeId: child.id,
           correlationId: child.headers[HeadersKeys.CORRELATION_ID] as string,
@@ -263,7 +263,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
     });
 
     if (context) {
-      context.emit(`route:${routeId}:step:completed` as const, {
+      context.emit("route:step:completed", {
         routeId,
         exchangeId: next.id,
         correlationId: next.headers[HeadersKeys.CORRELATION_ID] as string,

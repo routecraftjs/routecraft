@@ -45,11 +45,11 @@ Fired per exchange, scoped to the capability that owns it. `routeId` is the capa
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:exchange:started` | Exchange enters the pipeline (parent or child) | `{ routeId, exchangeId, correlationId }` |
-| `route:{routeId}:exchange:completed` | Exchange finished successfully (or consumed by aggregate) | `{ routeId, exchangeId, correlationId, duration }` |
-| `route:{routeId}:exchange:failed` | Exchange encountered an unrecoverable error | `{ routeId, exchangeId, correlationId, duration, error }` |
-| `route:{routeId}:exchange:dropped` | Exchange intentionally removed from the pipeline | `{ routeId, exchangeId, correlationId, reason }` |
-| `route:{routeId}:exchange:restored` | Exchange restored from cache, skipping steps | `{ routeId, exchangeId, correlationId, source }` |
+| `route:exchange:started` | Exchange enters the pipeline (parent or child) | `{ routeId, exchangeId, correlationId }` |
+| `route:exchange:completed` | Exchange finished successfully (or consumed by aggregate) | `{ routeId, exchangeId, correlationId, duration }` |
+| `route:exchange:failed` | Exchange encountered an unrecoverable error | `{ routeId, exchangeId, correlationId, duration, error }` |
+| `route:exchange:dropped` | Exchange intentionally removed from the pipeline | `{ routeId, exchangeId, correlationId, reason }` |
+| `route:exchange:restored` | Exchange restored from cache, skipping steps | `{ routeId, exchangeId, correlationId, source }` |
 
 The `exchangeId` field is the exchange's own ID, not the correlation ID. Use `correlationId` to group related exchanges (e.g. a parent and its split children share the same correlation ID).
 
@@ -63,10 +63,10 @@ Operation events are scoped to a capability and an operation type. They fire for
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:operation:from:{adapterId}:started` | Source adapter activated | `{ routeId, exchangeId, correlationId, operation, adapterId, metadata? }` |
-| `route:{routeId}:operation:from:{adapterId}:stopped` | Source adapter completed | `{ routeId, exchangeId, correlationId, operation, adapterId, duration, metadata? }` |
-| `route:{routeId}:operation:to:{adapterId}:started` | Destination adapter invoked | `{ routeId, exchangeId, correlationId, operation, adapterId, metadata? }` |
-| `route:{routeId}:operation:to:{adapterId}:stopped` | Destination adapter completed | `{ routeId, exchangeId, correlationId, operation, adapterId, duration, metadata? }` |
+| `route:operation:from:{adapterId}:started` | Source adapter activated | `{ routeId, exchangeId, correlationId, operation, adapterId, metadata? }` |
+| `route:operation:from:{adapterId}:stopped` | Source adapter completed | `{ routeId, exchangeId, correlationId, operation, adapterId, duration, metadata? }` |
+| `route:operation:to:{adapterId}:started` | Destination adapter invoked | `{ routeId, exchangeId, correlationId, operation, adapterId, metadata? }` |
+| `route:operation:to:{adapterId}:stopped` | Destination adapter completed | `{ routeId, exchangeId, correlationId, operation, adapterId, duration, metadata? }` |
 
 The `metadata` field is populated by the adapter's `getMetadata()` method. For example, the HTTP adapter returns `{ method, url, statusCode, contentLength }`.
 
@@ -74,9 +74,9 @@ The `metadata` field is populated by the adapter's `getMetadata()` method. For e
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:operation:batch:started` | Batch accumulation started | `{ routeId, batchId, batchSize }` |
-| `route:{routeId}:operation:batch:flushed` | Batch released for processing | `{ routeId, batchId, batchSize, waitTime, reason }` |
-| `route:{routeId}:operation:batch:stopped` | Batch accumulation stopped | `{ routeId, batchId }` |
+| `route:operation:batch:started` | Batch accumulation started | `{ routeId, batchId, batchSize }` |
+| `route:operation:batch:flushed` | Batch released for processing | `{ routeId, batchId, batchSize, waitTime, reason }` |
+| `route:operation:batch:stopped` | Batch accumulation stopped | `{ routeId, batchId }` |
 
 `reason` is `'size'` when the batch hit its size limit, `'time'` when the flush interval elapsed.
 
@@ -93,16 +93,16 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:operation:retry:started` | Retry sequence started | `{ routeId, exchangeId, correlationId, maxAttempts }` |
-| `route:{routeId}:operation:retry:attempt` | One retry attempt made | `{ routeId, exchangeId, correlationId, attemptNumber, maxAttempts, backoffMs, lastError? }` |
-| `route:{routeId}:operation:retry:stopped` | Retry sequence ended | `{ routeId, exchangeId, correlationId, attemptNumber, success }` |
+| `route:operation:retry:started` | Retry sequence started | `{ routeId, exchangeId, correlationId, maxAttempts }` |
+| `route:operation:retry:attempt` | One retry attempt made | `{ routeId, exchangeId, correlationId, attemptNumber, maxAttempts, backoffMs, lastError? }` |
+| `route:operation:retry:stopped` | Retry sequence ended | `{ routeId, exchangeId, correlationId, attemptNumber, success }` |
 
 ### Choice operations
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:operation:choice:matched` | A `when` or `otherwise` branch matched | `{ routeId, exchangeId, correlationId, branchIndex, branchLabel }` |
-| `route:{routeId}:operation:choice:unmatched` | No branch matched and the exchange is dropped | `{ routeId, exchangeId, correlationId }` |
+| `route:operation:choice:matched` | A `when` or `otherwise` branch matched | `{ routeId, exchangeId, correlationId, branchIndex, branchLabel }` |
+| `route:operation:choice:unmatched` | No branch matched and the exchange is dropped | `{ routeId, exchangeId, correlationId }` |
 
 `branchLabel` is `"when"` or `"otherwise"`. `branchIndex` is the zero-based index of the matched branch.
 
@@ -110,20 +110,20 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:error-handler:invoked` | A `.error()` handler runs (route or step scope) | `{ routeId, exchangeId, correlationId, originalError, failedOperation, scope: "route" \| "step", stepLabel? }` |
-| `route:{routeId}:error-handler:recovered` | Handler returned a value; pipeline continues (step scope) or replaces body (route scope) | Same plus `recoveryStrategy` |
-| `route:{routeId}:error-handler:failed` | Handler itself threw; rethrows for the next layer (route scope or default error path) | Same |
+| `route:error-handler:invoked` | A `.error()` handler runs (route or step scope) | `{ routeId, exchangeId, correlationId, originalError, failedOperation, scope: "route" \| "step", stepLabel? }` |
+| `route:error-handler:recovered` | Handler returned a value; pipeline continues (step scope) or replaces body (route scope) | Same plus `recoveryStrategy` |
+| `route:error-handler:failed` | Handler itself threw; rethrows for the next layer (route scope or default error path) | Same |
 
-`scope` is `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"step"` for a wrapper attached AFTER `.from()`. `stepLabel` is the label of the wrapped step when `scope === "step"`. Wildcard subscribers (`route:*:error-handler:*`) keep matching.
+`scope` is `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"step"` for a wrapper attached AFTER `.from()`. `stepLabel` is the label of the wrapped step when `scope === "step"`. Subscribe to the exact names and branch on `scope` in the payload.
 
 ### Cache wrapper operations
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:cache:hit` | A cached value was reused; the wrapped step (or whole pipeline, at route scope) was skipped | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", key }` |
-| `route:{routeId}:cache:miss` | No cached value; the wrapped step ran (or was dropped) | Same plus `dropped?: true` when the wrapped step dropped the exchange |
-| `route:{routeId}:cache:stored` | A fresh value was written to the cache | Same plus `ttl?: number` when a per-call TTL was set |
-| `route:{routeId}:cache:failed` | Key derivation, a provider read/write, or the wrapped step threw | `{ ..., stepLabel, scope: "route" \| "step", phase: "key" \| "get" \| "inner" \| "set", error, key? }` |
+| `route:cache:hit` | A cached value was reused; the wrapped step (or whole pipeline, at route scope) was skipped | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", key }` |
+| `route:cache:miss` | No cached value; the wrapped step ran (or was dropped) | Same plus `dropped?: true` when the wrapped step dropped the exchange |
+| `route:cache:stored` | A fresh value was written to the cache | Same plus `ttl?: number` when a per-call TTL was set |
+| `route:cache:failed` | Key derivation, a provider read/write, or the wrapped step threw | `{ ..., stepLabel, scope: "route" \| "step", phase: "key" \| "get" \| "inner" \| "set", error, key? }` |
 
 Failure phases:
 - `phase: "key"` - key derivation threw (no `key` field, since none was produced). Raised as `RC5029` (not retryable).
@@ -139,9 +139,9 @@ Concurrent exchanges that share one computation (stampede dedupe) currently emit
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:operation:error:invoked` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |
-| `route:{routeId}:operation:error:recovered` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |
-| `route:{routeId}:operation:error:failed` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId, error }` |
+| `route:operation:error:invoked` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |
+| `route:operation:error:recovered` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |
+| `route:operation:error:failed` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId, error }` |
 
 ### Agent operations
 
@@ -149,24 +149,24 @@ Emitted by `agent()` destinations. These are the **coarse decision events**: bro
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:agent:tool:invoked` | Agent decided to call a tool (input validated, before guard) | `{ routeId, exchangeId, correlationId, toolCallId, toolName, input }` |
-| `route:{routeId}:agent:tool:result` | Tool handler returned a value | `{ routeId, exchangeId, correlationId, toolCallId, toolName, output, duration }` |
-| `route:{routeId}:agent:tool:error` | Tool handler / guard / input validation threw | `{ routeId, exchangeId, correlationId, toolCallId, toolName, error, duration }` |
-| `route:{routeId}:agent:block:loaded` | Progressive block loader returned a value to the model | `{ routeId, exchangeId, correlationId, toolCallId, blockName, output, duration }` |
-| `route:{routeId}:agent:block:error` | Progressive block resolver threw during load | `{ routeId, exchangeId, correlationId, toolCallId, blockName, error, duration }` |
-| `route:{routeId}:agent:finished` | Agent dispatch returned a consolidated result | `{ routeId, exchangeId, correlationId, finishReason, inputTokens?, outputTokens?, totalTokens? }` |
-| `route:{routeId}:agent:error` | Provider / transport error during dispatch | `{ routeId, exchangeId, correlationId, error }` |
+| `route:agent:tool:invoked` | Agent decided to call a tool (input validated, before guard) | `{ routeId, exchangeId, correlationId, toolCallId, toolName, input }` |
+| `route:agent:tool:result` | Tool handler returned a value | `{ routeId, exchangeId, correlationId, toolCallId, toolName, output, duration }` |
+| `route:agent:tool:error` | Tool handler / guard / input validation threw | `{ routeId, exchangeId, correlationId, toolCallId, toolName, error, duration }` |
+| `route:agent:block:loaded` | Progressive block loader returned a value to the model | `{ routeId, exchangeId, correlationId, toolCallId, blockName, output, duration }` |
+| `route:agent:block:error` | Progressive block resolver threw during load | `{ routeId, exchangeId, correlationId, toolCallId, blockName, error, duration }` |
+| `route:agent:finished` | Agent dispatch returned a consolidated result | `{ routeId, exchangeId, correlationId, finishReason, inputTokens?, outputTokens?, totalTokens? }` |
+| `route:agent:error` | Provider / transport error during dispatch | `{ routeId, exchangeId, correlationId, error }` |
 
 Synthetic block-loader invocations (`_block_load_<blockName>` tools) emit on the `:agent:block:*` channel, not `:agent:tool:*`. Subscribe to the right family for what you care about: `:agent:tool:*` covers user-declared tools only, `:agent:block:*` covers framework-synthesised block loads. This split keeps post-dispatch user-tool assertions (`AgentResult.toolCalls`) clean.
 
-Wildcard subscriptions (`route:*:agent:tool:*`, `route:*:agent:block:*`, `route:*:agent:finished`) work for cross-cutting telemetry, dashboards, and TUIs.
+Subscribe to the exact names (`route:agent:tool:invoked`, `route:agent:block:loaded`, `route:agent:finished`, ...) and filter by `details.routeId` (or `forRoute(routeId, handler)`) for cross-cutting telemetry, dashboards, and TUIs.
 
 ```ts
-ctx.on('route:*:agent:tool:invoked', ({ details }) => {
+ctx.on('route:agent:tool:invoked', ({ details }) => {
   log.info({ tool: details.toolName, input: details.input }, 'Agent called tool');
 });
 
-ctx.on('route:*:agent:finished', ({ details }) => {
+ctx.on('route:agent:finished', ({ details }) => {
   metrics.histogram('agent.tokens.total', details.totalTokens ?? 0);
 });
 ```
@@ -180,9 +180,9 @@ events. The synthetic step appears in the standard `step:*` events with
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:{routeId}:step:started` (`operation: "parse"`) | Synthetic parse step begins, before any user step | `{ routeId, exchangeId, correlationId, operation: "parse", adapter: "parse" }` |
-| `route:{routeId}:step:completed` (`operation: "parse"`) | Parse succeeded; user steps run next | `{ ..., duration }` |
-| `route:{routeId}:step:failed` (`operation: "parse"`) | Parse threw `RC5016` | `{ ..., error }` |
+| `route:step:started` (`operation: "parse"`) | Synthetic parse step begins, before any user step | `{ routeId, exchangeId, correlationId, operation: "parse", adapter: "parse" }` |
+| `route:step:completed` (`operation: "parse"`) | Parse succeeded; user steps run next | `{ ..., duration }` |
+| `route:step:failed` (`operation: "parse"`) | Parse threw `RC5016` | `{ ..., error }` |
 
 What follows depends on the adapter's `onParseError` mode:
 
@@ -193,10 +193,10 @@ What follows depends on the adapter's `onParseError` mode:
 Subscribe with a glob to count source parse failures across all routes:
 
 ```ts
-ctx.on('route:*:step:failed', ({ details }) => {
+ctx.on('route:step:failed', ({ details }) => {
   if (details.operation === 'parse') metrics.increment('source.parse.failed');
 });
-ctx.on('route:*:exchange:dropped', ({ details }) => {
+ctx.on('route:exchange:dropped', ({ details }) => {
   if (details.reason === 'parse-failed') metrics.increment('source.parse.dropped');
 });
 ```
@@ -207,11 +207,11 @@ Plugin events are scoped to a plugin ID.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:{pluginId}:registered` | Plugin registered | `{ pluginId, pluginIndex }` |
-| `plugin:{pluginId}:starting` | Plugin is about to start | `{ pluginId, pluginIndex }` |
-| `plugin:{pluginId}:started` | Plugin has started | `{ pluginId, pluginIndex }` |
-| `plugin:{pluginId}:stopping` | Plugin is about to stop | `{ pluginId, pluginIndex }` |
-| `plugin:{pluginId}:stopped` | Plugin has stopped | `{ pluginId, pluginIndex }` |
+| `plugin:registered` | Plugin registered | `{ pluginId, pluginIndex }` |
+| `plugin:starting` | Plugin is about to start | `{ pluginId, pluginIndex }` |
+| `plugin:started` | Plugin has started | `{ pluginId, pluginIndex }` |
+| `plugin:stopping` | Plugin is about to stop | `{ pluginId, pluginIndex }` |
+| `plugin:stopped` | Plugin has stopped | `{ pluginId, pluginIndex }` |
 
 ## Authentication events
 
@@ -226,7 +226,7 @@ Emitted by auth-enabled adapters (currently MCP HTTP) on every auth attempt. The
 
 ## MCP plugin events
 
-Events emitted by the MCP plugin during server and tool lifecycle. Subscribe with wildcards (e.g. `plugin:mcp:tool:**`) for broad observability.
+Events emitted by the MCP plugin during server and tool lifecycle. Subscribe to the exact names (`plugin:mcp:tool:called` / `completed` / `failed`) for broad observability, or use the catch-all `"*"`.
 
 ### Server events
 
@@ -268,7 +268,7 @@ Events emitted by the HTTP plugin (configured via `defineConfig({ http })`). The
 
 {% quick-links %}
 
-{% quick-link title="Events" icon="theming" href="/docs/introduction/events" description="How to subscribe, use wildcards, emit custom events, and common patterns." /%}
+{% quick-link title="Events" icon="theming" href="/docs/introduction/events" description="How to subscribe, filter by payload identity, emit custom events, and common patterns." /%}
 {% quick-link title="Configuration" icon="presets" href="/docs/reference/configuration" description="Subscribe to events via craft.config.ts." /%}
 
 {% /quick-links %}
