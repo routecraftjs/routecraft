@@ -537,6 +537,16 @@ export type EventHandler<K extends EventName> = (
 ) => void | Promise<void>;
 
 /**
+ * Event names whose payload carries a `routeId`, i.e. the events
+ * {@link forRoute} can meaningfully filter. Subscribing `forRoute` to a
+ * route-less event (context, auth, plugin lifecycle) would silently never
+ * fire, so the constraint makes that a compile error instead.
+ */
+export type RouteScopedEventName = {
+  [K in EventName]: EventDetailsMap[K] extends { routeId: string } ? K : never;
+}[EventName];
+
+/**
  * Wrap an event handler so it only fires for events whose payload carries
  * the given `routeId`. Identity lives in the payload (event names are a
  * fixed set), so per-route subscription is a filter:
@@ -547,12 +557,12 @@ export type EventHandler<K extends EventName> = (
  * }));
  * ```
  */
-export function forRoute<K extends EventName>(
+export function forRoute<K extends RouteScopedEventName>(
   routeId: string,
   handler: EventHandler<K>,
 ): EventHandler<K> {
   return (payload) => {
-    if ((payload.details as { routeId?: string }).routeId === routeId) {
+    if (payload.details.routeId === routeId) {
       return handler(payload);
     }
     return undefined;
