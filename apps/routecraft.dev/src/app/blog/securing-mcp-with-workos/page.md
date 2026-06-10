@@ -5,7 +5,7 @@ date: 2026-06-10
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
-draft: true
+draft: false
 tags:
   - mcp
   - workos
@@ -43,8 +43,6 @@ If you do not have a WorkOS account, [sign up](https://dashboard.workos.com/sign
 In the WorkOS dashboard, activate **AuthKit** for your environment and pick your sign-in methods (email plus Google is a sensible default). AuthKit gives you a hosted sign-in page on a dedicated domain.
 
 While you are there, note your **AuthKit domain**. It looks like `https://your-app-12345.authkit.app` until you configure a custom domain. This single URL is the issuer, the discovery host, and the registration endpoint all in one; it is most of the configuration.
-
-![WorkOS dashboard, AuthKit overview showing the AuthKit domain and sign-in methods](/images/blog/securing-mcp-with-workos/workos-authkit-overview.png)
 
 ### Enable Dynamic Client Registration
 
@@ -203,9 +201,7 @@ Same as the Clerk post:
 }
 ```
 
-Restart Claude Desktop, trigger a notebook tool, and the browser opens on your AuthKit sign-in page. Behind that first connection, Claude fetched your protected-resource metadata, registered itself with WorkOS via DCR, and exchanged the sign-in for a token, with your server doing nothing but serving one JSON document.
-
-![Claude Desktop showing the notebook tools after signing in through AuthKit](/images/blog/securing-mcp-with-workos/claude-desktop-connected.png)
+Restart Claude Desktop, trigger a notebook tool, and the browser opens on your AuthKit sign-in page. Behind that first connection, Claude fetched your protected-resource metadata, registered itself with WorkOS via DCR, and exchanged the sign-in for a token, with your server doing nothing but serving one JSON document. The end state looks the same as in [the Clerk post](/blog/securing-mcp-with-clerk#connecting-from-claude-desktop): the notebook tools listed, the token riding along on every call.
 
 ## Clerk or WorkOS?
 
