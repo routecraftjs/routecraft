@@ -370,7 +370,7 @@ type ExchangeInternals = {
    * Route-scope cache key captured by the `cache-check` filter and
    * read back by the `cache-store` filter at the tail of the chain.
    * Lives on internals so the filters can be constructed once at
-   * builder time (rather than per-`runSteps` closures); each exchange
+   * builder time (rather than per-`runPipeline` closures); each exchange
    * carries its own key via this slot. Unset when the route has no
    * `.cache()` configured. See `.standards/pre-from-filter-chain.md`.
    *
@@ -391,7 +391,7 @@ type ExchangeInternals = {
   /**
    * Set by filter, choice (halt + unmatched), and the synthetic parse
    * step when an exchange is dropped. The runtime engine reads this
-   * after `runSteps` completes to skip `exchange:completed` emission.
+   * after `runPipeline` completes to skip `exchange:completed` emission.
    * Stored on internals so the flag survives `rewrap`: the engine
    * rewraps an exchange before each step (to update the operation
    * header), so an operation that calls `markDropped(exchange)` is

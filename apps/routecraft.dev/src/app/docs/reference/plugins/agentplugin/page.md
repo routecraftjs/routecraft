@@ -161,7 +161,7 @@ A `false` for a name not present in defaults is silently ignored, so adding or r
 
 **Loader tools and observability:**
 
-Progressive blocks register one synthetic tool per block named `_block_load_<blockName>` with no input schema. The handler runs the resolver against the dispatch's live exchange and returns the resolved string back to the model. Loader invocations are excluded from `AgentResult.toolCalls` and surface on `AgentResult.blocksLoaded?: AgentBlockLoadSummary[]` instead, so post-dispatch user-tool assertions stay clean. On the context bus they emit `route:<id>:agent:block:loaded` and `:agent:block:error` rather than the `:agent:tool:*` events.
+Progressive blocks register one synthetic tool per block named `_block_load_<blockName>` with no input schema. The handler runs the resolver against the dispatch's live exchange and returns the resolved string back to the model. Loader invocations are excluded from `AgentResult.toolCalls` and surface on `AgentResult.blocksLoaded?: AgentBlockLoadSummary[]` instead, so post-dispatch user-tool assertions stay clean. On the context bus they emit `route:agent:block:loaded` and `:agent:block:error` rather than the `:agent:tool:*` events.
 
 **Defaults merging:**
 
@@ -438,24 +438,24 @@ When the durable epic lands, the same handler migrates by replacing the blocking
 
 Agents emit on two distinct channels with different shapes and use cases:
 
-**1. Context bus** (`ctx.on('route:*:agent:*', ...)`): coarse decision events. Broadcast to every subscriber. Use for telemetry, dashboards, audit trails, TUIs. Always emitted; no opt-in needed.
+**1. Context bus** (`ctx.on('route:agent:started', ...)` and friends): coarse decision events. Broadcast to every subscriber. Use for telemetry, dashboards, audit trails, TUIs. Always emitted; no opt-in needed.
 
 | Event | Fields | When |
 |---|---|---|
-| `route:<id>:agent:tool:invoked` | `toolCallId`, `toolName`, `input` | Agent decided to call a tool. |
-| `route:<id>:agent:tool:result` | `toolCallId`, `toolName`, `output`, `duration` | Tool handler returned successfully. |
-| `route:<id>:agent:tool:error` | `toolCallId`, `toolName`, `error`, `duration` | Tool handler / guard / input validation threw. |
-| `route:<id>:agent:finished` | `finishReason`, `inputTokens?`, `outputTokens?`, `totalTokens?` | Agent dispatch returned a consolidated result. |
-| `route:<id>:agent:error` | `error` | Provider / transport error during dispatch. |
+| `route:agent:tool:invoked` | `toolCallId`, `toolName`, `_snapshot.input` | Agent decided to call a tool. |
+| `route:agent:tool:result` | `toolCallId`, `toolName`, `_snapshot.output`, `duration` | Tool handler returned successfully. |
+| `route:agent:tool:error` | `toolCallId`, `toolName`, `errorName`, `_snapshot.error`, `duration` | Tool handler / guard / input validation threw. |
+| `route:agent:finished` | `agentName?`, `model`, `finishReason`, `inputTokens?`, `outputTokens?`, `totalTokens?` | Agent dispatch returned a consolidated result. |
+| `route:agent:error` | `agentName?`, `model`, `error` | Provider / transport error during dispatch. |
 
-All events also carry `routeId`, `exchangeId`, `correlationId`. Wildcard subscriptions (`route:*:agent:tool:*`) work as expected.
+All events also carry `routeId`, `exchangeId`, `correlationId`. Narrow to one route with `forRoute(routeId, handler)` or any payload predicate.
 
 ```ts
-ctx.on("route:*:agent:tool:invoked", ({ details }) => {
-  console.log(`[${details.routeId}] tool ${details.toolName} called with`, details.input);
+ctx.on("route:agent:tool:invoked", ({ details }) => {
+  console.log(`[${details.routeId}] tool ${details.toolName} called with`, details._snapshot.input);
 });
 
-ctx.on("route:*:agent:finished", ({ details }) => {
+ctx.on("route:agent:finished", ({ details }) => {
   metrics.increment("agent.calls.total", { route: details.routeId });
   metrics.histogram("agent.tokens.total", details.totalTokens ?? 0);
 });
@@ -524,7 +524,7 @@ craft()
   })
 ```
 
-The context bus events (`route:*:agent:tool:*`) are the live observation channel for the same calls; `toolCalls` on the result is the synchronous post-hoc view a pipeline step can branch on. Use the bus for telemetry / dashboards / TUIs; use `toolCalls` for assertions and routing.
+The context bus events (`route:agent:tool:*`) are the live observation channel for the same calls; `toolCalls` on the result is the synchronous post-hoc view a pipeline step can branch on. Use the bus for telemetry / dashboards / TUIs; use `toolCalls` for assertions and routing.
 
 ## Typed fn ids (`FnRegistry`)
 

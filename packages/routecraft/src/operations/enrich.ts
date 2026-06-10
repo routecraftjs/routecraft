@@ -1,5 +1,5 @@
 import { ENRICH_MERGE_TYPE } from "../brand.ts";
-import { type Adapter, type Step } from "../types.ts";
+import { type Step, type StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -203,11 +203,7 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     this.aggregator = aggregator;
   }
 
-  async execute(
-    exchange: Exchange<T>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     // Resolve a test-time override (if any) registered on the context.
     const override = resolveAdapterOverride(
       this.adapter,
@@ -259,6 +255,6 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
           });
 
     // Push the exchange to the queue
-    queue.push({ exchange: next, steps: remainingSteps });
+    return { kind: "continue", exchange: next };
   }
 }

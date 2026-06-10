@@ -26,7 +26,7 @@ const config: CraftConfig = {
     'error': ({ details: { error, route } }) => {
       console.error(`Error in ${route?.definition.id ?? 'context'}`, error)
     },
-    'route:*:exchange:failed': ({ details: { routeId, error } }) => {
+    'route:exchange:failed': ({ details: { routeId, error } }) => {
       alerts.send(routeId, error)
     },
   },
@@ -35,7 +35,7 @@ const config: CraftConfig = {
 export default config
 ```
 
-Each key is an event name or wildcard pattern. The value can be a single handler or an array of handlers.
+Each key is an event name (or the catch-all `'*'`). The value can be a single handler or an array of handlers.
 
 ## Subscribing via a plugin
 
@@ -84,42 +84,36 @@ Event names are colon-separated segments that describe scope from broad to speci
 ```text
 context:started
 route:started
-route:{capabilityId}:exchange:completed
-route:{capabilityId}:operation:to:{adapterId}:stopped
-route:{capabilityId}:operation:retry:attempt
-plugin:{pluginId}:started
+route:exchange:completed
+route:step:completed
+plugin:started
 ```
 
-This structure is what makes wildcard subscriptions useful.
+Event names are a fixed, finite set: identity (the route id, the plugin id, the step label) always lives in the payload, never in the name. That is what makes subscriptions strictly typed and the emit path fast.
 
-## Wildcard patterns
+## Filtering by identity
 
-Subscribe to a group of events using glob patterns.
-
-**`*`** matches exactly one segment. **`**`** matches zero or more segments.
+Subscribe to exact names; narrow to one capability with `forRoute()` (or any payload predicate). The catch-all `'*'` observes every event for audit-style sinks.
 
 ```ts
+import { forRoute } from '@routecraft/routecraft'
+
 // Every event emitted by the runtime
 ctx.on('*', ({ ts, details }) => {
   audit.write({ ts, details })
 })
 
-// All events for a specific capability
-ctx.on('route:order-processor:**', ({ ts, details }) => {
-  trace.record(ts, details)
-})
+// Exchange failures for one specific capability
+ctx.on('route:exchange:failed', forRoute('order-processor', ({ details }) => {
+  alerts.send(details.error)
+}))
 
 // Exchange completed or failed on any capability
-ctx.on('route:*:exchange:completed', ({ details }) => {
+ctx.on('route:exchange:completed', ({ details }) => {
   metrics.increment('exchange.completed')
 })
-ctx.on('route:*:exchange:failed', ({ details: { error } }) => {
+ctx.on('route:exchange:failed', ({ details: { error } }) => {
   alerts.send(error)
-})
-
-// All operation events across all capabilities
-ctx.on('route:*:operation:**', ({ details }) => {
-  observability.track(details)
 })
 ```
 
@@ -139,7 +133,7 @@ export default function authPlugin(ctx: CraftContext) {
 }
 ```
 
-Any subscriber using `plugin:auth:**` or `plugin:auth:capability:secured` will receive it.
+Any subscriber using the exact name `plugin:auth:capability:secured` (declared via `EventDetailsMap` augmentation) will receive it.
 
 ## Adapter metadata in operation events
 
@@ -169,11 +163,11 @@ The metadata appears under `details.metadata` in the corresponding `operation:to
 ### Log every exchange result
 
 ```ts
-ctx.on('route:*:exchange:completed', ({ details: { routeId, exchangeId, duration } }) => {
+ctx.on('route:exchange:completed', ({ details: { routeId, exchangeId, duration } }) => {
   logger.info({ routeId, exchangeId, duration }, 'exchange completed')
 })
 
-ctx.on('route:*:exchange:failed', ({ details: { routeId, exchangeId, error } }) => {
+ctx.on('route:exchange:failed', ({ details: { routeId, exchangeId, error } }) => {
   logger.error({ routeId, exchangeId, error }, 'exchange failed')
 })
 ```
@@ -181,7 +175,7 @@ ctx.on('route:*:exchange:failed', ({ details: { routeId, exchangeId, error } }) 
 ### Count retries
 
 ```ts
-ctx.on('route:*:operation:retry:attempt', ({ details: { routeId, attemptNumber } }) => {
+ctx.on('route:retry:attempt', ({ details: { routeId, attemptNumber } }) => {
   metrics.increment(`retry.attempt`, { routeId })
 })
 ```
@@ -189,7 +183,7 @@ ctx.on('route:*:operation:retry:attempt', ({ details: { routeId, attemptNumber }
 ### Alert on batch flush
 
 ```ts
-ctx.on('route:*:operation:batch:flushed', ({ details: { routeId, batchSize, reason } }) => {
+ctx.on('route:batch:flushed', ({ details: { routeId, batchSize, reason } }) => {
   if (reason === 'time' && batchSize < 10) {
     alerts.warn(`Low throughput on ${routeId}: only ${batchSize} items in batch`)
   }
@@ -202,6 +196,6 @@ ctx.on('route:*:operation:batch:flushed', ({ details: { routeId, batchSize, reas
 
 {% quick-links %}
 
-{% quick-link title="Events reference" icon="presets" href="/docs/reference/events" description="Full event catalog with all payload shapes and wildcard patterns." /%}
+{% quick-link title="Events reference" icon="presets" href="/docs/reference/events" description="Full event catalog with all payload shapes and filtering patterns." /%}
 
 {% /quick-links %}

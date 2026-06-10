@@ -112,11 +112,14 @@ describe("File Adapter", () => {
       const adapter = file({ path: () => "dynamic.txt" });
 
       await expect(
-        adapter.subscribe(
-          {} as any,
-          async () => ({}) as any,
-          new AbortController(),
-        ),
+        adapter.subscribe({
+          context: {} as never,
+          signal: new AbortController().signal,
+          meta: { routeId: "test" },
+          ready: () => {},
+          complete: () => {},
+          emit: async () => ({}) as never,
+        }),
       ).rejects.toThrow(
         /path must be a string for source mode.*dynamic paths are only supported for destinations/,
       );

@@ -264,11 +264,11 @@ describe("Plugin System", () => {
       .build();
 
     // Subscribe to plugin lifecycle events (plugin ID is "plugin-0" for plain object at index 0)
-    t.ctx.on("plugin:plugin-0:stopping", () => {
+    t.ctx.on("plugin:stopping", () => {
       stoppingCalled = true;
     });
 
-    t.ctx.on("plugin:plugin-0:stopped", () => {
+    t.ctx.on("plugin:stopped", () => {
       stoppedCalled = true;
     });
 
@@ -306,17 +306,20 @@ describe("Plugin System", () => {
       })
       .build();
 
-    // Subscribe to plugin lifecycle events (pattern must match 3 segments: plugin:ID:event)
-    t.ctx.on("plugin:*:*", (payload) => {
-      const details = payload.details as {
-        pluginId: string;
-        pluginIndex: number;
-      };
-      capturedEvents.push({
-        pluginId: details.pluginId,
-        pluginIndex: details.pluginIndex,
+    // Subscribe to plugin teardown lifecycle events (fixed names;
+    // pluginId in payload)
+    for (const name of ["plugin:stopping", "plugin:stopped"] as const) {
+      t.ctx.on(name, (payload) => {
+        const details = payload.details as {
+          pluginId: string;
+          pluginIndex: number;
+        };
+        capturedEvents.push({
+          pluginId: details.pluginId,
+          pluginIndex: details.pluginIndex,
+        });
       });
-    });
+    }
 
     // Stop to trigger teardown events (which we can capture)
     await t.ctx.stop();

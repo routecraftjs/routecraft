@@ -5,12 +5,15 @@ title: from
 [← All operations](/docs/reference/operations) {% .lead %}
 
 ```ts
-from<T>(src: Source<T> | CallableSource<T>): RouteBuilder<T>
+from<T>(src: SourceLike<T>): RouteBuilder<T>
 from<T>(
-  source1: Source<unknown> | CallableSource<unknown>,
-  source2: Source<unknown> | CallableSource<unknown>,
-  ...moreSources: Array<Source<unknown> | CallableSource<unknown>>
+  source1: SourceLike<unknown>,
+  source2: SourceLike<unknown>,
+  ...moreSources: Array<SourceLike<unknown>>
 ): RouteBuilder<T>
+
+// SourceLike<T> = Source<T> | CallableSource<T> | GeneratorSource<T>
+//               | AsyncIterable<T> | Iterable<T>
 ```
 
 Defines the source adapter(s) and creates the capability. Must come after all other route-level operations (`id`, `batch`, `error`).
@@ -21,10 +24,22 @@ Defines the source adapter(s) and creates the capability. Must come after all ot
 .id('timer-route')
 .from(timer({ intervalMs: 1000 }))
 
-// Callable source (async function)
+// Generator source: each yield becomes one exchange
 .id('data-fetcher')
-.from(async () => await fetchData())
+.from(async function* () {
+  yield await fetchData()
+})
+
+// Callable source: full control via the Subscription object
+.id('poller')
+.from(async (sub) => {
+  while (!sub.signal.aborted) {
+    await sub.emit({ message: await poll() })
+  }
+})
 ```
+
+Inline sources receive a single `Subscription` object: `{ context, signal, meta, ready(), complete(reason?), emit(msg) }`. Generator functions get the same object as their argument and may simply `yield` bodies; iteration applies natural backpressure (one `emit` awaited per yield) and the source completes when the generator returns.
 
 ## Multiple ingresses
 

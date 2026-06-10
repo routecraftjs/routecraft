@@ -1,6 +1,7 @@
 import type { Source } from "../../operations/from";
 import { TimerSourceAdapter } from "./source";
 import type { TimerOptions } from "./types";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag";
 
 /**
  * Creates a source that emits at a fixed interval (or at exact times). Body is undefined; timer metadata is in exchange headers (routecraft.timer.*).
@@ -15,7 +16,11 @@ import type { TimerOptions } from "./types";
  * ```
  */
 export function timer(options?: TimerOptions): Source<undefined> {
-  return new TimerSourceAdapter(options);
+  return tagAdapter(
+    new TimerSourceAdapter(options),
+    timer,
+    factoryArgs(options),
+  );
 }
 
 // Re-export adapter class and types for public API

@@ -1,50 +1,23 @@
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, tools, type FnHandlerContext } from "../src/index.ts";
-import { MCP_TOOL_REGISTRY, type McpTool } from "../src/mcp/types.ts";
+import {
+  MCP_STDIO_MANAGERS,
+  MCP_TOOL_REGISTRY,
+  type McpTool,
+} from "../src/mcp/types.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
-import * as realDispatchModule from "../src/mcp/dispatch.ts";
 
-// Mock the MCP dispatch path so handlers can be exercised without
-// real stdio / HTTP clients. Each test captures the recorded calls
-// and asserts against them.
+// Exercise handlers without real stdio / HTTP clients by registering a
+// recording manager per server in MCP_STDIO_MANAGERS: the real
+// dispatchMcpCall consults that store first for any serverId, so this
+// fakes the transport through the framework's own seam instead of
+// mock.module (which leaks across test files in the same bun process).
 const recordedDispatches: Array<{
   serverId: string;
   toolName: string;
   args: Record<string, unknown>;
 }> = [];
-
-const dispatchMock = mock(
-  async (
-    _ctx: unknown,
-    serverId: string,
-    toolName: string,
-    args: Record<string, unknown>,
-  ): Promise<unknown> => {
-    recordedDispatches.push({ serverId, toolName, args });
-    return { ok: true, serverId, toolName };
-  },
-);
-
-// The real exports are captured above BEFORE the mock is registered. Bun
-// shares one module registry across every test file in the process, so the
-// mock must be restored in afterAll or it leaks into sibling files (e.g.
-// mcp.bun.test.ts exercising the real dispatchMcpCall error wrapping).
-const realDispatchExports = { ...realDispatchModule };
-mock.module("../src/mcp/dispatch.ts", () => ({
-  dispatchMcpCall: dispatchMock,
-}));
-afterAll(() => {
-  mock.module("../src/mcp/dispatch.ts", () => realDispatchExports);
-});
 
 async function buildCtxWithMcp(
   entries: Array<{
@@ -89,6 +62,25 @@ async function buildCtxWithMcp(
               MCP_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
               registry,
             );
+            const managers = new Map<
+              string,
+              {
+                callTool(
+                  name: string,
+                  args: Record<string, unknown>,
+                ): Promise<unknown>;
+              }
+            >();
+            for (const e of entries) {
+              const serverId = e.source;
+              managers.set(serverId, {
+                async callTool(name, args) {
+                  recordedDispatches.push({ serverId, toolName: name, args });
+                  return { ok: true, serverId, toolName: name };
+                },
+              });
+            }
+            ctx.setStore(MCP_STDIO_MANAGERS, managers);
           },
         },
       ],
@@ -102,7 +94,6 @@ describe("tools() resolver - MCP refs", () => {
 
   beforeEach(() => {
     recordedDispatches.length = 0;
-    dispatchMock.mockClear();
   });
 
   afterEach(async () => {

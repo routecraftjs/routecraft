@@ -44,7 +44,7 @@ export const craftConfig: CraftConfig = {
     'error': ({ details: { error, route } }) => {
       console.error(`Error in ${route?.definition.id ?? 'context'}`, error)
     },
-    'route:*:exchange:failed': ({ details: { routeId, error } }) => {
+    'route:exchange:failed': ({ details: { routeId, error } }) => {
       alerts.send(routeId, error)
     },
   },
@@ -184,7 +184,7 @@ See the [Terminal UI guide](/docs/introduction/tui) for navigation and options.
 
 {% quick-links %}
 
-{% quick-link title="Events reference" icon="presets" href="/docs/reference/events" description="Full event catalog with payload shapes and wildcard patterns." /%}
+{% quick-link title="Events reference" icon="presets" href="/docs/reference/events" description="Full event catalog with payload shapes and identity fields." /%}
 {% quick-link title="Plugins" icon="plugins" href="/docs/advanced/plugins" description="How to write and register plugins." /%}
 {% quick-link title="Terminal UI" icon="installation" href="/docs/introduction/tui" description="Browse routes, exchanges, and live events from the terminal." /%}
 

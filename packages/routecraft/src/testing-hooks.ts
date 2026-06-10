@@ -220,13 +220,8 @@ export function wrapSourceWithOverride<M = unknown>(
     tagAdapter(wrapped as object, factory, args);
   }
 
-  wrapped.subscribe = async function subscribe(
-    _context,
-    handler,
-    abortController,
-    onReady,
-  ): Promise<void> {
-    onReady?.();
+  wrapped.subscribe = async function subscribe(sub): Promise<void> {
+    sub.ready();
     const record: AdapterSourceCall = { args, yielded: 0 };
     override.calls.source.push(record);
 
@@ -237,15 +232,17 @@ export function wrapSourceWithOverride<M = unknown>(
     // race against the drain/stop sequence and silently drop tail messages.
     const pending: Promise<void>[] = [];
     const dispatch = (message: unknown): void => {
-      if (abortController.signal.aborted) return;
+      if (sub.signal.aborted) return;
       // A branded fixture carries its own headers (mirroring an
       // envelope-carrying source); a plain fixture is delivered as the body.
       const body = (isSourceFixture(message) ? message.body : message) as M;
       const headers = isSourceFixture(message) ? message.headers : undefined;
       pending.push(
-        handler(body, headers).then(() => {
-          record.yielded++;
-        }),
+        sub
+          .emit({ message: body, ...(headers ? { headers } : {}) })
+          .then(() => {
+            record.yielded++;
+          }),
       );
     };
 
@@ -258,7 +255,7 @@ export function wrapSourceWithOverride<M = unknown>(
     for await (const message of values as
       | Iterable<unknown>
       | AsyncIterable<unknown>) {
-      if (abortController.signal.aborted) break;
+      if (sub.signal.aborted) break;
       dispatch(message);
     }
     await Promise.all(pending);

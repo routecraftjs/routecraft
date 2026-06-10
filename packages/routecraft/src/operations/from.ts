@@ -1,8 +1,7 @@
 import { type CraftContext } from "../context.ts";
-import { type Exchange, type ExchangeHeaders } from "../exchange.ts";
+import { type Exchange } from "../exchange.ts";
 import { type RouteDiscovery } from "../route.ts";
-import { type Adapter } from "../types.ts";
-import { type OnParseError } from "../adapters/shared/parse.ts";
+import { type Adapter, type Message } from "../types.ts";
 
 /**
  * Metadata the engine passes to a source adapter at subscribe time.
@@ -10,8 +9,6 @@ import { type OnParseError } from "../adapters/shared/parse.ts";
  * Carries the route's id and optional discovery bundle so adapters that
  * maintain registries (direct, mcp) can mirror route-level metadata into
  * their own registry entries without re-declaring it in adapter options.
- * Optional at the type level so adapters that ignore it remain source-
- * compatible.
  */
 export interface SourceMeta {
   /** ID of the route this source is subscribed to. */
@@ -21,69 +18,72 @@ export interface SourceMeta {
 }
 
 /**
- * Function form of a source: subscribes to data and invokes the handler for each message.
- * Use with `.from(callableSource)` or adapters that implement Source.
- *
- * The `handler` callback accepts an optional third argument, `parse`, that the
- * runtime invokes as a synthetic first pipeline step. Source adapters that
- * convert raw bytes into a structured body (json, html, csv, jsonl, mail) pass
- * their parse logic through this argument so a parse failure becomes a normal
- * pipeline error: the exchange exists, `exchange:started` has fired, and the
- * route's `.error()` handler can catch it. Adapters that emit pre-parsed
- * values (direct, simple, cron, timer, event, file) ignore the third argument.
- *
- * **Type caveat:** when `parse` is supplied, the `message` argument is the
- * RAW value (e.g. a JSON line string, raw RFC-822 bytes), not the typed `T`.
- * The exchange body is widened to `unknown` until the synthetic parse step
- * runs, then narrowed to `T` for downstream user steps. `.error()` handlers
- * tied to `Exchange<T>` should NOT assume the body is `T` when the failure
- * came from the parse step itself; they may be looking at raw bytes.
+ * Everything a source adapter needs from the engine, handed to
+ * {@link CallableSource} as a single object. Adding a capability to this
+ * interface is additive; the source contract never changes shape again.
  *
  * Sources that authenticate at their boundary (e.g. the MCP server with
  * `auth:` configured) forward the resolved identity by writing the
  * structured `Principal` into `headers["routecraft.auth.principal"]`
- * before calling the handler. The framework no longer accepts a separate
- * positional principal argument: state lives on `headers`, full stop.
+ * on the emitted message: state lives on `headers`, full stop.
+ *
+ * @template T - Body type of messages produced by this source (after parse)
+ */
+export interface Subscription<T = unknown> {
+  /** The owning context (store access, logger, events). */
+  context: CraftContext;
+  /** Fires when the route stops; sources must stop producing and return. */
+  signal: AbortSignal;
+  /** Route id and discovery bundle for registry-maintaining sources. */
+  meta: SourceMeta;
+  /**
+   * Signal readiness: the source is wired and able to produce. Routes
+   * emit `route:started` once every source has called this (emitting a
+   * first message also marks readiness as a fallback).
+   */
+  ready(): void;
+  /**
+   * Signal that this finite source has finished producing. Aborts the
+   * source's controller so a single-source route completes; on a
+   * multi-ingress route only this source's child controller aborts.
+   * Pass a reason to record an abnormal completion as the abort reason;
+   * to surface a fatal source error to the engine, reject from
+   * `subscribe` instead (the route aborts with that error). Idempotent:
+   * calling it again (or after the signal already aborted) is a no-op.
+   */
+  complete(reason?: unknown): void;
+  /**
+   * Hand one message to the route. Resolves with the processed exchange
+   * (or rejects with the pipeline error, which sources typically catch
+   * and log so one bad message does not kill the source).
+   *
+   * The {@link Message} envelope carries the payload plus the optional
+   * `parse` / `parseFailureMode` used by the synthetic parse step: when
+   * `parse` is set, `message` is the RAW value (e.g. a JSON line string)
+   * and the parsed result becomes the exchange body. See
+   * `adapters/shared/parse.ts` for the `OnParseError` semantics.
+   */
+  emit(msg: Message<T>): Promise<Exchange>;
+}
+
+/**
+ * Function form of a source: subscribes to data and emits messages until
+ * the subscription's signal aborts. Use with `.from(callableSource)` or
+ * adapters that implement {@link Source}.
+ *
+ * ```ts
+ * .from(async (sub) => {
+ *   while (!sub.signal.aborted) {
+ *     const item = await poll();
+ *     await sub.emit({ message: item, headers: { "x-origin": "poll" } });
+ *   }
+ * })
+ * ```
  *
  * @template T - Body type of messages produced by this source (after parse)
  */
 export type CallableSource<T = unknown> = (
-  context: CraftContext,
-  handler: (
-    message: T,
-    headers?: ExchangeHeaders,
-    /**
-     * Optional parser invoked by the runtime as the first step of the
-     * pipeline, before any user-defined step. The parsed result becomes the
-     * exchange body. Errors thrown here flow through the route's normal
-     * error handling: the route's `.error()` handler is invoked, or
-     * `exchange:failed` fires when no handler is set. Source adapters use
-     * this to defer parse failures so they are observable per exchange.
-     *
-     * Typed as `(raw: unknown) => unknown | Promise<unknown>` because the
-     * runtime cannot statically know the parsed shape; adapters narrow at
-     * the call site since they know their own raw and parsed types.
-     *
-     * the contract; see #187.
-     */
-    parse?: (raw: unknown) => unknown | Promise<unknown>,
-    /**
-     * Decides what the synthetic parse step does on failure:
-     * - `"fail"` (default): throw `RC5016` so `exchange:failed` fires (or
-     *   the route's `.error()` recovers it).
-     * - `"abort"`: same lifecycle as `"fail"` but the source rethrows the
-     *   rejection and dies (`context:error` fires).
-     * - `"drop"`: emit `exchange:dropped` with `reason: "parse-failed"`
-     *   instead of failing; the pipeline halts cleanly without invoking
-     *   `.error()`.
-     *
-     * Adapters set this from their `onParseError` option.
-     */
-    parseFailureMode?: OnParseError,
-  ) => Promise<Exchange>,
-  abortController: AbortController,
-  onReady?: () => void,
-  meta?: SourceMeta,
+  sub: Subscription<T>,
 ) => Promise<void> | void;
 
 /**
@@ -93,4 +93,150 @@ export type CallableSource<T = unknown> = (
  */
 export interface Source<T = unknown> extends Adapter {
   subscribe: CallableSource<T>;
+}
+
+/**
+ * Generator form of a source: an (async) generator function receiving the
+ * {@link Subscription} and yielding message bodies. Each yielded value is
+ * emitted sequentially (`await sub.emit(...)` per item, so the pipeline
+ * applies natural backpressure); when the generator returns, the source
+ * completes like any finite source. Use `sub.emit({ message, headers })`
+ * directly inside the generator when a message needs headers.
+ *
+ * ```ts
+ * .from(async function* (sub) {
+ *   while (!sub.signal.aborted) {
+ *     yield await poll();
+ *   }
+ * })
+ * ```
+ *
+ * @template T - Body type of messages produced by this source
+ */
+export type GeneratorSource<T = unknown> = (
+  sub: Subscription<T>,
+) => AsyncGenerator<T, void, unknown> | Generator<T, void, unknown>;
+
+/**
+ * Anything `.from()` accepts and normalizes into a {@link Source}:
+ * a Source adapter, a callable source, an (async) generator function,
+ * or a bare (async) iterable of message bodies.
+ *
+ * @template T - Body type of messages produced
+ */
+export type SourceLike<T = unknown> =
+  | Source<T>
+  | CallableSource<T>
+  | GeneratorSource<T>
+  | AsyncIterable<T>
+  | Iterable<T>;
+
+const ASYNC_GENERATOR_CTOR = Object.getPrototypeOf(async function* () {})
+  .constructor as object;
+const GENERATOR_CTOR = Object.getPrototypeOf(function* () {})
+  .constructor as object;
+
+/** True when `value` is an (async) generator FUNCTION (not a running generator). */
+function isGeneratorFunction(value: unknown): value is GeneratorSource {
+  if (typeof value !== "function") return false;
+  const ctor = (value as { constructor?: object }).constructor;
+  return ctor === ASYNC_GENERATOR_CTOR || ctor === GENERATOR_CTOR;
+}
+
+/** True when `value` is a bare (async) iterable object (not a Source). */
+function isIterableSource(value: unknown): value is AsyncIterable<unknown> {
+  if (value === null || typeof value !== "object") return false;
+  if (typeof (value as Source).subscribe === "function") return false;
+  const v = value as Record<symbol, unknown>;
+  return (
+    typeof v[Symbol.asyncIterator] === "function" ||
+    typeof v[Symbol.iterator] === "function"
+  );
+}
+
+/**
+ * Normalize anything `.from()` accepts into a {@link Source}.
+ *
+ * Generator functions and bare iterables drive the subscription loop:
+ * items are emitted sequentially, per-item pipeline failures are logged
+ * at debug and do not stop iteration (matching `simple()`'s batch
+ * semantics), and exhaustion completes the source.
+ *
+ * @internal Used by the route builder.
+ */
+export function toSource<T>(input: SourceLike<T>): Source<T> {
+  if (typeof input === "function") {
+    if (isGeneratorFunction(input)) {
+      const generator = input as GeneratorSource<T>;
+      return { subscribe: (sub) => drainIterable(sub, generator(sub)) };
+    }
+    return { subscribe: input as CallableSource<T> };
+  }
+  if (isIterableSource(input)) {
+    const iterable = input as AsyncIterable<T>;
+    return { subscribe: (sub) => drainIterable(sub, iterable) };
+  }
+  return input as Source<T>;
+}
+
+/** Sentinel resolved by the abort race so a parked pull can be abandoned. */
+const ABORTED = Symbol("routecraft.iterable.aborted");
+
+/** Shared loop for generator and iterable sources. */
+async function drainIterable<T>(
+  sub: Subscription<T>,
+  iterable: AsyncIterable<T> | Iterable<T>,
+): Promise<void> {
+  sub.ready();
+  let failCount = 0;
+  const iterator =
+    Symbol.asyncIterator in iterable
+      ? iterable[Symbol.asyncIterator]()
+      : (iterable as Iterable<T>)[Symbol.iterator]();
+  // Race each pull against abort: a generator parked on a slow await
+  // would otherwise pin shutdown until its next yield.
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<typeof ABORTED>((resolve) => {
+    onAbort = () => resolve(ABORTED);
+    sub.signal.addEventListener("abort", onAbort, { once: true });
+  });
+  let iterErr: unknown;
+  try {
+    while (!sub.signal.aborted) {
+      const result = await Promise.race([
+        Promise.resolve(iterator.next()),
+        aborted,
+      ]);
+      if (result === ABORTED || result.done) break;
+      try {
+        await sub.emit({ message: result.value });
+      } catch {
+        // Exchange error already logged by the route pipeline; keep
+        // iterating so one bad item does not kill the source (matching
+        // simple()'s array semantics).
+        failCount++;
+      }
+    }
+  } catch (err) {
+    // Record the reason for complete(), then rethrow so the engine treats
+    // an iterator crash as a source failure (route aborts with the error).
+    iterErr = err;
+    throw err;
+  } finally {
+    if (onAbort) sub.signal.removeEventListener("abort", onAbort);
+    // Best-effort resource release when we bailed before exhaustion
+    // (abort or a pipeline-level break); errors here are secondary.
+    try {
+      await Promise.resolve(iterator.return?.()).catch(() => undefined);
+    } catch {
+      // Sync iterators can throw from return(); nothing left to clean up.
+    }
+    if (failCount > 0) {
+      sub.context.logger.warn(
+        { adapter: "iterable", failCount },
+        "Some exchanges from iterable source failed",
+      );
+    }
+    sub.complete(iterErr);
+  }
 }

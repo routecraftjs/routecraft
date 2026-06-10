@@ -9,6 +9,7 @@ import type {
 import { DirectSourceAdapter } from "./source";
 import { DirectDestinationAdapter } from "./destination";
 import type { DirectEndpoint, DirectServerOptions } from "./types";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag";
 
 /**
  * Creates a direct adapter for synchronous, in-process inter-route messaging.
@@ -84,10 +85,18 @@ export function direct<TIn = unknown, TOut = TIn>(
 ): Source<unknown> | Destination<TIn, TOut> {
   // String or function first-arg -> Destination (names a target route).
   if (typeof arg === "string" || typeof arg === "function") {
-    return new DirectDestinationAdapter<TIn, TOut>(arg);
+    return tagAdapter(
+      new DirectDestinationAdapter<TIn, TOut>(arg),
+      direct,
+      factoryArgs(arg),
+    );
   }
   // Undefined or options object -> Source (endpoint resolved from route id).
-  return new DirectSourceAdapter(arg ?? {}) as Source<unknown>;
+  return tagAdapter(
+    new DirectSourceAdapter(arg ?? {}),
+    direct,
+    factoryArgs(arg),
+  ) as Source<unknown>;
 }
 
 // Re-export types for public API

@@ -2,6 +2,7 @@ import type { Source } from "../../../operations/from";
 import type { EventPayload, EventName } from "../../../types";
 import { EventSourceAdapter } from "./source";
 import type { EventFilter } from "./types";
+import { tagAdapter, factoryArgs } from "../../shared/factory-tag";
 
 /**
  * Creates a source that produces exchanges from framework events.
@@ -53,7 +54,7 @@ import type { EventFilter } from "./types";
  * ```
  */
 export function event(filter: EventFilter): Source<EventPayload<EventName>> {
-  return new EventSourceAdapter(filter);
+  return tagAdapter(new EventSourceAdapter(filter), event, factoryArgs(filter));
 }
 
 // Re-export types for public API

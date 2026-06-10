@@ -47,26 +47,21 @@ export class HtmlSourceAdapter<
     this.fileAdapter = file(fileOpts);
   }
 
-  subscribe: CallableSource<HtmlResult> = async (
-    context,
-    handler,
-    abortController,
-    onReady,
-    meta,
-  ) => {
+  subscribe: CallableSource<HtmlResult> = async (sub) => {
     const onParseError = this.options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
     const opts = this.options;
     const filePath = opts.path as string;
 
-    return this.fileAdapter.subscribe(
-      context,
-      async (htmlContent: string) => {
-        const promise = handler(
-          htmlContent as unknown as HtmlResult,
-          undefined,
-          (raw) => extractHtml(raw as T, opts) as Promise<HtmlResult>,
-          onParseError,
-        );
+    // Delegate to the file source with a derived subscription whose emit
+    // attaches the HTML extraction as the parse step.
+    return this.fileAdapter.subscribe({
+      ...sub,
+      emit: async (msg) => {
+        const promise = sub.emit({
+          ...msg,
+          parse: (raw) => extractHtml(raw as T, opts) as Promise<HtmlResult>,
+          parseFailureMode: onParseError,
+        });
         // 'abort' is parse-specific: only RC5016 should tear down the
         // source. Downstream destination errors must NOT propagate as
         // an abort signal even when onParseError === 'abort'.
@@ -78,16 +73,13 @@ export class HtmlSourceAdapter<
           // operator parity with jsonl/source.ts and swallow so the
           // file source keeps reading. The file adapter ignores the
           // resolved value, so returning undefined is safe.
-          context.logger.debug(
+          sub.context.logger.debug(
             { err, path: filePath, adapter: "html" },
             "html adapter: pipeline failed for file; continuing",
           );
           return undefined as never;
         });
       },
-      abortController,
-      onReady,
-      meta,
-    );
+    });
   };
 }

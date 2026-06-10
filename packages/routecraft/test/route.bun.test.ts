@@ -27,10 +27,13 @@ import type { Exchange, Source } from "@routecraft/routecraft";
  */
 function items<T>(list: T[]): Source<T> {
   return {
-    subscribe: async (_ctx, handler) => {
+    subscribe: async (sub) => {
       for (const item of list) {
-        await handler(item);
+        await sub.emit({ message: item });
       }
+      // Finite source: signal completion so the route does not idle until
+      // the test harness aborts it.
+      sub.complete();
     },
   };
 }
@@ -115,11 +118,11 @@ describe("Route Behavior", () => {
         craft()
           .id("continuous-route")
           .from({
-            subscribe: async (_, handler, controller) => {
+            subscribe: async (sub) => {
               // Keep track of messages processed
               let messageCount = 0;
-              while (!controller.signal.aborted && messageCount < 3) {
-                await handler("test");
+              while (!sub.signal.aborted && messageCount < 3) {
+                await sub.emit({ message: "test" });
                 messageCount++;
                 // Smaller delay to speed up test
                 await new Promise((resolve) => setTimeout(resolve, 1));
@@ -184,11 +187,11 @@ describe("Route Behavior", () => {
         craft()
           .id("return-final-with-to")
           .from<string>({
-            subscribe: async (_ctx, handler, controller) => {
+            subscribe: async (sub) => {
               try {
-                finalFromSource = await handler("hello");
+                finalFromSource = await sub.emit({ message: "hello" });
               } finally {
-                controller.abort();
+                sub.complete();
               }
             },
           })
@@ -221,11 +224,11 @@ describe("Route Behavior", () => {
         craft()
           .id("return-final-no-to")
           .from<string>({
-            subscribe: async (_ctx, handler, controller) => {
+            subscribe: async (sub) => {
               try {
-                finalFromSource = await handler("start");
+                finalFromSource = await sub.emit({ message: "start" });
               } finally {
-                controller.abort();
+                sub.complete();
               }
             },
           })
@@ -292,10 +295,10 @@ describe("Route Behavior", () => {
         craft()
           .id("fail-continue-route")
           .from({
-            subscribe: async (_, handler) => {
+            subscribe: async (sub) => {
               for (const msg of messages) {
                 try {
-                  await handler(msg);
+                  await sub.emit({ message: msg });
                 } catch {
                   // Exchange error handled by route pipeline; continue.
                 }
@@ -339,8 +342,11 @@ describe("Route Behavior", () => {
         craft()
           .id("headers-test")
           .from({
-            subscribe: async (_, handler) => {
-              await handler("test", { "custom.header": "test-value" });
+            subscribe: async (sub) => {
+              await sub.emit({
+                message: "test",
+                headers: { "custom.header": "test-value" },
+              });
             },
           })
           .process((exchange) => {
@@ -766,8 +772,11 @@ describe("Route Behavior", () => {
         craft()
           .id("split-headers-test")
           .from<string>({
-            subscribe: async (_, handler) => {
-              await handler("one-two", { "custom.header": "test-value" });
+            subscribe: async (sub) => {
+              await sub.emit({
+                message: "one-two",
+                headers: { "custom.header": "test-value" },
+              });
             },
           })
           .split<string>((exchange) => {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type Adapter, type Step } from "../types.ts";
+import { type Step, type StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -55,7 +55,6 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
   operation: OperationType = OperationType.TAP;
   label?: string;
   adapter: Destination<T, unknown>;
-  metadata?: Record<string, unknown>;
 
   constructor(
     adapter: Destination<T, unknown> | CallableDestination<T, unknown>,
@@ -63,11 +62,7 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
     this.adapter = typeof adapter === "function" ? { send: adapter } : adapter;
   }
 
-  async execute(
-    exchange: Exchange<T>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
 
@@ -83,23 +78,19 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
 
     const promise = (async () => {
       try {
-        const result = override
-          ? await invokeSendOverride(
-              snapshot,
-              this.adapter as unknown as Destination<unknown, unknown>,
-              override,
-            )
-          : await this.adapter.send(snapshot);
-
-        // Extract metadata if the adapter provides it (skip when overridden;
-        // mock results are typically primitives and have no adapter metadata).
-        const getMetadata = (
-          this.adapter as {
-            getMetadata?: (result: unknown) => Record<string, unknown>;
-          }
-        ).getMetadata;
-        if (!override && getMetadata) {
-          this.metadata = getMetadata.call(this.adapter, result);
+        // Adapter metadata (getMetadata) is intentionally NOT collected
+        // here: the tap runs detached, so this exchange's step:completed
+        // event has already been emitted by the time send() resolves and
+        // any metadata written now would be misattributed to a later
+        // exchange's event.
+        if (override) {
+          await invokeSendOverride(
+            snapshot,
+            this.adapter as unknown as Destination<unknown, unknown>,
+            override,
+          );
+        } else {
+          await this.adapter.send(snapshot);
         }
       } catch (error: unknown) {
         const err = rcError("RC5001", error, {
@@ -108,21 +99,19 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
             "Tap errors can be handled in the route-level error() operation.",
         });
         const tapLabel = this.label ?? "tap";
-        context.emit(
-          `route:${route.definition.id}:step:${tapLabel}:error` as const,
-          {
-            error: err,
-            route,
-            exchange: snapshot,
-            operation: tapLabel,
-          },
-        );
+        context.emit("route:step:error", {
+          routeId: route.definition.id,
+          error: err,
+          route,
+          exchange: snapshot,
+          operation: tapLabel,
+        });
         throw err; // Reject for observability
       }
     })();
 
     route.trackTask(promise);
 
-    queue.push({ exchange, steps: remainingSteps });
+    return { kind: "continue", exchange };
   }
 }

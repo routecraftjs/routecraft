@@ -15,6 +15,8 @@ import {
   type Source,
   type Step,
   simple,
+  type StepContext,
+  type StepOutcome,
 } from "@routecraft/routecraft";
 
 /**
@@ -364,7 +366,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
 
     for (const name of ["hit", "miss", "stored", "failed"] as const) {
       t.ctx.on(
-        `route:cache-events:cache:${name}` as never,
+        `route:cache:${name}` as never,
         (payload: { details: { scope?: string; stepLabel?: string } }) => {
           events.push(name);
           expect(payload.details.scope).toBe("step");
@@ -661,17 +663,13 @@ describe(".cache() step scope: dual-mode wrapper", () => {
     const innerStep: Step<Adapter> = {
       operation: "transform" as Step<Adapter>["operation"],
       adapter: { adapterId: "fake.inner" } as unknown as Adapter,
-      async execute(
-        exchange: Exchange,
-        _remaining: Step<Adapter>[],
-        queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-      ): Promise<void> {
+      async execute(exchange: Exchange): Promise<StepOutcome> {
         runs++;
         await new Promise((r) => setTimeout(r, 20));
-        queue.push({
+        return {
+          kind: "continue",
           exchange: DefaultExchange.rewrap(exchange, { body: "value" }),
-          steps: [],
-        });
+        };
       },
     };
     const wrapper = new CacheWrapperStep(innerStep, {
@@ -681,19 +679,18 @@ describe(".cache() step scope: dual-mode wrapper", () => {
 
     const ex1 = new DefaultExchange(ctx, { body: "a" });
     const ex2 = new DefaultExchange(ctx, { body: "b" });
-    const q1: { exchange: Exchange; steps: Step<Adapter>[] }[] = [];
-    const q2: { exchange: Exchange; steps: Step<Adapter>[] }[] = [];
+    const stepContext: StepContext = { takePending: () => [] };
 
-    await Promise.all([
-      wrapper.execute(ex1, [], q1),
-      wrapper.execute(ex2, [], q2),
+    const [o1, o2] = await Promise.all([
+      wrapper.execute(ex1, stepContext),
+      wrapper.execute(ex2, stepContext),
     ]);
 
     expect(runs).toBe(1);
-    expect(q1).toHaveLength(1);
-    expect(q2).toHaveLength(1);
-    expect(q1[0]!.exchange.body).toBe("value");
-    expect(q2[0]!.exchange.body).toBe("value");
+    expect(o1.kind).toBe("continue");
+    expect(o2.kind).toBe("continue");
+    if (o1.kind === "continue") expect(o1.exchange.body).toBe("value");
+    if (o2.kind === "continue") expect(o2.exchange.body).toBe("value");
   });
 
   /**
@@ -713,10 +710,11 @@ describe(".cache() step scope: dual-mode wrapper", () => {
     const droppingInner: Step<Adapter> = {
       operation: "filter" as Step<Adapter>["operation"],
       adapter: { adapterId: "fake.filter" } as unknown as Adapter,
-      async execute(): Promise<void> {
+      async execute(): Promise<StepOutcome> {
         runs++;
         await new Promise((r) => setTimeout(r, 20));
-        // Push nothing: an empty inner queue signals a drop to the wrapper.
+        // A drop outcome signals the wrapper to cache nothing.
+        return { kind: "drop" };
       },
     };
     const wrapper = new CacheWrapperStep(droppingInner, {
@@ -726,18 +724,17 @@ describe(".cache() step scope: dual-mode wrapper", () => {
 
     const ex1 = new DefaultExchange(ctx, { body: "a" });
     const ex2 = new DefaultExchange(ctx, { body: "b" });
-    const q1: { exchange: Exchange; steps: Step<Adapter>[] }[] = [];
-    const q2: { exchange: Exchange; steps: Step<Adapter>[] }[] = [];
+    const stepContext: StepContext = { takePending: () => [] };
 
-    await Promise.all([
-      wrapper.execute(ex1, [], q1),
-      wrapper.execute(ex2, [], q2),
+    const [o1, o2] = await Promise.all([
+      wrapper.execute(ex1, stepContext),
+      wrapper.execute(ex2, stepContext),
     ]);
 
     expect(runs).toBe(1);
     // Both exchanges dropped: nothing forwarded downstream, nothing cached.
-    expect(q1).toHaveLength(0);
-    expect(q2).toHaveLength(0);
+    expect(o1.kind).toBe("drop");
+    expect(o2.kind).toBe("drop");
     expect(provider.size).toBe(0);
   });
 
@@ -1130,7 +1127,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
 
     for (const name of ["hit", "miss", "stored"] as const) {
       t.ctx.on(
-        `route:route-cache-events:cache:${name}` as never,
+        `route:cache:${name}` as never,
         (payload: {
           details: { scope?: string; stepLabel?: string; key?: string };
         }) => {
@@ -1178,7 +1175,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
       .build();
 
     t.ctx.on(
-      `route:route-cache-restored:exchange:restored` as never,
+      `route:exchange:restored` as never,
       (payload: { details: { source?: string } }) => {
         restored.push({ source: payload.details.source });
       },
@@ -1255,11 +1252,11 @@ describe(".cache() route scope: dual-mode wrapper", () => {
   test(".authorize() runs BEFORE the cache check (no unauthorized cache hits)", async () => {
     function principalSource<T>(body: T, principal?: Principal): Source<T> {
       return {
-        subscribe: async (_ctx, handler) => {
+        subscribe: async (sub) => {
           const headers = principal
             ? { "routecraft.auth.principal": markAuthentic(principal) }
             : undefined;
-          await handler(body, headers);
+          await sub.emit({ message: body, ...(headers ? { headers } : {}) });
         },
       };
     }
@@ -1315,7 +1312,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
           })
           .to(noop()),
       )
-      .on("route:auth-before-cache:exchange:failed", ({ details }) => {
+      .on("route:exchange:failed", ({ details }) => {
         guestErrors.push((details as { error: { rc?: string } }).error);
       })
       .build();

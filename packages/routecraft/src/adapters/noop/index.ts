@@ -1,5 +1,6 @@
 import type { Destination } from "../../operations/to.ts";
 import { NoopDestinationAdapter } from "./destination.ts";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 
 /**
  * Create a no-operation adapter that does nothing.
@@ -10,5 +11,5 @@ import { NoopDestinationAdapter } from "./destination.ts";
  * @returns A Destination that discards all messages
  */
 export function noop<T = unknown>(): Destination<T> {
-  return new NoopDestinationAdapter<T>();
+  return tagAdapter(new NoopDestinationAdapter<T>(), noop, factoryArgs());
 }

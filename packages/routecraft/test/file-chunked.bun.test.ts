@@ -177,11 +177,14 @@ describe("File Adapter - Chunked Mode", () => {
     const adapter = file({ path: filePath, chunked: true });
 
     await expect(
-      adapter.subscribe(
-        {} as any,
-        async () => ({}) as any,
-        new AbortController(),
-      ),
+      adapter.subscribe({
+        context: {} as never,
+        signal: new AbortController().signal,
+        meta: { routeId: "test" },
+        ready: () => {},
+        complete: () => {},
+        emit: async () => ({}) as never,
+      }),
     ).rejects.toThrow(/file not found/);
   });
 });

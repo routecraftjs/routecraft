@@ -106,7 +106,7 @@ export function validateAgentOptions(options: AgentOptions): void {
 
 /**
  * Validate the shape of every entry on an agent's `blocks` record.
- * Throws RC5027 on individual block misconfiguration and RC5026 on
+ * Throws AI1003 on individual block misconfiguration and AI1002 on
  * reserved-prefix collisions or empty names. Runs at construction so
  * misconfigured blocks surface immediately, not at first dispatch.
  *
@@ -167,7 +167,7 @@ function validateBlocksLevel(
   state: BlockValidationState,
 ): number {
   if (blocks === null || typeof blocks !== "object" || Array.isArray(blocks)) {
-    throw rcError("RC5027", undefined, {
+    throw rcError("AI1003", undefined, {
       message: `Agent: "blocks" must be a Record<string, BlockBody | Blocks | false>.`,
     });
   }
@@ -182,7 +182,7 @@ function validateBlocksLevel(
   for (const [name, body] of Object.entries(blocks as Blocks)) {
     const qualified = prefix ? `${prefix}${BLOCK_NAME_SEPARATOR}${name}` : name;
     if (name.trim() === "") {
-      throw rcError("RC5026", undefined, {
+      throw rcError("AI1002", undefined, {
         message: `Agent block: block name must be a non-empty string.`,
       });
     }
@@ -193,7 +193,7 @@ function validateBlocksLevel(
       name.startsWith(BLOCK_RESERVED_PREFIX) ||
       qualified.startsWith(BLOCK_RESERVED_PREFIX)
     ) {
-      throw rcError("RC5026", undefined, {
+      throw rcError("AI1002", undefined, {
         message: `Agent block "${qualified}": names starting with "${BLOCK_RESERVED_PREFIX}" are reserved for synthetic block tools. Rename the block or a parent group.`,
       });
     }
@@ -209,7 +209,7 @@ function validateBlocksLevel(
       continue;
     }
     if (body === null || typeof body !== "object") {
-      throw rcError("RC5027", undefined, {
+      throw rcError("AI1003", undefined, {
         message: `Agent block "${qualified}": value must be a BlockBody object (with mode and value), a nested Blocks group, or "false" to remove a default.`,
       });
     }
@@ -223,13 +223,13 @@ function validateBlocksLevel(
       // `value`.
       const maybeValue = (body as Partial<BlockBody>).value;
       if (typeof maybeValue === "string" || typeof maybeValue === "function") {
-        throw rcError("RC5027", undefined, {
+        throw rcError("AI1003", undefined, {
           message: `Agent block "${qualified}": "mode" must be "inject" or "progressive" (got ${JSON.stringify((body as Partial<BlockBody>).mode)}).`,
         });
       }
       const childLeaves = validateBlocksLevel(body, qualified, state);
       if (childLeaves === 0) {
-        throw rcError("RC5027", undefined, {
+        throw rcError("AI1003", undefined, {
           message: `Agent block "${qualified}": a nested group must contain at least one block (got an empty group or only "false" members).`,
         });
       }
@@ -241,7 +241,7 @@ function validateBlocksLevel(
     leafCount += 1;
     const b = body as BlockBody;
     if (b.mode !== "inject" && b.mode !== "progressive") {
-      throw rcError("RC5027", undefined, {
+      throw rcError("AI1003", undefined, {
         message: `Agent block "${qualified}": "mode" must be "inject" or "progressive" (got ${JSON.stringify(b.mode)}).`,
       });
     }
@@ -249,7 +249,7 @@ function validateBlocksLevel(
       b.mode === "progressive" &&
       (typeof b.description !== "string" || b.description.trim() === "")
     ) {
-      throw rcError("RC5027", undefined, {
+      throw rcError("AI1003", undefined, {
         message: `Agent block "${qualified}": progressive-mode blocks require a non-empty "description" so the model can decide whether to load.`,
       });
     }
@@ -260,13 +260,13 @@ function validateBlocksLevel(
     // provider on first dispatch.
     if (b.mode === "progressive") {
       if (!BLOCK_TOOL_NAME_CHARSET.test(qualified)) {
-        throw rcError("RC5027", undefined, {
+        throw rcError("AI1003", undefined, {
           message: `Agent block "${qualified}": a progressive block becomes the loader tool "${BLOCK_LOADER_PREFIX}${qualified}", so its flattened name must match ${BLOCK_TOOL_NAME_CHARSET.source} (letters, digits, "_", "-"). Rename the block or its parent group.`,
         });
       }
       const toolName = `${BLOCK_LOADER_PREFIX}${qualified}`;
       if (toolName.length > TOOL_NAME_MAX_LENGTH) {
-        throw rcError("RC5027", undefined, {
+        throw rcError("AI1003", undefined, {
           message: `Agent block "${qualified}": the loader tool name "${toolName}" is ${toolName.length} characters, over the provider limit of ${TOOL_NAME_MAX_LENGTH}. Shorten the block name or its parent group.`,
         });
       }
@@ -276,12 +276,12 @@ function validateBlocksLevel(
       b.lifetime !== "dispatch" &&
       b.lifetime !== "context"
     ) {
-      throw rcError("RC5027", undefined, {
+      throw rcError("AI1003", undefined, {
         message: `Agent block "${qualified}": "lifetime" must be "dispatch" or "context" when present (got ${JSON.stringify(b.lifetime)}).`,
       });
     }
     if (typeof b.value !== "string" && typeof b.value !== "function") {
-      throw rcError("RC5027", undefined, {
+      throw rcError("AI1003", undefined, {
         message: `Agent block "${qualified}": "value" must be a string or a function returning a string.`,
       });
     }

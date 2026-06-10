@@ -8,8 +8,8 @@ import {
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import type { ErrorHandler } from "../route.ts";
-import type { Adapter, EventName, Step } from "../types.ts";
-import { WrapperStep, type WrapperOutcome } from "./wrapper.ts";
+import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
+import { WrapperStep } from "./wrapper.ts";
 
 /**
  * Step-scope `.error()` handler. Wraps a single step. On wrapped-step
@@ -29,14 +29,14 @@ import { WrapperStep, type WrapperOutcome } from "./wrapper.ts";
  * ```
  *
  * If the handler itself throws, the wrapper rethrows so the route's
- * outer catch in `runSteps` fires the route-level handler when one is
+ * outer catch in `runPipeline` fires the route-level handler when one is
  * defined, or the default `route:*:error` / `context:error` /
  * `exchange:failed` path otherwise. The route is NOT stopped.
  *
  * Emits scope-aware lifecycle events:
- * - `route:<id>:error-handler:invoked`  ({ scope: "step", stepLabel })
- * - `route:<id>:error-handler:recovered` on handler success
- * - `route:<id>:error-handler:failed`    on handler throw (rethrown)
+ * - `route:error-handler:invoked`  ({ scope: "step", stepLabel })
+ * - `route:error-handler:recovered` on handler success
+ * - `route:error-handler:failed`    on handler throw (rethrown)
  */
 export class ErrorWrapperStep<
   T extends Adapter = Adapter,
@@ -50,8 +50,8 @@ export class ErrorWrapperStep<
 
   protected override async runInner(
     exchange: Exchange,
-    innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-  ): Promise<WrapperOutcome> {
+    ctx: StepContext,
+  ): Promise<StepOutcome> {
     const route = getExchangeRoute(exchange);
     const context = getExchangeContext(exchange);
     const stepLabel = this.label ?? String(this.operation);
@@ -59,14 +59,11 @@ export class ErrorWrapperStep<
       HeadersKeys.CORRELATION_ID
     ] as string;
 
-    // Run the inner step against the per-execution `innerQueue` so we
-    // can capture pushes (for split / choice / etc.) and let the
-    // template method re-relay them with `remainingSteps`. The buffer
-    // is owned by a single `execute()` invocation, so concurrent
-    // exchanges through the same step instance never alias state.
+    // Run the inner step and pass its outcome through unchanged on
+    // success. The inner never sees the work queue, so a failure here
+    // has scheduled nothing; recovery simply substitutes an outcome.
     try {
-      await this.inner.execute(exchange, [], innerQueue);
-      return "ok";
+      return await this.inner.execute(exchange, ctx);
     } catch (rawInnerError) {
       // Normalise the thrown value to `RoutecraftError` so the
       // step-scope handler receives the same shape the route-scope
@@ -83,7 +80,7 @@ export class ErrorWrapperStep<
           });
       const routeId = route?.definition.id;
       if (route && context && routeId) {
-        context.emit(`route:${routeId}:error-handler:invoked` as EventName, {
+        context.emit("route:error-handler:invoked", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -105,39 +102,15 @@ export class ErrorWrapperStep<
           });
         }
         const recovered = await this.handler(innerError, exchange, forward);
-        // Drop any partial pushes the failed inner step made before
-        // throwing so the template method routes the single recovered
-        // exchange forward, not the half-finished children.
-        innerQueue.length = 0;
-        // Build a recovered exchange (the original is frozen) and push
-        // it onto innerQueue so the wrapper template method relays it
-        // to the real queue with `remainingSteps` reattached. Inheriting
+        // Build a recovered exchange (the original is frozen). Inheriting
         // identity / internals via rewrap keeps event correlation
         // (exchangeId, route binding) consistent across the recovery.
-        innerQueue.push({
-          exchange: DefaultExchange.rewrap(exchange, { body: recovered }),
-          steps: [],
+        const recoveredExchange = DefaultExchange.rewrap(exchange, {
+          body: recovered,
         });
 
         if (route && context && routeId) {
-          context.emit(
-            `route:${routeId}:error-handler:recovered` as EventName,
-            {
-              routeId,
-              exchangeId: exchange.id,
-              correlationId,
-              originalError: innerError,
-              failedOperation: stepLabel,
-              recoveryStrategy: "step-error-handler",
-              scope: "step",
-              stepLabel,
-            },
-          );
-        }
-        return "recovered";
-      } catch (handlerError) {
-        if (route && context && routeId) {
-          context.emit(`route:${routeId}:error-handler:failed` as EventName, {
+          context.emit("route:error-handler:recovered", {
             routeId,
             exchangeId: exchange.id,
             correlationId,
@@ -148,7 +121,21 @@ export class ErrorWrapperStep<
             stepLabel,
           });
         }
-        // Rethrow so `runSteps` cascades to the route-level handler
+        return { kind: "continue", exchange: recoveredExchange };
+      } catch (handlerError) {
+        if (route && context && routeId) {
+          context.emit("route:error-handler:failed", {
+            routeId,
+            exchangeId: exchange.id,
+            correlationId,
+            originalError: innerError,
+            failedOperation: stepLabel,
+            recoveryStrategy: "step-error-handler",
+            scope: "step",
+            stepLabel,
+          });
+        }
+        // Rethrow so `runPipeline` cascades to the route-level handler
         // (or the default error path when none is set). Wrap raw
         // throws in `RoutecraftError` for consistent observability;
         // pass-through if already an RoutecraftError.

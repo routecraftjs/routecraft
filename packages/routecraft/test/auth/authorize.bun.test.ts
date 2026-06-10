@@ -6,7 +6,6 @@ import {
   markAuthentic,
   noop,
   simple,
-  type EventName,
   type Principal,
   type Source,
 } from "../../src/index.ts";
@@ -23,11 +22,11 @@ type FailedEventDetails = { details: { error: unknown } };
  */
 function principalSource<T>(body: T, principal?: Principal): Source<T> {
   return {
-    subscribe: async (_ctx, handler) => {
+    subscribe: async (sub) => {
       const headers = principal
         ? { "routecraft.auth.principal": markAuthentic(principal) }
         : undefined;
-      await handler(body, headers);
+      await sub.emit({ message: body, ...(headers ? { headers } : {}) });
     },
   };
 }
@@ -83,12 +82,9 @@ describe("authorize() validator", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:anon:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -123,12 +119,9 @@ describe("authorize() validator", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:rbac:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -164,12 +157,9 @@ describe("authorize() validator", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:multi-role:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -211,12 +201,9 @@ describe("authorize() validator", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:scope:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -255,12 +242,9 @@ describe("authorize() validator", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:predicate:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -323,12 +307,9 @@ describe(".authorize() route-only method", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:pre-from-anon:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -402,12 +383,9 @@ describe(".authorize() route-only method", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:short-circuit:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -471,12 +449,9 @@ describe(".authorize() route-only method", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:recover:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -610,14 +585,9 @@ describe(".authorize() positional rules", () => {
       .build();
 
     const failures: unknown[] = [];
-    const routes = t.ctx.getRoutes();
-    const secondId = routes[1]?.definition.id ?? "";
-    t.ctx.on(
-      `route:${secondId}:exchange:failed` as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -896,12 +866,9 @@ describe("authorize() expiresAt enforcement", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:exp-past:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -966,12 +933,9 @@ describe("authorize() expiresAt enforcement", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:exp-beyond-tolerance:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -1006,12 +970,9 @@ describe("authorize() expiresAt enforcement", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:exp-nan:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 
@@ -1047,12 +1008,9 @@ describe("authorize() expiresAt enforcement", () => {
       .build();
 
     const failures: unknown[] = [];
-    t.ctx.on(
-      "route:exp-precedence:exchange:failed" as EventName,
-      ((payload: FailedEventDetails) => {
-        failures.push(payload.details.error);
-      }) as Parameters<typeof t.ctx.on>[1],
-    );
+    t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
 
     await t.test();
 

@@ -123,7 +123,7 @@ describe("JSONL Adapter", () => {
         .build();
 
       t.ctx.on(
-        "route:jsonl-non-chunked-abort:exchange:failed" as never,
+        "route:exchange:failed" as never,
         ((payload: { details: { error: unknown } }) => {
           failed.push({ error: payload.details.error });
         }) as never,
@@ -322,7 +322,7 @@ describe("JSONL Adapter", () => {
         .build();
 
       t.ctx.on(
-        "route:jsonl-chunked-abort:exchange:failed" as never,
+        "route:exchange:failed" as never,
         ((payload: { details: { error: unknown } }) => {
           failed.push({ error: payload.details.error });
         }) as never,
@@ -407,7 +407,7 @@ describe("JSONL Adapter", () => {
         .build();
 
       t.ctx.on(
-        "route:jsonl-chunked-drop:exchange:dropped" as never,
+        "route:exchange:dropped" as never,
         ((payload: { details: { reason: string } }) => {
           dropped.push({ reason: payload.details.reason });
         }) as never,
@@ -496,19 +496,19 @@ describe("JSONL Adapter", () => {
         .build();
 
       t.ctx.on(
-        "route:jsonl-input-bad:exchange:started" as never,
+        "route:exchange:started" as never,
         ((payload: { details: { exchangeId: string } }) => {
           started.push(payload.details.exchangeId);
         }) as never,
       );
       t.ctx.on(
-        "route:jsonl-input-bad:exchange:failed" as never,
+        "route:exchange:failed" as never,
         ((payload: { details: { error: { rc?: string } } }) => {
           failed.push({ error: payload.details.error });
         }) as never,
       );
       t.ctx.on(
-        "route:jsonl-input-bad:exchange:dropped" as never,
+        "route:exchange:dropped" as never,
         ((payload: { details: { reason: string } }) => {
           dropped.push({ reason: payload.details.reason });
         }) as never,
@@ -753,11 +753,14 @@ describe("JSONL Adapter", () => {
       const adapter = jsonl({ path: path.join(tmpDir, "missing.jsonl") });
 
       await expect(
-        adapter.subscribe(
-          {} as any,
-          async () => ({}) as any,
-          new AbortController(),
-        ),
+        adapter.subscribe({
+          context: {} as never,
+          signal: new AbortController().signal,
+          meta: { routeId: "test" },
+          ready: () => {},
+          complete: () => {},
+          emit: async () => ({}) as never,
+        }),
       ).rejects.toThrow(/file not found/);
     });
 
@@ -771,11 +774,14 @@ describe("JSONL Adapter", () => {
       const adapter = jsonl({ path: () => "x.jsonl", mode: "read" });
 
       await expect(
-        adapter.subscribe(
-          {} as any,
-          async () => ({}) as any,
-          new AbortController(),
-        ),
+        adapter.subscribe({
+          context: {} as never,
+          signal: new AbortController().signal,
+          meta: { routeId: "test" },
+          ready: () => {},
+          complete: () => {},
+          emit: async () => ({}) as never,
+        }),
       ).rejects.toThrow(/static string path/);
     });
   });

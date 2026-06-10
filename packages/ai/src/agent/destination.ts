@@ -324,7 +324,7 @@ function mergeBlocks(
 
 /**
  * Merge user tools (from `tools([...])`) with synthetic block-loader
- * tools produced by {@link resolveBlocks}. Rejects (RC5026) any user
+ * tools produced by {@link resolveBlocks}. Rejects (AI1002) any user
  * tool whose resolved name starts with the reserved `_block_` prefix,
  * so a misconfigured registry cannot shadow the framework's surface.
  *
@@ -336,7 +336,7 @@ function mergeUserAndLoaderTools(
 ): ResolvedTool[] {
   for (const tool of userTools) {
     if (tool.name.startsWith(BLOCK_RESERVED_PREFIX)) {
-      throw rcError("RC5026", undefined, {
+      throw rcError("AI1002", undefined, {
         message: `Agent tool "${tool.name}": names starting with "${BLOCK_RESERVED_PREFIX}" are reserved for synthetic block tools. Rename the fn or route.`,
       });
     }

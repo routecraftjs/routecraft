@@ -217,7 +217,7 @@ Today (as of #112 / #395 / 0.6.0):
     catch (chain position #1; implemented as the queue loop's
     try/catch boundary rather than a step).
 - Parse (chain position #3) is **dynamic per exchange** (set on
-  exchange internals by the source adapter), so `runSteps`
+  exchange internals by the source adapter), so `runPipeline`
   interleaves it at runtime between `preParseFilters` and
   `postParseFilters`.
 - The cache key flows from `cache-check` to `cache-store` via
@@ -232,7 +232,7 @@ runs in `Route.buildConsumerHandler()` rather than as a chain
 step. This is **a deliberate scoping choice** for the v1
 refactor: moving it into the chain alters when `context:error`
 fires for cross-route validation failures (the consumer route's
-chain fires `context:error` from the runSteps catch instead of
+chain fires `context:error` from the runPipeline catch instead of
 the eager throw-and-propagate path). Folding it in is tracked
 as a follow-up; until then, parse-attached sources still stash
 the validator on `internals.applyValidation` and the parse step
@@ -241,7 +241,7 @@ runs it.
 Filters 5-8 (`throttle`, `circuitBreaker`, `retry`, `timeout`)
 will be added by their respective issues into the
 `postParseFilters` slot at the documented positions. Each adds
-~one filter implementation, not ~100 lines of inlined `runSteps`
+~one filter implementation, not ~100 lines of inlined executor
 logic.
 
 ---

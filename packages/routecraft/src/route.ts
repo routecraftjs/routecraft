@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type CraftContext } from "./context.ts";
-import type { EventName } from "./types.ts";
 import {
   type Exchange,
   HeadersKeys,
@@ -9,35 +8,42 @@ import {
   type ExchangeHeaders,
   DefaultExchange,
   EXCHANGE_INTERNALS,
-  isDropped,
-  markDropped,
-  setStartedAt,
 } from "./exchange.ts";
 import { type RegisteredDirectEndpoint } from "./registry.ts";
-import { SPLIT_PARENT_STORE } from "./operations/split.ts";
 import {
   resolveAdapterOverride,
   wrapSourceWithOverride,
 } from "./testing-hooks.ts";
 import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
-import { rcError, RoutecraftError, RC, formatSchemaIssues } from "./error.ts";
+import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
-import { type Source } from "./operations/from.ts";
-import {
-  type OnParseError,
-  PARSE_DROPPED_REASON,
-} from "./adapters/shared/parse.ts";
+import { type Source, type Subscription } from "./operations/from.ts";
+import { type OnParseError } from "./adapters/shared/parse.ts";
 import {
   type Adapter,
   type Step,
-  getAdapterLabel,
   type Consumer,
   type ConsumerType,
   type Message,
   type ProcessingQueue,
 } from "./types.ts";
 import { InMemoryProcessingQueue } from "./queue.ts";
+import {
+  buildCacheCheckStep,
+  buildCacheStoreStep,
+} from "./pipeline/synthetic-steps.ts";
+import {
+  applyInputValidation,
+  applyOutputValidation,
+  handleOutputValidationFailure,
+  validateInputOrThrow,
+  type ValidationDeps,
+} from "./pipeline/validation.ts";
+import { runPipeline, type ExecutorDeps } from "./pipeline/executor.ts";
+
+// Re-exported for existing imports (builder.ts and @internal consumers).
+export { buildCacheCheckStep, buildCacheStoreStep };
 
 /**
  * Function that forwards a payload to another route via the direct adapter and returns its result.
@@ -123,362 +129,6 @@ export interface RouteDiscovery {
    * tags.
    */
   tags?: Tag[];
-}
-
-/**
- * Synthetic adapter used as the carrier for the parse step. Has no behaviour;
- * the step's `execute` does the work.
- */
-const PARSE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.parse" };
-
-/**
- * Build a synthetic pipeline step that runs a source-supplied parse function
- * against the exchange body. Inserted by `runSteps` as the first step when a
- * source attaches `parse` to its message; this is what makes parse failures
- * observable as normal pipeline events (rather than aborting the source).
- * See #187.
- *
- * Behaviour on parse failure depends on `failureMode`:
- * - `"fail"` / `"abort"`: throw `RC5016` so `exchange:failed` fires (or the
- *   route's `.error()` handler recovers). The adapter's caller distinguishes
- *   `"abort"` by re-throwing the rejection out of subscribe.
- * - `"drop"`: emit `exchange:dropped` with `reason: "parse-failed"` (matching
- *   filter / validate drop semantics) and halt the pipeline cleanly without
- *   invoking `.error()`.
- *
- * When `applyValidation` is supplied, it runs immediately after a successful
- * parse so route-level `.input()` schemas validate the parsed body, not the
- * raw bytes. Validation failure throws out of `applyValidation` and is
- * handled by the step loop's catch path like any step error.
- *
- * The step manages its own `step:started` / `step:completed` / `step:failed`
- * lifecycle events (`skipStepEvents: true`) so we can emit `step:completed`
- * for the drop case (drops are not failures) without the route loop
- * double-emitting.
- */
-function buildParseStep(
-  parse: (raw: unknown) => unknown | Promise<unknown>,
-  failureMode: OnParseError,
-  applyValidation?: (exchange: Exchange) => Promise<Exchange>,
-): Step<Adapter> {
-  return {
-    operation: OperationType.PARSE,
-    label: "parse",
-    adapter: PARSE_STEP_ADAPTER,
-    skipStepEvents: true,
-    async execute(exchange, remainingSteps, queue) {
-      const internals = EXCHANGE_INTERNALS.get(exchange);
-      const context = internals?.context;
-      const route = internals?.route;
-      const routeId =
-        route?.definition.id ??
-        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
-      const correlationId = exchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-      const stepStart = Date.now();
-
-      const emitStepStarted = () => {
-        context?.emit(`route:${routeId}:step:started` as EventName, {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          operation: "parse",
-          adapter: "parse",
-        });
-      };
-      const emitStepCompleted = () => {
-        context?.emit(`route:${routeId}:step:completed` as EventName, {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          operation: "parse",
-          adapter: "parse",
-          duration: Date.now() - stepStart,
-        });
-      };
-      const emitStepFailed = (err: unknown) => {
-        context?.emit(`route:${routeId}:step:failed` as EventName, {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          operation: "parse",
-          adapter: "parse",
-          duration: Date.now() - stepStart,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      };
-
-      emitStepStarted();
-
-      let parsed: Exchange;
-      try {
-        const parsedBody = await parse(exchange.body);
-        parsed = DefaultExchange.rewrap(exchange, { body: parsedBody });
-      } catch (cause) {
-        if (failureMode === "drop") {
-          // The parse threw, so the step itself failed: emit step:failed
-          // (honest about what happened), then exchange:dropped with a
-          // stable reason (carries the policy decision). Subscribers
-          // counting parse failures see step:failed; subscribers
-          // tracking drop policy see exchange:dropped.
-          emitStepFailed(cause);
-          // Mark dropped before `exchange:dropped` fires so subscribers
-          // calling `isDropped(event.details.exchange)` observe the
-          // correct state. The route engine reads it after `runSteps`
-          // to skip `exchange:completed`.
-          markDropped(exchange);
-          context?.emit(`route:${routeId}:exchange:dropped` as EventName, {
-            routeId,
-            exchangeId: exchange.id,
-            correlationId,
-            reason: PARSE_DROPPED_REASON,
-            exchange,
-          });
-          return;
-        }
-        // 'fail' / 'abort': throw RC5016 so the step loop's catch path
-        // emits exchange:failed (or invokes the route's `.error()`).
-        emitStepFailed(cause);
-        const causeMessage =
-          cause instanceof Error ? cause.message : String(cause);
-        throw rcError("RC5016", cause, {
-          message: `Source payload parse failed: ${causeMessage}`,
-        });
-      }
-
-      if (applyValidation) {
-        try {
-          parsed = await applyValidation(parsed);
-        } catch (cause) {
-          emitStepFailed(cause);
-          throw cause;
-        }
-      }
-
-      emitStepCompleted();
-      // Hand control back to the step loop with the user's pipeline.
-      queue.push({ exchange: parsed, steps: remainingSteps });
-    },
-  };
-}
-
-/**
- * Synthetic adapter carriers for the route-scope cache filter steps.
- * Distinct adapter ids per filter so telemetry / event subscribers
- * correlating by `adapter` can tell read failures (`cache.check`) from
- * write failures (`cache.store`) without parsing the step label.
- * Neither carrier has behaviour; the steps' `execute` does the work.
- */
-const CACHE_CHECK_STEP_ADAPTER: Adapter = {
-  adapterId: "routecraft.cache.check",
-};
-const CACHE_STORE_STEP_ADAPTER: Adapter = {
-  adapterId: "routecraft.cache.store",
-};
-
-/**
- * Build the route-scope cache HIT-CHECK synthetic step. Inserted into
- * `initialSteps` AFTER `buildParseStep` (so parse + `applyValidation`
- * have already run) and BEFORE the user steps. Derives the cache key
- * from the parsed/validated exchange, looks it up in the provider, and
- * on a hit pushes a rewrapped exchange with `steps: []` to short-circuit
- * the rest of the pipeline (including the matching cache-store step).
- * On a miss pushes the exchange with the unchanged `remainingSteps` so
- * the user pipeline runs.
- *
- * Manages its own observability: emits `cache:hit` / `cache:miss` /
- * `cache:failed` plus `exchange:restored` on a hit. `skipStepEvents:
- * true` keeps `runSteps` from emitting generic `step:started` /
- * `step:completed` for this internal step.
- *
- * @internal Exported only so `RouteBuilder.from()` can assemble it into
- * `RouteDefinition.postParseFilters`. Not part of the public API; the
- * signature may change without notice.
- */
-export function buildCacheCheckStep(
-  cacheConfig: import("./operations/cache-wrapper.ts").ResolvedCacheOptions,
-): Step<Adapter> {
-  return {
-    operation: OperationType.PROCESS,
-    label: "cache-check",
-    adapter: CACHE_CHECK_STEP_ADAPTER,
-    skipStepEvents: true,
-    async execute(exchange, remainingSteps, queue) {
-      const internals = EXCHANGE_INTERNALS.get(exchange);
-      const context = internals?.context;
-      const route = internals?.route;
-      const routeId =
-        route?.definition.id ??
-        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
-      const correlationId = exchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-
-      let key: string;
-      try {
-        key = cacheConfig.key(exchange);
-      } catch (err) {
-        context?.emit(`route:${routeId}:cache:failed` as EventName, {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          stepLabel: "route",
-          scope: "route",
-          phase: "key",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        throw isRoutecraftError(err)
-          ? err
-          : rcError("RC5029", err, {
-              message: `Route-scope .cache({ key }) for "${routeId}" threw while deriving the cache key`,
-            });
-      }
-      // Hand the key off to the matching cache-store filter via
-      // exchange internals. Internals is the framework's per-exchange
-      // state bag set at construction time; absence here means the
-      // caller built an exchange outside `DefaultExchange.rewrap`,
-      // which violates the contract. Fail loudly rather than silently
-      // skip the cache write at the tail of the pipeline.
-      if (!internals) {
-        throw rcError("RC5028", undefined, {
-          message: `Route-scope .cache() for "${routeId}" ran on an exchange without framework internals; cache key cannot be propagated to the store step. This indicates an adapter or step constructed an Exchange outside DefaultExchange.rewrap.`,
-        });
-      }
-      internals.cacheKey = key;
-
-      let cached: unknown;
-      try {
-        cached = await cacheConfig.provider.get(key);
-      } catch (err) {
-        context?.emit(`route:${routeId}:cache:failed` as EventName, {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          stepLabel: "route",
-          scope: "route",
-          phase: "get",
-          key,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        throw isRoutecraftError(err)
-          ? err
-          : rcError("RC5028", err, {
-              message: `Route-scope .cache() provider read failed for "${routeId}"`,
-            });
-      }
-
-      if (cached !== undefined) {
-        // HIT: short-circuit the pipeline by pushing the rewrapped
-        // exchange with no remaining steps. The matching cache-store
-        // step (tail of initialSteps) is therefore skipped too.
-        context?.emit(`route:${routeId}:cache:hit` as EventName, {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          stepLabel: "route",
-          scope: "route",
-          key,
-        });
-        context?.emit(`route:${routeId}:exchange:restored` as EventName, {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          source: "cache",
-        });
-        queue.push({
-          exchange: DefaultExchange.rewrap(exchange, { body: cached }),
-          steps: [],
-        });
-        return;
-      }
-
-      // MISS: continue the pipeline.
-      context?.emit(`route:${routeId}:cache:miss` as EventName, {
-        routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        stepLabel: "route",
-        scope: "route",
-        key,
-      });
-      queue.push({ exchange, steps: remainingSteps });
-    },
-  };
-}
-
-/**
- * Build the route-scope cache STORE synthetic step. Inserted as the
- * tail of `initialSteps` after the user steps. Reached only on the
- * miss path (the cache-check step pushes `steps: []` on a hit to skip
- * everything including this step). Writes the terminal body using the
- * key captured by the matching check step.
- *
- * Provider write failures emit `cache:failed phase:"set"` for
- * observability but do NOT fail the exchange: the result was already
- * computed by the user pipeline. This diverges from step-scope, where
- * a write failure throws RC5028; the divergence is intentional and
- * documented on the operation reference page.
- *
- * `skipStepEvents: true` keeps `runSteps` from emitting generic
- * lifecycle events for this internal step.
- *
- * @internal Exported only so `RouteBuilder.from()` can assemble it into
- * `RouteDefinition.postFromFilters`. Not part of the public API; the
- * signature may change without notice.
- */
-export function buildCacheStoreStep(
-  cacheConfig: import("./operations/cache-wrapper.ts").ResolvedCacheOptions,
-): Step<Adapter> {
-  return {
-    operation: OperationType.PROCESS,
-    label: "cache-store",
-    adapter: CACHE_STORE_STEP_ADAPTER,
-    skipStepEvents: true,
-    async execute(exchange, remainingSteps, queue) {
-      const internals = EXCHANGE_INTERNALS.get(exchange);
-      const context = internals?.context;
-      const route = internals?.route;
-      const routeId =
-        route?.definition.id ??
-        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
-      const correlationId = exchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-      const key = internals?.cacheKey;
-
-      // Only cache successful runs whose terminal body is not
-      // `undefined`. `null` is cached (envelope handles it). Dropped
-      // exchanges never reach this step because the queue loop stops
-      // pushing on a drop.
-      if (key !== undefined && exchange.body !== undefined) {
-        try {
-          await cacheConfig.provider.set(key, exchange.body, cacheConfig.ttl);
-          context?.emit(`route:${routeId}:cache:stored` as EventName, {
-            routeId,
-            exchangeId: exchange.id,
-            correlationId,
-            stepLabel: "route",
-            scope: "route",
-            key,
-            ...(cacheConfig.ttl !== undefined ? { ttl: cacheConfig.ttl } : {}),
-          });
-        } catch (err) {
-          context?.emit(`route:${routeId}:cache:failed` as EventName, {
-            routeId,
-            exchangeId: exchange.id,
-            correlationId,
-            stepLabel: "route",
-            scope: "route",
-            phase: "set",
-            key,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-      queue.push({ exchange, steps: remainingSteps });
-    },
-  };
 }
 
 /**
@@ -695,12 +345,14 @@ export class DefaultRoute implements Route {
     // Emit routeStopping/routeStopped when the controller is aborted externally
     this.abortController.signal.addEventListener("abort", (event) => {
       try {
-        this.context.emit(`route:${this.definition.id}:stopping` as EventName, {
+        this.context.emit("route:stopping", {
+          routeId: this.definition.id,
           route: this,
           reason: (event as unknown as { reason?: unknown })?.reason,
         });
       } finally {
-        this.context.emit(`route:${this.definition.id}:stopped` as EventName, {
+        this.context.emit("route:stopped", {
+          routeId: this.definition.id,
           route: this,
         });
       }
@@ -763,269 +415,41 @@ export class DefaultRoute implements Route {
     return exchange;
   }
 
-  /**
-   * Run Standard Schema validation against a value. Returns the validated
-   * value on success (schemas can legitimately transform to `undefined`,
-   * so presence of the `value` key is what decides success, not truthiness)
-   * or a human-readable message on failure.
-   */
-  private async validateAgainst(
-    schema: StandardSchemaV1,
-    value: unknown,
-  ): Promise<{ ok: true; value: unknown } | { ok: false; message: string }> {
-    let result = schema["~standard"].validate(value);
-    if (result instanceof Promise) result = await result;
-    const issues = (result as { issues?: unknown }).issues;
-    if (issues !== undefined && issues !== null) {
-      return { ok: false, message: formatSchemaIssues(issues) };
-    }
-    const successResult = result as { value?: unknown };
-    return {
-      ok: true,
-      value: "value" in successResult ? successResult.value : value,
-    };
-  }
+  private cachedExecutorDeps?: ExecutorDeps;
+  private cachedValidationDeps?: ValidationDeps;
 
   /**
-   * Validate an incoming exchange against the route's `input` schemas BEFORE
-   * the pipeline runs (no `exchange:started` has fired yet).
-   *
-   * On success returns a (possibly new) exchange with validated / coerced
-   * values; headers are merged over the originals so pass-through keys
-   * like correlation IDs survive schemas that strip unknowns. On failure
-   * emits `exchange:started` followed by `exchange:dropped` for telemetry
-   * and throws an RC5002 error so the source's caller (e.g. a direct
-   * channel's `send`) sees the rejection.
-   *
-   * MUST NOT be called after `handler()` has emitted `exchange:started` for
-   * the exchange (e.g. from inside the synthetic parse step). Use
-   * {@link validateInputOrThrow} for that path: it throws RC5002 without
-   * emitting events, so the parse step's `step:failed` -> runSteps catch ->
-   * `exchange:failed` lifecycle stays intact.
+   * Assemble the deps object for the pipeline executor. Memoized: every
+   * field is stable for the lifetime of the route, and this is called on
+   * the per-exchange hot path.
    */
-  private async applyInputValidation(
-    exchange: Exchange,
-    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
-  ): Promise<Exchange> {
-    let current = exchange;
-    if (schemas.body) {
-      const res = await this.validateAgainst(schemas.body, current.body);
-      if (!res.ok) {
-        throw this.emitInputValidationFailure(current, "body", res.message);
-      }
-      current = DefaultExchange.rewrap(current, { body: res.value });
-    }
-    if (schemas.headers) {
-      const res = await this.validateAgainst(schemas.headers, current.headers);
-      if (!res.ok) {
-        throw this.emitInputValidationFailure(current, "headers", res.message);
-      }
-      const headerValue = res.value as ExchangeHeaders | undefined;
-      if (headerValue !== undefined) {
-        // Merge validated values over the originals so caller pass-through
-        // keys (correlation IDs, adapter-injected metadata) survive
-        // schemas that strip unknowns.
-        current = DefaultExchange.rewrap(current, {
-          headers: { ...current.headers, ...headerValue },
-        });
-      }
-    }
-    return current;
-  }
-
-  /**
-   * Same as {@link applyInputValidation} but without emitting any
-   * `exchange:started` / `exchange:dropped` events on failure: just throws
-   * RC5002. Used by the synthetic parse step in `runSteps` so a validation
-   * failure becomes a normal step failure (`step:failed` -> `exchange:failed`)
-   * rather than a duplicate `started` + stray `dropped` followed by a
-   * `failed` (see #187).
-   */
-  private async validateInputOrThrow(
-    exchange: Exchange,
-    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
-  ): Promise<Exchange> {
-    let current = exchange;
-    if (schemas.body) {
-      const res = await this.validateAgainst(schemas.body, current.body);
-      if (!res.ok) {
-        throw rcError("RC5002", new Error(res.message), {
-          message: `Body validation failed for route "${this.definition.id}"`,
-        });
-      }
-      current = DefaultExchange.rewrap(current, { body: res.value });
-    }
-    if (schemas.headers) {
-      const res = await this.validateAgainst(schemas.headers, current.headers);
-      if (!res.ok) {
-        throw rcError("RC5002", new Error(res.message), {
-          message: `Header validation failed for route "${this.definition.id}"`,
-        });
-      }
-      const headerValue = res.value as ExchangeHeaders | undefined;
-      if (headerValue !== undefined) {
-        current = DefaultExchange.rewrap(current, {
-          headers: { ...current.headers, ...headerValue },
-        });
-      }
-    }
-    return current;
-  }
-
-  /**
-   * Emit exchange:started followed by exchange:dropped for a message that
-   * failed framework-level input validation and return the RC5002 error so
-   * the caller can throw it. The source's own sender (e.g. a direct
-   * channel's `send`) needs the rejection to propagate; pipeline telemetry
-   * still sees the drop via the events.
-   */
-  private emitInputValidationFailure(
-    exchange: Exchange,
-    direction: "body" | "headers",
-    message: string,
-  ): RoutecraftError {
-    const routeId = this.definition.id;
-    const correlationId = (exchange.headers[HeadersKeys.CORRELATION_ID] ??
-      exchange.id) as string;
-
-    const err = rcError("RC5002", new Error(message), {
-      message: `${direction === "body" ? "Body" : "Header"} validation failed for route "${routeId}"`,
-    });
-
-    this.context.emit(`route:${routeId}:exchange:started` as EventName, {
-      routeId,
-      exchangeId: exchange.id,
-      correlationId,
-    });
-    this.context.emit(`route:${routeId}:exchange:dropped` as EventName, {
-      routeId,
-      exchangeId: exchange.id,
-      correlationId,
-      reason: `input validation failed: ${message}`,
-      exchange,
-    });
-
-    this.logger.warn(
-      { err, routeId, direction, operation: "from" },
-      `Input ${direction} validation failed; exchange dropped`,
-    );
-
-    return err;
-  }
-
-  /**
-   * Handle an output-validation failure. Delegates to the route's error
-   * handler when one is configured (mirroring how step errors recover);
-   * otherwise emits `exchange:failed` and returns a failed result so the
-   * caller can surface the error.
-   */
-  private async handleOutputValidationFailure(
-    exchange: Exchange,
-    error: unknown,
-    startTime: number,
-    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
-  ): Promise<{
-    exchange: Exchange;
-    failed: boolean;
-    dropped: boolean;
-    error?: unknown;
-  }> {
-    const routeId = this.definition.id;
-    const correlationId = exchange.headers[
-      HeadersKeys.CORRELATION_ID
-    ] as string;
-
-    this.context.emit(`route:${routeId}:step:output:error` as EventName, {
-      error,
+  private executorDeps(): ExecutorDeps {
+    this.cachedExecutorDeps ??= {
+      routeId: this.definition.id,
+      context: this.context,
       route: this,
-      exchange,
-      operation: "output",
-    });
-
-    if (this.definition.errorHandler) {
-      try {
-        const forward = this.buildForward();
-        const recovered = await this.definition.errorHandler(
-          error,
-          exchange,
-          forward,
-        );
-        // Re-validate the recovered body against the same output schemas
-        // before declaring success. Without this, an `errorHandler` that
-        // returns another invalid payload would silently bypass the
-        // route's `.output()` contract and flow out via
-        // `exchange:completed`. A second failure here cascades through
-        // the existing handlerErr branch so the failure surfaces the
-        // same way (`exchange:failed` plus the failure result).
-        const recoveredExchange = await this.applyOutputValidation(
-          DefaultExchange.rewrap(exchange, { body: recovered }),
-          schemas,
-        );
-        this.context.emit(`route:${routeId}:error:caught` as EventName, {
-          error,
-          route: this,
-          exchange: recoveredExchange,
-        });
-        return { exchange: recoveredExchange, failed: false, dropped: false };
-      } catch (handlerErr) {
-        this.context.emit(`route:${routeId}:exchange:failed` as const, {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          duration: Date.now() - startTime,
-          error: handlerErr,
-          exchange,
-        });
-        return { exchange, failed: true, dropped: false, error: handlerErr };
-      }
-    }
-
-    this.context.emit(`route:${routeId}:exchange:failed` as const, {
-      routeId,
-      exchangeId: exchange.id,
-      correlationId,
-      duration: Date.now() - startTime,
-      error,
-      exchange,
-    });
-    return { exchange, failed: true, dropped: false, error };
+      definition: this.definition,
+      buildForward: () => this.buildForward(),
+    };
+    return this.cachedExecutorDeps;
   }
 
-  /**
-   * Validate the final exchange against the route's `output` schemas.
-   * On success returns the validated (possibly new) exchange. On failure
-   * throws an RC5002 error so the normal error / error-handler flow takes
-   * over.
-   */
-  private async applyOutputValidation(
-    exchange: Exchange,
-    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
-  ): Promise<Exchange> {
-    let current = exchange;
-    if (schemas.body) {
-      const res = await this.validateAgainst(schemas.body, current.body);
-      if (!res.ok) {
-        throw rcError("RC5002", new Error(res.message), {
-          message: `Output body validation failed for route "${this.definition.id}"`,
-        });
+  /** Assemble the deps object for the pipeline validation helpers (memoized, see {@link executorDeps}). */
+  private validationDeps(): ValidationDeps {
+    if (!this.cachedValidationDeps) {
+      const deps: ValidationDeps = {
+        routeId: this.definition.id,
+        context: this.context,
+        logger: this.logger,
+        route: this,
+        buildForward: () => this.buildForward(),
+      };
+      if (this.definition.errorHandler) {
+        deps.errorHandler = this.definition.errorHandler;
       }
-      current = DefaultExchange.rewrap(current, { body: res.value });
+      this.cachedValidationDeps = deps;
     }
-    if (schemas.headers) {
-      const res = await this.validateAgainst(schemas.headers, current.headers);
-      if (!res.ok) {
-        throw rcError("RC5002", new Error(res.message), {
-          message: `Output header validation failed for route "${this.definition.id}"`,
-        });
-      }
-      const headerValue = res.value as ExchangeHeaders | undefined;
-      if (headerValue !== undefined) {
-        current = DefaultExchange.rewrap(current, {
-          headers: { ...current.headers, ...headerValue },
-        });
-      }
-    }
-    return current;
+    return this.cachedValidationDeps;
   }
 
   /**
@@ -1082,7 +506,8 @@ export class DefaultRoute implements Route {
       readyIndices.add(index);
       if (!startedEmitted && readyIndices.size === total) {
         startedEmitted = true;
-        this.context.emit(`route:${this.definition.id}:started` as EventName, {
+        this.context.emit("route:started", {
+          routeId: this.definition.id,
           route: this,
         });
       }
@@ -1130,32 +555,33 @@ export class DefaultRoute implements Route {
           // http/mcp server holding the route open).
           const sourceController =
             total === 1 ? this.abortController : this.linkedChildController();
+          // Assemble the Subscription object: the single argument every
+          // source receives. Capabilities are added here as new fields,
+          // never as new positional parameters.
+          const subscription: Subscription = {
+            context: this.context,
+            signal: sourceController.signal,
+            meta,
+            ready: () => markReady(index),
+            complete: (reason?: unknown) => sourceController.abort(reason),
+            emit: (msg) => {
+              markReady(index); // fallback: fire before first message if adapter never called ready()
+              return channel.enqueue({
+                message: msg.message,
+                headers: msg.headers ?? {},
+                ...(msg.parse
+                  ? {
+                      parse: msg.parse,
+                      parseFailureMode: msg.parseFailureMode ?? "fail",
+                    }
+                  : {}),
+              });
+            },
+          };
           // Coerce to a promise so a void return and an async rejection are
           // handled uniformly by Promise.all; a synchronous throw is caught by
           // the surrounding try because the map runs inside it.
-          return Promise.resolve(
-            activeSource.subscribe(
-              this.context,
-              (message, headers, parse, parseFailureMode) => {
-                markReady(index); // fallback: fire before first message if adapter never called onReady
-                return channel.enqueue({
-                  message,
-                  headers: headers ?? {},
-                  ...(parse
-                    ? {
-                        parse: parse as (
-                          raw: unknown,
-                        ) => unknown | Promise<unknown>,
-                        parseFailureMode: parseFailureMode ?? "fail",
-                      }
-                    : {}),
-                });
-              },
-              sourceController,
-              () => markReady(index),
-              meta,
-            ),
-          );
+          return Promise.resolve(activeSource.subscribe(subscription));
         },
       );
       await Promise.all(subscriptions);
@@ -1222,7 +648,7 @@ export class DefaultRoute implements Route {
       let exchange: Exchange = initialExchange;
       if (parse) {
         // Stash the source-supplied parser on exchange internals so
-        // `runSteps` can apply it as a synthetic first pipeline step.
+        // `runPipeline` can apply it as a synthetic first pipeline step.
         // This is what makes parse errors surface as normal pipeline
         // events the route can observe (`.error()` for `'fail'`,
         // `exchange:dropped` for `'drop'`). See #187.
@@ -1240,14 +666,18 @@ export class DefaultRoute implements Route {
           // `exchange:dropped` events (see #187).
           if (hasInputSchema && inputSchemas) {
             internals.applyValidation = (ex: Exchange) =>
-              this.validateInputOrThrow(ex, inputSchemas);
+              validateInputOrThrow(this.validationDeps(), ex, inputSchemas);
           }
         }
       } else if (hasInputSchema && inputSchemas) {
         // No parse: run validation eagerly. The validated exchange
         // replaces the initial one; with frozen headers/body the
         // validator returns a new instance via `rewrap`.
-        exchange = await this.applyInputValidation(exchange, inputSchemas);
+        exchange = await applyInputValidation(
+          this.validationDeps(),
+          exchange,
+          inputSchemas,
+        );
       }
 
       return this.handler(exchange);
@@ -1286,65 +716,66 @@ export class DefaultRoute implements Route {
     const correlationId = exchange.headers[
       HeadersKeys.CORRELATION_ID
     ] as string;
-    this.context.emit(`route:${this.definition.id}:exchange:started` as const, {
+    this.context.emit("route:exchange:started", {
       routeId: this.definition.id,
       exchangeId: exchange.id,
       correlationId,
     });
 
     // Run steps (tap adds tasks via route.trackTask)
-    const handlerPromise = this.runSteps(exchange, startTime).then(
-      async (result) => {
-        // Framework-level output validation runs on successful, non-dropped
-        // exchanges before we declare completion. A failure falls through the
-        // same path as a thrown step: errorHandler if set, else a failed result.
-        let finalResult = result;
-        if (!result.failed && !result.dropped) {
-          const outputSchemas = this.definition.discovery?.output;
-          if (outputSchemas?.body || outputSchemas?.headers) {
-            try {
-              const validated = await this.applyOutputValidation(
-                result.exchange,
-                outputSchemas,
-              );
-              finalResult = { ...result, exchange: validated };
-            } catch (err) {
-              finalResult = await this.handleOutputValidationFailure(
-                result.exchange,
-                err,
-                startTime,
-                outputSchemas,
-              );
-            }
+    const handlerPromise = runPipeline(
+      this.executorDeps(),
+      exchange,
+      startTime,
+    ).then(async (result) => {
+      // Framework-level output validation runs on successful, non-dropped
+      // exchanges before we declare completion. A failure falls through the
+      // same path as a thrown step: errorHandler if set, else a failed result.
+      let finalResult = result;
+      if (!result.failed && !result.dropped) {
+        const outputSchemas = this.definition.discovery?.output;
+        if (outputSchemas?.body || outputSchemas?.headers) {
+          try {
+            const validated = await applyOutputValidation(
+              this.validationDeps(),
+              result.exchange,
+              outputSchemas,
+            );
+            finalResult = { ...result, exchange: validated };
+          } catch (err) {
+            finalResult = await handleOutputValidationFailure(
+              this.validationDeps(),
+              result.exchange,
+              err,
+              startTime,
+              outputSchemas,
+            );
           }
         }
+      }
 
-        if (!finalResult.failed && !finalResult.dropped) {
-          const duration = Date.now() - startTime;
-          const correlationId = exchange.headers[
-            HeadersKeys.CORRELATION_ID
-          ] as string;
-          this.context.emit(
-            `route:${this.definition.id}:exchange:completed` as const,
-            {
-              routeId: this.definition.id,
-              exchangeId: exchange.id,
-              correlationId,
-              duration,
-              exchange: finalResult.exchange,
-            },
-          );
-        }
+      if (!finalResult.failed && !finalResult.dropped) {
+        const duration = Date.now() - startTime;
+        const correlationId = exchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string;
+        this.context.emit("route:exchange:completed", {
+          routeId: this.definition.id,
+          exchangeId: exchange.id,
+          correlationId,
+          duration,
+          exchange: finalResult.exchange,
+        });
+      }
 
-        // Reject so callers (CraftClient, direct channel) can handle the error.
-        // Source adapters catch this rejection and continue processing.
-        if (finalResult.failed && finalResult.error) {
-          throw finalResult.error;
-        }
+      // Reject so callers (CraftClient, direct channel) can handle the error.
+      // Source adapters catch this rejection and continue processing.
+      if (finalResult.failed && finalResult.error) {
+        throw finalResult.error;
+      }
 
-        return finalResult.exchange;
-      },
-    );
+      return finalResult.exchange;
+    });
 
     // Track in-flight work. Use a catch-suppressed wrapper so rejected
     // handler promises don't trigger unhandled rejection warnings; the
@@ -1354,433 +785,6 @@ export class DefaultRoute implements Route {
     tracked.finally(() => this.inFlight.delete(tracked));
 
     return handlerPromise;
-  }
-
-  /**
-   * Run the step loop for an exchange.
-   *
-   * @param exchange The initial exchange to process
-   * @param startTime The timestamp when exchange processing started (for duration calculation)
-   * @returns The last processed exchange
-   * @private
-   */
-  private async runSteps(
-    exchange: Exchange,
-    startTime: number,
-  ): Promise<{
-    exchange: Exchange;
-    failed: boolean;
-    dropped: boolean;
-    error?: unknown;
-  }> {
-    // If the source adapter attached a `parse` function (see #187), prepend
-    // a synthetic step that runs it before any user-defined steps. The step
-    // throws an `RC5016` error on parse failure, which then flows through
-    // the same error-handler path as any other step error: the route's
-    // `.error()` handler is invoked, or `exchange:failed` fires.
-    const internals = EXCHANGE_INTERNALS.get(exchange);
-    const sourceParse = internals?.parse;
-    const sourceValidate = internals?.applyValidation;
-    const sourceFailureMode = internals?.parseFailureMode ?? "fail";
-    if (internals && sourceParse) {
-      // Clear so parse never runs twice on the same exchange (e.g. if the
-      // exchange is forwarded back through the queue).
-      delete internals.parse;
-      delete internals.parseFailureMode;
-      delete internals.applyValidation;
-    }
-
-    // The route's pre-from filter chain (assembled at builder time in
-    // the framework-fixed order documented at
-    // `.standards/pre-from-filter-chain.md`). Parse is dynamic per
-    // exchange (source-attached) and is interleaved between the two
-    // pre-from arrays:
-    //
-    //   preParseFilters    -> .authorize()
-    //   (parse if present) -> source-attached
-    //   postParseFilters   -> .cache() check, future
-    //                         .throttle() / .circuitBreaker() / .retry() /
-    //                         .timeout() (positions 5-8 in the chain doc)
-    //   userSteps          -> declaration order, unchanged
-    //   postFromFilters    -> .cache() store
-    //
-    // The route's `.error()` handler wraps the queue loop (filter
-    // position #1 in the chain doc); it is implemented as a try/catch
-    // around the user pipeline, not a step that calls `next()`.
-    //
-    // The cache key flows from cache-check to cache-store via
-    // `internals.cacheKey` on the exchange -- per-invocation, no
-    // shared closure -- so the filter steps can be constructed once
-    // at builder time.
-    const initialSteps: Step<Adapter>[] = [
-      ...this.definition.preParseFilters,
-      ...(sourceParse
-        ? [buildParseStep(sourceParse, sourceFailureMode, sourceValidate)]
-        : []),
-      ...this.definition.postParseFilters,
-      ...this.definition.steps,
-      ...this.definition.postFromFilters,
-    ];
-
-    const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
-      { exchange: exchange, steps: initialSteps },
-    ];
-
-    let lastProcessedExchange: Exchange = exchange;
-    let failed = false;
-    let dropped = false;
-    let stepError: unknown;
-    // Track child exchanges so we can emit exchange:started/completed for them.
-    // The parent exchange (first one) is handled by handler().
-    const parentExchangeId = exchange.id;
-    const seenChildExchanges = new Set<string>();
-    const childStartTimes = new Map<string, number>();
-    const failedChildExchanges = new Set<string>();
-
-    // Snapshot existing split parent keys so cleanup only touches groups
-    // created during THIS invocation, not groups from concurrent handlers.
-    const parentMap = this.context.getStore(SPLIT_PARENT_STORE) as
-      | Map<string, Exchange>
-      | undefined;
-    const preExistingGroups = parentMap
-      ? new Set(parentMap.keys())
-      : new Set<string>();
-
-    while (queue.length > 0) {
-      const popped = queue.shift()!;
-      const { steps } = popped;
-      // `let` because the engine may rewrap the exchange below to update
-      // bookkeeping headers (operation label) without mutating the frozen
-      // wrapper. Subsequent reads in this iteration use the rewrapped value.
-      let exchange = popped.exchange;
-      if (steps.length === 0) {
-        // Emit exchange:completed for child exchanges when their steps are done
-        if (
-          exchange.id !== parentExchangeId &&
-          seenChildExchanges.has(exchange.id) &&
-          !failedChildExchanges.has(exchange.id)
-        ) {
-          const childStart = childStartTimes.get(exchange.id) ?? startTime;
-          const correlationId = exchange.headers[
-            HeadersKeys.CORRELATION_ID
-          ] as string;
-          this.context.emit(
-            `route:${this.definition.id}:exchange:completed` as const,
-            {
-              routeId: this.definition.id,
-              exchangeId: exchange.id,
-              correlationId,
-              duration: Date.now() - childStart,
-              exchange,
-            },
-          );
-        }
-        lastProcessedExchange = exchange;
-        continue;
-      }
-
-      // Emit exchange:started for child exchanges on first encounter
-      if (
-        exchange.id !== parentExchangeId &&
-        !seenChildExchanges.has(exchange.id)
-      ) {
-        seenChildExchanges.add(exchange.id);
-        const childNow = Date.now();
-        childStartTimes.set(exchange.id, childNow);
-        // Stash the start timestamp on the exchange's internals so
-        // aggregate (and other observers) can read child duration without
-        // a side-Map handed across module boundaries. Internals survive
-        // `rewrap` because rewrap shares them between prev and next.
-        setStartedAt(exchange, childNow);
-        const correlationId = exchange.headers[
-          HeadersKeys.CORRELATION_ID
-        ] as string;
-        this.context.emit(
-          `route:${this.definition.id}:exchange:started` as const,
-          {
-            routeId: this.definition.id,
-            exchangeId: exchange.id,
-            correlationId,
-          },
-        );
-      }
-
-      const [step, ...remainingSteps] = steps;
-
-      // Prefer the DSL label (e.g., "log") over the raw OperationType (e.g., "tap")
-      const stepLabel = step.label ?? step.operation;
-
-      // Update the operation header for this step. Headers are frozen, so
-      // we rewrap onto a derived exchange (preserves id and internals).
-      // The cost is one allocation per step on top of whatever the step
-      // itself produces; in practice the dominant cost is still I/O.
-      exchange = DefaultExchange.rewrap(exchange, {
-        headers: { ...exchange.headers, [HeadersKeys.OPERATION]: stepLabel },
-      });
-
-      const adapterLabel = getAdapterLabel(step.adapter);
-      exchange.logger.debug(
-        {
-          operation: stepLabel,
-          ...(adapterLabel ? { adapter: adapterLabel } : {}),
-        },
-        "Processing step",
-      );
-
-      const stepStartTime = Date.now();
-      const correlationId = exchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-
-      // Emit step:started event unless the step manages its own events
-      if (!step.skipStepEvents) {
-        this.context.emit(`route:${this.definition.id}:step:started` as const, {
-          routeId: this.definition.id,
-          exchangeId: exchange.id,
-          correlationId,
-          operation: stepLabel,
-          ...(adapterLabel ? { adapter: adapterLabel } : {}),
-        });
-      }
-
-      try {
-        await step.execute(exchange, remainingSteps, queue);
-
-        // Emit step:completed event unless the step manages its own events
-        if (!step.skipStepEvents) {
-          const stepDuration = Date.now() - stepStartTime;
-          const correlationId = exchange.headers[
-            HeadersKeys.CORRELATION_ID
-          ] as string;
-          this.context.emit(
-            `route:${this.definition.id}:step:completed` as const,
-            {
-              routeId: this.definition.id,
-              exchangeId: exchange.id,
-              correlationId,
-              operation: stepLabel,
-              ...(adapterLabel ? { adapter: adapterLabel } : {}),
-              duration: stepDuration,
-            },
-          );
-        }
-      } catch (error) {
-        const err = this.processError(stepLabel, error);
-        const correlationId = exchange.headers[
-          HeadersKeys.CORRELATION_ID
-        ] as string;
-        const duration = Date.now() - startTime;
-
-        // Emit step-level error
-        this.context.emit(
-          `route:${this.definition.id}:step:${stepLabel}:error` as EventName,
-          {
-            error: err,
-            route: this,
-            exchange,
-            operation: stepLabel,
-          },
-        );
-
-        if (this.definition.errorHandler) {
-          // Route-scope error-handler events. Step-scope wrappers
-          // emit the same set with `scope: "step"` and `stepLabel`.
-          this.context.emit(
-            `route:${this.definition.id}:error-handler:invoked` as const,
-            {
-              routeId: this.definition.id,
-              exchangeId: exchange.id,
-              correlationId,
-              originalError: err,
-              failedOperation: stepLabel,
-              scope: "route",
-            },
-          );
-
-          try {
-            const forward = this.buildForward();
-            const result = await this.definition.errorHandler(
-              err,
-              exchange,
-              forward,
-            );
-            // Replace body via rewrap (frozen exchange); keep id and
-            // internals so telemetry continues to reference the same
-            // logical exchange.
-            const recovered = DefaultExchange.rewrap(exchange, {
-              body: result,
-            });
-            lastProcessedExchange = recovered;
-
-            // Error handler recovered
-            this.context.emit(
-              `route:${this.definition.id}:error:caught` as EventName,
-              {
-                error: err,
-                route: this,
-                exchange: recovered,
-              },
-            );
-            this.context.emit(
-              `route:${this.definition.id}:error-handler:recovered` as const,
-              {
-                routeId: this.definition.id,
-                exchangeId: recovered.id,
-                correlationId,
-                originalError: err,
-                failedOperation: stepLabel,
-                recoveryStrategy: "route-error-handler",
-                scope: "route",
-              },
-            );
-          } catch (handlerError) {
-            const handlerErr = this.processError(stepLabel, handlerError);
-            exchange.logger.error(
-              {
-                operation: stepLabel,
-                err: handlerErr,
-                context: "error handler",
-              },
-              handlerErr.meta.message,
-            );
-            this.context.emit(
-              `route:${this.definition.id}:error-handler:failed` as const,
-              {
-                routeId: this.definition.id,
-                exchangeId: exchange.id,
-                correlationId,
-                originalError: err,
-                failedOperation: stepLabel,
-                recoveryStrategy: "route-error-handler",
-                scope: "route",
-              },
-            );
-            // Error handler rethrew -- route-level + context-level error
-            this.context.emit(
-              `route:${this.definition.id}:error` as EventName,
-              {
-                error: handlerErr,
-                route: this,
-                exchange,
-              },
-            );
-            this.context.emit("context:error", {
-              error: handlerErr,
-              route: this,
-              exchange,
-            });
-            this.context.emit(
-              `route:${this.definition.id}:exchange:failed` as const,
-              {
-                routeId: this.definition.id,
-                exchangeId: exchange.id,
-                correlationId,
-                duration,
-                error: handlerErr,
-                exchange,
-              },
-            );
-            if (exchange.id !== parentExchangeId) {
-              failedChildExchanges.add(exchange.id);
-            } else {
-              failed = true;
-              stepError = handlerErr;
-            }
-          }
-
-          // Pipeline does not resume after error handler (success or failure)
-          return {
-            exchange: lastProcessedExchange,
-            failed,
-            dropped,
-            error: stepError,
-          };
-        }
-
-        // No error handler -- route-level error
-        exchange.logger.error(
-          {
-            operation: stepLabel,
-            ...(adapterLabel ? { adapter: adapterLabel } : {}),
-            err,
-          },
-          err.meta.message,
-        );
-        // No error handler -- route-level + context-level error
-        this.context.emit(`route:${this.definition.id}:error` as EventName, {
-          error: err,
-          route: this,
-          exchange,
-        });
-        this.context.emit("context:error", {
-          error: err,
-          route: this,
-          exchange,
-        });
-        this.context.emit(
-          `route:${this.definition.id}:exchange:failed` as const,
-          {
-            routeId: this.definition.id,
-            exchangeId: exchange.id,
-            correlationId,
-            duration,
-            error: err,
-            exchange,
-          },
-        );
-        if (exchange.id !== parentExchangeId) {
-          failedChildExchanges.add(exchange.id);
-        } else {
-          failed = true;
-          stepError = err;
-        }
-
-        // Don't re-throw - error is logged and emitted via events.
-        // The error is returned in the result so callers (e.g. CraftClient)
-        // can handle it. Source adapters catch and continue.
-        // Do NOT return here: the while loop continues so other queue items (e.g. split children) are processed
-      }
-    }
-
-    // Clean up orphaned split parent map entries added during THIS invocation.
-    // Only touch groups that did not exist before runSteps started, to avoid
-    // deleting entries owned by concurrent handlers on the same context.
-    if (parentMap && parentMap.size > 0) {
-      for (const groupId of Array.from(parentMap.keys())) {
-        if (preExistingGroups.has(groupId)) continue;
-        const parentEx = parentMap.get(groupId);
-        if (parentEx) {
-          const hierarchy = parentEx.headers[HeadersKeys.SPLIT_HIERARCHY] as
-            | string[]
-            | undefined;
-          // Only clean up groups that are NOT part of a nested hierarchy
-          if (!hierarchy || !hierarchy.includes(groupId)) {
-            parentMap.delete(groupId);
-          }
-        }
-      }
-    }
-
-    // Check if the root exchange was dropped (e.g. by a filter). The drop
-    // flag lives on the exchange's shared internals object (see
-    // `markDropped` / `isDropped` in `exchange.ts`), so it survives the
-    // engine's per-step `rewrap`: an operation that marks the rewrapped
-    // exchange handed to it remains visible from the outer parameter
-    // because both reference the same internals.
-    if (isDropped(exchange)) {
-      dropped = true;
-    }
-
-    // Route-scope cache writes (`cacheConfig`) are handled inline by
-    // the `cache-store` synthetic step appended to `initialSteps` at
-    // the top of this function. Nothing to do here.
-
-    return {
-      exchange: lastProcessedExchange,
-      failed,
-      dropped,
-      error: stepError,
-    };
   }
 
   /**
@@ -1846,25 +850,5 @@ export class DefaultRoute implements Route {
         message: `${RC["RC3001"].message}: ${this.definition.id}`,
       });
     }
-  }
-
-  /**
-   * Normalize an operation error into a RoutecraftError.
-   * If the error is already a RoutecraftError, it is returned unchanged.
-   *
-   * @param _operation - The operation that caused the error (for logging)
-   * @param error - The thrown value (Error or RoutecraftError)
-   * @returns A RoutecraftError (existing or RC5001-wrapped)
-   * @private
-   */
-  private processError(
-    _operation: OperationType | string,
-    error: unknown,
-  ): RoutecraftError {
-    if (isRoutecraftError(error)) {
-      return error as RoutecraftError;
-    }
-    const msg = error instanceof Error ? error.message : String(error);
-    return rcError("RC5001", error, { message: msg });
   }
 }

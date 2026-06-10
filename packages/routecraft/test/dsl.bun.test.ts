@@ -291,7 +291,7 @@ describe("step label in events", () => {
       .routes(craft().id("label-test").from(simple("x")).log().to(noop()))
       .build();
 
-    t.ctx.on("route:label-test:step:completed", ({ details }) => {
+    t.ctx.on("route:step:completed", ({ details }) => {
       stepOps.push(details.operation);
     });
 
@@ -319,7 +319,7 @@ describe("step label in events", () => {
       )
       .build();
 
-    t.ctx.on("route:map-label-test:step:completed", ({ details }) => {
+    t.ctx.on("route:step:completed", ({ details }) => {
       stepOps.push(details.operation);
     });
 
@@ -347,7 +347,7 @@ describe("step label in events", () => {
       )
       .build();
 
-    t.ctx.on("route:schema-label-test:step:completed", ({ details }) => {
+    t.ctx.on("route:step:completed", ({ details }) => {
       stepOps.push(details.operation);
     });
 
@@ -435,7 +435,7 @@ describe(".validate() with custom validator", () => {
       )
       .build();
 
-    t.ctx.on("route:validate-label-test:step:completed", ({ details }) => {
+    t.ctx.on("route:step:completed", ({ details }) => {
       stepOps.push(details.operation);
     });
 

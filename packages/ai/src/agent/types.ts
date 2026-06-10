@@ -284,7 +284,7 @@ export interface AgentOptions {
    *
    * Use for live UI updates (SSE, WebSocket, console "type-out"
    * effect). For coarse observability (tool calls, step finishes,
-   * total usage), subscribe to the `route:<id>:agent:*` events on
+   * total usage), subscribe to the `route:agent:*` events on
    * the context bus instead; those fire whether or not `onDelta`
    * is set.
    *
@@ -320,7 +320,7 @@ export interface AgentRegisteredOptions extends AgentOptions {
  * didn't.
  *
  * For real-time observability use the context-bus events
- * (`route:<id>:agent:tool:invoked` / `result` / `error`) instead;
+ * (`route:agent:tool:invoked` / `result` / `error`) instead;
  * this summary is for synchronous post-hoc checks.
  */
 export interface AgentToolCallSummary {
@@ -392,7 +392,7 @@ export interface AgentResult {
    * ```
    *
    * For real-time observability subscribe to the context-bus events
-   * `route:<id>:agent:tool:invoked` / `:result` / `:error`. This
+   * `route:agent:tool:invoked` / `:result` / `:error`. This
    * summary is the synchronous post-hoc view of the same calls.
    *
    * Synthetic block-loader calls (`_block_load_<name>`) are excluded

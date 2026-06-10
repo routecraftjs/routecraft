@@ -739,7 +739,7 @@ export class TelemetryDb {
 
   /**
    * List agents derived from registration (`agent:registered`) and
-   * lifecycle (`route:*:agent:started|finished|error`) events. By-name
+   * lifecycle (`route:agent:started|finished|error`) events. By-name
    * agents are keyed by their registered id; inline agents by their
    * dispatching route id.
    *
@@ -759,9 +759,9 @@ export class TelemetryDb {
        FROM events
        WHERE id > ?
          AND (event_name = 'agent:registered'
-          OR event_name LIKE 'route:%:agent:started'
-          OR event_name LIKE 'route:%:agent:finished'
-          OR event_name LIKE 'route:%:agent:error')
+          OR event_name = 'route:agent:started'
+          OR event_name = 'route:agent:finished'
+          OR event_name = 'route:agent:error')
        ORDER BY id ASC`,
     ).all(this.agentAgg.lastId) as EventRow[];
 
@@ -861,7 +861,7 @@ export class TelemetryDb {
             "agentStartedByName",
             `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
              FROM events
-             WHERE event_name LIKE 'route:%:agent:started'
+             WHERE event_name = 'route:agent:started'
                AND json_extract(details, '$.agentName') = ?
              ORDER BY id DESC
              LIMIT ?`,
@@ -870,7 +870,7 @@ export class TelemetryDb {
             "agentStartedInline",
             `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
              FROM events
-             WHERE event_name LIKE 'route:%:agent:started'
+             WHERE event_name = 'route:agent:started'
                AND json_extract(details, '$.agentName') IS NULL
                AND json_extract(details, '$.routeId') = ?
              ORDER BY id DESC
@@ -948,9 +948,9 @@ export class TelemetryDb {
         `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
          FROM events
          WHERE exchange_id IN (${placeholders})
-           AND (event_name LIKE 'route:%:agent:started'
-             OR event_name LIKE 'route:%:agent:finished'
-             OR event_name LIKE 'route:%:agent:error')
+           AND (event_name = 'route:agent:started'
+             OR event_name = 'route:agent:finished'
+             OR event_name = 'route:agent:error')
          ORDER BY id ASC`,
       )
       .all(...exchangeIds) as EventRow[];
@@ -999,9 +999,9 @@ export class TelemetryDb {
       `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
        FROM events
        WHERE exchange_id = ?
-         AND (event_name LIKE 'route:%:agent:started'
-           OR event_name LIKE 'route:%:agent:finished'
-           OR event_name LIKE 'route:%:agent:error')
+         AND (event_name = 'route:agent:started'
+           OR event_name = 'route:agent:finished'
+           OR event_name = 'route:agent:error')
        ORDER BY id ASC`,
     ).all(exchangeId) as EventRow[];
     if (rows.length === 0) return null;
@@ -1043,7 +1043,7 @@ export class TelemetryDb {
       "agentRunToolCalls",
       `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
        FROM events
-       WHERE exchange_id = ? AND event_name LIKE 'route:%:agent:tool:%'
+       WHERE exchange_id = ? AND event_name LIKE 'route:agent:tool:%'
        ORDER BY id ASC`,
     ).all(exchangeId) as EventRow[];
     return correlateToolCalls(rows);
@@ -1053,7 +1053,7 @@ export class TelemetryDb {
 
   /**
    * List tools derived from registration (`agent:tool:registered`) and
-   * invocation (`route:*:agent:tool:invoked|error`) events.
+   * invocation (`route:agent:tool:invoked|error`) events.
    *
    * Aggregation is incremental (see {@link getAgents}): each call only
    * parses events newer than the previous call's high-water mark.
@@ -1070,8 +1070,8 @@ export class TelemetryDb {
        FROM events
        WHERE id > ?
          AND (event_name = 'agent:tool:registered'
-          OR event_name LIKE 'route:%:agent:tool:invoked'
-          OR event_name LIKE 'route:%:agent:tool:error')
+          OR event_name = 'route:agent:tool:invoked'
+          OR event_name = 'route:agent:tool:error')
        ORDER BY id ASC`,
     ).all(this.toolAgg.lastId) as EventRow[];
 
@@ -1093,7 +1093,9 @@ export class TelemetryDb {
       const d = parseDetails(row.details);
       if (row.eventName === "agent:tool:registered") {
         const name = asString(d["toolName"]);
-        if (name) ensure(name, "registered");
+        // Promote: a tool first seen via an invocation ("observed") becomes
+        // "registered" once its registration event arrives.
+        if (name) ensure(name, "registered").source = "registered";
         continue;
       }
       const name = asString(d["toolName"]);
@@ -1138,7 +1140,7 @@ export class TelemetryDb {
       "toolCalls",
       `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
        FROM events
-       WHERE event_name LIKE 'route:%:agent:tool:%'
+       WHERE event_name LIKE 'route:agent:tool:%'
          AND json_extract(details, '$.toolName') = ?
        ORDER BY id DESC
        LIMIT ?`,

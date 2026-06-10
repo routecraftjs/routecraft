@@ -22,7 +22,7 @@ import { CraftClient } from "./client.ts";
 import { type EventHandler, type EventName } from "./types.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
 import { BatchConsumer } from "./consumers/batch.ts";
-import { type Source, type CallableSource } from "./operations/from.ts";
+import { type Source, type SourceLike, toSource } from "./operations/from.ts";
 import {
   type Adapter,
   type Step,
@@ -767,16 +767,16 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * flag threaded through the builder could make it compile-time, but that is a
    * larger change deferred for the v0 unstable surface.
    */
-  from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T>;
-  from<T>(source: Source<unknown> | CallableSource<unknown>): RouteBuilder<T>;
+  from<T>(source: SourceLike<T>): RouteBuilder<T>;
+  from<T>(source: SourceLike<unknown>): RouteBuilder<T>;
   from<T>(
     ...sources: [
-      Source<unknown> | CallableSource<unknown>,
-      Source<unknown> | CallableSource<unknown>,
-      ...Array<Source<unknown> | CallableSource<unknown>>,
+      SourceLike<unknown>,
+      SourceLike<unknown>,
+      ...Array<SourceLike<unknown>>,
     ]
   ): RouteBuilder<T>;
-  from<T>(...sources: Array<Source<T> | CallableSource<T>>): RouteBuilder<T> {
+  from<T>(...sources: Array<SourceLike<T>>): RouteBuilder<T> {
     this.assertNoPendingWrappers("from");
     if (sources.length === 0) {
       throw rcError("RC2001", undefined, {
@@ -843,7 +843,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       : [];
 
     const normalizedSources: Source<T>[] = sources.map((source) =>
-      typeof source === "function" ? { subscribe: source } : source,
+      toSource(source),
     );
 
     this.currentRoute = {

@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { type Adapter, type Step, getAdapterLabel } from "../types.ts";
+import {
+  type Adapter,
+  type Step,
+  getAdapterLabel,
+  type StepOutcome,
+} from "../types.ts";
 import { INTERNALS_KEY } from "../brand.ts";
 import {
   type Exchange,
@@ -64,11 +69,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     this.adapter = typeof adapter === "function" ? { split: adapter } : adapter;
   }
 
-  async execute(
-    exchange: Exchange<T>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
 
@@ -85,7 +86,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     const adapterLabel = getAdapterLabel(this.adapter);
     const stepStart = Date.now();
 
-    context.emit(`route:${routeId}:step:started` as const, {
+    context.emit("route:step:started", {
       routeId,
       exchangeId: exchange.id,
       correlationId,
@@ -97,7 +98,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     try {
       splitExchanges = await Promise.resolve(this.adapter.split(exchange));
     } catch (error: unknown) {
-      context.emit(`route:${routeId}:step:failed` as const, {
+      context.emit("route:step:failed", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -124,6 +125,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       (exchange.headers[HeadersKeys.SPLIT_HIERARCHY] as string[]) || [];
     const splitHierarchy = [...existingHierarchy, groupId];
 
+    const children: Exchange<R>[] = [];
     for (const resultExchange of splitExchanges) {
       // Spread parent headers first so cross-cutting concerns
       // (`routecraft.auth.principal`, future tracing/tenancy keys) flow
@@ -161,15 +163,12 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
           splitHierarchy:
             postProcessedExchange.headers[HeadersKeys.SPLIT_HIERARCHY],
         },
-        "Pushing split exchange to queue",
+        "Emitting split child exchange",
       );
-      queue.push({
-        exchange: postProcessedExchange,
-        steps: remainingSteps,
-      });
+      children.push(postProcessedExchange);
     }
 
-    context.emit(`route:${routeId}:step:completed` as const, {
+    context.emit("route:step:completed", {
       routeId,
       exchangeId: exchange.id,
       correlationId,
@@ -178,5 +177,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       duration: Date.now() - stepStart,
       metadata: { childCount: splitExchanges.length },
     });
+
+    return { kind: "fanOut", exchanges: children };
   }
 }

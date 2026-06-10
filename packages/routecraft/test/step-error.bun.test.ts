@@ -10,6 +10,8 @@ import {
   type Step,
   type Adapter,
   type Exchange,
+  type StepContext,
+  type StepOutcome,
 } from "@routecraft/routecraft";
 
 describe(".error() step scope: dual-mode wrapper", () => {
@@ -86,23 +88,23 @@ describe(".error() step scope: dual-mode wrapper", () => {
     class TraceWrapperOuter extends WrapperStep {
       protected override async runInner(
         exchange: Exchange,
-        innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-      ): Promise<"ok"> {
+        ctx: StepContext,
+      ): Promise<StepOutcome> {
         calls.push("outer-before");
-        await this.inner.execute(exchange, [], innerQueue);
+        const outcome = await this.inner.execute(exchange, ctx);
         calls.push("outer-after");
-        return "ok";
+        return outcome;
       }
     }
     class TraceWrapperInner extends WrapperStep {
       protected override async runInner(
         exchange: Exchange,
-        innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-      ): Promise<"ok"> {
+        ctx: StepContext,
+      ): Promise<StepOutcome> {
         calls.push("inner-before");
-        await this.inner.execute(exchange, [], innerQueue);
+        const outcome = await this.inner.execute(exchange, ctx);
         calls.push("inner-after");
-        return "ok";
+        return outcome;
       }
     }
 
@@ -271,13 +273,13 @@ describe(".error() step scope: dual-mode wrapper", () => {
       .build();
 
     t.ctx.on(
-      "route:event-scope:error-handler:invoked" as never,
+      "route:error-handler:invoked" as never,
       ({ details }: { details: unknown }) => {
         events.push({ name: "invoked", details });
       },
     );
     t.ctx.on(
-      "route:event-scope:error-handler:recovered" as never,
+      "route:error-handler:recovered" as never,
       ({ details }: { details: unknown }) => {
         events.push({ name: "recovered", details });
       },
@@ -297,41 +299,32 @@ describe(".error() step scope: dual-mode wrapper", () => {
   });
 
   /**
-   * @case Concurrent execute() calls on one wrapper instance do not share inner-queue state
+   * @case Concurrent execute() calls on one wrapper instance return independent outcomes
    * @preconditions Single ErrorWrapperStep instance; fire 10 concurrent execute() calls with overlapping inner work
-   * @expectedResult Each call's inner-pushed children land in the right per-call queue; no cross-talk
+   * @expectedResult Each call's outcome carries the originating exchange; no cross-talk
+   *   (with the outcome contract there is no shared buffer by construction,
+   *   so this guards against any future reintroduction of per-instance state)
    */
-  test("concurrent execute() calls share no per-execution buffer state", async () => {
+  test("concurrent execute() calls share no per-execution state", async () => {
     // Hand-build a wrapper unit test (no testContext) to avoid the
     // start/stop race that would come from calling `t.test()` in
-    // parallel on a single TestContext. The bug we want to detect is
-    // wrapper-internal: per-execution buffers must not leak across
-    // concurrent calls into the same instance.
+    // parallel on a single TestContext.
 
-    // Fake inner step that yields the event loop then pushes ONE
-    // child whose body identifies the originating exchange. If the
-    // wrapper aliases per-instance state, a child will end up in the
-    // wrong outer queue.
+    // Fake inner step that yields the event loop then returns a
+    // continue outcome whose body identifies the originating exchange.
     const innerStep: Step<Adapter> = {
       operation: "transform" as Step<Adapter>["operation"],
       adapter: { adapterId: "fake.inner" } as unknown as Adapter,
-      async execute(
-        exchange: Exchange,
-        _remainingSteps: Step<Adapter>[],
-        queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-      ): Promise<void> {
+      async execute(exchange: Exchange): Promise<StepOutcome> {
         // Yield so multiple execute() invocations interleave.
         await new Promise((r) => setTimeout(r, 1));
-        queue.push({ exchange, steps: [] });
+        return { kind: "continue", exchange };
       },
     };
     const wrapper = new ErrorWrapperStep(innerStep, () => "unused");
 
     const N = 10;
-    const outerQueues: {
-      exchange: Exchange;
-      steps: Step<Adapter>[];
-    }[][] = Array.from({ length: N }, () => []);
+    const stepContext: StepContext = { takePending: () => [] };
 
     // Build N synthetic exchanges, identifiable by body.
     const exchanges: Exchange[] = Array.from({ length: N }, (_, i) => ({
@@ -341,17 +334,17 @@ describe(".error() step scope: dual-mode wrapper", () => {
       logger: { warn: mock(), error: mock(), debug: mock() } as never,
     })) as unknown as Exchange[];
 
-    await Promise.all(
-      exchanges.map((ex, i) => wrapper.execute(ex, [], outerQueues[i]!)),
+    const outcomes = await Promise.all(
+      exchanges.map((ex) => wrapper.execute(ex, stepContext)),
     );
 
-    // Every outer queue should contain exactly the originating
-    // exchange's child. If the per-execution buffer leaked, one of
-    // these would be wrong or zero / two.
+    // Every outcome should carry exactly the originating exchange.
     for (let i = 0; i < N; i++) {
-      const queue = outerQueues[i]!;
-      expect(queue).toHaveLength(1);
-      expect(queue[0]!.exchange.body).toBe(`payload-${i}`);
+      const outcome = outcomes[i]!;
+      expect(outcome.kind).toBe("continue");
+      if (outcome.kind === "continue") {
+        expect(outcome.exchange.body).toBe(`payload-${i}`);
+      }
     }
   });
 
@@ -469,7 +462,7 @@ describe(".error() step scope: dual-mode wrapper", () => {
       .build();
 
     t.ctx.on(
-      "route:no-double-events:step:started" as never,
+      "route:step:started" as never,
       ({ details }: { details: unknown }) => {
         const d = details as { operation?: string };
         if (d.operation === "tap") startedEvents.push(details);
@@ -491,31 +484,27 @@ describe(".error() step scope: dual-mode wrapper", () => {
     class RecoveringOuter extends WrapperStep {
       protected override async runInner(
         exchange: Exchange,
-        innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-      ): Promise<"ok" | "recovered"> {
+        ctx: StepContext,
+      ): Promise<StepOutcome> {
         try {
-          await this.inner.execute(exchange, [], innerQueue);
-          return "ok";
+          return await this.inner.execute(exchange, ctx);
         } catch {
           // Swallow inner's throw so the test asserts the inner's step
-          // events. Drop any partial pushes the inner made and push a
-          // recovered exchange onto innerQueue so the wrapper template
-          // method relays it forward (exchanges are frozen; rewrap to
-          // produce a derived instance with the new body).
-          innerQueue.length = 0;
-          innerQueue.push({
+          // events, and substitute a recovered outcome (exchanges are
+          // frozen; rewrap to produce a derived instance with the new
+          // body).
+          return {
+            kind: "continue",
             exchange: DefaultExchange.rewrap(exchange, {
               body: "outer-recovered",
             }),
-            steps: [],
-          });
-          return "recovered";
+          };
         }
       }
     }
     // Inner wrapper that always throws (forces the cascade).
     class ThrowingInner extends WrapperStep {
-      protected override async runInner(): Promise<"ok"> {
+      protected override async runInner(): Promise<StepOutcome> {
         throw new Error("inner-failed");
       }
     }
@@ -540,19 +529,19 @@ describe(".error() step scope: dual-mode wrapper", () => {
       .routes(builder.transform((b) => `pre-${b as string}`).to(sink))
       .build();
     t.ctx.on(
-      "route:balanced-events:step:started" as never,
+      "route:step:started" as never,
       ({ details }: { details: { operation: string } }) => {
         events.push(`started:${details.operation}`);
       },
     );
     t.ctx.on(
-      "route:balanced-events:step:failed" as never,
+      "route:step:failed" as never,
       ({ details }: { details: { operation: string } }) => {
         events.push(`failed:${details.operation}`);
       },
     );
     t.ctx.on(
-      "route:balanced-events:step:completed" as never,
+      "route:step:completed" as never,
       ({ details }: { details: { operation: string } }) => {
         events.push(`completed:${details.operation}`);
       },
@@ -670,7 +659,7 @@ describe(".error() step scope: dual-mode wrapper", () => {
       .build();
 
     t.ctx.on(
-      "route:adapter-meta:step:started" as never,
+      "route:step:started" as never,
       ({ details }: { details: { operation: string; adapter?: string } }) => {
         if (details.operation === "transform") adapters.push(details.adapter);
       },
@@ -692,8 +681,9 @@ describe(".error() step scope: dual-mode wrapper", () => {
       operation: "transform" as Step<Adapter>["operation"],
       adapter: { kind: "fake" } as unknown as Adapter,
       label: "fake-step",
-      async execute(): Promise<void> {
+      async execute(exchange: Exchange): Promise<StepOutcome> {
         // never called in this test
+        return { kind: "continue", exchange };
       },
     };
     const wrapped = new ErrorWrapperStep(innerSpy, handler);

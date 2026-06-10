@@ -201,7 +201,7 @@ describe("TelemetryDb agents/tools derivation", () => {
       .run(
         "2026-06-05T10:04:00.000Z",
         "ctx",
-        "route:r1:agent:started",
+        "route:agent:started",
         JSON.stringify({
           routeId: "r1",
           exchangeId: "ex9",
@@ -238,7 +238,7 @@ describe("TelemetryDb agents/tools derivation", () => {
       .run(
         "2026-06-05T10:04:01.000Z",
         "ctx",
-        "route:r1:agent:tool:invoked",
+        "route:agent:tool:invoked",
         JSON.stringify({
           routeId: "r1",
           exchangeId: "ex9",

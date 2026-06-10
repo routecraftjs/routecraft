@@ -2,7 +2,7 @@ import {
   type Adapter,
   type Step,
   getAdapterLabel,
-  type EventName,
+  type StepOutcome,
 } from "../types.ts";
 import {
   type Exchange,
@@ -65,11 +65,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
       typeof adapter === "function" ? { filter: adapter } : adapter;
   }
 
-  async execute(
-    exchange: Exchange<T>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
     const routeId =
@@ -84,7 +80,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
 
     // Emit step:started
     if (context) {
-      context.emit(`route:${routeId}:step:started` as EventName, {
+      context.emit("route:step:started", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -118,12 +114,12 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
         // observes the correct state. The drop flag lives on the
         // exchange's shared internals object (see `markDropped` /
         // `isDropped` in `exchange.ts`); the route engine reads it
-        // after `runSteps` to skip `exchange:completed`.
+        // after `runPipeline` to skip `exchange:completed`.
         markDropped(exchange);
 
         if (context) {
           // Emit step:completed first, then exchange:dropped
-          context.emit(`route:${routeId}:step:completed` as EventName, {
+          context.emit("route:step:completed", {
             routeId,
             exchangeId: exchange.id,
             correlationId,
@@ -132,7 +128,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
             duration: Date.now() - stepStart,
           });
 
-          context.emit(`route:${routeId}:exchange:dropped` as EventName, {
+          context.emit("route:exchange:dropped", {
             routeId,
             exchangeId: exchange.id,
             correlationId,
@@ -140,11 +136,11 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
             exchange,
           });
         }
-        return;
+        return { kind: "drop" };
       }
     } catch (error: unknown) {
       if (context) {
-        context.emit(`route:${routeId}:step:failed` as EventName, {
+        context.emit("route:step:failed", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -161,7 +157,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
 
     // Emit step:completed for passed exchanges
     if (context) {
-      context.emit(`route:${routeId}:step:completed` as EventName, {
+      context.emit("route:step:completed", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -171,7 +167,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
       });
     }
 
-    queue.push({ exchange, steps: remainingSteps });
+    return { kind: "continue", exchange };
   }
 }
 

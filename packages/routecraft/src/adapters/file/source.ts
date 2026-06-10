@@ -18,14 +18,9 @@ export class FileSourceAdapter implements Source<string> {
    * Source implementation: subscribe to file content.
    * Reads the file once (or line-by-line when chunked).
    */
-  subscribe: CallableSource<string> = async (
-    _context,
-    handler,
-    abortController,
-    onReady,
-  ) => {
+  subscribe: CallableSource<string> = async (sub) => {
     // Check if already aborted
-    if (abortController.signal.aborted) return;
+    if (sub.signal.aborted) return;
 
     const {
       path: filePath,
@@ -39,22 +34,37 @@ export class FileSourceAdapter implements Source<string> {
       );
     }
 
+    // Ready means "wired and able to produce", so signal before reading
+    // rather than after the file is fully emitted.
+    sub.ready();
+
     if (chunked) {
       try {
         await forEachLine(
           filePath,
           encoding,
-          abortController.signal,
+          sub.signal,
           async (line, lineNumber) => {
             const headers: ExchangeHeaders = {
               [HeadersKeys.FILE_LINE]: lineNumber,
               [HeadersKeys.FILE_PATH]: filePath,
             } as ExchangeHeaders;
-            await handler(line, headers);
+            try {
+              await sub.emit({ message: line, headers });
+            } catch (err) {
+              // Pipeline failure for one line, not a file error: the route
+              // boundary already emitted exchange:failed; keep reading
+              // (matching json/jsonl/csv chunked semantics).
+              if (sub.signal.aborted) return;
+              sub.context.logger.debug(
+                { err, path: filePath, line: lineNumber, adapter: "file" },
+                "file adapter: pipeline failed for line; continuing",
+              );
+            }
           },
         );
       } catch (err) {
-        if (abortController.signal.aborted) return;
+        if (sub.signal.aborted) return;
         throwFileError("file", filePath, err);
       }
     } else {
@@ -63,13 +73,10 @@ export class FileSourceAdapter implements Source<string> {
         .catch((err) => throwFileError("file", filePath, err));
 
       // Check if aborted before emitting
-      if (abortController.signal.aborted) return;
+      if (sub.signal.aborted) return;
 
       // Emit the content
-      await handler(content);
+      await sub.emit({ message: content });
     }
-
-    // Signal that source is ready
-    if (onReady) onReady();
   };
 }

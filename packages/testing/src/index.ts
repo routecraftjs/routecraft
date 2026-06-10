@@ -112,3 +112,9 @@ export function fixtureEach<T extends FixtureWithName>(
     test(entry.name, () => run(entry));
   }
 }
+
+// Subscription builder for driving source adapters directly in unit tests
+export {
+  testSubscription,
+  type TestSubscriptionOptions,
+} from "./test-subscription";

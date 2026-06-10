@@ -1837,7 +1837,7 @@ describe("Mail Adapter", () => {
         .build();
 
       t.ctx.on(
-        "route:mail-parse-drop:exchange:dropped" as never,
+        "route:exchange:dropped" as never,
         ((payload: { details: { reason: string } }) => {
           dropped.push({ reason: payload.details.reason });
         }) as never,

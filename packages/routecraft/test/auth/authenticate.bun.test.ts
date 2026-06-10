@@ -184,7 +184,7 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
 
     const failures: unknown[] = [];
     t.ctx.on(
-      "route:mint-none:exchange:failed" as EventName,
+      "route:exchange:failed" as EventName,
       ((payload: FailedEventDetails) => {
         failures.push(payload.details.error);
       }) as Parameters<typeof t.ctx.on>[1],
@@ -229,7 +229,7 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
 
     const failures: unknown[] = [];
     t.ctx.on(
-      "route:raw-principal:exchange:failed" as EventName,
+      "route:exchange:failed" as EventName,
       ((payload: FailedEventDetails) => {
         failures.push(payload.details.error);
       }) as Parameters<typeof t.ctx.on>[1],
@@ -275,7 +275,7 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
 
     const failures: unknown[] = [];
     t.ctx.on(
-      "route:forge:exchange:failed" as EventName,
+      "route:exchange:failed" as EventName,
       ((payload: FailedEventDetails) => {
         failures.push(payload.details.error);
       }) as Parameters<typeof t.ctx.on>[1],
@@ -337,7 +337,7 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
 
     const failures: unknown[] = [];
     t.ctx.on(
-      "route:reflect-forge:exchange:failed" as EventName,
+      "route:exchange:failed" as EventName,
       ((payload: FailedEventDetails) => {
         failures.push(payload.details.error);
       }) as Parameters<typeof t.ctx.on>[1],

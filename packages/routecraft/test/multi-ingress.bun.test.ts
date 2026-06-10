@@ -67,8 +67,8 @@ describe("Multi-ingress routes", () => {
     const def = craft()
       .id("multi-ok")
       .input(z.object({ id: z.string() }))
-      .from(simple({ id: "a" }), direct(), async (_ctx, handler) => {
-        await handler({ id: "c" });
+      .from(simple({ id: "a" }), direct(), async (sub) => {
+        await sub.emit({ message: { id: "c" } });
       })
       .to(noop())
       .build();
@@ -109,7 +109,7 @@ describe("Multi-ingress routes", () => {
       )
       .build();
 
-    t.ctx.on("route:dual:started", () => {
+    t.ctx.on("route:started", () => {
       startedCount++;
     });
 
@@ -169,7 +169,7 @@ describe("Multi-ingress routes", () => {
       )
       .build();
 
-    t.ctx.on("route:batched-dual:batch:flushed", ({ details }) => {
+    t.ctx.on("route:batch:flushed", ({ details }) => {
       flushed.push({
         batchId: (details as { batchId: string }).batchId,
         batchSize: (details as { batchSize: number }).batchSize,

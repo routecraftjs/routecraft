@@ -1,4 +1,4 @@
-import { type Adapter, type Step, type EventName } from "../types.ts";
+import { type Adapter, type Step, type StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -56,7 +56,7 @@ export class HaltStep implements Step<HaltAdapter> {
   operation: OperationType = OperationType.HALT;
   adapter: HaltAdapter = { adapterId: "routecraft.operation.halt" };
 
-  async execute(exchange: Exchange): Promise<void> {
+  async execute(exchange: Exchange): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
     const routeId =
@@ -71,7 +71,7 @@ export class HaltStep implements Step<HaltAdapter> {
     markDropped(exchange);
 
     if (context) {
-      context.emit(`route:${routeId}:exchange:dropped` as EventName, {
+      context.emit("route:exchange:dropped", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -79,6 +79,8 @@ export class HaltStep implements Step<HaltAdapter> {
         exchange,
       });
     }
+
+    return { kind: "drop" };
   }
 }
 
@@ -236,11 +238,7 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
 
   constructor(private readonly branches: ChoiceBranch[]) {}
 
-  async execute(
-    exchange: Exchange<In>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<In>): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     const route = getExchangeRoute(exchange);
     const routeId =
@@ -252,7 +250,7 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
     const stepStart = Date.now();
 
     if (context) {
-      context.emit(`route:${routeId}:step:started` as EventName, {
+      context.emit("route:step:started", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -269,7 +267,7 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
         result = branch.predicate(exchange as Exchange<unknown>);
       } catch (error: unknown) {
         if (context) {
-          context.emit(`route:${routeId}:step:failed` as EventName, {
+          context.emit("route:step:failed", {
             routeId,
             exchangeId: exchange.id,
             correlationId,
@@ -294,7 +292,7 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
       // `isDropped(event.details.exchange)` observe the correct state.
       markDropped(exchange);
       if (context) {
-        context.emit(`route:${routeId}:step:completed` as EventName, {
+        context.emit("route:step:completed", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -302,15 +300,12 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
           duration: Date.now() - stepStart,
           metadata: { matched: false },
         });
-        context.emit(
-          `route:${routeId}:operation:choice:unmatched` as EventName,
-          {
-            routeId,
-            exchangeId: exchange.id,
-            correlationId,
-          },
-        );
-        context.emit(`route:${routeId}:exchange:dropped` as EventName, {
+        context.emit("route:operation:choice:unmatched", {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+        });
+        context.emit("route:exchange:dropped", {
           routeId,
           exchangeId: exchange.id,
           correlationId,
@@ -318,11 +313,11 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
           exchange,
         });
       }
-      return;
+      return { kind: "drop" };
     }
 
     if (context) {
-      context.emit(`route:${routeId}:step:completed` as EventName, {
+      context.emit("route:step:completed", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -330,7 +325,7 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
         duration: Date.now() - stepStart,
         metadata: { matched: true, branchIndex: matchedIndex },
       });
-      context.emit(`route:${routeId}:operation:choice:matched` as EventName, {
+      context.emit("route:operation:choice:matched", {
         routeId,
         exchangeId: exchange.id,
         correlationId,
@@ -339,9 +334,6 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
       });
     }
 
-    queue.push({
-      exchange,
-      steps: [...matchedBranch.steps, ...remainingSteps],
-    });
+    return { kind: "branch", exchange, steps: matchedBranch.steps };
   }
 }

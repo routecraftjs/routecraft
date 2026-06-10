@@ -1,4 +1,4 @@
-import { type Adapter, type Step } from "../types.ts";
+import { type Adapter, type Step, type StepOutcome } from "../types.ts";
 import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
 
 /**
@@ -53,11 +53,7 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
       typeof adapter === "function" ? { process: adapter } : adapter;
   }
 
-  async execute(
-    exchange: Exchange<T>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange<R>; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const returned = await Promise.resolve(this.adapter.process(exchange));
     // The fast path is identity equality (the user returned the same `ex`
     // they were given). For anything else -- a plain spread, a freshly
@@ -95,6 +91,6 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
             body: returned.body,
             headers: returned.headers,
           });
-    queue.push({ exchange: next, steps: remainingSteps });
+    return { kind: "continue", exchange: next };
   }
 }

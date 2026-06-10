@@ -82,7 +82,7 @@ export function seedTelemetryDb(dbPath: string): void {
   // A by-name agent run (researcher) with one tool call.
   emit(
     "2026-06-05T10:01:00.000Z",
-    "route:r1:agent:started",
+    "route:agent:started",
     {
       routeId: "r1",
       exchangeId: "ex1",
@@ -95,7 +95,7 @@ export function seedTelemetryDb(dbPath: string): void {
   );
   emit(
     "2026-06-05T10:01:01.000Z",
-    "route:r1:agent:tool:invoked",
+    "route:agent:tool:invoked",
     {
       routeId: "r1",
       exchangeId: "ex1",
@@ -107,7 +107,7 @@ export function seedTelemetryDb(dbPath: string): void {
   );
   emit(
     "2026-06-05T10:01:02.000Z",
-    "route:r1:agent:tool:result",
+    "route:agent:tool:result",
     {
       routeId: "r1",
       exchangeId: "ex1",
@@ -120,7 +120,7 @@ export function seedTelemetryDb(dbPath: string): void {
   );
   emit(
     "2026-06-05T10:01:03.000Z",
-    "route:r1:agent:finished",
+    "route:agent:finished",
     {
       routeId: "r1",
       exchangeId: "ex1",
@@ -137,13 +137,13 @@ export function seedTelemetryDb(dbPath: string): void {
   // An inline agent run (keyed by route) that errored.
   emit(
     "2026-06-05T10:02:00.000Z",
-    "route:r2:agent:started",
+    "route:agent:started",
     { routeId: "r2", exchangeId: "ex2", model: "anthropic:claude-haiku-4-5" },
     "ex2",
   );
   emit(
     "2026-06-05T10:02:01.000Z",
-    "route:r2:agent:error",
+    "route:agent:error",
     { routeId: "r2", exchangeId: "ex2", model: "anthropic:claude-haiku-4-5" },
     "ex2",
   );
@@ -153,7 +153,7 @@ export function seedTelemetryDb(dbPath: string): void {
   // pre-envelope shape (top-level error).
   emit(
     "2026-06-05T10:03:00.000Z",
-    "route:r3:agent:started",
+    "route:agent:started",
     {
       routeId: "r3",
       exchangeId: "ex3",
@@ -165,13 +165,13 @@ export function seedTelemetryDb(dbPath: string): void {
   );
   emit(
     "2026-06-05T10:03:01.000Z",
-    "route:r3:agent:tool:invoked",
+    "route:agent:tool:invoked",
     { routeId: "r3", exchangeId: "ex3", toolCallId: "c2", toolName: "fetch" },
     "ex3",
   );
   emit(
     "2026-06-05T10:03:02.000Z",
-    "route:r3:agent:tool:error",
+    "route:agent:tool:error",
     {
       routeId: "r3",
       exchangeId: "ex3",
@@ -184,7 +184,7 @@ export function seedTelemetryDb(dbPath: string): void {
   );
   emit(
     "2026-06-05T10:03:03.000Z",
-    "route:r3:agent:tool:error",
+    "route:agent:tool:error",
     {
       routeId: "r3",
       exchangeId: "ex3",
@@ -268,7 +268,7 @@ export function makeEvent(overrides?: Partial<EventRecord>): EventRecord {
     id: 1,
     timestamp: "2026-03-20T10:00:00.000Z",
     contextId: "ctx-001",
-    eventName: "route:test-route:exchange:started",
+    eventName: "route:exchange:started",
     details: JSON.stringify({
       routeId: "test-route",
       exchangeId: "ex-001",

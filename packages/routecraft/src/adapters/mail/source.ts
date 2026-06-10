@@ -1,10 +1,9 @@
-import type { CraftContext } from "../../context.ts";
-import type { Source } from "../../operations/from.ts";
-import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
+import type { Source, Subscription } from "../../operations/from.ts";
+import type { Exchange } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
 import type { MailBody, MailMessage, MailServerOptions } from "./types.ts";
 import type { MailClientManager } from "./client-manager.ts";
-import { DEFAULT_ON_PARSE_ERROR, type OnParseError } from "../shared/parse.ts";
+import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
 import {
   getClientManager,
   createImapClient,
@@ -83,17 +82,21 @@ export class MailSourceAdapter implements Source<MailBody> {
     this.adapterOptions = options;
   }
 
-  async subscribe(
-    context: CraftContext,
-    handler: (
-      message: MailBody,
-      headers?: ExchangeHeaders,
-      parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: OnParseError,
-    ) => Promise<Exchange>,
-    abortController: AbortController,
-    onReady?: () => void,
-  ): Promise<void> {
+  async subscribe(sub: Subscription<MailBody>): Promise<void> {
+    const context = sub.context;
+    // The poll/idle loops and shared fetch helpers take an AbortController;
+    // bridge the subscription's signal onto an adapter-internal controller
+    // so their signatures stay unchanged.
+    const abortController = new AbortController();
+    if (sub.signal.aborted) {
+      abortController.abort(sub.signal.reason);
+    } else {
+      sub.signal.addEventListener(
+        "abort",
+        () => abortController.abort(sub.signal.reason),
+        { once: true },
+      );
+    }
     const manager = getClientManager(context);
     const account = this.adapterOptions.account;
 
@@ -169,20 +172,20 @@ export class MailSourceAdapter implements Source<MailBody> {
       const parseError = MAIL_PARSE_ERRORS.get(message);
       if (parseError) {
         MAIL_PARSE_ERRORS.delete(message);
-        return handler(
-          body,
+        return sub.emit({
+          message: body,
           headers,
-          () => {
+          parse: () => {
             throw parseError;
           },
           parseFailureMode,
-        );
+        });
       }
-      return handler(body, headers);
+      return sub.emit({ message: body, headers });
     };
 
     try {
-      if (onReady) onReady();
+      sub.ready();
 
       if (resolved.pollIntervalMs) {
         await this.pollLoop(
@@ -314,9 +317,9 @@ export class MailSourceAdapter implements Source<MailBody> {
           // Mark-Seen-on-success covers two parse-failure paths via the
           // handler resolving cleanly:
           //   1. 'drop': synthetic parse step emits exchange:dropped and
-          //      runSteps returns without throwing.
+          //      runPipeline returns without throwing.
           //   2. 'fail' with a route .error() handler that recovers: catch
-          //      block sets exchange.body and runSteps returns cleanly.
+          //      block sets exchange.body and runPipeline returns cleanly.
           // The catch block below covers the remaining parse-failure paths
           // ('fail' without handler, 'abort').
           await handler(message);
@@ -327,7 +330,7 @@ export class MailSourceAdapter implements Source<MailBody> {
           // A parse failure (RC5016) is permanent: retrying will hit the
           // same malformed MIME forever. Mark Seen so the message exits
           // the unread set, then re-evaluate based on the configured mode.
-          if (isMailParseError(err)) {
+          if (isParseError(err)) {
             if (markSeenEnabled) {
               await markMessagesSeen(client, message.uid, logger);
             }
@@ -448,7 +451,7 @@ export class MailSourceAdapter implements Source<MailBody> {
         // RC5016 is a permanent MIME parse failure; mark Seen so we don't
         // re-fetch the same malformed message forever, and rethrow when
         // the configured mode is `'abort'` so the source dies.
-        if (isMailParseError(err)) {
+        if (isParseError(err)) {
           if (markSeenEnabled) {
             await markMessagesSeen(client, message.uid, logger);
           }
@@ -576,20 +579,6 @@ function validateSourceOptions(
         "drain when new mail arrives. Use pollIntervalMs for predictable drain.",
     );
   }
-}
-
-/**
- * True if `err` is the framework's parse-error code (`RC5016`). Used by the
- * mail loops to distinguish permanent MIME parse failures (mark Seen, do not
- * retry) from transient pipeline failures (leave un-Seen, retry next cycle).
- * See #187.
- */
-function isMailParseError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { rc?: unknown }).rc === "RC5016"
-  );
 }
 
 /**

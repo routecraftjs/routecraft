@@ -46,9 +46,17 @@ export { defineConfig } from "./define-config.ts";
 export { registerConfigApplier, type ConfigApplier } from "./config-applier.ts";
 export { type HttpConfig } from "./adapters/http/types.ts";
 
-// Side-effect: register the `http` config applier so `defineConfig({ http })`
-// materialises the plugin without users importing httpPlugin manually.
+// Side-effect: register the config appliers for first-class config keys
+// (`http`, `cron`, `direct`, `mail`, `telemetry`) so `defineConfig({...})`
+// materialises the wiring without users importing plugins manually. Each
+// module also augments CraftConfig with its key; the core context has no
+// adapter knowledge.
 import "./plugins/http/config.ts";
+import "./adapters/cron/config.ts";
+import "./adapters/direct/config.ts";
+import "./adapters/mail/config.ts";
+import "./adapters/carddav/config.ts";
+import "./telemetry/config.ts";
 
 export { httpPlugin } from "./plugins/http/plugin.ts";
 export { apiKey } from "./plugins/http/auth.ts";
@@ -67,7 +75,14 @@ export {
   type Tag,
 } from "./route.ts";
 
-export { type Source, type SourceMeta } from "./operations/from.ts";
+export {
+  type CallableSource,
+  type GeneratorSource,
+  type Source,
+  type SourceLike,
+  type SourceMeta,
+  type Subscription,
+} from "./operations/from.ts";
 
 export { type Processor } from "./operations/process.ts";
 
@@ -165,7 +180,9 @@ export {
   RoutecraftError,
   type RCCode,
   type RCMeta,
+  type ErrorCodeRegistry,
   rcError,
+  registerErrorCodes,
   formatSchemaIssues,
   RC,
 } from "./error.ts";
@@ -214,9 +231,14 @@ export {
 export {
   type Adapter,
   type Consumer,
+  type EventDetailsMap,
   type EventName,
   type EventHandler,
+  type EventPayload,
+  forRoute,
   type Step,
+  type StepContext,
+  type StepOutcome,
 } from "./types.ts";
 
 export { SimpleConsumer } from "./consumers/simple.ts";

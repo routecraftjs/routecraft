@@ -3,6 +3,10 @@
 // appliers so those keys produce plugins on context startup.
 import "./config.ts";
 
+// Side-effect import: declares and registers this package's AI#### error
+// codes in the core error registry (declaration merge + runtime metadata).
+import "./errors.ts";
+
 // Cross-instance identity (Symbol.for) for MCP adapters
 export { BRAND, isMcpAdapter } from "./brand.ts";
 

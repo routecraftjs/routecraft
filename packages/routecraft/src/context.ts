@@ -4,21 +4,9 @@ import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
-import { ADAPTER_DIRECT_OPTIONS } from "./adapters/direct/shared.ts";
-import { type DirectBaseOptions } from "./adapters/direct/types.ts";
-import { type CronOptions } from "./adapters/cron/types.ts";
-import { ADAPTER_CRON_OPTIONS } from "./adapters/cron/source.ts";
-import { type HttpConfig } from "./adapters/http/types.ts";
-import { type MailContextConfig } from "./adapters/mail/types.ts";
-import { MailClientManager } from "./adapters/mail/client-manager.ts";
-import { MAIL_CLIENT_MANAGER } from "./adapters/mail/shared.ts";
-import { type CardDAVContextConfig } from "./adapters/carddav/types.ts";
-import { CardDAVClientManager } from "./adapters/carddav/client-manager.ts";
-import { CARDDAV_CLIENT_MANAGER } from "./adapters/carddav/shared.ts";
-import { type TelemetryOptions } from "./telemetry/types.ts";
-import { telemetry } from "./telemetry/index.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
+import { EventBus } from "./event-bus.ts";
 
 import {
   type EventHandler,
@@ -122,18 +110,6 @@ export interface CraftConfig {
   >;
   /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
   plugins?: CraftPlugin[];
-  /** Default options applied to all cron() sources in this context */
-  cron?: Partial<CronOptions>;
-  /** Default channel implementation for all direct() adapters (e.g. swap in-memory for Kafka) */
-  direct?: Pick<DirectBaseOptions, "channelType">;
-  /** Reserved: HTTP server config for inbound (no-op today) */
-  http?: HttpConfig;
-  /** Mail adapter configuration with named accounts */
-  mail?: MailContextConfig;
-  /** CardDAV adapter configuration with named accounts */
-  carddav?: CardDAVContextConfig;
-  /** Telemetry plugin configuration (SQLite, OpenTelemetry) */
-  telemetry?: TelemetryOptions;
 }
 
 /**
@@ -190,16 +166,14 @@ export class CraftContext {
   /** Logger for this context (pino child logger) */
   public readonly logger: ReturnType<typeof logger.child>;
 
-  /** Registered event handlers */
-  private readonly handlers: Map<EventName, Set<EventHandler<EventName>>> =
-    new Map();
-
-  /** Wildcard event handlers (for pattern matching like "route:*" or "*") */
-  private readonly wildcardHandlers: Map<string, Set<EventHandler<EventName>>> =
-    new Map();
+  /** Event bus backing on/once/emit (see event-bus.ts) */
+  private readonly events: EventBus;
 
   /** Plugins from config, run by initPlugins() before routes are registered */
   private readonly plugins: CraftPlugin[] = [];
+
+  /** Guards initPlugins() so start() can call it idempotently */
+  private pluginsInitialized = false;
 
   /** Teardown callbacks registered by plugins; run during stop() before context:stopped */
   private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
@@ -216,6 +190,7 @@ export class CraftContext {
     setBrand(this, BRAND.CraftContext);
     if (config?.name !== undefined) this.name = config.name;
     this.logger = logger.child(childBindings(this));
+    this.events = new EventBus(this.contextId, this.logger);
     if (config) {
       // Initialize store from config
       if (config.store) {
@@ -245,54 +220,21 @@ export class CraftContext {
           }
         }
       }
-      // Set up core adapter defaults in the store
-      if (config.cron) {
-        this.store.set(
-          ADAPTER_CRON_OPTIONS as keyof StoreRegistry,
-          config.cron,
-        );
-      }
-      if (config.direct) {
-        this.store.set(
-          ADAPTER_DIRECT_OPTIONS as keyof StoreRegistry,
-          config.direct,
-        );
-      }
-
-      // Set up mail client manager if mail config is present
-      if (config.mail) {
-        const manager = new MailClientManager(config.mail);
-        this.store.set(MAIL_CLIENT_MANAGER as keyof StoreRegistry, manager);
-        this.teardownCallbacks.push(() => manager.drain());
-      }
-
-      // Set up CardDAV client manager if carddav config is present
-      if (config.carddav) {
-        const manager = new CardDAVClientManager(config.carddav);
-        this.store.set(CARDDAV_CLIENT_MANAGER as keyof StoreRegistry, manager);
-        this.teardownCallbacks.push(() => manager.drain());
-      }
-
-      // Convert telemetry config into a plugin
-      if (config.telemetry) {
-        this.plugins.push(telemetry(config.telemetry));
-      }
-
-      // Walk registered config appliers (e.g. @routecraft/ai promotes `llm`,
-      // `mcp`, `embedding`, `agent` to first-class keys via this registry).
+      // Walk registered config appliers. ALL first-class config keys go
+      // through this registry: core keys (`http`, `cron`, `direct`, `mail`,
+      // `telemetry`) are registered by side-effect imports in index.ts, and
+      // ecosystem packages (e.g. @routecraft/ai promotes `llm`, `mcp`,
+      // `embedding`, `agent`) extend it the same way. The core context has
+      // no knowledge of any adapter or plugin internals.
       //
       // The push order into `this.plugins` drives both apply() order
-      // (forward) and teardown() order (reverse) for entries that go
-      // through the plugin lifecycle:
-      //   1. telemetry plugin (if config.telemetry)
-      //   2. ecosystem appliers, in registration order
-      //   3. user config.plugins
+      // (forward) and teardown() order (reverse):
+      //   1. registered appliers, in registration order (core keys first,
+      //      since index.ts imports run before ecosystem modules load)
+      //   2. user config.plugins
       //
       // Reverse-iteration in performShutdown() therefore tears down user
-      // plugins first, then ecosystem appliers, then telemetry. Mail is
-      // not a plugin -- it registers a callback in this.teardownCallbacks,
-      // which runs after all plugin teardowns regardless of where the
-      // mail block sits in this constructor.
+      // plugins first, then appliers in reverse registration order.
       //
       // The applier guard is strictly `value !== undefined`, not a truthy
       // check. The applier registry is an open extension point: ecosystem
@@ -335,6 +277,8 @@ export class CraftContext {
    * @throws Rethrows if any plugin's `apply(ctx)` throws
    */
   async initPlugins(): Promise<void> {
+    if (this.pluginsInitialized) return;
+    this.pluginsInitialized = true;
     for (const [pluginIndex, plugin] of this.plugins.entries()) {
       try {
         if (
@@ -357,13 +301,13 @@ export class CraftContext {
         const pluginId = this.getPluginId(plugin as CraftPlugin, pluginIndex);
 
         // Emit registered event
-        this.emit(`plugin:${pluginId}:registered` as EventName, {
+        this.emit("plugin:registered", {
           pluginId,
           pluginIndex,
         });
 
         // Emit starting event
-        this.emit(`plugin:${pluginId}:starting` as EventName, {
+        this.emit("plugin:starting", {
           pluginId,
           pluginIndex,
         });
@@ -371,7 +315,7 @@ export class CraftContext {
         await (plugin as CraftPlugin).apply(this);
 
         // Emit started event
-        this.emit(`plugin:${pluginId}:started` as EventName, {
+        this.emit("plugin:started", {
           pluginId,
           pluginIndex,
         });
@@ -440,26 +384,9 @@ export class CraftContext {
    * ```
    */
   on<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
-  on(event: string, handler: EventHandler<EventName>): () => void;
-  on(event: EventName | string, handler: EventHandler<EventName>): () => void {
-    // Check if this is a wildcard pattern
-    const isWildcard = typeof event === "string" && event.includes("*");
-
-    if (isWildcard) {
-      const set = this.wildcardHandlers.get(event) ?? new Set();
-      set.add(handler as unknown as EventHandler<EventName>);
-      this.wildcardHandlers.set(event, set);
-      return () => {
-        set.delete(handler as unknown as EventHandler<EventName>);
-      };
-    } else {
-      const set = this.handlers.get(event as EventName) ?? new Set();
-      set.add(handler as unknown as EventHandler<EventName>);
-      this.handlers.set(event as EventName, set);
-      return () => {
-        set.delete(handler as unknown as EventHandler<EventName>);
-      };
-    }
+  on(event: "*", handler: EventHandler<EventName>): () => void;
+  on(event: EventName | "*", handler: EventHandler<EventName>): () => void {
+    return this.events.on(event as EventName, handler);
   }
 
   /**
@@ -486,17 +413,9 @@ export class CraftContext {
    * ```
    */
   once<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
-  once(event: string, handler: EventHandler<EventName>): () => void;
-  once(
-    event: EventName | string,
-    handler: EventHandler<EventName>,
-  ): () => void {
-    const wrappedHandler: EventHandler<EventName> = (payload) => {
-      unsubscribe();
-      return handler(payload);
-    };
-    const unsubscribe = this.on(event, wrappedHandler);
-    return unsubscribe;
+  once(event: "*", handler: EventHandler<EventName>): () => void;
+  once(event: EventName | "*", handler: EventHandler<EventName>): () => void {
+    return this.events.once(event as EventName, handler);
   }
 
   /**
@@ -510,170 +429,7 @@ export class CraftContext {
     event: K,
     details: EventPayload<K>["details"],
   ): void {
-    const payload: EventPayload<K> = {
-      ts: new Date().toISOString(),
-      contextId: this.contextId,
-      details,
-    } as EventPayload<K>;
-
-    payload._event = event;
-
-    // Collect all matching handlers (exact match + wildcards)
-    const matchingHandlers: EventHandler<EventName>[] = [];
-
-    // 1. Exact match handlers
-    const exactSet = this.handlers.get(event);
-    if (exactSet && exactSet.size > 0) {
-      matchingHandlers.push(...Array.from(exactSet));
-    }
-
-    // 2. Wildcard handlers
-    for (const [pattern, handlerSet] of this.wildcardHandlers) {
-      if (this.matchesPattern(event, pattern)) {
-        matchingHandlers.push(...Array.from(handlerSet));
-      }
-    }
-
-    if (matchingHandlers.length === 0) return;
-
-    // Execute all matching handlers
-    for (const handler of matchingHandlers) {
-      try {
-        const result = (handler as unknown as EventHandler<K>)(payload);
-        // Handle async handlers properly to catch promise rejections
-        if (result && typeof result.then === "function") {
-          void result.catch((err: unknown) => {
-            // Log async handler errors at error level for error events, warn for others
-            const logLevel = event === "context:error" ? "error" : "warn";
-            this.logger[logLevel](
-              { event, err },
-              "Async event handler rejected. Handler should not throw; errors are emitted as context 'error' event.",
-            );
-            if (event !== "context:error") {
-              this.emit("context:error", { error: err });
-            }
-          });
-        }
-      } catch (err) {
-        // Swallow synchronous handler errors but log them and emit system error
-        // Log error events at error level, others at warn
-        const logLevel = event === "context:error" ? "error" : "warn";
-        this.logger[logLevel](
-          { event, err },
-          "Event handler threw. Handler should not throw; errors are emitted as context 'error' event.",
-        );
-        if (event !== "context:error") {
-          this.emit("context:error", { error: err });
-        }
-      }
-    }
-  }
-
-  /**
-   * Check if an event name matches a wildcard pattern.
-   * Supports:
-   * - "*" matches all events
-   * - "route:*" matches all route events (route:started, route:stopped, etc.)
-   * - "exchange:*" matches all exchange events
-   * - "route:myroute:*" matches all events for a specific route
-   * - "route:*:step:*" matches hierarchical patterns at any level
-   *
-   * @param event - Event name to match
-   * @param pattern - Wildcard pattern
-   * @returns True if the event matches the pattern
-   */
-  private matchesPattern(event: string, pattern: string): boolean {
-    // Special case: "*" matches everything
-    if (pattern === "*") return true;
-
-    // Exact match (no wildcards)
-    if (!pattern.includes("*")) return event === pattern;
-
-    // Check for ** globstar wildcard (multi-level matching)
-    if (pattern.includes("**")) {
-      return this.matchesGlobstarPattern(event, pattern);
-    }
-
-    // Tokenize both event and pattern on ":"
-    const eventSegments = event.split(":");
-    const patternSegments = pattern.split(":");
-
-    // Must have same number of segments
-    if (eventSegments.length !== patternSegments.length) return false;
-
-    // Match each segment (exact match or wildcard)
-    for (let i = 0; i < patternSegments.length; i++) {
-      const patternSeg = patternSegments[i];
-      const eventSeg = eventSegments[i];
-
-      // Wildcard matches any segment
-      if (patternSeg === "*") continue;
-
-      // Exact match required
-      if (patternSeg !== eventSeg) return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Match event against pattern with ** globstar wildcards.
-   * ** matches zero or more segments at any level.
-   *
-   * Examples:
-   * - "route:**" matches "route:started", "route:payment:exchange:started", etc.
-   * - "route:*:step:**" matches "route:api:step:started", etc.
-   */
-  private matchesGlobstarPattern(event: string, pattern: string): boolean {
-    const eventSegments = event.split(":");
-    const patternSegments = pattern.split(":");
-
-    let eventIdx = 0;
-    let patternIdx = 0;
-
-    while (patternIdx < patternSegments.length) {
-      const patternSeg = patternSegments[patternIdx];
-
-      if (patternSeg === "**") {
-        // ** is the last segment - matches everything remaining
-        if (patternIdx === patternSegments.length - 1) {
-          return true;
-        }
-
-        // Try to match remaining pattern at each possible position in event
-        const remainingPattern = patternSegments
-          .slice(patternIdx + 1)
-          .join(":");
-
-        // Try matching from current position onwards
-        for (let i = eventIdx; i <= eventSegments.length; i++) {
-          const remainingEvent = eventSegments.slice(i).join(":");
-          if (this.matchesPattern(remainingEvent, remainingPattern)) {
-            return true;
-          }
-        }
-
-        return false;
-      } else if (patternSeg === "*") {
-        // Single-level wildcard - must have a segment to match
-        if (eventIdx >= eventSegments.length) return false;
-        eventIdx++;
-        patternIdx++;
-      } else {
-        // Exact match required
-        if (
-          eventIdx >= eventSegments.length ||
-          eventSegments[eventIdx] !== patternSeg
-        ) {
-          return false;
-        }
-        eventIdx++;
-        patternIdx++;
-      }
-    }
-
-    // All pattern segments matched - event must be fully consumed too
-    return eventIdx === eventSegments.length;
+    this.events.emit(event, details);
   }
 
   // onStartup/onShutdown removed in favor of event listeners
@@ -742,7 +498,7 @@ export class CraftContext {
       this.controllers.set(definition.id, controller);
       const route = new DefaultRoute(this, definition, controller);
       this.routes.push(route);
-      this.emit(`route:${definition.id}:registered` as EventName, { route });
+      this.emit("route:registered", { routeId: definition.id, route });
     }
   }
 
@@ -837,6 +593,14 @@ export class CraftContext {
    * ```
    */
   async start(): Promise<void> {
+    // Idempotent: skipped synchronously when ContextBuilder.build() already
+    // ran plugins, so the common path adds zero microtask delay (event
+    // interleaving with in-flight exchanges stays byte-identical).
+    // Guarantees directly-constructed contexts get config-applier wiring
+    // (http/cron/direct/mail/telemetry and ecosystem keys) before routes run.
+    if (!this.pluginsInitialized) {
+      await this.initPlugins();
+    }
     this.shutdownPromise = null;
     this.logger.info(
       { routeCount: this.routes.length },
@@ -850,7 +614,8 @@ export class CraftContext {
       this.routes.map(async (route) => {
         try {
           this.logger.info({ route: route.definition.id }, "Starting route");
-          this.emit(`route:${route.definition.id}:starting` as EventName, {
+          this.emit("route:starting", {
+            routeId: route.definition.id,
             route,
           });
           await route.start();
@@ -974,7 +739,7 @@ export class CraftContext {
         const pluginId = this.getPluginId(plugin, i);
 
         // Emit stopping event
-        this.emit(`plugin:${pluginId}:stopping` as EventName, {
+        this.emit("plugin:stopping", {
           pluginId,
           pluginIndex: i,
         });
@@ -983,7 +748,7 @@ export class CraftContext {
           await Promise.resolve(plugin.teardown(this));
 
           // Emit stopped event
-          this.emit(`plugin:${pluginId}:stopped` as EventName, {
+          this.emit("plugin:stopped", {
             pluginId,
             pluginIndex: i,
           });

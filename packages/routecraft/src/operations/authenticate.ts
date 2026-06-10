@@ -1,4 +1,4 @@
-import { type Adapter, type Step } from "../types.ts";
+import { type Adapter, type Step, type StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -32,11 +32,7 @@ export class AuthenticateStep<T = unknown> implements Step<Adapter> {
 
   constructor(private readonly resolve: CallableAuthenticator<T>) {}
 
-  async execute(
-    exchange: Exchange<T>,
-    remainingSteps: Step<Adapter>[],
-    queue: { exchange: Exchange<T>; steps: Step<Adapter>[] }[],
-  ): Promise<void> {
+  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const claims = await Promise.resolve(this.resolve(exchange));
     const next =
       claims === undefined
@@ -47,6 +43,6 @@ export class AuthenticateStep<T = unknown> implements Step<Adapter> {
               [HeadersKeys.AUTH_PRINCIPAL]: authenticate(claims),
             },
           });
-    queue.push({ exchange: next, steps: remainingSteps });
+    return { kind: "continue", exchange: next };
   }
 }

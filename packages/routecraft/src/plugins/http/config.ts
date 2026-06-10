@@ -1,5 +1,13 @@
 import { registerConfigApplier } from "../../config-applier";
 import { httpPlugin } from "./plugin";
+import type { HttpConfig } from "../../adapters/http/types";
+
+declare module "@routecraft/routecraft" {
+  interface CraftConfig {
+    /** HTTP server config for inbound http() sources (port, auth, etc.) */
+    http?: HttpConfig;
+  }
+}
 
 /**
  * Register the `http` config key so `defineConfig({ http: {...} })` is

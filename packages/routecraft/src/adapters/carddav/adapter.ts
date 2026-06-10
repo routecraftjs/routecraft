@@ -34,9 +34,8 @@ import type { CraftContext } from "../../context.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { getExchangeContext } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
-import type { Source } from "../../operations/from.ts";
+import type { Source, Subscription } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
-import type { OnParseError } from "../shared/parse.ts";
 import type { CardDAVClientManager } from "./client-manager.ts";
 import { VCard, type VCardBody } from "./vcard.ts";
 import {
@@ -155,18 +154,8 @@ export class CardDAVAdapter
   // Source: read all contacts, one exchange each
   // -------------------------------------------------------------------------
 
-  async subscribe(
-    context: CraftContext,
-    handler: (
-      message: VCardBody,
-      headers?: ExchangeHeaders,
-      parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: OnParseError,
-    ) => Promise<Exchange>,
-    abortController: AbortController,
-    onReady?: () => void,
-  ): Promise<void> {
-    const { client, book, account } = await this.openRead(context);
+  async subscribe(sub: Subscription<VCardBody>): Promise<void> {
+    const { client, book, account } = await this.openRead(sub.context);
 
     let cards: DAVVCardLike[];
     try {
@@ -175,12 +164,12 @@ export class CardDAVAdapter
       throwCardDAVError(error, "fetch contacts");
     }
 
-    if (onReady) onReady();
+    sub.ready();
 
     const limit = this.options.limit;
     let emitted = 0;
     for (const dav of cards) {
-      if (abortController.signal.aborted) break;
+      if (sub.signal.aborted) break;
       if (typeof limit === "number" && emitted >= limit) break;
       const raw = typeof dav.data === "string" ? dav.data : "";
       if (!raw) continue;
@@ -192,24 +181,33 @@ export class CardDAVAdapter
         // Surface a malformed vCard as a per-exchange parse failure (RC5016)
         // via the synthetic parse step, so the route's `.error()` handler can
         // recover it instead of tearing down the read.
-        await handler(
-          raw as unknown as VCardBody,
-          this.buildHeaders(dav, account, uidFromUrl(dav.url)),
-          () => {
+        await sub.emit({
+          message: raw as unknown as VCardBody,
+          headers: this.buildHeaders(dav, account, uidFromUrl(dav.url)),
+          parse: () => {
             throw error;
           },
-          "fail",
-        );
+          parseFailureMode: "fail",
+        });
         emitted++;
         continue;
       }
 
-      await handler(
-        card.data,
-        this.buildHeaders(dav, account, card.uid ?? uidFromUrl(dav.url)),
-      );
+      await sub.emit({
+        message: card.data,
+        headers: this.buildHeaders(
+          dav,
+          account,
+          card.uid ?? uidFromUrl(dav.url),
+        ),
+      });
       emitted++;
     }
+
+    // Finite source: all contacts emitted, signal completion so the route
+    // wraps up like other finite sources instead of waiting on the
+    // context's auto-stop sweep.
+    sub.complete();
   }
 
   // -------------------------------------------------------------------------

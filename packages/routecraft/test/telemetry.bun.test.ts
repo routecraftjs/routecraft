@@ -265,9 +265,9 @@ describe("TelemetryPlugin", () => {
     // Emit the synthetic agent-tool event from inside a live exchange so
     // the telemetry subscription is still active (a finite source tears
     // the context down by the time start() resolves).
-    t.ctx.once("route:snap-off:exchange:started" as never, () => {
+    t.ctx.once("route:exchange:started" as never, () => {
       t.ctx.emit(
-        "route:snap-off:agent:tool:result" as never,
+        "route:agent:tool:result" as never,
         {
           routeId: "snap-off",
           exchangeId: "ex-1",
@@ -281,9 +281,7 @@ describe("TelemetryPlugin", () => {
     const db = new Database(dbPath, { readonly: true });
     const row = db
       .prepare("SELECT details FROM events WHERE event_name = ?")
-      .get("route:snap-off:agent:tool:result") as
-      | { details: string }
-      | undefined;
+      .get("route:agent:tool:result") as { details: string } | undefined;
     db.close();
 
     expect(row).toBeDefined();
@@ -312,9 +310,9 @@ describe("TelemetryPlugin", () => {
       .routes(route)
       .build();
 
-    t.ctx.once("route:snap-on:exchange:started" as never, () => {
+    t.ctx.once("route:exchange:started" as never, () => {
       t.ctx.emit(
-        "route:snap-on:agent:tool:result" as never,
+        "route:agent:tool:result" as never,
         {
           routeId: "snap-on",
           exchangeId: "ex-1",
@@ -328,9 +326,7 @@ describe("TelemetryPlugin", () => {
     const db = new Database(dbPath, { readonly: true });
     const row = db
       .prepare("SELECT details FROM events WHERE event_name = ?")
-      .get("route:snap-on:agent:tool:result") as
-      | { details: string }
-      | undefined;
+      .get("route:agent:tool:result") as { details: string } | undefined;
     db.close();
 
     expect(row).toBeDefined();

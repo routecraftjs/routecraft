@@ -27,9 +27,9 @@ describe("agent blocks: construction-time validation", () => {
   });
 
   /**
-   * @case Block names starting with the reserved `_block_` prefix are rejected (RC5026)
+   * @case Block names starting with the reserved `_block_` prefix are rejected (AI1002)
    * @preconditions Agent declares a block named `_block_load_x`
-   * @expectedResult agent() construction throws an RC5026-shaped error
+   * @expectedResult agent() construction throws an AI1002-shaped error
    */
   test("rejects block names with the reserved `_block_` prefix", () => {
     expect(() =>
@@ -57,7 +57,7 @@ describe("agent blocks: construction-time validation", () => {
   });
 
   /**
-   * @case Empty-string block name rejected (RC5026)
+   * @case Empty-string block name rejected (AI1002)
    * @preconditions Agent declares a block whose key is the empty string
    * @expectedResult agent() construction throws
    */
@@ -72,7 +72,7 @@ describe("agent blocks: construction-time validation", () => {
   });
 
   /**
-   * @case Progressive-mode blocks must carry a description (RC5027)
+   * @case Progressive-mode blocks must carry a description (AI1003)
    * @preconditions Agent declares a progressive block with no description
    * @expectedResult agent() construction throws explaining the requirement
    */
@@ -87,7 +87,7 @@ describe("agent blocks: construction-time validation", () => {
   });
 
   /**
-   * @case Invalid mode value rejected (RC5027)
+   * @case Invalid mode value rejected (AI1003)
    * @preconditions Agent declares a block with mode: "bogus"
    * @expectedResult agent() construction throws
    */
@@ -103,7 +103,7 @@ describe("agent blocks: construction-time validation", () => {
   });
 
   /**
-   * @case Non-string, non-function value rejected (RC5027)
+   * @case Non-string, non-function value rejected (AI1003)
    * @preconditions Agent declares a block whose value is a number
    * @expectedResult agent() construction throws
    */
@@ -134,11 +134,11 @@ describe("agent blocks: construction-time validation", () => {
   });
 
   /**
-   * @case A function-form resolver that throws raises RC5025 at dispatch
+   * @case A function-form resolver that throws raises AI1001 at dispatch
    * @preconditions Inject block whose value throws
    * @expectedResult The dispatch propagates an error message naming the block
    */
-  test("inject resolver throw aborts the dispatch with RC5025", async () => {
+  test("inject resolver throw aborts the dispatch with AI1001", async () => {
     const sink = spy();
     const errors: unknown[] = [];
     t = await testContext()
@@ -170,7 +170,7 @@ describe("agent blocks: construction-time validation", () => {
       )
       .build();
     t.ctx.on(
-      "route:inject-throws:exchange:failed" as never,
+      "route:exchange:failed" as never,
       ({ details }: { details: { error: unknown } }) => {
         errors.push(details.error);
       },
@@ -181,7 +181,7 @@ describe("agent blocks: construction-time validation", () => {
   });
 
   /**
-   * @case A user tool registered under the reserved `_block_` prefix is rejected at dispatch (RC5026)
+   * @case A user tool registered under the reserved `_block_` prefix is rejected at dispatch (AI1002)
    * @preconditions Plugin registers an fn named `_block_load_evil`; agent references it
    * @expectedResult Dispatch raises an error explaining the prefix is reserved
    */
@@ -218,7 +218,7 @@ describe("agent blocks: construction-time validation", () => {
       )
       .build();
     t.ctx.on(
-      "route:collide:exchange:failed" as never,
+      "route:exchange:failed" as never,
       ({ details }: { details: { error: unknown } }) => {
         errors.push(details.error);
       },

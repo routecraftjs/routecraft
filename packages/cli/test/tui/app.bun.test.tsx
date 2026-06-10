@@ -276,7 +276,7 @@ describe("TUI App navigation", () => {
       .run(
         "2026-06-05T10:05:01.000Z",
         "ctx",
-        "route:r1:agent:tool:invoked",
+        "route:agent:tool:invoked",
         JSON.stringify({
           routeId: "r1",
           exchangeId: "ex1",

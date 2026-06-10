@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { testContext, type TestContext } from "@routecraft/testing";
+import {
+  testContext,
+  testSubscription,
+  type TestContext,
+} from "@routecraft/testing";
 import { craft, event, log, simple } from "@routecraft/routecraft";
 import { EventSourceAdapter } from "../../src/adapters/sources/event/index.ts";
 
@@ -22,7 +26,7 @@ describe("Event Source Adapter", () => {
 
     const eventRoute = craft()
       .id("event-listener")
-      .from(event("route:*:started"))
+      .from(event("route:started"))
       .to((ex) => {
         events.push(ex.body);
       });
@@ -59,7 +63,7 @@ describe("Event Source Adapter", () => {
 
     const eventRoute = craft()
       .id("multi-event-listener")
-      .from(event(["route:*:started", "route:*:stopped"]))
+      .from(event(["route:started", "route:stopped"]))
       .to((ex) => {
         events.push(ex.body);
       });
@@ -90,7 +94,7 @@ describe("Event Source Adapter", () => {
 
     const eventRoute = craft()
       .id("route-wildcard-listener")
-      .from(event("route:*:*"))
+      .from(event("route:*"))
       .to((ex) => {
         events.push(ex.body);
       });
@@ -127,11 +131,11 @@ describe("Event Source Adapter", () => {
       .from(
         event([
           "context:*",
-          "route:*:registered",
-          "route:*:starting",
-          "route:*:started",
-          "route:*:stopping",
-          "route:*:stopped",
+          "route:registered",
+          "route:starting",
+          "route:started",
+          "route:stopping",
+          "route:stopped",
         ]),
       )
       .to((ex) => {
@@ -163,7 +167,7 @@ describe("Event Source Adapter", () => {
 
     const eventRoute = craft()
       .id("unsubscribe-test")
-      .from(event("route:*:started"))
+      .from(event("route:started"))
       .to((ex) => {
         events.push(ex.body);
       });
@@ -200,7 +204,7 @@ describe("Event Source Adapter", () => {
 
     const eventRoute = craft()
       .id("payload-test")
-      .from(event("route:*:started"))
+      .from(event("route:started"))
       .to((ex) => {
         if (!payload) {
           payload = ex.body;
@@ -237,7 +241,7 @@ describe("Event Source Adapter", () => {
 
     const monitorRoute = craft()
       .id("event-monitor")
-      .from(event(["context:error", "route:*:started", "route:*:stopped"]))
+      .from(event(["context:error", "route:started", "route:stopped"]))
       .to((ex) => {
         const payload = ex.body;
         logged.push({
@@ -277,11 +281,13 @@ describe("Event Source Adapter", () => {
     const adapter = new EventSourceAdapter("context:started");
     const abortController = new AbortController();
     const subscription = adapter.subscribe(
-      t.ctx,
-      async () => {
-        throw new Error("Handler error");
-      },
-      abortController,
+      testSubscription({
+        context: t.ctx,
+        handler: async () => {
+          throw new Error("Handler error");
+        },
+        abortController,
+      }),
     );
 
     t.ctx.emit("context:started", {});
@@ -318,14 +324,16 @@ describe("Event Source Adapter", () => {
     const adapter = new EventSourceAdapter("context:started");
     const abortController = new AbortController();
     const subscription = adapter.subscribe(
-      t.ctx,
-      async () => {
-        throw {
-          meta: { message: "Routecraft handler error" },
-          message: "Plain handler error",
-        };
-      },
-      abortController,
+      testSubscription({
+        context: t.ctx,
+        handler: async () => {
+          throw {
+            meta: { message: "Routecraft handler error" },
+            message: "Plain handler error",
+          };
+        },
+        abortController,
+      }),
     );
 
     t.ctx.emit("context:started", {});

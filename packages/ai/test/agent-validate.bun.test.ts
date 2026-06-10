@@ -208,7 +208,7 @@ describe("agent.validate: pre-finish hook with corrective retry", () => {
 
     const errors: unknown[] = [];
     t.ctx.on(
-      "route:v-exhaust:agent:error" as never,
+      "route:agent:error" as never,
       ({ details }: { details: { error: unknown } }) => {
         errors.push(details.error);
       },

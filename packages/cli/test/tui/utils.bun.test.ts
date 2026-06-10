@@ -167,7 +167,7 @@ describe("formatDetailColumns", () => {
       exchangeId: "abcdef1234567890",
       duration: 150,
     });
-    const result = formatDetailColumns("route:my-route:step:started", details);
+    const result = formatDetailColumns("route:step:started", details);
     expect(result.step).toBe("enrich");
     expect(result.adapter).toBe("(http)");
     expect(result.exchange).toBe("abcdef12");
@@ -185,10 +185,7 @@ describe("formatDetailColumns", () => {
       exchangeId: "abcdef1234567890",
       duration: 3200,
     });
-    const result = formatDetailColumns(
-      "route:my-route:exchange:completed",
-      details,
-    );
+    const result = formatDetailColumns("route:exchange:completed", details);
     expect(result.step).toBe("my-route");
     expect(result.exchange).toBe("abcdef12");
     expect(result.duration).toBe("3.2s");
@@ -206,10 +203,7 @@ describe("formatDetailColumns", () => {
       error: "timeout",
       duration: 5000,
     });
-    const result = formatDetailColumns(
-      "route:my-route:exchange:failed",
-      details,
-    );
+    const result = formatDetailColumns("route:exchange:failed", details);
     expect(result.adapter).toBe("(err)");
   });
 
@@ -239,7 +233,7 @@ describe("formatDetailColumns", () => {
       exchangeId: "abcdef12",
       metadata: { format: "json", size: 42 },
     });
-    const result = formatDetailColumns("route:my-route:step:started", details);
+    const result = formatDetailColumns("route:step:started", details);
     expect(result.adapter).toBe("(inline)");
     expect(result.meta).toContain("format=json");
     expect(result.meta).toContain("size=42");

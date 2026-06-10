@@ -1,3 +1,4 @@
+import { testSubscription } from "@routecraft/testing";
 import {
   describe,
   test,
@@ -111,10 +112,7 @@ describe("CronSourceAdapter", () => {
     const onReady = mock();
 
     const promise = adapter.subscribe(
-      context,
-      handler,
-      abortController,
-      onReady,
+      testSubscription({ context, handler, abortController, onReady }),
     );
 
     // Drain microtasks so the IIFE's load + new Cron throw lands on reject.
@@ -139,10 +137,7 @@ describe("CronSourceAdapter", () => {
     const onReady = mock();
 
     const promise = adapter.subscribe(
-      context,
-      handler,
-      abortController,
-      onReady,
+      testSubscription({ context, handler, abortController, onReady }),
     );
 
     await advanceTime(2000);
@@ -170,7 +165,9 @@ describe("CronSourceAdapter", () => {
     const abortController = new AbortController();
     const handler = mock().mockResolvedValue({} as Exchange);
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     await advanceTime(5000);
 
@@ -194,7 +191,9 @@ describe("CronSourceAdapter", () => {
       return {} as Exchange;
     });
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     await advanceTime(2000);
     await promise;
@@ -216,7 +215,9 @@ describe("CronSourceAdapter", () => {
     const abortController = new AbortController();
     const handler = mock().mockResolvedValue({} as Exchange);
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     await advanceTime(2000);
 
@@ -242,7 +243,9 @@ describe("CronSourceAdapter", () => {
     const abortController = new AbortController();
     const handler = mock().mockResolvedValue({} as Exchange);
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     await advanceTime(2000);
 
@@ -267,7 +270,9 @@ describe("CronSourceAdapter", () => {
       .mockRejectedValueOnce(new Error("test error"))
       .mockResolvedValue({} as Exchange);
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     await advanceTime(3000);
 
@@ -291,7 +296,9 @@ describe("CronSourceAdapter", () => {
     const abortController = new AbortController();
     const handler = mock().mockResolvedValue({} as Exchange);
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     await advanceTime(5000);
 
@@ -334,9 +341,7 @@ describe("CronSourceAdapter", () => {
     const handler = mock().mockResolvedValue({} as Exchange);
 
     const promise = (source as CronSourceAdapter).subscribe(
-      context,
-      handler,
-      abortController,
+      testSubscription({ context, handler, abortController }),
     );
 
     await advanceTime(2000);
@@ -364,7 +369,9 @@ describe("CronSourceAdapter", () => {
     const abortController = new AbortController();
     const handler = mock().mockResolvedValue({} as Exchange);
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     await advanceTime(5000);
 
@@ -389,7 +396,9 @@ describe("CronSourceAdapter", () => {
     const abortController = new AbortController();
     const handler = mock().mockResolvedValue({} as Exchange);
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     // Advance past the first cron tick but not past the ~9900ms jitter
     await advanceTime(2000);
@@ -413,7 +422,9 @@ describe("CronSourceAdapter", () => {
     const abortController = new AbortController();
     const handler = mock().mockResolvedValue({} as Exchange);
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     await advanceTime(5000);
 
@@ -449,7 +460,9 @@ describe("CronSourceAdapter", () => {
       return {} as Exchange;
     });
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     await advanceTime(10000);
 
@@ -483,7 +496,9 @@ describe("CronSourceAdapter", () => {
       return {} as Exchange;
     });
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     await advanceTime(10000);
 
@@ -510,7 +525,9 @@ describe("CronSourceAdapter", () => {
     const abortController = new AbortController();
     const handler = mock().mockResolvedValue({} as Exchange);
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     await advanceTime(6000);
 
@@ -539,7 +556,9 @@ describe("CronSourceAdapter", () => {
     const abortController = new AbortController();
     const handler = mock().mockResolvedValue({} as Exchange);
 
-    const promise = adapter.subscribe(context, handler, abortController);
+    const promise = adapter.subscribe(
+      testSubscription({ context, handler, abortController }),
+    );
 
     // Advance 2 seconds -- handler should not have fired yet
     await advanceTime(2000);

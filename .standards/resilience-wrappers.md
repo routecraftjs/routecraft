@@ -70,19 +70,21 @@ cannot recover), it must rethrow. The runtime cascade is:
 2. After all step-scope wrappers exhaust, the route-level handler
    (when set) runs, exactly as if the inner step had thrown directly.
 3. If no route-level handler exists, the default error path fires:
-   `route:<id>:error` + `context:error` + `exchange:failed`.
+   `route:error` + `context:error` + `route:exchange:failed`.
 4. The route is **not** stopped. The next exchange processes
    normally.
 
-The runtime path is the existing outer catch in
-`packages/routecraft/src/route.ts`'s `runSteps`. Wrappers piggyback
-on it for free by rethrowing on unrecoverable failure.
+The runtime path is the existing catch in
+`packages/routecraft/src/pipeline/executor.ts`'s `runPipeline`.
+Wrappers piggyback on it for free by rethrowing on unrecoverable
+failure.
 
 ## 5. Implementation skeleton
 
-A new wrapper takes about 50 lines plus builder glue. Subclass
+A new wrapper takes about 40 lines plus builder glue. Subclass
 `WrapperStep<T>` from `packages/routecraft/src/operations/wrapper.ts`
-and implement `runInner(exchange, innerQueue)`:
+and implement `runInner(exchange, ctx)`, returning the inner step's
+`StepOutcome` (or a substitute outcome on recovery):
 
 ```ts
 export class TimeoutWrapperStep<T extends Adapter = Adapter>
@@ -94,11 +96,10 @@ export class TimeoutWrapperStep<T extends Adapter = Adapter>
 
   protected override async runInner(
     exchange: Exchange,
-    innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-  ): Promise<WrapperOutcome> {
-    const innerPromise = this.inner.execute(exchange, [], innerQueue);
+    ctx: StepContext,
+  ): Promise<StepOutcome> {
     return await Promise.race([
-      innerPromise.then(() => "ok" as const),
+      this.inner.execute(exchange, ctx),
       sleep(this.ms).then(() => {
         throw rcError("RC5012", undefined, {
           message: `Step "${this.label}" exceeded ${this.ms}ms timeout`,
@@ -111,9 +112,9 @@ export class TimeoutWrapperStep<T extends Adapter = Adapter>
 
 Key contract points:
 
-- `runInner` receives a per-execution `innerQueue` array as its second parameter. Pass it as the third argument to `this.inner.execute(exchange, [], innerQueue)` so the inner step's pushes (e.g. `split` children) flow back through the buffer.
-- The buffer is owned by the template's `execute()` and lives only for one call. Never store it on `this`; doing so leaks state across concurrent exchanges hitting the same step instance.
-- Throwing from `runInner` propagates out so the route's outer catch in `runSteps` cascades to the route-level handler (or default error path). Wrappers do not need to re-emit `step:failed` themselves; the template emits it via try/catch.
+- The inner step never sees the engine's work queue: it returns a `StepOutcome` (`continue` / `complete` / `drop` / `branch` / `fanOut`) and the pipeline executor owns all scheduling. A failed inner step has, by construction, scheduled nothing, so recovery simply substitutes an outcome (typically `{ kind: "continue", exchange: recovered }`). There is no buffer to capture, relay, or clear.
+- Pass `ctx` (the `StepContext`) through to `this.inner.execute(exchange, ctx)` unchanged; it carries the narrow executor capabilities (e.g. `takePending` for join steps) and the wrapper must not intercept them.
+- Throwing from `runInner` propagates out so the executor's catch in `pipeline/executor.ts` cascades to the route-level handler (or default error path). Wrappers do not need to re-emit `step:failed` themselves; the template emits it via try/catch.
 
 Then add the dual-mode method on the builder:
 
@@ -153,9 +154,13 @@ Every dual-mode wrapper emits scope-aware lifecycle events:
 
 | Event | When | Bindings |
 |-------|------|----------|
-| `route:<id>:<wrapper>:invoked` | Wrapper observed a failure or precondition that triggered its behaviour. | `routeId`, `exchangeId`, `correlationId`, `originalError` (or precondition payload), `failedOperation`, `scope: "route" \| "step"`, `stepLabel?` |
-| `route:<id>:<wrapper>:recovered` | Wrapper produced a value that lets the pipeline continue. | Same plus `recoveryStrategy`. |
-| `route:<id>:<wrapper>:failed` | Wrapper rethrew (or otherwise gave up). | Same. |
+| `route:<wrapper>:invoked` | Wrapper observed a failure or precondition that triggered its behaviour. | `routeId`, `exchangeId`, `correlationId`, `originalError` (or precondition payload), `failedOperation`, `scope: "route" \| "step"`, `stepLabel?` |
+| `route:<wrapper>:recovered` | Wrapper produced a value that lets the pipeline continue. | Same plus `recoveryStrategy`. |
+| `route:<wrapper>:failed` | Wrapper rethrew (or otherwise gave up). | Same. |
+
+Event names are a fixed set; route identity lives in the payload
+(`routeId`), never in the name. Declare the new names in
+`EventDetailsMap` (`packages/routecraft/src/types.ts`).
 
 For `.error()` the wrapper emits the existing `error-handler:*` set.
 A new wrapper picks its own family (e.g. `retry:*`, `timeout:*`,
@@ -171,9 +176,9 @@ emits `cache:hit` / `cache:miss` / `cache:stored` / `cache:failed`
 "invoked/recovered". When you diverge, document the family in the
 operation's reference page and in `docs/reference/events`.
 
-Wildcard subscribers (`route:*:error-handler:*`,
-`route:*:retry:*`, `route:*:cache:*`) keep matching; the new `scope`
-and `stepLabel` fields are additive.
+Subscribers use exact names plus payload filtering
+(`forRoute(routeId, handler)`); the `scope` and `stepLabel` fields
+are additive.
 
 ## 7. When a wrapper is not enough
 
@@ -194,14 +199,16 @@ accordingly.
 ## 8. `.standards` checklist for a new wrapper
 
 - [ ] New `XWrapperStep` extends `WrapperStep`, implements
-      `runInner(exchange, innerQueue)` (no instance state for the
-      queue; pass `innerQueue` straight to `this.inner.execute`).
+      `runInner(exchange, ctx)` returning a `StepOutcome` (pass `ctx`
+      straight to `this.inner.execute`; never store per-execution
+      state on `this`).
 - [ ] Dual-mode `.x(...)` builder method on `StepBuilderBase` (step
       scope) with an override on `RouteBuilder` for the pre-from
       path.
 - [ ] Route-scope wiring documented (where the runtime applies it).
-- [ ] Events: `x:invoked`, `x:recovered`, `x:failed` with
-      `scope: "route" | "step"` and `stepLabel?`.
+- [ ] Events: `route:x:invoked`, `route:x:recovered`, `route:x:failed`
+      declared in `EventDetailsMap` with `routeId`,
+      `scope: "route" | "step"` and `stepLabel?` in the payload.
 - [ ] Tests covering: step-scope happy path, step-scope failure,
       stacked wrappers, handler-failure cascade to route-level, no
       route handler default path, builder body type preserved across

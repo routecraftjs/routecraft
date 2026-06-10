@@ -76,7 +76,7 @@ describe("agent blocks: nested named groups", () => {
   });
 
   /**
-   * @case Two blocks that flatten to the same canonical name are rejected (RC5026)
+   * @case Two blocks that flatten to the same canonical name are rejected (AI1002)
    * @preconditions A flat block `skills__onboarding` and a group `skills` with leaf `onboarding`
    * @expectedResult flattenBlocks throws explaining the collision
    */
@@ -231,7 +231,7 @@ describe("agent blocks: nested named groups", () => {
   });
 
   /**
-   * @case A reserved `_block_` prefix on a nested leaf is rejected at construction (RC5026)
+   * @case A reserved `_block_` prefix on a nested leaf is rejected at construction (AI1002)
    * @preconditions Agent declares a group `skills` whose leaf is named `_block_load_x`
    * @expectedResult agent() construction throws naming the flattened block
    */
@@ -248,7 +248,7 @@ describe("agent blocks: nested named groups", () => {
   });
 
   /**
-   * @case An invalid nested leaf is rejected at construction with its flattened name (RC5027)
+   * @case An invalid nested leaf is rejected at construction with its flattened name (AI1003)
    * @preconditions Agent declares a group `skills` whose leaf is progressive but missing a description
    * @expectedResult agent() construction throws referencing "skills__research"
    */
@@ -371,7 +371,7 @@ describe("agent blocks: nested named groups", () => {
   /**
    * @case A nested name that flattens into the reserved `_block_` namespace is rejected at construction
    * @preconditions Agent declares a group `_block` with a leaf `x`, flattening to `_block__x`
-   * @expectedResult agent() throws RC5026 even though neither segment alone starts with `_block_`
+   * @expectedResult agent() throws AI1002 even though neither segment alone starts with `_block_`
    */
   test("rejects a nested name that forges the reserved prefix when flattened", () => {
     expect(() =>
@@ -402,7 +402,7 @@ describe("agent blocks: nested named groups", () => {
   /**
    * @case A flat name colliding with a nested path is rejected at construction, not deferred to dispatch
    * @preconditions Agent declares a flat `skills__onboarding` and a group `skills` with leaf `onboarding`
-   * @expectedResult agent() throws RC5026 synchronously at construction
+   * @expectedResult agent() throws AI1002 synchronously at construction
    */
   test("rejects a flat/nested flatten collision at construction time", () => {
     expect(() =>
@@ -420,7 +420,7 @@ describe("agent blocks: nested named groups", () => {
   /**
    * @case A progressive block whose name breaks the provider tool-name charset is rejected at construction
    * @preconditions Agent declares a progressive block named "q&a"
-   * @expectedResult agent() throws RC5027 explaining the loader-tool charset, instead of failing at the provider on dispatch
+   * @expectedResult agent() throws AI1003 explaining the loader-tool charset, instead of failing at the provider on dispatch
    */
   test("rejects a progressive block name that is not provider tool-name safe", () => {
     expect(() =>
@@ -437,7 +437,7 @@ describe("agent blocks: nested named groups", () => {
   /**
    * @case A progressive loader-tool name over 64 characters is rejected at construction
    * @preconditions A group + leaf whose flattened `_block_load_<name>` exceeds the provider limit
-   * @expectedResult agent() throws RC5027 naming the length, instead of failing at the provider on dispatch
+   * @expectedResult agent() throws AI1003 naming the length, instead of failing at the provider on dispatch
    */
   test("rejects a progressive block whose loader tool name exceeds 64 chars", () => {
     const longLeaf = "a".repeat(60);
@@ -457,7 +457,7 @@ describe("agent blocks: nested named groups", () => {
   /**
    * @case A cyclic blocks tree is rejected rather than recursed without bound
    * @preconditions A group object that contains itself
-   * @expectedResult agent() throws RC5026 ("cycle") instead of a RangeError stack overflow
+   * @expectedResult agent() throws AI1002 ("cycle") instead of a RangeError stack overflow
    */
   test("rejects a cyclic blocks tree instead of overflowing the stack", () => {
     const cyclic: Record<string, unknown> = {};
@@ -474,7 +474,7 @@ describe("agent blocks: nested named groups", () => {
   /**
    * @case An empty nested group is rejected at construction
    * @preconditions Agent declares a group `skills` with no members
-   * @expectedResult agent() throws RC5027 explaining a group must contain at least one block
+   * @expectedResult agent() throws AI1003 explaining a group must contain at least one block
    */
   test("rejects an empty nested group", () => {
     expect(() =>
@@ -489,7 +489,7 @@ describe("agent blocks: nested named groups", () => {
   /**
    * @case A nested group whose only members are `false` is rejected at construction
    * @preconditions Agent declares a group `skills` containing only `{ x: false }`
-   * @expectedResult agent() throws RC5027 (the group resolves to zero blocks)
+   * @expectedResult agent() throws AI1003 (the group resolves to zero blocks)
    */
   test("rejects a nested group containing only false members", () => {
     expect(() =>

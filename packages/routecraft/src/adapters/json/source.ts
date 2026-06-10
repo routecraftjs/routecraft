@@ -38,33 +38,27 @@ export class JsonSourceAdapter implements Source<unknown> {
     this.fileAdapter = file(fileOptions);
   }
 
-  subscribe: CallableSource<unknown> = async (
-    context,
-    handler,
-    abortController,
-    onReady,
-    meta,
-  ) => {
+  subscribe: CallableSource<unknown> = async (sub) => {
     const onParseError = this.options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
     const reviver = this.options.reviver;
     const filePath = this.options.path as string;
 
-    return this.fileAdapter.subscribe(
-      context,
-      async (content: string) => {
-        // All three modes route through the synthetic parse step so the
-        // exchange exists, lifecycle events fire, and the route can
-        // observe each outcome:
-        //   'fail'  -> exchange:failed (or .error() recovers)
-        //   'abort' -> exchange:failed, then we rethrow to abort the source
-        //                (only for RC5016; downstream errors are swallowed)
-        //   'drop'  -> exchange:dropped with reason "parse-failed"
-        const promise = handler(
-          content as unknown,
-          undefined,
-          (raw) => JSON.parse(raw as string, reviver as never),
-          onParseError,
-        );
+    // Delegate to the file source with a derived subscription whose emit
+    // attaches the JSON parse to each raw message. All three modes route
+    // through the synthetic parse step so the exchange exists, lifecycle
+    // events fire, and the route can observe each outcome:
+    //   'fail'  -> exchange:failed (or .error() recovers)
+    //   'abort' -> exchange:failed, then we rethrow to abort the source
+    //                (only for RC5016; downstream errors are swallowed)
+    //   'drop'  -> exchange:dropped with reason "parse-failed"
+    return this.fileAdapter.subscribe({
+      ...sub,
+      emit: async (msg) => {
+        const promise = sub.emit({
+          ...msg,
+          parse: (raw) => JSON.parse(raw as string, reviver as never),
+          parseFailureMode: onParseError,
+        });
         return await promise.catch((err: unknown) => {
           // 'abort' is parse-specific: only RC5016 should tear down the
           // source. A downstream destination error must NOT propagate
@@ -73,16 +67,13 @@ export class JsonSourceAdapter implements Source<unknown> {
           // 'fail' / 'drop' / non-parse failures under 'abort': route
           // boundary already emitted the appropriate lifecycle event.
           // Log at debug for operator parity with jsonl/source.ts.
-          context.logger.debug(
+          sub.context.logger.debug(
             { err, path: filePath, adapter: "json" },
             "json adapter: pipeline failed for file; continuing",
           );
           return undefined as never;
         });
       },
-      abortController,
-      onReady,
-      meta,
-    );
+    });
   };
 }

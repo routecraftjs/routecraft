@@ -27,12 +27,14 @@ function mockContext(cronDefaults?: Record<string, unknown>): CraftContext {
 describe("CraftConfig.cron defaults", () => {
   /**
    * @case CraftContext stores cron defaults when config.cron is provided
-   * @preconditions CraftConfig includes a cron field with timezone and jitterMs
+   * @preconditions CraftConfig includes a cron field; initPlugins() has run
+   *   (the cron config applier seeds the store during plugin init)
    * @expectedResult The context store contains the defaults under ADAPTER_CRON_OPTIONS
    */
-  test("stores cron defaults in the context store", () => {
+  test("stores cron defaults in the context store", async () => {
     const defaults = { timezone: "UTC", jitterMs: 2000 };
     const ctx = new CraftContext({ cron: defaults });
+    await ctx.initPlugins();
 
     const stored = ctx.getStore(ADAPTER_CRON_OPTIONS);
     expect(stored).toEqual(defaults);
