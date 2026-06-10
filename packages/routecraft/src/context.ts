@@ -16,6 +16,7 @@ import { type TelemetryOptions } from "./telemetry/types.ts";
 import { telemetry } from "./telemetry/index.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
+import { EventBus } from "./event-bus.ts";
 
 import {
   type EventHandler,
@@ -185,13 +186,8 @@ export class CraftContext {
   /** Logger for this context (pino child logger) */
   public readonly logger: ReturnType<typeof logger.child>;
 
-  /** Registered event handlers */
-  private readonly handlers: Map<EventName, Set<EventHandler<EventName>>> =
-    new Map();
-
-  /** Wildcard event handlers (for pattern matching like "route:*" or "*") */
-  private readonly wildcardHandlers: Map<string, Set<EventHandler<EventName>>> =
-    new Map();
+  /** Event bus backing on/once/emit (see event-bus.ts) */
+  private readonly events: EventBus;
 
   /** Plugins from config, run by initPlugins() before routes are registered */
   private readonly plugins: CraftPlugin[] = [];
@@ -211,6 +207,7 @@ export class CraftContext {
     setBrand(this, BRAND.CraftContext);
     if (config?.name !== undefined) this.name = config.name;
     this.logger = logger.child(childBindings(this));
+    this.events = new EventBus(this.contextId, this.logger);
     if (config) {
       // Initialize store from config
       if (config.store) {
@@ -430,24 +427,7 @@ export class CraftContext {
   on<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
   on(event: string, handler: EventHandler<EventName>): () => void;
   on(event: EventName | string, handler: EventHandler<EventName>): () => void {
-    // Check if this is a wildcard pattern
-    const isWildcard = typeof event === "string" && event.includes("*");
-
-    if (isWildcard) {
-      const set = this.wildcardHandlers.get(event) ?? new Set();
-      set.add(handler as unknown as EventHandler<EventName>);
-      this.wildcardHandlers.set(event, set);
-      return () => {
-        set.delete(handler as unknown as EventHandler<EventName>);
-      };
-    } else {
-      const set = this.handlers.get(event as EventName) ?? new Set();
-      set.add(handler as unknown as EventHandler<EventName>);
-      this.handlers.set(event as EventName, set);
-      return () => {
-        set.delete(handler as unknown as EventHandler<EventName>);
-      };
-    }
+    return this.events.on(event, handler);
   }
 
   /**
@@ -479,12 +459,7 @@ export class CraftContext {
     event: EventName | string,
     handler: EventHandler<EventName>,
   ): () => void {
-    const wrappedHandler: EventHandler<EventName> = (payload) => {
-      unsubscribe();
-      return handler(payload);
-    };
-    const unsubscribe = this.on(event, wrappedHandler);
-    return unsubscribe;
+    return this.events.once(event, handler);
   }
 
   /**
@@ -498,170 +473,7 @@ export class CraftContext {
     event: K,
     details: EventPayload<K>["details"],
   ): void {
-    const payload: EventPayload<K> = {
-      ts: new Date().toISOString(),
-      contextId: this.contextId,
-      details,
-    } as EventPayload<K>;
-
-    payload._event = event;
-
-    // Collect all matching handlers (exact match + wildcards)
-    const matchingHandlers: EventHandler<EventName>[] = [];
-
-    // 1. Exact match handlers
-    const exactSet = this.handlers.get(event);
-    if (exactSet && exactSet.size > 0) {
-      matchingHandlers.push(...Array.from(exactSet));
-    }
-
-    // 2. Wildcard handlers
-    for (const [pattern, handlerSet] of this.wildcardHandlers) {
-      if (this.matchesPattern(event, pattern)) {
-        matchingHandlers.push(...Array.from(handlerSet));
-      }
-    }
-
-    if (matchingHandlers.length === 0) return;
-
-    // Execute all matching handlers
-    for (const handler of matchingHandlers) {
-      try {
-        const result = (handler as unknown as EventHandler<K>)(payload);
-        // Handle async handlers properly to catch promise rejections
-        if (result && typeof result.then === "function") {
-          void result.catch((err: unknown) => {
-            // Log async handler errors at error level for error events, warn for others
-            const logLevel = event === "context:error" ? "error" : "warn";
-            this.logger[logLevel](
-              { event, err },
-              "Async event handler rejected. Handler should not throw; errors are emitted as context 'error' event.",
-            );
-            if (event !== "context:error") {
-              this.emit("context:error", { error: err });
-            }
-          });
-        }
-      } catch (err) {
-        // Swallow synchronous handler errors but log them and emit system error
-        // Log error events at error level, others at warn
-        const logLevel = event === "context:error" ? "error" : "warn";
-        this.logger[logLevel](
-          { event, err },
-          "Event handler threw. Handler should not throw; errors are emitted as context 'error' event.",
-        );
-        if (event !== "context:error") {
-          this.emit("context:error", { error: err });
-        }
-      }
-    }
-  }
-
-  /**
-   * Check if an event name matches a wildcard pattern.
-   * Supports:
-   * - "*" matches all events
-   * - "route:*" matches all route events (route:started, route:stopped, etc.)
-   * - "exchange:*" matches all exchange events
-   * - "route:myroute:*" matches all events for a specific route
-   * - "route:*:step:*" matches hierarchical patterns at any level
-   *
-   * @param event - Event name to match
-   * @param pattern - Wildcard pattern
-   * @returns True if the event matches the pattern
-   */
-  private matchesPattern(event: string, pattern: string): boolean {
-    // Special case: "*" matches everything
-    if (pattern === "*") return true;
-
-    // Exact match (no wildcards)
-    if (!pattern.includes("*")) return event === pattern;
-
-    // Check for ** globstar wildcard (multi-level matching)
-    if (pattern.includes("**")) {
-      return this.matchesGlobstarPattern(event, pattern);
-    }
-
-    // Tokenize both event and pattern on ":"
-    const eventSegments = event.split(":");
-    const patternSegments = pattern.split(":");
-
-    // Must have same number of segments
-    if (eventSegments.length !== patternSegments.length) return false;
-
-    // Match each segment (exact match or wildcard)
-    for (let i = 0; i < patternSegments.length; i++) {
-      const patternSeg = patternSegments[i];
-      const eventSeg = eventSegments[i];
-
-      // Wildcard matches any segment
-      if (patternSeg === "*") continue;
-
-      // Exact match required
-      if (patternSeg !== eventSeg) return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Match event against pattern with ** globstar wildcards.
-   * ** matches zero or more segments at any level.
-   *
-   * Examples:
-   * - "route:**" matches "route:started", "route:payment:exchange:started", etc.
-   * - "route:*:step:**" matches "route:api:step:started", etc.
-   */
-  private matchesGlobstarPattern(event: string, pattern: string): boolean {
-    const eventSegments = event.split(":");
-    const patternSegments = pattern.split(":");
-
-    let eventIdx = 0;
-    let patternIdx = 0;
-
-    while (patternIdx < patternSegments.length) {
-      const patternSeg = patternSegments[patternIdx];
-
-      if (patternSeg === "**") {
-        // ** is the last segment - matches everything remaining
-        if (patternIdx === patternSegments.length - 1) {
-          return true;
-        }
-
-        // Try to match remaining pattern at each possible position in event
-        const remainingPattern = patternSegments
-          .slice(patternIdx + 1)
-          .join(":");
-
-        // Try matching from current position onwards
-        for (let i = eventIdx; i <= eventSegments.length; i++) {
-          const remainingEvent = eventSegments.slice(i).join(":");
-          if (this.matchesPattern(remainingEvent, remainingPattern)) {
-            return true;
-          }
-        }
-
-        return false;
-      } else if (patternSeg === "*") {
-        // Single-level wildcard - must have a segment to match
-        if (eventIdx >= eventSegments.length) return false;
-        eventIdx++;
-        patternIdx++;
-      } else {
-        // Exact match required
-        if (
-          eventIdx >= eventSegments.length ||
-          eventSegments[eventIdx] !== patternSeg
-        ) {
-          return false;
-        }
-        eventIdx++;
-        patternIdx++;
-      }
-    }
-
-    // All pattern segments matched - event must be fully consumed too
-    return eventIdx === eventSegments.length;
+    this.events.emit(event, details);
   }
 
   // onStartup/onShutdown removed in favor of event listeners

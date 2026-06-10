@@ -26,9 +26,9 @@ stdio-client-manager) for the same hazard if provider tests ever need the real m
 ## Stage log
 
 - [x] Baseline + bench scripts
-- [ ] A1 dedupe isMailParseError
-- [ ] A2 stale excludes
-- [ ] A3 factory tagging + conformance test
+- [x] A1 dedupe isMailParseError
+- [x] A2 stale excludes (17 dead entries removed from tsconfig+eslint)
+- [x] A3 factory tagging + conformance test (also found 2 untagged branches inside html/json factories)
 - [ ] B1 EventBus extraction
 - [ ] B2 config appliers (DIP)
 - [ ] B3 route.ts decomposition
@@ -41,4 +41,8 @@ stdio-client-manager) for the same hazard if provider tests ever need the real m
 
 ## Per-change verdicts (fill as they land)
 
-(none yet)
+- A1: trivial dedupe, done. A2: 17 dead exclude entries deleted, zero fallout.
+- A3 verdict: BETTER + caught real bugs. 11 untagged factories fixed; conformance test additionally
+  exposed 2 untagged return paths in factories previously believed tagged (html transformer mode,
+  json transformer mode), i.e. mockAdapter(html)/mockAdapter(json) silently no-oped for those modes.
+  Conformance-test-over-lint-rule was the right call.
