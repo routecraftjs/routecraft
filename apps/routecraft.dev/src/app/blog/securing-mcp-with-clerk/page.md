@@ -5,7 +5,7 @@ date: 2026-05-26
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
-draft: true
+draft: false
 tags:
   - mcp
   - clerk
@@ -61,8 +61,6 @@ The flow we want at the end:
 3. Claude opens a browser, the user signs in to Clerk, Clerk issues a token.
 4. Claude calls `notes_list` with the bearer token attached.
 5. Routecraft verifies the token against Clerk's JWKS, hydrates a `principal` from the claims, then runs the capability.
-
-![Diagram of the OAuth flow from Claude Desktop to Routecraft via Clerk](/images/blog/securing-mcp-with-clerk/flow.png)
 
 ## Project setup
 
@@ -247,16 +245,12 @@ If you do not have a Clerk account, [sign up](https://dashboard.clerk.com/sign-u
 
 In the Clerk dashboard, click **Create application**. Pick a name (I am using "Notebook" in this post) and the auth methods you want (email + Google is a sensible default). Click **Create application**.
 
-![Clerk dashboard, Create application form with name and provider toggles](/images/blog/securing-mcp-with-clerk/clerk-create-app.png)
-
 ### Grab your keys
 
 In the new app, open **API keys**. Copy two values:
 
 - **Publishable key**, starting with `pk_test_...` or `pk_live_...`
 - **Secret key**, starting with `sk_test_...` or `sk_live_...`
-
-![Clerk dashboard, API keys page showing publishable and secret keys](/images/blog/securing-mcp-with-clerk/clerk-api-keys.png)
 
 Drop them into a `.env` file in the project root:
 

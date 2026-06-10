@@ -1,11 +1,11 @@
 ---
 title: 'Human in the loop: n8n vs Routecraft'
-description: The approval pattern is where automation meets accountability, pause the flow, ask a person, continue on their answer. n8n has it built in. Routecraft makes you build it. An honest comparison of both, with working code for the Routecraft side.
+description: The approval pattern is where automation meets accountability, pause the flow, ask a person, continue on their answer. n8n has it as a Wait node with prebuilt approval buttons. Routecraft has it as a suspend and resume pair in the pipeline, with any channel you like carrying the answer.
 date: 2026-06-10
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.6.0+'
-draft: true
+version: '0.7.0+'
+draft: false
 tags:
   - human-in-the-loop
   - n8n
@@ -18,7 +18,7 @@ Human in the loop is the pattern that turns "the automation did something" into 
 
 It is also the pattern that separates automation tools fastest, because pausing is architecturally hard. Something has to remember the half-finished work, possibly for days, survive restarts, and pick the flow back up when the answer arrives.
 
-Up front, because this series is honest about who wins what: **n8n has this built in, it is genuinely good, and that gives it a head start on this pattern.** Routecraft has no pause-and-resume primitive today; you compose the pattern from two capabilities and your own state. The trade is real in both directions, though: what you compose yourself is also yours to shape, and approval flows are exactly the kind of thing teams want shaped their way. This post shows both sides.
+Both tools in this comparison have a real answer. n8n ships a Wait node with prebuilt approval messages for the popular chat tools. Routecraft ships a `suspend` and `resume` pair in the pipeline DSL, with the ask and the answer free to travel over any channel you can wire. The difference is no longer *whether* you can pause; it is who owns the approval experience and the pending state.
 
 This is part of a pattern series comparing common automation shapes across tools; the general comparison lives in [Routecraft vs n8n](/blog/routecraft-vs-n8n).
 
@@ -31,7 +31,7 @@ Every human-in-the-loop implementation answers four questions:
 3. **Where does the pending state live?** Whatever holds the half-finished work while the human thinks.
 4. **How does the answer resume the flow?** A webhook, a button, a reply.
 
-Keep those four in mind; the two tools answer them very differently.
+Keep those four in mind; the two tools answer them differently.
 
 ## How n8n does it
 
@@ -40,143 +40,92 @@ n8n treats waiting as a first-class node. Two mechanisms matter:
 - **The Wait node** parks an execution until a fixed time, until a resume webhook is called, or until a form is submitted. The execution state is persisted by n8n itself; a workflow can sleep for a week and resume.
 - **Send-and-wait operations** on the messaging nodes (Gmail, Slack, Teams and friends) combine the ask and the wait: send a message with approval buttons or a small form, then block the branch until someone clicks. The approval UI comes for free.
 
-A payout approval in n8n is therefore: Webhook trigger, then a Slack node in "send and wait for approval" mode, then an IF node on the approval result, then the payout call. Four nodes, no state management, no custom endpoints, and the pending execution is visible in the executions list where an operator can inspect it.
+A payout approval in n8n is therefore: Webhook trigger, then a Slack node in "send and wait for approval" mode, then an IF node on the approval result, then the payout call. Four nodes, no state management, and the pending execution is visible in the executions list where an operator can inspect it.
 
-That is the strongest version of the canvas argument: the platform owns the hard part (durable paused state), and you configure it.
-
-The trade-offs are the standard n8n ones: the pending state lives inside n8n's database rather than your domain model, the approval flow is as customisable as the node options allow, and the logic around it is canvas-owned (see [the general comparison](/blog/routecraft-vs-n8n) for that discussion).
+That is the strongest version of the canvas argument: the platform owns the approval UX end to end, and you configure it. The trade-offs are the standard n8n ones: the pending state lives inside n8n's database rather than your domain model, the approval flow is as customisable as the node options allow, and the logic around it is canvas-owned.
 
 ## How Routecraft does it
 
-Routecraft has no Wait. A capability is a one-way pipeline: source in, destination out, no suspended middle. So the pattern becomes **two capabilities and a store**, which is exactly how you would build it in any web framework:
+In Routecraft the pause is a pipeline operation. `.suspend()` checkpoints the exchange and stops scheduling it; `.resume()` revives it from any other route. Everything else (the condition, the notification, who may approve, what happens on rejection) is ordinary pipeline grammar.
 
-1. The **request capability** receives the work, saves it as pending, and asks the human.
-2. The **decision capability** is an authenticated endpoint the human's answer hits, which loads the pending work and finishes or discards it.
-
-Here it is for the payout example. The store first; an in-memory map for the demo, your database in real life:
+Here is a payout capability where amounts of 500 EUR and up need sign-off:
 
 ```ts
-// capabilities/payouts/_lib/pending.ts
-export interface Payout {
-  beneficiary: string
-  amountCents: number
-  reason: string
-}
-
-const pending = new Map<string, Payout>()
-
-export const store = {
-  add(payout: Payout): string {
-    const id = crypto.randomUUID()
-    pending.set(id, payout)
-    return id
-  },
-  take(id: string): Payout | undefined {
-    const payout = pending.get(id)
-    pending.delete(id)
-    return payout
-  },
-}
-```
-
-The request capability: validate, park, notify.
-
-```ts
-// capabilities/payouts/request/route.ts
-import { craft, http, mail } from '@routecraft/routecraft'
+import { mcp } from '@routecraft/ai'
+import { craft, direct, log } from '@routecraft/routecraft'
 import { z } from 'zod'
-
-import { store } from '../_lib/pending'
 
 const PayoutRequest = z.object({
   beneficiary: z.string().min(1),
+  iban: z.string().min(15),
   amountCents: z.number().int().positive(),
   reason: z.string().min(1).max(500),
 })
 type PayoutRequest = z.infer<typeof PayoutRequest>
 
-export default craft()
-  .id('payout-request')
-  .description('Receive a payout request, park it, and ask an approver.')
-  .input({ body: PayoutRequest })
-  .from<PayoutRequest>(http({ path: '/payouts', method: 'POST' }))
-  .transform((payout) => {
-    const id = store.add(payout)
-    return {
-      to: 'approver@company.com',
-      subject: `Approve payout: ${(payout.amountCents / 100).toFixed(2)} EUR to ${payout.beneficiary}`,
-      text: [
-        payout.reason,
-        '',
-        `Approve or reject: https://ops.example.com/approvals/${id}`,
-      ].join('\n'),
-    }
-  })
-  .to(mail())
-```
-
-And the decision capability, which your approval page (or a Slack action, or a signed email link) posts to:
-
-```ts
-// capabilities/payouts/decide/route.ts
-import { craft, http, log } from '@routecraft/routecraft'
-import { z } from 'zod'
-
-import { store } from '../_lib/pending'
-import { executePayout } from '../_lib/execute'
-
-const Decision = z.object({
-  id: z.string().uuid(),
+const Approval = z.object({
   approved: z.boolean(),
+  note: z.string().optional(),
 })
-type Decision = z.infer<typeof Decision>
 
 export default craft()
-  .id('payout-decide')
-  .description('Apply an approver decision to a pending payout.')
-  .input({ body: Decision })
-  .from<Decision>(http({ path: '/approvals', method: 'POST' }))
-  .transform(async (decision) => {
-    const payout = store.take(decision.id)
-    if (!payout) return { status: 'unknown-or-expired', id: decision.id }
-    if (!decision.approved) return { status: 'rejected', id: decision.id }
-    await executePayout(payout)
-    return { status: 'executed', id: decision.id }
-  })
+  .id('payout')
+  .description('Execute a payout. Amounts of 500 EUR and up require approval.')
+  .input({ body: PayoutRequest })
+  .from<PayoutRequest>(mcp())
+  .choice()
+    .when((ex) => ex.body.amountCents >= 50_000)
+      .tap(direct('notify-approver'))
+      .suspend({ expect: Approval, ttl: '72h' })
+      .filter((ex) =>
+        ex.suspension.result.approved
+          ? true
+          : { reason: `rejected by ${ex.suspension.resumedBy}` },
+      )
+    .end()
+  .transform((payout) => executePayout(payout))
   .to(log())
 ```
 
-Two things the snippet does not show, deliberately, because they are your decisions rather than the framework's:
+Reading it against the four questions:
 
-- **The decision endpoint must be authenticated.** Anyone who can POST to `/approvals` is an approver. In production that endpoint sits behind your auth (see [securing capabilities](/docs/advanced/securing-capabilities)); the approval link should be a signed, single-use token rather than a bare UUID.
-- **The pending store must survive restarts.** The in-memory map is demo-ware; n8n gives you durable pending state for free, and in Routecraft that durability is explicitly your database's job.
+- **Where does the flow stop?** At `.suspend()`. The runtime checkpoints the exchange and schedules nothing; no worker sits blocked, and the route stays live for other payouts. Small payouts never enter the branch at all.
+- **How is the human asked?** However you like. `notify-approver` is an ordinary capability that shapes a message containing `ex.suspension.resumeUrl` (available before the suspend runs) and sends it with any destination: `mail()` today, a Slack webhook, a Telegram bot, your ops dashboard. Swapping the channel is editing that one capability.
+- **Where does the pending state live?** In the checkpoint store (SQLite by default, your database in production), with a TTL. Expiry surfaces through the route's normal `.error()` handling, so an unanswered approval is just another failure mode you already handle.
+- **How does the answer resume the flow?** Through any route that ends in `.resume()`. The framework ships a `POST /resume/:id` endpoint, and that endpoint is nothing special, just `.from(http(...)).resume()`. Which means the answer can arrive from anywhere:
 
-Here is the part the composed shape gets right, and the reason not to read it as a mere workaround: **the channel is whatever you want it to be.** The ask step is an ordinary destination and the decision step is an ordinary source, so swapping the approval medium is swapping an adapter. Email today via `mail()`. A Slack message with action buttons posting back to your decision endpoint. A Telegram bot where the approver replies with a tap. A row in your ops dashboard. An MCP tool an agent calls. Several of these at once, feeding the same decision capability, with approvals from different channels landing in the same audit table. A built-in Wait node gives you the channels and UX its vendor chose to build; the composed pattern gives you all of them, because it is made of the same pieces as everything else in your codebase.
+```ts
+craft()
+  .id('whatsapp-approvals')
+  .from(http({ path: '/whatsapp/inbound', method: 'POST' }))
+  .resume((ex) => ({
+    token: extractToken(ex.body.text),
+    result: { approved: /^yes/i.test(ex.body.text), note: ex.body.text },
+  }))
+  .transform((ack) => replyText(ack))
+  .to(whatsappReply())
+```
 
-One more honest note for the agent crowd: the MCP spec has an elicitation mechanism for a tool asking the calling user a question mid-flight. Routecraft does not support elicitation yet, so for MCP tools the two-capability shape above is also the answer there.
+A payout that arrived over MCP, notified the approver by email, and was approved by a WhatsApp reply: three channels, one exchange, and the original route never knows the difference. The approver's identity rides along as `ex.suspension.resumedBy` for the audit trail, and whoever guards the resume ingress (sender verification, `.authorize()`, signed per-approver tokens) is your authorization policy.
 
-## Where this is heading
-
-Two open work streams are closing the convenience gap, and both are public:
-
-- [#416](https://github.com/routecraftjs/routecraft/issues/416) makes the composed pattern first-class: a documented pending-approval store contract, signed single-use approval tokens, and ready-made ask-and-decide recipes for Telegram, Slack, and mail, so the wiring collapses to a few lines without giving up the any-channel freedom.
-- [#258](https://github.com/routecraftjs/routecraft/issues/258) is the durable-agents epic: an agent tool that cannot answer immediately suspends mid-loop (`ctx.suspend()`), a checkpoint persists across restarts, and a resume driver re-enters the loop when the human answers. That is the full pause-and-resume primitive, for the case where the thing that needs to wait is an agent rather than a pipeline.
+The same machinery answers the agent case: an MCP tool that suspends returns a pending acknowledgment with the token, and for short interactive asks (an agent's caller filling in a missing field), declaring the field as elicitable on the input schema (`.input({ body, elicit: ['iban'] })`) lets the live MCP session ask before the pipeline even starts.
 
 ## The verdict
 
 | | n8n | Routecraft |
 | --- | --- | --- |
-| Pause and resume | Built in (Wait node) | Not available, compose two capabilities |
-| Approval UI | Built in (send-and-wait on Slack, Gmail, Teams) | You send the message, you host the decision endpoint |
-| Pending state | Persisted by the platform | Your store, your schema |
-| Survives restarts | Yes, out of the box | Yes, if your store does |
-| Auditability | Executions list | Your domain model, your audit table |
-| Approval logic in version control | No | Yes, both capabilities are code under test |
-| Effort to first working approval | Minutes | An hour or two |
+| Pause and resume | Built in (Wait node) | Built in (`.suspend()` / `.resume()`) |
+| Approval UI | Prebuilt buttons (Slack, Gmail, Teams) | You shape the message; any channel |
+| Resume channel | Resume webhook, form | Any route ending in `.resume()` |
+| Pending state | Persisted by the platform, in n8n's database | Checkpoint store, SQLite default, your database in production |
+| Survives restarts | Yes | Yes |
+| Approval logic in version control | No | Yes, in the route, under test |
+| Who may approve | Node configuration | Your guards on the resume ingress, approver recorded for audit |
+| Effort to first working approval | Minutes | Under an hour |
 
-If you want a working approval flow this afternoon with zero design decisions, **n8n has the edge today**: the Wait node and send-and-wait operations are good, and they are already built.
+If your approvers live in Slack or Gmail and the prebuilt buttons are exactly what you want, **n8n still has the convenience edge**: the approval UX comes off the shelf, and that is genuinely valuable.
 
-Choose the Routecraft shape when the approval flow itself is something you want to own and shape: any channel (or several at once) as the ask, pending approvals as rows in your own database (queryable, reportable, migratable), decision endpoints with your real authentication and roles, and the entire flow unit-tested in CI like everything else. The hour it costs buys you ownership of all four questions at the top of this post instead of renting one vendor's answers to them. And per [#416](https://github.com/routecraftjs/routecraft/issues/416), that hour is on its way to becoming minutes.
+Choose Routecraft when the approval flow is something you want to own: the ask on whichever channel your approvers actually answer (or several at once), pending approvals queryable in your own store, the gate and its rejection logic in the diff and under test in CI, and the approver's identity enforced at an ingress you control. The pattern composes from the same grammar as the rest of your capabilities, which is the point of having capabilities in the first place.
 
 ## Try it
 
@@ -184,4 +133,4 @@ Choose the Routecraft shape when the approval flow itself is something you want 
 bunx create-routecraft approvals
 ```
 
-The [Routecraft vs n8n](/blog/routecraft-vs-n8n) hub covers the general trade-offs, and the [securing capabilities guide](/docs/advanced/securing-capabilities) covers locking down the decision endpoint. Full docs at [routecraft.dev/docs](/docs/introduction).
+The [Routecraft vs n8n](/blog/routecraft-vs-n8n) hub covers the general trade-offs, and the [securing capabilities guide](/docs/advanced/securing-capabilities) covers locking down the resume ingress. Full docs at [routecraft.dev/docs](/docs/introduction).
