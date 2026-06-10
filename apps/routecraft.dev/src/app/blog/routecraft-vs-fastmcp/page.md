@@ -128,6 +128,20 @@ FastMCP is deliberately one-directional: it builds servers. Consuming MCP or hos
 
 `@routecraft/testing` ships a test context, spy adapters, fixtures, and a spy logger, so a capability is tested by running its pipeline against fixture data with no MCP client in sight. Structured logging (pino), a typed event system (`exchange:started`, `step:failed`, `cache:hit`), and optional OpenTelemetry tracing come with the runtime.
 
+Operating is where the pipeline grammar quietly pays for itself. Agents are repetitive callers: the same model asks the same lookup with the same arguments many times per session, and every call costs latency, backend load, and often money. In Routecraft, a tool becomes cacheable with one line:
+
+```ts
+craft()
+  .id('exchange_rates')
+  .description('Current exchange rates for a currency pair.')
+  .cache({ ttl: 300_000 }) // identical calls served from cache for 5 minutes
+  .input({ body: RatesQuery })
+  .from<RatesQuery>(mcp())
+  .transform((query) => fetchRates(query))
+```
+
+The same one-operation treatment covers the rest of the production checklist: `.timeout()` to bound a slow backend, `.circuitBreaker()` to stop hammering a failing one, `.throttle()`, `.debounce()`, `.dedup()`, `.sample()`, `.delay()` for flow control, `.retry()` for transient failures. In FastMCP, each of these is code you write inside `execute`, per tool.
+
 FastMCP's answer to testing is essentially "they are functions, test them as functions", which is true and fine at small scale, and leaves observability to whatever you bolt on.
 
 ## Where FastMCP is ahead, honestly
@@ -156,6 +170,8 @@ FastMCP's answer to testing is essentially "they are functions, test them as fun
 | Hosting the agent loop | ✗ | ✓ `.to(agent({ ... }))` |
 | Testing utilities | ✗ bring your own | ✓ `@routecraft/testing` |
 | Structured logs and events | ✗ bring your own | ✓ plus OpenTelemetry hook |
+| Tool result caching with TTL | ✗ | ✓ `.cache({ ttl })` |
+| Declarative resilience (timeout, circuit breaker, throttle, debounce, dedup, sample, delay) | ✗ inside `execute`, per tool | ✓ one operation each |
 | Settled API | ✓ scoped and stable | ✗ v0, still moving |
 
 Pick **FastMCP** when the MCP server is the deliverable: you want tools, resources, and prompts in front of an agent, with the smallest possible API between you and the spec.
