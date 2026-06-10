@@ -147,7 +147,7 @@ FastMCP's answer to testing is essentially "they are functions, test them as fun
 | MCP prompts | ✓ | ✗ |
 | stdio and HTTP transports | ✓ | ✓ |
 | Streaming content helpers (images, audio, progress) | ✓ | ✗ |
-| Schema-validated inputs | ✓ Zod parameters | ✓ Standard Schema `.input()` |
+| Schema-validated inputs | ✓ Standard Schema parameters | ✓ Standard Schema `.input()` |
 | Session authentication | ✓ `authenticate` hook | ✓ JWT, JWKS, OAuth proxy, RFC 9728 |
 | Per-tool authorization | ✗ hand-rolled in `execute` | ✓ `.authorize({ roles, scopes })` |
 | Deterministic predicate gates | ✗ hand-rolled in `execute` | ✓ `.filter()` |
