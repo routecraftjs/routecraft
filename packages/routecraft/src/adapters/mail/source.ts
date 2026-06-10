@@ -4,7 +4,11 @@ import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
 import type { MailBody, MailMessage, MailServerOptions } from "./types.ts";
 import type { MailClientManager } from "./client-manager.ts";
-import { DEFAULT_ON_PARSE_ERROR, type OnParseError } from "../shared/parse.ts";
+import {
+  DEFAULT_ON_PARSE_ERROR,
+  isParseError,
+  type OnParseError,
+} from "../shared/parse.ts";
 import {
   getClientManager,
   createImapClient,
@@ -327,7 +331,7 @@ export class MailSourceAdapter implements Source<MailBody> {
           // A parse failure (RC5016) is permanent: retrying will hit the
           // same malformed MIME forever. Mark Seen so the message exits
           // the unread set, then re-evaluate based on the configured mode.
-          if (isMailParseError(err)) {
+          if (isParseError(err)) {
             if (markSeenEnabled) {
               await markMessagesSeen(client, message.uid, logger);
             }
@@ -448,7 +452,7 @@ export class MailSourceAdapter implements Source<MailBody> {
         // RC5016 is a permanent MIME parse failure; mark Seen so we don't
         // re-fetch the same malformed message forever, and rethrow when
         // the configured mode is `'abort'` so the source dies.
-        if (isMailParseError(err)) {
+        if (isParseError(err)) {
           if (markSeenEnabled) {
             await markMessagesSeen(client, message.uid, logger);
           }
@@ -576,20 +580,6 @@ function validateSourceOptions(
         "drain when new mail arrives. Use pollIntervalMs for predictable drain.",
     );
   }
-}
-
-/**
- * True if `err` is the framework's parse-error code (`RC5016`). Used by the
- * mail loops to distinguish permanent MIME parse failures (mark Seen, do not
- * retry) from transient pipeline failures (leave un-Seen, retry next cycle).
- * See #187.
- */
-function isMailParseError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { rc?: unknown }).rc === "RC5016"
-  );
 }
 
 /**

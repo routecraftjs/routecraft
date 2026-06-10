@@ -16,20 +16,8 @@ export default [
       "bun.lock",
       "**/.next/**",
       "apps/routecraft.dev/**",
-      // Test files with type/lint issues – fix later; other tests remain checked
-      "packages/ai/test/agent.test.ts",
-      "packages/ai/test/embedding.test.ts",
-      "packages/ai/test/llm.test.ts",
-      "packages/ai/test/mcp-server.test.ts",
-      "packages/ai/test/mcp.test.ts",
-      "packages/routecraft/test/browser.test.ts",
-      "packages/routecraft/test/direct-validation.test.ts",
-      "packages/routecraft/test/group.test.ts",
-      "packages/routecraft/test/plugin.test.ts",
-      "packages/routecraft/test/pseudo.test.ts",
-      "packages/routecraft/test/queue.test.ts",
-      "packages/routecraft/test/route.test.ts",
-      "packages/routecraft/test/unified-destination.test.ts",
+      // Spike-only benchmark and notes scratch space, not production code
+      "scratch/**",
     ],
   },
   {
