@@ -26,16 +26,13 @@ export function createNoopProcess<R>(): <T>(
 }
 
 /**
- * Creates a noop subscribe function that calls onReady immediately.
+ * Creates a noop subscribe function that signals readiness immediately.
  */
 export function createNoopSubscribe(): (
-  _context: unknown,
-  _handler: unknown,
-  _abortController: unknown,
-  onReady?: () => void,
+  sub: import("@routecraft/routecraft").Subscription,
 ) => Promise<void> {
-  return (_context, _handler, _abortController, onReady): Promise<void> => {
-    onReady?.();
+  return (sub): Promise<void> => {
+    sub.ready();
     return Promise.resolve();
   };
 }

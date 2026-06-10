@@ -9,8 +9,16 @@ import { type OnParseError } from "./adapters/shared/parse.ts";
  * Base interface for all adapters (sources, destinations, transformers, filters, etc.).
  * Adapters can expose an optional `adapterId` string for logging (e.g. "routecraft.adapter.log").
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- Marker interface for adapter union
-export interface Adapter {}
+export interface Adapter {
+  /**
+   * Dotted identifier used for log and trace labels, by convention
+   * "<vendor>.adapter.<name>" (e.g. "routecraft.adapter.mail"). The last
+   * segment is shown in step events and logs. Optional so inline adapter
+   * objects (e.g. `{ aggregate: fn }`) stay ergonomic; framework-shipped
+   * adapters always set it.
+   */
+  adapterId?: string;
+}
 
 /**
  * Returns a short label for logging which adapter is used.
@@ -23,8 +31,7 @@ export function getAdapterLabel(
   adapter: Adapter | undefined,
 ): string | undefined {
   if (!adapter) return undefined;
-  const a = adapter as { adapterId?: string };
-  if (a.adapterId) return a.adapterId.split(".").pop();
+  if (adapter.adapterId) return adapter.adapterId.split(".").pop();
   const name = (adapter as { constructor?: { name?: string } }).constructor
     ?.name;
   return name === "Object" ? "inline" : name;
@@ -140,8 +147,13 @@ export type ConsumerType<T extends Consumer, O = unknown> = new (
  *
  * parse-error-handling work in #187. Their shape may evolve.
  */
-export type Message = {
-  message: unknown;
+export type Message<T = unknown> = {
+  /**
+   * The payload. When `parse` is set this is the RAW pre-parse value
+   * (e.g. a JSON line string), typed as `T` only after the synthetic
+   * parse step runs; adapters narrow at the call site.
+   */
+  message: T;
   headers?: ExchangeHeaders;
   parse?: (raw: unknown) => unknown | Promise<unknown>;
   parseFailureMode?: OnParseError;

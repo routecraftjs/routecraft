@@ -19,7 +19,7 @@ import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
-import { type Source } from "./operations/from.ts";
+import { type Source, type Subscription } from "./operations/from.ts";
 import { type OnParseError } from "./adapters/shared/parse.ts";
 import {
   type Adapter,
@@ -542,32 +542,33 @@ export class DefaultRoute implements Route {
           // http/mcp server holding the route open).
           const sourceController =
             total === 1 ? this.abortController : this.linkedChildController();
+          // Assemble the Subscription object: the single argument every
+          // source receives. Capabilities are added here as new fields,
+          // never as new positional parameters.
+          const subscription: Subscription = {
+            context: this.context,
+            signal: sourceController.signal,
+            meta,
+            ready: () => markReady(index),
+            complete: (reason?: unknown) => sourceController.abort(reason),
+            emit: (msg) => {
+              markReady(index); // fallback: fire before first message if adapter never called ready()
+              return channel.enqueue({
+                message: msg.message,
+                headers: msg.headers ?? {},
+                ...(msg.parse
+                  ? {
+                      parse: msg.parse,
+                      parseFailureMode: msg.parseFailureMode ?? "fail",
+                    }
+                  : {}),
+              });
+            },
+          };
           // Coerce to a promise so a void return and an async rejection are
           // handled uniformly by Promise.all; a synchronous throw is caught by
           // the surrounding try because the map runs inside it.
-          return Promise.resolve(
-            activeSource.subscribe(
-              this.context,
-              (message, headers, parse, parseFailureMode) => {
-                markReady(index); // fallback: fire before first message if adapter never called onReady
-                return channel.enqueue({
-                  message,
-                  headers: headers ?? {},
-                  ...(parse
-                    ? {
-                        parse: parse as (
-                          raw: unknown,
-                        ) => unknown | Promise<unknown>,
-                        parseFailureMode: parseFailureMode ?? "fail",
-                      }
-                    : {}),
-                });
-              },
-              sourceController,
-              () => markReady(index),
-              meta,
-            ),
-          );
+          return Promise.resolve(activeSource.subscribe(subscription));
         },
       );
       await Promise.all(subscriptions);

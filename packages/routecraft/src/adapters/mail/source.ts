@@ -1,14 +1,9 @@
-import type { CraftContext } from "../../context.ts";
-import type { Source } from "../../operations/from.ts";
-import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
+import type { Source, Subscription } from "../../operations/from.ts";
+import type { Exchange } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
 import type { MailBody, MailMessage, MailServerOptions } from "./types.ts";
 import type { MailClientManager } from "./client-manager.ts";
-import {
-  DEFAULT_ON_PARSE_ERROR,
-  isParseError,
-  type OnParseError,
-} from "../shared/parse.ts";
+import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
 import {
   getClientManager,
   createImapClient,
@@ -87,17 +82,21 @@ export class MailSourceAdapter implements Source<MailBody> {
     this.adapterOptions = options;
   }
 
-  async subscribe(
-    context: CraftContext,
-    handler: (
-      message: MailBody,
-      headers?: ExchangeHeaders,
-      parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: OnParseError,
-    ) => Promise<Exchange>,
-    abortController: AbortController,
-    onReady?: () => void,
-  ): Promise<void> {
+  async subscribe(sub: Subscription<MailBody>): Promise<void> {
+    const context = sub.context;
+    // The poll/idle loops and shared fetch helpers take an AbortController;
+    // bridge the subscription's signal onto an adapter-internal controller
+    // so their signatures stay unchanged.
+    const abortController = new AbortController();
+    if (sub.signal.aborted) {
+      abortController.abort(sub.signal.reason);
+    } else {
+      sub.signal.addEventListener(
+        "abort",
+        () => abortController.abort(sub.signal.reason),
+        { once: true },
+      );
+    }
     const manager = getClientManager(context);
     const account = this.adapterOptions.account;
 
@@ -173,20 +172,20 @@ export class MailSourceAdapter implements Source<MailBody> {
       const parseError = MAIL_PARSE_ERRORS.get(message);
       if (parseError) {
         MAIL_PARSE_ERRORS.delete(message);
-        return handler(
-          body,
+        return sub.emit({
+          message: body,
           headers,
-          () => {
+          parse: () => {
             throw parseError;
           },
           parseFailureMode,
-        );
+        });
       }
-      return handler(body, headers);
+      return sub.emit({ message: body, headers });
     };
 
     try {
-      if (onReady) onReady();
+      sub.ready();
 
       if (resolved.pollIntervalMs) {
         await this.pollLoop(

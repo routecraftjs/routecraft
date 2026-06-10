@@ -1,6 +1,5 @@
-import { type ExchangeHeaders, type Exchange } from "../../exchange";
-import type { Source, SourceMeta } from "../../operations/from";
-import type { CraftContext } from "../../context";
+import { type Exchange } from "../../exchange";
+import type { Source, Subscription } from "../../operations/from";
 import { rcError } from "../../error";
 import type { DirectServerOptions } from "./types";
 import { getDirectChannel, registerRoute, sanitizeEndpoint } from "./shared";
@@ -26,18 +25,8 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
     this.options = options;
   }
 
-  async subscribe(
-    context: CraftContext,
-    handler: (
-      message: T,
-      headers?: ExchangeHeaders,
-      parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: import("../shared/parse").OnParseError,
-    ) => Promise<Exchange>,
-    abortController: AbortController,
-    onReady?: () => void,
-    meta?: SourceMeta,
-  ): Promise<void> {
+  async subscribe(sub: Subscription<T>): Promise<void> {
+    const { context, meta } = sub;
     if (!meta?.routeId) {
       throw rcError("RC5003", undefined, {
         message:
@@ -58,7 +47,7 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
 
     const channel = getDirectChannel<T>(context, endpoint, this.options);
 
-    if (abortController.signal.aborted) {
+    if (sub.signal.aborted) {
       context.logger.debug(
         { endpoint, adapter: "direct" },
         "Subscription aborted for direct endpoint",
@@ -75,12 +64,15 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
     // Framework-level input validation runs inside the handler, so the
     // adapter has nothing more to do here.
     const wrappedHandler = async (exchange: Exchange<T>) => {
-      const result = await handler(exchange.body as T, exchange.headers);
+      const result = await sub.emit({
+        message: exchange.body as T,
+        headers: exchange.headers,
+      });
       return result as Exchange<T>;
     };
 
     // Set up cleanup on abort before subscribing
-    abortController.signal.addEventListener(
+    sub.signal.addEventListener(
       "abort",
       () => {
         channel.unsubscribe(context, endpoint).catch((err) => {
@@ -96,16 +88,16 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
     // Set up the subscription
     await channel.subscribe(context, endpoint, wrappedHandler);
 
-    onReady?.();
+    sub.ready();
 
     // Keep the route "running" until the context stops (abort). Otherwise the context
     // would see all routes complete and auto-stop, e.g. before MCP can serve tool calls.
     await new Promise<void>((resolve) => {
-      if (abortController.signal.aborted) {
+      if (sub.signal.aborted) {
         resolve();
         return;
       }
-      abortController.signal.addEventListener("abort", () => resolve(), {
+      sub.signal.addEventListener("abort", () => resolve(), {
         once: true,
       });
     });

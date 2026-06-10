@@ -1,6 +1,4 @@
-import type { Source } from "../../../operations/from";
-import type { Exchange, ExchangeHeaders } from "../../../exchange";
-import type { CraftContext } from "../../../context";
+import type { Source, Subscription } from "../../../operations/from";
 import type { EventName, EventPayload } from "../../../types";
 import type { EventFilter } from "./types";
 
@@ -47,15 +45,8 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
 
   constructor(private filter: EventFilter) {}
 
-  async subscribe(
-    context: CraftContext,
-    handler: (
-      message: EventPayload<EventName>,
-      headers?: ExchangeHeaders,
-    ) => Promise<Exchange>,
-    abortController: AbortController,
-    onReady?: () => void,
-  ): Promise<void> {
+  async subscribe(sub: Subscription<EventPayload<EventName>>): Promise<void> {
+    const context = sub.context;
     const filters = Array.isArray(this.filter) ? this.filter : [this.filter];
     const unsubscribers: Array<() => void> = [];
 
@@ -75,8 +66,8 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
     for (const eventName of eventNames) {
       const unsubscribe = context.on(
         eventName as EventName,
-        async (payload) => {
-          if (!abortController.signal.aborted) {
+        async (payload: EventPayload<EventName>) => {
+          if (!sub.signal.aborted) {
             // Initialize route ID on first event if needed
             if (!initialized) {
               initialized = true;
@@ -87,7 +78,7 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
             // routes where operation events trigger handlers that emit more operation events.
 
             try {
-              await handler(payload);
+              await sub.emit({ message: payload });
             } catch (err) {
               const metaMessage =
                 typeof err === "object" &&
@@ -117,25 +108,25 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
     }
 
     // Cleanup on abort
-    abortController.signal.addEventListener("abort", () => {
+    sub.signal.addEventListener("abort", () => {
       context.logger.debug({ adapter: "event" }, "Unsubscribing from events");
       for (const unsubscribe of unsubscribers) {
         unsubscribe();
       }
     });
 
-    onReady?.();
+    sub.ready();
 
     // Keep the subscription alive until aborted
     return new Promise<void>((resolve) => {
       // Check if already aborted
-      if (abortController.signal.aborted) {
+      if (sub.signal.aborted) {
         resolve();
         return;
       }
 
       // Add listener with { once: true } to prevent leaks
-      abortController.signal.addEventListener("abort", () => resolve(), {
+      sub.signal.addEventListener("abort", () => resolve(), {
         once: true,
       });
     });

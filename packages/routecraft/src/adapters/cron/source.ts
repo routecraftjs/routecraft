@@ -1,10 +1,6 @@
 import type { Cron as CronType } from "croner";
-import {
-  HeadersKeys,
-  type Exchange,
-  type ExchangeHeaders,
-} from "../../exchange";
-import { type Source } from "../../operations/from";
+import { HeadersKeys, type ExchangeHeaders } from "../../exchange";
+import { type Source, type Subscription } from "../../operations/from";
 import { type CraftContext, type MergedOptions } from "../../context";
 import { loadOptionalPeer } from "../shared/optional-peer";
 import type { CronExpression, CronOptions } from "./types";
@@ -98,15 +94,8 @@ export class CronSourceAdapter
    *   lands one or more microtasks after `subscribe()` returns rather than
    *   synchronously. Consumers of `route:{id}:started` see the same delay.
    */
-  subscribe(
-    context: CraftContext,
-    handler: (
-      message: undefined,
-      headers?: ExchangeHeaders,
-    ) => Promise<Exchange>,
-    abortController: AbortController,
-    onReady?: () => void,
-  ): Promise<void> {
+  subscribe(sub: Subscription<undefined>): Promise<void> {
+    const context = sub.context;
     const {
       timezone,
       maxFires = Infinity,
@@ -126,7 +115,7 @@ export class CronSourceAdapter
 
     // Resolve immediately if already aborted (avoids hanging when
     // startAt/stopAt postpone the first tick indefinitely).
-    if (abortController.signal.aborted) {
+    if (sub.signal.aborted) {
       return Promise.resolve();
     }
 
@@ -144,7 +133,7 @@ export class CronSourceAdapter
 
       // Register the abort listener synchronously so an abort that arrives
       // before the dynamic croner import resolves still tears the source down.
-      abortController.signal.addEventListener("abort", () => settle());
+      sub.signal.addEventListener("abort", () => settle());
 
       // croner is declared as an optional peer dep; load it lazily so
       // routes that never use cron() do not require the package.
@@ -173,7 +162,7 @@ export class CronSourceAdapter
               paused: false,
             },
             async () => {
-              if (settled || abortController.signal.aborted) {
+              if (settled || sub.signal.aborted) {
                 settle();
                 return;
               }
@@ -185,7 +174,7 @@ export class CronSourceAdapter
               if (jitterMs > 0) {
                 const jitter = Math.floor(Math.random() * jitterMs);
                 await new Promise((r) => setTimeout(r, jitter));
-                if (abortController.signal.aborted) {
+                if (sub.signal.aborted) {
                   settle();
                   return;
                 }
@@ -204,7 +193,7 @@ export class CronSourceAdapter
               };
 
               try {
-                await handler(undefined, headers);
+                await sub.emit({ message: undefined, headers });
               } catch {
                 // Exchange error already logged by the route pipeline.
                 // Cron jobs are long-running; continue to the next scheduled fire.
@@ -217,7 +206,7 @@ export class CronSourceAdapter
             },
           );
 
-          onReady?.();
+          sub.ready();
         } catch (err) {
           reject(err);
         }

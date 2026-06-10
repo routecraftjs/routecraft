@@ -17,9 +17,9 @@ type Order = { priority: "urgent" | "normal"; amount: number };
  */
 function items<T>(list: T[]): Source<T> {
   return {
-    subscribe: async (_ctx, handler) => {
+    subscribe: async (sub) => {
       for (const item of list) {
-        await handler(item);
+        await sub.emit({ message: item });
       }
     },
   };

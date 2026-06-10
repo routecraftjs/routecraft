@@ -1,12 +1,8 @@
 import {
   rcError,
-  type CraftContext,
   type Exchange,
-  type ExchangeHeaders,
-  type OnParseError,
-  type Principal,
   type Source,
-  type SourceMeta,
+  type Subscription,
 } from "@routecraft/routecraft";
 import {
   MCP_LOCAL_TOOL_REGISTRY,
@@ -77,19 +73,8 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     this.options = options;
   }
 
-  async subscribe(
-    context: CraftContext,
-    handler: (
-      message: McpMessage<undefined>,
-      headers?: ExchangeHeaders,
-      parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: OnParseError,
-      principal?: Principal | undefined,
-    ) => Promise<Exchange>,
-    abortController: AbortController,
-    onReady?: () => void,
-    meta?: SourceMeta,
-  ): Promise<void> {
+  async subscribe(sub: Subscription<McpMessage<undefined>>): Promise<void> {
+    const { context, meta } = sub;
     if (!meta?.routeId) {
       throw rcError("RC5003", undefined, {
         message:
@@ -143,16 +128,13 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     // The engine applies input validation before the handler runs, so the
     // MCP adapter just hands the exchange body / headers through. The
     // principal (set by the MCP server when auth is configured) rides
-    // through as the 5th argument so the route's exchange surfaces the
-    // same identity.
+    // through on headers["routecraft.auth.principal"], the single source
+    // of truth for identity.
     const entryHandler = async (exchange: Exchange): Promise<Exchange> => {
-      return handler(
-        exchange.body as McpMessage<undefined>,
-        exchange.headers,
-        undefined,
-        undefined,
-        exchange.principal,
-      ) as Promise<Exchange>;
+      return sub.emit({
+        message: exchange.body as McpMessage<undefined>,
+        headers: exchange.headers,
+      });
     };
 
     const entry: McpLocalToolEntry = {
@@ -181,7 +163,7 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     // (including one dispatched synchronously from inside addEventListener if
     // the signal is already aborted) will run the cleanup, so the entry never
     // outlives its teardown handler.
-    abortController.signal.addEventListener(
+    sub.signal.addEventListener(
       "abort",
       () => {
         const current = context.getStore(
@@ -192,20 +174,20 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
       { once: true },
     );
 
-    if (abortController.signal.aborted) {
+    if (sub.signal.aborted) {
       return;
     }
 
     registry.set(endpoint, entry);
 
-    onReady?.();
+    sub.ready();
 
     await new Promise<void>((resolve) => {
-      if (abortController.signal.aborted) {
+      if (sub.signal.aborted) {
         resolve();
         return;
       }
-      abortController.signal.addEventListener("abort", () => resolve(), {
+      sub.signal.addEventListener("abort", () => resolve(), {
         once: true,
       });
     });

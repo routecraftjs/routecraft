@@ -23,11 +23,11 @@ type FailedEventDetails = { details: { error: unknown } };
  */
 function principalSource<T>(body: T, principal?: Principal): Source<T> {
   return {
-    subscribe: async (_ctx, handler) => {
+    subscribe: async (sub) => {
       const headers = principal
         ? { "routecraft.auth.principal": markAuthentic(principal) }
         : undefined;
-      await handler(body, headers);
+      await sub.emit({ message: body, ...(headers ? { headers } : {}) });
     },
   };
 }

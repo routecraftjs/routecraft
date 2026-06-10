@@ -219,13 +219,9 @@ describe("Events API", () => {
    */
   test("test() rejects with timeout when route never emits routeStarted", async () => {
     // Callable source that never calls onReady but resolves when aborted so test() can finish
-    const neverReady = (
-      _ctx: unknown,
-      _handler: unknown,
-      controller: AbortController,
-    ) =>
+    const neverReady = (sub: { signal: AbortSignal }) =>
       new Promise<void>((resolve) => {
-        controller.signal.addEventListener("abort", () => resolve(), {
+        sub.signal.addEventListener("abort", () => resolve(), {
           once: true,
         });
       });

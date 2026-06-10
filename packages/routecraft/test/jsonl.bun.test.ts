@@ -753,11 +753,14 @@ describe("JSONL Adapter", () => {
       const adapter = jsonl({ path: path.join(tmpDir, "missing.jsonl") });
 
       await expect(
-        adapter.subscribe(
-          {} as any,
-          async () => ({}) as any,
-          new AbortController(),
-        ),
+        adapter.subscribe({
+          context: {} as never,
+          signal: new AbortController().signal,
+          meta: { routeId: "test" },
+          ready: () => {},
+          complete: () => {},
+          emit: async () => ({}) as never,
+        }),
       ).rejects.toThrow(/file not found/);
     });
 
@@ -771,11 +774,14 @@ describe("JSONL Adapter", () => {
       const adapter = jsonl({ path: () => "x.jsonl", mode: "read" });
 
       await expect(
-        adapter.subscribe(
-          {} as any,
-          async () => ({}) as any,
-          new AbortController(),
-        ),
+        adapter.subscribe({
+          context: {} as never,
+          signal: new AbortController().signal,
+          meta: { routeId: "test" },
+          ready: () => {},
+          complete: () => {},
+          emit: async () => ({}) as never,
+        }),
       ).rejects.toThrow(/static string path/);
     });
   });

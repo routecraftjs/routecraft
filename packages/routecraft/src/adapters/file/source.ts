@@ -18,14 +18,9 @@ export class FileSourceAdapter implements Source<string> {
    * Source implementation: subscribe to file content.
    * Reads the file once (or line-by-line when chunked).
    */
-  subscribe: CallableSource<string> = async (
-    _context,
-    handler,
-    abortController,
-    onReady,
-  ) => {
+  subscribe: CallableSource<string> = async (sub) => {
     // Check if already aborted
-    if (abortController.signal.aborted) return;
+    if (sub.signal.aborted) return;
 
     const {
       path: filePath,
@@ -44,17 +39,17 @@ export class FileSourceAdapter implements Source<string> {
         await forEachLine(
           filePath,
           encoding,
-          abortController.signal,
+          sub.signal,
           async (line, lineNumber) => {
             const headers: ExchangeHeaders = {
               [HeadersKeys.FILE_LINE]: lineNumber,
               [HeadersKeys.FILE_PATH]: filePath,
             } as ExchangeHeaders;
-            await handler(line, headers);
+            await sub.emit({ message: line, headers });
           },
         );
       } catch (err) {
-        if (abortController.signal.aborted) return;
+        if (sub.signal.aborted) return;
         throwFileError("file", filePath, err);
       }
     } else {
@@ -63,13 +58,13 @@ export class FileSourceAdapter implements Source<string> {
         .catch((err) => throwFileError("file", filePath, err));
 
       // Check if aborted before emitting
-      if (abortController.signal.aborted) return;
+      if (sub.signal.aborted) return;
 
       // Emit the content
-      await handler(content);
+      await sub.emit({ message: content });
     }
 
     // Signal that source is ready
-    if (onReady) onReady();
+    sub.ready();
   };
 }

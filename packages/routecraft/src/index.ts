@@ -74,7 +74,12 @@ export {
   type Tag,
 } from "./route.ts";
 
-export { type Source, type SourceMeta } from "./operations/from.ts";
+export {
+  type CallableSource,
+  type Source,
+  type SourceMeta,
+  type Subscription,
+} from "./operations/from.ts";
 
 export { type Processor } from "./operations/process.ts";
 

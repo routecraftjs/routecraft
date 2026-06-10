@@ -1,7 +1,6 @@
-import { type CraftContext, type CraftPlugin } from "../../context";
+import { type CraftPlugin } from "../../context";
 import { rcError } from "../../error";
-import type { Source, SourceMeta } from "../../operations/from";
-import type { Exchange, ExchangeHeaders } from "../../exchange";
+import type { Source, Subscription } from "../../operations/from";
 import {
   HTTP_PLUGIN_REGISTERED,
   HTTP_ROUTE_REGISTRY,
@@ -50,16 +49,8 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     }
   }
 
-  async subscribe(
-    context: CraftContext,
-    handler: (
-      message: HttpRequestBody,
-      headers?: ExchangeHeaders,
-    ) => Promise<Exchange>,
-    abortController: AbortController,
-    onReady?: () => void,
-    meta?: SourceMeta,
-  ): Promise<void> {
+  async subscribe(sub: Subscription<HttpRequestBody>): Promise<void> {
+    const { context, meta } = sub;
     const registered = context.getStore(HTTP_PLUGIN_REGISTERED);
     if (registered !== true) {
       throw rcError("RC5003", undefined, {
@@ -88,7 +79,11 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
       matcher,
       authMode,
       discovery: meta?.discovery,
-      handler: (body, headers) => handler(body as HttpRequestBody, headers),
+      handler: (body, headers) =>
+        sub.emit({
+          message: body as HttpRequestBody,
+          ...(headers ? { headers } : {}),
+        }),
     };
 
     if (registry.has(routeId)) {
@@ -108,18 +103,18 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     }
     registry.set(routeId, entry);
 
-    onReady?.();
+    sub.ready();
 
     // Hold the subscription open until the route is aborted. The dispatcher
     // calls our entry's handler for each incoming request; no per-request
     // work happens here.
     await new Promise<void>((resolve) => {
-      if (abortController.signal.aborted) {
+      if (sub.signal.aborted) {
         registry.delete(routeId);
         resolve();
         return;
       }
-      abortController.signal.addEventListener(
+      sub.signal.addEventListener(
         "abort",
         () => {
           registry.delete(routeId);

@@ -1,17 +1,9 @@
 import * as fsp from "node:fs/promises";
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { JsonlSourceOptions } from "./types.ts";
-import {
-  HeadersKeys,
-  type Exchange,
-  type ExchangeHeaders,
-} from "../../exchange.ts";
+import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
 import { forEachLine, throwFileError } from "../shared/line-reader.ts";
-import {
-  DEFAULT_ON_PARSE_ERROR,
-  isParseError,
-  type OnParseError,
-} from "../shared/parse.ts";
+import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
 
 /**
  * JsonlSourceAdapter reads JSON Lines files.
@@ -39,13 +31,8 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
 
   constructor(private readonly options: JsonlSourceOptions) {}
 
-  subscribe: CallableSource<T | T[]> = async (
-    context,
-    handler,
-    abortController,
-    onReady,
-  ) => {
-    if (abortController.signal.aborted) return;
+  subscribe: CallableSource<T | T[]> = async (sub) => {
+    if (sub.signal.aborted) return;
 
     const {
       path: filePath,
@@ -56,12 +43,12 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
     } = this.options;
 
     if (chunked) {
-      if (onReady) onReady();
+      sub.ready();
       try {
         await forEachLine(
           filePath,
           encoding,
-          abortController.signal,
+          sub.signal,
           async (line, lineNumber) => {
             const trimmed = line.trim();
             if (trimmed === "") return;
@@ -71,25 +58,18 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
               [HeadersKeys.JSONL_PATH]: filePath,
             } as ExchangeHeaders;
 
-            const lineHandler = handler as (
-              message: T,
-              headers?: ExchangeHeaders,
-              parse?: (raw: unknown) => unknown | Promise<unknown>,
-              parseFailureMode?: OnParseError,
-            ) => Promise<Exchange>;
-
             // Defer parse to the synthetic pipeline step. The mode the
             // runtime uses controls observability:
             //   'fail'  -> exchange:failed; we .catch() and continue
             //   'abort' -> exchange:failed; we let the rejection propagate
             //              out of forEachLine to abort the source
             //   'drop'  -> exchange:dropped; promise resolves cleanly
-            const promise = lineHandler(
-              trimmed as unknown as T,
+            const promise = sub.emit({
+              message: trimmed as unknown as T,
               headers,
-              (raw) => JSON.parse(raw as string, reviver) as T,
-              onParseError,
-            );
+              parse: (raw) => JSON.parse(raw as string, reviver) as T,
+              parseFailureMode: onParseError,
+            });
 
             await promise.catch((err: unknown) => {
               // 'abort' is parse-specific: only RC5016 should tear
@@ -99,7 +79,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
               // 'fail' / 'drop' / non-parse failures under 'abort': the
               // route boundary already emitted the lifecycle event;
               // debug-level avoids double-logging what runSteps logged.
-              context.logger.debug(
+              sub.context.logger.debug(
                 { err, path: filePath, line: lineNumber, adapter: "jsonl" },
                 "jsonl adapter: pipeline failed for line; continuing",
               );
@@ -107,7 +87,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
           },
         );
       } catch (err) {
-        if (abortController.signal.aborted) return;
+        if (sub.signal.aborted) return;
         // Preserve framework error codes (e.g. RC5016 from `'abort'` mode).
         // `throwFileError` wraps as `RC5010` which would mask the original
         // parse-error code, so re-throw RC-bearing errors as-is.
@@ -131,39 +111,31 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
       .readFile(filePath, { encoding })
       .catch((err) => throwFileError("jsonl", filePath, err));
 
-    if (abortController.signal.aborted) return;
+    if (sub.signal.aborted) return;
 
     const lines = content.split("\n");
-    const arrayHandler = handler as (
-      message: T[],
-      headers?: ExchangeHeaders,
-      parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: OnParseError,
-    ) => Promise<Exchange>;
-
     const rawLines: string[] = [];
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed !== "") rawLines.push(trimmed);
     }
 
-    const promise = arrayHandler(
-      rawLines as unknown as T[],
-      undefined,
-      (raw) => (raw as string[]).map((l) => JSON.parse(l, reviver) as T),
-      onParseError,
-    );
+    const promise = sub.emit({
+      message: rawLines as unknown as T[],
+      parse: (raw) => (raw as string[]).map((l) => JSON.parse(l, reviver) as T),
+      parseFailureMode: onParseError,
+    });
 
     await promise.catch((err: unknown) => {
       // 'abort' is parse-specific: only RC5016 should tear down the
       // source. Downstream destination errors must NOT propagate.
       if (onParseError === "abort" && isParseError(err)) throw err;
-      context.logger.debug(
+      sub.context.logger.debug(
         { err, path: filePath, adapter: "jsonl" },
         "jsonl adapter: pipeline failed; non-chunked emits one exchange",
       );
     });
 
-    if (onReady) onReady();
+    sub.ready();
   };
 }

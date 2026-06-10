@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { testContext, spy, type TestContext } from "@routecraft/testing";
+import {
+  testContext,
+  spy,
+  type TestContext,
+  testSubscription,
+} from "@routecraft/testing";
 import { craft, csv, HeadersKeys } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
@@ -193,15 +198,17 @@ describe("CSV Adapter - Chunked Mode", () => {
     const adapter = csv({ path: filePath, header: true, chunked: true });
 
     await adapter.subscribe(
-      {} as any,
-      async (row) => {
-        received.push(row);
-        if (received.length >= 3) {
-          abortController.abort();
-        }
-        return {} as any;
-      },
-      abortController,
+      testSubscription({
+        context: {} as never,
+        handler: async (row) => {
+          received.push(row);
+          if (received.length >= 3) {
+            abortController.abort();
+          }
+          return {} as never;
+        },
+        abortController,
+      }),
     );
 
     expect(received.length).toBeGreaterThanOrEqual(3);

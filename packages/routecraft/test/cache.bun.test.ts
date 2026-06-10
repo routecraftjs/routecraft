@@ -1245,11 +1245,11 @@ describe(".cache() route scope: dual-mode wrapper", () => {
       principal?: Principal,
     ): Source<unknown> {
       return {
-        subscribe: async (_ctx, handler) => {
+        subscribe: async (sub) => {
           const headers = principal
             ? { "routecraft.auth.principal": markAuthentic(principal) }
             : undefined;
-          await handler(body, headers);
+          await sub.emit({ message: body, ...(headers ? { headers } : {}) });
         },
       };
     }

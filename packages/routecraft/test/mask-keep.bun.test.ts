@@ -44,7 +44,7 @@ afterAll(async () => {
 
 /** Minimal one-shot source so the shared context has a valid route. */
 function craftSimple(): Source<string> {
-  return { subscribe: async (_ctx, handler) => void (await handler("x")) };
+  return { subscribe: async (sub) => void (await sub.emit({ message: "x" })) };
 }
 
 /** Build an exchange carrying an optional principal, for direct helper calls. */
@@ -91,8 +91,11 @@ describe("transform second argument", () => {
   test("the transformer receives the exchange", async () => {
     const s = spy<{ subject?: string }>();
     const principalSource: Source<Record<string, never>> = {
-      subscribe: async (_ctx, handler) =>
-        void (await handler({}, { [HeadersKeys.AUTH_PRINCIPAL]: who(["x"]) })),
+      subscribe: async (sub) =>
+        void (await sub.emit({
+          message: {},
+          headers: { [HeadersKeys.AUTH_PRINCIPAL]: who(["x"]) },
+        })),
     };
 
     const route = await testContext()

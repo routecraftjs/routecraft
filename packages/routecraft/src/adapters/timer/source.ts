@@ -1,25 +1,12 @@
-import {
-  HeadersKeys,
-  type Exchange,
-  type ExchangeHeaders,
-} from "../../exchange";
-import { type Source } from "../../operations/from";
-import { CraftContext } from "../../context";
+import { HeadersKeys, type ExchangeHeaders } from "../../exchange";
+import { type Source, type Subscription } from "../../operations/from";
 import type { TimerOptions } from "./types";
 
 export class TimerSourceAdapter implements Source<undefined> {
   readonly adapterId = "routecraft.adapter.timer";
   constructor(private options?: TimerOptions) {}
 
-  subscribe(
-    _context: CraftContext,
-    handler: (
-      message: undefined,
-      headers?: ExchangeHeaders,
-    ) => Promise<Exchange>,
-    abortController: AbortController,
-    onReady?: () => void,
-  ): Promise<void> {
+  subscribe(sub: Subscription<undefined>): Promise<void> {
     const {
       intervalMs = 1000,
       delayMs = 0,
@@ -47,14 +34,14 @@ export class TimerSourceAdapter implements Source<undefined> {
       baseTime = Date.now() + delayMs;
     }
 
-    onReady?.();
+    sub.ready();
 
     // Create and return an async promise that runs the timer loop
     return new Promise<void>((resolve) => {
       let count = 0;
 
       const runTimer = async () => {
-        while (count < repeatCount && !abortController.signal.aborted) {
+        while (count < repeatCount && !sub.signal.aborted) {
           let scheduledTime: number;
           if (fixedRate) {
             if (exactTime) {
@@ -84,7 +71,7 @@ export class TimerSourceAdapter implements Source<undefined> {
           }
 
           await new Promise((r) => setTimeout(r, waitTime));
-          if (abortController.signal.aborted) break;
+          if (sub.signal.aborted) break;
 
           const firedTime = new Date();
           count++;
@@ -115,7 +102,7 @@ export class TimerSourceAdapter implements Source<undefined> {
           };
 
           try {
-            await handler(undefined, headers);
+            await sub.emit({ message: undefined, headers });
           } catch {
             // Exchange error already logged by the route pipeline.
             // Timer continues to fire for remaining ticks.

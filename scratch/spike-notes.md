@@ -32,8 +32,10 @@ stdio-client-manager) for the same hazard if provider tests ever need the real m
 - [x] B1 EventBus extraction (context.ts 1004 -> 816; emit perf unchanged 750k/s)
 - [x] B2 config appliers (DIP fix; CraftConfig in core = name/store/on/once/plugins only; initPlugins idempotent + called by start with sync guard -- async guard alone reordered events in 14 tests, worth recording)
 - [x] B3 route.ts 1870 -> 846 (synthetic-steps 379, validation 291, executor 491; verbatim moves, deps objects)
-- [ ] C2 namespaced error registry
-- [ ] C1 step outcome + takePending (+S2 AggregateResult)
+- [x] C2 namespaced error registry (AI1001-1003 moved out of core; RC1003 added; collision throws name both packages)
+- [x] C1 step outcome + takePending (+S2). 5-variant outcome union (continue/complete/drop/branch/fanOut) --
+  choice needed 'branch' (prepends steps), route-cache-hit needed 'complete' (skip remaining, success);
+  the originally sketched 3-variant union was insufficient. Wrapper buffer protocol deleted.
 - [ ] C3 subscription object (+S1 Adapter.adapterId)
 - [ ] D9 event identity redesign
 - [ ] E experiments (pick 2-3)
@@ -54,3 +56,16 @@ stdio-client-manager) for the same hazard if provider tests ever need the real m
 - B3 verdict: BETTER. route.ts 1870 -> 846. Throughput unchanged within noise (plain 32.8us vs 32.2us).
   NOTE: wrapped bench moved 49.1 -> 35.6us across runs on identical wrapper code; bench variance is high,
   use 3-run medians for final numbers.
+
+- C2 verdict: BETTER. Compiler caught every moved-code reference (the closed union earned its keep on the
+  way out). Namespacing design held up. Docs table is still hand-written (codegen ticket).
+- C1 verdict: BETTER + measured perf win. wrapped 49.1 -> ~30 us/ex (wrapper overhead 53% -> ~0-7%);
+  plain + split-agg unchanged within noise. 4 tests needed rewriting (they tested the buffer protocol
+  itself). Split wrapper ban KEPT: fanOut recovery would change pipeline cardinality (1 recovered exchange
+  replacing N children) -- principled reason, documented in NON_WRAPPABLE comment.
+  Discovered en route: .cache() around choice silently discarded branch steps in the old engine; now loud RC5003.
+  Split example output byte-identical vs baseline (modulo pid).
+  TODO findings doc: .standards/resilience-wrappers.md + adapter-architecture.md + exchange-state-model.md
+  still document the old contract; update in docs pass (after D9 so it's one rewrite).
+  NOTE: root 'bun run craft' shortcut uses node but CLI dist rejects node ("requires Bun") -- contradicts
+  CLAUDE.md note; pre-existing on baseline; flag to user.

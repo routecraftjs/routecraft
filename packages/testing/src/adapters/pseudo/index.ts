@@ -32,13 +32,8 @@ function createAdapter<R>(
   };
   const noopSend = (): Promise<R> => Promise.resolve(undefined as unknown as R);
   const noopProcess = (exchange: unknown): unknown => exchange;
-  const noopSubscribe = (
-    _context: unknown,
-    _handler: unknown,
-    _abortController: unknown,
-    onReady?: () => void,
-  ): Promise<void> => {
-    onReady?.();
+  const noopSubscribe = (sub: { ready(): void }): Promise<void> => {
+    sub.ready();
     return Promise.resolve();
   };
 
