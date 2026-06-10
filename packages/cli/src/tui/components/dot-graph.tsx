@@ -135,7 +135,11 @@ export function DotGraph({
   return (
     <>
       {rows}
-      {label && <Text dimColor>{label}</Text>}
+      {label && (
+        <Text dimColor wrap="truncate">
+          {label}
+        </Text>
+      )}
     </>
   );
 }

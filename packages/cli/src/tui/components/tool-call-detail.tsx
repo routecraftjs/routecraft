@@ -1,68 +1,79 @@
 import { Box, Text } from "ink";
-import type { ExchangeRecord, ExchangeSnapshot } from "../types.js";
-import { statusColor, formatDuration, truncate } from "../utils.js";
+import type { ToolCallRow } from "../types.js";
+import { formatDuration, truncate, toolStatusColor } from "../utils.js";
 import { theme } from "../theme.js";
 import { Panel } from "./panel.js";
 import { formatJson, ColoredJsonLine } from "./json-format.js";
 
 /**
- * Build the scrollable lines for the deep view: headers + body sections.
+ * Build the scrollable lines for a tool call: input, output and error
+ * sections. Sensitive payloads are only present when telemetry snapshot
+ * capture was enabled at the time of the call.
  */
-function buildSnapshotLines(
-  snapshot: ExchangeSnapshot,
-  maxWidth: number,
-): string[] {
+function buildLines(call: ToolCallRow, maxWidth: number): string[] {
   const lines: string[] = [];
 
-  lines.push("HEADERS");
-  lines.push(...formatJson(snapshot.headers, maxWidth));
-  lines.push("");
-  lines.push("BODY");
-  if (snapshot.body !== null) {
-    lines.push(...formatJson(snapshot.body, maxWidth));
-    if (snapshot.truncated) {
-      lines.push("");
-      lines.push("[Body truncated to configured limit]");
-    }
+  lines.push("INPUT");
+  if (call.hasInput && call.input !== null) {
+    lines.push(...formatJson(call.input, maxWidth));
   } else {
-    lines.push("[null]");
+    lines.push("[Not captured - enable snapshots]");
+  }
+  lines.push("");
+  lines.push("OUTPUT");
+  if (call.status === "invoked") {
+    lines.push("[Pending - tool still running or not recorded]");
+  } else if (call.hasOutput && call.output !== null) {
+    lines.push(...formatJson(call.output, maxWidth));
+  } else if (call.status === "error") {
+    lines.push("[No output - call errored]");
+  } else {
+    lines.push("[Not captured - enable snapshots]");
+  }
+  if (call.status === "error") {
+    lines.push("");
+    lines.push("ERROR");
+    if (call.error !== null) {
+      lines.push(...formatJson(call.error, maxWidth));
+    } else {
+      // Only the non-sensitive error class is persisted when snapshot
+      // capture is off (the message can echo the tool input).
+      lines.push(
+        `[${call.errorName ?? "Error"} - enable snapshots for details]`,
+      );
+    }
+  } else if (call.error !== null) {
+    lines.push("");
+    lines.push("ERROR");
+    lines.push(...formatJson(call.error, maxWidth));
   }
 
   return lines;
 }
 
-export function ExchangeDeepView({
-  exchange,
-  snapshot,
+/**
+ * Scrollable detail view of one tool call's input/output/error, reusing
+ * the JSON renderer from {@link ExchangeDeepView}.
+ */
+export function ToolCallDetail({
+  call,
   width,
   height,
   scrollOffset,
   color = theme.accent,
 }: {
-  exchange: ExchangeRecord;
-  snapshot: ExchangeSnapshot | null;
+  call: ToolCallRow;
   width: number;
   height: number;
   scrollOffset: number;
   color?: string;
 }) {
-  // Header panel: border (2) + content (3 lines: capability + exchange + status)
   const headerHeight = 5;
-  // JSON panel chrome: border (2) + title (1) + separator (1) + footer (1)
   const jsonChrome = 5;
   const jsonWidth = Math.max(width - 6, 20);
   const visibleRows = Math.max(height - headerHeight - jsonChrome, 3);
 
-  const hasSnapshot = snapshot !== null;
-  const jsonLines = hasSnapshot
-    ? buildSnapshotLines(snapshot, jsonWidth)
-    : [
-        "[Snapshots not captured]",
-        "",
-        "Enable with:",
-        "  telemetry({ sqlite: { captureSnapshots: true } })",
-      ];
-
+  const jsonLines = buildLines(call, jsonWidth);
   // Clamp so overscrolling past the last line cannot blank the panel or
   // report an out-of-range line window.
   const offset = Math.max(
@@ -75,33 +86,33 @@ export function ExchangeDeepView({
     <Box flexDirection="column" width={width} flexGrow={1}>
       <Panel width={width}>
         <Text>
-          Capability:{" "}
+          Tool:{" "}
           <Text bold color={theme.accent}>
-            {exchange.routeId}
+            {truncate(call.toolName, width - 10)}
           </Text>
         </Text>
         <Text>
           Exchange:{" "}
           <Text bold color={theme.accent}>
-            {truncate(exchange.id, width - 14)}
+            {truncate(call.exchangeId, width - 14)}
           </Text>
         </Text>
         <Text>
           Status:{" "}
-          <Text bold color={statusColor(exchange.status)}>
-            {exchange.status}
+          <Text bold color={toolStatusColor(call.status)}>
+            {call.status}
           </Text>
-          {exchange.durationMs !== null && (
+          {call.durationMs !== null && (
             <Text>
               {"  "}Duration:{" "}
-              <Text bold>{formatDuration(exchange.durationMs)}</Text>
+              <Text bold>{formatDuration(call.durationMs)}</Text>
             </Text>
           )}
         </Text>
       </Panel>
 
       <Panel
-        title="EXCHANGE SNAPSHOT"
+        title="TOOL CALL"
         subtitle={
           <Text dimColor>
             ({offset + 1}-{Math.min(offset + visibleRows, jsonLines.length)}/
@@ -113,7 +124,7 @@ export function ExchangeDeepView({
         color={color}
       >
         {visible.map((line, i) => {
-          if (line === "HEADERS" || line === "BODY") {
+          if (line === "INPUT" || line === "OUTPUT" || line === "ERROR") {
             return (
               <Text key={offset + i} bold color={theme.accent}>
                 {line}

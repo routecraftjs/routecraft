@@ -1,4 +1,5 @@
 import { Text } from "ink";
+import { theme } from "../theme.js";
 
 /** Token types for JSON syntax coloring. */
 export type TokenType =
@@ -58,13 +59,16 @@ export function tokenizeLine(line: string): JsonToken[] {
   return tokens;
 }
 
+// Mirrors the site's code-block treatment: keys carry the ink (plain
+// text) weight, string values take the cobalt accent, punctuation
+// recedes; numbers/booleans stay warm and null reads as a warning.
 export const TOKEN_COLORS: Record<TokenType, string> = {
-  key: "cyan",
-  string: "green",
-  number: "yellow",
-  boolean: "yellow",
-  null: "red",
-  brace: "gray",
+  key: "white",
+  string: theme.accentSoft,
+  number: theme.warn,
+  boolean: theme.warn,
+  null: theme.error,
+  brace: theme.muted,
 };
 
 /**

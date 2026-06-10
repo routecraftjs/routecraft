@@ -1,7 +1,9 @@
+import { useMemo } from "react";
 import { Box, Text } from "ink";
 import type { ExchangeRecord, EventRecord } from "../types.js";
 import { statusColor, formatDuration, col, truncate } from "../utils.js";
 import { DETAIL_INFO_CHROME } from "../layout.js";
+import { theme } from "../theme.js";
 import { Panel } from "./panel.js";
 import { Table, type ColumnDef } from "./table.js";
 import { selectorColumn, eventDetailColumns } from "./event-columns.js";
@@ -52,32 +54,46 @@ function groupEventsByExchange(
   return Array.from(groups.values());
 }
 
-const detailColumns: ColumnDef<DisplayRow>[] = [
-  selectorColumn<DisplayRow>(),
-  {
-    header: "Time",
-    width: 8,
-    render: (row, _sel, w) => {
-      if (!row.event) return <Text>{col("", w)}</Text>;
-      const indent = " ".repeat(row.indent);
-      return (
-        <Text dimColor>
-          {indent}
-          {row.event.timestamp.replace("T", " ").slice(11, 19)}
-        </Text>
-      );
+/**
+ * Width-aware column set: narrow panes shed the Adapter and Exchange
+ * detail columns so the flex event name keeps a useful width instead of
+ * the row over-filling and clipping.
+ */
+function buildDetailColumns(innerWidth: number): ColumnDef<DisplayRow>[] {
+  return [
+    selectorColumn<DisplayRow>(),
+    {
+      header: "Time",
+      width: 10,
+      render: (row, _sel, w) => {
+        if (!row.event) return <Text>{col("", w)}</Text>;
+        const indent = " ".repeat(row.indent);
+        // col() bounds indent + time to the column so an indented child
+        // row cannot push the rest of the row into wrapping.
+        return (
+          <Text dimColor>
+            {col(
+              indent + row.event.timestamp.replace("T", " ").slice(11, 19),
+              w,
+            )}
+          </Text>
+        );
+      },
     },
-  },
-  {
-    header: "Event",
-    width: "flex",
-    render: (row) => {
-      if (!row.event) return <Text />;
-      return <Text color="cyan">{row.event.eventName}</Text>;
+    {
+      header: "Event",
+      width: "flex",
+      render: (row) => {
+        if (!row.event) return <Text />;
+        return <Text>{row.event.eventName}</Text>;
+      },
     },
-  },
-  ...eventDetailColumns<DisplayRow>((row) => row.event),
-];
+    ...eventDetailColumns<DisplayRow>((row) => row.event, {
+      adapter: innerWidth >= 80,
+      exchange: innerWidth >= 68,
+    }),
+  ];
+}
 
 export function CenterExchangeDetail({
   exchange,
@@ -86,7 +102,7 @@ export function CenterExchangeDetail({
   height,
   scrollOffset,
   selectedIndex = -1,
-  color = "gray",
+  color = theme.muted,
 }: {
   exchange: ExchangeRecord;
   events: EventRecord[];
@@ -98,6 +114,9 @@ export function CenterExchangeDetail({
 }) {
   const hasExtra = exchange.error ? 2 : 0;
   const eventRows = Math.max(height - DETAIL_INFO_CHROME - hasExtra, 3);
+  // Memoized per width: rebuilding every render would discard the
+  // per-row parse cache inside eventDetailColumns.
+  const detailColumns = useMemo(() => buildDetailColumns(width - 4), [width]);
 
   const groups = groupEventsByExchange(events, exchange.id);
   const hasChildren = groups.length > 1;
@@ -129,13 +148,13 @@ export function CenterExchangeDetail({
       <Panel width={width}>
         <Text>
           Capability:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {exchange.routeId}
           </Text>
         </Text>
         <Text>
           Exchange:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {truncate(exchange.id, width - 14)}
           </Text>
         </Text>
@@ -186,7 +205,7 @@ export function CenterExchangeDetail({
           emptyMessage="No related events found"
           renderFullRow={(row) =>
             row.type === "header" ? (
-              <Text bold color="yellow">
+              <Text bold color={theme.accent}>
                 {row.text}
               </Text>
             ) : undefined

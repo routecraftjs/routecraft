@@ -136,15 +136,26 @@ describe("agent context-bus events", () => {
     expect(invoked["routeId"]).toBe("with-tool");
     expect(invoked["toolName"]).toBe("CurrentTime");
     expect(invoked["toolCallId"]).toBe("call-CurrentTime-1");
+    // Tool input/output ride in the `_snapshot` envelope so the
+    // telemetry layer can drop them when snapshot capture is off.
+    expect(invoked["_snapshot"]).toBeDefined();
+    expect(invoked["_snapshot"] as Record<string, unknown>).toHaveProperty(
+      "input",
+    );
     const result = events[1]!.details as Record<string, unknown>;
     expect(result["toolName"]).toBe("CurrentTime");
     expect(result["duration"]).toBeTypeOf("number");
+    expect(result["_snapshot"] as Record<string, unknown>).toHaveProperty(
+      "output",
+    );
   });
 
   /**
    * @case agent:tool:error fires when a tool handler throws
    * @preconditions Agent with one tool whose handler throws; mocked SDK drives a call
-   * @expectedResult Subscriber receives invoked + error events; result NOT emitted
+   * @expectedResult Subscriber receives invoked + error events with the thrown
+   *   error inside `_snapshot` (errorName at top level, no top-level `error`
+   *   field that would bypass the telemetry snapshot gate); result NOT emitted
    */
   test("tool:error emitted on context bus when handler throws", async () => {
     t = await testContext()
@@ -179,19 +190,86 @@ describe("agent context-bus events", () => {
       .build();
 
     const events: string[] = [];
+    let errorDetails: Record<string, unknown> | undefined;
     t.ctx.on("route:with-throwing-tool:agent:tool:invoked" as never, () => {
       events.push("invoked");
     });
     t.ctx.on("route:with-throwing-tool:agent:tool:result" as never, () => {
       events.push("result");
     });
-    t.ctx.on("route:with-throwing-tool:agent:tool:error" as never, () => {
-      events.push("error");
-    });
+    t.ctx.on(
+      "route:with-throwing-tool:agent:tool:error" as never,
+      ({ details }: { details: unknown }) => {
+        events.push("error");
+        errorDetails = details as Record<string, unknown>;
+      },
+    );
 
     await t.test();
 
     expect(events).toEqual(["invoked", "error"]);
+    // The thrown error may echo tool input, so the full object rides in
+    // `_snapshot` (dropped from persisted telemetry unless captureSnapshots
+    // is on); only the non-sensitive class name is a top-level field.
+    expect(errorDetails!["errorName"]).toBe("Error");
+    expect(errorDetails!["error"]).toBeUndefined();
+    const snap = errorDetails!["_snapshot"] as Record<string, unknown>;
+    expect(snap).toBeDefined();
+    expect((snap["error"] as Error).message).toBe("tool-boom");
+  });
+
+  /**
+   * @case agent:error fires when dispatch preparation fails
+   * @preconditions Agent whose output spec passes upfront option checks
+   *   (callable ~standard.validate) but cannot be converted to an AI SDK
+   *   schema, so prepare() throws before any model call
+   * @expectedResult started is followed by error; the run is not left
+   *   orphaned in the running state with neither finished nor error
+   */
+  test("agent:error emitted when prepare fails", async () => {
+    // Passes "is a Standard Schema with callable validate" but has no
+    // convertible JSON schema, so toAiOutputSpec throws inside prepare.
+    const bogusOutput = {
+      "~standard": {
+        version: 1,
+        vendor: "bogus",
+        validate: () => ({ value: null }),
+      },
+    };
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("prep-fail")
+          .from(simple("hi"))
+          .to(
+            agent({
+              system: "x",
+              model: "anthropic:claude-opus-4-7",
+              output: bogusOutput as never,
+            }),
+          ),
+      )
+      .build();
+
+    const events: string[] = [];
+    t.ctx.on("route:prep-fail:agent:started" as never, () => {
+      events.push("started");
+    });
+    t.ctx.on("route:prep-fail:agent:finished" as never, () => {
+      events.push("finished");
+    });
+    t.ctx.on("route:prep-fail:agent:error" as never, () => {
+      events.push("error");
+    });
+
+    await t.test().catch(() => undefined);
+
+    expect(events).toEqual(["started", "error"]);
   });
 
   /**
@@ -227,10 +305,121 @@ describe("agent context-bus events", () => {
     expect(finished).toHaveLength(1);
     const d = finished[0] as Record<string, unknown>;
     expect(d["routeId"]).toBe("simple-agent");
+    expect(d["model"]).toBe("anthropic:claude-opus-4-7");
     expect(d["finishReason"]).toBe("stop");
     expect(d["inputTokens"]).toBe(10);
     expect(d["outputTokens"]).toBe(5);
     expect(d["totalTokens"]).toBe(15);
+  });
+
+  /**
+   * @case agent:started fires at dispatch start with model + tool names
+   * @preconditions Inline agent with one tool; mocked callLlm
+   * @expectedResult Subscriber receives one started event carrying the
+   *   resolved model, tool names, and turn budget
+   */
+  test("agent:started emitted with model, toolNames and maxTurns", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+          agentPlugin({ functions: { CurrentTime: currentTime() } }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("started-agent")
+          .from(simple("hi"))
+          .to(
+            agent({
+              system: "x",
+              model: "anthropic:claude-opus-4-7",
+              maxTurns: 7,
+              tools: tools(["CurrentTime"]),
+            }),
+          ),
+      )
+      .build();
+
+    const started: unknown[] = [];
+    t.ctx.on(
+      "route:started-agent:agent:started" as never,
+      ({ details }: { details: unknown }) => {
+        started.push(details);
+      },
+    );
+
+    await t.test();
+
+    expect(started).toHaveLength(1);
+    const d = started[0] as Record<string, unknown>;
+    expect(d["routeId"]).toBe("started-agent");
+    expect(d["model"]).toBe("anthropic:claude-opus-4-7");
+    expect(d["toolNames"]).toEqual(["CurrentTime"]);
+    expect(d["maxTurns"]).toBe(7);
+  });
+
+  /**
+   * @case Registered agents and fns announce themselves on context:started
+   * @preconditions agentPlugin with one registered agent and one fn
+   * @expectedResult agent:registered and agent:tool:registered fire once
+   *   the context starts, carrying ids, description and source
+   */
+  test("agent:registered + agent:tool:registered emitted on context start", async () => {
+    const registrations: Array<{ name: string; details: unknown }> = [];
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+          agentPlugin({
+            agents: {
+              summariser: {
+                description: "Summarises documents",
+                model: "anthropic:claude-opus-4-7",
+                system: "Be concise.",
+              },
+            },
+            functions: { CurrentTime: currentTime() },
+          }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("noop")
+          .from(simple("hi"))
+          .to(agent({ system: "x", model: "anthropic:claude-opus-4-7" })),
+      )
+      .build();
+
+    t.ctx.on(
+      "agent:registered" as never,
+      ({ details }: { details: unknown }) => {
+        registrations.push({ name: "agent", details });
+      },
+    );
+    t.ctx.on(
+      "agent:tool:registered" as never,
+      ({ details }: { details: unknown }) => {
+        registrations.push({ name: "tool", details });
+      },
+    );
+
+    await t.test();
+
+    const agentReg = registrations.find((r) => r.name === "agent")?.details as
+      | Record<string, unknown>
+      | undefined;
+    expect(agentReg).toBeDefined();
+    expect(agentReg!["agentId"]).toBe("summariser");
+    expect(agentReg!["model"]).toBe("anthropic:claude-opus-4-7");
+    expect(agentReg!["source"]).toBe("registered");
+
+    const toolReg = registrations.find((r) => r.name === "tool")?.details as
+      | Record<string, unknown>
+      | undefined;
+    expect(toolReg).toBeDefined();
+    expect(toolReg!["toolName"]).toBe("CurrentTime");
+    expect(toolReg!["source"]).toBe("registered");
   });
 
   /**

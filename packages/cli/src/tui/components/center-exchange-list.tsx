@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import type { ExchangeRecord, RouteSummary, RouteActivity } from "../types.js";
 import { statusColor, formatDuration, col } from "../utils.js";
 import { PANEL_TABLE_CHROME } from "../layout.js";
+import { theme, selectedProps } from "../theme.js";
 import { Panel } from "./panel.js";
 import { RouteHeader } from "./route-header.js";
 import { DotGraph, DEFAULT_STEPS } from "./dot-graph.js";
@@ -14,9 +15,7 @@ const exchangeColumns: ColumnDef<ExchangeRecord>[] = [
     header: "ID",
     width: "flex",
     render: (row, selected) => (
-      <Text {...(selected ? { color: "cyan" as const } : {})} bold={selected}>
-        {row.id}
-      </Text>
+      <Text {...selectedProps(selected)}>{row.id}</Text>
     ),
   },
   {
@@ -51,8 +50,9 @@ export function CenterExchangeList({
   scrollOffset,
   width,
   height,
-  color = "gray",
+  color = theme.muted,
   activity,
+  title: titleOverride,
 }: {
   capabilityId: string;
   route?: RouteSummary;
@@ -63,12 +63,15 @@ export function CenterExchangeList({
   height: number;
   color?: string;
   activity?: RouteActivity | undefined;
+  /** Override the computed panel title (e.g. for agent runs). */
+  title?: string;
 }) {
   const graphTermRows = Math.ceil((DEFAULT_STEPS.length - 1) / 4);
   const headerRows = route ? 2 + graphTermRows + 2 : 0;
   const tableRows = Math.max(height - PANEL_TABLE_CHROME - headerRows, 3);
 
-  const title = route ? "EXCHANGES" : `EXCHANGES: ${capabilityId}`;
+  const title =
+    titleOverride ?? (route ? "EXCHANGES" : `EXCHANGES: ${capabilityId}`);
 
   return (
     <Box flexDirection="column" width={width} flexGrow={1}>
@@ -87,7 +90,7 @@ export function CenterExchangeList({
         <Table
           columns={exchangeColumns}
           data={exchanges}
-          rowKey={(ex) => ex.id + ex.contextId}
+          rowKey={(ex) => `${ex.id}:${ex.contextId}`}
           selectedIndex={selectedIndex}
           scrollOffset={scrollOffset}
           visibleRows={tableRows}
