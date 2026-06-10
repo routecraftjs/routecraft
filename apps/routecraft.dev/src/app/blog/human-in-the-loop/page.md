@@ -5,7 +5,7 @@ date: 2026-06-10
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.7.0+'
-draft: false
+draft: true
 tags:
   - human-in-the-loop
   - n8n
