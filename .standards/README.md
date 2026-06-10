@@ -24,4 +24,5 @@ Internal development standards for Routecraft contributors (human and AI). These
 ## Related
 
 - [Definition of Done](../DEFINITION_OF_DONE.md) -- merge checklist for every change
+- [Architecture Spike Findings 2026-06](../docs/architecture/2026-06-spike-findings.md) -- dated exploratory review: measured verdicts on the step-outcome, error-registry, subscription, and event-identity redesigns
 - [Contribution Guide](https://routecraft.dev/docs/community/contribution-guide) -- development workflow, branching, PR checklist

@@ -36,10 +36,10 @@ stdio-client-manager) for the same hazard if provider tests ever need the real m
 - [x] C1 step outcome + takePending (+S2). 5-variant outcome union (continue/complete/drop/branch/fanOut) --
   choice needed 'branch' (prepends steps), route-cache-hit needed 'complete' (skip remaining, success);
   the originally sketched 3-variant union was insufficient. Wrapper buffer protocol deleted.
-- [ ] C3 subscription object (+S1 Adapter.adapterId)
-- [ ] D9 event identity redesign
-- [ ] E experiments (pick 2-3)
-- [ ] B4 findings doc + final measurements
+- [x] C3 subscription object (+S1) -- 12 core sources + mcp + testing-hooks + pseudo migrated; testSubscription() helper added; dead MCP positional principal arg found+removed
+- [x] D9 event identity redesign -- 2x emit, -24% plain, -27% split-agg; EventDetailsMap mergeable; regex-rename corruption incident caught by diff-pairing audit (use a name table in the real PR)
+- [x] E1 generator/iterable sources implemented (~120 lines on C3); E2/E3 evaluated-not-built (see findings doc)
+- [x] B4 findings doc: docs/architecture/2026-06-spike-findings.md (primary deliverable)
 
 ## Per-change verdicts (fill as they land)
 
