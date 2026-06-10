@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Box, Text } from "ink";
 import type { ExchangeRecord, EventRecord } from "../types.js";
 import { statusColor, formatDuration, col, truncate } from "../utils.js";
@@ -113,6 +114,9 @@ export function CenterExchangeDetail({
 }) {
   const hasExtra = exchange.error ? 2 : 0;
   const eventRows = Math.max(height - DETAIL_INFO_CHROME - hasExtra, 3);
+  // Memoized per width: rebuilding every render would discard the
+  // per-row parse cache inside eventDetailColumns.
+  const detailColumns = useMemo(() => buildDetailColumns(width - 4), [width]);
 
   const groups = groupEventsByExchange(events, exchange.id);
   const hasChildren = groups.length > 1;
@@ -188,7 +192,7 @@ export function CenterExchangeDetail({
 
       <Panel title={eventsTitle} width={width} flexGrow={1} color={color}>
         <Table
-          columns={buildDetailColumns(width - 4)}
+          columns={detailColumns}
           data={displayRows}
           rowKey={(row, i) =>
             row.type === "header"

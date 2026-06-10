@@ -748,6 +748,11 @@ export class TelemetryDb {
    * stays cheap regardless of how large the events table has grown.
    */
   getAgents(): AgentSummary[] {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return [];
     const rows = this.stmt(
       "agentLifecycle",
       `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
@@ -839,6 +844,11 @@ export class TelemetryDb {
     source: "registered" | "inline",
     limit = 50,
   ): TelemetryExchange[] {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return [];
     // The agent filter runs in SQL (json_extract) so only the selected
     // agent's started events are transferred and parsed. ORDER BY id DESC
     // walks the primary key from the newest row and stops at the LIMIT,
@@ -928,6 +938,9 @@ export class TelemetryDb {
    */
   getAgentRunInfos(exchangeIds: string[]): Map<string, AgentRunInfo> {
     const result = new Map<string, AgentRunInfo>();
+    // See getAgents: legacy databases without the exchange_id column
+    // cannot contain agent events; degrade to empty.
+    if (!this.hasEventIdColumns()) return result;
     if (exchangeIds.length === 0) return result;
     const placeholders = exchangeIds.map(() => "?").join(",");
     const rows = this.db
@@ -976,6 +989,11 @@ export class TelemetryDb {
 
   /** Per-run agent detail (model, finish reason, tokens) for an exchange. */
   getAgentRunInfo(exchangeId: string): AgentRunInfo | null {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return null;
     const rows = this.stmt(
       "agentRunInfo",
       `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
@@ -1016,6 +1034,11 @@ export class TelemetryDb {
 
   /** Ordered tool calls made during a single agent run (exchange). */
   getAgentRunToolCalls(exchangeId: string): ToolCallRow[] {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return [];
     const rows = this.stmt(
       "agentRunToolCalls",
       `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
@@ -1036,6 +1059,11 @@ export class TelemetryDb {
    * parses events newer than the previous call's high-water mark.
    */
   getTools(): ToolSummary[] {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return [];
     const rows = this.stmt(
       "toolLifecycle",
       `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
@@ -1101,6 +1129,11 @@ export class TelemetryDb {
    * result, error) that the correlation step merges into one row.
    */
   getToolCalls(toolName: string, limit = 100): ToolCallRow[] {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return [];
     const rows = this.stmt(
       "toolCalls",
       `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId

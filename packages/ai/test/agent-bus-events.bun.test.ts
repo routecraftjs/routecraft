@@ -219,6 +219,60 @@ describe("agent context-bus events", () => {
   });
 
   /**
+   * @case agent:error fires when dispatch preparation fails
+   * @preconditions Agent whose output spec passes upfront option checks
+   *   (callable ~standard.validate) but cannot be converted to an AI SDK
+   *   schema, so prepare() throws before any model call
+   * @expectedResult started is followed by error; the run is not left
+   *   orphaned in the running state with neither finished nor error
+   */
+  test("agent:error emitted when prepare fails", async () => {
+    // Passes "is a Standard Schema with callable validate" but has no
+    // convertible JSON schema, so toAiOutputSpec throws inside prepare.
+    const bogusOutput = {
+      "~standard": {
+        version: 1,
+        vendor: "bogus",
+        validate: () => ({ value: null }),
+      },
+    };
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("prep-fail")
+          .from(simple("hi"))
+          .to(
+            agent({
+              system: "x",
+              model: "anthropic:claude-opus-4-7",
+              output: bogusOutput as never,
+            }),
+          ),
+      )
+      .build();
+
+    const events: string[] = [];
+    t.ctx.on("route:prep-fail:agent:started" as never, () => {
+      events.push("started");
+    });
+    t.ctx.on("route:prep-fail:agent:finished" as never, () => {
+      events.push("finished");
+    });
+    t.ctx.on("route:prep-fail:agent:error" as never, () => {
+      events.push("error");
+    });
+
+    await t.test().catch(() => undefined);
+
+    expect(events).toEqual(["started", "error"]);
+  });
+
+  /**
    * @case agent:finished fires after the dispatch returns
    * @preconditions Agent without tools; happy-path LLM call
    * @expectedResult Subscriber receives one finished event with usage and finishReason

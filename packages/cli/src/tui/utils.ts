@@ -15,8 +15,11 @@ export function statusColor(status: string): string {
   switch (status) {
     case "completed":
     case "started":
+    case "finished":
+    case "running":
       return "green";
     case "failed":
+    case "error":
       return "red";
     case "stopped":
     case "dropped":
@@ -24,6 +27,17 @@ export function statusColor(status: string): string {
     default:
       return "white";
   }
+}
+
+/**
+ * Compact number for fixed-width token columns (6 chars): plain
+ * thousands-separated up to 99,999, then 123k / 1.2M so large counts
+ * cannot overflow the column and push the row out of alignment.
+ */
+export function fmtTokens(n: number): string {
+  if (n < 100_000) return fmtNum(n);
+  if (n < 1_000_000) return `${Math.round(n / 1_000)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
 /** Semantic color for a correlated tool-call status. */

@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import type { ExchangeRecord, AgentRunInfo } from "../types.js";
-import { statusColor, formatDuration, col, fmtNum } from "../utils.js";
+import { statusColor, formatDuration, col, fmtTokens } from "../utils.js";
 import { PANEL_TABLE_CHROME } from "../layout.js";
 import { selectedProps } from "../theme.js";
 import { Panel } from "./panel.js";
@@ -71,7 +71,7 @@ export function AgentRunList({
         return (
           <Text>
             {(total !== null && total !== undefined
-              ? fmtNum(total)
+              ? fmtTokens(total)
               : "-"
             ).padStart(6)}
           </Text>
@@ -112,7 +112,7 @@ export function AgentRunList({
         <Table
           columns={columns}
           data={runs}
-          rowKey={(ex) => ex.id + ex.contextId}
+          rowKey={(ex) => `${ex.id}:${ex.contextId}`}
           selectedIndex={selectedIndex}
           scrollOffset={scrollOffset}
           visibleRows={tableRows}

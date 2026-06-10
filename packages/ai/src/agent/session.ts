@@ -204,7 +204,6 @@ export class AgentSession {
     const validate = options.validate;
     const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
     this.emitStarted(maxTurns);
-    const prepared = await this.prepare(abortSignal);
 
     let turnsUsed = 0;
     let currentUser: string | unknown[] = this.input.user;
@@ -212,6 +211,11 @@ export class AgentSession {
     const accumulatedToolCalls: LlmToolCallSummary[] = [];
 
     try {
+      // Inside the try so a prepare failure (tool resolution, schema
+      // resolution) still emits agent:error; otherwise the started event
+      // would be orphaned and observability would show the run as
+      // running forever.
+      const prepared = await this.prepare(abortSignal);
       while (true) {
         const remaining = maxTurns - turnsUsed;
         if (remaining <= 0) {

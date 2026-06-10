@@ -90,7 +90,7 @@ export function CenterExchangeList({
         <Table
           columns={exchangeColumns}
           data={exchanges}
-          rowKey={(ex) => ex.id + ex.contextId}
+          rowKey={(ex) => `${ex.id}:${ex.contextId}`}
           selectedIndex={selectedIndex}
           scrollOffset={scrollOffset}
           visibleRows={tableRows}

@@ -119,6 +119,7 @@ A chronological tail of all framework events with human-readable summaries: cont
 | `Enter` | Drill into selected item (e.g. route exchanges, agent runs, tool calls) |
 | `Esc` | Go back to the previous panel or view |
 | `x` | Jump to the underlying exchange (from an agent run or a tool call) |
+| `e` | Open the exchange's headers/body snapshot (from an exchange detail) |
 | `/` | Filter the browsed list (type to narrow; `Enter` keeps the filter, `Esc` clears it) |
 | `f` | Toggle follow mode (keeps tailing new rows; moving the cursor turns it off) |
 | `q` | Quit |

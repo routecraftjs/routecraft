@@ -74,7 +74,9 @@ export function AgentRunDetail({
     info && (info.inputTokens !== null || info.outputTokens !== null)
       ? `${info.inputTokens ?? "?"} in / ${info.outputTokens ?? "?"} out` +
         (info.totalTokens !== null ? ` (${info.totalTokens} total)` : "")
-      : "-";
+      : info && info.totalTokens !== null
+        ? `${info.totalTokens} total`
+        : "-";
 
   return (
     <Box flexDirection="column" width={width} flexGrow={1}>
@@ -90,7 +92,7 @@ export function AgentRunDetail({
         </Text>
         <Text>
           Status:{" "}
-          <Text bold color={statusColor(run.status)}>
+          <Text bold color={statusColor(info?.status ?? run.status)}>
             {info?.status ?? run.status}
           </Text>
           {info?.finishReason && (

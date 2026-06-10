@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Text } from "ink";
 import type { EventRecord } from "../types.js";
 import { col } from "../utils.js";
@@ -53,6 +54,9 @@ export function EventsView({
   color?: string;
 }) {
   const tableRows = Math.max(height - PANEL_TABLE_CHROME, 5);
+  // Memoized per width: rebuilding every render would discard the
+  // per-row parse cache inside eventDetailColumns.
+  const eventColumns = useMemo(() => buildEventColumns(width - 4), [width]);
 
   return (
     <Panel
@@ -63,7 +67,7 @@ export function EventsView({
       color={color}
     >
       <Table
-        columns={buildEventColumns(width - 4)}
+        columns={eventColumns}
         data={events}
         rowKey={(ev, i) =>
           ev.id !== undefined ? String(ev.id) : `${ev.timestamp}-${i}`

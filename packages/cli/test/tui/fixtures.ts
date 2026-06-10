@@ -52,7 +52,7 @@ export function seedTelemetryDb(dbPath: string): void {
     details: Record<string, unknown>,
     exchangeId: string | null,
   ): void => {
-    ev.run("ctx", ts, name, JSON.stringify(details), exchangeId, exchangeId);
+    ev.run(ts, "ctx", name, JSON.stringify(details), exchangeId, exchangeId);
   };
 
   db.prepare(

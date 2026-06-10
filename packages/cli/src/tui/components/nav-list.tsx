@@ -28,6 +28,13 @@ export function NavList<T>({
   visibleRows: number;
   width: number;
 }) {
+  // Clamp so a shrunken list cannot scroll the window past its end and
+  // render an empty pane despite having items.
+  const offset = Math.max(
+    0,
+    Math.min(listOffset, Math.max(items.length - visibleRows, 0)),
+  );
+
   return (
     <>
       <Text> </Text>
@@ -37,8 +44,8 @@ export function NavList<T>({
       {items.length === 0 ? (
         <Text dimColor>{emptyText}</Text>
       ) : (
-        items.slice(listOffset, listOffset + visibleRows).map((item, vi) => {
-          const i = listOffset + vi;
+        items.slice(offset, offset + visibleRows).map((item, vi) => {
+          const i = offset + vi;
           const selected = i === selectedIndex;
           return (
             <Text key={itemKey(item)} wrap="truncate">

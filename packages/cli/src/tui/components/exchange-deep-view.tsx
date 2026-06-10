@@ -63,7 +63,13 @@ export function ExchangeDeepView({
         "  telemetry({ sqlite: { captureSnapshots: true } })",
       ];
 
-  const visible = jsonLines.slice(scrollOffset, scrollOffset + visibleRows);
+  // Clamp so overscrolling past the last line cannot blank the panel or
+  // report an out-of-range line window.
+  const offset = Math.max(
+    0,
+    Math.min(scrollOffset, Math.max(jsonLines.length - visibleRows, 0)),
+  );
+  const visible = jsonLines.slice(offset, offset + visibleRows);
 
   return (
     <Box flexDirection="column" width={width} flexGrow={1}>
@@ -98,8 +104,7 @@ export function ExchangeDeepView({
         title="EXCHANGE SNAPSHOT"
         subtitle={
           <Text dimColor>
-            ({scrollOffset + 1}-
-            {Math.min(scrollOffset + visibleRows, jsonLines.length)}/
+            ({offset + 1}-{Math.min(offset + visibleRows, jsonLines.length)}/
             {jsonLines.length} lines)
           </Text>
         }
@@ -110,19 +115,19 @@ export function ExchangeDeepView({
         {visible.map((line, i) => {
           if (line === "HEADERS" || line === "BODY") {
             return (
-              <Text key={scrollOffset + i} bold color={theme.accent}>
+              <Text key={offset + i} bold color={theme.accent}>
                 {line}
               </Text>
             );
           }
           if (line.startsWith("[")) {
             return (
-              <Text key={scrollOffset + i} dimColor>
+              <Text key={offset + i} dimColor>
                 {line}
               </Text>
             );
           }
-          return <ColoredJsonLine key={scrollOffset + i} line={line} />;
+          return <ColoredJsonLine key={offset + i} line={line} />;
         })}
         {visible.length < visibleRows &&
           Array.from({ length: visibleRows - visible.length }).map((_, i) => (

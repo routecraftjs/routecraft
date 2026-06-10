@@ -280,13 +280,20 @@ export function App({ db }: { db: TelemetryDb }) {
     current === "tool-call" ? selectedToolCall?.toolCallId : undefined;
   const openCallTool =
     current === "tool-call" ? selectedToolCall?.toolName : undefined;
+  // Selected nav-list identities as primitives, for the same reason.
+  const selAgentKey = agents[agentScroll.selectedIndex]?.key;
+  const selAgentSource = agents[agentScroll.selectedIndex]?.source;
+  const selToolName = tools[toolScroll.selectedIndex]?.name;
 
   /**
    * Load an agent's runs plus the per-run info (model, tokens) the runs
    * list renders as columns.
    */
   const loadAgentRuns = useCallback(
-    (agent: AgentSummary | undefined, limit?: number) => {
+    (
+      agent: { key: string; source: "registered" | "inline" } | undefined,
+      limit?: number,
+    ) => {
       if (!agent) {
         setExchanges([]);
         setAgentRunInfos(new Map());
@@ -320,16 +327,21 @@ export function App({ db }: { db: TelemetryDb }) {
         );
       }
 
-      // Agent/tool nav lists refresh continuously so newly-registered or
-      // newly-run agents and tools appear without re-entering the tab.
-      let agentsList: AgentSummary[] = [];
-      let toolsList: ToolSummary[] = [];
-      if (activeNav === "agents") {
-        agentsList = db.getAgents();
-        setAgents(agentsList);
-      } else if (activeNav === "tools") {
-        toolsList = db.getTools();
-        setTools(toolsList);
+      // Agent/tool nav lists refresh at the tab root so newly-registered
+      // or newly-run agents and tools appear without re-entering the tab.
+      // While drilled in they stay frozen: the lists are sorted by recent
+      // activity, so a live resort would move the index-based selection
+      // to a different agent under the open drill-down.
+      let agentsList: AgentSummary[] | undefined;
+      let toolsList: ToolSummary[] | undefined;
+      if (stack.length === 0) {
+        if (activeNav === "agents") {
+          agentsList = db.getAgents();
+          setAgents(agentsList);
+        } else if (activeNav === "tools") {
+          toolsList = db.getTools();
+          setTools(toolsList);
+        }
       }
 
       // Detail views stay live: the open exchange / agent run re-reads
@@ -388,12 +400,17 @@ export function App({ db }: { db: TelemetryDb }) {
           setExchanges(db.getExchangesByRoute(route.id, PAGE_SIZE));
         }
       } else if (activeNav === "agents") {
-        loadAgentRuns(agentsList[agentScroll.selectedIndex], PAGE_SIZE);
+        const agent = agentsList
+          ? agentsList[agentScroll.selectedIndex]
+          : selAgentKey && selAgentSource
+            ? { key: selAgentKey, source: selAgentSource }
+            : undefined;
+        loadAgentRuns(agent, PAGE_SIZE);
       } else if (activeNav === "tools") {
-        const tool = toolsList[toolScroll.selectedIndex];
-        if (tool) {
-          setToolCalls(db.getToolCalls(tool.name));
-        }
+        const toolName = toolsList
+          ? toolsList[toolScroll.selectedIndex]?.name
+          : selToolName;
+        setToolCalls(toolName ? db.getToolCalls(toolName) : []);
       } else if (activeNav === "exchanges") {
         setExchanges(db.getAllExchanges(PAGE_SIZE));
       } else if (activeNav === "errors") {
@@ -422,6 +439,9 @@ export function App({ db }: { db: TelemetryDb }) {
     openRunId,
     openCallId,
     openCallTool,
+    selAgentKey,
+    selAgentSource,
+    selToolName,
     detailScroll.moveTo,
     agentRunScroll.moveTo,
   ]);
