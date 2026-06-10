@@ -281,10 +281,10 @@ That is all the dashboard work. The rest is code.
 
 ## Wiring Clerk into the MCP plugin
 
-Routecraft ships an `oauth()` helper that does two jobs:
+Routecraft splits the server-side OAuth work in two:
 
-1. It advertises a public OAuth 2.0 Protected Resource metadata document at `/.well-known/oauth-protected-resource`, pointing clients at the authorization server.
-2. It exposes proxy endpoints (`/authorize`, `/token`, `/register`) that forward to Clerk, so MCP clients can rely on a single URL without worrying about cross-origin issues.
+1. The MCP plugin advertises a public OAuth 2.0 Protected Resource metadata document at `/.well-known/oauth-protected-resource` (driven by the `resource` option), pointing clients at the authorization server.
+2. The `oauth()` helper mounts the authorization-server discovery document and proxy endpoints (`/authorize`, `/token`, `/register`) that forward to Clerk, so MCP clients can rely on a single URL without worrying about cross-origin issues.
 
 It pairs with `jwks()`, which verifies incoming bearer tokens against Clerk's JSON Web Key Set.
 
@@ -308,12 +308,12 @@ export const craftConfig = defineConfig({
   plugins: [
     mcpPlugin({
       name: 'notebook',
+      title: 'Notebook',
       version: '0.1.0',
       transport: 'http',
       host: env.MCP_HOST,
+      resource: { url: `${env.MCP_ISSUER_URL}/mcp` },
       auth: oauth({
-        resourceIssuerUrl: env.MCP_ISSUER_URL,
-        resourceName: 'notebook',
         endpoints: {
           authorizationUrl: `${CLERK_BASE}/oauth/authorize`,
           tokenUrl: `${CLERK_BASE}/oauth/token`,
@@ -396,7 +396,7 @@ Restart the server. Then hit the discovery endpoint:
 curl http://localhost:3001/.well-known/oauth-protected-resource
 ```
 
-You should see a JSON document with `authorization_servers` pointing at your server's `/authorize` endpoint. That document is how MCP clients learn where to send the user.
+You should see a JSON document with `authorization_servers` pointing back at your own server, which proxies the actual OAuth flow through to Clerk. That document is how MCP clients learn where to send the user.
 
 ## Connecting from Claude Desktop
 
@@ -466,13 +466,15 @@ export default craft()
   .id('notes_create')
   .description('Create a new note for the calling user.')
   .input({ body: CreateNoteInput })
-  .from<CreateNoteInput>(mcp())
   .authorize({ roles: ['member'] })
+  .from<CreateNoteInput>(mcp())
   .transform((input, exchange) => {
     const userId = exchange.principal!.subject
     return store.create(userId, input.title, input.body)
   })
 ```
+
+Note where `.authorize()` sits: before `.from()`, not after. Like `.id()` and `.description()`, it stages metadata onto the route being declared, and the check runs at route entry before any pipeline step.
 
 If the principal does not carry a `member` role, the capability throws before any business logic runs, and Routecraft returns an MCP error to the client.
 
