@@ -46,13 +46,15 @@ function mockContext(
 describe("CraftConfig.direct defaults", () => {
   /**
    * @case CraftContext stores direct channelType when config.direct is provided
-   * @preconditions CraftConfig includes a direct field with channelType
+   * @preconditions CraftConfig includes a direct field; initPlugins() has run
+   *   (the direct config applier seeds the store during plugin init)
    * @expectedResult The context store contains the channelType under ADAPTER_DIRECT_OPTIONS
    */
-  test("stores channelType in the context store", () => {
+  test("stores channelType in the context store", async () => {
     const ctx = new CraftContext({
       direct: { channelType: MockChannelType },
     });
+    await ctx.initPlugins();
 
     const stored = ctx.getStore(ADAPTER_DIRECT_OPTIONS);
     expect(stored).toHaveProperty("channelType", MockChannelType);

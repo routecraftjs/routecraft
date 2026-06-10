@@ -46,9 +46,16 @@ export { defineConfig } from "./define-config.ts";
 export { registerConfigApplier, type ConfigApplier } from "./config-applier.ts";
 export { type HttpConfig } from "./adapters/http/types.ts";
 
-// Side-effect: register the `http` config applier so `defineConfig({ http })`
-// materialises the plugin without users importing httpPlugin manually.
+// Side-effect: register the config appliers for first-class config keys
+// (`http`, `cron`, `direct`, `mail`, `telemetry`) so `defineConfig({...})`
+// materialises the wiring without users importing plugins manually. Each
+// module also augments CraftConfig with its key; the core context has no
+// adapter knowledge.
 import "./plugins/http/config.ts";
+import "./adapters/cron/config.ts";
+import "./adapters/direct/config.ts";
+import "./adapters/mail/config.ts";
+import "./telemetry/config.ts";
 
 export { httpPlugin } from "./plugins/http/plugin.ts";
 export { apiKey } from "./plugins/http/auth.ts";
