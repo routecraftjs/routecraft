@@ -62,11 +62,11 @@ Press `Enter` to drill into a route's exchange list in the center panel. Press `
 
 The left panel lists agents seen in the database: agents registered via `agentPlugin` (shown even before they run) and inline agents discovered when they dispatch (keyed by their route). The status dot is red on errors, green once the agent has run, and yellow for registered-but-not-yet-run.
 
-Press `Enter` to browse the agent's runs. The runs list shows the per-run status, resolved model, total token usage, duration and start time. Press `Enter` on a run to open its detail: the model, input/output token usage, finish reason, and the ordered tool-call timeline. Press `Enter` on a tool call to inspect its input and output (captured only when `captureSnapshots` is enabled).
+Press `Enter` to browse the agent's runs. Every run is one exchange (one dispatch = one execution = one exchange), listed by its exchange id with per-run status, resolved model, total token usage, duration and start time. Press `Enter` on a run to open its detail: the model, input/output token usage, finish reason, and the ordered tool-call timeline. Press `Enter` on a tool call to inspect its input and output (captured only when `captureSnapshots` is enabled), or press `x` anywhere in the run flow to jump to the underlying exchange itself: its related events, and via `e` the snapshot of its headers and body (the run's output).
 
 ### Tools (3)
 
-The left panel lists tools: fns registered via `agentPlugin` and any tools observed being called. Press `Enter` to browse a tool's invocation history across all agents and exchanges, then `Enter` on a call to inspect its input/output.
+The left panel lists tools: fns registered via `agentPlugin` and any tools observed being called. Press `Enter` to browse a tool's invocation history across all agents and exchanges; each call shows the route, the dispatching agent, its status and the exchange it ran in. Press `Enter` on a call to inspect its input/output, or `x` to jump to that exchange's detail.
 
 ### Exchanges (4)
 
@@ -118,6 +118,7 @@ A chronological tail of all framework events with human-readable summaries: cont
 | `6` | Switch to Events view |
 | `Enter` | Drill into selected item (e.g. route exchanges, agent runs, tool calls) |
 | `Esc` | Go back to the previous panel or view |
+| `x` | Jump to the underlying exchange (from an agent run or a tool call) |
 | `/` | Filter the browsed list (type to narrow; `Enter` keeps the filter, `Esc` clears it) |
 | `f` | Toggle follow mode (keeps tailing new rows; moving the cursor turns it off) |
 | `q` | Quit |

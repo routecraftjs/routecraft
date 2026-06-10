@@ -310,6 +310,57 @@ describe("TUI App navigation", () => {
   });
 
   /**
+   * @case x jumps from an agent run to its underlying exchange
+   * @preconditions researcher's runs list open with ex1 selected
+   * @expectedResult Exchange detail (related events) opens for ex1; from
+   *   the run detail x performs the same jump
+   */
+  test("x opens the exchange behind an agent run", async () => {
+    instance.stdin.write("2");
+    await flush();
+    instance.stdin.write("j");
+    await flush();
+    instance.stdin.write("j"); // researcher
+    await flush();
+    instance.stdin.write(ENTER); // runs list
+    await flush();
+    instance.stdin.write("x"); // jump to the run's exchange
+    await flush();
+    let frame = instance.lastFrame()!;
+    expect(frame).toContain("RELATED EVENTS");
+    expect(frame).toContain("Exchange:");
+
+    instance.stdin.write(ESC); // back to the runs list
+    await flush();
+    instance.stdin.write(ENTER); // open the run detail
+    await flush();
+    expect(instance.lastFrame()!).toContain("TOOL CALLS");
+    instance.stdin.write("x"); // same jump from inside the run detail
+    await flush();
+    frame = instance.lastFrame()!;
+    expect(frame).toContain("RELATED EVENTS");
+  });
+
+  /**
+   * @case x jumps from a tool call to the exchange it ran in
+   * @preconditions Tools tab call list open; the call's exchange (ex3) has
+   *   no exchanges-table row, so the record is synthesized
+   * @expectedResult Exchange detail opens showing the call's route and events
+   */
+  test("x opens the exchange behind a tool call", async () => {
+    instance.stdin.write("3"); // Tools tab
+    await flush();
+    instance.stdin.write(ENTER); // calls of the most recent tool (legacy)
+    await flush();
+    expect(instance.lastFrame()!).toContain("TOOL CALLS:");
+    instance.stdin.write("x");
+    await flush();
+    const frame = instance.lastFrame()!;
+    expect(frame).toContain("RELATED EVENTS");
+    expect(frame).toContain("r3");
+  });
+
+  /**
    * @case Breadcrumb tracks the drill-down path
    * @preconditions Drilled from Agents into a run's tool call
    * @expectedResult Header breadcrumb shows tab, agent, run and tool name

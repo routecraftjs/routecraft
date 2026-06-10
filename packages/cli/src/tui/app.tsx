@@ -565,6 +565,30 @@ export function App({ db }: { db: TelemetryDb }) {
     [db, detailScroll, push],
   );
 
+  /**
+   * Open the exchange a tool call ran in. Synthesizes a minimal record
+   * when the dispatching exchange was not separately recorded (mirrors
+   * getAgentRuns), so the jump always lands somewhere useful.
+   */
+  const openExchangeForCall = useCallback(
+    (call: ToolCallRow) => {
+      if (!call.exchangeId) return;
+      const ex = db.getExchangeById(call.exchangeId) ?? {
+        id: call.exchangeId,
+        routeId: call.routeId,
+        contextId: "",
+        correlationId: "",
+        status: "started",
+        startedAt: call.timestamp,
+        completedAt: null,
+        durationMs: null,
+        error: null,
+      };
+      openExchange(ex);
+    },
+    [db, openExchange],
+  );
+
   useInput((input, key) => {
     // Filter typing mode captures all printable input
     if (filterTyping) {
@@ -625,6 +649,10 @@ export function App({ db }: { db: TelemetryDb }) {
 
     // JSON document views: scroll, Esc pops
     if (current !== "root" && JSON_VIEWS.has(current)) {
+      if (input === "x" && current === "tool-call" && selectedToolCall) {
+        openExchangeForCall(selectedToolCall);
+        return;
+      }
       if (down) {
         setJsonScroll((i) => i + step);
       } else if (up) {
@@ -639,6 +667,12 @@ export function App({ db }: { db: TelemetryDb }) {
     if (current === "agent-run") {
       if (input === "f") {
         setFollow((v) => !v);
+        return;
+      }
+      if (input === "x" && selectedRun) {
+        // A run is one exchange: jump to its exchange detail (related
+        // events; `e` from there opens the body/headers snapshot).
+        openExchange(selectedRun);
         return;
       }
       if ((down || up) && follow) setFollow(false);
@@ -763,6 +797,10 @@ export function App({ db }: { db: TelemetryDb }) {
           setFollow(ex.status === "started" || info?.status === "running");
           push("agent-run");
         }
+      } else if (input === "x") {
+        // A run is one exchange: open its exchange detail directly
+        const ex = visibleExchanges[exchangeScroll.selectedIndex];
+        if (ex) openExchange(ex);
       }
       return;
     }
@@ -793,6 +831,10 @@ export function App({ db }: { db: TelemetryDb }) {
           setSelectedToolCall(call);
           push("tool-call");
         }
+      } else if (input === "x") {
+        // Jump to the exchange this call ran in
+        const call = visibleToolCalls[toolCallScroll.selectedIndex];
+        if (call) openExchangeForCall(call);
       }
       return;
     }
@@ -849,10 +891,14 @@ export function App({ db }: { db: TelemetryDb }) {
   if (current !== "root" && JSON_VIEWS.has(current)) {
     keymapItems.push({ key: "j/k", action: "Scroll" });
     keymapItems.push({ key: "C-j/k", action: "Jump" });
+    if (current === "tool-call") {
+      keymapItems.push({ key: "x", action: "Exchange" });
+    }
     keymapItems.push({ key: "Esc", action: "Back" });
   } else if (current === "agent-run") {
     keymapItems.push({ key: "j/k", action: "Navigate" });
     keymapItems.push({ key: "Enter", action: "Tool I/O" });
+    keymapItems.push({ key: "x", action: "Exchange" });
     keymapItems.push({ key: "f", action: "Follow" });
     keymapItems.push({ key: "Esc", action: "Back" });
   } else if (current === "exchange") {
@@ -865,6 +911,9 @@ export function App({ db }: { db: TelemetryDb }) {
     keymapItems.push({ key: "j/k", action: "Navigate" });
     keymapItems.push({ key: "C-j/k", action: "Jump" });
     keymapItems.push({ key: "Enter", action: "Detail" });
+    if (activeNav === "agents" || activeNav === "tools") {
+      keymapItems.push({ key: "x", action: "Exchange" });
+    }
     keymapItems.push({ key: "/", action: "Filter" });
     keymapItems.push({ key: "f", action: "Follow" });
     keymapItems.push({ key: "Esc", action: "Back" });
