@@ -68,7 +68,7 @@ Both versions work. The differences are in everything around them.
 
 **Refactoring.** When three workflows share logic in n8n, you copy nodes between canvases or extract a subworkflow and manage its interface by convention. In Routecraft, shared logic is a function, or a capability invoked by other capabilities through `direct()` with its input and output types exported. The boring, load-bearing tools of software (extract function, rename symbol, find usages) all work, because it is just TypeScript.
 
-**Production-grade operations as one-liners.** The unglamorous things that separate a demo workflow from a production one are single operations in the pipeline: `.cache({ ttl })` to reuse a result, `.timeout()` to bound a slow backend, `.circuitBreaker()` to stop hammering a failing one, `.throttle()`, `.debounce()`, `.dedup()`, `.sample()`, `.delay()` for flow control, `.retry()` for the transient stuff. On a canvas, each of these is a pattern you assemble from Wait, IF, and Code nodes and then maintain per workflow; in the pipeline, each is a declared property of the capability, visible in the diff like everything else.
+**Production-grade operations as one-liners.** The unglamorous things that separate a demo workflow from a production one are single operations in the pipeline: `.cache({ ttl })` to reuse a result, `.timeout()` to bound a slow backend, `.circuitBreaker()` to stop hammering a failing one, `.throttle()`, `.debounce()`, `.dedup()`, `.sample()`, `.delay()` for flow control, `.retry()` for the transient stuff. On a canvas, a few of these exist as nodes (per-node retry, a deduplication node); the rest are patterns you assemble from Wait, IF, and Code nodes and maintain per workflow. In the pipeline, each is a declared property of the capability, visible in the diff like everything else.
 
 **An ordinary deployment.** A Routecraft project is a process: `craft run`, a Dockerfile on Bun or Node 22+, the same CI/CD pipeline as the rest of your code, env vars for config. There is no workflow database to back up, no editor server to upgrade, no separate promotion process to move a workflow from staging to prod. Promotion is a git merge.
 
@@ -121,7 +121,7 @@ Feature lists only get you so far; what decides the choice is how each tool hand
 | End-to-end type safety | ✗ | ✓ |
 | Human-in-the-loop approvals | ✓ prebuilt buttons | ✗ composed from capabilities |
 | Result caching with TTL | ✗ | ✓ `.cache({ ttl })` |
-| Declarative resilience (timeout, circuit breaker, throttle, debounce, dedup, sample, delay) | ✗ node patterns by hand | ✓ one operation each |
+| Declarative resilience (timeout, circuit breaker, throttle, debounce, dedup, sample, delay) | ✗ assembled per workflow (a few exist as nodes) | ✓ one operation each |
 | AI agent hosting | ✓ agent nodes | ✓ `.to(agent())` |
 | Expose tools to agents over MCP | ✓ MCP nodes | ✓ `.from(mcp())` |
 | Runs as an ordinary process | ✗ platform plus database | ✓ Bun or Node 22+, Docker |
