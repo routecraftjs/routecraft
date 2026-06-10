@@ -85,6 +85,19 @@ describe("TelemetryDb agents/tools derivation", () => {
   });
 
   /**
+   * @case getExchangeById fetches one exchange row for live detail refresh
+   * @preconditions ex1 exists; "nope" does not
+   * @expectedResult ex1 row with status, null for the unknown id
+   */
+  test("getExchangeById returns a single exchange or null", () => {
+    const ex = db.getExchangeById("ex1");
+    expect(ex).not.toBeNull();
+    expect(ex!.status).toBe("completed");
+    expect(ex!.routeId).toBe("r1");
+    expect(db.getExchangeById("nope")).toBeNull();
+  });
+
+  /**
    * @case getAgentRunInfos batches per-run info for a set of exchanges
    * @preconditions ex1 finished with tokens; ex2 errored
    * @expectedResult One map entry per run with model, tokens and status

@@ -122,6 +122,42 @@ const JSON_VIEWS: ReadonlySet<ViewKind> = new Set([
 ]);
 
 /**
+ * Group an exchange's related events by exchangeId (parent first),
+ * mirroring the display rows CenterExchangeDetail builds. Shared by the
+ * input handler (resolving the cursor row back to an event) and the
+ * live refresh (pinning follow mode to the newest row), so the two can
+ * never disagree about row positions.
+ */
+function buildEventGroups(
+  events: EventRecord[],
+  parentId: string,
+): Map<string, EventRecord[]> {
+  const groups = new Map<string, EventRecord[]>();
+  groups.set(parentId, []);
+  for (const ev of events) {
+    try {
+      const d = JSON.parse(ev.details) as Record<string, unknown>;
+      const exId = String(d["exchangeId"] ?? "");
+      const gKey = !exId || exId === parentId ? parentId : exId;
+      if (!groups.has(gKey)) groups.set(gKey, []);
+      groups.get(gKey)!.push(ev);
+    } catch {
+      groups.get(parentId)!.push(ev);
+    }
+  }
+  return groups;
+}
+
+/**
+ * Number of display rows in the exchange detail: every event plus one
+ * header row per group when the events span multiple exchanges.
+ */
+function countDisplayRows(events: EventRecord[], parentId: string): number {
+  const groups = buildEventGroups(events, parentId);
+  return events.length + (groups.size > 1 ? groups.size : 0);
+}
+
+/**
  * Root TUI component. Exported for tests; not part of the public CLI
  * surface.
  *
@@ -224,6 +260,26 @@ export function App({ db }: { db: TelemetryDb }) {
   // 2 blanks + 1 THROUGHPUT + 6 rows + 1 LATENCY + 4 rows = 19. Whatever
   // is left can hold braille graph rows (4 levels per row, 1..5 rows).
   const metricsGraphLevels = Math.max(Math.min(bodyHeight - 19, 5), 1) * 4;
+  // Tool-call timeline inside the agent-run detail (header is 6 rows).
+  // Defined here (not with the other table row counts) because the live
+  // refresh also needs it to pin follow mode to the newest call.
+  const runToolRows = Math.max(bodyHeight - 6 - PANEL_TABLE_CHROME, 3);
+
+  // Identity of any open detail views, as primitives, so the polling
+  // callback does not need the selected objects themselves as deps
+  // (those are replaced with fresh instances every poll, which would
+  // recreate the interval each tick).
+  const openExchangeId = stack.includes("exchange")
+    ? selectedExchange?.id
+    : undefined;
+  const openExchangeCorr = stack.includes("exchange")
+    ? selectedExchange?.correlationId
+    : undefined;
+  const openRunId = stack.includes("agent-run") ? selectedRun?.id : undefined;
+  const openCallId =
+    current === "tool-call" ? selectedToolCall?.toolCallId : undefined;
+  const openCallTool =
+    current === "tool-call" ? selectedToolCall?.toolName : undefined;
 
   /**
    * Load an agent's runs plus the per-run info (model, tokens) the runs
@@ -276,10 +332,53 @@ export function App({ db }: { db: TelemetryDb }) {
         setTools(toolsList);
       }
 
-      // While the user is browsing or in a detail view the lists stay
-      // frozen, unless follow mode keeps the active browse list tailing.
+      // Detail views stay live: the open exchange / agent run re-reads
+      // its events and tool calls every poll. New rows only append, so
+      // the cursor keeps its position; with follow on, the cursor pins
+      // to the newest row instead.
+      const top = stack.at(-1);
+      if (openExchangeId) {
+        const fresh = db.getExchangeById(openExchangeId);
+        if (fresh) setSelectedExchange(fresh);
+        const evs = db.getEventsByExchange(
+          openExchangeId,
+          openExchangeCorr ?? "",
+        );
+        setExchangeEvents(evs);
+        if (follow && top === "exchange") {
+          const hasExtra = fresh?.error ? 2 : 0;
+          const rows = Math.max(bodyHeight - DETAIL_INFO_CHROME - hasExtra, 3);
+          const total = countDisplayRows(evs, openExchangeId);
+          detailScroll.moveTo(total - 1, total, rows);
+        }
+      }
+      if (openRunId) {
+        const freshRun = db.getExchangeById(openRunId);
+        if (freshRun) setSelectedRun(freshRun);
+        setAgentRunInfo(db.getAgentRunInfo(openRunId));
+        const calls = db.getAgentRunToolCalls(openRunId);
+        setAgentRunToolCalls(calls);
+        if (follow && top === "agent-run") {
+          agentRunScroll.moveTo(calls.length - 1, calls.length, runToolRows);
+        }
+        // An open tool-call document refreshes in place (e.g. a pending
+        // call gains its output when the result event lands).
+        if (openCallId) {
+          const freshCall = calls.find((c) => c.toolCallId === openCallId);
+          if (freshCall) setSelectedToolCall(freshCall);
+        }
+      } else if (openCallId && openCallTool) {
+        // Tool-call opened from the Tools tab (no agent run on the stack)
+        const freshCall = db
+          .getToolCalls(openCallTool)
+          .find((c) => c.toolCallId === openCallId);
+        if (freshCall) setSelectedToolCall(freshCall);
+      }
+
+      // Browse lists stay frozen while the user is in them, unless
+      // follow mode keeps the active browse list tailing.
       if (stack.length > 0) {
-        const following = follow && stack.at(-1) === "browse";
+        const following = follow && top === "browse";
         if (!following) return;
       }
 
@@ -313,9 +412,18 @@ export function App({ db }: { db: TelemetryDb }) {
     toolScroll.selectedIndex,
     rightWidth,
     centerWidth,
+    bodyHeight,
+    runToolRows,
     stack,
     follow,
     loadAgentRuns,
+    openExchangeId,
+    openExchangeCorr,
+    openRunId,
+    openCallId,
+    openCallTool,
+    detailScroll.moveTo,
+    agentRunScroll.moveTo,
   ]);
 
   useEffect(() => {
@@ -441,15 +549,17 @@ export function App({ db }: { db: TelemetryDb }) {
   const eventsTableRows = Math.max(bodyHeight - PANEL_TABLE_CHROME, 5);
   // Plain (header-less) center tables: agent runs and tool-call lists.
   const plainTableRows = Math.max(bodyHeight - PANEL_TABLE_CHROME, 3);
-  // Tool-call timeline inside the agent-run detail (header is 6 rows).
-  const runToolRows = Math.max(bodyHeight - 6 - PANEL_TABLE_CHROME, 3);
 
-  /** Open the exchange detail for the given exchange. */
+  /**
+   * Open the exchange detail for the given exchange. A still-running
+   * exchange opens with follow on so new events tail in live.
+   */
   const openExchange = useCallback(
     (ex: ExchangeRecord) => {
       setSelectedExchange(ex);
       setExchangeEvents(db.getEventsByExchange(ex.id, ex.correlationId));
       detailScroll.reset();
+      setFollow(ex.status === "started");
       push("exchange");
     },
     [db, detailScroll, push],
@@ -525,8 +635,13 @@ export function App({ db }: { db: TelemetryDb }) {
       return;
     }
 
-    // Agent-run detail: browse the tool-call timeline
+    // Agent-run detail: browse the live tool-call timeline
     if (current === "agent-run") {
+      if (input === "f") {
+        setFollow((v) => !v);
+        return;
+      }
+      if ((down || up) && follow) setFollow(false);
       if (down) {
         agentRunScroll.moveBy(step, agentRunToolCalls.length, runToolRows);
       } else if (up) {
@@ -539,55 +654,37 @@ export function App({ db }: { db: TelemetryDb }) {
         }
       } else if (back) {
         pop();
+        setFollow(false);
         agentRunScroll.reset();
       }
       return;
     }
 
-    // Exchange detail: browse related events, open one, or the snapshot
+    // Exchange detail: browse the live related-events list, open one,
+    // or the snapshot
     if (current === "exchange") {
+      if (input === "f") {
+        setFollow((v) => !v);
+        return;
+      }
+      if ((down || up) && follow) setFollow(false);
       const hasExtra = selectedExchange?.error ? 2 : 0;
       const detailEventRows = Math.max(
         bodyHeight - DETAIL_INFO_CHROME - hasExtra,
         3,
       );
-      // Count group headers: when events span multiple exchanges, each group gets a header row
-      const uniqueExchangeIds = new Set(
-        exchangeEvents.map((ev) => {
-          try {
-            const d = JSON.parse(ev.details) as Record<string, unknown>;
-            return String(d["exchangeId"] ?? "");
-          } catch {
-            return "";
-          }
-        }),
-      );
-      const groupCount = Math.max(uniqueExchangeIds.size, 1);
-      const headerRows = groupCount > 1 ? groupCount : 0;
-      const totalDisplayRows = exchangeEvents.length + headerRows;
+      const parentId = selectedExchange?.id ?? "";
+      const totalDisplayRows = countDisplayRows(exchangeEvents, parentId);
       if (down) {
         detailScroll.moveBy(step, totalDisplayRows, detailEventRows);
       } else if (up) {
         detailScroll.moveBy(-step, totalDisplayRows, detailEventRows);
       } else if (key.return) {
-        // Resolve the selected display row to an EventRecord (skip headers)
-        // Build the same display row list the component builds
+        // Resolve the selected display row to an EventRecord (group
+        // headers occupy rows when events span multiple exchanges)
         let rowIndex = 0;
         let targetEvent: EventRecord | undefined;
-        const parentId = selectedExchange?.id ?? "";
-        const groups = new Map<string, EventRecord[]>();
-        groups.set(parentId, []);
-        for (const ev of exchangeEvents) {
-          try {
-            const d = JSON.parse(ev.details) as Record<string, unknown>;
-            const exId = String(d["exchangeId"] ?? "");
-            const gKey = !exId || exId === parentId ? parentId : exId;
-            if (!groups.has(gKey)) groups.set(gKey, []);
-            groups.get(gKey)!.push(ev);
-          } catch {
-            groups.get(parentId)!.push(ev);
-          }
-        }
+        const groups = buildEventGroups(exchangeEvents, parentId);
         const hasChildren = groups.size > 1;
         for (const [, groupEvents] of groups) {
           if (hasChildren) rowIndex++; // header row
@@ -608,6 +705,7 @@ export function App({ db }: { db: TelemetryDb }) {
         push("snapshot");
       } else if (back) {
         detailScroll.reset();
+        setFollow(false);
         pop();
       }
       return;
@@ -656,9 +754,13 @@ export function App({ db }: { db: TelemetryDb }) {
         const ex = visibleExchanges[exchangeScroll.selectedIndex];
         if (ex) {
           setSelectedRun(ex);
-          setAgentRunInfo(db.getAgentRunInfo(ex.id));
+          const info = db.getAgentRunInfo(ex.id);
+          setAgentRunInfo(info);
           setAgentRunToolCalls(db.getAgentRunToolCalls(ex.id));
           agentRunScroll.reset();
+          // A run still in flight opens with follow on so the tool-call
+          // timeline tails live while the agent works.
+          setFollow(ex.status === "started" || info?.status === "running");
           push("agent-run");
         }
       }
@@ -751,11 +853,13 @@ export function App({ db }: { db: TelemetryDb }) {
   } else if (current === "agent-run") {
     keymapItems.push({ key: "j/k", action: "Navigate" });
     keymapItems.push({ key: "Enter", action: "Tool I/O" });
+    keymapItems.push({ key: "f", action: "Follow" });
     keymapItems.push({ key: "Esc", action: "Back" });
   } else if (current === "exchange") {
     keymapItems.push({ key: "j/k", action: "Navigate" });
     keymapItems.push({ key: "Enter", action: "Event" });
     keymapItems.push({ key: "e", action: "Snapshot" });
+    keymapItems.push({ key: "f", action: "Follow" });
     keymapItems.push({ key: "Esc", action: "Back" });
   } else if (browsing) {
     keymapItems.push({ key: "j/k", action: "Navigate" });

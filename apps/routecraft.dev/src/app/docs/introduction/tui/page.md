@@ -48,6 +48,8 @@ The TUI uses a three-column layout framed by a one-line header and footer:
 
 Navigation is a stack: `Enter` drills into the selected item and `Esc` goes back one level, consistently across every view.
 
+Detail views are live: an open exchange re-reads its related events and an open agent run re-reads its tool-call timeline on every poll, so you can watch a long-running agent invoke tools and receive results in order without leaving the view. New rows append below your cursor; press `f` to pin the cursor to the newest row instead. Opening an exchange or run that is still in flight enables follow automatically.
+
 ## Views
 
 ### Capabilities (1)
@@ -117,7 +119,7 @@ A chronological tail of all framework events with human-readable summaries: cont
 | `Enter` | Drill into selected item (e.g. route exchanges, agent runs, tool calls) |
 | `Esc` | Go back to the previous panel or view |
 | `/` | Filter the browsed list (type to narrow; `Enter` keeps the filter, `Esc` clears it) |
-| `f` | Toggle follow mode in a browsed list (keeps tailing new rows; moving the cursor turns it off) |
+| `f` | Toggle follow mode (keeps tailing new rows; moving the cursor turns it off) |
 | `q` | Quit |
 
 ---

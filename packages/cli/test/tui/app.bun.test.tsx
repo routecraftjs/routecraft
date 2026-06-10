@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { Database } from "bun:sqlite";
 import { render } from "ink-testing-library";
 import { App } from "../../src/tui/app.js";
 import { TelemetryDb } from "../../src/tui/db.js";
@@ -203,6 +204,109 @@ describe("TUI App navigation", () => {
     instance.stdin.write("j");
     await flush();
     expect(instance.lastFrame()!).not.toContain("follow");
+  });
+
+  /**
+   * @case Open exchange detail refreshes live as new events land
+   * @preconditions Exchange detail open; a new event row is written for it
+   * @expectedResult Within one poll interval the new event appears without
+   *   leaving and re-entering the view
+   */
+  test("exchange detail tails new events live", async () => {
+    instance.stdin.write("4"); // Exchanges tab
+    await flush();
+    instance.stdin.write(ENTER); // browse
+    await flush();
+    instance.stdin.write(ENTER); // open the newest exchange (ex2)
+    await flush();
+    expect(instance.lastFrame()!).toContain("RELATED EVENTS (2)");
+    expect(instance.lastFrame()!).not.toContain("transform");
+
+    const writer = new Database(dbPath);
+    writer
+      .prepare(
+        "INSERT INTO events (timestamp, context_id, event_name, details, exchange_id, correlation_id) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        "2026-06-05T10:05:00.000Z",
+        "ctx",
+        "route:r2:step:late:event",
+        JSON.stringify({
+          routeId: "r2",
+          exchangeId: "ex2",
+          operation: "transform",
+          duration: 4,
+        }),
+        "ex2",
+        "ex2",
+      );
+    writer.close();
+
+    // The 2s poll picks up the new event without re-entering the view
+    await new Promise((r) => setTimeout(r, 2400));
+    const frame = instance.lastFrame()!;
+    expect(frame).toContain("RELATED EVENTS (3)");
+    expect(frame).toContain("transform");
+  }, 10_000);
+
+  /**
+   * @case Agent run detail tails new tool calls live
+   * @preconditions researcher's run detail open; a new tool:invoked event lands
+   * @expectedResult The new tool appears in the timeline within one poll
+   */
+  test("agent run detail tails new tool calls live", async () => {
+    instance.stdin.write("2");
+    await flush();
+    instance.stdin.write("j");
+    await flush();
+    instance.stdin.write("j"); // researcher
+    await flush();
+    instance.stdin.write(ENTER); // runs
+    await flush();
+    instance.stdin.write(ENTER); // run detail (ex1)
+    await flush();
+    expect(instance.lastFrame()!).toContain("TOOL CALLS");
+    expect(instance.lastFrame()!).not.toContain("late_tool");
+
+    const writer = new Database(dbPath);
+    writer
+      .prepare(
+        "INSERT INTO events (timestamp, context_id, event_name, details, exchange_id, correlation_id) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        "2026-06-05T10:05:01.000Z",
+        "ctx",
+        "route:r1:agent:tool:invoked",
+        JSON.stringify({
+          routeId: "r1",
+          exchangeId: "ex1",
+          toolCallId: "c-late",
+          toolName: "late_tool",
+        }),
+        "ex1",
+        "ex1",
+      );
+    writer.close();
+
+    await new Promise((r) => setTimeout(r, 2400));
+    expect(instance.lastFrame()!).toContain("late_tool");
+  }, 10_000);
+
+  /**
+   * @case A run still in flight opens with follow enabled
+   * @preconditions r3's run ex3 has no completion (synthesized started status)
+   * @expectedResult Run detail opens with the follow indicator in the footer
+   */
+  test("opening an in-flight run enables follow automatically", async () => {
+    instance.stdin.write("2");
+    await flush();
+    instance.stdin.write(ENTER); // r3 (most recent) runs
+    await flush();
+    instance.stdin.write(ENTER); // run detail for ex3 (still running)
+    await flush();
+    const frame = instance.lastFrame()!;
+    expect(frame).toContain("TOOL CALLS");
+    expect(frame).toContain("follow");
   });
 
   /**

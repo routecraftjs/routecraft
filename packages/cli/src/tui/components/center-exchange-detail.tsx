@@ -53,33 +53,46 @@ function groupEventsByExchange(
   return Array.from(groups.values());
 }
 
-const detailColumns: ColumnDef<DisplayRow>[] = [
-  selectorColumn<DisplayRow>(),
-  {
-    header: "Time",
-    width: 10,
-    render: (row, _sel, w) => {
-      if (!row.event) return <Text>{col("", w)}</Text>;
-      const indent = " ".repeat(row.indent);
-      // col() bounds indent + time to the column so an indented child
-      // row cannot push the rest of the row into wrapping.
-      return (
-        <Text dimColor>
-          {col(indent + row.event.timestamp.replace("T", " ").slice(11, 19), w)}
-        </Text>
-      );
+/**
+ * Width-aware column set: narrow panes shed the Adapter and Exchange
+ * detail columns so the flex event name keeps a useful width instead of
+ * the row over-filling and clipping.
+ */
+function buildDetailColumns(innerWidth: number): ColumnDef<DisplayRow>[] {
+  return [
+    selectorColumn<DisplayRow>(),
+    {
+      header: "Time",
+      width: 10,
+      render: (row, _sel, w) => {
+        if (!row.event) return <Text>{col("", w)}</Text>;
+        const indent = " ".repeat(row.indent);
+        // col() bounds indent + time to the column so an indented child
+        // row cannot push the rest of the row into wrapping.
+        return (
+          <Text dimColor>
+            {col(
+              indent + row.event.timestamp.replace("T", " ").slice(11, 19),
+              w,
+            )}
+          </Text>
+        );
+      },
     },
-  },
-  {
-    header: "Event",
-    width: "flex",
-    render: (row) => {
-      if (!row.event) return <Text />;
-      return <Text>{row.event.eventName}</Text>;
+    {
+      header: "Event",
+      width: "flex",
+      render: (row) => {
+        if (!row.event) return <Text />;
+        return <Text>{row.event.eventName}</Text>;
+      },
     },
-  },
-  ...eventDetailColumns<DisplayRow>((row) => row.event),
-];
+    ...eventDetailColumns<DisplayRow>((row) => row.event, {
+      adapter: innerWidth >= 80,
+      exchange: innerWidth >= 68,
+    }),
+  ];
+}
 
 export function CenterExchangeDetail({
   exchange,
@@ -175,7 +188,7 @@ export function CenterExchangeDetail({
 
       <Panel title={eventsTitle} width={width} flexGrow={1} color={color}>
         <Table
-          columns={detailColumns}
+          columns={buildDetailColumns(width - 4)}
           data={displayRows}
           rowKey={(row, i) =>
             row.type === "header"

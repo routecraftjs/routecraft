@@ -7,26 +7,35 @@ import { Panel } from "./panel.js";
 import { Table, type ColumnDef } from "./table.js";
 import { selectorColumn, eventDetailColumns } from "./event-columns.js";
 
-const eventColumns: ColumnDef<EventRecord>[] = [
-  selectorColumn<EventRecord>(),
-  {
-    // Date is omitted: the stream is recent by construction and the
-    // full date starved the flex event-name column at common widths.
-    header: "Time",
-    width: 8,
-    render: (row, selected, w) => (
-      <Text {...selectedProps(selected)}>
-        {col(row.timestamp.replace("T", " ").slice(11, 19), w)}
-      </Text>
-    ),
-  },
-  {
-    header: "Event",
-    width: "flex",
-    render: (row) => <Text>{row.eventName}</Text>,
-  },
-  ...eventDetailColumns<EventRecord>((row) => row),
-];
+/**
+ * Width-aware column set: narrow panes shed the Adapter and Exchange
+ * detail columns so the flex event name keeps a useful width.
+ */
+function buildEventColumns(innerWidth: number): ColumnDef<EventRecord>[] {
+  return [
+    selectorColumn<EventRecord>(),
+    {
+      // Date is omitted: the stream is recent by construction and the
+      // full date starved the flex event-name column at common widths.
+      header: "Time",
+      width: 8,
+      render: (row, selected, w) => (
+        <Text {...selectedProps(selected)}>
+          {col(row.timestamp.replace("T", " ").slice(11, 19), w)}
+        </Text>
+      ),
+    },
+    {
+      header: "Event",
+      width: "flex",
+      render: (row) => <Text>{row.eventName}</Text>,
+    },
+    ...eventDetailColumns<EventRecord>((row) => row, {
+      adapter: innerWidth >= 80,
+      exchange: innerWidth >= 68,
+    }),
+  ];
+}
 
 export function EventsView({
   events,
@@ -54,7 +63,7 @@ export function EventsView({
       color={color}
     >
       <Table
-        columns={eventColumns}
+        columns={buildEventColumns(width - 4)}
         data={events}
         rowKey={(ev, i) =>
           ev.id !== undefined ? String(ev.id) : `${ev.timestamp}-${i}`

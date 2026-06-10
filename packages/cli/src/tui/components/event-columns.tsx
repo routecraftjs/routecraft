@@ -5,15 +5,23 @@ import { selectedProps } from "../theme.js";
 import type { ColumnDef } from "./table.js";
 
 /**
- * Build the 4 standard event detail columns (Step, Adapter, Exchange, Duration).
+ * Build the standard event detail columns (Step, Adapter, Exchange,
+ * Duration).
  *
- * The accessor extracts an EventRecord from whatever row type T the table uses.
- * Returns undefined when the row has no event data (e.g., group headers).
+ * The accessor extracts an EventRecord from whatever row type T the table
+ * uses. Returns undefined when the row has no event data (e.g., group
+ * headers). `include` lets narrow panes shed the Adapter and Exchange
+ * columns so the remaining columns and the flex event name keep their
+ * width instead of overflowing the row.
  *
- * JSON is parsed once per row and shared across all 4 columns via a WeakMap cache.
+ * JSON is parsed once per row and shared across all columns via a WeakMap cache.
  */
 export function eventDetailColumns<T>(
   accessor: (row: T) => EventRecord | undefined,
+  include: { adapter?: boolean; exchange?: boolean } = {
+    adapter: true,
+    exchange: true,
+  },
 ): ColumnDef<T>[] {
   const cache = new WeakMap<EventRecord, DetailColumns>();
 
@@ -38,24 +46,32 @@ export function eventDetailColumns<T>(
         return <Text>{col(cols.step, w)}</Text>;
       },
     },
-    {
-      header: "Adapter",
-      width: 10,
-      render: (row, _sel, w) => {
-        const cols = getColumns(row);
-        if (!cols) return <Text>{col("", w)}</Text>;
-        return <Text>{col(cols.adapter, w)}</Text>;
-      },
-    },
-    {
-      header: "Exchange",
-      width: 12,
-      render: (row, _sel, w) => {
-        const cols = getColumns(row);
-        if (!cols) return <Text>{col("", w)}</Text>;
-        return <Text>{col(cols.exchange, w)}</Text>;
-      },
-    },
+    ...(include.adapter
+      ? [
+          {
+            header: "Adapter",
+            width: 10,
+            render: (row, _sel, w) => {
+              const cols = getColumns(row);
+              if (!cols) return <Text>{col("", w)}</Text>;
+              return <Text>{col(cols.adapter, w)}</Text>;
+            },
+          } satisfies ColumnDef<T>,
+        ]
+      : []),
+    ...(include.exchange
+      ? [
+          {
+            header: "Exchange",
+            width: 12,
+            render: (row, _sel, w) => {
+              const cols = getColumns(row);
+              if (!cols) return <Text>{col("", w)}</Text>;
+              return <Text>{col(cols.exchange, w)}</Text>;
+            },
+          } satisfies ColumnDef<T>,
+        ]
+      : []),
     {
       header: "Duration",
       width: 8,

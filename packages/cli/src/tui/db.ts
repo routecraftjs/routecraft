@@ -433,6 +433,31 @@ export class TelemetryDb {
   }
 
   /**
+   * Get one exchange by id, or null when it is not (yet) recorded.
+   * Used by the live detail views to refresh status/duration while the
+   * exchange is open.
+   */
+  getExchangeById(id: string): TelemetryExchange | null {
+    const s = this.stmt(
+      "exchangeById",
+      `SELECT
+        id,
+        route_id AS routeId,
+        context_id AS contextId,
+        correlation_id AS correlationId,
+        status,
+        started_at AS startedAt,
+        completed_at AS completedAt,
+        duration_ms AS durationMs,
+        error
+      FROM exchanges
+      WHERE id = ?
+      LIMIT 1`,
+    );
+    return (s.get(id) as TelemetryExchange | undefined) ?? null;
+  }
+
+  /**
    * Get events for an exchange and all related exchanges sharing the
    * same correlation ID. Uses indexed exchange_id/correlation_id columns
    * with a fallback to details LIKE for databases created before the
