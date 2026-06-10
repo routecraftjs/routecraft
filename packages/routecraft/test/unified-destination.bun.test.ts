@@ -7,6 +7,8 @@ import {
   log,
   only,
   type Destination,
+  type Exchange,
+  type HttpResult,
 } from "@routecraft/routecraft";
 
 // Use t.test() for normal runs (start → wait routes ready → drain → stop). Use t.ctx.start() when a route does not emit routeStarted (e.g. dynamic source) or when you need manual lifecycle control.
@@ -58,7 +60,7 @@ describe("Unified Destination Adapter", () => {
    * @expectedResult Body replaced with HttpResult
    */
   test(".to() with result-returning adapter replaces body", async () => {
-    const s = spy();
+    const s = spy<HttpResult<unknown>>();
 
     fetchMock.mockResolvedValue({
       ok: true,
@@ -175,7 +177,7 @@ describe("Unified Destination Adapter", () => {
           .from(simple({ userId: 1 }))
           .enrich(
             http({ url: "https://api.example.com/user" }),
-            (original, result) => ({
+            (original: Exchange<{ userId: number }>, result: HttpResult) => ({
               ...original,
               body: {
                 ...original.body,
@@ -212,7 +214,10 @@ describe("Unified Destination Adapter", () => {
           .from(simple({ userId: 1 }))
           .enrich(
             enricher,
-            only((r) => r.output?.links, "links"),
+            only(
+              (r: { output?: { links: string[] } }) => r.output?.links,
+              "links",
+            ),
           )
           .to(s),
       )
@@ -245,7 +250,10 @@ describe("Unified Destination Adapter", () => {
           .from(simple({ userId: 1 }))
           .enrich(
             enricher,
-            only((r) => r.output),
+            only<
+              { userId: number },
+              { output?: { links: string[]; count: number } }
+            >((r) => r.output),
           )
           .to(s),
       )
@@ -340,7 +348,7 @@ describe("Unified Destination Adapter", () => {
           .from(simple({ userId: 1 }))
           .enrich(
             enricherNull,
-            only((r) => r.output),
+            only<{ userId: number }, { output?: unknown }>((r) => r.output),
           )
           .to(s),
       )
@@ -359,7 +367,7 @@ describe("Unified Destination Adapter", () => {
           .from(simple({ userId: 1 }))
           .enrich(
             enricherUndef,
-            only((r) => r.output),
+            only<{ userId: number }, { output?: unknown }>((r) => r.output),
           )
           .to(s2),
       )
@@ -385,7 +393,9 @@ describe("Unified Destination Adapter", () => {
           .from(simple({ userId: 1 }))
           .enrich(
             enricher,
-            only((r) => r.output?.links),
+            only<{ userId: number }, { output?: { links?: string[] } }>(
+              (r) => r.output?.links,
+            ),
           )
           .to(s),
       )

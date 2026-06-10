@@ -1,8 +1,17 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, tools, type FnHandlerContext } from "../src/index.ts";
-import { MCP_TOOL_REGISTRY } from "../src/mcp/types.ts";
+import { MCP_TOOL_REGISTRY, type McpTool } from "../src/mcp/types.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
+import * as realDispatchModule from "../src/mcp/dispatch.ts";
 
 // Mock the MCP dispatch path so handlers can be exercised without
 // real stdio / HTTP clients. Each test captures the recorded calls
@@ -25,9 +34,17 @@ const dispatchMock = mock(
   },
 );
 
+// The real exports are captured above BEFORE the mock is registered. Bun
+// shares one module registry across every test file in the process, so the
+// mock must be restored in afterAll or it leaks into sibling files (e.g.
+// mcp.bun.test.ts exercising the real dispatchMcpCall error wrapping).
+const realDispatchExports = { ...realDispatchModule };
 mock.module("../src/mcp/dispatch.ts", () => ({
   dispatchMcpCall: dispatchMock,
 }));
+afterAll(() => {
+  mock.module("../src/mcp/dispatch.ts", () => realDispatchExports);
+});
 
 async function buildCtxWithMcp(
   entries: Array<{
@@ -36,7 +53,7 @@ async function buildCtxWithMcp(
     tools: Array<{
       name: string;
       description?: string;
-      inputSchema?: Record<string, unknown>;
+      inputSchema?: McpTool["inputSchema"];
       annotations?: {
         readOnlyHint?: boolean;
         destructiveHint?: boolean;

@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { test } from "vitest";
 
 // Re-export test context utilities
 export {
@@ -12,8 +11,11 @@ export {
 
 // Re-export spy logger utilities
 export {
+  createSpyFn,
   createSpyLogger,
   createNoopSpyLogger,
+  type SpyFn,
+  type SpyFactory,
   type SpyLogger,
 } from "./spy-logger";
 
@@ -59,7 +61,7 @@ export function fixture<T = unknown>(path: string): T {
 }
 
 /**
- * Fixture entry must have a `name` field used as the vitest test name.
+ * Fixture entry must have a `name` field used as the test name.
  */
 export interface FixtureWithName {
   name: string;
@@ -67,13 +69,32 @@ export interface FixtureWithName {
 }
 
 /**
- * Load a JSON array fixture and run one vitest test per entry. Each entry must have a `name` field (used as the test name).
+ * A test runner's `test` function, as accepted by {@link fixtureEach}.
+ * Both `test` from bun:test and `test` from Vitest satisfy this shape.
+ */
+export type FixtureTestFn = (
+  name: string,
+  fn: () => void | Promise<void>,
+) => unknown;
+
+/**
+ * Load a JSON array fixture and run one test per entry. Each entry must have
+ * a `name` field (used as the test name). Runner-agnostic: pass your runner's
+ * `test` function (bun:test, Vitest, node:test).
  *
  * @param path Path to a JSON file that parses to an array
+ * @param test The runner's `test` function used to register each entry
  * @param run Callback invoked per entry; use for assertions. Receives the fixture entry.
+ *
+ * @example
+ * import { test } from "bun:test";
+ * fixtureEach("./cases.json", test, (entry) => {
+ *   expect(run(entry.input)).toEqual(entry.expected);
+ * });
  */
 export function fixtureEach<T extends FixtureWithName>(
   path: string,
+  test: FixtureTestFn,
   run: (entry: T) => void | Promise<void>,
 ): void {
   const entries = fixture<T[]>(path);

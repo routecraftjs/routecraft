@@ -296,10 +296,12 @@ describe("HTTP Source Adapter", () => {
   test("invalid auth mode throws RC5003 at http() call", () => {
     let err: unknown;
     try {
+      // The invalid literal makes overload resolution fail at the call
+      // site, so the directive must sit on the call, not the property.
+      // @ts-expect-error -- testing runtime validation for untyped callers
       http({
         path: "/bad",
         method: "GET",
-        // @ts-expect-error -- testing runtime validation for untyped callers
         auth: "skp",
       });
     } catch (e) {

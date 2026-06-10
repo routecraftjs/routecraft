@@ -36,7 +36,7 @@ import {
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { buildEnrichedVerifier } from "./userinfo.ts";
-import { isExpiredTokenError, isInfrastructureError } from "./auth-errors.ts";
+import { classifyRejectionReason, isExpiredTokenError } from "./auth-errors.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -813,7 +813,7 @@ export class McpServer {
         principal = await verifyAccessToken(token);
       } catch (err) {
         const expired = isExpiredTokenError(err);
-        const reason = err instanceof Error ? err.message : "invalid_token";
+        const reason = classifyRejectionReason(err);
         const detail = {
           reason,
           scheme: "bearer",
@@ -838,7 +838,7 @@ export class McpServer {
         // client must retry later, not discard a token that may be valid. Every
         // other throw is the verifier rejecting the token, so surface it as
         // InvalidTokenError for 401 invalid_token (which drives the refresh).
-        if (isRoutecraftError(err) || isInfrastructureError(err)) throw err;
+        if (reason === "infrastructure") throw err;
         throw new InvalidTokenError(
           expired ? "Token has expired" : "Invalid token",
         );
@@ -1220,7 +1220,8 @@ export class McpServer {
       this.context.emit("auth:success", successDetail);
       return result;
     } catch (err) {
-      const reason = err instanceof Error ? err.message : "invalid_token";
+      const expired = isExpiredTokenError(err);
+      const reason = classifyRejectionReason(err);
       const detail = {
         reason,
         scheme: "bearer",
@@ -1229,7 +1230,7 @@ export class McpServer {
       // An expired token is routine (the client refreshes and retries), so it
       // logs at `debug`; any other validation failure stays at `warn` as an
       // operator signal. The `auth:rejected` event fires for both.
-      if (isExpiredTokenError(err)) {
+      if (expired) {
         this.context.logger.debug(
           { err, ...detail },
           "Auth rejected: token expired",
@@ -1469,6 +1470,7 @@ export class McpServer {
     args: Record<string, unknown>,
   ): Promise<{
     content: Array<{ type: "text"; text: string }>;
+    structuredContent?: Record<string, unknown>;
     isError?: boolean;
   }> {
     try {
@@ -1548,9 +1550,31 @@ export class McpServer {
         tool: toolName,
       });
 
-      return {
+      // A tool that advertises an outputSchema (the route declares .output())
+      // MUST return structuredContent per the MCP spec; spec-compliant clients
+      // reject the response otherwise. The text block stays alongside it for
+      // non-structured clients, as the spec recommends. Only a plain object
+      // body qualifies: the spec requires outputSchema (and therefore the
+      // structured result) to be an object, so a primitive or array body from
+      // a mismatched .output() declaration falls back to text-only.
+      const result: {
+        content: Array<{ type: "text"; text: string }>;
+        structuredContent?: Record<string, unknown>;
+      } = {
         content: [{ type: "text", text: resultText }],
       };
+      if (
+        entry.output?.body !== undefined &&
+        typeof resultExchange.body === "object" &&
+        resultExchange.body !== null &&
+        !Array.isArray(resultExchange.body)
+      ) {
+        result.structuredContent = resultExchange.body as Record<
+          string,
+          unknown
+        >;
+      }
+      return result;
     } catch (error) {
       const logMsg = isRoutecraftError(error)
         ? (error as unknown as { meta: { message: string } }).meta.message

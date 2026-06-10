@@ -794,6 +794,85 @@ describe("McpServer", () => {
     });
 
     /**
+     * @case tools/call returns structuredContent when the route declares .output()
+     * @preconditions HTTP server with a route declaring .output(); initialize then tools/call
+     * @expectedResult Result carries structuredContent equal to the body, with a mirrored text content block, so spec-compliant clients that require structuredContent for tools advertising an outputSchema accept the response
+     */
+    test("tools/call returns structuredContent for a route with .output()", async () => {
+      const { post, initSession } = await startHttpServer([
+        craft()
+          .id("structured-echo")
+          .description("Echoes the value back with a declared output schema")
+          .input({ body: z.object({ value: z.string() }) })
+          .output({ body: z.object({ value: z.string() }) })
+          .from<{ value: string }>(mcp())
+          .transform((body) => ({ value: body.value })),
+      ]);
+
+      const sessionId = await initSession();
+      const callBody = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "structured-echo", arguments: { value: "hi" } },
+      });
+      const callRes = await post(callBody, sessionId);
+      expect(callRes.statusCode).toBe(200);
+      const callParsed = JSON.parse(callRes.body);
+      if (callParsed.error) {
+        throw new Error(
+          `tools/call failed: ${JSON.stringify(callParsed.error)}`,
+        );
+      }
+      const result = callParsed.result as Record<string, unknown>;
+      expect(result["structuredContent"]).toEqual({ value: "hi" });
+      const content = result["content"] as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(JSON.parse(content[0].text)).toEqual({ value: "hi" });
+    });
+
+    /**
+     * @case tools/call omits structuredContent when the route declares no .output()
+     * @preconditions HTTP server with a route without .output(); initialize then tools/call
+     * @expectedResult Result has only the text content block; structuredContent is absent because no outputSchema is advertised
+     */
+    test("tools/call omits structuredContent without .output()", async () => {
+      const { post, initSession } = await startHttpServer([
+        craft()
+          .id("plain-echo")
+          .description("Echoes the value back without an output schema")
+          .input({ body: z.object({ value: z.string() }) })
+          .from<{ value: string }>(mcp())
+          .transform((body) => ({ value: body.value })),
+      ]);
+
+      const sessionId = await initSession();
+      const callBody = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "plain-echo", arguments: { value: "hi" } },
+      });
+      const callRes = await post(callBody, sessionId);
+      expect(callRes.statusCode).toBe(200);
+      const callParsed = JSON.parse(callRes.body);
+      if (callParsed.error) {
+        throw new Error(
+          `tools/call failed: ${JSON.stringify(callParsed.error)}`,
+        );
+      }
+      const result = callParsed.result as Record<string, unknown>;
+      expect(result["structuredContent"]).toBeUndefined();
+      const content = result["content"] as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(JSON.parse(content[0].text)).toEqual({ value: "hi" });
+    });
+
+    /**
      * @case tools/call passes string and object args with correct types
      * @preconditions HTTP server with echo-args route; initialize then tools/call with str and obj
      * @expectedResult Route receives str as string and obj as object (not stringified)
@@ -809,7 +888,7 @@ describe("McpServer", () => {
               obj: z.record(z.string(), z.any()),
             }),
           })
-          .from(mcp())
+          .from<{ str: string; obj: Record<string, unknown> }>(mcp())
           .transform((body) => ({
             strType: typeof body.str,
             objType: typeof body.obj,
@@ -836,7 +915,10 @@ describe("McpServer", () => {
         );
       }
       const result = callParsed.result as Record<string, unknown>;
-      const content = result?.content as Array<{ type: string; text: string }>;
+      const content = result?.["content"] as Array<{
+        type: string;
+        text: string;
+      }>;
       expect(Array.isArray(content) && content[0]?.text).toBeTruthy();
       const resultText = content[0].text;
       if (resultText.startsWith("Error:")) {
@@ -1082,7 +1164,7 @@ describe("McpServer", () => {
           expect(t.logger.warn.mock.calls.some((c) => c[1] === msg)).toBe(
             false,
           );
-          expect(rejections.some((r) => r.reason === "missing_header")).toBe(
+          expect(rejections.some((r) => r["reason"] === "missing_header")).toBe(
             true,
           );
         });
@@ -1142,7 +1224,7 @@ describe("McpServer", () => {
           );
           expect(debugCall).toBeDefined();
           expect(debugCall?.[0]).toMatchObject({
-            reason: '"exp" claim timestamp check failed',
+            reason: "expired",
             scheme: "bearer",
             source: "mcp",
           });
@@ -1178,7 +1260,7 @@ describe("McpServer", () => {
           );
           expect(warnCall).toBeDefined();
           expect(warnCall?.[0]).toMatchObject({
-            reason: "invalid signature",
+            reason: "invalid_token",
             scheme: "bearer",
             source: "mcp",
           });
@@ -1311,7 +1393,7 @@ describe("McpServer", () => {
         });
         const res = await get("/.well-known/oauth-protected-resource");
         const doc = JSON.parse(res.body) as Record<string, unknown>;
-        expect(doc.authorization_servers).toBeUndefined();
+        expect(doc["authorization_servers"]).toBeUndefined();
       });
 
       /**
@@ -2796,7 +2878,7 @@ describe("McpServer", () => {
           );
           expect(debugCall).toBeDefined();
           expect(debugCall?.[0]).toMatchObject({
-            reason: '"exp" claim timestamp check failed',
+            reason: "expired",
             path: "oauth",
           });
           expect(
@@ -2838,7 +2920,7 @@ describe("McpServer", () => {
           );
           expect(warnCall).toBeDefined();
           expect(warnCall?.[0]).toMatchObject({
-            reason: "invalid signature",
+            reason: "invalid_token",
             path: "oauth",
           });
           expect(
@@ -2887,6 +2969,7 @@ describe("McpServer", () => {
             ),
           ).toBe(true);
           expect(rejections.length).toBeGreaterThanOrEqual(1);
+          expect(rejections[0]?.["reason"]).toBe("infrastructure");
         });
 
         /**
@@ -2947,8 +3030,8 @@ describe("McpServer", () => {
         host: "127.0.0.1",
         path: "/mcp",
       });
-      expect(events[0]!.port).toBeTypeOf("number");
-      expect((events[0]!.port as number) > 0).toBe(true);
+      expect(events[0]!["port"]).toBeTypeOf("number");
+      expect((events[0]!["port"] as number) > 0).toBe(true);
     });
 
     /**
@@ -3086,14 +3169,8 @@ describe("McpServer", () => {
           craft()
             .id("call-evt")
             .description("test")
-            .from(
-              mcp({
-                inputSchema: {
-                  type: "object",
-                  properties: { x: { type: "number" } },
-                },
-              }),
-            )
+            .input({ body: z.object({ x: z.number().optional() }) })
+            .from(mcp())
             .to(noop()),
         ])
         .store(MCP_STORE_KEY, true)
@@ -3318,8 +3395,8 @@ describe("McpServer", () => {
       });
 
       expect(failed).toHaveLength(1);
-      expect(failed[0]!.tool).toBe("no-such-tool");
-      expect(failed[0]!.error).toBeTypeOf("string");
+      expect(failed[0]!["tool"]).toBe("no-such-tool");
+      expect(failed[0]!["error"]).toBeTypeOf("string");
     });
 
     /**
@@ -3333,7 +3410,8 @@ describe("McpServer", () => {
           craft()
             .id("wc-tool")
             .description("test")
-            .from(mcp({ inputSchema: { type: "object", properties: {} } }))
+            .input({ body: z.object({}) })
+            .from(mcp())
             .to(noop()),
         ])
         .store(MCP_STORE_KEY, true)
@@ -3570,10 +3648,77 @@ describe("McpServer", () => {
 
       expect(rejections).toHaveLength(1);
       expect(rejections[0]).toMatchObject({
-        reason: "invalid token",
+        reason: "invalid_token",
         scheme: "bearer",
         source: "mcp",
       });
+    });
+
+    /**
+     * @case A validator error message containing the bearer never leaks into auth:rejected
+     * @preconditions McpServer with a custom auth validator that throws an Error embedding the raw token in its message; request sent with a bearer token
+     * @expectedResult auth:rejected payload reason is the bounded literal "invalid_token"; the token does not appear anywhere in the payload
+     */
+    test("does not leak the bearer from a validator error message into auth:rejected", async () => {
+      const token = "super-secret-bearer-token";
+      t = await testContext().store(MCP_STORE_KEY, true).build();
+      server = new McpServer(t.ctx, {
+        transport: "http",
+        port: 0,
+        host: "127.0.0.1",
+        auth: {
+          validator: (tok: string) => {
+            throw new Error(`token ${tok} rejected`);
+          },
+        },
+      });
+
+      const rejections: Array<Record<string, unknown>> = [];
+      t.ctx.on("auth:rejected", (payload) => {
+        rejections.push(payload.details as Record<string, unknown>);
+      });
+
+      void t.ctx.start();
+      await server.start();
+      const port = server.getHttpPort()!;
+
+      await new Promise<void>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: "127.0.0.1",
+            port,
+            path: "/mcp",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json, text/event-stream",
+              Authorization: `Bearer ${token}`,
+            },
+          },
+          (res) => {
+            res.on("data", () => {});
+            res.on("end", () => resolve());
+          },
+        );
+        req.on("error", reject);
+        req.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: INIT_PARAMS,
+          }),
+        );
+        req.end();
+      });
+
+      expect(rejections).toHaveLength(1);
+      expect(rejections[0]).toMatchObject({
+        reason: "invalid_token",
+        scheme: "bearer",
+        source: "mcp",
+      });
+      expect(JSON.stringify(rejections[0])).not.toContain(token);
     });
   });
 

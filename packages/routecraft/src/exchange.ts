@@ -227,6 +227,7 @@ export type HeaderLiteral =
   | string
   | number
   | boolean
+  | null
   | undefined
   | readonly string[]
   | Readonly<Record<string, unknown>>;

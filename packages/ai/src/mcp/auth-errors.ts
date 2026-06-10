@@ -1,3 +1,5 @@
+import { isRoutecraftError } from "@routecraft/routecraft";
+
 /**
  * Whether a token verification error represents an expired token.
  *
@@ -88,4 +90,36 @@ export function isInfrastructureError(err: unknown): boolean {
     current = (current as { cause?: unknown }).cause;
   }
   return false;
+}
+
+/**
+ * Bounded vocabulary for the `auth:rejected` event `reason` field.
+ *
+ * @internal
+ */
+export type AuthRejectionReason =
+  | "expired"
+  | "infrastructure"
+  | "invalid_token";
+
+/**
+ * Map a token-verification error to the bounded `auth:rejected` reason
+ * vocabulary. Never derived from the raw error message: a custom verifier
+ * controls that message and could embed the bearer token, leaking a secret
+ * into an aggregator-indexed event field (see `.standards/security.md`
+ * sections 4 and 10). The full error stays operator-only via the structured
+ * `{ err }` log binding.
+ *
+ * `infrastructure` mirrors the predicate the OAuth path uses for its 500
+ * rethrow (framework errors and JWKS infrastructure failures), so the event
+ * payload always matches the HTTP status the client receives.
+ *
+ * @internal
+ */
+export function classifyRejectionReason(err: unknown): AuthRejectionReason {
+  if (isExpiredTokenError(err)) return "expired";
+  if (isRoutecraftError(err) || isInfrastructureError(err)) {
+    return "infrastructure";
+  }
+  return "invalid_token";
 }

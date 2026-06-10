@@ -298,12 +298,8 @@
         "@routecraft/routecraft": "workspace:^0.6.0",
         "@standard-schema/spec": "^1.1.0",
       },
-      "devDependencies": {
-        "vitest": "^4.1.5",
-      },
       "peerDependencies": {
         "@routecraft/routecraft": "*",
-        "vitest": ">=4",
       },
     },
   },

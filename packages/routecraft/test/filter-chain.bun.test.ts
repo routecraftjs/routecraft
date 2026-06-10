@@ -4,6 +4,7 @@ import {
   craft,
   direct,
   MemoryCacheProvider,
+  OperationType,
   simple,
   noop,
 } from "@routecraft/routecraft";
@@ -59,7 +60,7 @@ describe("pre-from filter chain assembly", () => {
       .build();
 
     expect(route!.preParseFilters).toHaveLength(1);
-    expect(route!.preParseFilters[0]!.operation).toBe("validate");
+    expect(route!.preParseFilters[0]!.operation).toBe(OperationType.VALIDATE);
 
     expect(route!.postParseFilters.map((f) => f.label)).toEqual([
       "cache-check",
@@ -83,8 +84,8 @@ describe("pre-from filter chain assembly", () => {
       .build();
 
     expect(route!.preParseFilters).toHaveLength(2);
-    expect(route!.preParseFilters[0]!.operation).toBe("validate");
-    expect(route!.preParseFilters[1]!.operation).toBe("validate");
+    expect(route!.preParseFilters[0]!.operation).toBe(OperationType.VALIDATE);
+    expect(route!.preParseFilters[1]!.operation).toBe(OperationType.VALIDATE);
   });
 
   /**

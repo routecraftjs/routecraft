@@ -8,7 +8,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 
 ## General Checklist (every change)
 
-- [ ] New or changed behavior has corresponding tests in `packages/*/test/**/*.test.ts`
+- [ ] New or changed behavior has corresponding tests in `packages/*/test/**/*.bun.test.ts` (bun:test, the default runner; legacy `*.test.ts` Vitest files are being migrated)
 - [ ] Bug fixes include a regression test that fails without the fix
 - [ ] Every test has JSDoc with `@case`, `@preconditions`, and `@expectedResult`
 - [ ] JSDoc on any public API you touched is accurate and up to date (`@param`, `@returns`, `@example`)
