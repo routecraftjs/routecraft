@@ -5,7 +5,7 @@ date: 2026-06-10
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
-draft: false
+draft: true
 tags:
   - mcp
   - workos
@@ -46,7 +46,7 @@ While you are there, note your **AuthKit domain**. It looks like `https://your-a
 
 ### Enable Dynamic Client Registration
 
-DCR is what lets Claude Desktop register itself with WorkOS the first time it connects, with no manual client setup. In the dashboard, open your application's OAuth configuration and enable **Dynamic Client Registration**.
+DCR is what lets Claude Desktop register itself with WorkOS the first time it connects, with no manual client setup. In the dashboard, open **Connect -> Configuration** and enable **Dynamic Client Registration**.
 
 ![WorkOS dashboard, the Dynamic Client Registration toggle in the application configuration](/images/blog/securing-mcp-with-workos/workos-dcr-toggle.png)
 
@@ -102,7 +102,7 @@ export const craftConfig = defineConfig({
       auth: jwks({
         jwksUrl: `${env.AUTHKIT_DOMAIN}/oauth2/jwks`,
         issuer: env.AUTHKIT_DOMAIN,
-        audience: '*',
+        audience: `${env.MCP_ISSUER_URL}/mcp`,
       }),
     }),
   ],
@@ -114,7 +114,7 @@ What each piece does:
 - **`resource: { url }`** identifies this server as an OAuth 2.0 protected resource (RFC 9728). It becomes the `resource` field in the metadata document that MCP clients fetch first.
 - **`jwks()`** turns on validator mode. Routecraft fetches WorkOS's signing keys from the JWKS endpoint (with rotation handled for you), then verifies the signature, issuer, and expiry of every bearer token that arrives at `/mcp`.
 - **The issuer doubles as discovery.** In validator mode, Routecraft derives the `authorization_servers` entry in its RFC 9728 metadata from the validator's `issuer`. Clients read it, walk to `${AUTHKIT_DOMAIN}/.well-known/oauth-authorization-server`, and from that point the entire flow (registration, sign-in, tokens) is between the client and WorkOS.
-- **`audience: '*'`** explicitly skips audience validation, which is the honest starting point when tokens carry no `aud` claim. Decode one of your AuthKit access tokens and check: if your setup mints an `aud` (for example when clients request your resource URL via RFC 8707 resource indicators), tighten this to that exact value. Cross-audience replay protection is worth having; claiming it while the IdP does not emit `aud` is not.
+- **`audience` is your resource URL.** AuthKit issues access tokens with an `aud` claim matching the resource the client requested (RFC 8707 resource indicators), which is exactly the cross-audience replay protection you want: a token minted for someone else's MCP server fails here. If you are working with a client that does not send resource indicators and your tokens carry no `aud`, pass `'*'` to skip the check explicitly, and treat that as a temporary state, not a configuration.
 
 Start the server and confirm the discovery document:
 
@@ -221,7 +221,7 @@ Both are production-fit. If you are starting fresh and the MCP server is the pro
 ## Production checklist
 
 - **Set `MCP_ISSUER_URL` to your public HTTPS URL** and keep `resource.url` aligned with what clients actually connect to. RFC 9728 metadata with the wrong resource URL fails in ways that look like client bugs.
-- **Check your tokens for an `aud` claim and tighten `audience`** the moment one is there. `'*'` is an explicit opt-out, not a default to ship and forget.
+- **Watch the `aud` on real tokens once.** The sample pins `audience` to your resource URL because AuthKit mints `aud` from the client's requested resource; confirm your clients send resource indicators, and reach for `'*'` only as an explicit, documented exception.
 - **Use a production WorkOS environment.** Staging environments and `sk_test_` keys are for development.
 - **Lock CORS down** once you know your callers. The MCP plugin's default is loopback-only, which is already production-safe; widen it deliberately, not preemptively.
 - **Watch the membership lookup's failure mode.** It fails closed, which is correct, and it also means a WorkOS API outage degrades your server to 401s for new tokens. Alert on `RC5021` in your logs so you can tell that story apart from a real auth attack.

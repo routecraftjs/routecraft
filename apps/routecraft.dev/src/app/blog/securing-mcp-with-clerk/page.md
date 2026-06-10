@@ -5,7 +5,7 @@ date: 2026-05-26
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
-draft: false
+draft: true
 tags:
   - mcp
   - clerk
