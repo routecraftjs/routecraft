@@ -131,7 +131,7 @@ The step handler recovers `http` failures silently. If it ever throws, the route
 
 ### Cascade rule
 
-When a step handler itself throws, the wrapper rethrows. The route handler (when set) catches it; otherwise the default path fires (`route:error`, `context:error`, `exchange:failed`). The route is NOT stopped.
+When a step handler itself throws, the wrapper rethrows. The route handler (when set) catches it; otherwise the default path fires (`route:error`, `context:error`, `route:exchange:failed`). The route is NOT stopped.
 
 ### Scope only the next step
 

@@ -6,7 +6,7 @@ Short, actionable error codes used across Routecraft. {% .lead %}
 
 Core codes use the `RC` namespace. Ecosystem packages own their codes under registered namespaces: `@routecraft/ai` uses `AI` (e.g. `AI1001`). See `registerErrorCodes` for adding a namespace.
 
-Each error includes a code, message, a brief suggestion, and underlying error. Codes follow `RCcnnn` where `c` is category and `nnn` is the number. All codes are framework-owned; adapters use them with specific message and suggestion overrides via `rcError(rc, cause, { message, suggestion })`. When the framework logs an error, structured meta (`rc`, `message`, `suggestion`, `causeMessage`, `causeStack`) is included so you can search and alert in your log aggregator.
+Each error includes a code, message, a brief suggestion, and underlying error. A code is its owner's namespace followed by four digits: core codes follow `RCcnnn` where `c` is category and `nnn` is the number, and ecosystem packages use their registered namespace (`AI1001`). Adapters throw them with specific message and suggestion overrides via `rcError(rc, cause, { message, suggestion })`. When the framework logs an error, structured meta (`rc`, `message`, `suggestion`, `causeMessage`, `causeStack`) is included so you can search and alert in your log aggregator.
 
 The `Retry` column shows whether the [`retry`](/docs/reference/operations/retry) wrapper will retry this error by default. Codes marked `No` typically represent permanent failures (bad input, configuration errors) that won't succeed on retry.
 

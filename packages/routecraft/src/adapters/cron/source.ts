@@ -86,13 +86,13 @@ export class CronSourceAdapter
    * when the job is stopped (via abort, maxFires, or handler error),
    * and rejects if croner is missing or the expression is invalid.
    *
-   * @param context - CraftContext for logging and merged options
-   * @param handler - Called with `undefined` body and cron headers on each fire
-   * @param abortController - Abort signal to stop the cron job
-   * @param onReady - Called once the job is scheduled and ready. Fires after
-   *   the lazy `croner` import resolves on first use, so on a cold start it
-   *   lands one or more microtasks after `subscribe()` returns rather than
-   *   synchronously. Consumers of `route:{id}:started` see the same delay.
+   * @param sub - Subscription handle. `sub.context` provides logging and
+   *   merged options; `sub.emit` is called with `undefined` body and cron
+   *   headers on each fire; `sub.signal` stops the cron job. `sub.ready()`
+   *   fires once the job is scheduled, after the lazy `croner` import
+   *   resolves on first use, so on a cold start it lands one or more
+   *   microtasks after `subscribe()` returns rather than synchronously.
+   *   Consumers of `route:started` see the same delay.
    */
   subscribe(sub: Subscription<undefined>): Promise<void> {
     const context = sub.context;

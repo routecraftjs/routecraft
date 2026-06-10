@@ -176,7 +176,7 @@ ctx.on('route:exchange:failed', ({ details: { routeId, exchangeId, error } }) =>
 ### Count retries
 
 ```ts
-ctx.on('route:*:operation:retry:attempt', ({ details: { routeId, attemptNumber } }) => {
+ctx.on('route:retry:attempt', ({ details: { routeId, attemptNumber } }) => {
   metrics.increment(`retry.attempt`, { routeId })
 })
 ```
@@ -184,7 +184,7 @@ ctx.on('route:*:operation:retry:attempt', ({ details: { routeId, attemptNumber }
 ### Alert on batch flush
 
 ```ts
-ctx.on('route:*:operation:batch:flushed', ({ details: { routeId, batchSize, reason } }) => {
+ctx.on('route:batch:flushed', ({ details: { routeId, batchSize, reason } }) => {
   if (reason === 'time' && batchSize < 10) {
     alerts.warn(`Low throughput on ${routeId}: only ${batchSize} items in batch`)
   }

@@ -70,7 +70,7 @@ cannot recover), it must rethrow. The runtime cascade is:
 2. After all step-scope wrappers exhaust, the route-level handler
    (when set) runs, exactly as if the inner step had thrown directly.
 3. If no route-level handler exists, the default error path fires:
-   `route:<id>:error` + `context:error` + `exchange:failed`.
+   `route:error` + `context:error` + `route:exchange:failed`.
 4. The route is **not** stopped. The next exchange processes
    normally.
 

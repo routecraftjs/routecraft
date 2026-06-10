@@ -313,9 +313,10 @@ async function resolveOnce(
 
 /**
  * Invoke a block's `value` resolver and validate its return shape.
- * Throws AI1001 on any failure so callers can decide whether to abort
- * the dispatch (inject mode) or report the error back to the model
- * (progressive mode).
+ * Throws AI1003 when the `value` shape itself is invalid (neither string
+ * nor function) and AI1001 for every resolution failure, so callers can
+ * decide whether to abort the dispatch (inject mode) or report the error
+ * back to the model (progressive mode).
  *
  * @internal
  */

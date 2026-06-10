@@ -276,12 +276,7 @@ from<T>(source: SourceLike<T>): RouteBuilder<T> {
 ### Source adapter
 
 ```ts
-import {
-  type Source,
-  type Exchange,
-  type ExchangeHeaders,
-  CraftContext,
-} from "@routecraft/routecraft";
+import type { Source, Subscription } from "@routecraft/routecraft";
 
 export interface MySourceOptions {
   pollIntervalMs?: number;
@@ -297,8 +292,15 @@ export class MySourceAdapter<T = unknown> implements Source<T> {
     sub.ready();
 
     return new Promise<void>((resolve) => {
+      if (sub.signal.aborted) {
+        resolve();
+        return;
+      }
       const tick = async () => {
-        if (sub.signal.aborted) return;
+        if (sub.signal.aborted) {
+          resolve();
+          return;
+        }
         try {
           const data = undefined as unknown as T; // produce or fetch your message
           await sub.emit({ message: data });

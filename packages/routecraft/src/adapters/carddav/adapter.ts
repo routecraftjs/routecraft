@@ -203,6 +203,11 @@ export class CardDAVAdapter
       });
       emitted++;
     }
+
+    // Finite source: all contacts emitted, signal completion so the route
+    // wraps up like other finite sources instead of waiting on the
+    // context's auto-stop sweep.
+    sub.complete();
   }
 
   // -------------------------------------------------------------------------
