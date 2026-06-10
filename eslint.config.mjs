@@ -57,6 +57,7 @@ export default [
       "**/*.test.{js,ts,mjs,cjs}",
       "**/*.spec.{js,ts,mjs,cjs}",
       ".github/scripts/**/*.{js,ts,mjs,cjs}",
+      "scripts/**/*.{js,ts,mjs,cjs}",
     ],
     plugins: {
       custom: {

@@ -34,12 +34,16 @@
     "perf:k6": "k6 run tests/performance/http-route.k6.ts",
     "prepare": "husky",
     "build": "bun run --filter '*' build",
-    "version:set": "node .github/scripts/set-version.mjs",
+    "changeset": "changeset",
+    "version-packages": "changeset version && node scripts/sync-derived-versions.mjs",
+    "release": "bun run build && changeset publish",
     "craft": "bun packages/cli/dist/index.js --log-level info",
     "docs": "bun run --filter routecraft.dev dev",
     "all": "bun run lint --fix && bun run format:write && bun run typecheck && bun run build && bun run test"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0",
     "@eslint/js": "^9.39.4",
     "@size-limit/preset-small-lib": "^12.1.0",
     "@size-limit/time": "^12.1.0",

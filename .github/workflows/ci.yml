@@ -14,8 +14,6 @@ on:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
       - ".cursor/**"
-  release:
-    types: [created]
 
 permissions:
   contents: read
@@ -49,6 +47,7 @@ jobs:
               - 'tsconfig*.json'
               - '.github/workflows/**'
               - '.github/scripts/**'
+              - '.changeset/**'
 
   setup:
     runs-on: ubuntu-latest
@@ -180,7 +179,7 @@ jobs:
 
   scaffolder-smoke:
     needs: [changes, validate, test, build]
-    if: needs.changes.outputs.packages == 'true' || github.event_name == 'release'
+    if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     name: scaffolder-smoke
     steps:
@@ -209,14 +208,6 @@ jobs:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Fetch tags
-        run: git fetch --force --tags
-
-      - name: Set version for smoke test
-        run: |
-          VERSION=$(node -p "require('./packages/routecraft/package.json').version")
-          bun run version:set "$VERSION"
-
       - name: Run scaffolder integration tests (bun)
         env:
           TEST_PACKAGE_MANAGER: bun
@@ -227,17 +218,9 @@ jobs:
           TEST_PACKAGE_MANAGER: npm
         run: bun run test:integration
 
-      - name: Restore repo (only paths set-version touched)
-        run: |
-          git checkout -- package.json examples/package.json \
-            packages/ai/package.json packages/browser/package.json packages/cli/package.json \
-            packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/os/package.json packages/routecraft/package.json packages/testing/package.json \
-            packages/cli/src/index.ts \
-            apps/routecraft.dev/package.json
-
   embedding-smoke:
     needs: [changes, validate, test, build]
-    if: needs.changes.outputs.packages == 'true' || github.event_name == 'release'
+    if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     name: embedding-smoke
     steps:
@@ -266,30 +249,12 @@ jobs:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Fetch tags
-        run: git fetch --force --tags
-
-      - name: Set version for smoke test
-        run: |
-          VERSION=$(node -p "require('./packages/routecraft/package.json').version")
-          bun run version:set "$VERSION"
-
       - name: Smoke test Node embedding (pack + npm install + node runner.ts)
         run: node .github/scripts/smoke-test-embedding.mjs
 
-      - name: Restore repo (only paths set-version touched)
-        run: |
-          git checkout -- package.json examples/package.json \
-            packages/ai/package.json packages/browser/package.json packages/cli/package.json \
-            packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/os/package.json packages/routecraft/package.json packages/testing/package.json \
-            .claude-plugin/plugin.json \
-            .claude-plugin/marketplace.json \
-            packages/cli/src/index.ts \
-            apps/routecraft.dev/package.json
-
   adapter-cross-runtime:
     needs: [changes, validate, test, build]
-    if: needs.changes.outputs.packages == 'true' || github.event_name == 'release'
+    if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -331,13 +296,16 @@ jobs:
         if: matrix.runtime == 'node'
         run: npm run test:cross-runtime:node
 
-  publish-canary:
+  # Snapshot canaries: published from main only while changesets are pending,
+  # versioned like 0.6.0-canary-<timestamp>. Real releases happen in
+  # release.yml via the changesets action.
+  publish-snapshot:
     needs:
       [changes, build, scaffolder-smoke, embedding-smoke, adapter-cross-runtime]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     concurrency:
-      group: publish-canary-${{ github.ref }}
+      group: publish-snapshot-${{ github.ref }}
       cancel-in-progress: true
     permissions:
       contents: read
@@ -369,108 +337,30 @@ jobs:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Determine canary version
-        id: canary_version
+      - name: Check for pending changesets
+        id: pending
         run: |
-          set -eo pipefail
+          COUNT=$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l)
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Pending changesets: $COUNT"
 
-          BASE_VERSION=$(node -p "require('./packages/routecraft/package.json').version")
-          echo "Base version: $BASE_VERSION"
+      - name: Configure npm auth
+        if: steps.pending.outputs.count != '0'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
 
-          # Query npm for the highest canary build number for this base version
-          LATEST_CANARY=$(npm view @routecraft/routecraft versions --json 2>/dev/null | \
-            jq -r ".[] | select(startswith(\"${BASE_VERSION}-canary.\"))" | \
-            sed -n "s/^${BASE_VERSION}-canary\.\([0-9]*\)$/\1/p" | \
-            sort -nr | head -n1)
+      - name: Version snapshot
+        if: steps.pending.outputs.count != '0'
+        run: bunx changeset version --snapshot canary
 
-          if [[ -n "$LATEST_CANARY" ]]; then
-            BUILD_NUMBER=$((LATEST_CANARY + 1))
-            echo "Latest canary build: $LATEST_CANARY, next: $BUILD_NUMBER"
-          else
-            BUILD_NUMBER=1
-            echo "No canary found for $BASE_VERSION, starting at 1"
-          fi
-
-          CANARY_VERSION="${BASE_VERSION}-canary.${BUILD_NUMBER}"
-          echo "Computed canary version: $CANARY_VERSION"
-
-          {
-            echo "canary_version=$CANARY_VERSION"
-            echo "base_version=$BASE_VERSION"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Update package versions
-        run: bun run version:set "${{ steps.canary_version.outputs.canary_version }}"
-
-      - name: Publish canary to npm
+      - name: Publish snapshot to npm
+        if: steps.pending.outputs.count != '0'
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
         run: |
-          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft packages/ai packages/browser packages/testing; do
-            echo "Publishing $pkg..."
-            npm publish "./$pkg" --tag canary --access public --provenance
-          done
-
-  publish:
-    needs: [build, scaffolder-smoke, embedding-smoke, adapter-cross-runtime]
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Validate release name matches tag
-        run: |
-          TAG="${{ github.event.release.tag_name }}"
-          NAME="${{ github.event.release.name }}"
-          if [ "$TAG" != "$NAME" ]; then
-            echo "::error::Release name ('$NAME') does not match tag ('$TAG'). They must be identical."
-            exit 1
-          fi
-
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version-file: ".nvmrc"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: "package.json"
-
-      - name: Restore node_modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/node_modules"
-          key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
-
-      - name: Restore build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Update package versions
-        run: |
-          RELEASE_VERSION=${GITHUB_REF#refs/tags/v}
-          bun run version:set "$RELEASE_VERSION"
-
-      - name: Check package version
-        run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          RELEASE_VERSION=${GITHUB_REF#refs/tags/v}
-          if [ "$PKG_VERSION" != "$RELEASE_VERSION" ]; then
-            echo "Package version ($PKG_VERSION) does not match release version ($RELEASE_VERSION)"
-            exit 1
-          fi
-
-      - name: Publish packages to npm
-        run: |
-          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft packages/ai packages/browser packages/testing; do
-            echo "Publishing $pkg..."
-            npm publish "./$pkg" --access public --provenance
-          done
+          bun run build
+          bunx changeset publish --tag canary --no-git-tag
 
   build-and-deploy-docs:
     needs:
@@ -492,7 +382,6 @@ jobs:
       && !contains(needs.*.result, 'cancelled')
       && (
         github.event_name == 'workflow_dispatch'
-        || github.event_name == 'release'
         || (github.event_name == 'push' && github.ref == 'refs/heads/main')
       )
     runs-on: ubuntu-latest
@@ -528,12 +417,14 @@ jobs:
         run: bun install --frozen-lockfile
 
       # The published docs (/docs and /cheat-sheet) track the last released
-      # version, never the in-development code on main. On a release the checked
-      # out ref already is that version, so nothing to do. On a main push or a
+      # version, never the in-development code on main. On a main push or a
       # manual run we overlay the docs and cheat-sheet content from the latest
-      # release tag, leaving the rest of the site (home, blog, changelog) on the
-      # main-branch cadence. This is what lets a blog post or a home-page typo
-      # ship without cutting a release, without leaking unreleased docs.
+      # release tag (pushed by release.yml after a changesets publish), leaving
+      # the rest of the site (home, blog, changelog) on the main-branch
+      # cadence. This is what lets a blog post or a home-page typo ship without
+      # cutting a release, without leaking unreleased docs. release.yml
+      # re-dispatches this workflow after pushing a fresh v* tag so the deploy
+      # that raced the tag gets replaced.
       #
       # Releases at or before MIN_FREEZE_VERSION predate the current docs styling
       # and do not render with the present shell, so they are never frozen or
@@ -541,9 +432,6 @@ jobs:
       # working tree (labelled with the in-development version).
       - name: Resolve docs release ref
         id: docver
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
         run: |
           set -eo pipefail
           git fetch --tags --force origin >/dev/null 2>&1 || true
@@ -559,17 +447,14 @@ jobs:
           }
 
           LATEST_TAG="$(git tag -l 'v*' | sort -V | tail -n1)"
-          if [ "$EVENT_NAME" = "release" ]; then
-            # The whole checkout is the released ref; advertise it, skip freeze.
-            LABEL="$REF_NAME"
-            FREEZE_TAG=""
-          elif [ -n "$LATEST_TAG" ] && version_gt "$LATEST_TAG" "$MIN_FREEZE_VERSION"; then
+          if [ -n "$LATEST_TAG" ] && version_gt "$LATEST_TAG" "$MIN_FREEZE_VERSION"; then
             LABEL="$LATEST_TAG"
             FREEZE_TAG="$LATEST_TAG"
           else
             # No eligible release yet: publish the working-tree docs and label
-            # them with the in-development version.
-            LABEL="v$(jq -r .version apps/routecraft.dev/package.json)"
+            # them with the in-development core version. (The app package is
+            # ignored by changesets, so its own version goes stale.)
+            LABEL="v$(jq -r .version packages/routecraft/package.json)"
             FREEZE_TAG=""
           fi
           echo "label=$LABEL" >> "$GITHUB_OUTPUT"
