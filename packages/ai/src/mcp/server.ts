@@ -36,7 +36,7 @@ import {
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { buildEnrichedVerifier } from "./userinfo.ts";
-import { isExpiredTokenError, isInfrastructureError } from "./auth-errors.ts";
+import { classifyRejectionReason, isExpiredTokenError } from "./auth-errors.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -813,17 +813,7 @@ export class McpServer {
         principal = await verifyAccessToken(token);
       } catch (err) {
         const expired = isExpiredTokenError(err);
-        const infrastructure =
-          isRoutecraftError(err) || isInfrastructureError(err);
-        // `reason` is a bounded vocabulary, never the raw error message: a
-        // custom verifier controls that message and could embed the bearer
-        // token, leaking a secret into an aggregator-indexed event field.
-        // The full error stays operator-only via the `{ err }` log binding.
-        const reason = expired
-          ? "expired"
-          : infrastructure
-            ? "infrastructure"
-            : "invalid_token";
+        const reason = classifyRejectionReason(err);
         const detail = {
           reason,
           scheme: "bearer",
@@ -848,7 +838,7 @@ export class McpServer {
         // client must retry later, not discard a token that may be valid. Every
         // other throw is the verifier rejecting the token, so surface it as
         // InvalidTokenError for 401 invalid_token (which drives the refresh).
-        if (infrastructure) throw err;
+        if (reason === "infrastructure") throw err;
         throw new InvalidTokenError(
           expired ? "Token has expired" : "Invalid token",
         );
@@ -1231,15 +1221,7 @@ export class McpServer {
       return result;
     } catch (err) {
       const expired = isExpiredTokenError(err);
-      // `reason` is a bounded vocabulary, never the raw error message: a
-      // custom validator controls that message and could embed the bearer
-      // token, leaking a secret into an aggregator-indexed event field.
-      // The full error stays operator-only via the `{ err }` log binding.
-      const reason = expired
-        ? "expired"
-        : isRoutecraftError(err) || isInfrastructureError(err)
-          ? "infrastructure"
-          : "invalid_token";
+      const reason = classifyRejectionReason(err);
       const detail = {
         reason,
         scheme: "bearer",
