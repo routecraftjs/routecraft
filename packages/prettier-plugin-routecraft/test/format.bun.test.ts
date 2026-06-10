@@ -180,4 +180,16 @@ describe("prettier-plugin-routecraft", () => {
     expect(out).toContain("// everything else");
     expect(await format(out)).toBe(out);
   });
+
+  /**
+   * @case An arrow with a typed parameter is left to Prettier (the type annotation is never broken to fit)
+   * @preconditions A craft chain whose .enrich() projection uses a callback with a wide inline object type, e.g. only((r: { output?: { links: string[] } }) => r.output?.links, "links")
+   * @expectedResult Output matches stock Prettier byte-for-byte and is roundtrip stable, so the type annotation stays intact
+   */
+  test("typed-parameter arrows are left to Prettier", async () => {
+    const src = `export const r = craft().id("x").from(s()).enrich(enricher, only((r: { output?: { links: string[] } }) => r.output?.links, "links")).to(out());`;
+    const out = await format(src);
+    expect(out).toBe(await formatStock(src));
+    expect(await format(out)).toBe(out);
+  });
 });

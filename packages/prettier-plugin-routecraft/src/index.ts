@@ -144,6 +144,11 @@ function isDslArrow(node: DslNode, path: AstPath): boolean {
   const param = params[0];
   if (!param || param.type !== "Identifier" || !param.name) return false;
 
+  // Bail when the parameter is typed. Forcing the arrow inline can make Prettier
+  // break the type annotation across lines to fit, which is uglier than its
+  // default layout (which breaks after `=>` and keeps the annotation intact).
+  if (param.typeAnnotation) return false;
+
   const body = node.body;
   if (!body || body.type === "BlockStatement") return false;
   if (chainHeadName(body) !== param.name) return false;
