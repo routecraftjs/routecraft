@@ -1,6 +1,6 @@
 ---
 title: Which capabilities should your organization build first?
-description: Every team that decides to give agents real tools faces the same empty backlog. Six filters for choosing capabilities that compound instead of demo, a trust pyramid for sequencing them, and a worked example from incident triage at a bank.
+description: Every team that decides to give agents real tools faces the same empty backlog. Six filters for choosing capabilities that compound instead of demo, a trust pyramid for sequencing them, and the two meta-capabilities that make the backlog start writing itself.
 date: 2026-06-10
 author: Jaco Botha
 authorRole: Founder, DevOptix
@@ -51,6 +51,20 @@ Result: an agent that takes an incident id and comes back with "the caller sends
 
 The general lesson from that example: **diagnostic workflows are the ideal first portfolio** in almost any organization. Support triage, data-quality investigation, release verification, onboarding "how does X work here" archaeology: all read-heavy, all high-frequency, all tab-fragmented, all dual-use.
 
+## The backlog that writes itself
+
+Everything above assumes a human curates the list, and there is a move that makes the curation largely unnecessary after the first quarter. It comes from the first two capabilities I built on our own internal agent platform, and neither of them does any business work at all.
+
+**A shared memory.** When a human answers an agent's question, the answer is kept. When a task surfaces a fact about how your organization actually works, the fact is kept. Without this, the platform asks the same questions forever and every lesson dies with the session; with it, every answered question is answered for the last time. Memory is also the capability that most obviously must be *shared* infrastructure rather than personal: what one person's agent learns, everyone's agent knows ([the single-player problem](/blog/ai-agents-are-still-single-player), applied to knowledge).
+
+**A gap logger.** A capability the agent calls when it cannot proceed: it files a task in whatever tracker you already use, recording what it was trying to accomplish, which capability it was missing, why it believes that capability would have changed the outcome, and what it would have concluded with it. The crucial property is *when* this happens: at the exact moment of failure, with the full context loaded, which is precisely the moment a human would write the vaguest possible ticket ("we should probably have DB access?") if they wrote one at all.
+
+Watch what this does to the selection problem. In the triage example: the agent walks the trace, suspects a data-sync issue, and discovers it has no capability to read the relevant table. It logs the gap: "Incident 4711: I could have confirmed or excluded a sync failure between the primary store and the cache if I could read table X; without it, diagnosis stops at a hypothesis." Three incidents later the same gap has three tickets referencing real cases. Your backlog is no longer a brainstorm; it is an evidence-ranked queue where every candidate arrives with the requests that exposed it, the reasoning, and a recurrence count. The six filters stop being a generation tool and become a review step.
+
+And the loop closes tighter than you might expect: the gap ticket is detailed enough to be a *spec*, so the capability itself is usually drafted by an agent. Routecraft ships agent-readable authoring skills for exactly this; in practice I rarely write capabilities by hand anymore. The agent identifies the gap, the agent drafts the capability from the ticket, and the humans do the two things that must stay human: review the code, and grant (or refuse) the access. The trust pyramid still gates what the new capability may touch.
+
+One boundary to keep crisp, because it is the difference between a self-improving platform and a self-escalating one: **the gap logger requests capabilities; it never grants them.** It writes tickets. Approval, access policy, and code review remain with people, which is the same principle that governs everything else here: agents propose, principals decide.
+
 ## Anti-patterns, briefly
 
 - **The chatbot first.** A conversational interface over documents exercises none of the muscles (identity, deployment, authorization, audit) you actually need to build, and its novelty curve does your platform's reputation no favors.
@@ -60,6 +74,6 @@ The general lesson from that example: **diagnostic workflows are the ideal first
 
 ## A first quarter that works
 
-Weeks 1 to 2: pick one diagnostic workflow with the filters above, list the six lookups it needs. Weeks 3 to 6: ship them as deployed, SSO-fronted, read-only capabilities with one scoped service account each ([what that layer is, and why a skills repo is not it](/blog/beyond-the-skills-repository)). Weeks 7 to 10: give them to one team, in chat and in the IDE, plus an agent definition that chains them. Weeks 11 to 13: review the audit log with security, present the usage graph, and let those two artifacts pick the next quarter's portfolio.
+Weeks 1 to 2: pick one diagnostic workflow with the filters above, list the six lookups it needs. Weeks 3 to 6: ship them as deployed, SSO-fronted, read-only capabilities with one scoped service account each ([what that layer is, and why a skills repo is not it](/blog/beyond-the-skills-repository)), plus the gap logger and the shared memory alongside them. Weeks 7 to 10: give them to one team, in chat and in the IDE, plus an agent definition that chains them. Weeks 11 to 13: review the audit log with security, present the usage graph, and let those two artifacts, together with the gap queue the agent has been filing, pick the next quarter's portfolio.
 
 That is the whole method: filter for compounding, sequence for trust, prove with the log. I build [Routecraft](/docs/introduction), a TypeScript framework for this capability layer, so calibrate for bias; the filters work whatever you build on.
