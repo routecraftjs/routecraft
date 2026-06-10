@@ -1117,7 +1117,7 @@ export function App({ db }: { db: TelemetryDb }) {
           {follow && <Text color={theme.success}>● follow{"  "}</Text>}
           {keymapItems.map((item, i) => (
             <Text key={item.key}>
-              {i > 0 && <Text> </Text>}
+              {i > 0 && <Text>{"   "}</Text>}
               <Text color={theme.accentSoft}>{item.key}</Text>
               <Text dimColor> {item.action}</Text>
             </Text>

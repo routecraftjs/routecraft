@@ -57,14 +57,15 @@ const detailColumns: ColumnDef<DisplayRow>[] = [
   selectorColumn<DisplayRow>(),
   {
     header: "Time",
-    width: 8,
+    width: 10,
     render: (row, _sel, w) => {
       if (!row.event) return <Text>{col("", w)}</Text>;
       const indent = " ".repeat(row.indent);
+      // col() bounds indent + time to the column so an indented child
+      // row cannot push the rest of the row into wrapping.
       return (
         <Text dimColor>
-          {indent}
-          {row.event.timestamp.replace("T", " ").slice(11, 19)}
+          {col(indent + row.event.timestamp.replace("T", " ").slice(11, 19), w)}
         </Text>
       );
     },

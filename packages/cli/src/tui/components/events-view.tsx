@@ -10,11 +10,13 @@ import { selectorColumn, eventDetailColumns } from "./event-columns.js";
 const eventColumns: ColumnDef<EventRecord>[] = [
   selectorColumn<EventRecord>(),
   {
+    // Date is omitted: the stream is recent by construction and the
+    // full date starved the flex event-name column at common widths.
     header: "Time",
-    width: 19,
+    width: 8,
     render: (row, selected, w) => (
       <Text {...selectedProps(selected)}>
-        {col(row.timestamp.replace("T", " ").slice(0, 19), w)}
+        {col(row.timestamp.replace("T", " ").slice(11, 19), w)}
       </Text>
     ),
   },
