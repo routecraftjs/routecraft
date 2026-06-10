@@ -75,6 +75,7 @@ Both versions work. The differences are in everything around them.
 Fairness requires the other column, because it is substantial:
 
 - **Integration breadth.** n8n ships hundreds of prebuilt nodes. Routecraft's adapter set today is small and honest: HTTP, cron and timers, files, CSV, JSON, IMAP/SMTP mail, CardDAV, MCP, LLM and agent destinations, browser automation. Anything else is you writing a `fetch` call in a `.transform()`, which is easy but is not a node catalogue. If your automation is mostly "connect SaaS A to SaaS B", n8n's catalogue will beat a code framework on day one, every time.
+- **Human-in-the-loop approvals are built in.** The Wait node parks an execution until someone answers, and the messaging nodes ship send-and-wait approval operations with buttons included. Routecraft has no pause-and-resume primitive; you compose the pattern from two capabilities and your own store. This one genuinely goes to n8n, and the [pattern deep dive](/blog/human-in-the-loop) shows both sides with code.
 - **Non-developers can build.** An ops person can ship an n8n workflow without learning TypeScript. Routecraft's entire premise assumes a developer is in the loop.
 - **Visual runtime inspection.** Watching an execution light up node by node is a genuinely good debugging experience. Routecraft gives you structured logs, lifecycle events, and optional OpenTelemetry tracing, which is more powerful and less immediate.
 - **A hosted option.** n8n Cloud exists; Routecraft is self-hosted only.
@@ -89,20 +90,37 @@ n8n added AI agent nodes: you place an agent on the canvas, wire tools into it, 
 
 Routecraft treats agents as a first-class shape on both sides of a capability. `.from(mcp())` exposes any capability as a typed MCP tool that Claude, Cursor, or any MCP client can call, with schema validation, `.authorize()` role checks, and `.filter()` predicates enforced in code on every call. `.to(agent({ model, system, tools }))` makes the capability the agent, with an explicitly bounded tool selection. The guardrails are part of the pipeline, in the diff, under test, like everything else. That matters more with agents than with any previous kind of automation, because the thing calling your workflow is now a probabilistic system that does what its context window tells it; the argument for enforcing boundaries in code is [its own post](/blog/stop-trusting-your-llm-to-behave).
 
+## The same patterns, side by side
+
+Feature lists only get you so far; what decides the choice is how each tool handles the patterns you will actually build. Each deep dive below builds the pattern in both tools, with working code, and calls the winner honestly. More patterns and more framework pairings are coming; this table grows.
+
+| Pattern | In n8n | In Routecraft | Deep dive |
+| --- | --- | --- | --- |
+| Human in the loop | Built in: Wait node, send-and-wait approvals | Composed: two capabilities plus your own store | [Human in the loop: n8n vs Routecraft](/blog/human-in-the-loop) |
+| LLM as a judge | AI nodes wired on the canvas | One `.enrich(llm())` stage plus a `.filter()` gate | [LLM as a judge in TypeScript](/blog/llm-as-a-judge) |
+| Agent tool guardrails | Node options plus Code nodes, by convention | Enforced pre-pipeline chain | [Guardrails for MCP tools](/blog/agent-tool-guardrails) |
+| Webhook to notification | Webhook, IF, and email nodes | The invoice capability earlier in this post | this post |
+| Scheduled jobs | Schedule trigger node | `.from(cron('0 9 * * *'))` | [docs](/docs/introduction) |
+| Fan-out over a list | Loop and split nodes | `.split()` and `.aggregate()` | [docs](/docs/introduction) |
+
 ## The actual decision
 
-| | n8n | Routecraft |
-|---|---|---|
-| Authoring | Visual canvas | TypeScript DSL |
-| Who builds | Anyone on the team | Developers |
-| Prebuilt integrations | Hundreds of nodes | Small adapter set plus your code |
-| Version control | Workflow JSON, paid history features | Plain git, reviewable diffs |
-| Testing | Manual execution, pinned data | Unit tests in CI (`@routecraft/testing`) |
-| Type safety | None across nodes | End-to-end TypeScript |
-| Deployment | n8n instance (self-host or cloud) | Ordinary process, Docker, Bun or Node 22+ |
-| AI agents | Agent nodes on the canvas | `.from(mcp())` and `.to(agent())` in code |
-| License | Fair-code (Sustainable Use License) | Apache-2.0 |
-| Maturity | Established, large ecosystem | v0, API still moving |
+| Feature | n8n | Routecraft |
+| --- | --- | --- |
+| Open source | ✓ Fair-code (Sustainable Use License) | ✓ Apache-2.0 |
+| Self-hostable | ✓ | ✓ |
+| Hosted cloud offering | ✓ n8n Cloud | ✗ |
+| Visual editor | ✓ | ✗ |
+| Code-first authoring | ✗ Code node as escape hatch | ✓ TypeScript DSL |
+| Usable by non-developers | ✓ | ✗ |
+| Hundreds of prebuilt connectors | ✓ | ✗ small adapter set |
+| Native git workflow (diffs, PRs, blame) | ✗ source control on paid tiers | ✓ plain files |
+| Unit tests in CI | ✗ manual executions | ✓ `@routecraft/testing` |
+| End-to-end type safety | ✗ | ✓ |
+| Human-in-the-loop approvals | ✓ built in | ✗ composed by hand |
+| AI agent hosting | ✓ agent nodes | ✓ `.to(agent())` |
+| Expose tools to agents over MCP | ✓ MCP nodes | ✓ `.from(mcp())` |
+| Runs as an ordinary process | ✗ platform plus database | ✓ Bun or Node 22+, Docker |
 
 Pick **n8n** when integration breadth and non-developer authorship are the point: the automations are glue between SaaS products, the people building them live in the browser, and the canvas is an asset rather than a liability.
 

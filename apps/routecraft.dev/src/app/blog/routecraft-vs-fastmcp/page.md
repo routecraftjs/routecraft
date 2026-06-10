@@ -116,7 +116,7 @@ export default craft()
 
 `.authorize()` checks the authenticated principal's roles at route entry. `.input()` rejects malformed payloads with structured errors. `.filter()` is a deterministic predicate that halts the pipeline when it returns false. `.tag('destructive')` becomes the MCP `destructiveHint` annotation automatically, so the client knows to confirm. For HTTP transports, JWT and JWKS verification, an OAuth 2.1 proxy mode, RFC 9728 protected-resource metadata, and principal enrichment are configuration on the plugin rather than code in your tools. The [Clerk walkthrough](/blog/securing-mcp-with-clerk) shows the full flow against a real identity provider.
 
-You can build all of this on FastMCP. You will be building it, though, per project, and auth middleware you write in an afternoon is rarely auth middleware that handles audience validation, key rotation, and token expiry mid-request.
+You can build all of this on FastMCP. You will be building it, though, per project, and auth middleware you write in an afternoon is rarely auth middleware that handles audience validation, key rotation, and token expiry mid-request. The [guardrails pattern deep dive](/blog/agent-tool-guardrails) builds the same guarded tool in both frameworks and shows exactly where the line between framework and discipline falls.
 
 ## Difference 3: both directions
 
@@ -139,20 +139,24 @@ FastMCP's answer to testing is essentially "they are functions, test them as fun
 
 ## The actual decision
 
-| | FastMCP | Routecraft |
-|---|---|---|
-| Core abstraction | A server with tools | Capabilities with pluggable sources |
-| MCP tools | Yes | Yes (`.from(mcp())`) |
-| MCP resources and prompts | Yes | Not yet |
-| Same logic as cron, webhook, CLI | Manual | One-line source swap |
-| Calling other MCP servers | No | `.to(mcp('server:tool'))` |
-| Agent loop hosting | No | `.to(agent({ ... }))` |
-| Auth | `authenticate` hook | JWT, JWKS, OAuth proxy, RFC 9728, `.authorize()` |
-| Validation | Zod parameters | Standard Schema gates plus `.filter()` predicates |
-| Testing utilities | Bring your own | `@routecraft/testing` |
-| Observability | Bring your own | Structured logs, events, OpenTelemetry hook |
-| Runtime | Node | Bun and Node 22+ |
-| License | MIT | Apache-2.0 |
+| Feature | FastMCP | Routecraft |
+| --- | --- | --- |
+| Open source | ✓ MIT | ✓ Apache-2.0 |
+| MCP tools | ✓ | ✓ `.from(mcp())` |
+| MCP resources | ✓ | ✗ |
+| MCP prompts | ✓ | ✗ |
+| stdio and HTTP transports | ✓ | ✓ |
+| Streaming content helpers (images, audio, progress) | ✓ | ✗ |
+| Schema-validated inputs | ✓ Zod parameters | ✓ Standard Schema `.input()` |
+| Session authentication | ✓ `authenticate` hook | ✓ JWT, JWKS, OAuth proxy, RFC 9728 |
+| Per-tool authorization | ✗ hand-rolled in `execute` | ✓ `.authorize({ roles, scopes })` |
+| Deterministic predicate gates | ✗ hand-rolled in `execute` | ✓ `.filter()` |
+| Same logic as cron, webhook, CLI | ✗ | ✓ one-line source swap |
+| Calling other MCP servers | ✗ | ✓ `.to(mcp('server:tool'))` |
+| Hosting the agent loop | ✗ | ✓ `.to(agent({ ... }))` |
+| Testing utilities | ✗ bring your own | ✓ `@routecraft/testing` |
+| Structured logs and events | ✗ bring your own | ✓ plus OpenTelemetry hook |
+| Settled API | ✓ scoped and stable | ✗ v0, still moving |
 
 Pick **FastMCP** when the MCP server is the deliverable: you want tools, resources, and prompts in front of an agent, with the smallest possible API between you and the spec.
 
