@@ -136,7 +136,7 @@ Reading it against the four parts:
 - Every stage emits structured events (`exchange:dropped` carries the judge's reasons), so "what did the judge say and what did we do about it" is your log stream, not a print statement you remembered to add.
 - The whole route is a value you can test: feed it fixture drafts with `@routecraft/testing`, assert that the refund-promising one drops. The judge prompt is in the diff, the threshold is in the diff, the model id is in the diff.
 
-Swapping the judge model is editing one string (`anthropic:...`, `openai:...`, `ollama:...` for a local judge), because providers are registered once in `llmPlugin` and referenced by id. Cost control is a pipeline concern too: `.cache({ ttl })` keeps identical drafts from being judged twice, and `.throttle()` caps what an enthusiastic upstream can spend on the judge.
+Swapping the judge model is editing one string (`anthropic:...`, `openai:...`, `ollama:...` for a local judge), because providers are registered once in `llmPlugin` and referenced by id. Cost control is a pipeline concern too: `.cache({ ttl })` keeps identical drafts from being judged twice.
 
 A fair note in the other direction: Routecraft's `llm()` runs under the same roof as the AI SDK (it builds on it), so raw model capability is identical. You are choosing packaging, not intelligence.
 

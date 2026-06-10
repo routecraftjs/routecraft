@@ -126,7 +126,7 @@ What the structure buys, concretely:
 - **Identity is resolved before your code.** The HTTP transport verifies bearer tokens (JWT, JWKS, or a full OAuth proxy) and hydrates a `principal` with roles and scopes; capabilities consume it. The [Clerk](/blog/securing-mcp-with-clerk) and [WorkOS](/blog/securing-mcp-with-workos) walkthroughs show real setups.
 - **Intent stays in sync.** `.tag('open-world')` derives the MCP `openWorldHint` annotation; declare once, and the local tag and the client-visible metadata cannot drift apart.
 - **The guardrails are testable as guardrails.** With `@routecraft/testing` you feed the route a fixture with an external recipient and assert the drop, in CI, forever.
-- **Resilience is declared in the same place.** `.timeout()`, `.circuitBreaker()`, `.throttle()`, and `.cache({ ttl })` wrap the same pipeline, so "this tool may not hammer a failing backend" is a visible property of the capability, not a convention inside its handler.
+- **Operational behaviour is declared in the same place.** `.cache({ ttl })` wraps the same chain, so an agent re-asking an identical question is served from cache without a second backend hit, and the wider resilience family (`.timeout()`, `.circuitBreaker()`, `.throttle()`) lands in the same declared spot through the 0.6 line, rather than as conventions inside each handler.
 
 The honest other side: this is more machinery. You learn a pipeline DSL to get it, the framework is v0 with a moving API, and if your server has three read-only tools, framework-enforced guardrails are solving a problem you do not have yet. FastMCP also covers MCP surface Routecraft lacks entirely (resources and prompts); if you need those, this pattern alone should not decide the framework.
 
