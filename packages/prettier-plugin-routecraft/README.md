@@ -73,29 +73,19 @@ bunx prettier --write .
 
 ## What it touches
 
-The plugin only changes single-parameter arrow closures whose body is a fluent
-chain and that are passed directly as a call argument inside a `craft()` chain.
-There are two layouts:
+The plugin only changes parameter-threaded builders: single-parameter arrow
+closures whose body is a fluent chain rooted in that parameter, passed directly
+as a call argument inside a `craft()` chain. Arrows such as
+`(c) => c.when(...).otherwise(...)` and `(b) => b.enrich(...).to(...)` keep the
+parameter on the arrow line instead of breaking the body onto its own line.
 
-- Parameter-threaded builders such as `(c) => c.when(...).otherwise(...)` and
-  `(b) => b.enrich(...).to(...)` keep the parameter on the arrow line.
-- Factory-rooted callbacks such as `(ex) => direct(...).send(...)` keep the
-  parameter on the arrow line but break the body onto the next line:
-
-  ```ts
-  .enrich(
-    (ex) =>
-      direct(...).send(...),
-    only((r) => r, "agent"),
-  )
-  ```
-
-Everything else is left to Prettier's defaults, including ordinary
-`arr.map((x) => x.foo())` chains (no `craft()` root), arrows used as object or
-array values such as adapter option callbacks (`path: (ex) => path.join(...)`),
-non-chain bodies such as template literals or object literals, and async arrows
-or arrows with explicit return types or type parameters (so no type information
-is ever dropped).
+Everything else is left to Prettier's defaults, including factory-rooted
+callbacks such as `(ex) => direct(...).send(...)` (whose chain is rooted in a
+call, not the parameter), ordinary `arr.map((x) => x.foo())` chains (no
+`craft()` root), arrows used as object or array values such as adapter option
+callbacks (`path: (ex) => path.join(...)`), non-chain bodies such as template
+literals or object literals, and async arrows or arrows with explicit return
+types or type parameters (so no type information is ever dropped).
 
 ## Documentation
 
