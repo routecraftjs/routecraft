@@ -18,7 +18,7 @@ Human in the loop is the pattern that turns "the automation did something" into 
 
 It is also the pattern that separates automation tools fastest, because pausing is architecturally hard. Something has to remember the half-finished work, possibly for days, survive restarts, and pick the flow back up when the answer arrives.
 
-Up front, because this series is honest about who wins what: **n8n has this built in and it is genuinely good. Routecraft does not have a pause-and-resume primitive today**; you compose the pattern from two capabilities and your own state. This post shows both, and when the manual version is actually the better trade.
+Up front, because this series is honest about who wins what: **n8n has this built in, it is genuinely good, and that gives it a head start on this pattern.** Routecraft has no pause-and-resume primitive today; you compose the pattern from two capabilities and your own state. The trade is real in both directions, though: what you compose yourself is also yours to shape, and approval flows are exactly the kind of thing teams want shaped their way. This post shows both sides.
 
 This is part of a pattern series comparing common automation shapes across tools; the general comparison lives in [Routecraft vs n8n](/blog/routecraft-vs-n8n).
 
@@ -151,7 +151,16 @@ Two things the snippet does not show, deliberately, because they are your decisi
 - **The decision endpoint must be authenticated.** Anyone who can POST to `/approvals` is an approver. In production that endpoint sits behind your auth (see [securing capabilities](/docs/advanced/securing-capabilities)); the approval link should be a signed, single-use token rather than a bare UUID.
 - **The pending store must survive restarts.** The in-memory map is demo-ware; n8n gives you durable pending state for free, and in Routecraft that durability is explicitly your database's job.
 
+Here is the part the composed shape gets right, and the reason not to read it as a mere workaround: **the channel is whatever you want it to be.** The ask step is an ordinary destination and the decision step is an ordinary source, so swapping the approval medium is swapping an adapter. Email today via `mail()`. A Slack message with action buttons posting back to your decision endpoint. A Telegram bot where the approver replies with a tap. A row in your ops dashboard. An MCP tool an agent calls. Several of these at once, feeding the same decision capability, with approvals from different channels landing in the same audit table. A built-in Wait node gives you the channels and UX its vendor chose to build; the composed pattern gives you all of them, because it is made of the same pieces as everything else in your codebase.
+
 One more honest note for the agent crowd: the MCP spec has an elicitation mechanism for a tool asking the calling user a question mid-flight. Routecraft does not support elicitation yet, so for MCP tools the two-capability shape above is also the answer there.
+
+## Where this is heading
+
+Two open work streams are closing the convenience gap, and both are public:
+
+- [#416](https://github.com/routecraftjs/routecraft/issues/416) makes the composed pattern first-class: a documented pending-approval store contract, signed single-use approval tokens, and ready-made ask-and-decide recipes for Telegram, Slack, and mail, so the wiring collapses to a few lines without giving up the any-channel freedom.
+- [#258](https://github.com/routecraftjs/routecraft/issues/258) is the durable-agents epic: an agent tool that cannot answer immediately suspends mid-loop (`ctx.suspend()`), a checkpoint persists across restarts, and a resume driver re-enters the loop when the human answers. That is the full pause-and-resume primitive, for the case where the thing that needs to wait is an agent rather than a pipeline.
 
 ## The verdict
 
@@ -165,9 +174,9 @@ One more honest note for the agent crowd: the MCP spec has an elicitation mechan
 | Approval logic in version control | No | Yes, both capabilities are code under test |
 | Effort to first working approval | Minutes | An hour or two |
 
-If human-in-the-loop approvals are the core of your automation and you want them today with minimal engineering, **n8n is the better tool for this pattern**. No hedging.
+If you want a working approval flow this afternoon with zero design decisions, **n8n has the edge today**: the Wait node and send-and-wait operations are good, and they are already built.
 
-Choose the Routecraft shape when the surrounding system is already code and you want the approval to be a first-class part of it: pending approvals as rows in your own database (queryable, reportable, migratable), decision endpoints with your real authentication and roles, and the entire flow unit-tested in CI like everything else. The hour it costs buys you ownership of the four questions at the top of this post instead of renting the answers.
+Choose the Routecraft shape when the approval flow itself is something you want to own and shape: any channel (or several at once) as the ask, pending approvals as rows in your own database (queryable, reportable, migratable), decision endpoints with your real authentication and roles, and the entire flow unit-tested in CI like everything else. The hour it costs buys you ownership of all four questions at the top of this post instead of renting one vendor's answers to them. And per [#416](https://github.com/routecraftjs/routecraft/issues/416), that hour is on its way to becoming minutes.
 
 ## Try it
 
