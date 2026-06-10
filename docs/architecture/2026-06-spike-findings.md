@@ -17,19 +17,24 @@ All benchmarks: Bun 1.3.11, `scratch/bench/`, 3-run medians.
 | plain route (direct -> 3 transforms -> noop) | 32.2 us/exchange | 24.3 us/exchange | **-25%** |
 | `.error()`-wrapped route (3 wrapped transforms) | 49.1 us/exchange | 25.9 us/exchange | **-47%** |
 | split(10) -> transform -> aggregate | 156.2 us/exchange | 120.1 us/exchange | **-23%** |
-| `packages/routecraft/src` total LOC | 25,486 | 25,515 | +29 (flat) |
+| `packages/routecraft/src` code lines (cloc, comments/blanks excluded) | 14,720 | 14,649 | **-71** |
+| `packages/routecraft/src` comment lines | 8,914 | 8,987 | +73 (new contract JSDoc) |
 | largest file (`route.ts`) | 1,870 | 843 | -55% |
 | `context.ts` / `types.ts` | 1,004 / 802 | 781 / 525 | -22% / -35% |
 | typecheck wall time | 7.7 s | 8.1 s | noise |
 | tests | 1,523 | 1,557 | +34 |
 
-Honest LOC verdict: total size is flat. The deletions (wildcard matcher
-~235 lines, wrapper buffer protocol, the ~250-line conditional event-payload
-type) were balanced by new JSDoc, the outcome types, the error registry,
-and the generator-source feature. The wins were **performance, contract
-safety, and file composition**, not raw size. The original "-150 to -250
-LOC" estimate for the step-outcome change was wrong; its real payoff was
-the 47% wrapper overhead reduction and the deleted footgun.
+Honest LOC verdict: raw `wc -l` is flat (+29), but split by cloc the
+executable code SHRANK by 71 lines while comments grew by 73 -- the flat
+total is contract JSDoc on the new public surfaces (StepOutcome,
+Subscription, EventDetailsMap, registerErrorCodes), not code growth. The
+-71 is net of two additions it had to pay for: the generator-source
+feature (~60 code lines) and the error-registry runtime (~80).
+`packages/ai` grew +24 code lines: exactly the declaration-merge blocks
+for the error codes and MCP events it now owns instead of core. Still,
+the original "-150 to -250 LOC" estimate for the step-outcome change
+alone was wrong; the real payoff was the 47% wrapper overhead reduction
+and the deleted footgun, with size roughly neutral.
 
 ## Per-change verdicts
 
