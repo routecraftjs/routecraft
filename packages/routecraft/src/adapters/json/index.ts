@@ -121,8 +121,12 @@ export function json<T = unknown, R = unknown, V = unknown>(
     }
     return tagged as unknown as JsonFileAdapterType;
   }
-  return new JsonTransformerAdapter<T, R, V>(
-    options as JsonTransformerOptions<T, R, V>,
+  return tagAdapter(
+    new JsonTransformerAdapter<T, R, V>(
+      options as JsonTransformerOptions<T, R, V>,
+    ),
+    json,
+    args,
   ) as unknown as Transformer<T, R> | Transformer<T, V>;
 }
 

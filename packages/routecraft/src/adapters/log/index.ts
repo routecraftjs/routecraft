@@ -2,6 +2,7 @@ import type { Destination } from "../../operations/to";
 import type { Exchange } from "../../exchange";
 import { LogDestinationAdapter } from "./destination";
 import type { LogOptions } from "./types";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag";
 
 /**
  * Creates a logging destination that logs each exchange (or a formatted value) via the exchange logger.
@@ -22,7 +23,11 @@ export function log<T = unknown>(
   formatter?: (exchange: Exchange<T>) => unknown,
   options?: LogOptions,
 ): Destination<T, void> {
-  return new LogDestinationAdapter<T>(formatter, options);
+  return tagAdapter(
+    new LogDestinationAdapter<T>(formatter, options),
+    log,
+    factoryArgs(formatter, options),
+  );
 }
 
 /**
@@ -37,10 +42,14 @@ export function debug<T = unknown>(
   formatter?: (exchange: Exchange<T>) => unknown,
   options?: Omit<LogOptions, "level">,
 ): Destination<T, void> {
-  return new LogDestinationAdapter<T>(formatter, {
-    ...options,
-    level: "debug",
-  });
+  return tagAdapter(
+    new LogDestinationAdapter<T>(formatter, {
+      ...options,
+      level: "debug",
+    }),
+    debug,
+    factoryArgs(formatter, options),
+  );
 }
 
 // Re-export adapter class and types for public API

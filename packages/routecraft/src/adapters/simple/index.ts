@@ -1,5 +1,6 @@
 import type { Source } from "../../operations/from";
 import { SimpleSourceAdapter } from "./source";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag";
 
 /**
  * Creates a source that produces one or more exchanges.
@@ -39,10 +40,14 @@ import { SimpleSourceAdapter } from "./source";
 export function simple<T = unknown>(
   producer: (() => T | Promise<T>) | T,
 ): Source<T> {
-  return new SimpleSourceAdapter<T>(
-    typeof producer === "function"
-      ? (producer as () => T | Promise<T>)
-      : () => producer,
+  return tagAdapter(
+    new SimpleSourceAdapter<T>(
+      typeof producer === "function"
+        ? (producer as () => T | Promise<T>)
+        : () => producer,
+    ),
+    simple,
+    factoryArgs(producer),
   );
 }
 
@@ -61,7 +66,11 @@ export function simple<T = unknown>(
  * ```
  */
 simple.value = function <T>(value: T): Source<T> {
-  return new SimpleSourceAdapter<T>(() => value);
+  return tagAdapter(
+    new SimpleSourceAdapter<T>(() => value),
+    simple.value,
+    factoryArgs(value),
+  );
 };
 
 // Re-export adapter class for public API

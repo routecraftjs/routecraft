@@ -1,4 +1,5 @@
 import type { Destination } from "@routecraft/routecraft";
+import { tagAdapter, factoryArgs } from "@routecraft/routecraft";
 import { EmbeddingDestinationAdapter } from "./destination.ts";
 import type {
   EmbeddingModelId,
@@ -18,5 +19,9 @@ export function embedding<T = unknown>(
   modelId: EmbeddingModelId,
   options: EmbeddingOptions<T>,
 ): Destination<T, EmbeddingResult> {
-  return new EmbeddingDestinationAdapter<T>(modelId, options);
+  return tagAdapter(
+    new EmbeddingDestinationAdapter<T>(modelId, options),
+    embedding,
+    factoryArgs(modelId, options),
+  );
 }

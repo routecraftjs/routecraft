@@ -114,10 +114,14 @@ export function html<T = unknown, R = HtmlResult>(
       args,
     ) as unknown as HtmlAdapter<T, R> | HtmlReadAdapter<T, R>;
   }
-  return {
-    adapterId: "routecraft.adapter.html",
-    transform: transformer.transform.bind(transformer),
-  };
+  return tagAdapter(
+    {
+      adapterId: "routecraft.adapter.html",
+      transform: transformer.transform.bind(transformer),
+    },
+    html,
+    args,
+  );
 }
 
 // Re-export types

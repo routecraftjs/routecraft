@@ -1,6 +1,7 @@
 import type { Transformer } from "../../operations/transform.ts";
 import type { GroupOptions } from "./types.ts";
 import { GroupTransformerAdapter } from "./transformer.ts";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 
 /**
  * Creates a transformer that groups an array into clusters using a comparator (e.g. cosine similarity).
@@ -21,7 +22,11 @@ import { GroupTransformerAdapter } from "./transformer.ts";
 export function group<T = unknown, R = T[]>(
   options: GroupOptions<T, R>,
 ): Transformer<unknown, unknown> {
-  return new GroupTransformerAdapter<T, R>(options);
+  return tagAdapter(
+    new GroupTransformerAdapter<T, R>(options),
+    group,
+    factoryArgs(options),
+  );
 }
 
 // Re-export types

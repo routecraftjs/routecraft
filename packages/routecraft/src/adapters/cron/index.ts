@@ -1,6 +1,7 @@
 import type { Source } from "../../operations/from";
 import { CronSourceAdapter } from "./source";
 import type { CronExpression, CronOptions } from "./types";
+import { tagAdapter, factoryArgs } from "../shared/factory-tag";
 
 /**
  * Creates a source that emits on a cron schedule. Body is undefined; cron metadata is in exchange headers (routecraft.cron.*).
@@ -22,7 +23,11 @@ export function cron(
   expression: CronExpression,
   options?: CronOptions,
 ): Source<undefined> {
-  return new CronSourceAdapter(expression, options);
+  return tagAdapter(
+    new CronSourceAdapter(expression, options),
+    cron,
+    factoryArgs(expression, options),
+  );
 }
 
 export { CronSourceAdapter, ADAPTER_CRON_OPTIONS } from "./source";
