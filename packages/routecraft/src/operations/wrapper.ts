@@ -149,6 +149,10 @@ export abstract class WrapperStep<
     const stepStart = Date.now();
     let outcome: StepOutcome;
     try {
+      // Clear metadata from a previous exchange so a runInner that skips
+      // the inner step (e.g. a cache hit) does not republish stale data
+      // in the completed event below.
+      delete this.inner.metadata;
       outcome = await this.runInner(exchange, ctx);
     } catch (err) {
       // Emit step:failed before propagating so observers see a

@@ -243,6 +243,10 @@ export async function runPipeline(
     }
 
     try {
+      // Step instances are shared across exchanges; clear adapter metadata
+      // from a previous execution so the completed event below only carries
+      // metadata written by this execute() call.
+      delete step.metadata;
       const outcome = await step.execute(exchange, stepContext);
 
       // The executor owns scheduling: translate the outcome into queue
@@ -286,7 +290,7 @@ export async function runPipeline(
           ...(adapterLabel ? { adapter: adapterLabel } : {}),
           duration: stepDuration,
           // Adapter-populated observability metadata (e.g. LLM token
-          // usage from to/tap/enrich getMetadata), set during execute().
+          // usage from to/enrich getMetadata), set during execute().
           ...(step.metadata ? { metadata: step.metadata } : {}),
         });
       }

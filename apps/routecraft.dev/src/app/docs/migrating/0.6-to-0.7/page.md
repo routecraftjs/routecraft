@@ -29,7 +29,7 @@ Every hierarchical event name loses its identity segment. The payload already ca
 | `route:<id>:error` / `route:<id>:error:caught` | `route:error` / `route:error:caught` |
 | `route:<id>:exchange:started` / `:completed` / `:failed` / `:dropped` / `:restored` | `route:exchange:started` / `:completed` / `:failed` / `:dropped` / `:restored` |
 | `route:<id>:step:started` / `:completed` / `:failed` | `route:step:started` / `:completed` / `:failed` |
-| `route:<id>:step:<label>:error` / `:error:caught` | `route:step:error` / `route:step:error:caught` (step label is `details.operation`) |
+| `route:<id>:step:<label>:error` | `route:step:error` (step label is `details.operation`) |
 | `route:<id>:batch:started` / `:flushed` / `:stopped` | `route:batch:started` / `:flushed` / `:stopped` |
 | `route:<id>:error-handler:invoked` / `:recovered` / `:failed` | `route:error-handler:invoked` / `:recovered` / `:failed` |
 | `route:<id>:cache:hit` / `:miss` / `:stored` / `:failed` | `route:cache:hit` / `:miss` / `:stored` / `:failed` |

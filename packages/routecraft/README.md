@@ -119,9 +119,11 @@ plugin:started                (details.pluginId)
 
 ### Subscribing
 
-Subscriptions use exact names plus payload filtering. The `forRoute()`
-helper scopes a handler to one route; the only pattern is the catch-all
-`"*"`, which observes every event:
+`ctx.on()` / `ctx.once()` subscriptions use exact names plus payload
+filtering. The `forRoute()` helper scopes a handler to one route; the
+only pattern is the catch-all `"*"`, which observes every event. (The
+`event()` source adapter additionally supports `*` / `**` patterns in
+its filter.)
 
 ```typescript
 import { ContextBuilder, forRoute } from '@routecraft/routecraft';
@@ -144,7 +146,7 @@ context:starting / started / stopping / stopped / error
 route:registered / starting / started / stopping / stopped
 route:error / route:error:caught
 route:exchange:started / completed / failed / dropped / restored
-route:step:started / completed / failed
+route:step:started / completed / failed / error
 route:batch:started / flushed / stopped
 route:error-handler:invoked / recovered / failed
 route:cache:hit / miss / stored / failed

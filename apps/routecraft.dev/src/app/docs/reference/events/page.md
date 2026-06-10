@@ -71,7 +71,8 @@ label, when one is involved, is `adapter`.
 | `route:step:completed` | Step finished successfully | `{ routeId, exchangeId, correlationId, operation, adapter?, duration, metadata? }` |
 | `route:step:failed` | Step threw | `{ routeId, exchangeId, correlationId, operation, adapter?, duration, error }` |
 | `route:step:error` | Step error surfaced on the route error path | `{ routeId, error, operation, route?, exchange? }` |
-| `route:step:error:caught` | Step error recovered by the route error handler | `{ routeId, error, operation, route?, exchange? }` |
+
+Recovery by the route error handler is signaled via `route:error:caught` and the `route:error-handler:*` events below, not a step-level event.
 
 The `metadata` field on `step:completed` is populated by the adapter's `getMetadata()` method. For example, an LLM destination reports `{ model, inputTokens, outputTokens }`.
 

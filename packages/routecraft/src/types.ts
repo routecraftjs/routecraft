@@ -318,14 +318,6 @@ export interface EventDetailsMap {
     exchange?: Exchange<unknown>;
     operation: string;
   };
-  "route:step:error:caught": {
-    routeId: string;
-    error: unknown;
-    route?: Route;
-    exchange?: Exchange<unknown>;
-    operation: string;
-  };
-
   // -- Batch --
   "route:batch:started": {
     routeId: string;

@@ -55,7 +55,6 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
   operation: OperationType = OperationType.TAP;
   label?: string;
   adapter: Destination<T, unknown>;
-  metadata?: Record<string, unknown>;
 
   constructor(
     adapter: Destination<T, unknown> | CallableDestination<T, unknown>,
@@ -79,23 +78,19 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
 
     const promise = (async () => {
       try {
-        const result = override
-          ? await invokeSendOverride(
-              snapshot,
-              this.adapter as unknown as Destination<unknown, unknown>,
-              override,
-            )
-          : await this.adapter.send(snapshot);
-
-        // Extract metadata if the adapter provides it (skip when overridden;
-        // mock results are typically primitives and have no adapter metadata).
-        const getMetadata = (
-          this.adapter as {
-            getMetadata?: (result: unknown) => Record<string, unknown>;
-          }
-        ).getMetadata;
-        if (!override && getMetadata) {
-          this.metadata = getMetadata.call(this.adapter, result);
+        // Adapter metadata (getMetadata) is intentionally NOT collected
+        // here: the tap runs detached, so this exchange's step:completed
+        // event has already been emitted by the time send() resolves and
+        // any metadata written now would be misattributed to a later
+        // exchange's event.
+        if (override) {
+          await invokeSendOverride(
+            snapshot,
+            this.adapter as unknown as Destination<unknown, unknown>,
+            override,
+          );
+        } else {
+          await this.adapter.send(snapshot);
         }
       } catch (error: unknown) {
         const err = rcError("RC5001", error, {

@@ -47,7 +47,7 @@ const { context, client } = await builder.build();
 
 // start() does not resolve until the context stops (long-running sources),
 // so fire it and wait for every route to report started before sending.
-const ROUTE_COUNT = 3;
+const ROUTE_COUNT = context.getRoutes().length;
 const allReady = new Promise<void>((resolve) => {
   let started = 0;
   context.on("route:started", () => {
