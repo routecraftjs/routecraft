@@ -415,30 +415,41 @@ export class DefaultRoute implements Route {
     return exchange;
   }
 
-  /** Assemble the deps object for the pipeline executor. */
+  private cachedExecutorDeps?: ExecutorDeps;
+  private cachedValidationDeps?: ValidationDeps;
+
+  /**
+   * Assemble the deps object for the pipeline executor. Memoized: every
+   * field is stable for the lifetime of the route, and this is called on
+   * the per-exchange hot path.
+   */
   private executorDeps(): ExecutorDeps {
-    return {
+    this.cachedExecutorDeps ??= {
       routeId: this.definition.id,
       context: this.context,
       route: this,
       definition: this.definition,
       buildForward: () => this.buildForward(),
     };
+    return this.cachedExecutorDeps;
   }
 
-  /** Assemble the deps object for the pipeline validation helpers. */
+  /** Assemble the deps object for the pipeline validation helpers (memoized, see {@link executorDeps}). */
   private validationDeps(): ValidationDeps {
-    const deps: ValidationDeps = {
-      routeId: this.definition.id,
-      context: this.context,
-      logger: this.logger,
-      route: this,
-      buildForward: () => this.buildForward(),
-    };
-    if (this.definition.errorHandler) {
-      deps.errorHandler = this.definition.errorHandler;
+    if (!this.cachedValidationDeps) {
+      const deps: ValidationDeps = {
+        routeId: this.definition.id,
+        context: this.context,
+        logger: this.logger,
+        route: this,
+        buildForward: () => this.buildForward(),
+      };
+      if (this.definition.errorHandler) {
+        deps.errorHandler = this.definition.errorHandler;
+      }
+      this.cachedValidationDeps = deps;
     }
-    return deps;
+    return this.cachedValidationDeps;
   }
 
   /**
@@ -637,7 +648,7 @@ export class DefaultRoute implements Route {
       let exchange: Exchange = initialExchange;
       if (parse) {
         // Stash the source-supplied parser on exchange internals so
-        // `runSteps` can apply it as a synthetic first pipeline step.
+        // `runPipeline` can apply it as a synthetic first pipeline step.
         // This is what makes parse errors surface as normal pipeline
         // events the route can observe (`.error()` for `'fail'`,
         // `exchange:dropped` for `'drop'`). See #187.

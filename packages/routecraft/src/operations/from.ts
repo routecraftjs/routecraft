@@ -46,7 +46,10 @@ export interface Subscription<T = unknown> {
    * Signal that this finite source has finished producing. Aborts the
    * source's controller so a single-source route completes; on a
    * multi-ingress route only this source's child controller aborts.
-   * Pass a reason to surface an abnormal completion.
+   * Pass a reason to record an abnormal completion as the abort reason;
+   * to surface a fatal source error to the engine, reject from
+   * `subscribe` instead (the route aborts with that error). Idempotent:
+   * calling it again (or after the signal already aborted) is a no-op.
    */
   complete(reason?: unknown): void;
   /**
@@ -176,6 +179,9 @@ export function toSource<T>(input: SourceLike<T>): Source<T> {
   return input as Source<T>;
 }
 
+/** Sentinel resolved by the abort race so a parked pull can be abandoned. */
+const ABORTED = Symbol("routecraft.iterable.aborted");
+
 /** Shared loop for generator and iterable sources. */
 async function drainIterable<T>(
   sub: Subscription<T>,
@@ -183,11 +189,27 @@ async function drainIterable<T>(
 ): Promise<void> {
   sub.ready();
   let failCount = 0;
+  const iterator =
+    Symbol.asyncIterator in iterable
+      ? iterable[Symbol.asyncIterator]()
+      : (iterable as Iterable<T>)[Symbol.iterator]();
+  // Race each pull against abort: a generator parked on a slow await
+  // would otherwise pin shutdown until its next yield.
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<typeof ABORTED>((resolve) => {
+    onAbort = () => resolve(ABORTED);
+    sub.signal.addEventListener("abort", onAbort, { once: true });
+  });
+  let iterErr: unknown;
   try {
-    for await (const item of iterable) {
-      if (sub.signal.aborted) break;
+    while (!sub.signal.aborted) {
+      const result = await Promise.race([
+        Promise.resolve(iterator.next()),
+        aborted,
+      ]);
+      if (result === ABORTED || result.done) break;
       try {
-        await sub.emit({ message: item });
+        await sub.emit({ message: result.value });
       } catch {
         // Exchange error already logged by the route pipeline; keep
         // iterating so one bad item does not kill the source (matching
@@ -195,13 +217,26 @@ async function drainIterable<T>(
         failCount++;
       }
     }
+  } catch (err) {
+    // Record the reason for complete(), then rethrow so the engine treats
+    // an iterator crash as a source failure (route aborts with the error).
+    iterErr = err;
+    throw err;
   } finally {
+    if (onAbort) sub.signal.removeEventListener("abort", onAbort);
+    // Best-effort resource release when we bailed before exhaustion
+    // (abort or a pipeline-level break); errors here are secondary.
+    try {
+      await Promise.resolve(iterator.return?.()).catch(() => undefined);
+    } catch {
+      // Sync iterators can throw from return(); nothing left to clean up.
+    }
     if (failCount > 0) {
       sub.context.logger.warn(
         { adapter: "iterable", failCount },
         "Some exchanges from iterable source failed",
       );
     }
-    sub.complete();
+    sub.complete(iterErr);
   }
 }

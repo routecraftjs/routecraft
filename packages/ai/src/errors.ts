@@ -48,7 +48,7 @@ registerErrorCodes(
       message: "Agent block resolution failed",
       suggestion:
         "A block resolver threw or returned a non-string. Check the resolver function for the named block; inject-mode failures abort the dispatch, progressive-mode failures surface back to the model as a loader-tool error.",
-      docs: `${DOCS_BASE}#ai-1001`,
+      docs: `${DOCS_BASE}#ai1001`,
       retryable: false,
     },
     AI1002: {
@@ -56,7 +56,7 @@ registerErrorCodes(
       message: "Agent block name collision",
       suggestion:
         "A block name duplicates another block, collides with a user tool, or starts with the reserved `_block_` prefix used by synthetic loader tools. Rename the block (or the tool) so every name in the agent's surface is unique.",
-      docs: `${DOCS_BASE}#ai-1002`,
+      docs: `${DOCS_BASE}#ai1002`,
       retryable: false,
     },
     AI1003: {
@@ -64,7 +64,7 @@ registerErrorCodes(
       message: "Agent block misconfigured",
       suggestion:
         "A block is missing required fields or has an invalid shape: every block needs a non-empty `name`, a `mode` of `inject` or `progressive`, and a string-or-function `value`. Progressive blocks additionally require a non-empty `description` so the model can decide whether to load them.",
-      docs: `${DOCS_BASE}#ai-1003`,
+      docs: `${DOCS_BASE}#ai1003`,
       retryable: false,
     },
   },

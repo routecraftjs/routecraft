@@ -135,10 +135,10 @@ class CacheLoaderDrop extends Error {
  * operation runs at most once per key per TTL window.
  *
  * Emits cache lifecycle events on the route's event bus:
- * - `route:<id>:cache:hit` when a cached value is reused.
- * - `route:<id>:cache:miss` when the wrapped step runs.
- * - `route:<id>:cache:stored` when a fresh value is written.
- * - `route:<id>:cache:failed` when key derivation or the provider throws.
+ * - `route:cache:hit` when a cached value is reused.
+ * - `route:cache:miss` when the wrapped step runs.
+ * - `route:cache:stored` when a fresh value is written.
+ * - `route:cache:failed` when key derivation or the provider throws.
  *
  * Known limitation: concurrent exchanges that share a single
  * `getOrCompute` computation (stampede dedupe) currently report

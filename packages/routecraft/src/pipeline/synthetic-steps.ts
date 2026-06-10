@@ -29,7 +29,7 @@ const PARSE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.parse" };
 
 /**
  * Build a synthetic pipeline step that runs a source-supplied parse function
- * against the exchange body. Inserted by `runSteps` as the first step when a
+ * against the exchange body. Inserted by `runPipeline` as the first step when a
  * source attaches `parse` to its message; this is what makes parse failures
  * observable as normal pipeline events (rather than aborting the source).
  * See #187.
@@ -121,7 +121,7 @@ export function buildParseStep(
           emitStepFailed(cause);
           // Mark dropped before `exchange:dropped` fires so subscribers
           // calling `isDropped(event.details.exchange)` observe the
-          // correct state. The route engine reads it after `runSteps`
+          // correct state. The route engine reads it after `runPipeline`
           // to skip `exchange:completed`.
           markDropped(exchange);
           context?.emit("route:exchange:dropped", {
@@ -185,7 +185,7 @@ const CACHE_STORE_STEP_ADAPTER: Adapter = {
  *
  * Manages its own observability: emits `cache:hit` / `cache:miss` /
  * `cache:failed` plus `exchange:restored` on a hit. `skipStepEvents:
- * true` keeps `runSteps` from emitting generic `step:started` /
+ * true` keeps `runPipeline` from emitting generic `step:started` /
  * `step:completed` for this internal step.
  *
  * @internal Exported only so `RouteBuilder.from()` can assemble it into
@@ -317,7 +317,7 @@ export function buildCacheCheckStep(
  * a write failure throws RC5028; the divergence is intentional and
  * documented on the operation reference page.
  *
- * `skipStepEvents: true` keeps `runSteps` from emitting generic
+ * `skipStepEvents: true` keeps `runPipeline` from emitting generic
  * lifecycle events for this internal step.
  *
  * @internal Exported only so `RouteBuilder.from()` can assemble it into

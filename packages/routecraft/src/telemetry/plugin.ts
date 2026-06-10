@@ -602,15 +602,21 @@ function extractEventName(payload: { details: unknown }): string {
     }
   }
 
+  // Step events also carry exchangeId, so the more specific shape
+  // (operation present) must be checked before the exchange shapes.
+  if ("routeId" in d && "operation" in d) {
+    if ("error" in d) {
+      return "duration" in d ? "route:step:failed" : "route:step:error";
+    }
+    if ("duration" in d) return "route:step:completed";
+    return "route:step:started";
+  }
+
   if ("routeId" in d && "exchangeId" in d) {
+    if ("reason" in d) return "route:exchange:dropped";
     if ("error" in d && "duration" in d) return "route:exchange:failed";
     if ("duration" in d) return "route:exchange:completed";
     return "route:exchange:started";
-  }
-
-  if ("routeId" in d && "operation" in d) {
-    if ("duration" in d) return "route:step:completed";
-    return "route:step:started";
   }
 
   if ("pluginId" in d) return "plugin:event";

@@ -59,24 +59,29 @@ The `exchangeId` field is the exchange's own ID, not the correlation ID. Use `co
 
 Operation events are scoped to a capability and an operation type. They fire for individual steps in the pipeline.
 
-### Adapter operations
+### Step events
+
+Every pipeline step (transform, to, enrich, filter, and so on) emits a
+generic step lifecycle. The step label is `operation`; the adapter's short
+label, when one is involved, is `adapter`.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:operation:from:{adapterId}:started` | Source adapter activated | `{ routeId, exchangeId, correlationId, operation, adapterId, metadata? }` |
-| `route:operation:from:{adapterId}:stopped` | Source adapter completed | `{ routeId, exchangeId, correlationId, operation, adapterId, duration, metadata? }` |
-| `route:operation:to:{adapterId}:started` | Destination adapter invoked | `{ routeId, exchangeId, correlationId, operation, adapterId, metadata? }` |
-| `route:operation:to:{adapterId}:stopped` | Destination adapter completed | `{ routeId, exchangeId, correlationId, operation, adapterId, duration, metadata? }` |
+| `route:step:started` | Step begins executing | `{ routeId, exchangeId, correlationId, operation, adapter? }` |
+| `route:step:completed` | Step finished successfully | `{ routeId, exchangeId, correlationId, operation, adapter?, duration, metadata? }` |
+| `route:step:failed` | Step threw | `{ routeId, exchangeId, correlationId, operation, adapter?, duration, error }` |
+| `route:step:error` | Step error surfaced on the route error path | `{ routeId, error, operation, route?, exchange? }` |
+| `route:step:error:caught` | Step error recovered by the route error handler | `{ routeId, error, operation, route?, exchange? }` |
 
-The `metadata` field is populated by the adapter's `getMetadata()` method. For example, the HTTP adapter returns `{ method, url, statusCode, contentLength }`.
+The `metadata` field on `step:completed` is populated by the adapter's `getMetadata()` method. For example, an LLM destination reports `{ model, inputTokens, outputTokens }`.
 
 ### Batch operations
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:operation:batch:started` | Batch accumulation started | `{ routeId, batchId, batchSize }` |
-| `route:operation:batch:flushed` | Batch released for processing | `{ routeId, batchId, batchSize, waitTime, reason }` |
-| `route:operation:batch:stopped` | Batch accumulation stopped | `{ routeId, batchId }` |
+| `route:batch:started` | Batch accumulation started | `{ routeId, batchId, batchSize }` |
+| `route:batch:flushed` | Batch released for processing | `{ routeId, batchId, batchSize, waitTime, reason }` |
+| `route:batch:stopped` | Batch accumulation stopped | `{ routeId, batchId }` |
 
 `reason` is `'size'` when the batch hit its size limit, `'time'` when the flush interval elapsed.
 
@@ -93,9 +98,9 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:operation:retry:started` | Retry sequence started | `{ routeId, exchangeId, correlationId, maxAttempts }` |
-| `route:operation:retry:attempt` | One retry attempt made | `{ routeId, exchangeId, correlationId, attemptNumber, maxAttempts, backoffMs, lastError? }` |
-| `route:operation:retry:stopped` | Retry sequence ended | `{ routeId, exchangeId, correlationId, attemptNumber, success }` |
+| `route:retry:started` | Retry sequence started | `{ routeId, exchangeId, correlationId, maxAttempts }` |
+| `route:retry:attempt` | One retry attempt made | `{ routeId, exchangeId, correlationId, attemptNumber, maxAttempts, backoffMs, lastError? }` |
+| `route:retry:stopped` | Retry sequence ended | `{ routeId, exchangeId, correlationId, attemptNumber, success }` |
 
 ### Choice operations
 
@@ -134,14 +139,6 @@ Failure phases:
 At route scope, `cache:hit` is accompanied by an `exchange:restored` event with `source: "cache"` (per the exchange lifecycle).
 
 Concurrent exchanges that share one computation (stampede dedupe) currently emit `cache:hit` for the waiters at step scope, which can inflate hit-rate metrics. A distinct dedupe signal is planned and needs a provider-interface change. Route scope does not dedupe concurrent same-key callers at all in this release: each runs the pipeline once.
-
-### Reserved operation-error events
-
-| Event | When it fires | Details |
-| --- | --- | --- |
-| `route:operation:error:invoked` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |
-| `route:operation:error:recovered` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId }` |
-| `route:operation:error:failed` | Reserved for the planned `.onError()` operation | `{ routeId, exchangeId, correlationId, error }` |
 
 ### Agent operations
 

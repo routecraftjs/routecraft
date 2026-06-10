@@ -106,52 +106,53 @@ Routecraft emits structured events throughout a capability's lifecycle, useful f
 
 ### Event Naming
 
-Events follow a hierarchical, colon-separated pattern:
+Event names are a fixed, colon-separated set; identity (route id, plugin
+id) lives in the payload, never in the name:
 
 ```text
 context:started
 route:registered
-route:<routeId>:exchange:started
-route:<routeId>:operation:to:<adapterId>:stopped
-plugin:<pluginId>:started
+route:exchange:started        (details.routeId)
+route:step:completed          (details.routeId, details.operation)
+plugin:started                (details.pluginId)
 ```
 
 ### Subscribing
 
+Subscriptions use exact names plus payload filtering. The `forRoute()`
+helper scopes a handler to one route; the only pattern is the catch-all
+`"*"`, which observes every event:
+
 ```typescript
-import { ContextBuilder } from '@routecraft/routecraft';
+import { ContextBuilder, forRoute } from '@routecraft/routecraft';
 
 const ctx = new ContextBuilder()
   .routes([...])
-  .on('route:*:exchange:completed', ({ details }) => {
+  .on('route:exchange:completed', ({ details }) => {
     console.log('Exchange completed on', details.routeId);
   })
-  .on('route:*:operation:to:llm:stopped', ({ details }) => {
-    const { inputTokens, outputTokens, model } = details.metadata;
-    console.log(`LLM cost: ${model}, ${inputTokens + outputTokens} tokens`);
-  })
+  .on('route:step:completed', forRoute('orders', ({ details }) => {
+    console.log(`orders step ${details.operation} took ${details.duration}ms`);
+  }))
   .build();
 ```
-
-Use `*` as a wildcard at any segment. Subscribe to `*` to capture every event.
 
 ### Full Event Reference
 
 ```text
-context:starting / started / stopping / stopped
+context:starting / started / stopping / stopped / error
 route:registered / starting / started / stopping / stopped
-route:<id>:exchange:started / completed / failed
-route:<id>:operation:from:<adapterId>:started / stopped
-route:<id>:operation:to:<adapterId>:started / stopped
-route:<id>:operation:<processingType>:started / stopped
-route:<id>:operation:batch:started / flushed / stopped
-route:<id>:operation:split:started / stopped
-route:<id>:operation:aggregate:started / stopped
-route:<id>:operation:retry:started / attempt / stopped
-route:<id>:operation:error:invoked / recovered / failed
-plugin:<pluginId>:registered / starting / started / stopping / stopped
-error
+route:error / route:error:caught
+route:exchange:started / completed / failed / dropped / restored
+route:step:started / completed / failed
+route:batch:started / flushed / stopped
+route:error-handler:invoked / recovered / failed
+route:cache:hit / miss / stored / failed
+plugin:registered / starting / started / stopping / stopped
 ```
+
+See the [events reference](https://routecraft.dev/docs/reference/events)
+for every name and payload shape.
 
 ### Adapter Metadata
 

@@ -114,7 +114,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
         // observes the correct state. The drop flag lives on the
         // exchange's shared internals object (see `markDropped` /
         // `isDropped` in `exchange.ts`); the route engine reads it
-        // after `runSteps` to skip `exchange:completed`.
+        // after `runPipeline` to skip `exchange:completed`.
         markDropped(exchange);
 
         if (context) {

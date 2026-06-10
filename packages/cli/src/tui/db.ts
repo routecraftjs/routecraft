@@ -1093,7 +1093,9 @@ export class TelemetryDb {
       const d = parseDetails(row.details);
       if (row.eventName === "agent:tool:registered") {
         const name = asString(d["toolName"]);
-        if (name) ensure(name, "registered");
+        // Promote: a tool first seen via an invocation ("observed") becomes
+        // "registered" once its registration event arrives.
+        if (name) ensure(name, "registered").source = "registered";
         continue;
       }
       const name = asString(d["toolName"]);

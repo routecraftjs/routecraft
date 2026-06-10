@@ -163,7 +163,7 @@ export class AgentSession {
    * {@link AgentResult} is returned once the stream drains. Coarse
    * decision events (tool-call, tool-result, finished,
    * error) flow on the context bus regardless of whether `onDelta`
-   * is set; see `route:<id>:agent:*` events.
+   * is set; see `route:agent:*` events.
    *
    * `validate` retries follow the same loop as the sync path: each
    * retry restarts the stream with the prior history + the validator
@@ -269,7 +269,7 @@ export class AgentSession {
   }
 
   /**
-   * Emit `route:<id>:agent:started` on the context bus at the start of
+   * Emit `route:agent:started` on the context bus at the start of
    * a dispatch. Carries the agent identity, resolved model, tool names,
    * and turn budget so observability consumers (the TUI) can show that
    * an agent executed, with what model and tools, even if the run later
@@ -295,7 +295,7 @@ export class AgentSession {
   }
 
   /**
-   * Emit `route:<id>:agent:finished` on the context bus once the
+   * Emit `route:agent:finished` on the context bus once the
    * dispatch returns a consolidated result. Carries the agent identity,
    * model, finish reason and total token usage so observability
    * consumers can wire dashboards / metrics / billing without
@@ -334,7 +334,7 @@ export class AgentSession {
   }
 
   /**
-   * Emit `route:<id>:agent:error` on the context bus when the
+   * Emit `route:agent:error` on the context bus when the
    * dispatch promise rejects (provider failure, transport error, an
    * unhandled tool throw cascading through the SDK). The error
    * still propagates by rethrow; this just gives observability

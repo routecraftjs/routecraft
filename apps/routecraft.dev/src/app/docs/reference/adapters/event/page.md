@@ -24,4 +24,4 @@ craft().from(event(['route:started', 'route:stopped'])).to(log())
 - `**` (globstar) matches zero or more segments at any depth: `route:**` matches every route event; `route:*:operation:**` matches operations at any adapter depth.
 - `*` on its own matches all events.
 
-Static subscriptions (`context:started`, `route:started`, ...) expand wildcards at startup against known event names; hierarchical events (`route:<id>:exchange:<phase>`) need explicit patterns or `**` to match runtime route ids. See the [Events reference](/docs/reference/events) for the full taxonomy.
+Event names are a fixed set (identity such as the route id lives in the payload), so patterns match against the emitted name behind a single catch-all subscription; to scope to one route, filter on `details.routeId` in a downstream step. The `event()` adapter is the only place wildcard patterns survive; `ctx.on()` accepts exact names plus the catch-all `'*'`. See the [Events reference](/docs/reference/events) for the full taxonomy.

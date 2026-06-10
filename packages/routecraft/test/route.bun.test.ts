@@ -31,6 +31,9 @@ function items<T>(list: T[]): Source<T> {
       for (const item of list) {
         await sub.emit({ message: item });
       }
+      // Finite source: signal completion so the route does not idle until
+      // the test harness aborts it.
+      sub.complete();
     },
   };
 }

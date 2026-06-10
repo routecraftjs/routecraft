@@ -2,7 +2,6 @@ import type { CraftContext } from "../context.ts";
 import {
   type Exchange,
   HeadersKeys,
-  OperationType,
   DefaultExchange,
   EXCHANGE_INTERNALS,
   isDropped,
@@ -286,10 +285,13 @@ export async function runPipeline(
           operation: stepLabel,
           ...(adapterLabel ? { adapter: adapterLabel } : {}),
           duration: stepDuration,
+          // Adapter-populated observability metadata (e.g. LLM token
+          // usage from to/tap/enrich getMetadata), set during execute().
+          ...(step.metadata ? { metadata: step.metadata } : {}),
         });
       }
     } catch (error) {
-      const err = processError(stepLabel, error);
+      const err = processError(error);
       const correlationId = exchange.headers[
         HeadersKeys.CORRELATION_ID
       ] as string;
@@ -348,7 +350,7 @@ export async function runPipeline(
             scope: "route",
           });
         } catch (handlerError) {
-          const handlerErr = processError(stepLabel, handlerError);
+          const handlerErr = processError(handlerError);
           exchange.logger.error(
             {
               operation: stepLabel,
@@ -491,15 +493,11 @@ export async function runPipeline(
  * Normalize an operation error into a RoutecraftError.
  * If the error is already a RoutecraftError, it is returned unchanged.
  *
- * @param _operation - The operation that caused the error (for logging)
  * @param error - The thrown value (Error or RoutecraftError)
  * @returns A RoutecraftError (existing or RC5001-wrapped)
  * @private
  */
-export function processError(
-  _operation: OperationType | string,
-  error: unknown,
-): RoutecraftError {
+export function processError(error: unknown): RoutecraftError {
   if (isRoutecraftError(error)) {
     return error as RoutecraftError;
   }

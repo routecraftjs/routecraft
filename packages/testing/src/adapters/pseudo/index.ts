@@ -1,5 +1,9 @@
 import type { Source, Destination, Processor } from "@routecraft/routecraft";
-import type { PseudoOptions, PseudoKeyedOptions } from "./shared";
+import {
+  createNoopSubscribe,
+  type PseudoOptions,
+  type PseudoKeyedOptions,
+} from "./shared";
 
 /**
  * @internal
@@ -32,10 +36,7 @@ function createAdapter<R>(
   };
   const noopSend = (): Promise<R> => Promise.resolve(undefined as unknown as R);
   const noopProcess = (exchange: unknown): unknown => exchange;
-  const noopSubscribe = (sub: { ready(): void }): Promise<void> => {
-    sub.ready();
-    return Promise.resolve();
-  };
+  const noopSubscribe = createNoopSubscribe();
 
   type SendFn = PseudoAdapter<R>["send"];
   type ProcessFn = PseudoAdapter<R>["process"];

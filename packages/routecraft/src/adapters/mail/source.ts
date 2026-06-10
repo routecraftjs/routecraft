@@ -317,9 +317,9 @@ export class MailSourceAdapter implements Source<MailBody> {
           // Mark-Seen-on-success covers two parse-failure paths via the
           // handler resolving cleanly:
           //   1. 'drop': synthetic parse step emits exchange:dropped and
-          //      runSteps returns without throwing.
+          //      runPipeline returns without throwing.
           //   2. 'fail' with a route .error() handler that recovers: catch
-          //      block sets exchange.body and runSteps returns cleanly.
+          //      block sets exchange.body and runPipeline returns cleanly.
           // The catch block below covers the remaining parse-failure paths
           // ('fail' without handler, 'abort').
           await handler(message);

@@ -44,7 +44,18 @@ const routes = craft()
 const builder = new ContextBuilder();
 builder.routes(routes);
 const { context, client } = await builder.build();
+
+// start() does not resolve until the context stops (long-running sources),
+// so fire it and wait for every route to report started before sending.
+const ROUTE_COUNT = 3;
+const allReady = new Promise<void>((resolve) => {
+  let started = 0;
+  context.on("route:started", () => {
+    if (++started === ROUTE_COUNT) resolve();
+  });
+});
 void context.start();
+await allReady;
 
 async function bench(
   name: string,

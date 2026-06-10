@@ -8,7 +8,7 @@
  * delivery channel (the canonical case is forwarding to a single
  * SSE / WebSocket / TUI consumer). Coarse decision events (tool-call,
  * tool-result, step-finished, finished) live on the context bus
- * (`route:<id>:agent:*`) where they're broadcast to every subscriber
+ * (`route:agent:*`) where they're broadcast to every subscriber
  * without per-call wiring.
  */
 export type AgentDelta =

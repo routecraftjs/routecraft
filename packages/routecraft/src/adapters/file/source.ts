@@ -34,6 +34,10 @@ export class FileSourceAdapter implements Source<string> {
       );
     }
 
+    // Ready means "wired and able to produce", so signal before reading
+    // rather than after the file is fully emitted.
+    sub.ready();
+
     if (chunked) {
       try {
         await forEachLine(
@@ -45,7 +49,18 @@ export class FileSourceAdapter implements Source<string> {
               [HeadersKeys.FILE_LINE]: lineNumber,
               [HeadersKeys.FILE_PATH]: filePath,
             } as ExchangeHeaders;
-            await sub.emit({ message: line, headers });
+            try {
+              await sub.emit({ message: line, headers });
+            } catch (err) {
+              // Pipeline failure for one line, not a file error: the route
+              // boundary already emitted exchange:failed; keep reading
+              // (matching json/jsonl/csv chunked semantics).
+              if (sub.signal.aborted) return;
+              sub.context.logger.debug(
+                { err, path: filePath, line: lineNumber, adapter: "file" },
+                "file adapter: pipeline failed for line; continuing",
+              );
+            }
           },
         );
       } catch (err) {
@@ -63,8 +78,5 @@ export class FileSourceAdapter implements Source<string> {
       // Emit the content
       await sub.emit({ message: content });
     }
-
-    // Signal that source is ready
-    sub.ready();
   };
 }

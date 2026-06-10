@@ -29,14 +29,14 @@ import { WrapperStep } from "./wrapper.ts";
  * ```
  *
  * If the handler itself throws, the wrapper rethrows so the route's
- * outer catch in `runSteps` fires the route-level handler when one is
+ * outer catch in `runPipeline` fires the route-level handler when one is
  * defined, or the default `route:*:error` / `context:error` /
  * `exchange:failed` path otherwise. The route is NOT stopped.
  *
  * Emits scope-aware lifecycle events:
- * - `route:<id>:error-handler:invoked`  ({ scope: "step", stepLabel })
- * - `route:<id>:error-handler:recovered` on handler success
- * - `route:<id>:error-handler:failed`    on handler throw (rethrown)
+ * - `route:error-handler:invoked`  ({ scope: "step", stepLabel })
+ * - `route:error-handler:recovered` on handler success
+ * - `route:error-handler:failed`    on handler throw (rethrown)
  */
 export class ErrorWrapperStep<
   T extends Adapter = Adapter,
@@ -135,7 +135,7 @@ export class ErrorWrapperStep<
             stepLabel,
           });
         }
-        // Rethrow so `runSteps` cascades to the route-level handler
+        // Rethrow so `runPipeline` cascades to the route-level handler
         // (or the default error path when none is set). Wrap raw
         // throws in `RoutecraftError` for consistent observability;
         // pass-through if already an RoutecraftError.

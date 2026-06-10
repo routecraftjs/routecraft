@@ -548,6 +548,14 @@ export function registerErrorCodes(
     }
   }
   state.namespaces.set(namespace, owner);
+  // Replace, not merge: drop codes from a previous registration so a
+  // same-owner re-registration (test runners, HMR) cannot leave stale
+  // codes behind.
+  for (const code of state.codes.keys()) {
+    if (codePattern.test(code)) {
+      state.codes.delete(code);
+    }
+  }
   for (const [code, meta] of Object.entries(codes)) {
     state.codes.set(code, meta);
   }
@@ -582,5 +590,5 @@ export function getErrorMeta(rc: string): RCMeta {
  * @internal
  */
 export function getRegisteredErrorCodes(): ReadonlyMap<string, RCMeta> {
-  return getErrorRegistry().codes;
+  return new Map(getErrorRegistry().codes);
 }

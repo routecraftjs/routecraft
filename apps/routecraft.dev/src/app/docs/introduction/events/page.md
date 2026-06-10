@@ -84,9 +84,8 @@ Event names are colon-separated segments that describe scope from broad to speci
 ```text
 context:started
 route:started
-route:{capabilityId}:exchange:completed
-route:{capabilityId}:operation:to:{adapterId}:stopped
-route:{capabilityId}:operation:retry:attempt
+route:exchange:completed
+route:step:completed
 plugin:started
 ```
 
@@ -134,7 +133,7 @@ export default function authPlugin(ctx: CraftContext) {
 }
 ```
 
-Any subscriber using `plugin:auth:**` or `plugin:auth:capability:secured` will receive it.
+Any subscriber using the exact name `plugin:auth:capability:secured` (declared via `EventDetailsMap` augmentation) will receive it.
 
 ## Adapter metadata in operation events
 

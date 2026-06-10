@@ -50,7 +50,7 @@ export interface Step<T extends Adapter> {
   label?: string;
 
   /**
-   * When true, runSteps will not emit generic step:started/step:completed
+   * When true, runPipeline will not emit generic step:started/step:completed
    * events for this step. The step is responsible for emitting its own
    * lifecycle events with the correct exchange identity.
    */
@@ -171,7 +171,7 @@ export interface Consumer<O = unknown> {
    *
    * The optional `parse` argument is forwarded by the consumer when the
    * source adapter attached one to the queued `Message`. The route
-   * captures it on the exchange internals so `runSteps` can apply it as a
+   * captures it on the exchange internals so `runPipeline` can apply it as a
    * synthetic first pipeline step. Consumers that merge multiple messages
    * (e.g. batch) parse items eagerly during enqueue and pass a `parse`-less
    * call here.
@@ -543,7 +543,9 @@ export type EventHandler<K extends EventName> = (
  * fire, so the constraint makes that a compile error instead.
  */
 export type RouteScopedEventName = {
-  [K in EventName]: EventDetailsMap[K] extends { routeId: string } ? K : never;
+  // Key presence (not `extends { routeId: string }`) so events with an
+  // OPTIONAL routeId (e.g. plugin:http:request:completed) stay filterable.
+  [K in EventName]: "routeId" extends keyof EventDetailsMap[K] ? K : never;
 }[EventName];
 
 /**

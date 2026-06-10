@@ -204,7 +204,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
  * generic observability (the telemetry plugin / TUI) can list them even
  * before any of them runs. Inline agents are not announced here: they
  * only exist at dispatch inside a route and surface via their
- * `route:<id>:agent:started` event instead.
+ * `route:agent:started` event instead.
  *
  * The events fire on `context:started` rather than inside `apply()` so
  * the telemetry plugin has already subscribed regardless of plugin

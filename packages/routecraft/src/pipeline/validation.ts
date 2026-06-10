@@ -61,7 +61,7 @@ export async function validateAgainst(
  * MUST NOT be called after `handler()` has emitted `exchange:started` for
  * the exchange (e.g. from inside the synthetic parse step). Use
  * {@link validateInputOrThrow} for that path: it throws RC5002 without
- * emitting events, so the parse step's `step:failed` -> runSteps catch ->
+ * emitting events, so the parse step's `step:failed` -> runPipeline catch ->
  * `exchange:failed` lifecycle stays intact.
  */
 export async function applyInputValidation(
@@ -98,7 +98,7 @@ export async function applyInputValidation(
 /**
  * Same as {@link applyInputValidation} but without emitting any
  * `exchange:started` / `exchange:dropped` events on failure: just throws
- * RC5002. Used by the synthetic parse step in `runSteps` so a validation
+ * RC5002. Used by the synthetic parse step in `runPipeline` so a validation
  * failure becomes a normal step failure (`step:failed` -> `exchange:failed`)
  * rather than a duplicate `started` + stray `dropped` followed by a
  * `failed` (see #187).

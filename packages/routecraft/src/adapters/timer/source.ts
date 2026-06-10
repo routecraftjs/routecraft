@@ -70,7 +70,19 @@ export class TimerSourceAdapter implements Source<undefined> {
             waitTime += jitter;
           }
 
-          await new Promise((r) => setTimeout(r, waitTime));
+          // Abort-aware wait: a plain setTimeout would pin shutdown for up
+          // to one full interval after the route stops.
+          await new Promise<void>((r) => {
+            const onAbort = () => {
+              clearTimeout(t);
+              r();
+            };
+            const t = setTimeout(() => {
+              sub.signal.removeEventListener("abort", onAbort);
+              r();
+            }, waitTime);
+            sub.signal.addEventListener("abort", onAbort, { once: true });
+          });
           if (sub.signal.aborted) break;
 
           const firedTime = new Date();

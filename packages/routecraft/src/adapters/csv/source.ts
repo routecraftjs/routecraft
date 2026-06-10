@@ -95,17 +95,14 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
         });
         // 'abort' is parse-specific: only RC5016 should tear down the
         // source. A downstream destination error must NOT propagate as
-        // an abort signal even when onParseError === 'abort'.
+        // an abort signal even when onParseError === 'abort'. Every other
+        // failure is debug-logged and swallowed (matching json/jsonl/html)
+        // so the file source keeps reading.
         return await promise.catch((err: unknown) => {
           if (onParseError === "abort" && isParseError(err)) throw err;
-          if (onParseError !== "abort") return undefined as never;
-          // Non-parse failure under 'abort': log and swallow so the
-          // file source keeps reading. (For non-chunked there is only
-          // one exchange so this case is rare; we still keep abort
-          // narrow.)
           sub.context.logger.debug(
             { err, path: filePath, adapter: "csv" },
-            "csv adapter: non-parse pipeline failure under 'abort'; not aborting source",
+            "csv adapter: pipeline failed for exchange; continuing",
           );
           return undefined as never;
         });

@@ -178,6 +178,9 @@ export abstract class WrapperStep<
         operation: stepLabel,
         ...(adapterLabel ? { adapter: adapterLabel } : {}),
         duration: Date.now() - stepStart,
+        // Mirror the executor: forward the inner step's adapter-populated
+        // observability metadata (set during execute()).
+        ...(this.inner.metadata ? { metadata: this.inner.metadata } : {}),
       });
     }
 

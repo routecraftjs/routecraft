@@ -78,7 +78,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
               if (onParseError === "abort" && isParseError(err)) throw err;
               // 'fail' / 'drop' / non-parse failures under 'abort': the
               // route boundary already emitted the lifecycle event;
-              // debug-level avoids double-logging what runSteps logged.
+              // debug-level avoids double-logging what runPipeline logged.
               sub.context.logger.debug(
                 { err, path: filePath, line: lineNumber, adapter: "jsonl" },
                 "jsonl adapter: pipeline failed for line; continuing",

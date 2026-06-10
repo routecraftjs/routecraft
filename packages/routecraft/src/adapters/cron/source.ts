@@ -124,16 +124,22 @@ export class CronSourceAdapter
       let settled = false;
       let job: CronType | null = null;
 
-      const settle = () => {
+      const finish = (fn: () => void) => {
         if (settled) return;
         settled = true;
+        sub.signal.removeEventListener("abort", onAbort);
         job?.stop();
-        resolve();
+        fn();
       };
+      const settle = () => finish(resolve);
+      const fail = (err: unknown) => finish(() => reject(err));
 
       // Register the abort listener synchronously so an abort that arrives
-      // before the dynamic croner import resolves still tears the source down.
-      sub.signal.addEventListener("abort", () => settle());
+      // before the dynamic croner import resolves still tears the source
+      // down; finish() removes it so a non-abort settle does not leak the
+      // listener on the (long-lived) route signal.
+      const onAbort = () => settle();
+      sub.signal.addEventListener("abort", onAbort, { once: true });
 
       // croner is declared as an optional peer dep; load it lazily so
       // routes that never use cron() do not require the package.
@@ -142,7 +148,7 @@ export class CronSourceAdapter
         try {
           Cron = await CronSourceAdapter.loadDriver();
         } catch (err) {
-          reject(err);
+          fail(err);
           return;
         }
         if (settled) return;
@@ -208,7 +214,7 @@ export class CronSourceAdapter
 
           sub.ready();
         } catch (err) {
-          reject(err);
+          fail(err);
         }
       })();
     });
