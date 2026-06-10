@@ -1126,7 +1126,7 @@ export function App({ db }: { db: TelemetryDb }) {
                   </Text>
                 )}
                 {section.items.map((item) => (
-                  <Text key={item.key}>
+                  <Text key={item.key} wrap="truncate">
                     <Text {...selectedProps(activeNav === item.key)}>
                       {activeNav === item.key ? "> " : "  "}
                       {item.label}
