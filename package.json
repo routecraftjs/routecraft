@@ -33,7 +33,7 @@
     "prepare": "husky",
     "build": "bun run --filter '*' build",
     "version:set": "node .github/scripts/set-version.mjs",
-    "craft": "node packages/cli/dist/index.js --log-level info",
+    "craft": "bun packages/cli/dist/index.js --log-level info",
     "docs": "bun run --filter routecraft.dev dev",
     "all": "bun run lint --fix && bun run format:write && bun run typecheck && bun run build && bun run test"
   },

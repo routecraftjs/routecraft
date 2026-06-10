@@ -35,7 +35,7 @@ const config: CraftConfig = {
 export default config
 ```
 
-Each key is an event name or wildcard pattern. The value can be a single handler or an array of handlers.
+Each key is an event name (or the catch-all `'*'`). The value can be a single handler or an array of handlers.
 
 ## Subscribing via a plugin
 
@@ -87,27 +87,27 @@ route:started
 route:{capabilityId}:exchange:completed
 route:{capabilityId}:operation:to:{adapterId}:stopped
 route:{capabilityId}:operation:retry:attempt
-plugin:{pluginId}:started
+plugin:started
 ```
 
-This structure is what makes wildcard subscriptions useful.
+Event names are a fixed, finite set: identity (the route id, the plugin id, the step label) always lives in the payload, never in the name. That is what makes subscriptions strictly typed and the emit path fast.
 
-## Wildcard patterns
+## Filtering by identity
 
-Subscribe to a group of events using glob patterns.
-
-**`*`** matches exactly one segment. **`**`** matches zero or more segments.
+Subscribe to exact names; narrow to one capability with `forRoute()` (or any payload predicate). The catch-all `'*'` observes every event for audit-style sinks.
 
 ```ts
+import { forRoute } from '@routecraft/routecraft'
+
 // Every event emitted by the runtime
 ctx.on('*', ({ ts, details }) => {
   audit.write({ ts, details })
 })
 
-// All events for a specific capability
-ctx.on('route:order-processor:**', ({ ts, details }) => {
-  trace.record(ts, details)
-})
+// Exchange failures for one specific capability
+ctx.on('route:exchange:failed', forRoute('order-processor', ({ details }) => {
+  alerts.send(details.error)
+}))
 
 // Exchange completed or failed on any capability
 ctx.on('route:exchange:completed', ({ details }) => {
@@ -115,11 +115,6 @@ ctx.on('route:exchange:completed', ({ details }) => {
 })
 ctx.on('route:exchange:failed', ({ details: { error } }) => {
   alerts.send(error)
-})
-
-// All operation events across all capabilities
-ctx.on('route:*:operation:**', ({ details }) => {
-  observability.track(details)
 })
 ```
 
@@ -202,6 +197,6 @@ ctx.on('route:*:operation:batch:flushed', ({ details: { routeId, batchSize, reas
 
 {% quick-links %}
 
-{% quick-link title="Events reference" icon="presets" href="/docs/reference/events" description="Full event catalog with all payload shapes and wildcard patterns." /%}
+{% quick-link title="Events reference" icon="presets" href="/docs/reference/events" description="Full event catalog with all payload shapes and filtering patterns." /%}
 
 {% /quick-links %}

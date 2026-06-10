@@ -11,15 +11,16 @@ When the built-in adapters do not cover a use case, you can write your own. Adap
 A source produces data and starts the pipeline. Implement the `Source` interface:
 
 ```ts
-import { type Source } from '@routecraft/routecraft'
+import { type Source, type Subscription } from '@routecraft/routecraft'
 
 class MyQueueAdapter implements Source<Message> {
   readonly adapterId = 'acme.adapter.my-queue'
 
-  async subscribe(context, handler, abort) {
-    while (!abort.signal.aborted) {
+  async subscribe(sub: Subscription<Message>) {
+    sub.ready()
+    while (!sub.signal.aborted) {
       const message = await queue.receive()
-      await handler(message)
+      await sub.emit({ message })
     }
   }
 }
@@ -117,10 +118,11 @@ An adapter class can implement multiple interfaces when it makes sense. A queue 
 class MyQueueAdapter implements Source<Message>, Destination<Message, void> {
   readonly adapterId = 'acme.adapter.my-queue'
 
-  async subscribe(context, handler, abort) {
-    while (!abort.signal.aborted) {
+  async subscribe(sub: Subscription<Message>) {
+    sub.ready()
+    while (!sub.signal.aborted) {
       const message = await queue.receive(this.options.queue)
-      await handler(message)
+      await sub.emit({ message })
     }
   }
 

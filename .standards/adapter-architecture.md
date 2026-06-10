@@ -213,10 +213,12 @@ type MyAdapterOptionsMerged = MyAdapterServerOptions & MyAdapterClientOptions;
 
 ### Source adapters
 
-- Signature: `subscribe(context, handler, abortController, onReady?)` returning a Promise that resolves when the source completes or is aborted.
-- The `handler` has type `(message: T, headers?: ExchangeHeaders) => Promise<Exchange>`. Call `await handler(message, headers)` and ignore the return value.
-- Respect `abortController.signal.aborted`; add an abort listener to clean up subscriptions.
+- Signature: `subscribe(sub: Subscription<T>)` returning a Promise that resolves when the source completes or is aborted. The `Subscription` object carries everything the engine provides: `{ context, signal, meta, ready(), complete(reason?), emit(msg) }`. New capabilities arrive as new fields, never as new parameters.
+- Emit messages with `await sub.emit({ message, headers? })` and ignore the resolved exchange. Attach a deferred parser with `{ message: raw, parse, parseFailureMode }` so malformed payloads surface as per-exchange parse failures (RC5016) instead of killing the source.
+- Call `sub.ready()` once the source is wired and able to produce (routes emit `route:started` after every source is ready).
+- Respect `sub.signal.aborted`; add an abort listener to clean up subscriptions. Finite sources call `sub.complete()` when done producing.
 - For indefinite sources, resolve the returned Promise only on abort/unsubscribe.
+- `.from()` also accepts (async) generator functions and bare (async) iterables of bodies; the builder normalizes them via `toSource()` in `operations/from.ts`. Prefer a class adapter once options or registries are involved.
 
 ### Destination adapters
 
@@ -255,18 +257,17 @@ route.from(direct('channel', options)).to(http({ url: 'https://api.example.com' 
 The builder wraps bare functions automatically:
 
 ```typescript
-from<T>(source: Source<T> | CallableSource<T>): RouteBuilder<T> {
-  const adapter = typeof source === 'function'
-    ? { subscribe: source }
-    : source;
-  return new RouteBuilder(adapter);
+from<T>(source: SourceLike<T>): RouteBuilder<T> {
+  // SourceLike = Source | CallableSource | GeneratorSource | (Async)Iterable;
+  // toSource() normalizes all of them into a Source.
+  return new RouteBuilder(toSource(source));
 }
 ```
 
 ### Error handling
 
 - Catch and log external I/O failures with `context.logger.error(error, message)` or `exchange.logger.error(...)`.
-- Abort only the route you own by calling `abortController.abort()` inside sources when unrecoverable.
+- Abort only the route you own by calling `sub.complete(reason)` inside sources when unrecoverable.
 
 ---
 
@@ -290,32 +291,28 @@ export class MySourceAdapter<T = unknown> implements Source<T> {
   readonly adapterId = "routecraft.adapter.my-source";
   constructor(private options: Partial<MySourceOptions> = {}) {}
 
-  async subscribe(
-    context: CraftContext,
-    handler: (message: T, headers?: ExchangeHeaders) => Promise<Exchange>,
-    abortController: AbortController,
-    onReady?: () => void,
-  ): Promise<void> {
+  async subscribe(sub: Subscription<T>): Promise<void> {
     const { pollIntervalMs = 1000 } = this.options;
-    context.logger.info("Starting my-source subscription");
+    sub.context.logger.info("Starting my-source subscription");
+    sub.ready();
 
     return new Promise<void>((resolve) => {
       const tick = async () => {
-        if (abortController.signal.aborted) return;
+        if (sub.signal.aborted) return;
         try {
           const data = undefined as unknown as T; // produce or fetch your message
-          await handler(data);
+          await sub.emit({ message: data });
         } catch (error) {
-          context.logger.error(error, "my-source handler failed");
-          abortController.abort();
+          sub.context.logger.error(error, "my-source handler failed");
+          sub.complete(error);
           resolve();
           return;
         }
         setTimeout(tick, pollIntervalMs);
       };
 
-      abortController.signal.addEventListener("abort", () => {
-        context.logger.debug("my-source aborted");
+      sub.signal.addEventListener("abort", () => {
+        sub.context.logger.debug("my-source aborted");
         resolve();
       });
 
