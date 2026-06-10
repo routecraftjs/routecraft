@@ -858,6 +858,11 @@ describe("McpServer", () => {
       const callRes = await post(callBody, sessionId);
       expect(callRes.statusCode).toBe(200);
       const callParsed = JSON.parse(callRes.body);
+      if (callParsed.error) {
+        throw new Error(
+          `tools/call failed: ${JSON.stringify(callParsed.error)}`,
+        );
+      }
       const result = callParsed.result as Record<string, unknown>;
       expect(result["structuredContent"]).toBeUndefined();
       const content = result["content"] as Array<{
