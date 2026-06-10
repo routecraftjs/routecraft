@@ -27,7 +27,11 @@ my-app
 ├── shared
 │   └── amount.ts                     # pure helper shared by several capabilities
 ├── adapters
-│   └── google-sheets.ts
+│   └── google-sheets
+│       ├── index.ts              # the googleSheets() factory, the only file imported
+│       ├── source.ts
+│       ├── destination.ts
+│       └── types.ts
 ├── plugins
 │   └── logger.ts
 ├── package.json
@@ -124,7 +128,7 @@ Sub-folders inside `capabilities/` are supported to any depth. The capability id
 | Folder | Purpose |
 | --- | --- |
 | `shared/` | Pure helpers (validators, parsers, formatters, shared types) used by two or more capabilities in a single-app project. No side effects; never imports a capability's internals. Graduates to a workspace package once the repo goes multi-app. |
-| `adapters/` | Custom adapters that connect to external systems. Each implements one of the adapter interfaces: `subscribe`, `send`, or `process`. |
+| `adapters/` | Custom adapters that connect to external systems, one folder per adapter. `index.ts` exposes the single factory; `source.ts`, `destination.ts`, and friends hold the operation implementations (`subscribe`, `send`, `process`). See the [custom adapters guide](/docs/advanced/custom-adapters). |
 | `plugins/` | Runtime plugins that hook into the Routecraft context lifecycle, such as MCP transport or custom telemetry. |
 
 **Adapters vs plugins:** an adapter connects to an external system (a queue, an API, a file
