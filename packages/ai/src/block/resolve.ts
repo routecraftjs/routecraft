@@ -45,7 +45,7 @@ export const BLOCK_LOADER_TOOL = Symbol.for("routecraft.ai.block.loader-tool");
  * routes, MCP tools) and block names that start with this prefix
  * collide with the framework's synthetic surface and are rejected at
  * construction (block names via `validateBlocks`) or dispatch
- * (resolved tool names via `mergeUserAndLoaderTools`) with RC5026.
+ * (resolved tool names via `mergeUserAndLoaderTools`) with AI1002.
  *
  * The framework reserves the broader `_block_` namespace (not just
  * `_block_load_`) so future synthetic-tool kinds (e.g. unloaders or
@@ -117,7 +117,7 @@ export interface ResolvedBlocks {
  * declarations of the same logical block in separate agents are
  * therefore independent caches.
  *
- * Throws RC5025 when an inject-mode resolver throws or returns a
+ * Throws AI1001 when an inject-mode resolver throws or returns a
  * non-string. Progressive-mode resolver failures surface back to the
  * model as a loader-tool error so the model can self-correct rather
  * than aborting the dispatch.
@@ -185,7 +185,7 @@ export const BLOCK_TOOL_NAME_CHARSET = /^[A-Za-z0-9_-]+$/;
 export const TOOL_NAME_MAX_LENGTH = 64;
 
 /**
- * RC5026 error for two blocks whose names collapse to the same
+ * AI1002 error for two blocks whose names collapse to the same
  * flattened canonical name. Shared by the construction-time validator
  * ({@link validateBlocks}) and the dispatch-time flattener ({@link
  * flattenBlocks}) so the code and message cannot drift between the two
@@ -196,20 +196,20 @@ export const TOOL_NAME_MAX_LENGTH = 64;
 export function blockCollisionError(
   qualified: string,
 ): ReturnType<typeof rcError> {
-  return rcError("RC5026", undefined, {
+  return rcError("AI1002", undefined, {
     message: `Agent block "${qualified}": two blocks resolve to the same name after flattening nested groups. Rename one of them.`,
   });
 }
 
 /**
- * RC5026 error for a blocks tree that contains a cycle (a group that
+ * AI1002 error for a blocks tree that contains a cycle (a group that
  * directly or transitively contains itself). Shared by the validator
  * and the flattener for the same reason as {@link blockCollisionError}.
  *
  * @internal
  */
 export function blockCycleError(prefix: string): ReturnType<typeof rcError> {
-  return rcError("RC5026", undefined, {
+  return rcError("AI1002", undefined, {
     message: `Agent block "${prefix}": blocks form a cycle (a group contains itself). Block trees must be finite.`,
   });
 }
@@ -221,7 +221,7 @@ export function blockCycleError(prefix: string): ReturnType<typeof rcError> {
  * blocks keep their author-declared system-prompt order. `false`
  * entries are skipped (they are removal sentinels handled at merge
  * time, a no-op here). Two blocks that collapse to the same flattened
- * name throw RC5026 so a silent override cannot happen. This runs on
+ * name throw AI1002 so a silent override cannot happen. This runs on
  * the post-merge record at dispatch, so it is the authoritative guard
  * for collisions that only arise once defaults and per-agent blocks
  * are combined; within-record collisions are already caught earlier by
@@ -313,7 +313,7 @@ async function resolveOnce(
 
 /**
  * Invoke a block's `value` resolver and validate its return shape.
- * Throws RC5025 on any failure so callers can decide whether to abort
+ * Throws AI1001 on any failure so callers can decide whether to abort
  * the dispatch (inject mode) or report the error back to the model
  * (progressive mode).
  *
@@ -329,12 +329,12 @@ async function invokeResolver(
   const { value } = body;
   if (typeof value === "string") return value;
   if (typeof value !== "function") {
-    throw rcError("RC5027", undefined, {
+    throw rcError("AI1003", undefined, {
       message: `Agent block "${name}": "value" must be a string or a function returning a string.`,
     });
   }
   if (!context) {
-    throw rcError("RC5025", undefined, {
+    throw rcError("AI1001", undefined, {
       message: `Agent block "${name}": resolver function requires a CraftContext but the exchange has no bound context.`,
     });
   }
@@ -342,12 +342,12 @@ async function invokeResolver(
   try {
     resolved = await Promise.resolve(value(exchange, context, [], client));
   } catch (cause) {
-    throw rcError("RC5025", cause, {
+    throw rcError("AI1001", cause, {
       message: `Agent block "${name}": resolver function threw: ${(cause as Error)?.message ?? String(cause)}`,
     });
   }
   if (typeof resolved !== "string") {
-    throw rcError("RC5025", undefined, {
+    throw rcError("AI1001", undefined, {
       message: `Agent block "${name}": resolver function must return a string (got ${typeof resolved}).`,
     });
   }

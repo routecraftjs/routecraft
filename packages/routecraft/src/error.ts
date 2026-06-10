@@ -1,38 +1,5 @@
 import { BRAND, setBrand } from "./brand.ts";
 
-export type RCCode =
-  | "RC1001"
-  | "RC1002"
-  | "RC2001"
-  | "RC2002"
-  | "RC3001"
-  | "RC3002"
-  | "RC5001"
-  | "RC5002"
-  | "RC5003"
-  | "RC5004"
-  | "RC5010"
-  | "RC5011"
-  | "RC5012"
-  | "RC5013"
-  | "RC5014"
-  | "RC5015"
-  | "RC5016"
-  | "RC5017"
-  | "RC5018"
-  | "RC5019"
-  | "RC5020"
-  | "RC5021"
-  | "RC5022"
-  | "RC5023"
-  | "RC5024"
-  | "RC5025"
-  | "RC5026"
-  | "RC5027"
-  | "RC5028"
-  | "RC5029"
-  | "RC9901";
-
 export type RCMeta = {
   category: "Definition" | "DSL" | "Lifecycle" | "Adapter" | "Runtime";
   message: string;
@@ -46,9 +13,71 @@ export type RCMeta = {
   retryable: boolean;
 };
 
+/**
+ * Open error-code registry. Core declares its own `RC####` codes here;
+ * ecosystem packages add namespaced codes via declaration merging plus a
+ * runtime {@link registerErrorCodes} call:
+ *
+ * ```typescript
+ * declare module "@routecraft/routecraft" {
+ *   interface ErrorCodeRegistry {
+ *     AI1001: RCMeta;
+ *   }
+ * }
+ * registerErrorCodes("AI", { AI1001: { ... } }, "@routecraft/ai");
+ * ```
+ *
+ * The `RC` namespace is reserved for core. Each namespace is claimable by
+ * exactly one owner package, which makes cross-package code collisions a
+ * detectable package-identity conflict instead of a silent numbering
+ * accident (TypeScript merges identical `X: RCMeta` declarations without
+ * complaint, so the compiler alone cannot catch them).
+ */
+export interface ErrorCodeRegistry {
+  RC1001: RCMeta;
+  RC1002: RCMeta;
+  RC1003: RCMeta;
+  RC2001: RCMeta;
+  RC2002: RCMeta;
+  RC3001: RCMeta;
+  RC3002: RCMeta;
+  RC5001: RCMeta;
+  RC5002: RCMeta;
+  RC5003: RCMeta;
+  RC5004: RCMeta;
+  RC5010: RCMeta;
+  RC5011: RCMeta;
+  RC5012: RCMeta;
+  RC5013: RCMeta;
+  RC5014: RCMeta;
+  RC5015: RCMeta;
+  RC5016: RCMeta;
+  RC5017: RCMeta;
+  RC5018: RCMeta;
+  RC5019: RCMeta;
+  RC5020: RCMeta;
+  RC5021: RCMeta;
+  RC5022: RCMeta;
+  RC5023: RCMeta;
+  RC5024: RCMeta;
+  RC5028: RCMeta;
+  RC5029: RCMeta;
+  RC9901: RCMeta;
+}
+
+/** All known error codes: core `RC####` plus registered ecosystem namespaces. */
+export type RCCode = keyof ErrorCodeRegistry;
+
 export const DOCS_BASE = "https://routecraft.dev/docs/reference/errors";
 
-export const RC: Record<RCCode, RCMeta> = {
+/**
+ * Core codes only: the `RC####` keys declared in this file. Ecosystem keys
+ * merged into {@link ErrorCodeRegistry} are excluded so the `RC` const
+ * below stays exhaustively checked against what core actually defines.
+ */
+type CoreErrorCode = keyof ErrorCodeRegistry & `RC${number}`;
+
+export const RC: { [K in CoreErrorCode]: RCMeta } = {
   RC1001: {
     category: "Definition",
     message: "Route definition failed validation",
@@ -62,6 +91,14 @@ export const RC: Record<RCCode, RCMeta> = {
     suggestion: "Ensure each route id is unique or set routeOptions.id",
     docs: `${DOCS_BASE}#rc-1002`,
     retryable: false, // Config error - won't change on retry
+  },
+  RC1003: {
+    category: "Definition",
+    message: "Error code registration failed",
+    suggestion:
+      "Namespaces must match /^[A-Z][A-Z0-9]{1,7}$/, 'RC' is reserved for core, each namespace is claimable by exactly one package, and every code must be the namespace followed by exactly four digits. If two packages claim the same namespace, report the collision to both package owners.",
+    docs: `${DOCS_BASE}#rc-1003`,
+    retryable: false,
   },
   RC2001: {
     category: "DSL",
@@ -238,30 +275,6 @@ export const RC: Record<RCCode, RCMeta> = {
     docs: `${DOCS_BASE}#rc-5024`,
     retryable: false,
   },
-  RC5025: {
-    category: "Adapter",
-    message: "Agent block resolution failed",
-    suggestion:
-      "A block resolver threw or returned a non-string. Check the resolver function for the named block; inject-mode failures abort the dispatch, progressive-mode failures surface back to the model as a loader-tool error.",
-    docs: `${DOCS_BASE}#rc-5025`,
-    retryable: false,
-  },
-  RC5026: {
-    category: "Adapter",
-    message: "Agent block name collision",
-    suggestion:
-      "A block name duplicates another block, collides with a user tool, or starts with the reserved `_block_` prefix used by synthetic loader tools. Rename the block (or the tool) so every name in the agent's surface is unique.",
-    docs: `${DOCS_BASE}#rc-5026`,
-    retryable: false,
-  },
-  RC5027: {
-    category: "Adapter",
-    message: "Agent block misconfigured",
-    suggestion:
-      "A block is missing required fields or has an invalid shape: every block needs a non-empty `name`, a `mode` of `inject` or `progressive`, and a string-or-function `value`. Progressive blocks additionally require a non-empty `description` so the model can decide whether to load them.",
-    docs: `${DOCS_BASE}#rc-5027`,
-    retryable: false,
-  },
   RC5028: {
     category: "Adapter",
     message: "Cache provider failed",
@@ -422,7 +435,7 @@ export function rcError(
   cause?: unknown,
   overrides?: Partial<Pick<RCMeta, "message" | "suggestion" | "docs">>,
 ): RoutecraftError {
-  const base = RC[rc];
+  const base = getErrorMeta(rc);
   const meta: RCMeta = {
     ...base,
     ...(overrides || {}),
@@ -431,4 +444,134 @@ export function rcError(
   const parsed =
     cause !== undefined ? RoutecraftError.parse(cause).error : undefined;
   return new RoutecraftError(rc, meta, parsed);
+}
+
+/**
+ * Cross-instance runtime registry of error codes (core + ecosystem) and
+ * claimed namespaces. `Symbol.for` so multiple copies of the package in a
+ * workspace share one registry, mirroring the config-applier registry.
+ */
+const ERROR_REGISTRY_KEY: unique symbol = Symbol.for(
+  "routecraft.error-code-registry",
+);
+
+type ErrorRegistryState = {
+  codes: Map<string, RCMeta>;
+  /** namespace -> owner package name */
+  namespaces: Map<string, string>;
+};
+
+type GlobalWithErrorRegistry = typeof globalThis & {
+  [ERROR_REGISTRY_KEY]?: ErrorRegistryState;
+};
+
+function getErrorRegistry(): ErrorRegistryState {
+  const g = globalThis as GlobalWithErrorRegistry;
+  let state = g[ERROR_REGISTRY_KEY];
+  if (!state) {
+    state = { codes: new Map(), namespaces: new Map() };
+    state.namespaces.set("RC", "@routecraft/routecraft");
+    for (const [code, meta] of Object.entries(RC)) {
+      state.codes.set(code, meta);
+    }
+    g[ERROR_REGISTRY_KEY] = state;
+  }
+  return state;
+}
+
+/** Namespace shape: 2-8 chars, uppercase alphanumeric, starts with a letter. */
+const NAMESPACE_PATTERN = /^[A-Z][A-Z0-9]{1,7}$/;
+
+/**
+ * Register ecosystem error codes under a claimed namespace.
+ *
+ * Call once at module load time (typically from a side-effect import next
+ * to the matching `declare module` augmentation of {@link ErrorCodeRegistry}).
+ * Each namespace is claimable by exactly one owner package; a second claim
+ * throws RC1003 naming both packages so consumers know which two packages
+ * collide (they cannot fix the collision themselves). Re-registration by
+ * the same owner is idempotent and replaces the previous codes, so module
+ * re-evaluation (test runners, HMR) is safe.
+ *
+ * @param namespace - Unique uppercase prefix, e.g. "AI" (`RC` is reserved for core)
+ * @param codes - Map of `${namespace}${4 digits}` codes to their metadata
+ * @param owner - Owning package name, used in collision diagnostics
+ *
+ * @example
+ * ```typescript
+ * registerErrorCodes(
+ *   "AI",
+ *   { AI1001: { category: "Adapter", message: "...", docs: "...", retryable: false } },
+ *   "@routecraft/ai",
+ * );
+ * ```
+ */
+export function registerErrorCodes(
+  namespace: string,
+  codes: Record<string, RCMeta>,
+  owner: string,
+): void {
+  if (!NAMESPACE_PATTERN.test(namespace)) {
+    throw rcError("RC1003", undefined, {
+      message: `Error namespace "${namespace}" is invalid: must match ${String(NAMESPACE_PATTERN)}.`,
+    });
+  }
+  if (namespace === "RC") {
+    throw rcError("RC1003", undefined, {
+      message: `Error namespace "RC" is reserved for @routecraft/routecraft core codes.`,
+    });
+  }
+  const state = getErrorRegistry();
+  const existingOwner = state.namespaces.get(namespace);
+  if (existingOwner !== undefined && existingOwner !== owner) {
+    throw rcError("RC1003", undefined, {
+      message:
+        `Error namespace "${namespace}" is already claimed by "${existingOwner}" and cannot be claimed by "${owner}". ` +
+        `Two installed packages picked the same namespace; report this collision to both package owners.`,
+    });
+  }
+  const codePattern = new RegExp(`^${namespace}\\d{4}$`);
+  for (const code of Object.keys(codes)) {
+    if (!codePattern.test(code)) {
+      throw rcError("RC1003", undefined, {
+        message: `Error code "${code}" does not match its namespace: expected "${namespace}" followed by exactly four digits.`,
+      });
+    }
+  }
+  state.namespaces.set(namespace, owner);
+  for (const [code, meta] of Object.entries(codes)) {
+    state.codes.set(code, meta);
+  }
+}
+
+/**
+ * Look up the metadata for a code in the runtime registry (core +
+ * registered ecosystem codes). Throws RC9901 for unknown codes, which in
+ * practice means the package that registers the code was never imported.
+ *
+ * @internal Exposed for docs tooling and conformance tests.
+ */
+export function getErrorMeta(rc: string): RCMeta {
+  const meta = getErrorRegistry().codes.get(rc);
+  if (!meta) {
+    throw new RoutecraftError(
+      "RC9901" as RCCode,
+      {
+        ...RC.RC9901,
+        message: `Unknown error code "${rc}". If this is an ecosystem code, import the package that registers it before use.`,
+      },
+      undefined,
+    );
+  }
+  return meta;
+}
+
+/**
+ * Snapshot of all registered codes (core + ecosystem), for docs tooling
+ * and conformance tests.
+ *
+ * @internal
+ */
+export function getRegisteredErrorCodes(): ReadonlyMap<string, RCMeta> {
+  return getErrorRegistry().codes;
 }

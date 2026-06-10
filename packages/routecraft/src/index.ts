@@ -172,7 +172,9 @@ export {
   RoutecraftError,
   type RCCode,
   type RCMeta,
+  type ErrorCodeRegistry,
   rcError,
+  registerErrorCodes,
   formatSchemaIssues,
   RC,
 } from "./error.ts";

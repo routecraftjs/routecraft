@@ -2,7 +2,9 @@
 title: Errors
 ---
 
-Short, actionable RC error codes used across Routecraft. {% .lead %}
+Short, actionable error codes used across Routecraft. {% .lead %}
+
+Core codes use the `RC` namespace. Ecosystem packages own their codes under registered namespaces: `@routecraft/ai` uses `AI` (e.g. `AI1001`). See `registerErrorCodes` for adding a namespace.
 
 Each error includes a code, message, a brief suggestion, and underlying error. Codes follow `RCcnnn` where `c` is category and `nnn` is the number. All codes are framework-owned; adapters use them with specific message and suggestion overrides via `rcError(rc, cause, { message, suggestion })`. When the framework logs an error, structured meta (`rc`, `message`, `suggestion`, `causeMessage`, `causeStack`) is included so you can search and alert in your log aggregator.
 
@@ -40,6 +42,15 @@ Ensure each route id is unique or set `routeOptions.id`.
 craft().from(timer()).id('users');
 craft().from(timer()).id('orders');
 ```
+
+## RC1003
+Error code registration failed
+
+**Why it happens**  
+An ecosystem package called `registerErrorCodes()` with an invalid namespace, a code that does not match its namespace, or a namespace already claimed by a different package. The `RC` namespace is reserved for core.
+
+**Suggestion**  
+Namespaces must match `/^[A-Z][A-Z0-9]{1,7}$/` and every code must be the namespace followed by exactly four digits (e.g. `AI1001`). If two installed packages claim the same namespace, report the collision to both package owners; consumers cannot resolve it locally.
 
 ## RC2001
 Invalid operation type
@@ -322,11 +333,11 @@ This is a programming error at the mint call site, distinct from `RC5023`, which
 - Pass a non-empty `subject`: `authenticate({ subject: sender.address, roles: [...] })`.
 - If the source cannot identify the caller, return `undefined` from the `.authenticate()` resolver to leave the exchange anonymous instead of minting an empty identity.
 
-## RC5025
+## AI1001
 Agent block resolver failed
 
 **Why it happens**  
-A block's `value` resolver function threw, returned a non-string, or could not be invoked (no `CraftContext` available on the exchange). For `mode: "inject"` blocks this aborts the dispatch with `RC5025`; for `mode: "progressive"` blocks the same `RC5025` is reported back to the model as a tool error so it can self-correct.
+A block's `value` resolver function threw, returned a non-string, or could not be invoked (no `CraftContext` available on the exchange). For `mode: "inject"` blocks this aborts the dispatch with `AI1001`; for `mode: "progressive"` blocks the same `AI1001` is reported back to the model as a tool error so it can self-correct.
 
 This also fires when `client.forward()` is invoked from a resolver running on an exchange with no bound route (typically synthetic exchanges in tests).
 
@@ -335,7 +346,7 @@ This also fires when `client.forward()` is invoked from a resolver running on an
 - For `progressive` resolvers, the model will see the error message and may retry; a descriptive message helps the model self-correct.
 - When using `client.forward()` in tests, dispatch the agent through a real route so the exchange has a route binding, or construct the exchange via `DefaultExchange` with a populated route context.
 
-## RC5026
+## AI1002
 Agent block / tool name collision with the reserved `_block_` prefix
 
 **Why it happens**  
@@ -347,7 +358,7 @@ Also fires on duplicate block keys, empty-string block keys, or any other block-
 - Rename the offending block, fn, or route. The `_block_` prefix is for framework use only.
 - For block keys, the `Blocks` record key is the block name; ensure it is a non-empty string and unique within the agent (defaults are merged in by name, with `false` removing).
 
-## RC5027
+## AI1003
 Agent block misconfigured
 
 **Why it happens**  

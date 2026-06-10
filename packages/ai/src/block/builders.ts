@@ -77,18 +77,18 @@ export interface SkillsOptions {
  */
 export async function skills(options: SkillsOptions): Promise<Blocks> {
   if (!options || typeof options !== "object") {
-    throw rcError("RC5027", undefined, {
+    throw rcError("AI1003", undefined, {
       message: `skills: options must be an object with at least { source }.`,
     });
   }
   const { source, mode = "progressive", lifetime } = options;
   if (typeof source !== "string" || source.trim() === "") {
-    throw rcError("RC5027", undefined, {
+    throw rcError("AI1003", undefined, {
       message: `skills: "source" must be a non-empty path to a markdown file or directory.`,
     });
   }
   if (mode !== "inject" && mode !== "progressive") {
-    throw rcError("RC5027", undefined, {
+    throw rcError("AI1003", undefined, {
       message: `skills: "mode" must be "inject" or "progressive" (got ${JSON.stringify(mode)}).`,
     });
   }
@@ -97,7 +97,7 @@ export async function skills(options: SkillsOptions): Promise<Blocks> {
     lifetime !== "dispatch" &&
     lifetime !== "context"
   ) {
-    throw rcError("RC5027", undefined, {
+    throw rcError("AI1003", undefined, {
       message: `skills: "lifetime" must be "dispatch" or "context" when present (got ${JSON.stringify(lifetime)}).`,
     });
   }
@@ -109,7 +109,7 @@ export async function skills(options: SkillsOptions): Promise<Blocks> {
   for (const doc of docs) {
     const name = requireString(doc.frontmatter["name"], "name", doc.path);
     if (name !== doc.filename) {
-      throw rcError("RC5027", undefined, {
+      throw rcError("AI1003", undefined, {
         message: `skills: markdown file "${doc.path}": frontmatter "name" ("${name}") must match the filename ("${doc.filename}"). Rename one or the other.`,
       });
     }
@@ -119,13 +119,13 @@ export async function skills(options: SkillsOptions): Promise<Blocks> {
       doc.path,
     );
     if (doc.body.trim() === "") {
-      throw rcError("RC5027", undefined, {
+      throw rcError("AI1003", undefined, {
         message: `skills: markdown file "${doc.path}": skill body is empty. The body becomes the block's content; an empty body would not change the agent's behaviour.`,
       });
     }
     const prior = sources.get(name);
     if (prior) {
-      throw rcError("RC5026", undefined, {
+      throw rcError("AI1002", undefined, {
         message: `skills("${source}"): duplicate skill name "${name}" loaded from both "${prior}" and "${doc.path}". Each skill name must be unique within a source; rename or remove one.`,
       });
     }
@@ -170,7 +170,7 @@ export function fromFile(
   client: BlockClient,
 ) => Promise<string> {
   if (typeof path !== "string" || path.trim() === "") {
-    throw rcError("RC5027", undefined, {
+    throw rcError("AI1003", undefined, {
       message: `fromFile: "path" must be a non-empty string.`,
     });
   }
@@ -182,7 +182,7 @@ export function fromFile(
       // fire often under concurrent agent traffic).
       return await readFile(abs, "utf-8");
     } catch (cause) {
-      throw rcError("RC5025", cause, {
+      throw rcError("AI1001", cause, {
         message: `fromFile("${path}"): could not read file: ${(cause as Error)?.message ?? String(cause)}`,
       });
     }

@@ -96,7 +96,7 @@ describe("skills() markdown loader", () => {
   /**
    * @case Frontmatter name must match filename
    * @preconditions File "x.md" with frontmatter name "y"
-   * @expectedResult Throws RC5027 mentioning the mismatch
+   * @expectedResult Throws AI1003 mentioning the mismatch
    */
   test("throws when frontmatter name does not match filename", async () => {
     const dir = makeDir({
@@ -139,7 +139,7 @@ describe("skills() markdown loader", () => {
   /**
    * @case Empty body rejected at load
    * @preconditions Skill markdown with frontmatter only
-   * @expectedResult Throws RC5027 mentioning empty body
+   * @expectedResult Throws AI1003 mentioning empty body
    */
   test("rejects empty skill body", async () => {
     const dir = makeDir({
@@ -189,7 +189,7 @@ describe("skills() markdown loader", () => {
   /**
    * @case Flat and nested skills resolving to the same name are rejected
    * @preconditions Both `foo.md` and `foo/SKILL.md` declare `name: foo`
-   * @expectedResult Throws RC5026 mentioning the duplicate name
+   * @expectedResult Throws AI1002 mentioning the duplicate name
    */
   test("rejects duplicate skill names from flat and nested layouts", async () => {
     const dir = makeDir({
@@ -204,7 +204,7 @@ describe("skills() markdown loader", () => {
   /**
    * @case skills() validates its own options surface
    * @preconditions Missing/empty source string and invalid mode strings
-   * @expectedResult Throws RC5027 with a clear authoring-time message
+   * @expectedResult Throws AI1003 with a clear authoring-time message
    */
   test("rejects misconfigured options", async () => {
     await expect(skills({ source: "" })).rejects.toThrow(

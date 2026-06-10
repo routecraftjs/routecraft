@@ -29,9 +29,9 @@ stdio-client-manager) for the same hazard if provider tests ever need the real m
 - [x] A1 dedupe isMailParseError
 - [x] A2 stale excludes (17 dead entries removed from tsconfig+eslint)
 - [x] A3 factory tagging + conformance test (also found 2 untagged branches inside html/json factories)
-- [ ] B1 EventBus extraction
-- [ ] B2 config appliers (DIP)
-- [ ] B3 route.ts decomposition
+- [x] B1 EventBus extraction (context.ts 1004 -> 816; emit perf unchanged 750k/s)
+- [x] B2 config appliers (DIP fix; CraftConfig in core = name/store/on/once/plugins only; initPlugins idempotent + called by start with sync guard -- async guard alone reordered events in 14 tests, worth recording)
+- [x] B3 route.ts 1870 -> 846 (synthetic-steps 379, validation 291, executor 491; verbatim moves, deps objects)
 - [ ] C2 namespaced error registry
 - [ ] C1 step outcome + takePending (+S2 AggregateResult)
 - [ ] C3 subscription object (+S1 Adapter.adapterId)
@@ -46,3 +46,11 @@ stdio-client-manager) for the same hazard if provider tests ever need the real m
   exposed 2 untagged return paths in factories previously believed tagged (html transformer mode,
   json transformer mode), i.e. mockAdapter(html)/mockAdapter(json) silently no-oped for those modes.
   Conformance-test-over-lint-rule was the right call.
+
+- B1 verdict: BETTER. Pure win, no behavior change, eventing now one unit. Cost ~1h.
+- B2 verdict: BETTER with one gotcha worth documenting: start() awaiting initPlugins() unconditionally
+  added 1 microtask and broke 14 event-interleaving tests; the sync pluginsInitialized guard fixed it.
+  Breaking changes as planned (store seeding timing, mail teardown order).
+- B3 verdict: BETTER. route.ts 1870 -> 846. Throughput unchanged within noise (plain 32.8us vs 32.2us).
+  NOTE: wrapped bench moved 49.1 -> 35.6us across runs on identical wrapper code; bench variance is high,
+  use 3-run medians for final numbers.
