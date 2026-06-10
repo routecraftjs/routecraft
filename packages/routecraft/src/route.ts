@@ -19,7 +19,7 @@ import {
   wrapSourceWithOverride,
 } from "./testing-hooks.ts";
 import { BRAND, INTERNALS_KEY, setBrand } from "./brand.ts";
-import { rcError, RoutecraftError, RC, formatSchemaIssues } from "./error.ts";
+import { rcError, RoutecraftError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type Source } from "./operations/from.ts";
@@ -39,6 +39,13 @@ import {
   buildCacheCheckStep,
   buildCacheStoreStep,
 } from "./pipeline/synthetic-steps.ts";
+import {
+  applyInputValidation,
+  applyOutputValidation,
+  handleOutputValidationFailure,
+  validateInputOrThrow,
+  type ValidationDeps,
+} from "./pipeline/validation.ts";
 
 // Re-exported for existing imports (builder.ts and @internal consumers).
 export { buildCacheCheckStep, buildCacheStoreStep };
@@ -411,269 +418,19 @@ export class DefaultRoute implements Route {
     return exchange;
   }
 
-  /**
-   * Run Standard Schema validation against a value. Returns the validated
-   * value on success (schemas can legitimately transform to `undefined`,
-   * so presence of the `value` key is what decides success, not truthiness)
-   * or a human-readable message on failure.
-   */
-  private async validateAgainst(
-    schema: StandardSchemaV1,
-    value: unknown,
-  ): Promise<{ ok: true; value: unknown } | { ok: false; message: string }> {
-    let result = schema["~standard"].validate(value);
-    if (result instanceof Promise) result = await result;
-    const issues = (result as { issues?: unknown }).issues;
-    if (issues !== undefined && issues !== null) {
-      return { ok: false, message: formatSchemaIssues(issues) };
-    }
-    const successResult = result as { value?: unknown };
-    return {
-      ok: true,
-      value: "value" in successResult ? successResult.value : value,
-    };
-  }
-
-  /**
-   * Validate an incoming exchange against the route's `input` schemas BEFORE
-   * the pipeline runs (no `exchange:started` has fired yet).
-   *
-   * On success returns a (possibly new) exchange with validated / coerced
-   * values; headers are merged over the originals so pass-through keys
-   * like correlation IDs survive schemas that strip unknowns. On failure
-   * emits `exchange:started` followed by `exchange:dropped` for telemetry
-   * and throws an RC5002 error so the source's caller (e.g. a direct
-   * channel's `send`) sees the rejection.
-   *
-   * MUST NOT be called after `handler()` has emitted `exchange:started` for
-   * the exchange (e.g. from inside the synthetic parse step). Use
-   * {@link validateInputOrThrow} for that path: it throws RC5002 without
-   * emitting events, so the parse step's `step:failed` -> runSteps catch ->
-   * `exchange:failed` lifecycle stays intact.
-   */
-  private async applyInputValidation(
-    exchange: Exchange,
-    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
-  ): Promise<Exchange> {
-    let current = exchange;
-    if (schemas.body) {
-      const res = await this.validateAgainst(schemas.body, current.body);
-      if (!res.ok) {
-        throw this.emitInputValidationFailure(current, "body", res.message);
-      }
-      current = DefaultExchange.rewrap(current, { body: res.value });
-    }
-    if (schemas.headers) {
-      const res = await this.validateAgainst(schemas.headers, current.headers);
-      if (!res.ok) {
-        throw this.emitInputValidationFailure(current, "headers", res.message);
-      }
-      const headerValue = res.value as ExchangeHeaders | undefined;
-      if (headerValue !== undefined) {
-        // Merge validated values over the originals so caller pass-through
-        // keys (correlation IDs, adapter-injected metadata) survive
-        // schemas that strip unknowns.
-        current = DefaultExchange.rewrap(current, {
-          headers: { ...current.headers, ...headerValue },
-        });
-      }
-    }
-    return current;
-  }
-
-  /**
-   * Same as {@link applyInputValidation} but without emitting any
-   * `exchange:started` / `exchange:dropped` events on failure: just throws
-   * RC5002. Used by the synthetic parse step in `runSteps` so a validation
-   * failure becomes a normal step failure (`step:failed` -> `exchange:failed`)
-   * rather than a duplicate `started` + stray `dropped` followed by a
-   * `failed` (see #187).
-   */
-  private async validateInputOrThrow(
-    exchange: Exchange,
-    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
-  ): Promise<Exchange> {
-    let current = exchange;
-    if (schemas.body) {
-      const res = await this.validateAgainst(schemas.body, current.body);
-      if (!res.ok) {
-        throw rcError("RC5002", new Error(res.message), {
-          message: `Body validation failed for route "${this.definition.id}"`,
-        });
-      }
-      current = DefaultExchange.rewrap(current, { body: res.value });
-    }
-    if (schemas.headers) {
-      const res = await this.validateAgainst(schemas.headers, current.headers);
-      if (!res.ok) {
-        throw rcError("RC5002", new Error(res.message), {
-          message: `Header validation failed for route "${this.definition.id}"`,
-        });
-      }
-      const headerValue = res.value as ExchangeHeaders | undefined;
-      if (headerValue !== undefined) {
-        current = DefaultExchange.rewrap(current, {
-          headers: { ...current.headers, ...headerValue },
-        });
-      }
-    }
-    return current;
-  }
-
-  /**
-   * Emit exchange:started followed by exchange:dropped for a message that
-   * failed framework-level input validation and return the RC5002 error so
-   * the caller can throw it. The source's own sender (e.g. a direct
-   * channel's `send`) needs the rejection to propagate; pipeline telemetry
-   * still sees the drop via the events.
-   */
-  private emitInputValidationFailure(
-    exchange: Exchange,
-    direction: "body" | "headers",
-    message: string,
-  ): RoutecraftError {
-    const routeId = this.definition.id;
-    const correlationId = (exchange.headers[HeadersKeys.CORRELATION_ID] ??
-      exchange.id) as string;
-
-    const err = rcError("RC5002", new Error(message), {
-      message: `${direction === "body" ? "Body" : "Header"} validation failed for route "${routeId}"`,
-    });
-
-    this.context.emit(`route:${routeId}:exchange:started` as EventName, {
-      routeId,
-      exchangeId: exchange.id,
-      correlationId,
-    });
-    this.context.emit(`route:${routeId}:exchange:dropped` as EventName, {
-      routeId,
-      exchangeId: exchange.id,
-      correlationId,
-      reason: `input validation failed: ${message}`,
-      exchange,
-    });
-
-    this.logger.warn(
-      { err, routeId, direction, operation: "from" },
-      `Input ${direction} validation failed; exchange dropped`,
-    );
-
-    return err;
-  }
-
-  /**
-   * Handle an output-validation failure. Delegates to the route's error
-   * handler when one is configured (mirroring how step errors recover);
-   * otherwise emits `exchange:failed` and returns a failed result so the
-   * caller can surface the error.
-   */
-  private async handleOutputValidationFailure(
-    exchange: Exchange,
-    error: unknown,
-    startTime: number,
-    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
-  ): Promise<{
-    exchange: Exchange;
-    failed: boolean;
-    dropped: boolean;
-    error?: unknown;
-  }> {
-    const routeId = this.definition.id;
-    const correlationId = exchange.headers[
-      HeadersKeys.CORRELATION_ID
-    ] as string;
-
-    this.context.emit(`route:${routeId}:step:output:error` as EventName, {
-      error,
+  /** Assemble the deps object for the pipeline validation helpers. */
+  private validationDeps(): ValidationDeps {
+    const deps: ValidationDeps = {
+      routeId: this.definition.id,
+      context: this.context,
+      logger: this.logger,
       route: this,
-      exchange,
-      operation: "output",
-    });
-
+      buildForward: () => this.buildForward(),
+    };
     if (this.definition.errorHandler) {
-      try {
-        const forward = this.buildForward();
-        const recovered = await this.definition.errorHandler(
-          error,
-          exchange,
-          forward,
-        );
-        // Re-validate the recovered body against the same output schemas
-        // before declaring success. Without this, an `errorHandler` that
-        // returns another invalid payload would silently bypass the
-        // route's `.output()` contract and flow out via
-        // `exchange:completed`. A second failure here cascades through
-        // the existing handlerErr branch so the failure surfaces the
-        // same way (`exchange:failed` plus the failure result).
-        const recoveredExchange = await this.applyOutputValidation(
-          DefaultExchange.rewrap(exchange, { body: recovered }),
-          schemas,
-        );
-        this.context.emit(`route:${routeId}:error:caught` as EventName, {
-          error,
-          route: this,
-          exchange: recoveredExchange,
-        });
-        return { exchange: recoveredExchange, failed: false, dropped: false };
-      } catch (handlerErr) {
-        this.context.emit(`route:${routeId}:exchange:failed` as const, {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          duration: Date.now() - startTime,
-          error: handlerErr,
-          exchange,
-        });
-        return { exchange, failed: true, dropped: false, error: handlerErr };
-      }
+      deps.errorHandler = this.definition.errorHandler;
     }
-
-    this.context.emit(`route:${routeId}:exchange:failed` as const, {
-      routeId,
-      exchangeId: exchange.id,
-      correlationId,
-      duration: Date.now() - startTime,
-      error,
-      exchange,
-    });
-    return { exchange, failed: true, dropped: false, error };
-  }
-
-  /**
-   * Validate the final exchange against the route's `output` schemas.
-   * On success returns the validated (possibly new) exchange. On failure
-   * throws an RC5002 error so the normal error / error-handler flow takes
-   * over.
-   */
-  private async applyOutputValidation(
-    exchange: Exchange,
-    schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
-  ): Promise<Exchange> {
-    let current = exchange;
-    if (schemas.body) {
-      const res = await this.validateAgainst(schemas.body, current.body);
-      if (!res.ok) {
-        throw rcError("RC5002", new Error(res.message), {
-          message: `Output body validation failed for route "${this.definition.id}"`,
-        });
-      }
-      current = DefaultExchange.rewrap(current, { body: res.value });
-    }
-    if (schemas.headers) {
-      const res = await this.validateAgainst(schemas.headers, current.headers);
-      if (!res.ok) {
-        throw rcError("RC5002", new Error(res.message), {
-          message: `Output header validation failed for route "${this.definition.id}"`,
-        });
-      }
-      const headerValue = res.value as ExchangeHeaders | undefined;
-      if (headerValue !== undefined) {
-        current = DefaultExchange.rewrap(current, {
-          headers: { ...current.headers, ...headerValue },
-        });
-      }
-    }
-    return current;
+    return deps;
   }
 
   /**
@@ -888,14 +645,18 @@ export class DefaultRoute implements Route {
           // `exchange:dropped` events (see #187).
           if (hasInputSchema && inputSchemas) {
             internals.applyValidation = (ex: Exchange) =>
-              this.validateInputOrThrow(ex, inputSchemas);
+              validateInputOrThrow(this.validationDeps(), ex, inputSchemas);
           }
         }
       } else if (hasInputSchema && inputSchemas) {
         // No parse: run validation eagerly. The validated exchange
         // replaces the initial one; with frozen headers/body the
         // validator returns a new instance via `rewrap`.
-        exchange = await this.applyInputValidation(exchange, inputSchemas);
+        exchange = await applyInputValidation(
+          this.validationDeps(),
+          exchange,
+          inputSchemas,
+        );
       }
 
       return this.handler(exchange);
@@ -951,13 +712,15 @@ export class DefaultRoute implements Route {
           const outputSchemas = this.definition.discovery?.output;
           if (outputSchemas?.body || outputSchemas?.headers) {
             try {
-              const validated = await this.applyOutputValidation(
+              const validated = await applyOutputValidation(
+                this.validationDeps(),
                 result.exchange,
                 outputSchemas,
               );
               finalResult = { ...result, exchange: validated };
             } catch (err) {
-              finalResult = await this.handleOutputValidationFailure(
+              finalResult = await handleOutputValidationFailure(
+                this.validationDeps(),
                 result.exchange,
                 err,
                 startTime,
