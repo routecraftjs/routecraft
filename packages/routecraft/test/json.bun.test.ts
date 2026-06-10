@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, json, only, type Source } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  json,
+  only,
+  type Exchange,
+  type Source,
+} from "@routecraft/routecraft";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -75,7 +82,10 @@ describe("JSON Adapter", () => {
      */
     test("invalid JSON throws from transform", () => {
       const adapter = json({});
-      expect(() => adapter.transform("not json {")).toThrow(
+      // The json transformer ignores the exchange argument, so a placeholder
+      // satisfies the two-argument CallableTransformer signature.
+      const noExchange = undefined as unknown as Exchange<unknown>;
+      expect(() => adapter.transform("not json {", noExchange)).toThrow(
         /json adapter: failed to parse/,
       );
     });

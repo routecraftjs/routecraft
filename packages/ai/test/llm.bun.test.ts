@@ -18,7 +18,9 @@ describe("llm() DSL and adapter", () => {
   test("llm(providerId:modelName) returns an LlmDestinationAdapter", () => {
     const dest = llm("ollama:my-model");
     expect(dest).toBeInstanceOf(LlmDestinationAdapter);
-    expect(dest.adapterId).toBe("routecraft.adapter.llm");
+    expect((dest as LlmDestinationAdapter).adapterId).toBe(
+      "routecraft.adapter.llm",
+    );
   });
 
   /**
@@ -32,8 +34,9 @@ describe("llm() DSL and adapter", () => {
       temperature: 0.5,
     });
     expect(dest).toBeInstanceOf(LlmDestinationAdapter);
-    expect(dest.options.system).toBe("You are helpful.");
-    expect(dest.options.temperature).toBe(0.5);
+    const adapter = dest as LlmDestinationAdapter;
+    expect(adapter.options.system).toBe("You are helpful.");
+    expect(adapter.options.temperature).toBe(0.5);
   });
 
   /**

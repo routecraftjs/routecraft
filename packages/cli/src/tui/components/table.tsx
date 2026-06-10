@@ -62,12 +62,19 @@ export function Table<T>({
         if (c.width === "flex") {
           return (
             <Fragment key={ci}>
-              <Box flexGrow={1}>
-                <Text bold dimColor>
+              {/* flexBasis 0 so the column takes the remaining space
+                  rather than demanding its content width; otherwise long
+                  content squeezes the fixed cells and wraps the row. */}
+              <Box flexGrow={1} flexBasis={0} minWidth={0}>
+                <Text bold dimColor wrap="truncate">
                   {c.header}
                 </Text>
               </Box>
-              {after && <Text>{after}</Text>}
+              {after && (
+                <Box flexShrink={0}>
+                  <Text>{after}</Text>
+                </Box>
+              )}
             </Fragment>
           );
         }
@@ -78,12 +85,12 @@ export function Table<T>({
             : col(c.header, c.width);
 
         return (
-          <Fragment key={ci}>
+          <Box key={ci} flexShrink={0}>
             <Text bold dimColor>
               {text}
             </Text>
             {after && <Text>{after}</Text>}
-          </Fragment>
+          </Box>
         );
       })}
     </Box>
@@ -125,19 +132,25 @@ export function Table<T>({
               if (c.width === "flex") {
                 return (
                   <Fragment key={ci}>
-                    <Box flexGrow={1}>
+                    {/* See the header note: flexBasis 0 keeps long flex
+                        content from squeezing fixed cells into wrapping. */}
+                    <Box flexGrow={1} flexBasis={0} minWidth={0}>
                       <Text wrap="truncate">{cell}</Text>
                     </Box>
-                    {after && <Text>{after}</Text>}
+                    {after && (
+                      <Box flexShrink={0}>
+                        <Text>{after}</Text>
+                      </Box>
+                    )}
                   </Fragment>
                 );
               }
 
               return (
-                <Fragment key={ci}>
+                <Box key={ci} flexShrink={0}>
                   {cell}
                   {after && <Text>{after}</Text>}
-                </Fragment>
+                </Box>
               );
             })}
           </Box>

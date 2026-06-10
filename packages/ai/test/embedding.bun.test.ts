@@ -24,7 +24,9 @@ describe("embedding() DSL and adapter", () => {
       using: () => "hello",
     });
     expect(dest).toBeInstanceOf(EmbeddingDestinationAdapter);
-    expect(dest.adapterId).toBe("routecraft.adapter.embedding");
+    expect((dest as EmbeddingDestinationAdapter).adapterId).toBe(
+      "routecraft.adapter.embedding",
+    );
   });
 
   /**

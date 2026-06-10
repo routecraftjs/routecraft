@@ -1,5 +1,11 @@
 /// <reference types="bun-types" />
 import type { TelemetryEvent } from "@routecraft/routecraft";
+import type {
+  AgentSummary,
+  ToolSummary,
+  AgentRunInfo,
+  ToolCallRow,
+} from "./types.js";
 
 /** Exchange row shape from the telemetry SQLite database. */
 interface TelemetryExchange {
@@ -12,6 +18,134 @@ interface TelemetryExchange {
   completedAt: string | null;
   durationMs: number | null;
   error: string | null;
+}
+
+/** Raw event row used by the agent/tool derivation queries. */
+interface EventRow {
+  id: number;
+  timestamp: string;
+  eventName: string;
+  details: string;
+  exchangeId: string | null;
+}
+
+/** Parse an event `details` JSON string, returning {} on failure. */
+function parseDetails(raw: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function asString(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined;
+}
+
+function asNumber(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+/** Read the sensitive `_snapshot` envelope from a tool event's details. */
+function snapshotField(
+  d: Record<string, unknown>,
+  field: "input" | "output" | "error",
+): { present: boolean; json: string | null } {
+  const snap = d["_snapshot"];
+  if (snap && typeof snap === "object" && field in (snap as object)) {
+    const val = (snap as Record<string, unknown>)[field];
+    return { present: true, json: JSON.stringify(val ?? null) };
+  }
+  return { present: false, json: null };
+}
+
+/**
+ * Correlate a time-ordered list of `agent:tool:*` events into one row per
+ * `toolCallId`, merging the invoked event with its later result/error.
+ */
+function correlateToolCalls(rows: EventRow[]): ToolCallRow[] {
+  const byCall = new Map<string, ToolCallRow>();
+  const order: string[] = [];
+  for (const row of rows) {
+    const d = parseDetails(row.details);
+    const suffix = row.eventName.split(":").pop();
+    const toolCallId = asString(d["toolCallId"]) ?? `${row.id}`;
+    let call = byCall.get(toolCallId);
+    if (!call) {
+      call = {
+        toolCallId,
+        toolName: asString(d["toolName"]) ?? "?",
+        routeId: asString(d["routeId"]) ?? "",
+        exchangeId: row.exchangeId ?? asString(d["exchangeId"]) ?? "",
+        agentName: asString(d["agentName"]) ?? null,
+        status: "invoked",
+        durationMs: null,
+        timestamp: row.timestamp,
+        hasInput: false,
+        hasOutput: false,
+        input: null,
+        output: null,
+        error: null,
+        errorName: null,
+      };
+      byCall.set(toolCallId, call);
+      order.push(toolCallId);
+    }
+    const toolName = asString(d["toolName"]);
+    if (toolName) call.toolName = toolName;
+    if (suffix === "invoked") {
+      const snap = snapshotField(d, "input");
+      call.hasInput = snap.present;
+      call.input = snap.json;
+    } else if (suffix === "result") {
+      call.status = "result";
+      call.durationMs = asNumber(d["duration"]) ?? call.durationMs;
+      const snap = snapshotField(d, "output");
+      call.hasOutput = snap.present;
+      call.output = snap.json;
+    } else if (suffix === "error") {
+      call.status = "error";
+      call.durationMs = asNumber(d["duration"]) ?? call.durationMs;
+      call.errorName = asString(d["errorName"]) ?? call.errorName;
+      // The full error rides in `_snapshot` (it can echo tool input) and
+      // is only persisted when snapshot capture was on. Fall back to the
+      // legacy top-level `error` field for events written before the
+      // envelope move.
+      const snap = snapshotField(d, "error");
+      if (snap.present) {
+        call.error = snap.json;
+      } else if ("error" in d) {
+        call.error = JSON.stringify(d["error"] ?? null);
+      }
+    }
+  }
+  return order.map((id) => byCall.get(id)!);
+}
+
+/**
+ * Incremental aggregation state for one agent (Agents tab). Aggregates
+ * survive across polls so each refresh only parses events newer than
+ * `AgentAggState.lastId` instead of rescanning the whole events table.
+ */
+interface AgentAcc {
+  key: string;
+  source: "registered" | "inline";
+  model: string | null;
+  description: string | null;
+  runs: Set<string>;
+  errorCount: number;
+  totalTokens: number;
+  lastRunAt: string | null;
+}
+
+/** Incremental aggregation state for one tool (Tools tab). */
+interface ToolAcc {
+  name: string;
+  source: "registered" | "observed";
+  callCount: number;
+  errorCount: number;
+  lastCalledAt: string | null;
 }
 
 /**
@@ -50,6 +184,10 @@ function escapeLike(s: string): string {
 export class TelemetryDb {
   private db: Database;
   private stmtCache = new Map<string, Statement>();
+  /** Incremental Agents-tab aggregation: only events with id > lastId are parsed per poll. */
+  private agentAgg = { lastId: 0, agents: new Map<string, AgentAcc>() };
+  /** Incremental Tools-tab aggregation: only events with id > lastId are parsed per poll. */
+  private toolAgg = { lastId: 0, tools: new Map<string, ToolAcc>() };
 
   private constructor(db: Database) {
     this.db = db;
@@ -292,6 +430,31 @@ export class TelemetryDb {
       LIMIT ?`,
     );
     return s.all(limit) as TelemetryExchange[];
+  }
+
+  /**
+   * Get one exchange by id, or null when it is not (yet) recorded.
+   * Used by the live detail views to refresh status/duration while the
+   * exchange is open.
+   */
+  getExchangeById(id: string): TelemetryExchange | null {
+    const s = this.stmt(
+      "exchangeById",
+      `SELECT
+        id,
+        route_id AS routeId,
+        context_id AS contextId,
+        correlation_id AS correlationId,
+        status,
+        started_at AS startedAt,
+        completed_at AS completedAt,
+        duration_ms AS durationMs,
+        error
+      FROM exchanges
+      WHERE id = ?
+      LIMIT 1`,
+    );
+    return (s.get(id) as TelemetryExchange | undefined) ?? null;
   }
 
   /**
@@ -570,6 +733,422 @@ export class TelemetryDb {
       // Table may not exist in very old databases
       return null;
     }
+  }
+
+  // -- Agents tab --
+
+  /**
+   * List agents derived from registration (`agent:registered`) and
+   * lifecycle (`route:agent:started|finished|error`) events. By-name
+   * agents are keyed by their registered id; inline agents by their
+   * dispatching route id.
+   *
+   * Aggregation is incremental: each call only reads and parses events
+   * newer than the previous call's high-water mark, so the 2s TUI poll
+   * stays cheap regardless of how large the events table has grown.
+   */
+  getAgents(): AgentSummary[] {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return [];
+    const rows = this.stmt(
+      "agentLifecycle",
+      `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
+       FROM events
+       WHERE id > ?
+         AND (event_name = 'agent:registered'
+          OR event_name = 'route:agent:started'
+          OR event_name = 'route:agent:finished'
+          OR event_name = 'route:agent:error')
+       ORDER BY id ASC`,
+    ).all(this.agentAgg.lastId) as EventRow[];
+
+    const map = this.agentAgg.agents;
+    const ensure = (key: string, source: "registered" | "inline"): AgentAcc => {
+      let acc = map.get(key);
+      if (!acc) {
+        acc = {
+          key,
+          source,
+          model: null,
+          description: null,
+          runs: new Set(),
+          errorCount: 0,
+          totalTokens: 0,
+          lastRunAt: null,
+        };
+        map.set(key, acc);
+      }
+      return acc;
+    };
+
+    for (const row of rows) {
+      if (row.id > this.agentAgg.lastId) this.agentAgg.lastId = row.id;
+      const d = parseDetails(row.details);
+      if (row.eventName === "agent:registered") {
+        const key = asString(d["agentId"]);
+        if (!key) continue;
+        const acc = ensure(key, "registered");
+        acc.model = asString(d["model"]) ?? acc.model;
+        acc.description = asString(d["description"]) ?? acc.description;
+        continue;
+      }
+      const suffix = row.eventName.split(":").pop();
+      const agentName = asString(d["agentName"]);
+      const routeId = asString(d["routeId"]) ?? "";
+      const key = agentName ?? routeId;
+      if (!key) continue;
+      const acc = ensure(key, agentName ? "registered" : "inline");
+      acc.model = asString(d["model"]) ?? acc.model;
+      acc.lastRunAt = row.timestamp;
+      if (suffix === "started") {
+        const exId = row.exchangeId ?? asString(d["exchangeId"]);
+        if (exId) acc.runs.add(exId);
+      } else if (suffix === "finished") {
+        acc.totalTokens += asNumber(d["totalTokens"]) ?? 0;
+      } else if (suffix === "error") {
+        acc.errorCount += 1;
+      }
+    }
+
+    const result: AgentSummary[] = Array.from(map.values()).map((a) => ({
+      key: a.key,
+      source: a.source,
+      model: a.model,
+      description: a.description,
+      runCount: a.runs.size,
+      errorCount: a.errorCount,
+      totalTokens: a.totalTokens,
+      lastRunAt: a.lastRunAt,
+    }));
+    // Active agents (those that have run) first, most-recent first; then
+    // registered-but-never-run agents alphabetically.
+    result.sort((a, b) => {
+      if (a.runCount > 0 !== b.runCount > 0) return a.runCount > 0 ? -1 : 1;
+      if (a.lastRunAt && b.lastRunAt) return a.lastRunAt < b.lastRunAt ? 1 : -1;
+      return a.key < b.key ? -1 : 1;
+    });
+    return result;
+  }
+
+  /**
+   * Get the exchanges in which a given agent ran, most recent first.
+   * Resolves run exchange ids from `agent:started` events, then joins the
+   * `exchanges` table (synthesising a minimal row when the dispatching
+   * exchange was not separately recorded).
+   */
+  getAgentRuns(
+    agentKey: string,
+    source: "registered" | "inline",
+    limit = 50,
+  ): TelemetryExchange[] {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return [];
+    // The agent filter runs in SQL (json_extract) so only the selected
+    // agent's started events are transferred and parsed. ORDER BY id DESC
+    // walks the primary key from the newest row and stops at the LIMIT,
+    // so cost tracks recent activity rather than table size. The LIMIT
+    // is doubled to absorb duplicate started events for one exchange
+    // (deduped below) while still returning `limit` distinct runs.
+    const rows = (
+      source === "registered"
+        ? this.stmt(
+            "agentStartedByName",
+            `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
+             FROM events
+             WHERE event_name = 'route:agent:started'
+               AND json_extract(details, '$.agentName') = ?
+             ORDER BY id DESC
+             LIMIT ?`,
+          )
+        : this.stmt(
+            "agentStartedInline",
+            `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
+             FROM events
+             WHERE event_name = 'route:agent:started'
+               AND json_extract(details, '$.agentName') IS NULL
+               AND json_extract(details, '$.routeId') = ?
+             ORDER BY id DESC
+             LIMIT ?`,
+          )
+    ).all(agentKey, limit * 2) as EventRow[];
+
+    const seen = new Set<string>();
+    const meta: Array<{
+      exchangeId: string;
+      routeId: string;
+      correlationId: string;
+      timestamp: string;
+    }> = [];
+    for (const row of rows) {
+      const d = parseDetails(row.details);
+      const routeId = asString(d["routeId"]) ?? "";
+      const exId = row.exchangeId ?? asString(d["exchangeId"]);
+      if (!exId || seen.has(exId)) continue;
+      seen.add(exId);
+      meta.push({
+        exchangeId: exId,
+        routeId,
+        correlationId: asString(d["correlationId"]) ?? "",
+        timestamp: row.timestamp,
+      });
+      if (meta.length >= limit) break;
+    }
+    if (meta.length === 0) return [];
+
+    const placeholders = meta.map(() => "?").join(",");
+    const found = this.db
+      .prepare(
+        `SELECT id, route_id AS routeId, context_id AS contextId,
+                correlation_id AS correlationId, status,
+                started_at AS startedAt, completed_at AS completedAt,
+                duration_ms AS durationMs, error
+         FROM exchanges WHERE id IN (${placeholders})`,
+      )
+      .all(...meta.map((m) => m.exchangeId)) as TelemetryExchange[];
+    const foundById = new Map(found.map((e) => [e.id, e]));
+
+    return meta.map((m) => {
+      const hit = foundById.get(m.exchangeId);
+      if (hit) return hit;
+      return {
+        id: m.exchangeId,
+        routeId: m.routeId,
+        contextId: "",
+        correlationId: m.correlationId,
+        status: "started",
+        startedAt: m.timestamp,
+        completedAt: null,
+        durationMs: null,
+        error: null,
+      };
+    });
+  }
+
+  /**
+   * Batch variant of {@link getAgentRunInfo}: per-run model, finish reason
+   * and token usage for a set of run exchanges in one query, keyed by
+   * exchange id. Used by the agent runs list to render model/token
+   * columns without one query per visible row.
+   */
+  getAgentRunInfos(exchangeIds: string[]): Map<string, AgentRunInfo> {
+    const result = new Map<string, AgentRunInfo>();
+    // See getAgents: legacy databases without the exchange_id column
+    // cannot contain agent events; degrade to empty.
+    if (!this.hasEventIdColumns()) return result;
+    if (exchangeIds.length === 0) return result;
+    const placeholders = exchangeIds.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(
+        `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
+         FROM events
+         WHERE exchange_id IN (${placeholders})
+           AND (event_name = 'route:agent:started'
+             OR event_name = 'route:agent:finished'
+             OR event_name = 'route:agent:error')
+         ORDER BY id ASC`,
+      )
+      .all(...exchangeIds) as EventRow[];
+
+    for (const row of rows) {
+      const exId = row.exchangeId;
+      if (!exId) continue;
+      let info = result.get(exId);
+      if (!info) {
+        info = {
+          exchangeId: exId,
+          model: null,
+          finishReason: null,
+          inputTokens: null,
+          outputTokens: null,
+          totalTokens: null,
+          status: "running",
+        };
+        result.set(exId, info);
+      }
+      const d = parseDetails(row.details);
+      const suffix = row.eventName.split(":").pop();
+      info.model = asString(d["model"]) ?? info.model;
+      if (suffix === "finished") {
+        info.status = info.status === "error" ? "error" : "finished";
+        info.finishReason = asString(d["finishReason"]) ?? info.finishReason;
+        info.inputTokens = asNumber(d["inputTokens"]) ?? info.inputTokens;
+        info.outputTokens = asNumber(d["outputTokens"]) ?? info.outputTokens;
+        info.totalTokens = asNumber(d["totalTokens"]) ?? info.totalTokens;
+      } else if (suffix === "error") {
+        info.status = "error";
+      }
+    }
+    return result;
+  }
+
+  /** Per-run agent detail (model, finish reason, tokens) for an exchange. */
+  getAgentRunInfo(exchangeId: string): AgentRunInfo | null {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return null;
+    const rows = this.stmt(
+      "agentRunInfo",
+      `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
+       FROM events
+       WHERE exchange_id = ?
+         AND (event_name = 'route:agent:started'
+           OR event_name = 'route:agent:finished'
+           OR event_name = 'route:agent:error')
+       ORDER BY id ASC`,
+    ).all(exchangeId) as EventRow[];
+    if (rows.length === 0) return null;
+
+    const info: AgentRunInfo = {
+      exchangeId,
+      model: null,
+      finishReason: null,
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      status: "running",
+    };
+    for (const row of rows) {
+      const d = parseDetails(row.details);
+      const suffix = row.eventName.split(":").pop();
+      info.model = asString(d["model"]) ?? info.model;
+      if (suffix === "finished") {
+        info.status = info.status === "error" ? "error" : "finished";
+        info.finishReason = asString(d["finishReason"]) ?? info.finishReason;
+        info.inputTokens = asNumber(d["inputTokens"]) ?? info.inputTokens;
+        info.outputTokens = asNumber(d["outputTokens"]) ?? info.outputTokens;
+        info.totalTokens = asNumber(d["totalTokens"]) ?? info.totalTokens;
+      } else if (suffix === "error") {
+        info.status = "error";
+      }
+    }
+    return info;
+  }
+
+  /** Ordered tool calls made during a single agent run (exchange). */
+  getAgentRunToolCalls(exchangeId: string): ToolCallRow[] {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return [];
+    const rows = this.stmt(
+      "agentRunToolCalls",
+      `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
+       FROM events
+       WHERE exchange_id = ? AND event_name LIKE 'route:agent:tool:%'
+       ORDER BY id ASC`,
+    ).all(exchangeId) as EventRow[];
+    return correlateToolCalls(rows);
+  }
+
+  // -- Tools tab --
+
+  /**
+   * List tools derived from registration (`agent:tool:registered`) and
+   * invocation (`route:agent:tool:invoked|error`) events.
+   *
+   * Aggregation is incremental (see {@link getAgents}): each call only
+   * parses events newer than the previous call's high-water mark.
+   */
+  getTools(): ToolSummary[] {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return [];
+    const rows = this.stmt(
+      "toolLifecycle",
+      `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
+       FROM events
+       WHERE id > ?
+         AND (event_name = 'agent:tool:registered'
+          OR event_name = 'route:agent:tool:invoked'
+          OR event_name = 'route:agent:tool:error')
+       ORDER BY id ASC`,
+    ).all(this.toolAgg.lastId) as EventRow[];
+
+    const map = this.toolAgg.tools;
+    const ensure = (
+      name: string,
+      source: "registered" | "observed",
+    ): ToolAcc => {
+      let acc = map.get(name);
+      if (!acc) {
+        acc = { name, source, callCount: 0, errorCount: 0, lastCalledAt: null };
+        map.set(name, acc);
+      }
+      return acc;
+    };
+
+    for (const row of rows) {
+      if (row.id > this.toolAgg.lastId) this.toolAgg.lastId = row.id;
+      const d = parseDetails(row.details);
+      if (row.eventName === "agent:tool:registered") {
+        const name = asString(d["toolName"]);
+        if (name) ensure(name, "registered");
+        continue;
+      }
+      const name = asString(d["toolName"]);
+      if (!name) continue;
+      const acc = ensure(name, "observed");
+      const suffix = row.eventName.split(":").pop();
+      if (suffix === "invoked") {
+        acc.callCount += 1;
+        acc.lastCalledAt = row.timestamp;
+      } else if (suffix === "error") {
+        acc.errorCount += 1;
+        acc.lastCalledAt = row.timestamp;
+      }
+    }
+
+    const result: ToolSummary[] = Array.from(map.values());
+    result.sort((a, b) => {
+      if (a.callCount > 0 !== b.callCount > 0) return a.callCount > 0 ? -1 : 1;
+      if (a.lastCalledAt && b.lastCalledAt)
+        return a.lastCalledAt < b.lastCalledAt ? 1 : -1;
+      return a.name < b.name ? -1 : 1;
+    });
+    return result;
+  }
+
+  /**
+   * Invocation history for a single tool, most recent call first.
+   *
+   * The tool filter runs in SQL (json_extract) and the scan walks the
+   * primary key from the newest row, stopping at the LIMIT, so cost
+   * tracks the tool's recent activity rather than table size. The LIMIT
+   * is tripled because each call spans up to three events (invoked,
+   * result, error) that the correlation step merges into one row.
+   */
+  getToolCalls(toolName: string, limit = 100): ToolCallRow[] {
+    // Agent/tool telemetry postdates the exchange_id column migration, so
+    // a legacy database that could not be migrated (read-only file) has
+    // no agent events either; degrade to empty instead of erroring on
+    // the missing column.
+    if (!this.hasEventIdColumns()) return [];
+    const rows = this.stmt(
+      "toolCalls",
+      `SELECT id, timestamp, event_name AS eventName, details, exchange_id AS exchangeId
+       FROM events
+       WHERE event_name LIKE 'route:agent:tool:%'
+         AND json_extract(details, '$.toolName') = ?
+       ORDER BY id DESC
+       LIMIT ?`,
+    ).all(toolName, limit * 3) as EventRow[];
+    // Correlation expects chronological order; the query returned newest
+    // first so the LIMIT keeps the most recent events.
+    rows.reverse();
+    const calls = correlateToolCalls(rows);
+    calls.reverse();
+    return calls.slice(0, limit);
   }
 
   /**

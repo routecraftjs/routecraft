@@ -210,7 +210,9 @@ describe("keep helper (strict by default)", () => {
    * @expectedResult Always fields survive; role-gated fields are dropped
    */
   test("fails closed without a principal", () => {
-    const out = keep<Rec>({ id: true, yearlyWage: ["hr"] })(
+    // keep's FieldTransform claims the input type, but at runtime it drops
+    // gated fields; widen to unknown so toEqual can assert the subset.
+    const out: unknown = keep<Rec>({ id: true, yearlyWage: ["hr"] })(
       record(),
       mk(record()),
     );
@@ -230,7 +232,7 @@ describe("keep helper (strict by default)", () => {
       email: "a@x.com",
       roles: ["hr"],
     };
-    const out = keep<Rec>({ id: true, yearlyWage: ["hr"] })(
+    const out: unknown = keep<Rec>({ id: true, yearlyWage: ["hr"] })(
       record(),
       mk(record(), rawHr),
     );
@@ -263,10 +265,10 @@ describe("keep helper (strict by default)", () => {
     const rec: Rec = { ...record(), review: { rating: 5, note: "x" } };
     const rules = { id: true as const, "review.rating": ["hr"] };
 
-    const asHr = keep<Rec>(rules)(rec, mk(rec, who(["hr"])));
+    const asHr: unknown = keep<Rec>(rules)(rec, mk(rec, who(["hr"])));
     expect(asHr).toEqual({ id: "1", review: { rating: 5 } });
 
-    const asMember = keep<Rec>(rules)(rec, mk(rec, who(["member"])));
+    const asMember: unknown = keep<Rec>(rules)(rec, mk(rec, who(["member"])));
     expect(asMember).toEqual({ id: "1" });
   });
 
@@ -277,7 +279,7 @@ describe("keep helper (strict by default)", () => {
    */
   test("applies to each element of an array body", () => {
     const arr: Rec[] = [record(), { ...record(), id: "2" }];
-    const out = keep<Rec>({ id: true, yearlyWage: ["hr"] })(
+    const out: unknown = keep<Rec>({ id: true, yearlyWage: ["hr"] })(
       arr,
       mk(arr, who(["member"])),
     );

@@ -78,6 +78,19 @@ export interface AgentSessionInput {
   readonly modelConfig: LlmModelConfig;
   /** Provider-specific model name (after `parseProviderModel`). */
   readonly modelName: string;
+  /**
+   * Full `providerId:modelName` identifier this dispatch resolved to
+   * (e.g. `anthropic:claude-opus-4-7`). Emitted on the agent lifecycle
+   * events so observability consumers can show the model per run.
+   */
+  readonly model: string;
+  /**
+   * Registered agent id when dispatched by name (`agent("id")`),
+   * undefined for inline agents (which are identified by their route).
+   * Emitted on the agent lifecycle events so the TUI can attribute a
+   * run to a named agent rather than only the dispatching route.
+   */
+  readonly agentName?: string;
   /** Resolved tool list (empty when the agent has no tools). */
   readonly tools: ResolvedTool[];
   /** Final user prompt for this dispatch. */
@@ -189,7 +202,7 @@ export class AgentSession {
     const { options, exchange } = this.input;
     const validate = options.validate;
     const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
-    const prepared = await this.prepare(abortSignal);
+    this.emitStarted(maxTurns);
 
     let turnsUsed = 0;
     let currentUser: string | unknown[] = this.input.user;
@@ -197,6 +210,11 @@ export class AgentSession {
     const accumulatedToolCalls: LlmToolCallSummary[] = [];
 
     try {
+      // Inside the try so a prepare failure (tool resolution, schema
+      // resolution) still emits agent:error; otherwise the started event
+      // would be orphaned and observability would show the run as
+      // running forever.
+      const prepared = await this.prepare(abortSignal);
       while (true) {
         const remaining = maxTurns - turnsUsed;
         if (remaining <= 0) {
@@ -251,11 +269,37 @@ export class AgentSession {
   }
 
   /**
+   * Emit `route:<id>:agent:started` on the context bus at the start of
+   * a dispatch. Carries the agent identity, resolved model, tool names,
+   * and turn budget so observability consumers (the TUI) can show that
+   * an agent executed, with what model and tools, even if the run later
+   * fails mid-flight.
+   *
+   * @internal
+   */
+  private emitStarted(maxTurns: number): void {
+    const id = this.input.dispatchIdentity;
+    const ctx = this.input.context;
+    if (!id || !ctx) return;
+    ctx.emit("route:agent:started", {
+      routeId: id.routeId,
+      exchangeId: id.exchangeId,
+      correlationId: id.correlationId,
+      ...(this.input.agentName !== undefined && {
+        agentName: this.input.agentName,
+      }),
+      model: this.input.model,
+      toolNames: this.input.tools.map((t) => t.name),
+      maxTurns,
+    });
+  }
+
+  /**
    * Emit `route:<id>:agent:finished` on the context bus once the
-   * dispatch returns a consolidated result. Carries finish reason
-   * and total token usage so observability consumers can wire
-   * dashboards / metrics / billing without subscribing to per-token
-   * deltas.
+   * dispatch returns a consolidated result. Carries the agent identity,
+   * model, finish reason and total token usage so observability
+   * consumers can wire dashboards / metrics / billing without
+   * subscribing to per-token deltas.
    *
    * @internal
    */
@@ -272,6 +316,10 @@ export class AgentSession {
       routeId: id.routeId,
       exchangeId: id.exchangeId,
       correlationId: id.correlationId,
+      ...(this.input.agentName !== undefined && {
+        agentName: this.input.agentName,
+      }),
+      model: this.input.model,
       finishReason,
       ...(result.usage?.inputTokens !== undefined && {
         inputTokens: result.usage.inputTokens,
@@ -303,6 +351,10 @@ export class AgentSession {
       routeId: id.routeId,
       exchangeId: id.exchangeId,
       correlationId: id.correlationId,
+      ...(this.input.agentName !== undefined && {
+        agentName: this.input.agentName,
+      }),
+      model: this.input.model,
       error: err,
     });
   }

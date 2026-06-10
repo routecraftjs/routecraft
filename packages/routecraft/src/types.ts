@@ -424,42 +424,75 @@ export interface EventDetailsMap {
   "route:operation:choice:unmatched": ExchangeScoped;
 
   // -- Agent (emitted by @routecraft/ai agent() destinations) --
+  // Sensitive payloads (tool input/output, thrown errors that may echo
+  // them) ride in the `_snapshot` envelope: the bus always carries them,
+  // but the telemetry sink persists them only when snapshot capture is on.
+  "route:agent:started": ExchangeScoped & {
+    agentName?: string;
+    model: string;
+    toolNames: string[];
+    maxTurns: number;
+  };
   "route:agent:tool:invoked": ExchangeScoped & {
     toolCallId: string;
     toolName: string;
-    input: unknown;
+    _snapshot: { input: unknown };
   };
   "route:agent:tool:result": ExchangeScoped & {
     toolCallId: string;
     toolName: string;
-    output: unknown;
+    _snapshot: { output: unknown };
     duration: number;
   };
   "route:agent:tool:error": ExchangeScoped & {
     toolCallId: string;
     toolName: string;
-    error: unknown;
+    errorName: string;
+    _snapshot: { error: unknown };
     duration: number;
   };
   "route:agent:block:loaded": ExchangeScoped & {
     toolCallId: string;
     blockName: string;
-    output: unknown;
+    _snapshot: { output: unknown };
     duration: number;
   };
   "route:agent:block:error": ExchangeScoped & {
     toolCallId: string;
     blockName: string;
-    error: unknown;
+    errorName: string;
+    _snapshot: { error: unknown };
     duration: number;
   };
   "route:agent:finished": ExchangeScoped & {
+    agentName?: string;
+    model: string;
     finishReason: string;
     inputTokens?: number;
     outputTokens?: number;
     totalTokens?: number;
   };
-  "route:agent:error": ExchangeScoped & { error: unknown };
+  "route:agent:error": ExchangeScoped & {
+    agentName?: string;
+    model: string;
+    error: unknown;
+  };
+
+  // -- Agent / tool registration (emitted once per registered agent / fn
+  // on context:started by agentPlugin in @routecraft/ai, so observability
+  // consumers can list agents and tools before any of them runs) --
+  "agent:registered": {
+    agentId: string;
+    description?: string;
+    model?: string;
+    source: "registered";
+  };
+  "agent:tool:registered": {
+    toolName: string;
+    description?: string;
+    tags?: string[];
+    source: "registered";
+  };
 
   // -- HTTP plugin --
   "plugin:http:server:listening": { port: number; host: string };

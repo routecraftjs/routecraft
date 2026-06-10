@@ -23,7 +23,7 @@ describe("Plugin System", () => {
    * @expectedResult Plugin is called with the context
    */
   test("Plugin receives context", async () => {
-    const applyMock = mock<[CraftContext], void>();
+    const applyMock = mock<(ctx: CraftContext) => void>();
 
     t = await testContext()
       .with({
@@ -43,13 +43,19 @@ describe("Plugin System", () => {
   test("Multiple plugins run in order", async () => {
     const callOrder: string[] = [];
     const plugin1: CraftPlugin = {
-      apply: () => callOrder.push("plugin1"),
+      apply: () => {
+        callOrder.push("plugin1");
+      },
     };
     const plugin2: CraftPlugin = {
-      apply: () => callOrder.push("plugin2"),
+      apply: () => {
+        callOrder.push("plugin2");
+      },
     };
     const plugin3: CraftPlugin = {
-      apply: () => callOrder.push("plugin3"),
+      apply: () => {
+        callOrder.push("plugin3");
+      },
     };
 
     t = await testContext()
@@ -187,8 +193,8 @@ describe("Plugin System", () => {
    * @expectedResult All plugins run
    */
   test("Plugins from config execute", async () => {
-    const apply1 = mock<[CraftContext], void>();
-    const apply2 = mock<[CraftContext], void>();
+    const apply1 = mock<(ctx: CraftContext) => void>();
+    const apply2 = mock<(ctx: CraftContext) => void>();
 
     t = await testContext()
       .routes(craft().id("test").from(simple("hello")).to(noop()))
@@ -209,10 +215,14 @@ describe("Plugin System", () => {
   test("Plugins accumulate from multiple builder calls", async () => {
     const calls: string[] = [];
     const plugin1: CraftPlugin = {
-      apply: () => calls.push("plugin1"),
+      apply: () => {
+        calls.push("plugin1");
+      },
     };
     const plugin2: CraftPlugin = {
-      apply: () => calls.push("plugin2"),
+      apply: () => {
+        calls.push("plugin2");
+      },
     };
 
     t = await testContext()

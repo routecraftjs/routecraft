@@ -88,23 +88,23 @@ describe(".error() step scope: dual-mode wrapper", () => {
     class TraceWrapperOuter extends WrapperStep {
       protected override async runInner(
         exchange: Exchange,
-        innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-      ): Promise<"ok"> {
+        ctx: StepContext,
+      ): Promise<StepOutcome> {
         calls.push("outer-before");
-        await this.inner.execute(exchange, [], innerQueue);
+        const outcome = await this.inner.execute(exchange, ctx);
         calls.push("outer-after");
-        return "ok";
+        return outcome;
       }
     }
     class TraceWrapperInner extends WrapperStep {
       protected override async runInner(
         exchange: Exchange,
-        innerQueue: { exchange: Exchange; steps: Step<Adapter>[] }[],
-      ): Promise<"ok"> {
+        ctx: StepContext,
+      ): Promise<StepOutcome> {
         calls.push("inner-before");
-        await this.inner.execute(exchange, [], innerQueue);
+        const outcome = await this.inner.execute(exchange, ctx);
         calls.push("inner-after");
-        return "ok";
+        return outcome;
       }
     }
 
@@ -681,8 +681,9 @@ describe(".error() step scope: dual-mode wrapper", () => {
       operation: "transform" as Step<Adapter>["operation"],
       adapter: { kind: "fake" } as unknown as Adapter,
       label: "fake-step",
-      async execute(): Promise<void> {
+      async execute(exchange: Exchange): Promise<StepOutcome> {
         // never called in this test
+        return { kind: "continue", exchange };
       },
     };
     const wrapped = new ErrorWrapperStep(innerSpy, handler);

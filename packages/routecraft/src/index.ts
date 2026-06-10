@@ -55,6 +55,7 @@ import "./plugins/http/config.ts";
 import "./adapters/cron/config.ts";
 import "./adapters/direct/config.ts";
 import "./adapters/mail/config.ts";
+import "./adapters/carddav/config.ts";
 import "./telemetry/config.ts";
 
 export { httpPlugin } from "./plugins/http/plugin.ts";
@@ -259,6 +260,7 @@ export { jsonl } from "./adapters/jsonl/index.ts";
 export { group } from "./adapters/group/index.ts";
 export { event } from "./adapters/sources/event/index.ts";
 export { mail } from "./adapters/mail/index.ts";
+export { carddav } from "./adapters/carddav/index.ts";
 
 export { type LogOptions, type LogLevel } from "./adapters/log/index.ts";
 export {
@@ -399,3 +401,38 @@ export {
   HEADER_MAIL_SENDER,
   HEADER_MAIL_RAW_HEADERS,
 } from "./adapters/mail/index.ts";
+export {
+  CardDAVAdapter,
+  CardDAVClientManager,
+  CARDDAV_CLIENT_MANAGER,
+  DEFAULT_CARDDAV_SERVER_URL,
+  HEADER_CARDDAV_UID,
+  HEADER_CARDDAV_URL,
+  HEADER_CARDDAV_ETAG,
+  HEADER_CARDDAV_ACCOUNT,
+  VCard,
+  VCardProperty,
+  parseVCard,
+  VCARD,
+  VPARAM,
+  type KnownProperty,
+  type KnownParam,
+  type CardDAVOptions,
+  type CardDAVReadOptions,
+  type CardDAVWriteOptions,
+  type CardDAVDeleteOptions,
+  type CardDAVContextConfig,
+  type CardDAVAccountConfig,
+  type CardDAVAction,
+  type CardDAVTargetExtractor,
+  type CardDAVWriteResult,
+  type CardDAVDeleteResult,
+  type CardDAVDriverClient,
+  type DAVAddressBookLike,
+  type DAVVCardLike,
+  type ResolvedCardDAVConnection,
+  type VCardBody,
+  type VCardPropertyData,
+  type VCardPropertyOptions,
+  type VCardParam,
+} from "./adapters/carddav/index.ts";

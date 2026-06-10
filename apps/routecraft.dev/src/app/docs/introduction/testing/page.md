@@ -21,7 +21,7 @@ describe("hello capability", () => {
   });
 
   it("emits and logs", async () => {
-    t = await testContext().routes(helloRoute).build();
+    t = await testContext({ fn: vi.fn }).routes(helloRoute).build();
     await t.test();
 
     expect(t.logger.info).toHaveBeenCalled();
@@ -29,7 +29,7 @@ describe("hello capability", () => {
 });
 ```
 
-**Tip:** `t.logger` is a spy (vi.fn() methods). Use `expect(t.logger.info).toHaveBeenCalled()` or inspect `t.logger.info.mock.calls` for log assertions.
+**Tip:** `t.logger` is a spy logger. By default it uses a built-in runner-agnostic spy that records calls in `t.logger.info.mock.calls`, so it works under `bun test`, Vitest, and `node:test` with no extra wiring. Pass your runner's mock factory (`{ fn: vi.fn }` with Vitest, `{ fn: mock }` with `bun:test`) when you want native matcher support like `expect(t.logger.info).toHaveBeenCalledWith(...)`.
 
 ## Vitest configuration
 
@@ -63,7 +63,7 @@ Checklist:
 
 - Prefer `await t.test()` for full lifecycle; assert after it returns.
 - Use `t.ctx` when you need the raw context (e.g. `t.ctx.start()`, `t.ctx.getStore()`).
-- Use `t.logger` to assert on log calls (e.g. `expect(t.logger.info).toHaveBeenCalled()`).
+- Use `t.logger` to assert on log calls (e.g. `t.logger.info.mock.calls`, or `expect(t.logger.info).toHaveBeenCalled()` when built with `{ fn: vi.fn }`).
 - For custom timing (e.g. timer routes), use `t.ctx.start()` and `t.ctx.stop()` manually.
 - Restore mocks in `beforeEach/afterEach`.
 
@@ -245,7 +245,7 @@ expect(spyAdapter.calls.send).toBe(1);
 ```ts
 import { testContext } from "@routecraft/testing";
 import { craft, simple, log } from "@routecraft/routecraft";
-import { expect, vi } from "vitest";
+import { expect } from "vitest";
 
 test('logs messages correctly', async () => {
   const route = craft()
@@ -256,8 +256,8 @@ test('logs messages correctly', async () => {
   const t = await testContext().routes(route).build();
   await t.test();
 
-  expect(t.logger.info).toHaveBeenCalled();
-  const loggedMessage = (t.logger.info as ReturnType<typeof vi.fn>).mock.calls[0][1];
+  expect(t.logger.info.mock.calls.length).toBeGreaterThan(0);
+  const loggedMessage = t.logger.info.mock.calls[0][1];
   expect(loggedMessage).toContain("Hello, World!");
 });
 ```
@@ -267,7 +267,7 @@ test('logs messages correctly', async () => {
 Filter logs by route id (from `LogAdapter` headers):
 
 ```ts
-const infoCalls = (t.logger.info as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+const infoCalls = t.logger.info.mock.calls.map((c) => c[0]);
 const logsForRoute = infoCalls.filter(
   (arg) => typeof arg === "object" && arg != null && "headers" in arg && (arg as any).headers?.["routecraft.route"] === "channel-adapter-1",
 );

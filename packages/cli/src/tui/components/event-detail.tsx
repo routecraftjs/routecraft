@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import type { EventRecord } from "../types.js";
+import { theme } from "../theme.js";
 import { Panel } from "./panel.js";
 import { formatJson, ColoredJsonLine, parseDetails } from "./json-format.js";
 
@@ -8,7 +9,7 @@ export function EventDetail({
   width,
   height,
   scrollOffset,
-  color = "cyan",
+  color = theme.accent,
 }: {
   event: EventRecord;
   width: number;
@@ -31,21 +32,27 @@ export function EventDetail({
   const jsonWidth = Math.max(width - 6, 20);
   const jsonLines = formatJson(event.details, jsonWidth);
   const visibleRows = Math.max(height - headerHeight - jsonChrome, 3);
-  const visible = jsonLines.slice(scrollOffset, scrollOffset + visibleRows);
+  // Clamp so overscrolling past the last line cannot blank the panel or
+  // report an out-of-range line window.
+  const offset = Math.max(
+    0,
+    Math.min(scrollOffset, Math.max(jsonLines.length - visibleRows, 0)),
+  );
+  const visible = jsonLines.slice(offset, offset + visibleRows);
 
   return (
     <Box flexDirection="column" width={width} flexGrow={1}>
       <Panel width={width}>
         <Text>
           Context:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {event.contextId}
           </Text>
         </Text>
         {routeId && (
           <Text>
             Capability:{" "}
-            <Text bold color="cyan">
+            <Text bold color={theme.accent}>
               {routeId}
             </Text>
           </Text>
@@ -53,14 +60,14 @@ export function EventDetail({
         {exchangeId && (
           <Text>
             Exchange:{" "}
-            <Text bold color="cyan">
+            <Text bold color={theme.accent}>
               {exchangeId}
             </Text>
           </Text>
         )}
         <Text>
           Event:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {event.eventName}
           </Text>
         </Text>
@@ -73,8 +80,7 @@ export function EventDetail({
         title="DETAILS"
         subtitle={
           <Text dimColor>
-            ({scrollOffset + 1}-
-            {Math.min(scrollOffset + visibleRows, jsonLines.length)}/
+            ({offset + 1}-{Math.min(offset + visibleRows, jsonLines.length)}/
             {jsonLines.length} lines)
           </Text>
         }
@@ -83,7 +89,7 @@ export function EventDetail({
         color={color}
       >
         {visible.map((line, i) => (
-          <ColoredJsonLine key={scrollOffset + i} line={line} />
+          <ColoredJsonLine key={offset + i} line={line} />
         ))}
         {visible.length < visibleRows &&
           Array.from({ length: visibleRows - visible.length }).map((_, i) => (

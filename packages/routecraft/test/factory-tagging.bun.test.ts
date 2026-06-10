@@ -76,7 +76,7 @@ const cases: Array<{
   {
     name: "group",
     factory: group,
-    make: () => group({ comparator: () => true }),
+    make: () => group({ comparator: { compare: () => true } }),
     args: [{ comparator: expect.anything() }],
   },
   {

@@ -13,7 +13,7 @@ import {
   type Source,
   type Exchange,
   type ExchangeHeaders,
-  type CraftContext,
+  type Subscription,
   type AdapterOverride,
 } from "@routecraft/routecraft";
 import {
@@ -50,13 +50,8 @@ function plainDestination<R = { ok: true }>(
  */
 class PlainSource<M = unknown> implements Source<M> {
   constructor(public readonly label: string) {}
-  async subscribe(
-    _context: CraftContext,
-    _handler: (message: M, headers?: ExchangeHeaders) => Promise<Exchange>,
-    _abortController: AbortController,
-    onReady?: () => void,
-  ): Promise<void> {
-    onReady?.();
+  async subscribe(sub: Subscription<M>): Promise<void> {
+    sub.ready();
   }
 }
 

@@ -1,0 +1,14 @@
+{
+  // Isolated program for the registry declaration-merging test. Its global
+  // `declare module` augmentations must not leak into the main bun-test
+  // program (see tsconfig.bun-test.json), but the file itself still gets
+  // type-checked here.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "bun-types"]
+  },
+  "include": [
+    "packages/routecraft/test/registry-declaration-merging.bun.test.ts"
+  ],
+  "exclude": []
+}

@@ -871,7 +871,7 @@ describe("JSONL Adapter", () => {
                 path: filePath,
                 mode: "read",
               }),
-              only((rows) => rows, "rows"),
+              only((rows: { id: string; n: number }[]) => rows, "rows"),
             )
             .transform(
               (body) => body.rows.find((r) => r.id === body.id) ?? null,

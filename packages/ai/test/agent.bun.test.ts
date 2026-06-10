@@ -48,7 +48,9 @@ describe("agent() destination", () => {
       system: "You answer concisely.",
     });
     expect(dest).toBeInstanceOf(AgentDestinationAdapter);
-    expect(dest.adapterId).toBe("routecraft.adapter.agent");
+    expect((dest as AgentDestinationAdapter).adapterId).toBe(
+      "routecraft.adapter.agent",
+    );
   });
 
   /**

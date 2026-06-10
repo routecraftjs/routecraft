@@ -93,10 +93,10 @@ describe("agent blocks: construction-time validation", () => {
    */
   test('rejects invalid "mode" value', () => {
     expect(() =>
+      // @ts-expect-error -- testing runtime validation of an invalid mode; the overloaded agent() reports the bad blocks shape on the call itself
       agent({
         system: "x",
         model: "anthropic:claude-opus-4-7",
-        // @ts-expect-error -- testing runtime validation of an invalid mode
         blocks: { x: { mode: "bogus", value: "y" } },
       }),
     ).toThrow(/"mode" must be "inject" or "progressive"/);
@@ -109,10 +109,10 @@ describe("agent blocks: construction-time validation", () => {
    */
   test('rejects non-string, non-function "value"', () => {
     expect(() =>
+      // @ts-expect-error -- testing runtime validation of an invalid value; the overloaded agent() reports the bad blocks shape on the call itself
       agent({
         system: "x",
         model: "anthropic:claude-opus-4-7",
-        // @ts-expect-error -- testing runtime validation of an invalid value
         blocks: { x: { mode: "inject", value: 42 } },
       }),
     ).toThrow(/"value" must be a string or a function/);

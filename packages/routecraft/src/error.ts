@@ -62,6 +62,7 @@ export interface ErrorCodeRegistry {
   RC5024: RCMeta;
   RC5028: RCMeta;
   RC5029: RCMeta;
+  RC5030: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -289,6 +290,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The default key hashes JSON.stringify(body); it fails on non-serialisable bodies (functions, symbols, circular refs, BigInt). Supply an explicit `key` function in cache({ key: ... }). Retrying will not help: the same body fails the same way.",
     docs: `${DOCS_BASE}#rc-5029`,
+    retryable: false,
+  },
+  RC5030: {
+    category: "Adapter",
+    message: "Resource changed (precondition failed)",
+    suggestion:
+      "A conditional write failed because the resource changed on the server since it was read (HTTP 412 / ETag mismatch, a mid-air collision). Re-read the resource and re-apply the change; a blind retry with the same precondition will keep failing, so this is not retryable.",
+    docs: `${DOCS_BASE}#rc-5030`,
     retryable: false,
   },
   RC9901: {

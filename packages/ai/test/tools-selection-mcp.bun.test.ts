@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, tools, type FnHandlerContext } from "../src/index.ts";
-import { MCP_STDIO_MANAGERS, MCP_TOOL_REGISTRY } from "../src/mcp/types.ts";
+import {
+  MCP_STDIO_MANAGERS,
+  MCP_TOOL_REGISTRY,
+  type McpTool,
+} from "../src/mcp/types.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 
 // Exercise handlers without real stdio / HTTP clients by registering a
@@ -22,7 +26,7 @@ async function buildCtxWithMcp(
     tools: Array<{
       name: string;
       description?: string;
-      inputSchema?: Record<string, unknown>;
+      inputSchema?: McpTool["inputSchema"];
       annotations?: {
         readOnlyHint?: boolean;
         destructiveHint?: boolean;

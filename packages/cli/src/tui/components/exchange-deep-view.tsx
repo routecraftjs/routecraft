@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import type { ExchangeRecord, ExchangeSnapshot } from "../types.js";
 import { statusColor, formatDuration, truncate } from "../utils.js";
+import { theme } from "../theme.js";
 import { Panel } from "./panel.js";
 import { formatJson, ColoredJsonLine } from "./json-format.js";
 
@@ -36,7 +37,7 @@ export function ExchangeDeepView({
   width,
   height,
   scrollOffset,
-  color = "cyan",
+  color = theme.accent,
 }: {
   exchange: ExchangeRecord;
   snapshot: ExchangeSnapshot | null;
@@ -62,20 +63,26 @@ export function ExchangeDeepView({
         "  telemetry({ sqlite: { captureSnapshots: true } })",
       ];
 
-  const visible = jsonLines.slice(scrollOffset, scrollOffset + visibleRows);
+  // Clamp so overscrolling past the last line cannot blank the panel or
+  // report an out-of-range line window.
+  const offset = Math.max(
+    0,
+    Math.min(scrollOffset, Math.max(jsonLines.length - visibleRows, 0)),
+  );
+  const visible = jsonLines.slice(offset, offset + visibleRows);
 
   return (
     <Box flexDirection="column" width={width} flexGrow={1}>
       <Panel width={width}>
         <Text>
           Capability:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {exchange.routeId}
           </Text>
         </Text>
         <Text>
           Exchange:{" "}
-          <Text bold color="cyan">
+          <Text bold color={theme.accent}>
             {truncate(exchange.id, width - 14)}
           </Text>
         </Text>
@@ -97,8 +104,7 @@ export function ExchangeDeepView({
         title="EXCHANGE SNAPSHOT"
         subtitle={
           <Text dimColor>
-            ({scrollOffset + 1}-
-            {Math.min(scrollOffset + visibleRows, jsonLines.length)}/
+            ({offset + 1}-{Math.min(offset + visibleRows, jsonLines.length)}/
             {jsonLines.length} lines)
           </Text>
         }
@@ -109,19 +115,19 @@ export function ExchangeDeepView({
         {visible.map((line, i) => {
           if (line === "HEADERS" || line === "BODY") {
             return (
-              <Text key={scrollOffset + i} bold color="yellow">
+              <Text key={offset + i} bold color={theme.accent}>
                 {line}
               </Text>
             );
           }
           if (line.startsWith("[")) {
             return (
-              <Text key={scrollOffset + i} dimColor>
+              <Text key={offset + i} dimColor>
                 {line}
               </Text>
             );
           }
-          return <ColoredJsonLine key={scrollOffset + i} line={line} />;
+          return <ColoredJsonLine key={offset + i} line={line} />;
         })}
         {visible.length < visibleRows &&
           Array.from({ length: visibleRows - visible.length }).map((_, i) => (

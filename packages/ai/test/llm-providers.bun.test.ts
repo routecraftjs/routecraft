@@ -7,9 +7,12 @@ import { resolveLanguageModel } from "../src/llm/providers/resolve.ts";
 function mockModel(text: string): MockLanguageModelV3 {
   return new MockLanguageModelV3({
     doGenerate: async () => ({
-      finishReason: "stop",
-      usage: { inputTokens: 3, outputTokens: 4, totalTokens: 7 },
-      content: [{ type: "text", text }],
+      finishReason: { unified: "stop" as const, raw: "stop" },
+      usage: {
+        inputTokens: { total: 3, noCache: 3, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 4, text: 4, reasoning: 0 },
+      },
+      content: [{ type: "text" as const, text }],
       warnings: [],
     }),
   });
@@ -80,7 +83,9 @@ describe("custom LLM provider (in-process model)", () => {
   test("validation asserts a concrete model's shape eagerly", () => {
     expect(() =>
       llmPlugin({
-        // @ts-expect-error not a valid LanguageModel (no doGenerate/doStream)
+        // Not a valid LanguageModel (no doGenerate/doStream). This compiles
+        // because `custom.model` is deliberately typed `unknown`; the shape
+        // contract is enforced at runtime by assertLanguageModelShape.
         providers: { custom: { model: {} } },
       }),
     ).toThrow(/Invalid model/i);

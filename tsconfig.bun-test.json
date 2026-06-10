@@ -1,0 +1,19 @@
+{
+  // Type-checks the bun:test suite, which the root tsconfig excludes (it
+  // targets node + vitest globals). Wired into `bun run typecheck`.
+  //
+  // registry-declaration-merging.bun.test.ts is excluded here and checked
+  // via tsconfig.bun-test.registry.json instead: its `declare module`
+  // augmentation of the type-safety registries is global to a tsc program
+  // and would constrain adapter endpoint strings in every other test file.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "bun-types"]
+  },
+  "include": [
+    "packages/*/test/**/*.bun.test.ts",
+    "packages/*/test/**/*.bun.test.tsx",
+    "examples/test/**/*.bun.test.ts"
+  ],
+  "exclude": ["**/registry-declaration-merging.bun.test.ts"]
+}

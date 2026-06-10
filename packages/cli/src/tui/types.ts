@@ -1,4 +1,10 @@
-export type NavItem = "capabilities" | "exchanges" | "errors" | "events";
+export type NavItem =
+  | "capabilities"
+  | "agents"
+  | "tools"
+  | "exchanges"
+  | "errors"
+  | "events";
 
 export type NavSection = {
   label?: string;
@@ -11,9 +17,15 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     items: [
-      { key: "exchanges", label: "Exchanges", shortcut: "2" },
-      { key: "errors", label: "Errors", shortcut: "3" },
-      { key: "events", label: "Events", shortcut: "4" },
+      { key: "agents", label: "Agents", shortcut: "2" },
+      { key: "tools", label: "Tools", shortcut: "3" },
+    ],
+  },
+  {
+    items: [
+      { key: "exchanges", label: "Exchanges", shortcut: "4" },
+      { key: "errors", label: "Errors", shortcut: "5" },
+      { key: "events", label: "Events", shortcut: "6" },
     ],
   },
 ];
@@ -72,4 +84,62 @@ export interface ExchangeSnapshot {
 export interface RouteActivity {
   throughput: number[];
   recentErrors: number;
+}
+
+/**
+ * A summary row for the Agents tab. `key` is the registered agent id for
+ * by-name agents, or the dispatching route id for inline agents.
+ */
+export interface AgentSummary {
+  key: string;
+  source: "registered" | "inline";
+  model: string | null;
+  description: string | null;
+  runCount: number;
+  errorCount: number;
+  totalTokens: number;
+  lastRunAt: string | null;
+}
+
+/** A summary row for the Tools tab. */
+export interface ToolSummary {
+  name: string;
+  source: "registered" | "observed";
+  callCount: number;
+  errorCount: number;
+  lastCalledAt: string | null;
+}
+
+/** Per-run agent detail, keyed by the dispatching exchange. */
+export interface AgentRunInfo {
+  exchangeId: string;
+  model: string | null;
+  finishReason: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  status: "running" | "finished" | "error";
+}
+
+/**
+ * A single tool invocation, correlating the invoked/result/error events
+ * for one `toolCallId`. `input`/`output`/`error` are only populated when
+ * telemetry snapshot capture was enabled; `errorName` is the always
+ * persisted, non-sensitive error class.
+ */
+export interface ToolCallRow {
+  toolCallId: string;
+  toolName: string;
+  routeId: string;
+  exchangeId: string;
+  agentName: string | null;
+  status: "invoked" | "result" | "error";
+  durationMs: number | null;
+  timestamp: string;
+  hasInput: boolean;
+  hasOutput: boolean;
+  input: string | null;
+  output: string | null;
+  error: string | null;
+  errorName: string | null;
 }

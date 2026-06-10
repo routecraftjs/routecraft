@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { InMemoryProcessingQueue } from "../src/queue.ts";
+import type { Exchange } from "../src/exchange.ts";
+
+// The queue's handler contract returns the processed Exchange; these unit
+// tests only assert delivery order, so a stub exchange satisfies the type
+// (mirrors the queue's own no-handler path which resolves `{} as Exchange`).
+const stubExchange = {} as Exchange;
 
 describe("InMemoryProcessingQueue", () => {
   /**
@@ -16,6 +22,7 @@ describe("InMemoryProcessingQueue", () => {
     const seen: string[] = [];
     await q.setHandler(async (m) => {
       seen.push(m);
+      return stubExchange;
     });
 
     // Give time for async flush
@@ -34,6 +41,7 @@ describe("InMemoryProcessingQueue", () => {
     const seen: number[] = [];
     await q.setHandler(async (m) => {
       seen.push(m);
+      return stubExchange;
     });
 
     await q.enqueue(1);
@@ -52,6 +60,7 @@ describe("InMemoryProcessingQueue", () => {
     const seen: string[] = [];
     await q.setHandler(async (m) => {
       seen.push(m);
+      return stubExchange;
     });
 
     await q.enqueue("x");

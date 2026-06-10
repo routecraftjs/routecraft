@@ -18,7 +18,7 @@
     "@types/react-dom": "19.2.3"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.bun-test.json --noEmit && tsc -p tsconfig.bun-test.registry.json --noEmit",
     "lint": "eslint .",
     "format:write": "prettier --write . --ignore-unknown",
     "format": "prettier --check . --ignore-unknown",

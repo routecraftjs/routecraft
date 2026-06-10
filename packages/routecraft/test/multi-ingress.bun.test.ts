@@ -67,7 +67,9 @@ describe("Multi-ingress routes", () => {
     const def = craft()
       .id("multi-ok")
       .input(z.object({ id: z.string() }))
-      .from(simple({ id: "a" }), direct(), async () => ({ id: "c" }))
+      .from(simple({ id: "a" }), direct(), async (sub) => {
+        await sub.emit({ message: { id: "c" } });
+      })
       .to(noop())
       .build();
 
