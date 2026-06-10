@@ -8,6 +8,28 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 ---
 
+## v0.7.0 {% badge color="gray" %}In development{% /badge %}
+
+The pre-v1 architecture release: the contracts that freeze at v1 changed shape once, now, so they do not have to change after. Every route runs ~25% faster (steps wrapped with `.error()` ~45% faster) and event throughput doubles. See the [0.6.x to 0.7.0 migration guide](/docs/migrating/0.6-to-0.7) for upgrade steps.
+
+### Core {% badge color="red" %}Breaking{% /badge %}
+
+- **Fixed event names; identity in the payload** -- hierarchical names like `route:<id>:exchange:failed` become a fixed set (`route:exchange:failed`) with `routeId` in `details`. Wildcard patterns on `ctx.on()` / `ctx.once()` are replaced by exact names, the `"*"` catch-all, and the `forRoute()` filter helper (the `event()` source adapter keeps its pattern support); ecosystem packages declare events by merging into `EventDetailsMap`. See the [migration guide](/docs/migrating/0.6-to-0.7#1-events-fixed-names-identity-in-the-payload).
+- **`Subscription` source contract** -- source adapters receive a single `Subscription` object (`{ context, signal, meta, ready(), complete(), emit() }`) instead of five positional parameters. `.from()` additionally accepts async generator functions and (async) iterables, and `@routecraft/testing` adds a `testSubscription()` helper. See the [migration guide](/docs/migrating/0.6-to-0.7#2-sources-the-subscription-object).
+- **`StepOutcome` step contract** -- custom `Step` implementations return what happened (`continue` / `complete` / `drop` / `branch` / `fanOut`) and the executor owns all scheduling; the wrapper buffer/relay protocol is gone. Custom aggregators return `{ body, headers? }` instead of a fabricated `Exchange`. See the [migration guide](/docs/migrating/0.6-to-0.7#3-custom-steps-and-aggregators).
+- **Namespaced error-code registry** -- ecosystem packages own codes under a claimed namespace via `registerErrorCodes()` plus `ErrorCodeRegistry` declaration merging; `RC` is reserved for core. Adds `RC1003` (error-code registration failed). See the [migration guide](/docs/migrating/0.6-to-0.7#4-error-codes-ai-namespace).
+
+### AI & MCP {% badge color="red" %}Breaking{% /badge %}
+
+- **AI error codes renamed** -- `RC5025` / `RC5026` / `RC5027` become `AI1001` / `AI1002` / `AI1003` under the new `AI` namespace; update any code or alerting that matches on `error.rc`.
+
+### Internals
+
+- **Engine restructuring** -- `CraftContext` delegates events to an internal `EventBus`; adapter config keys (`cron`, `direct`, `mail`, `telemetry`, `http`) move to per-module config appliers; the route engine splits into `pipeline/` modules (executor, validation, synthetic steps). Two behavioural notes: context store seeding for adapter config now happens in `initPlugins()` (called automatically by `start()`), and mail/carddav client managers drain in reverse-plugin-order teardown.
+- **Uniform factory tagging** -- every public adapter factory is tagged for `mockAdapter()`, enforced by a conformance test; previously `direct`, `simple`, `timer`, `cron`, `log`, `noop`, and others (plus two transformer-mode branches of `html()` / `json()`) were silently unmockable.
+
+---
+
 ## v0.6.0 {% badge color="gray" %}In development{% /badge %}
 
 This section tracks changes landing on `main` since the v0.5.0 release. Release notes will be finalised when v0.6.0 is tagged. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) for upgrade steps on the breaking AI surface changes below.
