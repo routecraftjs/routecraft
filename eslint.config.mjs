@@ -16,8 +16,6 @@ export default [
       "bun.lock",
       "**/.next/**",
       "apps/routecraft.dev/**",
-      // Spike-only benchmark and notes scratch space, not production code
-      "scratch/**",
     ],
   },
   {
