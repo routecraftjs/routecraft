@@ -22,11 +22,13 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "@routecraft/routecraft": "workspace:^0.6.0",
     "@standard-schema/spec": "^1.1.0"
   },
+  "devDependencies": {
+    "@routecraft/routecraft": "workspace:*"
+  },
   "peerDependencies": {
-    "@routecraft/routecraft": "*"
+    "@routecraft/routecraft": "^0.6.0"
   },
   "keywords": [
     "routecraft",

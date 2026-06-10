@@ -23,15 +23,13 @@
     "test:coverage": "vitest --coverage",
     "prepublishOnly": "bun run build"
   },
-  "dependencies": {
-    "@routecraft/routecraft": "workspace:^0.6.0"
-  },
   "devDependencies": {
+    "@routecraft/routecraft": "workspace:*",
     "vitest": "^4.1.5",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@routecraft/routecraft": ">=0.5.0"
+    "@routecraft/routecraft": "^0.6.0"
   },
   "keywords": [
     "routecraft",

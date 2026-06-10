@@ -21,7 +21,7 @@
     "@inquirer/prompts": "^8.4.2"
   },
   "devDependencies": {
-    "@routecraft/testing": "workspace:^0.6.0"
+    "@routecraft/testing": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

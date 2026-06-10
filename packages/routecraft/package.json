@@ -37,7 +37,7 @@
   },
   "devDependencies": {
     "@opentelemetry/sdk-trace-base": "^2.7.1",
-    "@routecraft/testing": "workspace:^0.6.0",
+    "@routecraft/testing": "workspace:*",
     "@sinonjs/fake-timers": "^11.3.1",
     "@types/sinonjs__fake-timers": "^15.0.1",
     "@types/better-sqlite3": "^7.6.13",
