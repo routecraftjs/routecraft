@@ -76,7 +76,9 @@ export {
 
 export {
   type CallableSource,
+  type GeneratorSource,
   type Source,
+  type SourceLike,
   type SourceMeta,
   type Subscription,
 } from "./operations/from.ts";
