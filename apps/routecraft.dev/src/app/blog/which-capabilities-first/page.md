@@ -11,6 +11,8 @@ tags:
   - capabilities
   - automation
   - strategy
+related:
+  - anatomy-of-a-team-agent-harness
 layout: blog-post
 ---
 

@@ -12,6 +12,11 @@ tags:
   - organizations
   - mcp
   - capabilities
+related:
+  - beyond-the-skills-repository
+  - which-capabilities-first
+  - stop-trusting-your-llm-to-behave
+  - anatomy-of-a-team-agent-harness
 layout: blog-post
 ---
 

@@ -11,6 +11,9 @@ tags:
   - security
   - guardrails
   - llm
+related:
+  - agent-tool-guardrails
+  - your-first-mcp-server-in-typescript
 layout: blog-post
 ---
 

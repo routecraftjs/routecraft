@@ -12,6 +12,10 @@ tags:
   - fastmcp
   - patterns
   - ai-agents
+related:
+  - routecraft-vs-fastmcp
+  - llm-as-a-judge
+  - human-in-the-loop
 layout: blog-post
 ---
 

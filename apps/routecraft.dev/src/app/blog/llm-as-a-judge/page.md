@@ -11,6 +11,8 @@ tags:
   - ai-sdk
   - patterns
   - typescript
+related:
+  - stop-trusting-your-llm-to-behave
 layout: blog-post
 ---
 

@@ -11,6 +11,9 @@ tags:
   - fastmcp
   - comparison
   - typescript
+related:
+  - your-first-mcp-server-in-typescript
+  - routecraft-vs-n8n
 layout: blog-post
 ---
 

@@ -11,6 +11,8 @@ tags:
   - skills
   - platform-engineering
   - mcp
+related:
+  - which-capabilities-first
 layout: blog-post
 ---
 

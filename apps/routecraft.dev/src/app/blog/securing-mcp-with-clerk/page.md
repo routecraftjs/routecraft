@@ -13,6 +13,9 @@ tags:
   - routecraft
   - typescript
 featured: false
+related:
+  - securing-mcp-with-workos
+  - routecraft-vs-fastmcp
 layout: blog-post
 ---
 
