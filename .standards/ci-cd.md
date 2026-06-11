@@ -10,23 +10,23 @@ What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce and 
   ci.yml (push + pull_request):
 
   changes  ─┬─►  validate ─┐
-            │              ├─►  scaffolder-smoke ─────────┐
-   setup ───┼─►  test  ────┤                              ├─►  build-and-deploy-docs
-            │              ├─►  embedding-smoke ──────────┤
-            └─►  build ────┤                              │
-                           └─►  adapter-cross-runtime  ───┘
-                                  (bun + node)
+            │              ├─►  scaffolder-smoke
+   setup ───┼─►  test  ────┤
+            │              ├─►  embedding-smoke
+            └─►  build ────┤
+                           └─►  adapter-cross-runtime (bun + node)
 
   release.yml (workflow_run: CI succeeded on a main push):
 
-  release (changesets: Version Packages PR / stable publish)  ─►  publish-canary
+  release (changesets: Version Packages PR  ─┬─►  publish-canary
+           / stable publish + v* tag)        └─►  build-and-deploy-docs
 ```
 
 The `setup` job runs `bun install --frozen-lockfile` and seeds the workspace's `**/node_modules`. Downstream jobs restore that cache (key: `hashFiles('**/bun.lock')`) and reinstall on a miss; the GitHub cache service is best-effort, so a miss must never fail a job. Build output is passed differently: `build` uploads `packages/*/dist` and `examples/dist` as a run artifact (`build-dist`) that the smoke and cross-runtime jobs download. Artifacts are guaranteed within the run that produced them, which a cache key is not. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
 
 The split between the two files is exact: **ci.yml validates and never publishes to npm; release.yml owns every npm publish** (stable releases AND canary snapshots). This is forced by npm Trusted Publishing, which allows one trusted publisher per package, pinned to a single workflow filename, so all publishes must originate from one file. release.yml triggers on `workflow_run` when CI completes successfully for a push to `main`, which also guarantees nothing is published from a commit whose tests or smokes failed. ci.yml's only involvement is uploading a `push-base` artifact (the push's `before` sha, unavailable in `workflow_run` payloads) that the canary job diffs against.
 
-Docs deployment (`build-and-deploy-docs`) stays in ci.yml, gated on the integration-test trio, so we never ship docs from a build that failed integration. On docs-only pushes the integration jobs are skipped and the deploy proceeds (`if: !cancelled() && !failure()`).
+Docs deployment (`build-and-deploy-docs`) is the LAST job of release.yml, after the release job has pushed any fresh `v*` tag: the docs freeze always sees the version that was just released, a failed release attempt never moves the docs, and a release is self-contained end to end (publish, tag, canary, docs). Docs-only pushes still deploy on the main cadence because release.yml runs for every green main push; manual redeploys go through release.yml's `workflow_dispatch`, which runs only the docs job (never a publish).
 
 ## 2. The PR gates
 
@@ -156,7 +156,7 @@ All rows below run inside `release.yml`, which triggers via `workflow_run` after
 | Trigger | Job | Result |
 |---------|-----|--------|
 | Main push with pending changesets | `release` (changesets action) | Opens/updates the "Version Packages" PR: runs `bun run version-packages` (= `changeset version` + `scripts/sync-derived-versions.mjs`, which patches the `.claude-plugin/{plugin,marketplace}.json` versions from core). |
-| Merging the "Version Packages" PR | `release` | `bun run release` (= build + `changeset publish`) publishes to npm with provenance, creates one GitHub Release per package version (tags like `@routecraft/routecraft@0.7.0`), pushes a `v<core-version>` tag (the docs freeze keys off `v*`), and re-dispatches CI so the docs deploy picks up the fresh tag. |
+| Merging the "Version Packages" PR | `release` | `bun run release` (= build + `changeset publish`) publishes to npm with provenance, creates one GitHub Release per package version (tags like `@routecraft/routecraft@0.7.0`), and pushes a `v<core-version>` tag; `build-and-deploy-docs` then freezes the docs to that fresh tag in the same workflow run. |
 | Main push touching packages | `publish-canary` (after `release`) | Publishes canaries of the packages CHANGED by the push (`0.6.1-canary-<datetime>`) under the npm `canary` dist-tag, no git tags. A synthetic changeset is generated from the git diff (base sha handed over from CI as the `push-base` artifact), so canaries flow on every merge whether or not the PR carried a changeset. The fixed core train always moves together (a change to any train member canaries the whole train, lockstep); independent packages (ai, browser) only get a canary when they themselves changed, calculated from their own version line. |
 
 npm auth is tokenless: **Trusted Publishing** (OIDC) is configured on npmjs.com per package, and `npm publish` picks it up via the job's `id-token: write` permission (requires npm >= 11.5; Node 24 from `.nvmrc` bundles it). Provenance is generated automatically. Two operational notes:
