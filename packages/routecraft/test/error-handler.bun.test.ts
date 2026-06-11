@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, direct } from "@routecraft/routecraft";
+import { craft, simple, direct, recovery } from "@routecraft/routecraft";
 
 describe("Error handler (.error())", () => {
   let t: TestContext;
@@ -268,5 +268,214 @@ describe("Error handler (.error())", () => {
     expect(events).toContain("error");
     expect(events).toContain("exchange:failed");
     expect(events).not.toContain("error:invoked");
+  });
+});
+
+describe("Recovery directives (recovery.drop / recovery.rethrow)", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
+
+  /**
+   * @case Route-scope handler returns recovery.drop(reason)
+   * @preconditions Route with .error() returning recovery.drop("poison") and a throwing step
+   * @expectedResult exchange:dropped fires with the given reason and error-handler:recovered fires; neither exchange:failed nor exchange:completed fire
+   */
+  test("route-scope drop discards the exchange with the given reason", async () => {
+    const events: string[] = [];
+    let dropReason: string | undefined;
+
+    t = await testContext()
+      .on("route:exchange:dropped", ({ details }) => {
+        events.push("dropped");
+        dropReason = details.reason;
+      })
+      .on("route:error-handler:recovered", () => {
+        events.push("recovered");
+      })
+      .on("route:exchange:failed", () => {
+        events.push("failed");
+      })
+      .on("route:exchange:completed", () => {
+        events.push("completed");
+      })
+      .routes(
+        craft()
+          .id("route-scope-drop")
+          .error(() => recovery.drop("poison"))
+          .from(simple("input"))
+          .transform(() => {
+            throw new Error("boom");
+          }),
+      )
+      .build();
+
+    await t.test();
+
+    expect(events).toContain("dropped");
+    expect(events).toContain("recovered");
+    expect(events).not.toContain("failed");
+    expect(events).not.toContain("completed");
+    expect(dropReason).toBe("poison");
+  });
+
+  /**
+   * @case Route-scope handler returns recovery.rethrow()
+   * @preconditions Route with .error() returning recovery.rethrow() and a step throwing "original"
+   * @expectedResult Behaves exactly like the handler throwing the original error: error-handler:failed, route:error, context:error, and exchange:failed fire with the original error
+   */
+  test("route-scope rethrow propagates the original error", async () => {
+    const events: string[] = [];
+    let failedError: unknown;
+
+    t = await testContext()
+      .on("route:error-handler:failed", () => {
+        events.push("handler:failed");
+      })
+      .on("route:error", () => {
+        events.push("route:error");
+      })
+      .on("context:error", () => {
+        events.push("context:error");
+      })
+      .on("route:exchange:failed", ({ details }) => {
+        events.push("exchange:failed");
+        failedError = details.error;
+      })
+      .routes(
+        craft()
+          .id("route-scope-rethrow")
+          .error(() => recovery.rethrow())
+          .from(simple("input"))
+          .transform(() => {
+            throw new Error("original");
+          }),
+      )
+      .build();
+
+    await t.test();
+
+    expect(events).toContain("handler:failed");
+    expect(events).toContain("route:error");
+    expect(events).toContain("context:error");
+    expect(events).toContain("exchange:failed");
+    expect((failedError as Error).message).toContain("original");
+  });
+
+  /**
+   * @case Step-scope handler returns recovery.drop(reason)
+   * @preconditions Route with a post-from .error() wrapping a throwing step, followed by more steps
+   * @expectedResult The exchange is dropped with the given reason; subsequent steps never run; neither exchange:failed nor exchange:completed fire
+   */
+  test("step-scope drop halts the pipeline and discards the exchange", async () => {
+    const events: string[] = [];
+    let dropReason: string | undefined;
+    const afterSpy = mock((body: unknown) => body);
+    const s = spy();
+
+    t = await testContext()
+      .on("route:exchange:dropped", ({ details }) => {
+        events.push("dropped");
+        dropReason = details.reason;
+      })
+      .on("route:exchange:failed", () => {
+        events.push("failed");
+      })
+      .on("route:exchange:completed", () => {
+        events.push("completed");
+      })
+      .routes(
+        craft()
+          .id("step-scope-drop")
+          .from(simple("input"))
+          .error(() => recovery.drop("step-poison"))
+          .transform(() => {
+            throw new Error("boom");
+          })
+          .transform(afterSpy)
+          .to(s),
+      )
+      .build();
+
+    await t.test();
+
+    expect(events).toContain("dropped");
+    expect(events).not.toContain("failed");
+    expect(events).not.toContain("completed");
+    expect(dropReason).toBe("step-poison");
+    expect(afterSpy).not.toHaveBeenCalled();
+    expect(s.received).toHaveLength(0);
+  });
+
+  /**
+   * @case Step-scope handler returns recovery.rethrow() with a route-scope handler present
+   * @preconditions Post-from .error() returning recovery.rethrow() around a throwing step; route-scope .error() that recovers
+   * @expectedResult The step-scope handler declines (error-handler:failed with scope "step"); the route-scope handler receives the original error and recovers (scope "route")
+   */
+  test("step-scope rethrow cascades to the route-scope handler", async () => {
+    const scopes: { event: string; scope: string }[] = [];
+    let routeHandlerError: unknown;
+
+    t = await testContext()
+      .on("route:error-handler:failed", ({ details }) => {
+        scopes.push({ event: "failed", scope: details.scope ?? "unknown" });
+      })
+      .on("route:error-handler:recovered", ({ details }) => {
+        scopes.push({ event: "recovered", scope: details.scope ?? "unknown" });
+      })
+      .routes(
+        craft()
+          .id("step-scope-rethrow")
+          .error((error) => {
+            routeHandlerError = error;
+            return "route-recovered";
+          })
+          .from(simple("input"))
+          .error(() => recovery.rethrow())
+          .transform(() => {
+            throw new Error("original");
+          }),
+      )
+      .build();
+
+    await t.test();
+
+    expect(scopes).toContainEqual({ event: "failed", scope: "step" });
+    expect(scopes).toContainEqual({ event: "recovered", scope: "route" });
+    expect((routeHandlerError as Error).message).toContain("original");
+  });
+
+  /**
+   * @case Unbranded directive-shaped return values stay plain recovery bodies
+   * @preconditions Step-scope .error() returning the plain object { kind: "drop" } (no brand)
+   * @expectedResult The object becomes the recovered body and the pipeline continues; no drop occurs
+   */
+  test("plain object shaped like a directive is treated as a recovery body", async () => {
+    const events: string[] = [];
+    const s = spy();
+
+    t = await testContext()
+      .on("route:exchange:dropped", () => {
+        events.push("dropped");
+      })
+      .routes(
+        craft()
+          .id("unbranded-body")
+          .from(simple("input"))
+          .error(() => ({ kind: "drop" }))
+          .transform((): unknown => {
+            throw new Error("boom");
+          })
+          .to(s),
+      )
+      .build();
+
+    await t.test();
+
+    expect(events).not.toContain("dropped");
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual({ kind: "drop" });
   });
 });

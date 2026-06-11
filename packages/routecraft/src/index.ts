@@ -64,6 +64,14 @@ export { apiKey } from "./plugins/http/auth.ts";
 export { type DirectConfig } from "./adapters/direct/types.ts";
 
 export {
+  recovery,
+  type Recovery,
+  type RecoveryDrop,
+  type RecoveryRethrow,
+  isRecovery,
+} from "./recovery.ts";
+
+export {
   DefaultRoute,
   type Route,
   type RouteDefinition,

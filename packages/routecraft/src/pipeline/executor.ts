@@ -5,8 +5,10 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
   isDropped,
+  markDropped,
   setStartedAt,
 } from "../exchange.ts";
+import { isRecovery } from "../recovery.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -327,30 +329,61 @@ export async function runPipeline(
             exchange,
             forward,
           );
-          // Replace body via rewrap (frozen exchange); keep id and
-          // internals so telemetry continues to reference the same
-          // logical exchange.
-          const recovered = DefaultExchange.rewrap(exchange, {
-            body: result,
-          });
-          lastProcessedExchange = recovered;
+          if (isRecovery(result)) {
+            if (result.kind === "rethrow") {
+              // Declarative equivalent of `throw error` inside the
+              // handler: fall through to the handler-threw path below
+              // with the original error.
+              throw err;
+            }
+            // `recovery.drop()`: resolve the error by discarding the
+            // exchange. Mark before emitting so subscribers observing the
+            // event see `isDropped(exchange) === true`; the route engine
+            // reads the flag to skip `exchange:completed`.
+            markDropped(exchange);
+            deps.context.emit("route:error-handler:recovered", {
+              routeId: deps.routeId,
+              exchangeId: exchange.id,
+              correlationId,
+              originalError: err,
+              failedOperation: stepLabel,
+              recoveryStrategy: "route-error-handler",
+              scope: "route",
+            });
+            deps.context.emit("route:exchange:dropped", {
+              routeId: deps.routeId,
+              exchangeId: exchange.id,
+              correlationId,
+              reason: result.reason,
+              exchange,
+            });
+            dropped = true;
+          } else {
+            // Replace body via rewrap (frozen exchange); keep id and
+            // internals so telemetry continues to reference the same
+            // logical exchange.
+            const recovered = DefaultExchange.rewrap(exchange, {
+              body: result,
+            });
+            lastProcessedExchange = recovered;
 
-          // Error handler recovered
-          deps.context.emit("route:error:caught", {
-            routeId: deps.routeId,
-            error: err,
-            route: deps.route,
-            exchange: recovered,
-          });
-          deps.context.emit("route:error-handler:recovered", {
-            routeId: deps.routeId,
-            exchangeId: recovered.id,
-            correlationId,
-            originalError: err,
-            failedOperation: stepLabel,
-            recoveryStrategy: "route-error-handler",
-            scope: "route",
-          });
+            // Error handler recovered
+            deps.context.emit("route:error:caught", {
+              routeId: deps.routeId,
+              error: err,
+              route: deps.route,
+              exchange: recovered,
+            });
+            deps.context.emit("route:error-handler:recovered", {
+              routeId: deps.routeId,
+              exchangeId: recovered.id,
+              correlationId,
+              originalError: err,
+              failedOperation: stepLabel,
+              recoveryStrategy: "route-error-handler",
+              scope: "route",
+            });
+          }
         } catch (handlerError) {
           const handlerErr = processError(handlerError);
           exchange.logger.error(

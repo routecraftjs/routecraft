@@ -4,9 +4,11 @@ import {
   getExchangeRoute,
   HeadersKeys,
   DefaultExchange,
+  markDropped,
 } from "../exchange.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
+import { isRecovery } from "../recovery.ts";
 import type { ErrorHandler } from "../route.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
@@ -102,6 +104,39 @@ export class ErrorWrapperStep<
           });
         }
         const recovered = await this.handler(innerError, exchange, forward);
+        if (isRecovery(recovered)) {
+          if (recovered.kind === "rethrow") {
+            // Declarative equivalent of `throw error` inside the
+            // handler: fall through to the handler-threw path below with
+            // the original error so the route-level cascade fires.
+            throw innerError;
+          }
+          // `recovery.drop()`: resolve the error by discarding the
+          // exchange. Mark before emitting so subscribers observing the
+          // event see `isDropped(exchange) === true`; the route engine
+          // reads the flag to skip `exchange:completed`.
+          markDropped(exchange);
+          if (route && context && routeId) {
+            context.emit("route:error-handler:recovered", {
+              routeId,
+              exchangeId: exchange.id,
+              correlationId,
+              originalError: innerError,
+              failedOperation: stepLabel,
+              recoveryStrategy: "step-error-handler",
+              scope: "step",
+              stepLabel,
+            });
+            context.emit("route:exchange:dropped", {
+              routeId,
+              exchangeId: exchange.id,
+              correlationId,
+              reason: recovered.reason,
+              exchange,
+            });
+          }
+          return { kind: "drop" };
+        }
         // Build a recovered exchange (the original is frozen). Inheriting
         // identity / internals via rewrap keeps event correlation
         // (exchangeId, route binding) consistent across the recovery.

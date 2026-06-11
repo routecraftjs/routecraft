@@ -62,10 +62,17 @@ export type ForwardFn = (
  * The pipeline does not resume after this handler runs. The handler's return value
  * becomes the route's final exchange body. Use `forward` to delegate to another route.
  *
+ * Instead of a recovery body the handler may return a branded `Recovery`
+ * directive built with the `recovery` helpers (see `recovery.ts`):
+ * `recovery.drop(reason?)` discards the exchange (emits
+ * `route:exchange:dropped`, no `exchange:completed`), and
+ * `recovery.rethrow()` propagates the original error exactly as if the
+ * handler had thrown it. Plain (unbranded) return values are unaffected.
+ *
  * @param error - The thrown error
  * @param exchange - The exchange at the point of failure
  * @param forward - Sends a payload to another route via the direct adapter
- * @returns Static fallback value or result of forward()
+ * @returns Static fallback value, result of forward(), or a `Recovery` directive
  */
 export type ErrorHandler = (
   error: unknown,
