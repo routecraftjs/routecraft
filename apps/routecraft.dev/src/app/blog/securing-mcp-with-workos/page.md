@@ -12,6 +12,8 @@ tags:
   - authentication
   - routecraft
   - typescript
+related:
+  - routecraft-vs-fastmcp
 layout: blog-post
 ---
 
