@@ -1,32 +1,27 @@
 import { CraftContext } from "../context.ts";
 import { type RouteDefinition } from "../route.ts";
-import { type ProcessingQueue, type Message, type Consumer } from "../types.ts";
-import { type Exchange, type ExchangeHeaders } from "../exchange.ts";
-import { type OnParseError } from "../adapters/shared/parse.ts";
+import {
+  type ProcessingQueue,
+  type Message,
+  type Consumer,
+  type ConsumerDeps,
+} from "../types.ts";
+import { type Exchange } from "../exchange.ts";
 
-export class SimpleConsumer implements Consumer<never> {
-  constructor(
-    public readonly context: CraftContext,
-    public readonly definition: RouteDefinition,
-    public readonly channel: ProcessingQueue<Message>,
-    public readonly options: never,
-  ) {}
+export class SimpleConsumer implements Consumer<undefined> {
+  public readonly context: CraftContext;
+  public readonly definition: RouteDefinition;
+  public readonly channel: ProcessingQueue<Message>;
+  public readonly options: undefined;
 
-  async register(
-    handler: (
-      message: unknown,
-      headers?: ExchangeHeaders,
-      parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: OnParseError,
-    ) => Promise<Exchange>,
-  ): Promise<void> {
-    this.channel.setHandler(async (message) => {
-      return await handler(
-        message.message,
-        message.headers,
-        message.parse,
-        message.parseFailureMode,
-      );
-    });
+  constructor(deps: ConsumerDeps) {
+    this.context = deps.context;
+    this.definition = deps.definition;
+    this.channel = deps.channel;
+    this.options = undefined;
+  }
+
+  register(handler: (envelope: Message) => Promise<Exchange>): void {
+    this.channel.setHandler(handler);
   }
 }

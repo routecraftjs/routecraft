@@ -628,11 +628,11 @@ export class RouteBuilder<
     const mapped = {
       size: options?.size,
       time: options?.flushIntervalMs,
-    } as unknown;
+    };
     this.pendingOptions = {
       ...(this.pendingOptions ?? {}),
       consumer: {
-        type: BatchConsumer as unknown as ConsumerType<Consumer>,
+        type: BatchConsumer,
         options: mapped,
       },
     };
@@ -859,7 +859,7 @@ export class RouteBuilder<
     }
     const id = this.pendingOptions?.id ?? randomUUID();
     const consumer = this.pendingOptions?.consumer ?? {
-      type: SimpleConsumer as unknown as ConsumerType<Consumer>,
+      type: SimpleConsumer,
       options: undefined,
     };
     const errorHandler = this.pendingOptions?.errorHandler;

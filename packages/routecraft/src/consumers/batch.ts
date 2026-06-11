@@ -5,6 +5,7 @@ import {
   type ProcessingQueue,
   type Message,
   type Consumer,
+  type ConsumerDeps,
   type EventName,
   type EventHandler,
 } from "../types.ts";
@@ -13,7 +14,6 @@ import {
   type ExchangeHeaders,
   type HeaderValue,
 } from "../exchange.ts";
-import { type OnParseError } from "../adapters/shared/parse.ts";
 
 export type BatchOptions = {
   /**
@@ -33,15 +33,19 @@ export type BatchOptions = {
   };
 };
 
-export class BatchConsumer implements Consumer<BatchOptions> {
-  public readonly options: BatchOptions;
+export class BatchConsumer implements Consumer<Required<BatchOptions>> {
+  public readonly context: CraftContext;
+  public readonly definition: RouteDefinition;
+  public readonly channel: ProcessingQueue<Message>;
+  public readonly options: Required<BatchOptions>;
 
-  constructor(
-    public readonly context: CraftContext,
-    public readonly definition: RouteDefinition,
-    public readonly channel: ProcessingQueue<Message>,
-    options: BatchOptions,
-  ) {
+  constructor(deps: ConsumerDeps) {
+    this.context = deps.context;
+    this.definition = deps.definition;
+    this.channel = deps.channel;
+    // The deps bag carries options as `unknown` (route definitions store
+    // heterogeneous consumer configs); this consumer owns the narrowing.
+    const options = (deps.options ?? {}) as BatchOptions;
     this.options = {
       size: options.size ?? 1000,
       time: options.time ?? 10 * 1000,
@@ -59,7 +63,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
             headers,
           };
         }),
-    } as Required<BatchOptions>;
+    };
   }
 
   /**
@@ -78,14 +82,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
    * headers verbatim, so any `routecraft.auth.principal` set by the source
    * survives into `.error()` for authorization checks.
    */
-  async register(
-    handler: (
-      message: unknown,
-      headers?: ExchangeHeaders,
-      parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: OnParseError,
-    ) => Promise<Exchange>,
-  ): Promise<void> {
+  register(handler: (envelope: Message) => Promise<Exchange>): void {
     let batch: Message[] = [];
     let resolvers: {
       resolve: (ex: Exchange) => void;
@@ -115,8 +112,13 @@ export class BatchConsumer implements Consumer<BatchOptions> {
         });
 
         try {
-          const merged = this.options.merge!(currentBatch);
-          const finalExchange = await handler(merged.message, merged.headers);
+          const merged = this.options.merge(currentBatch);
+          const finalExchange = await handler({
+            message: merged.message,
+            ...(merged.headers !== undefined
+              ? { headers: merged.headers }
+              : {}),
+          });
           for (const { resolve } of currentResolvers) {
             resolve(finalExchange);
           }
@@ -164,14 +166,16 @@ export class BatchConsumer implements Consumer<BatchOptions> {
           // re-invoking `itemParse` on the same input, since user-supplied
           // parsers may have side effects (logging, metrics, prefetch).
           // Mirrors the mail adapter's `MAIL_PARSE_ERRORS` pattern.
-          return handler(
-            rawMessage,
-            message.headers,
-            () => {
+          return handler({
+            message: rawMessage,
+            ...(message.headers !== undefined
+              ? { headers: message.headers }
+              : {}),
+            parse: () => {
               throw parseErr;
             },
-            itemMode,
-          );
+            ...(itemMode !== undefined ? { parseFailureMode: itemMode } : {}),
+          });
         }
         delete message.parse;
         delete message.parseFailureMode;
@@ -187,7 +191,7 @@ export class BatchConsumer implements Consumer<BatchOptions> {
 
         this.context.emit("route:batch:started", {
           routeId: this.definition.id,
-          batchSize: this.options.size!,
+          batchSize: this.options.size,
           batchId,
         });
 
@@ -196,10 +200,10 @@ export class BatchConsumer implements Consumer<BatchOptions> {
         }
         timer = setTimeout(async () => {
           await flushBatch("time");
-        }, this.options.time!);
+        }, this.options.time);
       }
 
-      if (batch.length >= this.options.size!) {
+      if (batch.length >= this.options.size) {
         await flushBatch("size");
       }
       return promise;

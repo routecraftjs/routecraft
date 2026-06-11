@@ -120,11 +120,31 @@ export interface StepContext {
 
 // MessageChannel lives with channel adapter now
 
-export type ConsumerType<T extends Consumer, O = unknown> = new (
-  context: CraftContext,
-  definition: RouteDefinition,
-  channel: unknown,
-  options: O,
+/**
+ * Construction dependencies handed to a {@link Consumer} by the route
+ * runtime, one bag per (source, consumer) pair.
+ *
+ * `options` is deliberately `unknown` here: route definitions store
+ * heterogeneous consumer configurations, so the typed options surface
+ * lives on the builder method that stages the consumer (e.g.
+ * `.batch(...)`). Each consumer narrows and defaults its own options in
+ * its constructor; it owns the interpretation of that value.
+ */
+export type ConsumerDeps = {
+  context: CraftContext;
+  definition: RouteDefinition;
+  channel: ProcessingQueue<Message>;
+  options: unknown;
+};
+
+/**
+ * Constructable consumer class. The single deps-bag parameter (rather
+ * than positional arguments) keeps every consumer class assignable to
+ * `ConsumerType<Consumer>` without casts, so route definitions can store
+ * any consumer implementation uniformly.
+ */
+export type ConsumerType<T extends Consumer = Consumer> = new (
+  deps: ConsumerDeps,
 ) => T;
 
 /**
@@ -169,29 +189,23 @@ export type Message<T = unknown> = {
 
 export interface Consumer<O = unknown> {
   context: CraftContext;
-  channel: unknown; // will be narrowed by specific consumer types
+  channel: ProcessingQueue<Message>;
   definition: RouteDefinition;
   options: O;
   /**
-   * Register the route handler. At runtime, message and the returned exchange's body
-   * are untyped (unknown). The builder chain is typed; narrow or assert in the handler
-   * if you need to access body fields.
+   * Register the route handler. The handler receives the same
+   * {@link Message} envelope that sources enqueue, so a pass-through
+   * consumer forwards it untouched while merging consumers (e.g. batch)
+   * synthesize new envelopes. At runtime the envelope's `message` and the
+   * returned exchange's body are untyped (unknown); the builder chain is
+   * typed, so narrow or assert in the handler if you need body fields.
    *
-   * The optional `parse` argument is forwarded by the consumer when the
-   * source adapter attached one to the queued `Message`. The route
-   * captures it on the exchange internals so `runPipeline` can apply it as a
-   * synthetic first pipeline step. Consumers that merge multiple messages
-   * (e.g. batch) parse items eagerly during enqueue and pass a `parse`-less
-   * call here.
+   * When the envelope carries a `parse` function the route captures it on
+   * the exchange internals so `runPipeline` can apply it as a synthetic
+   * first pipeline step. Consumers that merge multiple messages parse
+   * items eagerly during enqueue and hand over a `parse`-less envelope.
    */
-  register(
-    handler: (
-      message: unknown,
-      headers?: ExchangeHeaders,
-      parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: OnParseError,
-    ) => Promise<Exchange>,
-  ): void;
+  register(handler: (envelope: Message) => Promise<Exchange>): void;
 }
 
 /**

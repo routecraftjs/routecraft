@@ -19,7 +19,6 @@ import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type Source, type Subscription } from "./operations/from.ts";
-import { type OnParseError } from "./adapters/shared/parse.ts";
 import {
   type Adapter,
   type Step,
@@ -334,12 +333,12 @@ export class DefaultRoute implements Route {
     );
     this.consumers = this.messageChannels.map(
       (channel) =>
-        new this.definition.consumer.type(
-          this.context,
-          this.definition,
+        new this.definition.consumer.type({
+          context: this.context,
+          definition: this.definition,
           channel,
-          this.definition.consumer.options,
-        ),
+          options: this.definition.consumer.options,
+        }),
     );
 
     // Emit routeStopping/routeStopped when the controller is aborted externally
@@ -634,13 +633,8 @@ export class DefaultRoute implements Route {
    * synthetic parse step when the source supplies a parser) before running the
    * route's steps.
    */
-  private buildConsumerHandler(): (
-    message: unknown,
-    headers?: ExchangeHeaders,
-    parse?: (raw: unknown) => unknown | Promise<unknown>,
-    parseFailureMode?: OnParseError,
-  ) => Promise<Exchange> {
-    return async (message, headers, parse, parseFailureMode) => {
+  private buildConsumerHandler(): (envelope: Message) => Promise<Exchange> {
+    return async ({ message, headers, parse, parseFailureMode }) => {
       const initialExchange = this.buildExchange(message, headers);
       const inputSchemas = this.definition.discovery?.input;
       const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
