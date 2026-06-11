@@ -43,11 +43,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Configure npm auth
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
-
+      # Auth is tokenless: npm Trusted Publishing (OIDC) is configured on
+      # npmjs.com per package, pinned to this repo + this workflow file.
+      # `changeset publish` shells out to npm publish, which picks it up via
+      # the job's id-token permission. Requires npm >= 11.5 (Node 24 bundles
+      # it; .nvmrc pins 24).
       - name: Create release PR or publish to npm
         id: changesets
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
@@ -57,7 +57,6 @@ jobs:
           createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
 
       # The docs freeze logic in ci.yml keys off v* tags (core version), while
       # changesets tags per package (@routecraft/routecraft@x.y.z). Mirror the

@@ -151,7 +151,12 @@ Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick 
 | Merging the "Version Packages" PR | `release.yml` | `bun run release` (= build + `changeset publish`) publishes to npm with provenance, creates one GitHub Release per package version (tags like `@routecraft/routecraft@0.7.0`), pushes a `v<core-version>` tag (the docs freeze keys off `v*`), and re-dispatches CI so the docs deploy picks up the fresh tag. |
 | Push to `main` with pending changesets (after smokes pass) | `ci.yml` `publish-snapshot` | Publishes snapshot canaries (`0.6.0-canary-<timestamp>`) under the npm `canary` dist-tag, no git tags. Skipped when no changesets are pending. |
 
-npm auth uses the `NPM_TOKEN` repo secret (scope-wide granular token) plus OIDC provenance (`id-token: write`, `NPM_CONFIG_PROVENANCE=true`). The CLI's `--version` needs no syncing: `packages/cli/src/index.ts` imports the version from its own package.json and tsup inlines it at build.
+npm auth is tokenless: **Trusted Publishing** (OIDC) is configured on npmjs.com per package, pinned to this repo and the publishing workflow file, and `npm publish` picks it up via the job's `id-token: write` permission (requires npm >= 11.5; Node 24 from `.nvmrc` bundles it). Provenance is generated automatically. Two operational notes:
+
+- The trusted-publisher config is pinned to the workflow **filename**, so each published package must list BOTH `ci.yml` (snapshots) and `release.yml` (releases) on npmjs.com.
+- A brand-new package cannot authenticate this way for its FIRST publish (npm requires the package to exist before a trusted publisher can be configured). Publish a new package once with a granular token or manually from a maintainer machine, then add its trusted publishers.
+
+The CLI's `--version` needs no syncing: `packages/cli/src/index.ts` imports the version from its own package.json and tsup inlines it at build.
 
 The publish goes through `changeset publish` (npm under the hood) even though the workspace is Bun, because npm publishing remains the canonical registry path and `prepublishOnly` hooks call `bun run build` to assemble dist.
 

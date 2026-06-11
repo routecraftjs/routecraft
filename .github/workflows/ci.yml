@@ -344,20 +344,14 @@ jobs:
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
           echo "Pending changesets: $COUNT"
 
-      - name: Configure npm auth
-        if: steps.pending.outputs.count != '0'
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
-
       - name: Version snapshot
         if: steps.pending.outputs.count != '0'
         run: bunx changeset version --snapshot canary
 
+      # Tokenless npm auth: Trusted Publishing (OIDC) is configured on
+      # npmjs.com per package, pinned to this repo + this workflow file.
       - name: Publish snapshot to npm
         if: steps.pending.outputs.count != '0'
-        env:
-          NPM_CONFIG_PROVENANCE: "true"
         run: |
           bun run build
           bunx changeset publish --tag canary --no-git-tag
