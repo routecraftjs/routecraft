@@ -1,7 +1,7 @@
 ---
 title: Stop trusting your LLM to behave. Enforce it.
 description: System prompts are requests, not rules. If an agent can touch email, money, or production data, the boundary has to live in code that runs whether the model cooperates or not. Give the agent hands, not keys. A case for deterministic guardrails around probabilistic systems.
-date: 2026-06-10
+date: 2026-06-02
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
