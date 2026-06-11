@@ -74,7 +74,7 @@ cd notebook
 bun install
 ```
 
-This drops you in a clean project with a `craft.config.ts` at the root and a `capabilities/` directory. Open it in your editor.
+The scaffolder asks a couple of questions; pick **None - empty project** when it asks for an example, and Bun as the package manager. That drops you in a clean project with a `craft.config.ts` and an `index.ts` at the root. We will add the `capabilities/` directory ourselves in a moment. Open the project in your editor.
 
 Add the MCP and validation packages:
 

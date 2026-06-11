@@ -114,7 +114,7 @@ export default craft()
   .transform((input, exchange) => store.delete(exchange.principal!.subject, input.id))
 ```
 
-`.authorize()` checks the authenticated principal's roles at route entry. `.input()` rejects malformed payloads with structured errors. `.filter()` is a deterministic predicate that halts the pipeline when it returns false. `.tag('destructive')` becomes the MCP `destructiveHint` annotation automatically, so the client knows to confirm. For HTTP transports, JWT and JWKS verification, an OAuth 2.1 proxy mode, RFC 9728 protected-resource metadata, and principal enrichment are configuration on the plugin rather than code in your tools. The [Clerk walkthrough](/blog/securing-mcp-with-clerk) shows the full flow against a real identity provider.
+`.authorize()` checks the authenticated principal's roles at route entry. `.input()` rejects malformed payloads with structured errors. `.filter()` is a deterministic predicate that halts the pipeline when it returns false. `.tag('destructive')` becomes the MCP `destructiveHint` annotation automatically, so the client knows to confirm. For HTTP transports, JWT and JWKS verification, an OAuth 2.1 proxy mode, RFC 9728 protected-resource metadata, and principal enrichment are configuration on the plugin rather than code in your tools. The [securing capabilities guide](/docs/advanced/securing-capabilities) shows the full flow.
 
 You can build all of this on FastMCP. You will be building it, though, per project, and auth middleware you write in an afternoon is rarely auth middleware that handles audience validation, key rotation, and token expiry mid-request. The [guardrails pattern deep dive](/blog/agent-tool-guardrails) builds the same guarded tool in both frameworks and shows exactly where the line between framework and discipline falls.
 
@@ -149,7 +149,7 @@ FastMCP's answer to testing is essentially "they are functions, test them as fun
 - **Full MCP surface.** FastMCP supports resources and prompts. Routecraft exposes tools only today; if your server's value is resources or prompt templates, FastMCP is the right tool, full stop.
 - **Streaming content helpers.** Images, audio, progress reporting and similar MCP content niceties are first-class in FastMCP.
 - **Smaller conceptual footprint.** One class, one method per tool. Routecraft asks you to learn a pipeline DSL, and that is only worth it if you use what the pipeline buys you.
-- **Maturity of scope.** FastMCP does one thing and the API has settled around it. Routecraft is v0 and the whole public API is still allowed to change between releases ([stability policy](/docs/introduction)).
+- **Maturity of scope.** FastMCP does one thing and the API has settled around it. Routecraft is v0 and the whole public API is still allowed to change between releases.
 
 ## The actual decision
 

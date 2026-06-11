@@ -20,7 +20,7 @@ It shows up in two places. In **evals**, judges grade outputs offline to track q
 
 The honest headline: the judge call itself is trivially easy in 2026. The comparison worth writing is what happens around it.
 
-This post is part of a pattern series; siblings cover [human in the loop](/blog/human-in-the-loop) and [guardrails for MCP tools](/blog/agent-tool-guardrails).
+This post is part of a pattern series; its sibling covers [guardrails for MCP tools](/blog/agent-tool-guardrails), with more patterns coming.
 
 ## The pattern, tool-agnostic
 
@@ -52,7 +52,7 @@ export async function judgeReply(draft: string, customerMessage: string) {
     system: [
       'You review draft replies to customer support tickets.',
       'Score 1-10 on: factual grounding in the ticket, tone, and absence of promises we cannot keep.',
-      'Be strict. A 8+ means you would send it verbatim.',
+      'Be strict. An 8+ means you would send it verbatim.',
     ].join('\n'),
     prompt: `Ticket:\n${customerMessage}\n\nDraft reply:\n${draft}`,
   })
@@ -103,11 +103,11 @@ export default craft()
   .input({ body: DraftReply })
   .from<DraftReply>(direct())
   .enrich(
-    llm('anthropic:claude-haiku-4-5-20251001', {
+    llm('anthropic:claude-haiku-4-5', {
       system: [
         'You review draft replies to customer support tickets.',
         'Score 1-10 on: factual grounding in the ticket, tone, and absence of promises we cannot keep.',
-        'Be strict. A 8+ means you would send it verbatim.',
+        'Be strict. An 8+ means you would send it verbatim.',
       ].join('\n'),
       user: (ex) =>
         `Ticket:\n${ex.body.customerMessage}\n\nDraft reply:\n${ex.body.reply}`,
