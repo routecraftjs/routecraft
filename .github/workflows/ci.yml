@@ -49,6 +49,23 @@ jobs:
               - '.github/scripts/**'
               - '.changeset/**'
 
+      # release.yml runs on workflow_run, where the push's `before` sha is not
+      # in the event payload; hand it over as an artifact so the canary job
+      # can diff the exact range of the push.
+      - name: Record push base for the release workflow
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: echo "$BEFORE" > push-base.txt
+
+      - name: Upload push base
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: push-base
+          path: push-base.txt
+          retention-days: 1
+
   setup:
     runs-on: ubuntu-latest
     steps:
@@ -333,104 +350,6 @@ jobs:
       - name: Run cross-runtime adapter tests (node)
         if: matrix.runtime == 'node'
         run: npm run test:cross-runtime:node
-
-  # Snapshot canaries: published from main only while changesets are pending,
-  # versioned like 0.6.0-canary-<timestamp>. Real releases happen in
-  # release.yml via the changesets action.
-  publish-snapshot:
-    needs:
-      [changes, build, scaffolder-smoke, embedding-smoke, adapter-cross-runtime]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.packages == 'true'
-    runs-on: ubuntu-latest
-    concurrency:
-      group: publish-snapshot-${{ github.ref }}
-      cancel-in-progress: true
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          # Full history: the snapshot step diffs against the pre-push commit
-          # (github.event.before) to find which packages changed.
-          fetch-depth: 0
-
-      - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version-file: ".nvmrc"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: "package.json"
-
-      - name: Restore node_modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/node_modules"
-          key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
-
-      # The node_modules cache is best-effort; reinstall on a miss instead of
-      # failing later with a confusing missing-binary error. No dist download
-      # here: the publish step rebuilds after versioning anyway.
-      - name: Install dependencies on cache miss
-        run: |
-          if [ ! -d node_modules ]; then
-            bun install --frozen-lockfile
-          fi
-
-      # Every main push ships a fresh canary of the packages CHANGED by that
-      # push (no changeset required: a synthetic one is generated from the
-      # git diff). The fixed core train moves together whenever any train
-      # member changed; independent packages (ai, browser) only get a canary
-      # when they themselves changed, versioned from their OWN version line
-      # via snapshot.useCalculatedVersion (e.g. 0.6.1-canary-<datetime>).
-      - name: Create snapshot changeset for changed packages
-        id: snapshot
-        env:
-          BEFORE: ${{ github.event.before }}
-        run: |
-          set -eo pipefail
-          BASE="$BEFORE"
-          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE" 2>/dev/null; then
-            BASE="$(git rev-parse HEAD~1)"
-          fi
-          CHANGED_DIRS=$(git diff --name-only "$BASE" HEAD -- packages/ | cut -d/ -f2 | sort -u)
-          mkdir -p .changeset
-          {
-            echo '---'
-            for d in $CHANGED_DIRS; do
-              f="packages/$d/package.json"
-              [ -f "$f" ] || continue
-              node -e "const p=require('./$f'); if (!p.private) console.log('\"' + p.name + '\": patch')"
-            done
-            echo '---'
-            echo ''
-            echo 'Canary snapshot of the packages changed in this push.'
-          } > .changeset/snapshot-canary.md
-          cat .changeset/snapshot-canary.md
-          if grep -q '": patch' .changeset/snapshot-canary.md; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            rm .changeset/snapshot-canary.md
-            echo "No public package changed; skipping canary."
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Version snapshot
-        if: steps.snapshot.outputs.publish == 'true'
-        run: bunx changeset version --snapshot canary
-
-      # Tokenless npm auth: Trusted Publishing (OIDC) is configured on
-      # npmjs.com per package, pinned to this repo + this workflow file.
-      - name: Publish snapshot to npm
-        if: steps.snapshot.outputs.publish == 'true'
-        run: |
-          bun run build
-          bunx changeset publish --tag canary --no-git-tag
 
   build-and-deploy-docs:
     needs:

@@ -7,20 +7,26 @@ What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce and 
 ## 1. Job graph
 
 ```
+  ci.yml (push + pull_request):
+
   changes  ─┬─►  validate ─┐
-            │              ├─►  scaffolder-smoke ─────────┬─►  publish-snapshot
-   setup ───┼─►  test  ────┤                              │      (canary)
+            │              ├─►  scaffolder-smoke ─────────┐
+   setup ───┼─►  test  ────┤                              ├─►  build-and-deploy-docs
             │              ├─►  embedding-smoke ──────────┤
             └─►  build ────┤                              │
-                           └─►  adapter-cross-runtime  ───┴─►  build-and-deploy-docs
+                           └─►  adapter-cross-runtime  ───┘
                                   (bun + node)
+
+  release.yml (workflow_run: CI succeeded on a main push):
+
+  release (changesets: Version Packages PR / stable publish)  ─►  publish-canary
 ```
 
 The `setup` job runs `bun install --frozen-lockfile` and seeds the workspace's `**/node_modules`. Downstream jobs restore that cache (key: `hashFiles('**/bun.lock')`) and reinstall on a miss; the GitHub cache service is best-effort, so a miss must never fail a job. Build output is passed differently: `build` uploads `packages/*/dist` and `examples/dist` as a run artifact (`build-dist`) that the smoke and cross-runtime jobs download. Artifacts are guaranteed within the run that produced them, which a cache key is not. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
 
-Real releases do not live in ci.yml: `release.yml` runs the changesets action on every push to `main` (see section 9). ci.yml's `publish-snapshot` only ships throwaway canary builds.
+The split between the two files is exact: **ci.yml validates and never publishes to npm; release.yml owns every npm publish** (stable releases AND canary snapshots). This is forced by npm Trusted Publishing, which allows one trusted publisher per package, pinned to a single workflow filename, so all publishes must originate from one file. release.yml triggers on `workflow_run` when CI completes successfully for a push to `main`, which also guarantees nothing is published from a commit whose tests or smokes failed. ci.yml's only involvement is uploading a `push-base` artifact (the push's `before` sha, unavailable in `workflow_run` payloads) that the canary job diffs against.
 
-Docs deployment (`build-and-deploy-docs`) is gated on the same integration-test trio as `publish-snapshot`, so we never ship docs from a build that failed integration. On docs-only pushes the integration jobs are skipped and the deploy proceeds (`if: !cancelled() && !failure()`).
+Docs deployment (`build-and-deploy-docs`) stays in ci.yml, gated on the integration-test trio, so we never ship docs from a build that failed integration. On docs-only pushes the integration jobs are skipped and the deploy proceeds (`if: !cancelled() && !failure()`).
 
 ## 2. The PR gates
 
@@ -54,7 +60,7 @@ If a pre-commit hook fails, the commit didn't happen. `--amend` would modify the
 
 `changes` checks paths against the `packages` filter: `packages/**`, `examples/**`, `bun.lock`, `tsconfig*.json`, `.github/workflows/**`, `.github/scripts/**`, `.changeset/**`.
 
-Docs-only PRs skip the smoke jobs and `publish-snapshot`. If you add a new code path that should gate on CI, add it to the filter.
+Docs-only PRs skip the smoke jobs. If you add a new code path that should gate on CI, add it to the filter.
 
 ### 3.4. PR trigger
 
@@ -145,16 +151,18 @@ Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick 
 
 ### Pipeline
 
-| Trigger | Workflow | Result |
-|---------|----------|--------|
-| Push to `main` with pending changesets | `release.yml` (changesets action) | Opens/updates the "Version Packages" PR: runs `bun run version-packages` (= `changeset version` + `scripts/sync-derived-versions.mjs`, which patches the `.claude-plugin/{plugin,marketplace}.json` versions from core). |
-| Merging the "Version Packages" PR | `release.yml` | `bun run release` (= build + `changeset publish`) publishes to npm with provenance, creates one GitHub Release per package version (tags like `@routecraft/routecraft@0.7.0`), pushes a `v<core-version>` tag (the docs freeze keys off `v*`), and re-dispatches CI so the docs deploy picks up the fresh tag. |
-| Push to `main` touching packages (after smokes pass) | `ci.yml` `publish-snapshot` | Publishes canaries of the packages CHANGED by the push (`0.6.1-canary-<datetime>`) under the npm `canary` dist-tag, no git tags. A synthetic changeset is generated from the git diff, so canaries flow on every merge whether or not the PR carried a changeset. The fixed core train always moves together (a change to any train member canaries the whole train, lockstep); independent packages (ai, browser) only get a canary when they themselves changed, calculated from their own version line. |
+All rows below run inside `release.yml`, which triggers via `workflow_run` after CI completes successfully for a push to `main` (a red CI run publishes nothing).
 
-npm auth is tokenless: **Trusted Publishing** (OIDC) is configured on npmjs.com per package, pinned to this repo and the publishing workflow file, and `npm publish` picks it up via the job's `id-token: write` permission (requires npm >= 11.5; Node 24 from `.nvmrc` bundles it). Provenance is generated automatically. Two operational notes:
+| Trigger | Job | Result |
+|---------|-----|--------|
+| Main push with pending changesets | `release` (changesets action) | Opens/updates the "Version Packages" PR: runs `bun run version-packages` (= `changeset version` + `scripts/sync-derived-versions.mjs`, which patches the `.claude-plugin/{plugin,marketplace}.json` versions from core). |
+| Merging the "Version Packages" PR | `release` | `bun run release` (= build + `changeset publish`) publishes to npm with provenance, creates one GitHub Release per package version (tags like `@routecraft/routecraft@0.7.0`), pushes a `v<core-version>` tag (the docs freeze keys off `v*`), and re-dispatches CI so the docs deploy picks up the fresh tag. |
+| Main push touching packages | `publish-canary` (after `release`) | Publishes canaries of the packages CHANGED by the push (`0.6.1-canary-<datetime>`) under the npm `canary` dist-tag, no git tags. A synthetic changeset is generated from the git diff (base sha handed over from CI as the `push-base` artifact), so canaries flow on every merge whether or not the PR carried a changeset. The fixed core train always moves together (a change to any train member canaries the whole train, lockstep); independent packages (ai, browser) only get a canary when they themselves changed, calculated from their own version line. |
 
-- The trusted-publisher config is pinned to the workflow **filename**, so each published package must list BOTH `ci.yml` (snapshots) and `release.yml` (releases) on npmjs.com.
-- A brand-new package cannot authenticate this way for its FIRST publish (npm requires the package to exist before a trusted publisher can be configured). Publish a new package once with a granular token or manually from a maintainer machine, then add its trusted publishers.
+npm auth is tokenless: **Trusted Publishing** (OIDC) is configured on npmjs.com per package, and `npm publish` picks it up via the job's `id-token: write` permission (requires npm >= 11.5; Node 24 from `.nvmrc` bundles it). Provenance is generated automatically. Two operational notes:
+
+- npm allows **one trusted publisher per package**, pinned to a single workflow filename. Every package's trusted publisher must be `release.yml` (this repo). This constraint is WHY all publishing lives in release.yml; never add an npm publish step to ci.yml or any other workflow.
+- A brand-new package cannot authenticate this way for its FIRST publish (npm requires the package to exist before a trusted publisher can be configured). Publish a new package once with a granular token or manually from a maintainer machine, then set `release.yml` as its trusted publisher.
 
 The CLI's `--version` needs no syncing: `packages/cli/src/index.ts` imports the version from its own package.json and tsup inlines it at build.
 

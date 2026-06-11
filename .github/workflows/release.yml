@@ -1,7 +1,16 @@
 name: Release
 
+# The single workflow that publishes to npm: stable releases (changesets)
+# AND canary snapshots. npm Trusted Publishing allows exactly ONE trusted
+# publisher per package, pinned to one workflow filename, so every publish
+# must originate from this file; ci.yml never touches the registry.
+#
+# Triggered by CI completing on a main push (not by the push itself), so
+# nothing is ever published from a commit whose tests or smokes failed.
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: ["main"]
 
 permissions:
@@ -13,6 +22,12 @@ concurrency:
 
 jobs:
   release:
+    # Successful CI runs of real pushes only: the docs re-dispatch below
+    # completes as a workflow_dispatch CI run, which must not loop back into
+    # another release.
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     permissions:
       # Push the v* core tag and let the action create GitHub Releases.
@@ -27,6 +42,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Use Node.js from .nvmrc
@@ -84,3 +100,103 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run CI --ref main
+
+  # Every main push that changed a public package ships a fresh canary of the
+  # CHANGED packages (no changeset required: a synthetic one is generated from
+  # the git diff). The fixed core train moves together whenever any train
+  # member changed; independent packages (ai, browser) only get a canary when
+  # they themselves changed, versioned from their OWN version line via
+  # snapshot.useCalculatedVersion (e.g. 0.6.1-canary-<datetime>).
+  #
+  # Serialized after the release job so a stable publish and its canary never
+  # hit the registry concurrently.
+  publish-canary:
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+    needs: [release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          # Full history: the snapshot step diffs against the pre-push commit
+          # to find which packages changed.
+          fetch-depth: 0
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: ".nvmrc"
+          registry-url: "https://registry.npmjs.org"
+
+      # workflow_run events do not carry the push's `before` sha, so the CI
+      # run records it as an artifact. Missing artifact falls back to HEAD~1
+      # in the snapshot step below.
+      - name: Download push base from the CI run
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: push-base
+          path: /tmp/push-base
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Create snapshot changeset for changed packages
+        id: snapshot
+        run: |
+          set -eo pipefail
+          BASE=""
+          if [ -f /tmp/push-base/push-base.txt ]; then
+            BASE="$(cat /tmp/push-base/push-base.txt)"
+          fi
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            BASE="$(git rev-parse HEAD~1)"
+          fi
+          CHANGED_DIRS=$(git diff --name-only "$BASE" HEAD -- packages/ | cut -d/ -f2 | sort -u)
+          mkdir -p .changeset
+          {
+            echo '---'
+            for d in $CHANGED_DIRS; do
+              f="packages/$d/package.json"
+              [ -f "$f" ] || continue
+              node -e "const p=require('./$f'); if (!p.private) console.log('\"' + p.name + '\": patch')"
+            done
+            echo '---'
+            echo ''
+            echo 'Canary snapshot of the packages changed in this push.'
+          } > .changeset/snapshot-canary.md
+          cat .changeset/snapshot-canary.md
+          if grep -q '": patch' .changeset/snapshot-canary.md; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            rm .changeset/snapshot-canary.md
+            echo "No public package changed; skipping canary."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install bun
+        if: steps.snapshot.outputs.publish == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: "package.json"
+
+      - name: Install dependencies
+        if: steps.snapshot.outputs.publish == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Version snapshot
+        if: steps.snapshot.outputs.publish == 'true'
+        run: bunx changeset version --snapshot canary
+
+      # Tokenless npm auth: same Trusted Publishing config as the release job
+      # above; this is why the canary publish lives in this workflow file.
+      - name: Publish snapshot to npm
+        if: steps.snapshot.outputs.publish == 'true'
+        run: |
+          bun run build
+          bunx changeset publish --tag canary --no-git-tag
