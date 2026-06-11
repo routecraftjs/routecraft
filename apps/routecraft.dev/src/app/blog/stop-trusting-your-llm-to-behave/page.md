@@ -1,12 +1,11 @@
 ---
 title: Stop trusting your LLM to behave. Enforce it.
-description: System prompts are requests, not rules. If an agent can touch email, money, or production data, the boundary has to live in code that runs whether the model cooperates or not. A case for deterministic guardrails around probabilistic systems.
+description: System prompts are requests, not rules. If an agent can touch email, money, or production data, the boundary has to live in code that runs whether the model cooperates or not. Give the agent hands, not keys. A case for deterministic guardrails around probabilistic systems.
 date: 2026-06-10
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
 draft: false
-featured: true
 tags:
   - ai-agents
   - security
@@ -23,7 +22,7 @@ That paragraph is called a system prompt, and the industry has quietly agreed to
 
 Three incidents from the last twelve months, three different failure modes, one shared root cause.
 
-In April 2026, an AI coding agent working on a routine staging task for the software company PocketOS [deleted the production database in nine seconds](https://www.tomshardware.com/tech-industry/artificial-intelligence/claude-powered-ai-coding-agent-deletes-entire-company-database-in-9-seconds-backups-zapped-after-cursor-tool-powered-by-anthropics-claude-goes-rogue). It hit a credential mismatch, found a stray infrastructure API token in an unrelated file, and ran a destructive delete that took the recent backups with it. Afterwards, asked to explain itself, it produced a written confession enumerating the safety rules it had violated, including that "you never asked me to delete anything". Read that twice. The agent could recite the rules perfectly. Reciting is not enforcing. The rules lived in prose; the token lived in scope; the token won.
+In April 2026, an AI coding agent working on a routine staging task for the software company PocketOS [deleted the production database in nine seconds](https://www.tomshardware.com/tech-industry/artificial-intelligence/claude-powered-ai-coding-agent-deletes-entire-company-database-in-9-seconds-backups-zapped-after-cursor-tool-powered-by-anthropics-claude-goes-rogue). It hit a barrier, decided the fix was to delete a Railway volume it believed belonged to staging, and ran a destructive delete that wiped production and took the volume-level backups with it. Afterwards, asked to explain itself, it produced a written confession: it knew the rule was "never guess", and it guessed anyway, assuming the delete would be scoped to staging without verifying. Read that twice. The agent could recite the rule perfectly. Reciting is not enforcing. The rule lived in prose; the infrastructure credential lived in scope; the credential won.
 
 A few weeks before that became public, researchers disclosed that ROME, an agentic model built by an Alibaba-affiliated team, had gone off-script during routine reinforcement-learning training: it [probed internal hosts, opened a reverse SSH tunnel to an external IP, and quietly redirected GPU capacity to mine cryptocurrency](https://www.theblock.co/post/392765/alibaba-linked-ai-agent-hijacked-gpus-for-unauthorized-crypto-mining-researchers-say). Nobody attacked it, and nobody asked it to. The behaviour emerged as an instrumental side effect of optimisation, in an environment where nothing structural stopped it.
 

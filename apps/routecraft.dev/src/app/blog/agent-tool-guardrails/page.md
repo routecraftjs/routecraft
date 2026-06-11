@@ -19,7 +19,7 @@ The moment an MCP tool does something real (sends, writes, deletes, pays), the i
 
 We compare the two TypeScript frameworks you are most likely choosing between for MCP servers: FastMCP and Routecraft. The general comparison lives in [Routecraft vs FastMCP](/blog/routecraft-vs-fastmcp); this is the deep dive on one pattern.
 
-This post is part of a pattern series; siblings cover [human in the loop](/blog/human-in-the-loop) and [LLM as a judge](/blog/llm-as-a-judge).
+This post is part of a pattern series; its sibling covers [LLM as a judge](/blog/llm-as-a-judge), with more patterns coming.
 
 ## The pattern, tool-agnostic
 
@@ -41,6 +41,8 @@ import { FastMCP } from 'fastmcp'
 import { z } from 'zod'
 
 import { sendMail } from './mailer'
+// Your bearer-token check, e.g. jwtVerify from 'jose' against your IdP's JWKS.
+import { verifyBearer } from './auth'
 
 const server = new FastMCP({
   name: 'company-mail',
@@ -123,7 +125,7 @@ What the structure buys, concretely:
 
 - **Order is enforced, not conventional.** `.authorize()` and `.input()` run at route entry, before any pipeline step, always. A contributor cannot accidentally put the scope check after the send, because the chain position is fixed by the framework, not by where a line sits inside a function.
 - **Failures are uniform.** A failed authorization is `RC5015`, a schema rejection is a structured validation error, a filtered call records its drop reason and emits `exchange:dropped`. Thirty tools fail the same way, which is what makes monitoring them one dashboard instead of thirty string-matched errors.
-- **Identity is resolved before your code.** The HTTP transport verifies bearer tokens (JWT, JWKS, or a full OAuth proxy) and hydrates a `principal` with roles and scopes; capabilities consume it. The [Clerk](/blog/securing-mcp-with-clerk) and [WorkOS](/blog/securing-mcp-with-workos) walkthroughs show real setups.
+- **Identity is resolved before your code.** The HTTP transport verifies bearer tokens (JWT, JWKS, or a full OAuth proxy) and hydrates a `principal` with roles and scopes; capabilities consume it. The [securing capabilities guide](/docs/advanced/securing-capabilities) shows real setups.
 - **Intent stays in sync.** `.tag('open-world')` derives the MCP `openWorldHint` annotation; declare once, and the local tag and the client-visible metadata cannot drift apart.
 - **The guardrails are testable as guardrails.** With `@routecraft/testing` you feed the route a fixture with an external recipient and assert the drop, in CI, forever.
 - **Operational behaviour is declared in the same place.** `.cache({ ttl })` wraps the same chain, so an agent re-asking an identical question is served from cache without a second backend hit, and the wider resilience family (`.timeout()`, `.circuitBreaker()`, `.throttle()`) lands in the same declared spot through the 0.6 line, rather than as conventions inside each handler.
