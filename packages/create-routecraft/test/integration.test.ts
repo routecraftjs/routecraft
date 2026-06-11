@@ -87,6 +87,25 @@ async function run(cmd: string, opts: ExecOptions): Promise<void> {
 }
 
 /**
+ * Run the package manager install for a scaffolded project, retrying once on
+ * failure. The install-heavy tests run concurrently, and bun's linker can
+ * race when two installs link the same local file: packages at the same time
+ * (EEXIST: failed to link package), seen intermittently on 2-core CI
+ * runners. Installs are idempotent, so a second pass repairs the partial
+ * link instead of failing the suite.
+ */
+async function runInstall(projectDir: string): Promise<void> {
+  try {
+    await run(pm.install, { cwd: projectDir });
+  } catch (firstError) {
+    console.warn(
+      `Install failed once, retrying: ${(firstError as Error).message.split("\n")[0]}`,
+    );
+    await run(pm.install, { cwd: projectDir });
+  }
+}
+
+/**
  * Run a long-running command and resolve as soon as the expected substring
  * appears on stdout or stderr. Kills the process once matched.
  *
@@ -300,7 +319,7 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
         await generateProjectStructure(projectDir, makeOptions());
         await patchDepsToLocal(projectDir);
 
-        await run(pm.install, { cwd: projectDir });
+        await runInstall(projectDir);
 
         await run(pm.typecheck, { cwd: projectDir });
       });
@@ -333,7 +352,7 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
         );
         await patchDepsToLocal(projectDir);
 
-        await run(pm.install, { cwd: projectDir });
+        await runInstall(projectDir);
 
         await run(pm.typecheck, { cwd: projectDir });
 
