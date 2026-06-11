@@ -231,6 +231,19 @@
         "@routecraft/routecraft": ">=0.5.0",
       },
     },
+    "packages/prettier-plugin-routecraft": {
+      "name": "@routecraft/prettier-plugin-routecraft",
+      "version": "0.6.0",
+      "devDependencies": {
+        "prettier": "^3.8.3",
+        "tsup": "^8.5.1",
+        "typescript": "^5.9.3",
+        "vitest": "^4.1.5",
+      },
+      "peerDependencies": {
+        "prettier": ">=3",
+      },
+    },
     "packages/routecraft": {
       "name": "@routecraft/routecraft",
       "version": "0.6.0",
@@ -824,6 +837,8 @@
     "@routecraft/eslint-plugin-routecraft": ["@routecraft/eslint-plugin-routecraft@workspace:packages/eslint-plugin-routecraft"],
 
     "@routecraft/os": ["@routecraft/os@workspace:packages/os"],
+
+    "@routecraft/prettier-plugin-routecraft": ["@routecraft/prettier-plugin-routecraft@workspace:packages/prettier-plugin-routecraft"],
 
     "@routecraft/routecraft": ["@routecraft/routecraft@workspace:packages/routecraft"],
 

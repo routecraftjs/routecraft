@@ -89,6 +89,7 @@ Claude discovers your tool and uses it automatically. ✨
 - `packages/cli` – `craft` CLI to run capabilities and start contexts (Bun >= 1.1.0)
 - `packages/create-routecraft` – Project scaffolder (`bunx create-routecraft`)
 - `packages/eslint-plugin-routecraft` – ESLint rules for capability authoring
+- `packages/prettier-plugin-routecraft` – Prettier plugin for compact DSL formatting
 - `packages/os` – System-native adapters (shell, etc.) – placeholder, in development
 - `packages/testing` – Test utilities (`testContext`, spy logger, `mockAdapter`, fixtures)
 - `skills/` – Agent Skills for authoring Routecraft (Claude Code, Cursor, Codex, Windsurf, Cline, Continue, Copilot, ...; `bunx skills add routecraftjs/routecraft`). See [skills/README.md](./skills/README.md)

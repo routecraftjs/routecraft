@@ -51,6 +51,7 @@ export const navigation = [
         href: '/docs/advanced/securing-capabilities',
       },
       { title: 'Linting', href: '/docs/advanced/linting' },
+      { title: 'Formatting', href: '/docs/advanced/formatting' },
     ],
   },
   {

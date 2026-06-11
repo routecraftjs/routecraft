@@ -127,15 +127,13 @@ describe("Pseudo adapter", () => {
       const route = craft()
         .from(src<{ account: string }>({ poll: 1000 }))
         .enrich(mcp<{ messages: string[] }>({ server: "gmail", tool: "list" }))
-        .split<string>((ex) =>
-          ex.body.messages.map(
-            (body) =>
-              new DefaultExchange(getExchangeContext(ex)!, {
-                body,
-                headers: ex.headers,
-              }),
-          ),
-        )
+        .split<string>((ex) => ex.body.messages.map(
+          (body) =>
+            new DefaultExchange(getExchangeContext(ex)!, {
+              body,
+              headers: ex.headers,
+            }),
+        ))
         .to(db<{ id: string }>({ table: "emails" }));
       expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ id: string }>>();
     });
@@ -299,15 +297,13 @@ describe("Pseudo adapter", () => {
         .id("pseudo-integration")
         .from(src<{ account: string }>({ poll: 1000 }))
         .enrich(mcp<{ messages: string[] }>({ server: "gmail", tool: "list" }))
-        .split<string>((ex) =>
-          ex.body.messages.map(
-            (body) =>
-              new DefaultExchange(getExchangeContext(ex)!, {
-                body,
-                headers: ex.headers,
-              }),
-          ),
-        )
+        .split<string>((ex) => ex.body.messages.map(
+          (body) =>
+            new DefaultExchange(getExchangeContext(ex)!, {
+              body,
+              headers: ex.headers,
+            }),
+        ))
         .tap(log())
         .build();
 
