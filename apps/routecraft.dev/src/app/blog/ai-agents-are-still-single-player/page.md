@@ -1,7 +1,7 @@
 ---
 title: AI agents are still single-player. Your organization isn't.
 description: The personal-harness wave gave every developer an agent with their own access, their own memory, and their own terminal. That model cannot serve a team. The unit of organizational AI leverage is the governed capability, not the personal agent.
-date: 2026-06-10
+date: 2026-06-14
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'

@@ -1,7 +1,7 @@
 ---
 title: 'Routecraft vs FastMCP: which TypeScript MCP framework should you pick?'
 description: FastMCP is the default recommendation for building MCP servers in TypeScript, and it earns that spot. This is an honest comparison from the Routecraft side, where the question is not "how do I build an MCP server" but "how do I build automations that an MCP server happens to expose".
-date: 2026-06-10
+date: 2026-06-05
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'

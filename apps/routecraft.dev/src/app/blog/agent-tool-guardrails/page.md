@@ -1,7 +1,7 @@
 ---
 title: 'Guardrails for MCP tools: FastMCP vs Routecraft'
 description: Schema, predicate, identity, declared intent. The four guardrail layers every agent-facing tool needs, built in FastMCP and in Routecraft, with an honest look at what each framework enforces and what it leaves to discipline.
-date: 2026-06-10
+date: 2026-06-08
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
