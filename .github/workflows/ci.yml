@@ -337,21 +337,33 @@ jobs:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Check for pending changesets
-        id: pending
+      # Every main push with package changes ships a fresh canary of EVERY
+      # public package, in lockstep (same snapshot timestamp), regardless of
+      # pending changesets. Downstream projects track the `canary` dist-tag
+      # across all packages, so partial or skipped snapshots would leave them
+      # with incompatible mixes. The synthetic changeset below covers all
+      # public packages; combined with snapshot.useCalculatedVersion the
+      # canary versions stay above the last stable (e.g. 0.6.1-canary-<ts>)
+      # and keep satisfying ^-ranged internal peers.
+      - name: Create snapshot changeset covering all public packages
         run: |
-          COUNT=$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l)
-          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "Pending changesets: $COUNT"
+          {
+            echo '---'
+            for f in packages/*/package.json; do
+              node -e "const p=require('./$f'); if (!p.private) console.log('\"' + p.name + '\": patch')"
+            done
+            echo '---'
+            echo ''
+            echo 'Lockstep canary snapshot for this commit.'
+          } > .changeset/snapshot-canary.md
+          cat .changeset/snapshot-canary.md
 
       - name: Version snapshot
-        if: steps.pending.outputs.count != '0'
         run: bunx changeset version --snapshot canary
 
       # Tokenless npm auth: Trusted Publishing (OIDC) is configured on
       # npmjs.com per package, pinned to this repo + this workflow file.
       - name: Publish snapshot to npm
-        if: steps.pending.outputs.count != '0'
         run: |
           bun run build
           bunx changeset publish --tag canary --no-git-tag
