@@ -193,6 +193,11 @@ jobs:
 
       - name: Version snapshot
         if: steps.snapshot.outputs.publish == 'true'
+        env:
+          # @changesets/changelog-github resolves PR and author links via the
+          # GitHub API while versioning, snapshots included; without a token
+          # it aborts the whole version step.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bunx changeset version --snapshot canary
 
       # Tokenless npm auth: same Trusted Publishing config as the release job
