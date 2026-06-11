@@ -14,11 +14,11 @@ tags:
 layout: blog-post
 ---
 
-LLM as a judge is the pattern where one model evaluates another model's output before that output is allowed to matter. A generator drafts a reply, a summary, a classification; a judge scores it against criteria; a gate decides: ship it, retry it, or send it to a human.
+Every LLM-as-a-judge tutorial shows you the same five lines: a second model scores the first model's output. The five lines are real, and they are about five percent of the work. The rest is the plumbing nobody writes tutorials about: the gate that acts on the verdict, the log that records why a reply was held back, the test that proves a refund-promising draft never ships, the threshold that lives somewhere a reviewer can find it. That plumbing is the comparison worth writing.
+
+The pattern itself: one model evaluates another model's output before that output is allowed to matter. A generator drafts a reply, a summary, a classification; a judge scores it against criteria; a gate decides: ship it, retry it, or send it to a human. The judge advises; the gate decides. Keep that separation and the pattern is sound; collapse it and you have an LLM approving its own work.
 
 It shows up in two places. In **evals**, judges grade outputs offline to track quality across prompt and model changes. In **production gates**, the judge runs inline, in front of the side effect, deciding right now whether this customer reply is good enough to send. This post is about the second kind, because that is where the pattern stops being a notebook trick and starts being plumbing.
-
-The honest headline: the judge call itself is trivially easy in 2026. The comparison worth writing is what happens around it.
 
 This post is part of a pattern series; its sibling covers [guardrails for MCP tools](/blog/agent-tool-guardrails), with more patterns coming.
 

@@ -51,7 +51,7 @@ What rung 4 buys, concretely:
 - Security reviews one capability with one scoped service account, not one engineer's personal token sprawl.
 - The person on the incident call types one message in the channel instead of asking "who has the Grafana access and a working local setup?"
 
-A worked example of what lives on rung 4, from production at a major European bank (the same triage suite described in [AI agents are still single-player](/blog/ai-agents-are-still-single-player)): a read-only incident-triage suite (ticket context, logs by trace id, distributed-trace walking, API-spec validation, code lookup, datastore sync checks) used simultaneously by juniors learning the runbook, seniors skipping six browser tabs, and an agent that chains the lot. The skills repo explains triage; the capabilities perform it; the same access rules govern both.
+A worked example of what lives on rung 4 is the bank's read-only incident-triage suite described in [AI agents are still single-player](/blog/ai-agents-are-still-single-player), used simultaneously by juniors learning the runbook, seniors skipping six browser tabs, and an agent that chains the lot. The skills repo explains triage; the capabilities perform it; the same access rules govern both.
 
 ## How to climb without a big-bang program
 
