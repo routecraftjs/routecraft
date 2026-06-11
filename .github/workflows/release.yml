@@ -44,7 +44,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          # The exact commit the triggering CI run validated, not the branch
+          # tip: main may have moved since, and that newer commit has its own
+          # CI run and release run coming.
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Use Node.js from .nvmrc
@@ -112,13 +115,17 @@ jobs:
     needs: [release]
     runs-on: ubuntu-latest
     permissions:
+      # Download the push-base artifact from the (different) CI run.
+      actions: read
       contents: read
       id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          # The exact commit the triggering CI run validated, not the branch
+          # tip (see the release job).
+          ref: ${{ github.event.workflow_run.head_sha }}
           # Full history: the snapshot step diffs against the pre-push commit
           # to find which packages changed.
           fetch-depth: 0
@@ -230,7 +237,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          # The validated commit on workflow_run; manual dispatches (docs-only
+          # redeploys) build from the main tip.
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
           # Full history + tags so the freeze step below can read docs content
           # from the latest release tag.
           fetch-depth: 0
