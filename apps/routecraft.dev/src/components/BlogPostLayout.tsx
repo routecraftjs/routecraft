@@ -5,8 +5,9 @@ import { Prose } from '@/components/Prose'
 import { TableOfContents } from '@/components/TableOfContents'
 import { BlogMeta } from '@/components/BlogMeta'
 import { BlogCoverInline } from '@/components/BlogCover'
+import { RelatedPosts } from '@/components/RelatedPosts'
 import { collectSections } from '@/lib/sections'
-import { formatBlogDate, getAllBlogPosts } from '@/lib/blog'
+import { formatBlogDate, getAllBlogPosts, getRelatedPosts } from '@/lib/blog'
 
 interface BlogPostFrontmatter {
   title?: string
@@ -23,6 +24,7 @@ interface BlogPostFrontmatter {
   readingTime?: number
   draft?: boolean
   slug?: string
+  related?: string[]
 }
 
 function resolveSlugAndFigure(frontmatter: BlogPostFrontmatter): {
@@ -54,6 +56,10 @@ export function BlogPostLayout({
   const tableOfContents = collectSections(nodes)
   const date = typeof frontmatter.date === 'string' ? frontmatter.date : ''
   const { slug, figureNumber } = resolveSlugAndFigure(frontmatter)
+  const relatedPosts = getRelatedPosts({
+    slug: frontmatter.slug ?? slug,
+    title: frontmatter.title,
+  })
 
   return (
     <>
@@ -139,6 +145,8 @@ export function BlogPostLayout({
           <div className="mt-12">
             <Prose>{children}</Prose>
           </div>
+
+          <RelatedPosts posts={relatedPosts} />
 
           <footer className="mt-20 border-t border-ink/15 pt-8">
             <p className="font-editorial text-[1rem] text-ink/70 italic">

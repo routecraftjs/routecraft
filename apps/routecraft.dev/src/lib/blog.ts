@@ -20,6 +20,14 @@ export interface BlogPostMeta {
   imageAlt?: string
   /** Override the auto-picked cover glyph. First character only. */
   coverGlyph?: string
+  /**
+   * Slugs of related posts, declared in frontmatter. Rendering is
+   * bidirectional: a post appears in another post's related list when
+   * either side declares the relationship. Draft posts never render,
+   * so relationships can be declared ahead of publication and appear
+   * automatically once the related post goes live.
+   */
+  related?: string[]
   readingTime: number
   href: string
 }
@@ -69,6 +77,7 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
     imageAlt: typeof data.imageAlt === 'string' ? data.imageAlt : undefined,
     coverGlyph:
       typeof data.coverGlyph === 'string' ? data.coverGlyph : undefined,
+    related: Array.isArray(data.related) ? data.related.map(String) : undefined,
     readingTime:
       typeof data.readingTime === 'number'
         ? data.readingTime
@@ -112,6 +121,32 @@ export function getFeaturedPost(
 export function getBlogPostBySlug(slug: string): BlogPostMeta | undefined {
   const blogDir = path.join(process.cwd(), 'src', 'app', 'blog')
   return readPost(blogDir, slug)
+}
+
+/**
+ * Published posts related to the given one, newest first, capped at four.
+ * A relationship counts when either side declares the other's slug in its
+ * `related` frontmatter; drafts are excluded from the result but may still
+ * declare relationships, which start rendering when they publish.
+ */
+export function getRelatedPosts(current: {
+  slug?: string
+  title?: string
+}): BlogPostMeta[] {
+  const posts = getAllBlogPosts()
+  const me =
+    posts.find((p) => p.slug === current.slug) ??
+    posts.find((p) => p.title === current.title)
+  if (!me) return []
+  return posts
+    .filter(
+      (p) =>
+        p.slug !== me.slug &&
+        !p.draft &&
+        ((me.related?.includes(p.slug) ?? false) ||
+          (p.related?.includes(me.slug) ?? false)),
+    )
+    .slice(0, 4)
 }
 
 export function formatBlogDate(value: string): string {
