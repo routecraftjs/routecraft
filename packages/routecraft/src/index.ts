@@ -200,6 +200,7 @@ export {
   RoutecraftError,
   type RCCode,
   type RCMeta,
+  type KnownErrorCategory,
   type ErrorCodeRegistry,
   rcError,
   registerErrorCodes,

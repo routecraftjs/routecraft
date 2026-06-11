@@ -30,8 +30,13 @@ export interface ClaimMappers {
  * never need to type-narrow on `kind` to access identity fields.
  */
 export interface Principal {
-  /** How the principal was authenticated. */
-  kind: "jwt" | "jwks" | "oauth" | "custom";
+  /**
+   * How the principal was authenticated. Core verifiers use the known
+   * values; ecosystem verifiers may use their own kind strings. The
+   * `(string & {})` arm keeps autocomplete on the known set while
+   * accepting any value.
+   */
+  kind: "jwt" | "jwks" | "oauth" | "custom" | (string & {});
   /** HTTP authentication scheme. `"bearer"` for token-based flows; may be another value for custom auth schemes. */
   scheme: "bearer" | string;
   /** Stable identity for the authenticated entity (JWT `sub`, user id, etc.). */

@@ -1,7 +1,19 @@
 import { BRAND, setBrand } from "./brand.ts";
 
+/**
+ * Well-known error categories used by core codes. Ecosystem packages may
+ * use their own category strings; the `(string & {})` arm keeps
+ * autocomplete on the known set while accepting any value.
+ */
+export type KnownErrorCategory =
+  | "Definition"
+  | "DSL"
+  | "Lifecycle"
+  | "Adapter"
+  | "Runtime";
+
 export type RCMeta = {
-  category: "Definition" | "DSL" | "Lifecycle" | "Adapter" | "Runtime";
+  category: KnownErrorCategory | (string & {});
   message: string;
   suggestion?: string;
   docs: string;
@@ -431,7 +443,9 @@ function formatIssuePath(
  *
  * @param rc - Error code from the RC registry (e.g. "RC5001", "RC1002")
  * @param cause - Optional underlying error (stored as cause, message can be overridden)
- * @param overrides - Optional overrides for message, suggestion, or docs
+ * @param overrides - Optional overrides for message, suggestion, docs, or
+ *   retryable (e.g. an adapter that knows a specific occurrence of a
+ *   normally-permanent code is transient, or vice versa)
  * @returns A RoutecraftError instance (branded, with retryable from RC meta)
  *
  * @example
@@ -442,7 +456,9 @@ function formatIssuePath(
 export function rcError(
   rc: RCCode,
   cause?: unknown,
-  overrides?: Partial<Pick<RCMeta, "message" | "suggestion" | "docs">>,
+  overrides?: Partial<
+    Pick<RCMeta, "message" | "suggestion" | "docs" | "retryable">
+  >,
 ): RoutecraftError {
   const base = getErrorMeta(rc);
   const meta: RCMeta = {

@@ -117,4 +117,25 @@ describe("error-code registry", () => {
   test("unknown codes produce a descriptive RC9901", () => {
     expect(() => rcError("ZZ9999" as never)).toThrow(/import the package/);
   });
+
+  /**
+   * @case rcError overrides can flip the retryable flag per occurrence
+   * @preconditions RC5002 is retryable: false in core metadata; RC5010 is retryable: true
+   * @expectedResult The override value wins on the constructed error while base metadata stays untouched
+   */
+  test("rcError accepts a retryable override", () => {
+    const transientValidation = rcError("RC5002", undefined, {
+      retryable: true,
+    });
+    expect(transientValidation.retryable).toBe(true);
+
+    const permanentConnection = rcError("RC5010", undefined, {
+      retryable: false,
+    });
+    expect(permanentConnection.retryable).toBe(false);
+
+    // Base metadata is untouched by per-occurrence overrides.
+    expect(rcError("RC5002").retryable).toBe(false);
+    expect(rcError("RC5010").retryable).toBe(true);
+  });
 });
