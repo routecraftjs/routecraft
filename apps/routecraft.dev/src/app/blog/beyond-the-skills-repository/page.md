@@ -1,7 +1,7 @@
 ---
 title: A skills repository is not an automation platform
 description: Every large organization is building a central repo of AI skills, prompts, and agent definitions right now. It is the right first step, and it has a ceiling nobody talks about. Skills describe how. They cannot do. A maturity ladder for what comes next.
-date: 2026-06-10
+date: 2026-06-11
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
