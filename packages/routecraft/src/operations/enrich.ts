@@ -193,7 +193,6 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
   operation: OperationType = OperationType.ENRICH;
   adapter: Destination<T, R>;
   aggregator: EnrichAggregatorOption<T, R> | undefined;
-  metadata?: Record<string, unknown>;
 
   constructor(
     adapter: Destination<T, R> | CallableDestination<T, R>,
@@ -224,14 +223,17 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     }
 
     // Extract metadata if the adapter provides it (skip when overridden).
+    // The metadata rides the OUTCOME, not the step: Step instances are
+    // shared across exchanges.
     const getMetadata = (
       this.adapter as {
         getMetadata?: (result: unknown) => Record<string, unknown>;
       }
     ).getMetadata;
-    if (!override && getMetadata) {
-      this.metadata = getMetadata.call(this.adapter, enrichmentData);
-    }
+    const metadata =
+      !override && getMetadata
+        ? getMetadata.call(this.adapter, enrichmentData)
+        : undefined;
 
     // Use the provided aggregator or the default one
     const aggregator = this.aggregator || defaultEnrichAggregator;
@@ -254,7 +256,10 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
             headers: result.headers,
           });
 
-    // Push the exchange to the queue
-    return { kind: "continue", exchange: next };
+    return {
+      kind: "continue",
+      exchange: next,
+      ...(metadata ? { metadata } : {}),
+    };
   }
 }

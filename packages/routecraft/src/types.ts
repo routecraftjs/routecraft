@@ -57,13 +57,6 @@ export interface Step<T extends Adapter> {
   skipStepEvents?: boolean;
 
   /**
-   * Optional metadata populated by the adapter during execution.
-   * Used for observability, metrics, and cost tracking.
-   * Guidelines: small values only (IDs, names, counts, codes), no large bodies.
-   */
-  metadata?: Record<string, unknown>;
-
-  /**
    * Execute this step and report what happened. The executor owns all
    * scheduling: steps no longer see the work queue or the remaining
    * pipeline, they describe an outcome and the engine routes it.
@@ -74,6 +67,16 @@ export interface Step<T extends Adapter> {
    */
   execute(exchange: Exchange, ctx: StepContext): Promise<StepOutcome>;
 }
+
+/**
+ * Observability metadata a step may attach to its outcome (e.g. LLM token
+ * usage, HTTP status codes). The executor copies it into the
+ * `route:step:completed` event payload. Guidelines: small values only
+ * (IDs, names, counts, codes), no large bodies. Outcome-scoped on purpose:
+ * `Step` instances are shared across exchanges, so per-execution data must
+ * never live on the step itself.
+ */
+export type StepOutcomeMetadata = Record<string, unknown>;
 
 /**
  * What a step did with its exchange. Returned from {@link Step.execute};
@@ -90,11 +93,16 @@ export interface Step<T extends Adapter> {
  *   (choice routes into the matched branch).
  * - `fanOut`: schedule each child exchange independently through the
  *   remaining steps (split).
+ *
+ * The union is OPEN across minor releases: new kinds may be added as the
+ * engine grows (the executor exhaustively handles every kind it ships
+ * with). Code that consumes outcomes (custom wrappers, tests) should pass
+ * unrecognised kinds through rather than throwing on them.
  */
 export type StepOutcome =
-  | { kind: "continue"; exchange: Exchange }
-  | { kind: "complete"; exchange: Exchange }
-  | { kind: "drop" }
+  | { kind: "continue"; exchange: Exchange; metadata?: StepOutcomeMetadata }
+  | { kind: "complete"; exchange: Exchange; metadata?: StepOutcomeMetadata }
+  | { kind: "drop"; metadata?: StepOutcomeMetadata }
   | { kind: "branch"; exchange: Exchange; steps: Step<Adapter>[] }
   | { kind: "fanOut"; exchanges: Exchange[] };
 

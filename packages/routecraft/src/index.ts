@@ -252,6 +252,7 @@ export {
   type Step,
   type StepContext,
   type StepOutcome,
+  type StepOutcomeMetadata,
 } from "./types.ts";
 
 export { SimpleConsumer } from "./consumers/simple.ts";
