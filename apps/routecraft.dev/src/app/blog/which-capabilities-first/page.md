@@ -1,11 +1,11 @@
 ---
 title: 'The backlog that writes itself: which capabilities should your organization build first?'
 description: Every team that gives agents real tools faces the same empty backlog. Six filters and a trust pyramid get you through the first quarter; the core move is what comes with them, a gap logger and shared memory that let the agent file its own evidence-ranked backlog, so you stop curating the list by hand.
-date: 2026-06-10
+date: 2026-06-24
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
-draft: false
+draft: true
 tags:
   - ai-agents
   - capabilities

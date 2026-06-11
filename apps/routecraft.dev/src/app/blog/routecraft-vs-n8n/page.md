@@ -1,11 +1,11 @@
 ---
 title: 'Routecraft vs n8n: when to automate in code instead of a canvas'
 description: n8n made automation visual and self-hostable, and for a lot of teams it is the right call. This comparison is for the moment the canvas starts fighting you, when workflows need version control, tests, refactoring, and type safety, and you start looking for a code-first n8n alternative.
-date: 2026-06-10
+date: 2026-07-01
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
-draft: false
+draft: true
 tags:
   - n8n
   - automation
@@ -125,7 +125,7 @@ Feature lists only get you so far; what decides the choice is how each tool hand
 | Pattern | In n8n | In Routecraft | Deep dive |
 | --- | --- | --- | --- |
 | Human in the loop | Wait node, send-and-wait approval buttons | Composed from capabilities, any channel | coming soon |
-| LLM as a judge | AI nodes wired on the canvas | One `.enrich(llm())` stage plus a `.filter()` gate | [LLM as a judge in TypeScript](/blog/llm-as-a-judge) |
+| LLM as a judge | AI nodes wired on the canvas | One `.enrich(llm())` stage plus a `.filter()` gate | coming soon |
 | Agent tool guardrails | Node options plus Code nodes, by convention | Enforced pre-pipeline chain | [Guardrails for MCP tools](/blog/agent-tool-guardrails) |
 | Webhook to notification | Webhook, IF, and email nodes | The invoice capability earlier in this post | this post |
 | Scheduled jobs | Schedule trigger node | `.from(cron('0 9 * * *'))` | [docs](/docs/introduction) |

@@ -19,7 +19,7 @@ Your `send_email` MCP tool is one crafted calendar invite away from mailing your
 
 We compare the two TypeScript frameworks you are most likely choosing between for MCP servers: FastMCP and Routecraft. The general comparison lives in [Routecraft vs FastMCP](/blog/routecraft-vs-fastmcp); this is the deep dive on one pattern.
 
-This post is part of a pattern series; its sibling covers [LLM as a judge](/blog/llm-as-a-judge), with more patterns coming.
+This post is part of a pattern series; more pattern deep dives are coming.
 
 ## The pattern, tool-agnostic
 
