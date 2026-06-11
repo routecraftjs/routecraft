@@ -22,7 +22,7 @@ The popular answer is "a chat loop with tools," because that is what the persona
 
 An agent serving a team constantly hits questions it should not answer alone: a judgment call, a missing fact only one person knows, an approval. The personal-harness answer is to print the question in the terminal and block. The team answer has to be asynchronous: the agent asks the right person on the right channel, parks the work with its full context intact, and resumes when the answer arrives, whether that is in forty seconds or on Thursday.
 
-This sounds like a UX nicety. It is actually the load-bearing wall, because without it every uncertain task either stalls forever or, worse, proceeds on a guess. The pattern goes by [human in the loop](/blog/human-in-the-loop), and in a team harness it is not a feature you add to one workflow; it is ambient, available to every task the agent runs.
+This sounds like a UX nicety. It is actually the load-bearing wall, because without it every uncertain task either stalls forever or, worse, proceeds on a guess. The pattern goes by human in the loop, and in a team harness it is not a feature you add to one workflow; it is ambient, available to every task the agent runs.
 
 ## Primitive 2: a learning loop into shared memory
 

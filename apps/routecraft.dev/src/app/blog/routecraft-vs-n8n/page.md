@@ -1,6 +1,6 @@
 ---
 title: 'Routecraft vs n8n: when to automate in code instead of a canvas'
-description: n8n made automation visual and self-hostable, and for a lot of teams it is the right call. This comparison is for the moment the canvas starts fighting you, when workflows need version control, tests, refactoring, and type safety, and you start wondering if the automation should just be code.
+description: n8n made automation visual and self-hostable, and for a lot of teams it is the right call. This comparison is for the moment the canvas starts fighting you, when workflows need version control, tests, refactoring, and type safety, and you start looking for a code-first n8n alternative.
 date: 2026-06-10
 author: Jaco Botha
 authorRole: Founder, DevOptix
@@ -77,7 +77,7 @@ Both versions work. The differences are in everything around them.
 Fairness requires the other column, because it is substantial:
 
 - **Integration breadth.** n8n ships hundreds of prebuilt nodes. Routecraft's adapter set today is small and honest: HTTP, cron and timers, files, CSV, JSON, IMAP/SMTP mail, CardDAV, MCP, LLM and agent destinations, browser automation. Anything else is you writing a `fetch` call in a `.transform()`, which is easy but is not a node catalogue. If your automation is mostly "connect SaaS A to SaaS B", n8n's catalogue will beat a code framework on day one, every time.
-- **Prebuilt approval buttons.** For human-in-the-loop flows, n8n's Wait node and send-and-wait operations ship ready-made approval messages for Slack, Gmail, and Teams. In Routecraft you compose the approval flow from capabilities, which carries any channel you wire but leaves the message UX to you. The [pattern deep dive](/blog/human-in-the-loop) shows both sides with code.
+- **Prebuilt approval buttons.** For human-in-the-loop flows, n8n's Wait node and send-and-wait operations ship ready-made approval messages for Slack, Gmail, and Teams. In Routecraft you compose the approval flow from capabilities, which carries any channel you wire but leaves the message UX to you.
 - **Non-developers can build.** An ops person can ship an n8n workflow without learning TypeScript. Routecraft's entire premise assumes a developer is in the loop.
 - **Visual runtime inspection.** Watching an execution light up node by node is a genuinely good debugging experience. Routecraft gives you structured logs, lifecycle events, and optional OpenTelemetry tracing, which is more powerful and less immediate.
 - **A hosted option.** n8n Cloud exists; Routecraft is self-hosted only.
@@ -98,7 +98,7 @@ Feature lists only get you so far; what decides the choice is how each tool hand
 
 | Pattern | In n8n | In Routecraft | Deep dive |
 | --- | --- | --- | --- |
-| Human in the loop | Wait node, send-and-wait approval buttons | Composed from capabilities, any channel | [Human in the loop: n8n vs Routecraft](/blog/human-in-the-loop) |
+| Human in the loop | Wait node, send-and-wait approval buttons | Composed from capabilities, any channel | coming soon |
 | LLM as a judge | AI nodes wired on the canvas | One `.enrich(llm())` stage plus a `.filter()` gate | [LLM as a judge in TypeScript](/blog/llm-as-a-judge) |
 | Agent tool guardrails | Node options plus Code nodes, by convention | Enforced pre-pipeline chain | [Guardrails for MCP tools](/blog/agent-tool-guardrails) |
 | Webhook to notification | Webhook, IF, and email nodes | The invoice capability earlier in this post | this post |
