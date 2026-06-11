@@ -3,7 +3,7 @@
  *
  * The adapter reads and writes vCard documents ({@link VCard}) over CardDAV.
  * Credentials live in context-level named accounts (see
- * {@link CardDAVContextConfig}); per-adapter options select which account and
+ * {@link CarddavContextConfig}); per-adapter options select which account and
  * address book to use.
  *
  * @experimental
@@ -22,7 +22,7 @@ import type { Exchange } from "../../exchange.ts";
  * password generated at appleid.apple.com (not the account password).
  * `serverUrl` defaults to iCloud when omitted.
  */
-export interface CardDAVAccountConfig {
+export interface CarddavAccountConfig {
   /** DAV server base URL (default: iCloud `https://contacts.icloud.com`). */
   serverUrl?: string;
   /** Account username (Apple ID for iCloud). */
@@ -53,9 +53,9 @@ export interface CardDAVAccountConfig {
  *
  * @experimental
  */
-export interface CardDAVContextConfig {
+export interface CarddavContextConfig {
   /** Named CardDAV accounts. The key `default` (or the first key) is the default. */
-  accounts?: Record<string, CardDAVAccountConfig>;
+  accounts?: Record<string, CarddavAccountConfig>;
   /** Default server URL across all accounts (default: iCloud). */
   serverUrl?: string;
   /** Default address book display name across all accounts. */
@@ -83,20 +83,20 @@ export interface CardDAVContextConfig {
  * read-modify-write keeps data you did not touch. Removing a property from the
  * document removes it from the card, exactly like an `UPDATE` of a row.
  */
-export type CardDAVAction = "save" | "create" | "update" | "delete";
+export type CarddavAction = "save" | "create" | "update" | "delete";
 
 /**
  * Resolve which contact a write/delete targets from the exchange, for cases
  * where the body is not a {@link VCard} carrying `url`/`uid`. Mirrors the mail
  * adapter's `target` extractor.
  */
-export type CardDAVTargetExtractor = (exchange: Exchange<unknown>) => {
+export type CarddavTargetExtractor = (exchange: Exchange<unknown>) => {
   url?: string;
   uid?: string;
 };
 
 /** Fields shared by every adapter role. */
-interface CardDAVCommonOptions {
+interface CarddavCommonOptions {
   /** Named account from context config (uses the default account if omitted). */
   account?: string;
   /** Address book display name (uses the account/context default, else the first book). */
@@ -108,41 +108,41 @@ interface CardDAVCommonOptions {
 }
 
 /** Read role: `.from(carddav())` (source) and `.enrich(carddav())` (fetch-all). */
-export interface CardDAVReadOptions extends CardDAVCommonOptions {
+export interface CarddavReadOptions extends CarddavCommonOptions {
   action?: undefined;
   /** Maximum number of contacts to read. */
   limit?: number;
 }
 
 /** Write role: `.to(carddav({ action: 'save' | 'create' | 'update' }))`. */
-export interface CardDAVWriteOptions extends CardDAVCommonOptions {
+export interface CarddavWriteOptions extends CarddavCommonOptions {
   action: "save" | "create" | "update";
   /** Resolve the target contact when the body lacks `url`/`uid`. */
-  target?: CardDAVTargetExtractor;
+  target?: CarddavTargetExtractor;
 }
 
 /** Delete role: `.to(carddav({ action: 'delete' }))`. */
-export interface CardDAVDeleteOptions extends CardDAVCommonOptions {
+export interface CarddavDeleteOptions extends CarddavCommonOptions {
   action: "delete";
   /** Resolve the target contact when the body lacks `url`/`uid`. */
-  target?: CardDAVTargetExtractor;
+  target?: CarddavTargetExtractor;
 }
 
 /**
  * Options for the CardDAV adapter. The `action` flag selects the role: absent
  * means read (`.from`/`.enrich`); present means write or delete (`.to`).
  */
-export type CardDAVOptions =
-  | CardDAVReadOptions
-  | CardDAVWriteOptions
-  | CardDAVDeleteOptions;
+export type CarddavOptions =
+  | CarddavReadOptions
+  | CarddavWriteOptions
+  | CarddavDeleteOptions;
 
 // ---------------------------------------------------------------------------
 // Results
 // ---------------------------------------------------------------------------
 
 /** Result returned by the destination after creating or updating a contact. */
-export interface CardDAVWriteResult {
+export interface CarddavWriteResult {
   /** UID of the written contact. */
   uid: string;
   /** DAV object URL of the written contact. */
@@ -154,7 +154,7 @@ export interface CardDAVWriteResult {
 }
 
 /** Result returned by the destination after deleting a contact. */
-export interface CardDAVDeleteResult {
+export interface CarddavDeleteResult {
   /** UID of the deleted contact, when known. */
   uid?: string;
   /** DAV object URL of the deleted contact. */

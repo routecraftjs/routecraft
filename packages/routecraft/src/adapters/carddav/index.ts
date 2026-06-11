@@ -1,15 +1,15 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
-import { CardDAVAdapter } from "./adapter.ts";
+import { CarddavAdapter } from "./adapter.ts";
 import type { VCardBody } from "./vcard.ts";
 import type {
-  CardDAVDeleteOptions,
-  CardDAVDeleteResult,
-  CardDAVOptions,
-  CardDAVReadOptions,
-  CardDAVWriteOptions,
-  CardDAVWriteResult,
+  CarddavDeleteOptions,
+  CarddavDeleteResult,
+  CarddavOptions,
+  CarddavReadOptions,
+  CarddavWriteOptions,
+  CarddavWriteResult,
 } from "./types.ts";
 
 /**
@@ -55,46 +55,46 @@ import type {
  * @experimental
  */
 export function carddav(
-  options?: CardDAVReadOptions,
+  options?: CarddavReadOptions,
 ): Source<VCardBody> & Destination<unknown, VCardBody[]>;
 export function carddav(
-  options: CardDAVWriteOptions,
-): Destination<VCardBody, CardDAVWriteResult>;
+  options: CarddavWriteOptions,
+): Destination<VCardBody, CarddavWriteResult>;
 export function carddav(
-  options: CardDAVDeleteOptions,
-): Destination<unknown, CardDAVDeleteResult>;
+  options: CarddavDeleteOptions,
+): Destination<unknown, CarddavDeleteResult>;
 export function carddav(
-  options?: CardDAVOptions,
+  options?: CarddavOptions,
 ):
   | (Source<VCardBody> & Destination<unknown, VCardBody[]>)
-  | Destination<VCardBody, CardDAVWriteResult>
-  | Destination<unknown, CardDAVDeleteResult> {
+  | Destination<VCardBody, CarddavWriteResult>
+  | Destination<unknown, CarddavDeleteResult> {
   const adapter = tagAdapter(
-    new CardDAVAdapter(options),
+    new CarddavAdapter(options),
     carddav,
     factoryArgs(options),
   );
   const action = options?.action;
   if (action === "delete") {
-    return adapter as unknown as Destination<unknown, CardDAVDeleteResult>;
+    return adapter as unknown as Destination<unknown, CarddavDeleteResult>;
   }
   if (action) {
-    return adapter as unknown as Destination<VCardBody, CardDAVWriteResult>;
+    return adapter as unknown as Destination<VCardBody, CarddavWriteResult>;
   }
   return adapter as unknown as Source<VCardBody> &
     Destination<unknown, VCardBody[]>;
 }
 
-export { CardDAVAdapter } from "./adapter.ts";
-export { CardDAVClientManager } from "./client-manager.ts";
-export type { ResolvedCardDAVConnection } from "./client-manager.ts";
+export { CarddavAdapter } from "./adapter.ts";
+export { CarddavClientManager } from "./client-manager.ts";
+export type { ResolvedCarddavConnection } from "./client-manager.ts";
 export {
   CARDDAV_CLIENT_MANAGER,
   DEFAULT_CARDDAV_SERVER_URL,
   CarddavHeaders,
 } from "./shared.ts";
 export type {
-  CardDAVDriverClient,
+  CarddavDriverClient,
   DAVAddressBookLike,
   DAVVCardLike,
 } from "./shared.ts";
@@ -108,14 +108,14 @@ export type { VCardParam } from "./vcard-raw.ts";
 export { VCARD, VPARAM } from "./constants.ts";
 export type { KnownProperty, KnownParam } from "./constants.ts";
 export type {
-  CardDAVOptions,
-  CardDAVReadOptions,
-  CardDAVWriteOptions,
-  CardDAVDeleteOptions,
-  CardDAVContextConfig,
-  CardDAVAccountConfig,
-  CardDAVAction,
-  CardDAVTargetExtractor,
-  CardDAVWriteResult,
-  CardDAVDeleteResult,
+  CarddavOptions,
+  CarddavReadOptions,
+  CarddavWriteOptions,
+  CarddavDeleteOptions,
+  CarddavContextConfig,
+  CarddavAccountConfig,
+  CarddavAction,
+  CarddavTargetExtractor,
+  CarddavWriteResult,
+  CarddavDeleteResult,
 } from "./types.ts";

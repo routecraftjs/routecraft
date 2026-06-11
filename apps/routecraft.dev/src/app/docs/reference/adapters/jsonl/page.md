@@ -6,10 +6,10 @@ title: jsonl
 
 ```ts
 jsonl<T, R>(options?: JsonlTransformerOptions): Transformer   // no path: parse a JSONL string in the body
-jsonl<T>(options: JsonlSourceOptions & { chunked: true }): Source<T>
-jsonl<T>(options: JsonlDestinationOptions & { mode: 'read' }): JsonlReadAdapter<T>
-jsonl<T>(options: JsonlCombinedOptions): Source<T[]> & Destination<unknown, void>
-jsonl(options: JsonlDestinationOptions): Destination<unknown, void>
+jsonl<T>(options: JsonlFileOptions & { path: string; chunked: true }): Source<T>
+jsonl<T>(options: JsonlFileOptions & { mode: 'read' }): JsonlReadAdapter<T>
+jsonl<T>(options: JsonlFileOptions & { path: string }): Source<T[]> & Destination<unknown, void>
+jsonl(options: JsonlFileOptions): Destination<unknown, void>   // dynamic (function) path
 ```
 
 Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per line).
@@ -34,7 +34,7 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 
 // Per-line emission (chunked)
 .from(jsonl({ path: './events.jsonl', chunked: true }))
-// Emits one exchange per line with JSONL_LINE and JSONL_PATH headers
+// Emits one exchange per line with JsonlHeaders.LINE and JsonlHeaders.PATH headers
 
 // Custom reviver
 .from(jsonl({
@@ -88,37 +88,29 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 | `to` | `(body, rows) => R` | Replaces body | Where to put the parsed array |
 | `reviver` | `(key, value) => unknown` | - | Reviver passed to `JSON.parse` |
 
-**Source options (`JsonlSourceOptions`):**
+**File options (`JsonlFileOptions`):**
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `path` | `string` | Required | File path to the JSONL file |
+| `path` | `string \| (exchange) => string` | Required | File path. Function (dynamic) paths are destination-only; source mode requires a static string |
+| `mode` | `'read' \| 'write' \| 'append' \| 'delete'` | `'append'` (destination) | File operation mode (`read` returns the parsed array mid-route; `delete` removes the file, idempotently) |
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
-| `chunked` | `boolean` | `false` | Emit one exchange per line instead of a single array |
-| `reviver` | `(key, value) => unknown` | - | Reviver function passed to `JSON.parse` |
-| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a line parse failure. See [parse error handling](/docs/reference/adapters#parse-error-handling). |
-
-**Destination options (`JsonlDestinationOptions`):**
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `path` | `string \| (exchange) => string` | Required | File path (static or dynamic) |
-| `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
-| `mode` | `'read' \| 'write' \| 'append' \| 'delete'` | `'append'` | File operation mode (`read` returns the parsed array mid-route; `delete` removes the file, idempotently) |
-| `createDirs` | `boolean` | `false` | Create parent directories |
-| `replacer` | `((key, value) => unknown) \| Array<string \| number> \| null` | - | Replacer passed to `JSON.stringify` |
-| `reviver` | `(key, value) => unknown` | - | Reviver passed to `JSON.parse` (read mode only) |
+| `chunked` | `boolean` | `false` | Emit one exchange per line instead of a single array (source mode only) |
+| `createDirs` | `boolean` | `false` | Create parent directories (destination mode only) |
+| `reviver` | `(key, value) => unknown` | - | Reviver passed to `JSON.parse` (read/source mode) |
+| `replacer` | `((key, value) => unknown) \| Array<string \| number> \| null` | - | Replacer passed to `JSON.stringify` (write modes) |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a line parse failure (source mode only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
 
 **Behavior:**
 - **Source** (default): Reads file, splits lines, parses each as JSON, emits `T[]` array. Empty lines are skipped.
-- **Source** (`chunked: true`): Emits one `T` exchange per line with `JSONL_LINE` (1-based) and `JSONL_PATH` headers. Returns `Source` only (no `Destination`). With `onParseError: 'fail'` (default) malformed lines are routed through the route's `.error()` handler and the stream continues; `'abort'` aborts on the first bad line; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
+- **Source** (`chunked: true`): Emits one `T` exchange per line with `JsonlHeaders.LINE` (1-based) and `JsonlHeaders.PATH` headers. Returns `Source` only (no `Destination`). With `onParseError: 'fail'` (default) malformed lines are routed through the route's `.error()` handler and the stream continues; `'abort'` aborts on the first bad line; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
 - **Destination**: Stringifies body to `JSON.stringify(body) + '\n'`. Array bodies write one line per element. Default mode is append.
 
 **Chunked headers:**
 
 | Header | Type | Description |
 |--------|------|-------------|
-| `JSONL_LINE` | `number` | 1-based line number in the source file |
-| `JSONL_PATH` | `string` | Path of the source file |
+| `JsonlHeaders.LINE` (`routecraft.jsonl.line`) | `number` | 1-based line number in the source file |
+| `JsonlHeaders.PATH` (`routecraft.jsonl.path`) | `string` | Path of the source file |
 
-**Exported types:** `JsonlReadAdapter`, `JsonlSourceOptions`, `JsonlDestinationOptions`, `JsonlCombinedOptions`, `JsonlTransformerOptions`, `JsonlOptions`
+**Exported types:** `JsonlReadAdapter`, `JsonlFileOptions`, `JsonlTransformerOptions`, `JsonlOptions`

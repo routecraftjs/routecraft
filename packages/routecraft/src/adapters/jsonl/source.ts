@@ -1,6 +1,6 @@
 import * as fsp from "node:fs/promises";
 import type { Source, CallableSource } from "../../operations/from.ts";
-import type { JsonlSourceOptions } from "./types.ts";
+import type { JsonlFileOptions } from "./types.ts";
 import { type ExchangeHeaders } from "../../exchange.ts";
 import { JsonlHeaders } from "./types.ts";
 import { forEachLine, throwFileError } from "../shared/line-reader.ts";
@@ -30,7 +30,8 @@ import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
 export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
   readonly adapterId = "routecraft.adapter.jsonl";
 
-  constructor(private readonly options: JsonlSourceOptions) {}
+  // Source mode requires a static string path; the factory enforces it.
+  constructor(private readonly options: JsonlFileOptions & { path: string }) {}
 
   subscribe: CallableSource<T | T[]> = async (sub) => {
     if (sub.signal.aborted) return;

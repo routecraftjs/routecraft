@@ -60,7 +60,7 @@ Read and write plain text files. For structured data, use `json` or `csv` adapte
 .to(file({ path: (ex) => `./data/${ex.body.id}.txt`, mode: 'read' }))
 ```
 
-**Chunked mode:** When `chunked: true`, the file source emits one exchange per line. Each exchange includes `FILE_LINE` (1-based line number) and `FILE_PATH` headers. When chunked, the adapter returns `Source` only (no `Destination`).
+**Chunked mode:** When `chunked: true`, the file source emits one exchange per line. Each exchange includes `FileHeaders.LINE` (1-based line number) and `FileHeaders.PATH` headers. When chunked, the adapter returns `Source` only (no `Destination`).
 
 ```ts
 // Per-line emission

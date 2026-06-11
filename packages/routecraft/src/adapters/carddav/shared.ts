@@ -7,7 +7,7 @@
 
 import type { CraftContext } from "../../context.ts";
 import { rcError, RoutecraftError } from "../../error.ts";
-import type { CardDAVClientManager } from "./client-manager.ts";
+import type { CarddavClientManager } from "./client-manager.ts";
 
 /** Default CardDAV server for iCloud Contacts. */
 export const DEFAULT_CARDDAV_SERVER_URL = "https://contacts.icloud.com";
@@ -27,7 +27,7 @@ export const CARDDAV_CLIENT_MANAGER = Symbol.for(
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
-    [CARDDAV_CLIENT_MANAGER]: CardDAVClientManager;
+    [CARDDAV_CLIENT_MANAGER]: CarddavClientManager;
   }
 }
 
@@ -87,7 +87,7 @@ export interface DAVVCardLike {
  * surface keeps the adapter `any`-free (tsdav types `data` as `any`) and lets
  * tests substitute a lightweight fake.
  */
-export interface CardDAVDriverClient {
+export interface CarddavDriverClient {
   fetchAddressBooks(params?: {
     account?: unknown;
   }): Promise<DAVAddressBookLike[]>;
@@ -108,24 +108,24 @@ export interface CardDAVDriverClient {
 // ---------------------------------------------------------------------------
 
 /**
- * Get the CardDAVClientManager from the context, or null when no `carddav`
+ * Get the CarddavClientManager from the context, or null when no `carddav`
  * config was provided.
  */
 export function getClientManager(
   context: CraftContext | undefined,
-): CardDAVClientManager | null {
+): CarddavClientManager | null {
   if (!context) return null;
   return (
     (context.getStore(CARDDAV_CLIENT_MANAGER) as
-      | CardDAVClientManager
+      | CarddavClientManager
       | undefined) ?? null
   );
 }
 
-/** Get the CardDAVClientManager, throwing RC5003 when it is absent. */
+/** Get the CarddavClientManager, throwing RC5003 when it is absent. */
 export function requireClientManager(
   context: CraftContext | undefined,
-): CardDAVClientManager {
+): CarddavClientManager {
   const manager = getClientManager(context);
   if (!manager) {
     throw rcError("RC5003", undefined, {
@@ -182,7 +182,7 @@ export function selectAddressBook(
 // ---------------------------------------------------------------------------
 
 /** Map a thrown driver error (login, network) to a RoutecraftError. */
-export function throwCardDAVError(error: unknown, operation: string): never {
+export function throwCarddavError(error: unknown, operation: string): never {
   if (error instanceof RoutecraftError) throw error;
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
