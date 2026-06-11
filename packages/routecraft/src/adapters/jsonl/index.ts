@@ -218,3 +218,4 @@ export type {
   JsonlTransformerOptions,
   JsonlOptions,
 } from "./types.ts";
+export { JsonlHeaders } from "./types.ts";

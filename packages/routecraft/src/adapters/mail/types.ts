@@ -493,7 +493,7 @@ export type MailFetchResult = MailMessage[];
 // The mail source puts the message payload on `body` and the envelope on
 // `routecraft.mail.*` headers, mirroring the HTTP source convention. These
 // declarations give consumers autocomplete and type-safety when reading those
-// headers. The string constants live in `./shared.ts` (HEADER_MAIL_*).
+// headers. The key constants live in `./shared.ts` (`MailHeaders`).
 //
 // See .standards/type-safety-and-schemas.md#module-augmentation for why this
 // targets the package specifier and not a relative path.

@@ -114,3 +114,24 @@ export type CsvOptions<T = unknown, R = unknown> =
 
 export type CsvRow = Record<string, unknown> | string[];
 export type CsvData = CsvRow[];
+
+/**
+ * Header keys the CSV source sets on chunked-mode exchanges. Keys live
+ * under the reserved `routecraft.csv.*` namespace; the value types are
+ * merged into `RoutecraftHeaders` below.
+ */
+export const CsvHeaders = {
+  /** The 1-based row number when reading a CSV file in chunked mode */
+  ROW: "routecraft.csv.row",
+  /** The file path when reading a CSV file in chunked mode */
+  PATH: "routecraft.csv.path",
+} as const satisfies Record<string, `routecraft.csv.${string}`>;
+
+declare module "@routecraft/routecraft" {
+  interface RoutecraftHeaders {
+    /** The 1-based row number when reading a CSV file in chunked mode */
+    "routecraft.csv.row"?: number;
+    /** The file path when reading a CSV file in chunked mode */
+    "routecraft.csv.path"?: string;
+  }
+}

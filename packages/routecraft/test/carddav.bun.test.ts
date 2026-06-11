@@ -7,9 +7,7 @@ import {
   VCard,
   VCARD,
   VPARAM,
-  HEADER_CARDDAV_URL,
-  HEADER_CARDDAV_UID,
-  HEADER_CARDDAV_ETAG,
+  CarddavHeaders,
   type VCardBody,
 } from "@routecraft/routecraft";
 import { CardDAVAdapter } from "../src/adapters/carddav/index.ts";
@@ -421,9 +419,9 @@ describe("CardDAV source (read)", () => {
     expect(typeof (body as { text?: unknown }).text).toBe("undefined");
     expect(VCard.wrap(body).text("FN")).toBe("Jane Q Doe");
     const headers = s.received[0]?.headers ?? {};
-    expect(headers[HEADER_CARDDAV_URL]).toBe(`${BOOK_URL}abc-123.vcf`);
-    expect(headers[HEADER_CARDDAV_ETAG]).toBe('"1"');
-    expect(headers[HEADER_CARDDAV_UID]).toBe("ABC-123");
+    expect(headers[CarddavHeaders.URL]).toBe(`${BOOK_URL}abc-123.vcf`);
+    expect(headers[CarddavHeaders.ETAG]).toBe('"1"');
+    expect(headers[CarddavHeaders.UID]).toBe("ABC-123");
   });
 
   /**
@@ -655,8 +653,8 @@ describe("CardDAV destination (write)", () => {
     const result = (await adapter.send(
       exchangeWith(
         {
-          [HEADER_CARDDAV_URL]: `${BOOK_URL}abc-123.vcf`,
-          [HEADER_CARDDAV_ETAG]: '"1"',
+          [CarddavHeaders.URL]: `${BOOK_URL}abc-123.vcf`,
+          [CarddavHeaders.ETAG]: '"1"',
         },
         body,
         ctx,
@@ -690,8 +688,8 @@ describe("CardDAV destination (write)", () => {
       adapter.send(
         exchangeWith(
           {
-            [HEADER_CARDDAV_URL]: `${BOOK_URL}abc-123.vcf`,
-            [HEADER_CARDDAV_ETAG]: '"1"',
+            [CarddavHeaders.URL]: `${BOOK_URL}abc-123.vcf`,
+            [CarddavHeaders.ETAG]: '"1"',
           },
           VCard.parse(ICLOUD_VCARD).data,
           ctx,
@@ -749,8 +747,8 @@ describe("CardDAV destination (delete)", () => {
     const result = (await adapter.send(
       exchangeWith(
         {
-          [HEADER_CARDDAV_URL]: `${BOOK_URL}abc-123.vcf`,
-          [HEADER_CARDDAV_ETAG]: '"1"',
+          [CarddavHeaders.URL]: `${BOOK_URL}abc-123.vcf`,
+          [CarddavHeaders.ETAG]: '"1"',
         },
         VCard.create().data,
         ctx,
@@ -781,7 +779,7 @@ describe("CardDAV destination (delete)", () => {
       target: () => ({ url: `${BOOK_URL}abc-123.vcf` }),
     });
     await adapter.send(
-      exchangeWith({ [HEADER_CARDDAV_ETAG]: '"1"' }, VCard.create().data, ctx),
+      exchangeWith({ [CarddavHeaders.ETAG]: '"1"' }, VCard.create().data, ctx),
     );
 
     expect(driver.deleted[0]?.vCard.etag).toBe('"1"');

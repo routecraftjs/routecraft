@@ -121,3 +121,24 @@ export type JsonlOptions =
   | JsonlDestinationOptions
   | JsonlCombinedOptions
   | JsonlTransformerOptions;
+
+/**
+ * Header keys the JSONL source sets on chunked-mode exchanges. Keys live
+ * under the reserved `routecraft.jsonl.*` namespace; the value types are
+ * merged into `RoutecraftHeaders` below.
+ */
+export const JsonlHeaders = {
+  /** The 1-based line number when reading a JSONL file in chunked mode */
+  LINE: "routecraft.jsonl.line",
+  /** The file path when reading a JSONL file in chunked mode */
+  PATH: "routecraft.jsonl.path",
+} as const satisfies Record<string, `routecraft.jsonl.${string}`>;
+
+declare module "@routecraft/routecraft" {
+  interface RoutecraftHeaders {
+    /** The 1-based line number when reading a JSONL file in chunked mode */
+    "routecraft.jsonl.line"?: number;
+    /** The file path when reading a JSONL file in chunked mode */
+    "routecraft.jsonl.path"?: string;
+  }
+}

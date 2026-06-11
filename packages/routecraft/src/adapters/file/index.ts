@@ -115,6 +115,7 @@ export function file(
 
 // Re-export types for public API
 export type { FileOptions } from "./types.ts";
+export { FileHeaders } from "./types.ts";
 
 // Re-export classes for internal use (e.g., by html and csv adapters)
 export { FileSourceAdapter } from "./source.ts";

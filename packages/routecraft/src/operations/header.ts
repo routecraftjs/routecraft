@@ -42,17 +42,38 @@ export class HeaderStep<T = unknown> implements Step<HeaderSetter<T>> {
     key: string,
     setterOrValue: CallableHeaderSetter<T> | HeaderLiteral,
   ) {
-    // Exchange identity is framework-owned: `DefaultExchange.rewrap`
-    // unconditionally restores `prev.id` into the new headers so identity
-    // is preserved across every pipeline step. A `.header()` write of
-    // `routecraft.id` would land in the merged record but be overwritten
-    // by the next rewrap, silently no-op-ing. Reject up front with a
-    // clear message rather than letting the user chase a phantom bug.
-    if (key === HeadersKeys.ID) {
+    // A handful of headers are engine-owned and cannot be set via
+    // `.header()`:
+    // - `routecraft.id`: `DefaultExchange.rewrap` unconditionally restores
+    //   `prev.id` into the new headers, so a write would land in the
+    //   merged record but be overwritten by the next rewrap, silently
+    //   no-op-ing.
+    // - `routecraft.operation`: rewritten by the engine before every step
+    //   to reflect the current operation; a write is equally futile.
+    // - `routecraft.route`: set at exchange construction; a write would
+    //   persist but lie about which route owns the exchange.
+    // - `routecraft.split_hierarchy`: maintained by split/aggregate to
+    //   correlate children with their parent; a write corrupts joins.
+    // Reject up front with a clear message rather than letting the user
+    // chase a phantom bug. The rest of the reserved `routecraft.*`
+    // namespace (correlation id, principal, adapter envelope keys) is
+    // deliberately settable: those keys are documented inputs (e.g.
+    // addressing a mail operation via MailHeaders.UID).
+    const engineOwned: Record<string, string> = {
+      [HeadersKeys.ID]:
+        "Identity is set once when the exchange is constructed and propagates automatically. If you need to correlate with an upstream id, use routecraft.correlation_id (settable via .header() or by source adapters).",
+      [HeadersKeys.OPERATION]:
+        "The engine rewrites the operation header before every step; observe it via exchange.headers instead of setting it.",
+      [HeadersKeys.ROUTE_ID]:
+        "The route id is bound when the exchange is constructed. To hand work to another route, use forward() or a direct() destination.",
+      [HeadersKeys.SPLIT_HIERARCHY]:
+        "The split hierarchy is maintained by .split() / .aggregate(). To attach your own grouping metadata, use a custom header key.",
+    };
+    const suggestion = engineOwned[key];
+    if (suggestion !== undefined) {
       throw rcError("RC5003", undefined, {
-        message: `.header() cannot set "${HeadersKeys.ID}": exchange identity is framework-owned and preserved across every rewrap.`,
-        suggestion:
-          "Identity is set once when the exchange is constructed and propagates automatically. If you need to correlate with an upstream id, use routecraft.correlation_id (settable via .header() or by source adapters).",
+        message: `.header() cannot set "${key}": this header is framework-owned and maintained by the engine.`,
+        suggestion,
       });
     }
 

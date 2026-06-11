@@ -48,32 +48,15 @@ export enum OperationType {
 }
 
 /**
- * Standard header keys used in exchanges.
- * These keys provide metadata and context for processing exchanges.
- */
-/**
- * Registry of known header keys. Plugins can extend this via module
- * augmentation so that their keys appear in `ExchangeHeaders` autocomplete.
+ * Framework-owned header keys present on every exchange.
  *
- * @example
- * ```ts
- * // In a plugin package
- * declare module "@routecraft/routecraft" {
- *   interface HeaderKeysRegistry {
- *     MY_KEY: "routecraft.my.key";
- *   }
- * }
- * ```
- */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface HeaderKeysRegistry {}
-
-/**
- * Standard header keys used in exchanges.
- * These keys provide metadata and context for processing exchanges.
- *
- * Plugins can register additional keys by augmenting the
- * {@link HeaderKeysRegistry} interface.
+ * The whole `routecraft.*` header namespace is RESERVED: the framework and
+ * its adapters own every key under it. Adapter-specific keys live in
+ * per-adapter key objects next to their adapters (e.g. `MailHeaders.UID`,
+ * `CronHeaders.EXPRESSION`); each adapter merges its keys into
+ * {@link RoutecraftHeaders} via declaration merging so they stay typed on
+ * `exchange.headers`. User-defined headers must use their own namespace
+ * (e.g. `x-...` or `myapp.*`).
  */
 export const HeadersKeys = {
   /** Unique identifier for this exchange. Stored in headers so it survives halt/continue alongside body. */
@@ -86,45 +69,6 @@ export const HeadersKeys = {
   CORRELATION_ID: "routecraft.correlation_id",
   /** The hierarchy of split groups this exchange belongs to */
   SPLIT_HIERARCHY: "routecraft.split_hierarchy",
-  /** The exact timestamp when the timer fired, in ISO 8601 format */
-  TIMER_TIME: "routecraft.timer.time",
-  /** The timestamp when the exchange was created, in ISO 8601 format */
-  TIMER_FIRED_TIME: "routecraft.timer.firedTime",
-  /** The period in milliseconds between timer firings */
-  TIMER_PERIOD_MS: "routecraft.timer.periodMs",
-  /** The number of times the timer has fired */
-  TIMER_COUNTER: "routecraft.timer.counter",
-  /** The next timestamp when the timer will fire, in ISO 8601 format */
-  TIMER_NEXT_RUN: "routecraft.timer.nextRun",
-
-  /** The cron expression that triggered this exchange */
-  CRON_EXPRESSION: "routecraft.cron.expression",
-  /** The timestamp when the cron job fired, in ISO 8601 format */
-  CRON_FIRED_TIME: "routecraft.cron.firedTime",
-  /** The next timestamp when the cron job will fire, in ISO 8601 format */
-  CRON_NEXT_RUN: "routecraft.cron.nextRun",
-  /** The number of times the cron job has fired */
-  CRON_COUNTER: "routecraft.cron.counter",
-  /** The IANA timezone for the cron schedule */
-  CRON_TIMEZONE: "routecraft.cron.timezone",
-  /** The human-readable name for the cron job */
-  CRON_NAME: "routecraft.cron.name",
-
-  /** The 1-based line number when reading a file in chunked mode */
-  FILE_LINE: "routecraft.file.line",
-  /** The file path when reading a file in chunked mode */
-  FILE_PATH: "routecraft.file.path",
-
-  /** The 1-based row number when reading a CSV file in chunked mode */
-  CSV_ROW: "routecraft.csv.row",
-  /** The file path when reading a CSV file in chunked mode */
-  CSV_PATH: "routecraft.csv.path",
-
-  /** The 1-based line number when reading a JSONL file in chunked mode */
-  JSONL_LINE: "routecraft.jsonl.line",
-  /** The file path when reading a JSONL file in chunked mode */
-  JSONL_PATH: "routecraft.jsonl.path",
-
   /**
    * Authenticated principal resolved from the request, when available.
    * Carries the structured `Principal` object; the `ex.principal` getter
@@ -134,11 +78,21 @@ export const HeadersKeys = {
 } as const satisfies Record<string, string>;
 
 /**
- * Standard headers used by the Routecraft framework.
- * These headers provide critical metadata for processing exchanges.
+ * Typed map of well-known headers on an exchange. The core interface
+ * declares only the framework-owned keys; adapters and ecosystem packages
+ * merge their own `routecraft.<adapter>.*` keys in via declaration merging,
+ * next to the adapter that owns them:
  *
- * Plugins can extend this via module augmentation alongside
- * {@link HeaderKeysRegistry} to add typed headers.
+ * ```ts
+ * declare module "@routecraft/routecraft" {
+ *   interface RoutecraftHeaders {
+ *     "routecraft.myadapter.thing"?: string;
+ *   }
+ * }
+ * ```
+ *
+ * The `routecraft.*` namespace is reserved for the framework and adapters;
+ * see {@link HeadersKeys}.
  */
 export interface RoutecraftHeaders {
   /**
@@ -161,33 +115,6 @@ export interface RoutecraftHeaders {
 
   /** Hierarchy path for split operations */
   "routecraft.split_hierarchy"?: readonly string[];
-
-  /** Timer-specific headers */
-  "routecraft.timer.time"?: string;
-  "routecraft.timer.firedTime"?: string;
-  "routecraft.timer.periodMs"?: number;
-  "routecraft.timer.counter"?: number;
-  "routecraft.timer.nextRun"?: string;
-
-  /** Cron-specific headers */
-  "routecraft.cron.expression"?: string;
-  "routecraft.cron.firedTime"?: string;
-  "routecraft.cron.nextRun"?: string;
-  "routecraft.cron.counter"?: number;
-  "routecraft.cron.timezone"?: string;
-  "routecraft.cron.name"?: string;
-
-  /** File chunked-mode headers */
-  "routecraft.file.line"?: number;
-  "routecraft.file.path"?: string;
-
-  /** CSV chunked-mode headers */
-  "routecraft.csv.row"?: number;
-  "routecraft.csv.path"?: string;
-
-  /** JSONL chunked-mode headers */
-  "routecraft.jsonl.line"?: number;
-  "routecraft.jsonl.path"?: string;
 }
 
 /**
@@ -196,9 +123,9 @@ export interface RoutecraftHeaders {
  * `unknown` lets cross-cutting concerns (auth principal, future tracing
  * spans, tenancy contexts) live in `headers` as a single typed slot rather
  * than being spread across many flat keys. Per-key types are narrowed by
- * {@link RoutecraftHeaders} and by the {@link HeaderKeysRegistry}
- * declaration-merging mechanism; this bag-level type is just the catch-all
- * for unregistered keys.
+ * {@link RoutecraftHeaders} (which adapters extend via declaration
+ * merging); this bag-level type is just the catch-all for unregistered
+ * keys.
  *
  * For API surfaces that accept a static header value (e.g. `.header("k",
  * v)`), prefer {@link HeaderLiteral} which excludes function types so user
@@ -233,26 +160,15 @@ export type HeaderLiteral =
   | Readonly<Record<string, unknown>>;
 
 /**
- * Mapped type that surfaces keys declared via {@link HeaderKeysRegistry}
- * as optional header properties. Plugins that augment `HeaderKeysRegistry`
- * get autocomplete and type-checking on `exchange.headers`.
- */
-type RegistryHeaders = {
-  [K in keyof HeaderKeysRegistry as HeaderKeysRegistry[K] extends string
-    ? HeaderKeysRegistry[K]
-    : never]?: HeaderValue;
-};
-
-/**
  * Complete set of headers for an exchange. Read-only by contract: produce
  * derived headers via spread (`{ ...exchange.headers, key: value }`) and the
  * framework re-wraps the resulting exchange when the operation hands it back.
  *
- * Includes standard Routecraft headers, plugin-registered headers, and
- * custom headers.
+ * Includes standard Routecraft headers, adapter-declared headers (merged
+ * into {@link RoutecraftHeaders}), and custom headers.
  */
 export type ExchangeHeaders = Readonly<
-  Partial<RoutecraftHeaders> & RegistryHeaders & Record<string, HeaderValue>
+  Partial<RoutecraftHeaders> & Record<string, HeaderValue>
 >;
 
 /**

@@ -203,7 +203,7 @@ In source mode (`.from(mail(...))`) the exchange **body** is just the parsed mes
 
 **Source headers (`routecraft.mail.*`):** {% #source-headers %}
 
-In source mode the envelope is attached to `exchange.headers` under the `routecraft.mail.*` namespace. The keys are declaration-merged into `RoutecraftHeaders` (so you get autocomplete) and exported as named constants (`HEADER_MAIL_FROM`, `HEADER_MAIL_SUBJECT`, ...).
+In source mode the envelope is attached to `exchange.headers` under the `routecraft.mail.*` namespace. The keys are declaration-merged into `RoutecraftHeaders` (so you get autocomplete) and exported on the `MailHeaders` key object (`MailHeaders.FROM`, `MailHeaders.SUBJECT`, ...).
 
 | Header | Type | Description |
 |--------|------|-------------|
@@ -297,6 +297,6 @@ craft()
 | `rejected` | `string[]` | Rejected recipient addresses |
 | `response` | `string` | SMTP server response string |
 
-**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailBody`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailSendResult`, `MailFetchResult`, `MailContextConfig`, `MailAccountConfig`, `MailAction`, `MailSender`, `EmailAddress`, `ForwardHop`, `ForwardType`, `TrustLevel`, `MailClientManager`, `MAIL_CLIENT_MANAGER`. Header key constants: `HEADER_MAIL_UID`, `HEADER_MAIL_FOLDER`, `HEADER_MAIL_MESSAGE_ID`, `HEADER_MAIL_FROM`, `HEADER_MAIL_TO`, `HEADER_MAIL_CC`, `HEADER_MAIL_BCC`, `HEADER_MAIL_SUBJECT`, `HEADER_MAIL_DATE`, `HEADER_MAIL_REPLY_TO`, `HEADER_MAIL_FLAGS`, `HEADER_MAIL_SENDER`, `HEADER_MAIL_RAW_HEADERS`. Helpers: `analyzeHeaders`, `parseAuthResults`.
+**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailBody`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailSendResult`, `MailFetchResult`, `MailContextConfig`, `MailAccountConfig`, `MailAction`, `MailSender`, `EmailAddress`, `ForwardHop`, `ForwardType`, `TrustLevel`, `MailClientManager`, `MAIL_CLIENT_MANAGER`. Header keys: the `MailHeaders` object (`UID`, `FOLDER`, `MESSAGE_ID`, `FROM`, `TO`, `CC`, `BCC`, `SUBJECT`, `DATE`, `REPLY_TO`, `FLAGS`, `SENDER`, `RAW_HEADERS`). Helpers: `analyzeHeaders`, `parseAuthResults`.
 
 ---

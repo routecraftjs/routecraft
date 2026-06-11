@@ -1,4 +1,5 @@
-import { HeadersKeys, type ExchangeHeaders } from "../../exchange";
+import { type ExchangeHeaders } from "../../exchange";
+import { TimerHeaders } from "./types";
 import { type Source, type Subscription } from "../../operations/from";
 import type { TimerOptions } from "./types";
 
@@ -102,15 +103,13 @@ export class TimerSourceAdapter implements Source<undefined> {
 
           // Prepare timer-based headers
           const headers: ExchangeHeaders = {
-            [HeadersKeys.TIMER_TIME]: firedTime.toISOString(),
-            [HeadersKeys.TIMER_FIRED_TIME]: firedTime.toISOString(),
-            [HeadersKeys.TIMER_PERIOD_MS]: exactTime
+            [TimerHeaders.TIME]: firedTime.toISOString(),
+            [TimerHeaders.FIRED_TIME]: firedTime.toISOString(),
+            [TimerHeaders.PERIOD_MS]: exactTime
               ? 24 * 60 * 60 * 1000
               : intervalMs,
-            [HeadersKeys.TIMER_COUNTER]: count,
-            [HeadersKeys.TIMER_NEXT_RUN]: new Date(
-              nextScheduledTime,
-            ).toISOString(),
+            [TimerHeaders.COUNTER]: count,
+            [TimerHeaders.NEXT_RUN]: new Date(nextScheduledTime).toISOString(),
           };
 
           try {

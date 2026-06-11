@@ -91,10 +91,7 @@ export type { ResolvedCardDAVConnection } from "./client-manager.ts";
 export {
   CARDDAV_CLIENT_MANAGER,
   DEFAULT_CARDDAV_SERVER_URL,
-  HEADER_CARDDAV_UID,
-  HEADER_CARDDAV_URL,
-  HEADER_CARDDAV_ETAG,
-  HEADER_CARDDAV_ACCOUNT,
+  CarddavHeaders,
 } from "./shared.ts";
 export type {
   CardDAVDriverClient,

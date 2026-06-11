@@ -75,3 +75,40 @@ export interface CronOptions {
    */
   stopAt?: Date | string;
 }
+
+/**
+ * Header keys the cron source sets on every emitted exchange. Keys live
+ * under the reserved `routecraft.cron.*` namespace; the value types are
+ * merged into `RoutecraftHeaders` below.
+ */
+export const CronHeaders = {
+  /** The cron expression that triggered this exchange */
+  EXPRESSION: "routecraft.cron.expression",
+  /** The timestamp when the cron job fired, in ISO 8601 format */
+  FIRED_TIME: "routecraft.cron.firedTime",
+  /** The next timestamp when the cron job will fire, in ISO 8601 format */
+  NEXT_RUN: "routecraft.cron.nextRun",
+  /** The number of times the cron job has fired */
+  COUNTER: "routecraft.cron.counter",
+  /** The IANA timezone for the cron schedule */
+  TIMEZONE: "routecraft.cron.timezone",
+  /** The human-readable name for the cron job */
+  NAME: "routecraft.cron.name",
+} as const satisfies Record<string, `routecraft.cron.${string}`>;
+
+declare module "@routecraft/routecraft" {
+  interface RoutecraftHeaders {
+    /** The cron expression that triggered this exchange */
+    "routecraft.cron.expression"?: string;
+    /** The timestamp when the cron job fired, in ISO 8601 format */
+    "routecraft.cron.firedTime"?: string;
+    /** The next timestamp when the cron job will fire, in ISO 8601 format */
+    "routecraft.cron.nextRun"?: string;
+    /** The number of times the cron job has fired */
+    "routecraft.cron.counter"?: number;
+    /** The IANA timezone for the cron schedule */
+    "routecraft.cron.timezone"?: string;
+    /** The human-readable name for the cron job */
+    "routecraft.cron.name"?: string;
+  }
+}

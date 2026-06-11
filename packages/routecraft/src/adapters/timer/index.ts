@@ -26,3 +26,4 @@ export function timer(options?: TimerOptions): Source<undefined> {
 // Re-export adapter class and types for public API
 export { TimerSourceAdapter } from "./source";
 export type { TimerOptions } from "./types";
+export { TimerHeaders } from "./types";

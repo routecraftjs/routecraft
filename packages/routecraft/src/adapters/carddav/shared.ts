@@ -35,17 +35,35 @@ declare module "@routecraft/routecraft" {
 // Header constants
 // ---------------------------------------------------------------------------
 
-/** Header key for the vCard UID of a contact. */
-export const HEADER_CARDDAV_UID = "routecraft.carddav.uid";
+/**
+ * Header keys the CardDAV adapter sets for contact metadata. Keys live
+ * under the reserved `routecraft.carddav.*` namespace; the value types are
+ * merged into `RoutecraftHeaders` below.
+ * @experimental
+ */
+export const CarddavHeaders = {
+  /** vCard UID of a contact. */
+  UID: "routecraft.carddav.uid",
+  /** DAV object URL of a contact. */
+  URL: "routecraft.carddav.url",
+  /** DAV ETag of a contact. */
+  ETAG: "routecraft.carddav.etag",
+  /** Named account a contact was read from. */
+  ACCOUNT: "routecraft.carddav.account",
+} as const satisfies Record<string, `routecraft.carddav.${string}`>;
 
-/** Header key for the DAV object URL of a contact. */
-export const HEADER_CARDDAV_URL = "routecraft.carddav.url";
-
-/** Header key for the DAV ETag of a contact. */
-export const HEADER_CARDDAV_ETAG = "routecraft.carddav.etag";
-
-/** Header key for the named account a contact was read from. */
-export const HEADER_CARDDAV_ACCOUNT = "routecraft.carddav.account";
+declare module "@routecraft/routecraft" {
+  interface RoutecraftHeaders {
+    /** vCard UID of a contact. */
+    "routecraft.carddav.uid"?: string;
+    /** DAV object URL of a contact. */
+    "routecraft.carddav.url"?: string;
+    /** DAV ETag of a contact. */
+    "routecraft.carddav.etag"?: string;
+    /** Named account a contact was read from. */
+    "routecraft.carddav.account"?: string;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Minimal DAV driver surface (subset of tsdav used by the adapter)

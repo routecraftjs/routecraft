@@ -28,7 +28,7 @@ craft()
 craft()
   .id('file-processor')
   .from(fileWatcher())
-  .dedupe({ key: e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string })
+  .dedupe({ key: e => e.headers[FileHeaders.PATH] as string })
   .process(expensiveProcessing) // Skip files already processed
   .to(destination)
 ```

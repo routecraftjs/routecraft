@@ -26,7 +26,6 @@ export {
   type ExchangeHeaders,
   getExchangeContext,
   getExchangeRoute,
-  type HeaderKeysRegistry,
   HeadersKeys,
   type HeaderValue,
   type HeaderLiteral,
@@ -317,15 +316,17 @@ export {
   getDirectChannel,
   sanitizeEndpoint,
 } from "./adapters/direct/index.ts";
-export { type TimerOptions } from "./adapters/timer/index.ts";
+export { type TimerOptions, TimerHeaders } from "./adapters/timer/index.ts";
 export {
   type CronExpression,
   type CronOptions,
+  CronHeaders,
 } from "./adapters/cron/index.ts";
 export {
   type FileOptions,
   type FileAdapter,
   type FileReadAdapter,
+  FileHeaders,
 } from "./adapters/file/index.ts";
 export {
   type HtmlOptions,
@@ -348,6 +349,7 @@ export {
   type CsvData,
   type CsvAdapter,
   type CsvReadAdapter,
+  CsvHeaders,
 } from "./adapters/csv/index.ts";
 export {
   type JsonlOptions,
@@ -356,6 +358,7 @@ export {
   type JsonlCombinedOptions,
   type JsonlTransformerOptions,
   type JsonlReadAdapter,
+  JsonlHeaders,
 } from "./adapters/jsonl/index.ts";
 export { type GroupOptions } from "./adapters/group/index.ts";
 export {
@@ -413,29 +416,14 @@ export {
   parseAuthResults,
   ANALYSIS_HEADER_NAMES,
   MailClientManager,
-  HEADER_MAIL_UID,
-  HEADER_MAIL_FOLDER,
-  HEADER_MAIL_MESSAGE_ID,
-  HEADER_MAIL_FROM,
-  HEADER_MAIL_TO,
-  HEADER_MAIL_CC,
-  HEADER_MAIL_BCC,
-  HEADER_MAIL_SUBJECT,
-  HEADER_MAIL_DATE,
-  HEADER_MAIL_REPLY_TO,
-  HEADER_MAIL_FLAGS,
-  HEADER_MAIL_SENDER,
-  HEADER_MAIL_RAW_HEADERS,
+  MailHeaders,
 } from "./adapters/mail/index.ts";
 export {
   CardDAVAdapter,
   CardDAVClientManager,
   CARDDAV_CLIENT_MANAGER,
   DEFAULT_CARDDAV_SERVER_URL,
-  HEADER_CARDDAV_UID,
-  HEADER_CARDDAV_URL,
-  HEADER_CARDDAV_ETAG,
-  HEADER_CARDDAV_ACCOUNT,
+  CarddavHeaders,
   VCard,
   VCardProperty,
   parseVCard,

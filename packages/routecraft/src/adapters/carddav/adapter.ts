@@ -43,10 +43,7 @@ import {
   requireClientManager,
   selectAddressBook,
   throwCardDAVError,
-  HEADER_CARDDAV_ACCOUNT,
-  HEADER_CARDDAV_ETAG,
-  HEADER_CARDDAV_UID,
-  HEADER_CARDDAV_URL,
+  CarddavHeaders,
   type CardDAVDriverClient,
   type DAVAddressBookLike,
   type DAVVCardLike,
@@ -473,11 +470,11 @@ export class CardDAVAdapter
     uid: string | undefined,
   ): ExchangeHeaders {
     const headers: Record<string, unknown> = {
-      [HEADER_CARDDAV_URL]: dav.url,
+      [CarddavHeaders.URL]: dav.url,
     };
-    if (uid) headers[HEADER_CARDDAV_UID] = uid;
-    if (dav.etag) headers[HEADER_CARDDAV_ETAG] = dav.etag;
-    if (account) headers[HEADER_CARDDAV_ACCOUNT] = account;
+    if (uid) headers[CarddavHeaders.UID] = uid;
+    if (dav.etag) headers[CarddavHeaders.ETAG] = dav.etag;
+    if (account) headers[CarddavHeaders.ACCOUNT] = account;
     return headers as ExchangeHeaders;
   }
 
@@ -503,7 +500,7 @@ export class CardDAVAdapter
   private resolveTarget(exchange: Exchange<unknown>): ContactTarget {
     const body = coerceBody(exchange.body);
     const cardUid = body ? VCard.wrap(body).uid : undefined;
-    const headerEtag = exchange.headers[HEADER_CARDDAV_ETAG];
+    const headerEtag = exchange.headers[CarddavHeaders.ETAG];
     const etag = typeof headerEtag === "string" ? headerEtag : undefined;
 
     let url: string | undefined;
@@ -513,8 +510,8 @@ export class CardDAVAdapter
       url = extracted.url;
       uid = extracted.uid ?? cardUid;
     } else {
-      const headerUrl = exchange.headers[HEADER_CARDDAV_URL];
-      const headerUid = exchange.headers[HEADER_CARDDAV_UID];
+      const headerUrl = exchange.headers[CarddavHeaders.URL];
+      const headerUid = exchange.headers[CarddavHeaders.UID];
       url = typeof headerUrl === "string" ? headerUrl : undefined;
       uid = cardUid ?? (typeof headerUid === "string" ? headerUid : undefined);
     }

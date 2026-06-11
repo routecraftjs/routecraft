@@ -5,7 +5,7 @@ import {
   type TestContext,
   testSubscription,
 } from "@routecraft/testing";
-import { craft, csv, HeadersKeys } from "@routecraft/routecraft";
+import { craft, csv, CsvHeaders } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -118,9 +118,9 @@ describe("CSV Adapter - Chunked Mode", () => {
     await t.ctx.start();
 
     expect(s.received).toHaveLength(2);
-    expect(s.received[0].headers[HeadersKeys.CSV_ROW]).toBe(1);
-    expect(s.received[0].headers[HeadersKeys.CSV_PATH]).toBe(filePath);
-    expect(s.received[1].headers[HeadersKeys.CSV_ROW]).toBe(2);
+    expect(s.received[0].headers[CsvHeaders.ROW]).toBe(1);
+    expect(s.received[0].headers[CsvHeaders.PATH]).toBe(filePath);
+    expect(s.received[1].headers[CsvHeaders.ROW]).toBe(2);
   });
 
   /**

@@ -89,14 +89,14 @@ Chunked file-based adapters set additional headers on each emitted exchange:
 | `routecraft.jsonl.line` | `number` | `jsonl({ chunked: true })` | 1-based line number in the source JSONL file |
 | `routecraft.jsonl.path` | `string` | `jsonl({ chunked: true })` | Path of the source JSONL file |
 
-Access these via the exported `HeadersKeys` constant for type safety:
+Framework keys live on the exported `HeadersKeys` constant; each adapter exports its own key object (`TimerHeaders`, `CronHeaders`, `FileHeaders`, `CsvHeaders`, `JsonlHeaders`, `MailHeaders`, ...) for type-safe access:
 
 ```ts
-import { HeadersKeys } from '@routecraft/routecraft'
+import { JsonlHeaders } from '@routecraft/routecraft'
 
 .process((exchange) => {
-  const lineNum = exchange.headers[HeadersKeys.JSONL_LINE]
-  const filePath = exchange.headers[HeadersKeys.JSONL_PATH]
+  const lineNum = exchange.headers[JsonlHeaders.LINE]
+  const filePath = exchange.headers[JsonlHeaders.PATH]
   return exchange
 })
 ```

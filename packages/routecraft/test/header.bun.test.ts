@@ -75,4 +75,36 @@ describe("Header operation", () => {
         .to(spy()),
     ).toThrow(/routecraft\.id/);
   });
+
+  /**
+   * @case `.header()` rejects writes to every engine-owned key (operation,
+   *       route id, split hierarchy) while still allowing other reserved
+   *       `routecraft.*` keys like the correlation id
+   * @preconditions Builder pipelines try to set each engine-owned key and
+   *                the (settable) correlation id
+   * @expectedResult Engine-owned keys throw RC5003; correlation id builds fine
+   */
+  test("rejects engine-owned keys but allows correlation id", () => {
+    for (const key of [
+      HeadersKeys.OPERATION,
+      HeadersKeys.ROUTE_ID,
+      HeadersKeys.SPLIT_HIERARCHY,
+    ]) {
+      expect(() =>
+        craft()
+          .id(`header-rejects-${key}`)
+          .from(simple("test"))
+          .header(key, "value")
+          .to(spy()),
+      ).toThrow(/framework-owned/);
+    }
+
+    expect(() =>
+      craft()
+        .id("header-allows-correlation")
+        .from(simple("test"))
+        .header(HeadersKeys.CORRELATION_ID, "upstream-id")
+        .to(spy()),
+    ).not.toThrow();
+  });
 });

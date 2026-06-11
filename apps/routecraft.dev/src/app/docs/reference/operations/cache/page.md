@@ -36,8 +36,8 @@ craft()
 craft()
   .id('file-processor')
   .from(fileWatcher())
-  .cache({ key: e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string })
-  .process(expensiveOperation) // Result is cached per file content hash
+  .cache({ key: e => e.headers[FileHeaders.PATH] as string })
+  .process(expensiveOperation) // Result is cached per file path
   .to(destination)
 
 // Custom provider (e.g. an isolated in-memory store, or future Redis)
@@ -48,7 +48,7 @@ const provider = new MemoryCacheProvider({ max: 10_000, ttl: 60_000 })
 craft()
   .id('file-processor')
   .from(fileWatcher())
-  .cache({ provider, key: e => e.headers[HeadersKeys.FILE_CONTENT_HASH] as string })
+  .cache({ provider, key: e => e.headers[FileHeaders.PATH] as string })
   .process(expensiveOperation)
   .to(destination)
 ```
