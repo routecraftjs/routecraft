@@ -22,6 +22,32 @@ Routecraft's answer: the automation was a program all along, so write it as one.
 
 I build Routecraft, so weigh my bias accordingly. The trade-offs below are real on both sides.
 
+## The short answer
+
+| Feature | n8n | Routecraft |
+| --- | --- | --- |
+| Open source | ✓ Fair-code (Sustainable Use License) | ✓ Apache-2.0 |
+| Self-hostable | ✓ | ✓ |
+| Hosted cloud offering | ✓ n8n Cloud | ✗ |
+| Visual editor | ✓ | ✗ |
+| Code-first authoring | ✗ Code node as escape hatch | ✓ TypeScript DSL |
+| Usable by non-developers | ✓ | ✗ |
+| Hundreds of prebuilt connectors | ✓ | ✗ small adapter set |
+| Native git workflow (diffs, PRs, blame) | ✗ source control on paid tiers | ✓ plain files |
+| Unit tests in CI | ✗ manual executions | ✓ `@routecraft/testing` |
+| End-to-end type safety | ✗ | ✓ |
+| Human-in-the-loop approvals | ✓ prebuilt buttons | ✗ composed from capabilities |
+| Result caching with TTL | ✗ | ✓ `.cache({ ttl })` |
+| AI agent hosting | ✓ agent nodes | ✓ `.to(agent())` |
+| Expose tools to agents over MCP | ✓ MCP nodes | ✓ `.from(mcp())` |
+| Runs as an ordinary process | ✗ platform plus database | ✓ Bun or Node 22+, Docker |
+
+Pick **n8n** when integration breadth and non-developer authorship are the point: the automations are glue between SaaS products, the people building them live in the browser, and the canvas is an asset rather than a liability.
+
+Pick **Routecraft** when the automations are software: when they need code review, tests, refactoring, type safety, and a deployment story your platform team already understands, and especially when AI agents are involved and the guardrails have to be enforceable rather than configurable.
+
+The rest of this post is the reasoning behind that table, with the same automation built both ways.
+
 ## The same automation, both ways
 
 Take a small real workflow: receive an invoice over a webhook, validate it, drop the noise, and notify finance.
@@ -105,31 +131,9 @@ Feature lists only get you so far; what decides the choice is how each tool hand
 | Scheduled jobs | Schedule trigger node | `.from(cron('0 9 * * *'))` | [docs](/docs/introduction) |
 | Fan-out over a list | Loop and split nodes | `.split()` and `.aggregate()` | [docs](/docs/introduction) |
 
-## The actual decision
+## The heuristic
 
-| Feature | n8n | Routecraft |
-| --- | --- | --- |
-| Open source | ✓ Fair-code (Sustainable Use License) | ✓ Apache-2.0 |
-| Self-hostable | ✓ | ✓ |
-| Hosted cloud offering | ✓ n8n Cloud | ✗ |
-| Visual editor | ✓ | ✗ |
-| Code-first authoring | ✗ Code node as escape hatch | ✓ TypeScript DSL |
-| Usable by non-developers | ✓ | ✗ |
-| Hundreds of prebuilt connectors | ✓ | ✗ small adapter set |
-| Native git workflow (diffs, PRs, blame) | ✗ source control on paid tiers | ✓ plain files |
-| Unit tests in CI | ✗ manual executions | ✓ `@routecraft/testing` |
-| End-to-end type safety | ✗ | ✓ |
-| Human-in-the-loop approvals | ✓ prebuilt buttons | ✗ composed from capabilities |
-| Result caching with TTL | ✗ | ✓ `.cache({ ttl })` |
-| AI agent hosting | ✓ agent nodes | ✓ `.to(agent())` |
-| Expose tools to agents over MCP | ✓ MCP nodes | ✓ `.from(mcp())` |
-| Runs as an ordinary process | ✗ platform plus database | ✓ Bun or Node 22+, Docker |
-
-Pick **n8n** when integration breadth and non-developer authorship are the point: the automations are glue between SaaS products, the people building them live in the browser, and the canvas is an asset rather than a liability.
-
-Pick **Routecraft** when the automations are software: when they need code review, tests, refactoring, type safety, and a deployment story your platform team already understands, and especially when AI agents are involved and the guardrails have to be enforceable rather than configurable.
-
-A heuristic that has served me well: if your first instinct inside the visual tool is to reach for the Code node, the tool is telling you something.
+If the table above does not settle it, a heuristic that has served me well: if your first instinct inside the visual tool is to reach for the Code node, the tool is telling you something.
 
 ## Try it
 

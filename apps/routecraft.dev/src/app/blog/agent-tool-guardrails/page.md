@@ -15,7 +15,7 @@ tags:
 layout: blog-post
 ---
 
-The moment an MCP tool does something real (sends, writes, deletes, pays), the interesting question stops being "how do I define a tool" and becomes "what stops the agent from misusing it". The model calling your tool is a probabilistic system whose context window may contain text written by an attacker; the argument for why prompts cannot be the answer is [its own post](/blog/stop-trusting-your-llm-to-behave). This one is practical: the guardrail pattern, implemented twice.
+Your `send_email` MCP tool is one crafted calendar invite away from mailing your customer list to a stranger. Not because the model is malicious, but because the model calling your tool is a probabilistic system whose context window may contain text written by an attacker, and the model does what its context says. The moment an MCP tool does something real (sends, writes, deletes, pays), the interesting question stops being "how do I define a tool" and becomes "what stops the agent from misusing it". The argument for why prompts cannot be the answer is [its own post](/blog/stop-trusting-your-llm-to-behave); this one is practical: the guardrail pattern, implemented twice.
 
 We compare the two TypeScript frameworks you are most likely choosing between for MCP servers: FastMCP and Routecraft. The general comparison lives in [Routecraft vs FastMCP](/blog/routecraft-vs-fastmcp); this is the deep dive on one pattern.
 
