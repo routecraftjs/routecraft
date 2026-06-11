@@ -1,11 +1,11 @@
 ---
 title: 'LLM as a judge in TypeScript: Vercel AI SDK vs Routecraft'
 description: A second model scores the first model's output and a gate decides what happens next. The judge call is five lines in any modern SDK; the pattern is everything around it. Built twice, once with the Vercel AI SDK and once as a Routecraft pipeline.
-date: 2026-06-10
+date: 2026-07-08
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
-draft: false
+draft: true
 tags:
   - llm-as-a-judge
   - ai-sdk
