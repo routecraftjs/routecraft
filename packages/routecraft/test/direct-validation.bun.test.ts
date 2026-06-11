@@ -1,12 +1,8 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
-import {
-  craft,
-  simple,
-  direct,
-  ADAPTER_DIRECT_REGISTRY,
-} from "@routecraft/routecraft";
+import { craft, simple, direct } from "@routecraft/routecraft";
+import { ADAPTER_DIRECT_REGISTRY } from "../src/adapters/direct/shared.ts";
 
 /**
  * Direct adapter validation tests
@@ -1334,6 +1330,38 @@ describe("Direct adapter validation", () => {
       const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
       expect(registry).toBeDefined();
       expect(registry?.has("test-endpoint")).toBe(true);
+    });
+
+    /**
+     * @case context.capabilities() surfaces direct endpoints with raw ids
+     *       and the route's discovery metadata
+     * @preconditions Two direct routes, one with discovery metadata and an
+     *                id containing characters the registry sanitises ("/")
+     * @expectedResult Both capabilities are listed; the sanitised key is
+     *                 decoded back to the raw id; metadata fields round-trip
+     */
+    test("capabilities() lists endpoints with raw ids and metadata", async () => {
+      t = await testContext()
+        .routes([
+          craft()
+            .id("orders/find")
+            .title("Find order")
+            .description("Look up an order by id")
+            .tag("read-only")
+            .from(direct())
+            .to(mock()),
+          craft().id("plain").from(direct()).to(mock()),
+        ])
+        .build();
+
+      await t.test();
+      const caps = t.ctx.capabilities();
+      const find = caps.find((c) => c.endpoint === "orders/find");
+      expect(find).toBeDefined();
+      expect(find?.title).toBe("Find order");
+      expect(find?.description).toBe("Look up an order by id");
+      expect(find?.tags).toEqual(["read-only"]);
+      expect(caps.some((c) => c.endpoint === "plain")).toBe(true);
     });
 
     /**

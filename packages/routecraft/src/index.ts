@@ -35,6 +35,7 @@ export {
 
 export {
   CraftContext,
+  type Capability,
   type MergedOptions,
   type StoreRegistry,
   RUNNER_ARGV,
@@ -311,11 +312,7 @@ export {
   type DirectChannelType,
   type DirectClientOptions,
   type DirectOptions,
-  type DirectRouteMetadata,
   type DirectServerOptions,
-  ADAPTER_DIRECT_REGISTRY,
-  getDirectChannel,
-  sanitizeEndpoint,
 } from "./adapters/direct/index.ts";
 export { type TimerOptions, TimerHeaders } from "./adapters/timer/index.ts";
 export {

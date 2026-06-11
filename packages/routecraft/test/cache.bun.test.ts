@@ -99,7 +99,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
 
   /**
    * @case Repeat invocations with the same body reuse the cached value
-   * @preconditions Two client.send calls with identical input through the same direct route
+   * @preconditions Two client.sendDirect calls with identical input through the same direct route
    * @expectedResult compute runs only once across both invocations
    */
   test("second exchange with same key hits the cache and skips the wrapped step", async () => {
@@ -119,8 +119,8 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    await t.client.send("cache-hit", "hello");
-    await t.client.send("cache-hit", "hello");
+    await t.client.sendDirect("cache-hit", "hello");
+    await t.client.sendDirect("cache-hit", "hello");
 
     expect(compute).toHaveBeenCalledTimes(1);
     expect(sink.received).toHaveLength(2);
@@ -153,10 +153,10 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    await t.client.send("cache-by-id", { id: 1 });
-    await t.client.send("cache-by-id", { id: 1 });
-    await t.client.send("cache-by-id", { id: 2 });
-    await t.client.send("cache-by-id", { id: 1 });
+    await t.client.sendDirect("cache-by-id", { id: 1 });
+    await t.client.sendDirect("cache-by-id", { id: 1 });
+    await t.client.sendDirect("cache-by-id", { id: 2 });
+    await t.client.sendDirect("cache-by-id", { id: 1 });
 
     // id=1 computed once, id=2 computed once
     expect(compute).toHaveBeenCalledTimes(2);
@@ -192,8 +192,12 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    await expect(t.client.send("cache-no-poison", "input")).rejects.toThrow();
-    await expect(t.client.send("cache-no-poison", "input")).rejects.toThrow();
+    await expect(
+      t.client.sendDirect("cache-no-poison", "input"),
+    ).rejects.toThrow();
+    await expect(
+      t.client.sendDirect("cache-no-poison", "input"),
+    ).rejects.toThrow();
 
     expect(attempts).toBe(2);
     expect(sink.received).toHaveLength(0);
@@ -222,9 +226,9 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    await t.client.send("cache-ttl", "hello");
+    await t.client.sendDirect("cache-ttl", "hello");
     await new Promise((r) => setTimeout(r, 30));
-    await t.client.send("cache-ttl", "hello");
+    await t.client.sendDirect("cache-ttl", "hello");
 
     expect(counter).toBe(2);
     expect(sink.received).toHaveLength(2);
@@ -376,8 +380,8 @@ describe(".cache() step scope: dual-mode wrapper", () => {
     }
 
     await t.startAndWaitReady();
-    await t.client.send("cache-events", "hello");
-    await t.client.send("cache-events", "hello");
+    await t.client.sendDirect("cache-events", "hello");
+    await t.client.sendDirect("cache-events", "hello");
 
     expect(events).toContain("miss");
     expect(events).toContain("stored");
@@ -406,7 +410,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    await t.client.send("cache-headers", "body");
+    await t.client.sendDirect("cache-headers", "body");
 
     expect(sink.received).toHaveLength(1);
     expect(sink.received[0].headers["x-test"]).toBe("yes");
@@ -437,8 +441,8 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    await t.client.send("cache-null", "x");
-    await t.client.send("cache-null", "x");
+    await t.client.sendDirect("cache-null", "x");
+    await t.client.sendDirect("cache-null", "x");
 
     expect(calls).toBe(1);
     expect(sink.received).toHaveLength(2);
@@ -471,8 +475,8 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    await t.client.send("cache-undefined", "x");
-    await t.client.send("cache-undefined", "x");
+    await t.client.sendDirect("cache-undefined", "x");
+    await t.client.sendDirect("cache-undefined", "x");
 
     // undefined is the miss sentinel: never cached, so it recomputes.
     expect(calls).toBe(2);
@@ -508,8 +512,8 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    await t.client.send("error-outside-cache", "x");
-    await t.client.send("error-outside-cache", "x");
+    await t.client.sendDirect("error-outside-cache", "x");
+    await t.client.sendDirect("error-outside-cache", "x");
 
     expect(attempts).toBe(2);
     expect(provider.size).toBe(0);
@@ -545,8 +549,8 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    await t.client.send("error-inside-cache", "x");
-    await t.client.send("error-inside-cache", "x");
+    await t.client.sendDirect("error-inside-cache", "x");
+    await t.client.sendDirect("error-inside-cache", "x");
 
     // Second send is a cache hit: the handler is not invoked again.
     expect(handlerCalls).toBe(1);
@@ -637,7 +641,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    await t.client.send("cache-types", "abcd");
+    await t.client.sendDirect("cache-types", "abcd");
 
     expect(sink.received).toHaveLength(1);
     expect(sink.received[0].body).toBe(8);
@@ -776,7 +780,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
 
     await t.startAndWaitReady();
     await expect(
-      t.client.send("cache-provider-read-fail", "x"),
+      t.client.sendDirect("cache-provider-read-fail", "x"),
     ).rejects.toThrow(/provider read failed/);
     expect(innerRuns).toBe(0);
     expect(sink.received).toHaveLength(0);
@@ -821,7 +825,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
 
     await t.startAndWaitReady();
     await expect(
-      t.client.send("cache-provider-write-fail", "x"),
+      t.client.sendDirect("cache-provider-write-fail", "x"),
     ).rejects.toThrow(/provider write failed/);
     expect(innerRuns).toBe(1);
     expect(sink.received).toHaveLength(0);
@@ -839,7 +843,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
   /**
    * @case First send misses cache and runs the full pipeline; result returned to caller
    * @preconditions craft().cache(...).from(direct()).transform(slow).to(noop()) and one send
-   * @expectedResult Pipeline runs; client.send returns the computed body
+   * @expectedResult Pipeline runs; client.sendDirect returns the computed body
    */
   test("first send misses and runs the pipeline", async () => {
     const provider = new MemoryCacheProvider();
@@ -857,7 +861,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    const result = await t.client.send("route-cache-miss", "hello");
+    const result = await t.client.sendDirect("route-cache-miss", "hello");
 
     expect(compute).toHaveBeenCalledTimes(1);
     expect(result).toBe("out:hello");
@@ -885,8 +889,8 @@ describe(".cache() route scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    const a = await t.client.send("route-cache-hit", "x");
-    const b = await t.client.send("route-cache-hit", "x");
+    const a = await t.client.sendDirect("route-cache-hit", "x");
+    const b = await t.client.sendDirect("route-cache-hit", "x");
 
     // Pipeline ran exactly once.
     expect(compute).toHaveBeenCalledTimes(1);
@@ -923,7 +927,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
 
     await t.startAndWaitReady();
     for (let i = 0; i < 5; i++) {
-      await t.client.send("route-cache-sideeffect", "same");
+      await t.client.sendDirect("route-cache-sideeffect", "same");
     }
 
     expect(sideEffects).toBe(1);
@@ -950,12 +954,12 @@ describe(".cache() route scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    const a = await t.client.send<string, { counter: number }>(
+    const a = await t.client.sendDirect<string, { counter: number }>(
       "route-cache-ttl",
       "x",
     );
     await new Promise((r) => setTimeout(r, 30));
-    const b = await t.client.send<string, { counter: number }>(
+    const b = await t.client.sendDirect<string, { counter: number }>(
       "route-cache-ttl",
       "x",
     );
@@ -989,9 +993,9 @@ describe(".cache() route scope: dual-mode wrapper", () => {
       .build();
 
     await t.startAndWaitReady();
-    await t.client.send("route-cache-custom-key", { id: 1 });
-    await t.client.send("route-cache-custom-key", { id: 1 });
-    await t.client.send("route-cache-custom-key", { id: 2 });
+    await t.client.sendDirect("route-cache-custom-key", { id: 1 });
+    await t.client.sendDirect("route-cache-custom-key", { id: 1 });
+    await t.client.sendDirect("route-cache-custom-key", { id: 2 });
 
     expect(compute).toHaveBeenCalledTimes(2);
   });
@@ -1086,11 +1090,11 @@ describe(".cache() route scope: dual-mode wrapper", () => {
 
     await t.startAndWaitReady();
 
-    const first = await t.client.send(
+    const first = await t.client.sendDirect(
       "route-cache-split-balanced-runtime",
       [1, 2, 3],
     );
-    const second = await t.client.send(
+    const second = await t.client.sendDirect(
       "route-cache-split-balanced-runtime",
       [1, 2, 3],
     );
@@ -1141,8 +1145,8 @@ describe(".cache() route scope: dual-mode wrapper", () => {
     }
 
     await t.startAndWaitReady();
-    await t.client.send("route-cache-events", "hello");
-    await t.client.send("route-cache-events", "hello");
+    await t.client.sendDirect("route-cache-events", "hello");
+    await t.client.sendDirect("route-cache-events", "hello");
 
     const names = events.map((e) => e.name);
     expect(names).toContain("miss");
@@ -1182,8 +1186,8 @@ describe(".cache() route scope: dual-mode wrapper", () => {
     );
 
     await t.startAndWaitReady();
-    await t.client.send("route-cache-restored", "x");
-    await t.client.send("route-cache-restored", "x");
+    await t.client.sendDirect("route-cache-restored", "x");
+    await t.client.sendDirect("route-cache-restored", "x");
 
     expect(restored).toHaveLength(1);
     expect(restored[0]!.source).toBe("cache");
@@ -1229,18 +1233,18 @@ describe(".cache() route scope: dual-mode wrapper", () => {
 
     // Invalid input is rejected before the cache is consulted; pipeline never runs.
     await expect(
-      t.client.send("route-cache-input", { bad: 1 }),
+      t.client.sendDirect("route-cache-input", { bad: 1 }),
     ).rejects.toThrow();
     expect(pipelineRuns).toBe(0);
     expect(provider.size).toBe(0);
 
     // A valid input runs the pipeline once and caches.
-    await t.client.send("route-cache-input", { ok: true });
+    await t.client.sendDirect("route-cache-input", { ok: true });
     expect(pipelineRuns).toBe(1);
     expect(provider.size).toBe(1);
 
     // Repeat: cache hit, pipeline does not run again.
-    await t.client.send("route-cache-input", { ok: true });
+    await t.client.sendDirect("route-cache-input", { ok: true });
     expect(pipelineRuns).toBe(1);
   });
 

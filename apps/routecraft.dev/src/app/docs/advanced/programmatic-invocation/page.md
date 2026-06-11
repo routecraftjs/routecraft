@@ -63,12 +63,12 @@ const { context, client } = await new ContextBuilder()
 await context.start();
 
 // Dispatch from anywhere
-const result = await client.send('greet', { name: 'World' });
+const result = await client.sendDirect('greet', { name: 'World' });
 ```
 
 ## Build a CLI
 
-Use [Commander](https://github.com/tj/commander.js) (or any CLI framework) to parse arguments, then dispatch into routes via `client.send()`. This gives you full control over help text, subcommands, and shell completion while keeping business logic in Routecraft routes.
+Use [Commander](https://github.com/tj/commander.js) (or any CLI framework) to parse arguments, then dispatch into routes via `client.sendDirect()`. This gives you full control over help text, subcommands, and shell completion while keeping business logic in Routecraft routes.
 
 ```ts
 import { Command } from 'commander';
@@ -96,7 +96,7 @@ contextBuilder.routes(routes);
 const { context, client } = await contextBuilder.build();
 context.start();
 
-// 3. Wire Commander commands to client.send()
+// 3. Wire Commander commands to client.sendDirect()
 const program = new Command().name('my-tool').version('1.0.0');
 
 program.hook('postAction', async () => {
@@ -108,7 +108,7 @@ program
   .description('Greet someone')
   .argument('<name>', 'Who to greet')
   .action(async (name: string) => {
-    const result = await client.send('greet', { name });
+    const result = await client.sendDirect('greet', { name });
     console.log(result);
   });
 
@@ -118,7 +118,7 @@ program
   .requiredOption('-e, --env <env>', 'Target environment')
   .option('-d, --dry-run', 'Preview without deploying')
   .action(async (opts: { env: string; dryRun?: boolean }) => {
-    const result = await client.send('deploy', opts);
+    const result = await client.sendDirect('deploy', opts);
     console.log(result);
   });
 
@@ -135,11 +135,11 @@ my-tool --help               # Commander-generated help
 
 - Call `context.start()` before dispatching. `direct()` sources are ready immediately since they wait for explicit `send()` calls.
 - Stop the context after the CLI command finishes. The `postAction` hook in the example above handles this automatically.
-- For error handling, wrap `client.send()` in a try/catch and set `process.exitCode` as needed.
+- For error handling, wrap `client.sendDirect()` in a try/catch and set `process.exitCode` as needed.
 
 ## Embed in a web framework
 
-The same `direct()` + `CraftClient` pattern works inside HTTP frameworks. Start the context once when the server boots, then call `client.send()` from request handlers.
+The same `direct()` + `CraftClient` pattern works inside HTTP frameworks. Start the context once when the server boots, then call `client.sendDirect()` from request handlers.
 
 ### Next.js API route
 
@@ -167,7 +167,7 @@ import { client } from '@/lib/routecraft';
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const result = await client.send('greet', body);
+  const result = await client.sendDirect('greet', body);
   return Response.json({ message: result });
 }
 ```
@@ -193,7 +193,7 @@ const app = express();
 app.use(express.json());
 
 app.post('/greet', async (req, res) => {
-  const result = await client.send('greet', req.body);
+  const result = await client.sendDirect('greet', req.body);
   res.json({ message: result });
 });
 
@@ -204,7 +204,7 @@ app.listen(3000);
 
 - Start the context once at boot, not per-request.
 - For graceful shutdown, call `context.stop()` in your server's shutdown handler (e.g., `process.on('SIGTERM', ...)`).
-- `client.send()` throws a `RoutecraftError` (`RC5004`) if the endpoint does not exist. Return a 404 or appropriate status in your error handler.
+- `client.sendDirect()` throws a `RoutecraftError` (`RC5004`) if the endpoint does not exist. Return a 404 or appropriate status in your error handler.
 
 ---
 

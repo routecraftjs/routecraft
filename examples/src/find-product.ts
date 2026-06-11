@@ -32,7 +32,7 @@ const CATALOGUE_PATH = fileURLToPath(
 );
 
 // "find-product": a reusable service. It is triggered as a direct() endpoint so
-// any other route (or external caller via client.send) can dispatch into it.
+// any other route (or external caller via client.sendDirect) can dispatch into it.
 // When called, it reads + parses the product catalogue from disk via the json()
 // adapter in read mode, and returns the single product whose id matches.
 const findProductRoute = craft()
@@ -59,7 +59,7 @@ const findProductRoute = craft()
 
 // A tiny caller so the example also runs standalone via the craft CLI. It
 // dispatches a fixed criteria into the reusable route and logs the matched
-// product. Any route (or an external client.send) can call find-product the
+// product. Any route (or an external client.sendDirect) can call find-product the
 // same way, which is why find-product is triggered by direct().
 const lookupRoute = craft()
   .id("lookup")

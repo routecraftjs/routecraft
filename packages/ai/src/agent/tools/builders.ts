@@ -1,15 +1,11 @@
 import {
-  ADAPTER_DIRECT_REGISTRY,
-  DefaultExchange,
+  CraftClient,
   HeadersKeys,
-  getDirectChannel,
   isAuthentic,
   markAuthentic,
   rcError,
-  sanitizeEndpoint,
+  type Capability,
   type CraftContext,
-  type DirectRouteMetadata,
-  type Exchange,
   type KnownTag,
   type Principal,
 } from "@routecraft/routecraft";
@@ -195,17 +191,11 @@ function readDirectRoute(
   ctx: CraftContext,
   routeId: string,
   fnId: string,
-): DirectRouteMetadata {
-  const registry = ctx.getStore(ADAPTER_DIRECT_REGISTRY) as
-    | Map<string, DirectRouteMetadata>
-    | undefined;
-  // Direct sources register under the sanitised endpoint, so look up
-  // by sanitised key. Reject the raw id in the error message so the
-  // user can see which one they wrote.
-  const endpoint = sanitizeEndpoint(routeId);
-  const route = registry?.get(endpoint);
+): Capability {
+  const capabilities = ctx.capabilities();
+  const route = capabilities.find((c) => c.endpoint === routeId);
   if (!route) {
-    const known = registry ? [...registry.keys()].sort() : [];
+    const known = capabilities.map((c) => c.endpoint).sort();
     throw rcError("RC5003", undefined, {
       message:
         `directTool: unknown direct route id "${routeId}" (referenced as fn "${fnId}"). ` +
@@ -223,7 +213,6 @@ async function dispatchDirect<TIn>(
   routeId: string,
   input: TIn,
 ): Promise<unknown> {
-  const endpoint = sanitizeEndpoint(routeId);
   // Forward the calling principal so the downstream direct route sees
   // the same authenticated identity as the agent that invoked the
   // tool. The agent layer never lets a tool override or escalate this:
@@ -239,13 +228,11 @@ async function dispatchDirect<TIn>(
   if (hctx.principal) {
     headers[HeadersKeys.AUTH_PRINCIPAL] = cloneFrozenPrincipal(hctx.principal);
   }
-  const exchange = new DefaultExchange<TIn>(ctx, {
-    body: input,
-    ...(Object.keys(headers).length > 0 ? { headers } : {}),
-  });
-  const channel = getDirectChannel<TIn>(ctx, endpoint, {});
-  const result = (await channel.send(endpoint, exchange)) as Exchange<unknown>;
-  return result.body;
+  return new CraftClient(ctx).sendDirect(
+    routeId,
+    input,
+    Object.keys(headers).length > 0 ? headers : undefined,
+  );
 }
 
 /**

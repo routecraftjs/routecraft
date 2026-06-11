@@ -1,10 +1,4 @@
-import {
-  ADAPTER_DIRECT_REGISTRY,
-  rcError,
-  type CraftContext,
-  type DirectRouteMetadata,
-  type Tag,
-} from "@routecraft/routecraft";
+import { rcError, type CraftContext, type Tag } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { ADAPTER_FN_REGISTRY } from "../../fn/store.ts";
 import type { FnHandlerContext, FnOptions } from "../../fn/types.ts";
@@ -75,8 +69,8 @@ export interface ToolsCatalog {
     readonly tags?: readonly Tag[];
   }>;
   /**
-   * Direct routes registered in `ADAPTER_DIRECT_REGISTRY`. Reference
-   * them in a `ToolsItem` as `"Direct(<id>)"`.
+   * Discoverable direct routes (see `CraftContext.capabilities()`).
+   * Reference them in a `ToolsItem` as `"Direct(<id>)"`.
    */
   readonly routes: ReadonlyArray<{
     readonly id: string;
@@ -328,31 +322,21 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
   }
 
   const routes: ToolsCatalog["routes"][number][] = [];
-  const directRegistry = ctx.getStore(ADAPTER_DIRECT_REGISTRY) as
-    | Map<string, DirectRouteMetadata>
-    | undefined;
-  if (directRegistry) {
-    for (const [routeId, meta] of directRegistry) {
-      const tags =
-        meta.tags && meta.tags.length > 0
-          ? Object.freeze([...meta.tags])
-          : undefined;
-      // The direct registry is keyed by the sanitised (URL-encoded)
-      // endpoint, but `Direct(<routeId>)` consumers want the raw id
-      // they passed to `.id(...)`. Round-trip through
-      // `decodeURIComponent` so a builder that does
-      // `Direct(${r.id})` resolves cleanly for ids containing `/`,
-      // `:`, etc. (without the decode, the resolver would
-      // double-encode at lookup time).
-      const rawId = decodeURIComponent(routeId);
-      routes.push(
-        Object.freeze({
-          id: rawId,
-          ...(meta.description ? { description: meta.description } : {}),
-          ...(tags !== undefined ? { tags } : {}),
-        }),
-      );
-    }
+  // `capabilities()` already speaks raw route ids (it decodes the
+  // sanitised registry keys), so a builder that does `Direct(${r.id})`
+  // resolves cleanly for ids containing `/`, `:`, etc.
+  for (const meta of ctx.capabilities()) {
+    const tags =
+      meta.tags && meta.tags.length > 0
+        ? Object.freeze([...meta.tags])
+        : undefined;
+    routes.push(
+      Object.freeze({
+        id: meta.endpoint,
+        ...(meta.description ? { description: meta.description } : {}),
+        ...(tags !== undefined ? { tags } : {}),
+      }),
+    );
   }
 
   const mcp: ToolsCatalog["mcp"][number][] = [];
@@ -719,12 +703,6 @@ function listKnownNames(ctx: CraftContext): string[] {
       new Map()
     ).keys(),
   ];
-  const routeNames = [
-    ...(
-      (ctx.getStore(ADAPTER_DIRECT_REGISTRY) as
-        | Map<string, DirectRouteMetadata>
-        | undefined) ?? new Map()
-    ).keys(),
-  ].map((id) => `Direct(${id})`);
+  const routeNames = ctx.capabilities().map((c) => `Direct(${c.endpoint})`);
   return [...fnNames, ...routeNames].sort();
 }

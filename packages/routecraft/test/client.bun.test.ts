@@ -21,7 +21,7 @@ describe("CraftClient", () => {
    * @preconditions A route with a direct source and a transform step
    * @expectedResult The client receives the transformed body as the return value
    */
-  test("send returns the route result", async () => {
+  test("sendDirect returns the route result", async () => {
     t = await testContext()
       .routes(
         craft()
@@ -33,22 +33,22 @@ describe("CraftClient", () => {
       .build();
 
     await t.startAndWaitReady();
-    const result = await t.client.send("greet", { name: "World" });
+    const result = await t.client.sendDirect("greet", { name: "World" });
     expect(result as unknown).toBe("Hello, World!");
   });
 
   /**
    * @case Throws RC5004 when no route subscribes to the given endpoint
    * @preconditions A context with no route for the requested endpoint
-   * @expectedResult client.send() rejects with a RoutecraftError containing code RC5004
+   * @expectedResult client.sendDirect() rejects with a RoutecraftError containing code RC5004
    */
-  test("send throws RC5004 for unknown endpoint", async () => {
+  test("sendDirect throws RC5004 for unknown endpoint", async () => {
     t = await testContext()
       .routes(craft().id("exists").from(direct()).to(noop()))
       .build();
 
     await t.startAndWaitReady();
-    await expect(t.client.send("does-not-exist", {})).rejects.toThrow(
+    await expect(t.client.sendDirect("does-not-exist", {})).rejects.toThrow(
       "No direct channel",
     );
   });
@@ -56,9 +56,9 @@ describe("CraftClient", () => {
   /**
    * @case Forwards custom headers through to the exchange
    * @preconditions A route that reads a header value via process() and returns it as the body
-   * @expectedResult The result reflects the header value passed via client.send()
+   * @expectedResult The result reflects the header value passed via client.sendDirect()
    */
-  test("send forwards headers to the exchange", async () => {
+  test("sendDirect forwards headers to the exchange", async () => {
     t = await testContext()
       .routes(
         craft()
@@ -75,7 +75,7 @@ describe("CraftClient", () => {
       .build();
 
     await t.startAndWaitReady();
-    const result = await t.client.send(
+    const result = await t.client.sendDirect(
       "echo-header",
       {},
       { "x-request-id": "abc-123" },

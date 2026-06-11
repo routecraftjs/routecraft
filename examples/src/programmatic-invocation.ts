@@ -24,7 +24,7 @@ contextBuilder.routes(capabilities);
 const { context, client } = await contextBuilder.build();
 context.start();
 
-// 3. Wire Commander with full control, dispatch into routes via client.send()
+// 3. Wire Commander with full control, dispatch into routes via client.sendDirect()
 const program = new Command().name("my-tool").version("1.0.0");
 
 program.hook("postAction", async () => {
@@ -36,7 +36,7 @@ program
   .description("Greet someone")
   .argument("<name>", "Who to greet")
   .action(async (name) => {
-    const result = await client.send("greet", { name });
+    const result = await client.sendDirect("greet", { name });
     // eslint-disable-next-line no-console
     console.log(result);
   });
@@ -46,7 +46,7 @@ program
   .description("A command that always fails")
   .action(async () => {
     try {
-      const result = await client.send("fail", {});
+      const result = await client.sendDirect("fail", {});
       // eslint-disable-next-line no-console
       console.log(result);
     } catch (err) {

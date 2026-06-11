@@ -76,7 +76,7 @@ import {
  * await context.start();
  *
  * // Dispatch messages programmatically
- * await client.send('my-endpoint', { data: 'hello' });
+ * await client.sendDirect('my-endpoint', { data: 'hello' });
  * ```
  *
  * Plugins run before routes are registered, allowing them to:
@@ -268,7 +268,7 @@ export class ContextBuilder {
    *   .build();
    *
    * await context.start();
-   * await client.send('greet', { name: 'World' });
+   * await client.sendDirect('greet', { name: 'World' });
    * ```
    */
   async build(): Promise<{ context: CraftContext; client: CraftClient }> {
