@@ -1,6 +1,6 @@
 ---
-title: Which capabilities should your organization build first?
-description: Every team that decides to give agents real tools faces the same empty backlog. Six filters for choosing capabilities that compound instead of demo, a trust pyramid for sequencing them, and the two meta-capabilities that make the backlog start writing itself.
+title: 'The backlog that writes itself: which capabilities should your organization build first?'
+description: Every team that gives agents real tools faces the same empty backlog. Six filters and a trust pyramid get you through the first quarter; the core move is what comes with them, a gap logger and shared memory that let the agent file its own evidence-ranked backlog, so you stop curating the list by hand.
 date: 2026-06-10
 author: Jaco Botha
 authorRole: Founder, DevOptix
@@ -17,6 +17,8 @@ layout: blog-post
 At some point a team decides the agent experiments are over and it is time to build real capabilities: deployed, governed tools that humans and agents share (the argument for that model is [its own post](/blog/ai-agents-are-still-single-player)). Then comes the empty backlog, and with it the default failure mode: building whatever demos best. A chatbot over the wiki. An agent that writes Jira tickets. Something impressive on a Friday and unused by March.
 
 Capability selection is a portfolio decision, and it deserves actual filters. Here are the six I use, followed by how to sequence what passes them.
+
+One thing before the filters, because it is the core idea of this post: you should only have to curate this backlog by hand for one quarter. Build a gap logger and a shared memory alongside your first capabilities, and the agent starts filing its own evidence-ranked backlog; the mechanics are in [the backlog that writes itself](#the-backlog-that-writes-itself) below. The filters and the pyramid are how you earn the right to that loop.
 
 ## The six filters
 
