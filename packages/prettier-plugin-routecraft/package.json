@@ -9,7 +9,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup",
     "prepublishOnly": "bun run build",
     "test": "vitest"
   },

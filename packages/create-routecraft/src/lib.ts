@@ -37,8 +37,8 @@ export interface InitOptions {
 
 /**
  * Get the version range to pin for @routecraft/* packages in the scaffolded
- * project. All workspace packages are versioned in lockstep (see
- * .github/scripts/set-version.mjs), so this package's own version equals the
+ * project. The core train is versioned in lockstep (the fixed group in
+ * .changeset/config.json), so this package's own version equals the
  * core version. Reading our own package.json keeps the lookup correct both in
  * the monorepo and in a published install; a cross-package relative path would
  * resolve to an unrelated `node_modules/routecraft` after publishing.

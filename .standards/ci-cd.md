@@ -141,7 +141,7 @@ Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick 
 - `.changeset/config.json` declares a `fixed` group, the **core train**: `@routecraft/routecraft`, `@routecraft/cli`, `@routecraft/testing`, `create-routecraft`, `@routecraft/eslint-plugin-routecraft`, `@routecraft/prettier-plugin-routecraft`. These always share one version number.
 - Everything else (`@routecraft/ai`, `@routecraft/browser`, future vendor packages) versions independently.
 - `routecraft.dev` and `examples` are ignored; `@routecraft/os` is versioned but never tagged/published (private).
-- `onlyUpdatePeerDependentsWhenOutOfRange` is on, so a core minor does not major-cascade through ecosystem peer ranges.
+- `onlyUpdatePeerDependentsWhenOutOfRange` is on, so a core minor does not major-cascade through ecosystem peer ranges. It lives under changesets' `___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH` key, so re-check the changesets release notes for it whenever bumping `@changesets/cli`.
 
 ### Pipeline
 

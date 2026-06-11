@@ -440,7 +440,9 @@ jobs:
               [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
           }
 
-          LATEST_TAG="$(git tag -l 'v*' | sort -V | tail -n1)"
+          # Only tags reachable from the checked-out ref: a v* tag on an
+          # abandoned branch must never freeze the published docs.
+          LATEST_TAG="$(git tag --merged HEAD -l 'v*' | sort -V | tail -n1)"
           if [ -n "$LATEST_TAG" ] && version_gt "$LATEST_TAG" "$MIN_FREEZE_VERSION"; then
             LABEL="$LATEST_TAG"
             FREEZE_TAG="$LATEST_TAG"

@@ -53,12 +53,7 @@ export default [
     ...routecraftPlugin.configs.recommended,
   },
   {
-    files: [
-      "**/*.test.{js,ts,mjs,cjs}",
-      "**/*.spec.{js,ts,mjs,cjs}",
-      ".github/scripts/**/*.{js,ts,mjs,cjs}",
-      "scripts/**/*.{js,ts,mjs,cjs}",
-    ],
+    files: ["**/*.test.{js,ts,mjs,cjs}", "**/*.spec.{js,ts,mjs,cjs}"],
     plugins: {
       custom: {
         rules: {
@@ -67,9 +62,19 @@ export default [
       },
     },
     rules: {
-      // Relaxed rules for test files
+      // Relaxed rules for test files, plus the JSDoc-on-every-test contract
       "@typescript-eslint/no-explicit-any": "off",
       "custom/test-case-doc": "error",
+      "no-console": "off",
+    },
+  },
+  {
+    files: [
+      ".github/scripts/**/*.{js,ts,mjs,cjs}",
+      "scripts/**/*.{js,ts,mjs,cjs}",
+    ],
+    rules: {
+      // Relaxed rules for repo utility scripts
       "no-console": "off",
     },
   },
