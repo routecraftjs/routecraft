@@ -8,6 +8,7 @@ import {
 import { INTERNALS_KEY } from "../brand.ts";
 import {
   type Exchange,
+  type ExchangeHeaders,
   OperationType,
   HeadersKeys,
   DefaultExchange,
@@ -31,16 +32,77 @@ declare module "@routecraft/routecraft" {
 }
 
 /**
- * Function form of a splitter: takes the current exchange and returns an array of exchanges.
- * Use with `.split(splitter)` or no-arg `.split()` for arrays. The framework overlays
- * `routecraft.split_hierarchy` and assigns new ids for aggregation.
+ * Brand key marking a {@link SplitChild} envelope. `Symbol.for` so envelopes
+ * survive crossing duplicate copies of the package (CLI vs user module).
+ */
+const SPLIT_CHILD = Symbol.for("routecraft.split.child");
+
+/**
+ * Per-child envelope produced by {@link splitChild}: a body plus optional
+ * header OVERRIDES for that child. The brand makes the envelope
+ * unambiguous -- a split item that happens to have a `body` property is
+ * still treated as a plain body unless it went through `splitChild`.
+ *
+ * @template R - Body type of the child
+ */
+export interface SplitChild<R = unknown> {
+  readonly [SPLIT_CHILD]: true;
+  readonly body: R;
+  readonly headers?: ExchangeHeaders;
+}
+
+/**
+ * Wrap one split child with per-child header overrides. Plain return values
+ * from a splitter become child bodies that inherit the parent's headers;
+ * use this helper only when a child needs its own header values on top.
+ *
+ * @example
+ * ```ts
+ * .split((exchange) =>
+ *   exchange.body.lines.map((line, i) => splitChild(line, { "x-line": i })),
+ * )
+ * ```
+ */
+export function splitChild<R>(
+  body: R,
+  headers?: ExchangeHeaders,
+): SplitChild<R> {
+  return headers === undefined
+    ? { [SPLIT_CHILD]: true, body }
+    : { [SPLIT_CHILD]: true, body, headers };
+}
+
+/** Type guard for {@link SplitChild} envelopes. */
+export function isSplitChild(value: unknown): value is SplitChild {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Record<PropertyKey, unknown>)[SPLIT_CHILD] === true
+  );
+}
+
+/**
+ * What a splitter produces per child: the child's body, or a
+ * {@link splitChild} envelope when the child needs header overrides. The
+ * FRAMEWORK constructs the child exchanges (fresh id, parent headers
+ * inherited, `routecraft.split_hierarchy` maintained); splitters never
+ * build `Exchange` instances themselves.
+ *
+ * @template R - Body type of the child
+ */
+export type SplitResult<R = unknown> = R | SplitChild<R>;
+
+/**
+ * Function form of a splitter: takes the current exchange and returns the
+ * child bodies (or {@link splitChild} envelopes). Use with
+ * `.split(splitter)` or no-arg `.split()` for arrays.
  *
  * @template T - Current body type
- * @template R - Body type of each returned exchange
+ * @template R - Body type of each child
  */
 export type CallableSplitter<T = unknown, R = unknown> = (
   exchange: Exchange<T>,
-) => Promise<Exchange<R>[]> | Exchange<R>[];
+) => Promise<Array<SplitResult<R>>> | Array<SplitResult<R>>;
 
 /**
  * Splitter adapter: turns one body into many; each item is processed as a separate exchange.
@@ -94,9 +156,9 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       ...(adapterLabel ? { adapter: adapterLabel } : {}),
     });
 
-    let splitExchanges: Exchange<R>[];
+    let splitResults: Array<SplitResult<R>>;
     try {
-      splitExchanges = await Promise.resolve(this.adapter.split(exchange));
+      splitResults = await Promise.resolve(this.adapter.split(exchange));
     } catch (error: unknown) {
       context.emit("route:step:failed", {
         routeId,
@@ -126,17 +188,21 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
     const splitHierarchy = [...existingHierarchy, groupId];
 
     const children: Exchange<R>[] = [];
-    for (const resultExchange of splitExchanges) {
+    for (const result of splitResults) {
+      const envelope = isSplitChild(result)
+        ? (result as SplitChild<R>)
+        : undefined;
+      const childBody = envelope ? envelope.body : (result as R);
       // Spread parent headers first so cross-cutting concerns
       // (`routecraft.auth.principal`, future tracing/tenancy keys) flow
-      // through to children when the user-supplied splitter result omits
-      // them. The user's headers override on collision; the framework
-      // assigns a fresh id and the split-hierarchy slot last.
+      // through to every child. A `splitChild` envelope's headers override
+      // on collision; the framework assigns the fresh id and the
+      // split-hierarchy slot last.
       const postProcessedExchange = new DefaultExchange<R>(context, {
-        body: resultExchange.body,
+        body: childBody,
         headers: {
           ...exchange.headers,
-          ...resultExchange.headers,
+          ...(envelope?.headers ?? {}),
           [HeadersKeys.ID]: randomUUID(),
           [HeadersKeys.SPLIT_HIERARCHY]: splitHierarchy,
         },
@@ -175,7 +241,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       operation: this.operation,
       ...(adapterLabel ? { adapter: adapterLabel } : {}),
       duration: Date.now() - stepStart,
-      metadata: { childCount: splitExchanges.length },
+      metadata: { childCount: splitResults.length },
     });
 
     return { kind: "fanOut", exchanges: children };

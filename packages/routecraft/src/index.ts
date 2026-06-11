@@ -88,7 +88,13 @@ export { type Processor } from "./operations/process.ts";
 
 export { type Destination } from "./operations/to.ts";
 
-export { type Splitter } from "./operations/split.ts";
+export {
+  type Splitter,
+  type SplitResult,
+  type SplitChild,
+  splitChild,
+  isSplitChild,
+} from "./operations/split.ts";
 
 export { type Aggregator } from "./operations/aggregate.ts";
 

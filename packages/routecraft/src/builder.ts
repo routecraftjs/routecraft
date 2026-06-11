@@ -33,12 +33,7 @@ import {
   type Consumer,
   type ConsumerType,
 } from "./types.ts";
-import {
-  type Exchange,
-  DefaultExchange,
-  getExchangeContext,
-  OperationType,
-} from "./exchange.ts";
+import { OperationType } from "./exchange.ts";
 import {
   type Splitter,
   type CallableSplitter,
@@ -1016,21 +1011,25 @@ export class RouteBuilder<
    * are treated as a single item (one exchange). Framework maintains `routecraft.split_hierarchy`
    * headers for aggregation.
    *
+   * Splitters return the child BODIES (or `splitChild(body, headers)`
+   * envelopes for per-child header overrides); the framework constructs the
+   * child exchanges, assigns fresh ids, and inherits the parent's headers.
+   *
    * @template ItemType The type of items in the array (inferred from array if not specified)
-   * @param splitter Optional adapter or function (exchange) => Exchange<ItemType>[]
+   * @param splitter Optional adapter or function `(exchange) => SplitResult<ItemType>[]`
    * @returns A RouteBuilder with the item type
    * @example
    * // Automatically split an array of numbers
    * .from<number[]>(source)
    * .split() // ItemType is inferred as number
    *
-   * // Custom splitting logic - exchange-aware
+   * // Custom splitting logic - return the child bodies
    * .from(source)
-   * .split<User>((exchange) => exchange.body.users.map(body =>
-   *   new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })))
+   * .split<User>((exchange) => exchange.body.users)
    *
-   * // Split a string by delimiter (return exchanges)
-   * .split<string>((exchange) => exchange.body.split(",").map(body => new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })))
+   * // Split a string by delimiter, with per-child header overrides
+   * .split<string>((exchange) =>
+   *   exchange.body.split(",").map((part, i) => splitChild(part, { "x-part": i })))
    */
   split<ItemType = S["body"] extends Array<infer U> ? U : S["body"]>(
     splitter?:
@@ -1042,28 +1041,10 @@ export class RouteBuilder<
       const defaultSplitter: CallableSplitter<S["body"], ItemType> = (
         exchange,
       ) => {
-        const context = getExchangeContext(exchange);
-        if (!context) {
-          throw rcError("RC5001", undefined, {
-            message: "Exchange has no context; cannot execute default split",
-          });
-        }
         const body = exchange.body;
-        if (Array.isArray(body)) {
-          return (body as ItemType[]).map(
-            (b) =>
-              new DefaultExchange(context, {
-                body: b,
-                headers: exchange.headers,
-              }),
-          ) as Exchange<ItemType>[];
-        }
-        return [
-          new DefaultExchange(context, {
-            body: body as unknown as ItemType,
-            headers: exchange.headers,
-          }),
-        ];
+        return Array.isArray(body)
+          ? (body as ItemType[])
+          : [body as unknown as ItemType];
       };
 
       this.pushStep(new SplitStep<S["body"], ItemType>(defaultSplitter));

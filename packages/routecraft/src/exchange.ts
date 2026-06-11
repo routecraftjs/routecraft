@@ -549,6 +549,23 @@ type RewrapState = {
 };
 
 /**
+ * Module-private key gating the rewrap fast path of the
+ * {@link DefaultExchange} constructor. The symbol is deliberately NOT
+ * exported: external code cannot build a {@link RewrapCapsule}, so the
+ * public constructor surface is effectively `(context, options?)` and the
+ * internal state-threading parameter is unreachable outside this module.
+ */
+const REWRAP_CAPSULE = Symbol("routecraft.exchange.rewrap");
+
+/**
+ * Carrier for {@link RewrapState}, constructable only inside this module
+ * (see {@link REWRAP_CAPSULE}).
+ *
+ * @internal
+ */
+type RewrapCapsule = { readonly [REWRAP_CAPSULE]: RewrapState };
+
+/**
  * Default implementation of the Exchange interface.
  *
  * The implementation stores exactly two fields, `body` and `headers`.
@@ -603,18 +620,20 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
    *   id by including `headers["routecraft.id"]`; set the principal by
    *   including `headers["routecraft.auth.principal"]`. Both default to
    *   sensible runtime values when omitted (id: `randomUUID()`).
-   * @param rewrapState Internal: when {@link DefaultExchange.rewrap} is
+   * @param rewrap Internal: when {@link DefaultExchange.rewrap} is
    *   building a derived instance, it threads the previous exchange's
    *   internals and logger through this parameter so they are genuinely
    *   shared (not just copied) and the constructor skips
    *   `logger.child(...)` work that the rewrap path would otherwise repeat.
-   *   Not for direct adapter use.
+   *   The capsule's symbol key is module-private, so this parameter cannot
+   *   be supplied from outside the framework.
    */
   constructor(
     context: CraftContext,
     options?: DefaultExchangeOptions<T>,
-    rewrapState?: RewrapState,
+    rewrap?: RewrapCapsule,
   ) {
+    const rewrapState = rewrap?.[REWRAP_CAPSULE];
     // Per-key gating preserves required defaults (`ID`, `OPERATION`,
     // `ROUTE_ID`, `CORRELATION_ID`) when a caller supplies only some of
     // them, instead of an all-or-nothing fast path that would silently
@@ -814,7 +833,7 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
         headers: newHeaders,
         body: ("body" in partial ? partial.body : prev.body) as T,
       },
-      { internals: prevInternals, logger: prev.logger },
+      { [REWRAP_CAPSULE]: { internals: prevInternals, logger: prev.logger } },
     );
   }
 }

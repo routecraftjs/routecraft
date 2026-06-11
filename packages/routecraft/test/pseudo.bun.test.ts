@@ -9,8 +9,6 @@ import {
   simple,
   noop,
   log,
-  DefaultExchange,
-  getExchangeContext,
   type RouteBuilder,
 } from "@routecraft/routecraft";
 import type { Exchange } from "@routecraft/routecraft";
@@ -135,13 +133,7 @@ describe("Pseudo adapter", () => {
       const route = craft()
         .from(src<{ account: string }>({ poll: 1000 }))
         .enrich(mcp<{ messages: string[] }>({ server: "gmail", tool: "list" }))
-        .split<string>((ex) => ex.body.messages.map(
-          (body) =>
-            new DefaultExchange(getExchangeContext(ex)!, {
-              body,
-              headers: ex.headers,
-            }),
-        ))
+        .split<string>((ex) => ex.body.messages)
         .to(db<{ id: string }>({ table: "emails" }));
       expectTypeOf(route).toEqualTypeOf<
         RouteBuilder<{ body: { id: string } }>
@@ -307,13 +299,7 @@ describe("Pseudo adapter", () => {
         .id("pseudo-integration")
         .from(src<{ account: string }>({ poll: 1000 }))
         .enrich(mcp<{ messages: string[] }>({ server: "gmail", tool: "list" }))
-        .split<string>((ex) => ex.body.messages.map(
-          (body) =>
-            new DefaultExchange(getExchangeContext(ex)!, {
-              body,
-              headers: ex.headers,
-            }),
-        ))
+        .split<string>((ex) => ex.body.messages)
         .tap(log())
         .build();
 
