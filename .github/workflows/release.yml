@@ -1,0 +1,346 @@
+name: Release
+
+# The single workflow that ships everything: npm publishes (stable releases
+# via changesets AND canary snapshots) followed by the docs deploy, in that
+# order, so a release is self-contained end to end. npm Trusted Publishing
+# allows exactly ONE trusted publisher per package, pinned to one workflow
+# filename, so every publish must originate from this file; ci.yml never
+# touches the registry.
+#
+# Triggered by CI completing on a main push (not by the push itself), so
+# nothing is ever published from a commit whose tests or smokes failed.
+# workflow_dispatch redeploys the docs only (no npm publish).
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # Successful CI runs of real pushes only: never publish on a manual
+    # dispatch or from a CI run that was itself manually dispatched.
+    if: >-
+      github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      # Push the v* core tag and let the action create GitHub Releases.
+      contents: write
+      # Open/update the "Version Packages" PR.
+      pull-requests: write
+      # npm provenance attestation.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The exact commit the triggering CI run validated, not the branch
+          # tip: main may have moved since, and that newer commit has its own
+          # CI run and release run coming.
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: ".nvmrc"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: "package.json"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Auth is tokenless: npm Trusted Publishing (OIDC) is configured on
+      # npmjs.com per package, pinned to this repo + this workflow file.
+      # `changeset publish` shells out to npm publish, which picks it up via
+      # the job's id-token permission. Requires npm >= 11.5 (Node 24 bundles
+      # it; .nvmrc pins 24).
+      - name: Create release PR or publish to npm
+        id: changesets
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        with:
+          version: bun run version-packages
+          publish: bun run release
+          createGithubReleases: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The docs freeze in build-and-deploy-docs below keys off v* tags (core
+      # version), while changesets tags per package
+      # (@routecraft/routecraft@x.y.z). Mirror the core version as a v* tag
+      # whenever core was part of a publish.
+      - name: Push core version tag
+        if: steps.changesets.outputs.published == 'true'
+        env:
+          PUBLISHED: ${{ steps.changesets.outputs.publishedPackages }}
+        run: |
+          set -eo pipefail
+          CORE_VERSION=$(echo "$PUBLISHED" | jq -r '.[] | select(.name == "@routecraft/routecraft") | .version')
+          if [ -n "$CORE_VERSION" ]; then
+            git tag "v$CORE_VERSION"
+            git push origin "v$CORE_VERSION"
+            echo "Pushed tag v$CORE_VERSION"
+          else
+            echo "Core package was not published in this run; no v* tag."
+          fi
+
+  # Every main push that changed a public package ships a fresh canary of the
+  # CHANGED packages (no changeset required: a synthetic one is generated from
+  # the git diff). The fixed core train moves together whenever any train
+  # member changed; independent packages (ai, browser) only get a canary when
+  # they themselves changed, versioned from their OWN version line via
+  # snapshot.useCalculatedVersion (e.g. 0.6.1-canary-<datetime>).
+  #
+  # Serialized after the release job so a stable publish and its canary never
+  # hit the registry concurrently.
+  publish-canary:
+    if: >-
+      github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+    needs: [release]
+    runs-on: ubuntu-latest
+    permissions:
+      # Download the push-base artifact from the (different) CI run.
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The exact commit the triggering CI run validated, not the branch
+          # tip (see the release job).
+          ref: ${{ github.event.workflow_run.head_sha }}
+          # Full history: the snapshot step diffs against the pre-push commit
+          # to find which packages changed.
+          fetch-depth: 0
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: ".nvmrc"
+          registry-url: "https://registry.npmjs.org"
+
+      # workflow_run events do not carry the push's `before` sha, so the CI
+      # run records it as an artifact. Missing artifact falls back to HEAD~1
+      # in the snapshot step below.
+      - name: Download push base from the CI run
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: push-base
+          path: /tmp/push-base
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Create snapshot changeset for changed packages
+        id: snapshot
+        run: |
+          set -eo pipefail
+          BASE=""
+          if [ -f /tmp/push-base/push-base.txt ]; then
+            BASE="$(cat /tmp/push-base/push-base.txt)"
+          fi
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            BASE="$(git rev-parse HEAD~1)"
+          fi
+          CHANGED_DIRS=$(git diff --name-only "$BASE" HEAD -- packages/ | cut -d/ -f2 | sort -u)
+          mkdir -p .changeset
+          {
+            echo '---'
+            for d in $CHANGED_DIRS; do
+              f="packages/$d/package.json"
+              [ -f "$f" ] || continue
+              node -e "const p=require('./$f'); if (!p.private) console.log('\"' + p.name + '\": patch')"
+            done
+            echo '---'
+            echo ''
+            echo 'Canary snapshot of the packages changed in this push.'
+          } > .changeset/snapshot-canary.md
+          cat .changeset/snapshot-canary.md
+          if grep -q '": patch' .changeset/snapshot-canary.md; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            rm .changeset/snapshot-canary.md
+            echo "No public package changed; skipping canary."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install bun
+        if: steps.snapshot.outputs.publish == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: "package.json"
+
+      - name: Install dependencies
+        if: steps.snapshot.outputs.publish == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Version snapshot
+        if: steps.snapshot.outputs.publish == 'true'
+        run: bunx changeset version --snapshot canary
+
+      # Tokenless npm auth: same Trusted Publishing config as the release job
+      # above; this is why the canary publish lives in this workflow file.
+      - name: Publish snapshot to npm
+        if: steps.snapshot.outputs.publish == 'true'
+        run: |
+          bun run build
+          bunx changeset publish --tag canary --no-git-tag
+
+  # Docs deploy as the LAST stage of the release flow: by the time this runs,
+  # the release job has already pushed any fresh v* tag, so the freeze below
+  # always sees the just-released version. No race, no double deploy, and the
+  # docs never move when a release attempt failed. Docs-only pushes still
+  # deploy on the main cadence because this workflow runs for every green
+  # main push; workflow_dispatch covers manual redeploys.
+  build-and-deploy-docs:
+    needs: [release]
+    # `!failure()` (rather than the default success()) lets the manual
+    # dispatch path run while the release job is skipped.
+    if: >-
+      !failure() && !cancelled()
+      && (
+        github.event_name == 'workflow_dispatch'
+        || (
+          github.event.workflow_run.conclusion == 'success'
+          && github.event.workflow_run.event == 'push'
+        )
+      )
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      id-token: write
+      pages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The validated commit on workflow_run; manual dispatches (docs-only
+          # redeploys) build from the main tip.
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
+          # Full history + tags so the freeze step below can read docs content
+          # from the latest release tag.
+          fetch-depth: 0
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The published docs (/docs and /cheat-sheet) track the last released
+      # version, never the in-development code on main. We overlay the docs
+      # and cheat-sheet content from the latest release tag (pushed by the
+      # release job above moments ago when this push cut a release), leaving
+      # the rest of the site (home, blog, changelog) on the main-branch
+      # cadence. This is what lets a blog post or a home-page typo ship
+      # without cutting a release, without leaking unreleased docs.
+      #
+      # Releases at or before MIN_FREEZE_VERSION predate the current docs styling
+      # and do not render with the present shell, so they are never frozen or
+      # published. Until a newer release exists, /docs publishes from the main
+      # working tree (labelled with the in-development version).
+      - name: Resolve docs release ref
+        id: docver
+        run: |
+          set -eo pipefail
+          git fetch --tags --force origin >/dev/null 2>&1 || true
+
+          # Exclusive lower bound: only releases strictly newer than this render
+          # with the current docs shell and are eligible to be frozen/published.
+          MIN_FREEZE_VERSION="v0.5.0"
+
+          # 0 (true) when $1 is strictly greater than $2 under version sort.
+          version_gt() {
+            [ "$1" != "$2" ] &&
+              [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+          }
+
+          # Only tags reachable from the checked-out ref: a v* tag on an
+          # abandoned branch must never freeze the published docs.
+          LATEST_TAG="$(git tag --merged HEAD -l 'v*' | sort -V | tail -n1)"
+          if [ -n "$LATEST_TAG" ] && version_gt "$LATEST_TAG" "$MIN_FREEZE_VERSION"; then
+            LABEL="$LATEST_TAG"
+            FREEZE_TAG="$LATEST_TAG"
+          else
+            # No eligible release yet: publish the working-tree docs and label
+            # them with the in-development core version. (The app package is
+            # ignored by changesets, so its own version goes stale.)
+            LABEL="v$(jq -r .version packages/routecraft/package.json)"
+            FREEZE_TAG=""
+          fi
+          echo "label=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "freeze_tag=$FREEZE_TAG" >> "$GITHUB_OUTPUT"
+          echo "Docs version label: $LABEL"
+          echo "Freeze docs to tag: ${FREEZE_TAG:-<none, using working tree>}"
+
+      # Snapshot the in-development docs (the /docs/next channel) from the
+      # checked out (main) content *before* the freeze below overlays /docs with
+      # the released tag. The build then runs with SKIP_DOCS_NEXT so prebuild
+      # does not regenerate next from the now-frozen /docs.
+      - name: Generate the next docs channel
+        run: node --experimental-strip-types apps/routecraft.dev/scripts/generate-docs-next.mjs
+
+      - name: Freeze docs and cheat-sheet to the released ref
+        if: steps.docver.outputs.freeze_tag != ''
+        env:
+          FREEZE_TAG: ${{ steps.docver.outputs.freeze_tag }}
+        run: |
+          set -eo pipefail
+          app=apps/routecraft.dev/src/app
+          # The generated next channel is untracked, so checking out the tag's
+          # docs path leaves src/app/docs/next intact.
+          git checkout "$FREEZE_TAG" -- "$app/docs" "$app/cheat-sheet"
+          # The changelog moved to a top-level /changelog on the main cadence.
+          # Older release refs still carry it under docs/changelog, so drop that
+          # copy and restore the main-branch redirect stub at the old URL.
+          rm -rf "$app/docs/changelog"
+          git checkout HEAD -- "$app/docs/changelog"
+
+      - name: Build docs
+        env:
+          NEXT_PUBLIC_DOC_VERSION: ${{ steps.docver.outputs.label }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
+          # next was snapshotted above from main; do not overwrite it from the
+          # frozen /docs during prebuild.
+          SKIP_DOCS_NEXT: "1"
+        run: bun run --filter routecraft.dev build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: apps/routecraft.dev/out
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

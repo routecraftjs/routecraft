@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/prettier-plugin-routecraft",
-  "version": "0.6.0",
+  "version": "0.5.0",
   "description": "Prettier plugin for compact Routecraft DSL formatting",
   "type": "module",
   "main": "dist/index.js",
@@ -9,7 +9,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup",
     "prepublishOnly": "bun run build",
     "test": "vitest"
   },

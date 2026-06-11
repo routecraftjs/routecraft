@@ -1,25 +1,32 @@
 # CI/CD
 
-What `.github/workflows/ci.yml` enforces and the policies contributors must know to work with it.
+What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce and the policies contributors must know to work with them.
 
 ---
 
 ## 1. Job graph
 
 ```
+  ci.yml (push + pull_request):
+
   changes  ─┬─►  validate ─┐
-            │              ├─►  scaffolder-smoke ─────────┬─►  approve ─►  merge
-   setup ───┼─►  test  ────┤                              │
-            │              ├─►  embedding-smoke ──────────┼─►  publish-canary
-            └─►  build ────┤                              │
-                           └─►  adapter-cross-runtime  ───┴─►  publish
-                                  (bun + node)            │
-                                                          └─►  build-and-deploy-docs
+            │              ├─►  scaffolder-smoke
+   setup ───┼─►  test  ────┤
+            │              ├─►  embedding-smoke
+            └─►  build ────┤
+                           └─►  adapter-cross-runtime (bun + node)
+
+  release.yml (workflow_run: CI succeeded on a main push):
+
+  release (changesets: Version Packages PR  ─┬─►  publish-canary
+           / stable publish + v* tag)        └─►  build-and-deploy-docs
 ```
 
-The `setup` job runs `bun install --frozen-lockfile` and seeds the workspace's `**/node_modules`. Every downstream job restores that cache (key: `hashFiles('**/bun.lock')`), so the install only repeats on a cache miss. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
+The `setup` job runs `bun install --frozen-lockfile` and seeds the workspace's `**/node_modules`. Downstream jobs restore that cache (key: `hashFiles('**/bun.lock')`) and reinstall on a miss; the GitHub cache service is best-effort, so a miss must never fail a job. Build output is passed differently: `build` uploads `packages/*/dist` and `examples/dist` as a run artifact (`build-dist`) that the smoke and cross-runtime jobs download. Artifacts are guaranteed within the run that produced them, which a cache key is not. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
 
-Docs deployment (`build-and-deploy-docs`) is gated on the same integration-test trio as `publish-canary` and `publish`, so we never ship docs from a build that failed integration. On docs-only pushes the integration jobs are skipped and the deploy proceeds (`if: !cancelled() && !failure()`).
+The split between the two files is exact: **ci.yml validates and never publishes to npm; release.yml owns every npm publish** (stable releases AND canary snapshots). This is forced by npm Trusted Publishing, which allows one trusted publisher per package, pinned to a single workflow filename, so all publishes must originate from one file. release.yml triggers on `workflow_run` when CI completes successfully for a push to `main`, which also guarantees nothing is published from a commit whose tests or smokes failed. ci.yml's only involvement is uploading a `push-base` artifact (the push's `before` sha, unavailable in `workflow_run` payloads) that the canary job diffs against.
+
+Docs deployment (`build-and-deploy-docs`) is the LAST job of release.yml, after the release job has pushed any fresh `v*` tag: the docs freeze always sees the version that was just released, a failed release attempt never moves the docs, and a release is self-contained end to end (publish, tag, canary, docs). Docs-only pushes still deploy on the main cadence because release.yml runs for every green main push; manual redeploys go through release.yml's `workflow_dispatch`, which runs only the docs job (never a publish).
 
 ## 2. The PR gates
 
@@ -51,46 +58,50 @@ If a pre-commit hook fails, the commit didn't happen. `--amend` would modify the
 
 ### 3.3. The `changes` filter governs whether package jobs run
 
-`changes` checks paths against:
+`changes` checks paths against the `packages` filter: `packages/**`, `examples/**`, `bun.lock`, `tsconfig*.json`, `.github/workflows/**`, `.github/scripts/**`, `.changeset/**`.
 
-- `packages` filter: `packages/**`, `examples/**`, `bun.lock`, `tsconfig*.json`, `.github/workflows/**`, `.github/scripts/**`.
-- `docs` filter: `apps/routecraft.dev/**`, `.github/workflows/**`.
+Docs-only PRs skip the smoke jobs. If you add a new code path that should gate on CI, add it to the filter.
 
-Pure docs-only PRs skip `integration-test`, `publish-canary`, and `publish`. If you add a new code path that should gate on CI, add it to the relevant filter.
+### 3.4. PR trigger
 
-### 3.4. PR target trigger
+CI runs on `pull_request`, so a PR's CI run uses the workflow definition from the PR's merge ref; workflow file changes in a PR take effect for that PR's own run.
 
-CI uses `pull_request_target`, not `pull_request`. This gives forks access to repo secrets (needed for the `dependabot[bot]` lockfile-update path), but it also means the workflow runs from `main`'s definition with the PR's head checked out. **Workflow file changes in a PR do NOT take effect for that PR's CI run.** They take effect after merge.
+## 4. Adding a new package (the checklist)
 
-## 4. Adding a new package to CI
+Packages are created by hand; there is no generator. Copy the shape of an existing package (`packages/ai` is the worked example for an ecosystem package that peers on core). CI, versioning, and publishing all discover packages automatically, so the checklist is short:
 
-The CI doesn't enumerate packages; `bun run --filter '*' build`, `bun run test`, etc. walk every workspace package. To make a new package CI-visible:
+1. Create `packages/<name>/` with:
+   - `package.json`: dual `exports` (`types`/`import`/`require` pointing at `dist/`), `"files": ["dist"]`, `"publishConfig": {"access": "public"}`, repository/homepage/bugs fields, scripts `build` (tsup), `test`, `prepublishOnly: "bun run build"`. Dependency shape per section 5.
+   - `tsup.config.mjs` (or build script flags) with `external: ["@routecraft/routecraft"]` so core is never bundled.
+   - `vitest.config.mjs` with aliases mapping `@routecraft/{routecraft,testing}` and the package's own name onto `src/` entry points (copy `packages/ai/vitest.config.mjs`).
+   - `src/index.ts` barrel. If the package contributes `defineConfig` keys or DSL, follow the cross-package pattern in `packages/ai/src/config.ts` (`declare module "@routecraft/routecraft"` + `registerConfigApplier` + side-effect import from the barrel).
+   - Tests under `test/` per `.standards/testing.md` (JSDoc on every test).
+2. `bun install` (the root `workspaces` glob picks the directory up automatically; `bun run --filter '*' build`, `bun run test`, typecheck, and `changeset publish` all walk the workspace).
+3. Add a size-limit entry in the root config if the package ships to users.
+4. Add a docs page under `apps/routecraft.dev/src/app/docs/` and a row to the CLAUDE.md package table.
+5. Add an introducing changeset: `bunx changeset` (minor, "Introduce @routecraft/<name>"). Decide whether the package joins the fixed core train in `.changeset/config.json` or versions independently (default: independently).
 
-1. Add it to the root `package.json` `workspaces` array (it'll get picked up automatically).
-2. Add `build`, `test` (if any tests exist), and ensure `tsc --noEmit` cleanliness from the workspace root.
-3. If the package publishes (`"private": false`), add it to:
-   - `.github/scripts/set-version.mjs` so the `version:set` script bumps it.
-   - The release-restore step in `integration-test` (the `git checkout --` line that resets package.jsons after `set-version` modifies them).
-   - The `for pkg in ...` loops in the `publish-canary` and `publish` jobs.
-4. If it depends on another workspace package, follow the dual-spec convention (see 5).
+Nothing needs registering in workflows: there are no per-package publish loops or version scripts anymore.
 
-## 5. Peer-dependency policy on `@routecraft/*`
+## 5. Dependency policy on `@routecraft/*`
 
-Every `@routecraft/*` workspace package that's a peer of another carries TWO entries:
+Publishable manifests never use the `workspace:` protocol. An ecosystem package that builds on core declares:
 
 ```jsonc
-"devDependencies": {
-  "@routecraft/routecraft": "workspace:^0.5.0"  // dev: pin to current version
-},
 "peerDependencies": {
-  "@routecraft/routecraft": "*"                  // runtime: accept any version
+  "@routecraft/routecraft": ">=0.5.0 <1.0.0"   // published contract: real semver range
+},
+"devDependencies": {
+  "@routecraft/routecraft": "workspace:*"  // local dev: always the in-tree copy
 }
 ```
 
-Why both:
+Why this shape:
 
-- The `devDependencies` `workspace:^0.5.0` keeps local development synced. Bun's `workspace:` protocol resolves to the in-tree package, so editing `@routecraft/routecraft` is immediately visible.
-- The `peerDependencies` `*` is what users see after publish. Bundling the peer would cause duplicate-instance bugs (two `RoutecraftError` classes, two adapter registries). `*` lets the user pick the version and forces a single instance.
+- The `peerDependencies` range is what users see after publish. Bundling or hard-depending on core would cause duplicate-instance bugs (two `RoutecraftError` classes, two adapter registries); the peer forces a single instance, and the real range documents compatibility.
+- The range form is version-era specific. Pre-1.0 it must be `>=0.5.0 <1.0.0`: in 0.x semver, `^0.5.0` excludes 0.6.0, so every core minor would leave the range and changesets major-bumps peer dependents whose range is left (`onlyUpdatePeerDependentsWhenOutOfRange` controls WHEN that cascade fires, not its size). At v1, tighten to `^1.0.0`; minors then stay in range and the cascade only fires on real majors.
+- The `devDependencies` `workspace:*` keeps local development synced: Bun resolves it to the in-tree package, so editing core is immediately visible. `workspace:*` (not `workspace:^x.y.z`) so version bumps never touch devDependencies.
+- The CLI is the one exception: it keeps core in `dependencies` with a plain `^` range, because `craft` needs core at runtime and users install the CLI standalone.
 
 This is enforced informally by review. When adding a new internal package that other packages depend on, mirror this pattern.
 
@@ -124,23 +135,48 @@ Or the bundled `bun run all`, which runs `lint --fix`, `format:write`, `typechec
 
 Integration tests require a tarball + global CLI install and aren't expected to run locally for every PR. CI covers that path.
 
-## 9. Release flow
+## 9. Release flow (changesets)
 
-| Trigger | Result |
-|---------|--------|
-| Push to `main` | Runs CI; on success runs `publish-canary` which publishes a `0.5.0-canary.<sha>` tag for every workspace package. |
-| GitHub release created | Runs CI; on success the `approve` + `merge` + `publish` chain publishes the tagged version to npm and `deploy-pages` deploys the docs site. |
-| `workflow_dispatch` (manual) | Runs CI without publish steps (useful for sanity-checking a PR-target run). |
+Versioning and publishing are owned by [changesets](https://github.com/changesets/changesets); model: vercel/ai. Never hand-edit `package.json` versions.
 
-Versions are uniformly bumped via `bun run version:set <version>` (see `.github/scripts/set-version.mjs`), which patches every `package.json`, the CLI's `--version` constant, and the docs site's version selector. Don't hand-edit individual `package.json` versions.
+The core invariant: **`package.json` always holds the LAST RELEASED version**, never the upcoming one. Pending changesets describe what the next release will contain, and the auto-maintained "Version Packages" PR is the release gate: nothing stable ships until a human merges it. Canaries are calculated previews of that upcoming release (pending changesets included), so the canary channel always shows where the next stable will land.
 
-The publish step (`npm publish` per package) is package-manager-agnostic. It uses npm even though the workspace is Bun, because npm publishing remains the canonical registry path and `prepublishOnly` hooks call `bun run build` to assemble dist.
+### Contributor side
+
+Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick the affected package(s) and bump level, describe the change. Internal-only changes skip it (or use `bunx changeset add --empty` if a status check demands one).
+
+### Versioning model
+
+- `.changeset/config.json` declares a `fixed` group, the **core train**: `@routecraft/routecraft`, `@routecraft/cli`, `@routecraft/testing`, `create-routecraft`, `@routecraft/eslint-plugin-routecraft`, `@routecraft/prettier-plugin-routecraft`. These always share one version number.
+- Everything else (`@routecraft/ai`, `@routecraft/browser`, future vendor packages) versions independently.
+- `routecraft.dev` and `examples` are ignored; `@routecraft/os` is versioned but never tagged/published (private).
+- `onlyUpdatePeerDependentsWhenOutOfRange` is on, so a core bump that stays inside ecosystem peer ranges does not cascade at all. When a bump DOES leave the range, changesets major-bumps the dependents, which is why the pre-1.0 peer range form is `>=0.5.0 <1.0.0` (see section 5). The flag lives under changesets' `___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH` key, so re-check the changesets release notes for it whenever bumping `@changesets/cli`.
+
+### Pipeline
+
+All rows below run inside `release.yml`, which triggers via `workflow_run` after CI completes successfully for a push to `main` (a red CI run publishes nothing).
+
+| Trigger | Job | Result |
+|---------|-----|--------|
+| Main push with pending changesets | `release` (changesets action) | Opens/updates the "Version Packages" PR: runs `bun run version-packages` (= `changeset version` + `scripts/sync-derived-versions.mjs`, which patches the `.claude-plugin/{plugin,marketplace}.json` versions from core). |
+| Merging the "Version Packages" PR | `release` | `bun run release` (= build + `changeset publish`) publishes to npm with provenance, creates one GitHub Release per package version (tags like `@routecraft/routecraft@0.7.0`), and pushes a `v<core-version>` tag; `build-and-deploy-docs` then freezes the docs to that fresh tag in the same workflow run. |
+| Main push touching packages | `publish-canary` (after `release`) | Publishes canaries of the packages CHANGED by the push (`0.6.0-canary-<datetime>`, calculated from the last release plus pending changesets) under the npm `canary` dist-tag, no git tags. A synthetic changeset is generated from the git diff (base sha handed over from CI as the `push-base` artifact), so canaries flow on every merge whether or not the PR carried a changeset. The fixed core train always moves together (a change to any train member canaries the whole train, lockstep); independent packages (ai, browser) canary when they themselves changed OR while they carry a pending changeset (the canary previews the whole upcoming release). |
+
+npm auth is tokenless: **Trusted Publishing** (OIDC) is configured on npmjs.com per package, and `npm publish` picks it up via the job's `id-token: write` permission (requires npm >= 11.5; Node 24 from `.nvmrc` bundles it). Provenance is generated automatically. Two operational notes:
+
+- npm allows **one trusted publisher per package**, pinned to a single workflow filename. Every package's trusted publisher must be `release.yml` (this repo). This constraint is WHY all publishing lives in release.yml; never add an npm publish step to ci.yml or any other workflow.
+- A brand-new package cannot authenticate this way for its FIRST publish (npm requires the package to exist before a trusted publisher can be configured). Publish a new package once with a granular token or manually from a maintainer machine, then set `release.yml` as its trusted publisher.
+
+The CLI's `--version` needs no syncing: `packages/cli/src/index.ts` imports the version from its own package.json and tsup inlines it at build.
+
+The publish goes through `changeset publish` (npm under the hood) even though the workspace is Bun, because npm publishing remains the canonical registry path and `prepublishOnly` hooks call `bun run build` to assemble dist.
 
 ---
 
 ## References
 
-- Workflow source: `.github/workflows/ci.yml`
-- Scripts: `.github/scripts/set-version.mjs`, `.github/scripts/smoke-test-embedding.mjs`
+- Workflow sources: `.github/workflows/ci.yml`, `.github/workflows/release.yml`
+- Scripts: `scripts/sync-derived-versions.mjs`, `.github/scripts/smoke-test-embedding.mjs`
+- Changesets config: `.changeset/config.json`
 - Definition of Done: `DEFINITION_OF_DONE.md`
 - Testing standards: `./testing.md`

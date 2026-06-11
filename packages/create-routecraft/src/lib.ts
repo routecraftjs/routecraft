@@ -36,18 +36,24 @@ export interface InitOptions {
 }
 
 /**
- * Get the current version of @routecraft/routecraft from package.json
+ * Get the version range to pin for @routecraft/* packages in the scaffolded
+ * project. The core train is versioned in lockstep (the fixed group in
+ * .changeset/config.json), so this package's own version equals the
+ * core version. Reading our own package.json keeps the lookup correct both in
+ * the monorepo and in a published install; a cross-package relative path would
+ * resolve to an unrelated `node_modules/routecraft` after publishing.
  */
 export function getRoutecraftVersion(): string {
   try {
-    // Try to read the package.json of the routecraft package
     const packagePath = join(
       dirname(fileURLToPath(import.meta.url)),
-      "../../routecraft/package.json",
+      "../package.json",
     );
     if (existsSync(packagePath)) {
       const pkg = JSON.parse(readFileSync(packagePath, "utf-8"));
-      return `^${pkg.version}`;
+      if (typeof pkg.version === "string" && pkg.version.length > 0) {
+        return `^${pkg.version}`;
+      }
     }
   } catch {
     // Fallback if we can't read the package.json

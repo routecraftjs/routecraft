@@ -14,8 +14,6 @@ on:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
       - ".cursor/**"
-  release:
-    types: [created]
 
 permissions:
   contents: read
@@ -49,6 +47,24 @@ jobs:
               - 'tsconfig*.json'
               - '.github/workflows/**'
               - '.github/scripts/**'
+              - '.changeset/**'
+
+      # release.yml runs on workflow_run, where the push's `before` sha is not
+      # in the event payload; hand it over as an artifact so the canary job
+      # can diff the exact range of the push.
+      - name: Record push base for the release workflow
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: echo "$BEFORE" > push-base.txt
+
+      - name: Upload push base
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: push-base
+          path: push-base.txt
+          retention-days: 1
 
   setup:
     runs-on: ubuntu-latest
@@ -98,6 +114,14 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
+      # The node_modules cache is best-effort; reinstall on a miss instead of
+      # failing later with a confusing missing-binary error.
+      - name: Install dependencies on cache miss
+        run: |
+          if [ ! -d node_modules ]; then
+            bun install --frozen-lockfile
+          fi
+
       - name: Run checks
         run: |
           bun run format
@@ -127,6 +151,14 @@ jobs:
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
+
+      # The node_modules cache is best-effort; reinstall on a miss instead of
+      # failing later with a confusing missing-binary error.
+      - name: Install dependencies on cache miss
+        run: |
+          if [ ! -d node_modules ]; then
+            bun install --frozen-lockfile
+          fi
 
       - name: Run tests
         run: bun run test:coverage
@@ -161,6 +193,14 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
+      # The node_modules cache is best-effort; reinstall on a miss instead of
+      # failing later with a confusing missing-binary error.
+      - name: Install dependencies on cache miss
+        run: |
+          if [ ! -d node_modules ]; then
+            bun install --frozen-lockfile
+          fi
+
       - name: Build packages
         run: bun run build
         env:
@@ -172,15 +212,23 @@ jobs:
       - name: Check bundle size
         run: bun run limit:size
 
-      - name: Cache build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Artifacts, not actions/cache: the cache service is eventually
+      # consistent, so a same-run consumer job can miss a key saved seconds
+      # earlier (observed: smoke jobs packing an empty dist). Artifacts are
+      # guaranteed within the run that produced them.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
+          name: build-dist
+          path: |
+            packages/*/dist
+            examples/dist
+          if-no-files-found: error
+          retention-days: 1
 
   scaffolder-smoke:
     needs: [changes, validate, test, build]
-    if: needs.changes.outputs.packages == 'true' || github.event_name == 'release'
+    if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     name: scaffolder-smoke
     steps:
@@ -203,19 +251,18 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
-      - name: Restore build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Fetch tags
-        run: git fetch --force --tags
-
-      - name: Set version for smoke test
+      # The node_modules cache is best-effort; reinstall on a miss instead of
+      # failing later with a confusing missing-binary error.
+      - name: Install dependencies on cache miss
         run: |
-          VERSION=$(node -p "require('./packages/routecraft/package.json').version")
-          bun run version:set "$VERSION"
+          if [ ! -d node_modules ]; then
+            bun install --frozen-lockfile
+          fi
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: build-dist
 
       - name: Run scaffolder integration tests (bun)
         env:
@@ -227,17 +274,9 @@ jobs:
           TEST_PACKAGE_MANAGER: npm
         run: bun run test:integration
 
-      - name: Restore repo (only paths set-version touched)
-        run: |
-          git checkout -- package.json examples/package.json \
-            packages/ai/package.json packages/browser/package.json packages/cli/package.json \
-            packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/os/package.json packages/routecraft/package.json packages/testing/package.json \
-            packages/cli/src/index.ts \
-            apps/routecraft.dev/package.json
-
   embedding-smoke:
     needs: [changes, validate, test, build]
-    if: needs.changes.outputs.packages == 'true' || github.event_name == 'release'
+    if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     name: embedding-smoke
     steps:
@@ -249,47 +288,19 @@ jobs:
         with:
           node-version-file: ".nvmrc"
 
-      - name: Install bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # No bun and no workspace node_modules: the smoke deliberately uses only
+      # node + npm so it matches a real Node user embedding the tarball.
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          bun-version-file: "package.json"
-
-      - name: Restore node_modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/node_modules"
-          key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
-
-      - name: Restore build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Fetch tags
-        run: git fetch --force --tags
-
-      - name: Set version for smoke test
-        run: |
-          VERSION=$(node -p "require('./packages/routecraft/package.json').version")
-          bun run version:set "$VERSION"
+          name: build-dist
 
       - name: Smoke test Node embedding (pack + npm install + node runner.ts)
         run: node .github/scripts/smoke-test-embedding.mjs
 
-      - name: Restore repo (only paths set-version touched)
-        run: |
-          git checkout -- package.json examples/package.json \
-            packages/ai/package.json packages/browser/package.json packages/cli/package.json \
-            packages/create-routecraft/package.json packages/eslint-plugin-routecraft/package.json packages/os/package.json packages/routecraft/package.json packages/testing/package.json \
-            .claude-plugin/plugin.json \
-            .claude-plugin/marketplace.json \
-            packages/cli/src/index.ts \
-            apps/routecraft.dev/package.json
-
   adapter-cross-runtime:
     needs: [changes, validate, test, build]
-    if: needs.changes.outputs.packages == 'true' || github.event_name == 'release'
+    if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -305,8 +316,10 @@ jobs:
         with:
           node-version-file: ".nvmrc"
 
+      # Installed in both matrix legs: the dependency-install fallback below
+      # needs bun even on the node leg. The node tests themselves still run
+      # under plain node via npm.
       - name: Install bun
-        if: matrix.runtime == 'bun'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: "package.json"
@@ -317,11 +330,18 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
-      - name: Restore build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # The node_modules cache is best-effort; reinstall on a miss instead of
+      # failing later with a confusing missing-binary error.
+      - name: Install dependencies on cache miss
+        run: |
+          if [ ! -d node_modules ]; then
+            bun install --frozen-lockfile
+          fi
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
+          name: build-dist
 
       - name: Run cross-runtime adapter tests (bun)
         if: matrix.runtime == 'bun'
@@ -330,291 +350,3 @@ jobs:
       - name: Run cross-runtime adapter tests (node)
         if: matrix.runtime == 'node'
         run: npm run test:cross-runtime:node
-
-  publish-canary:
-    needs:
-      [changes, build, scaffolder-smoke, embedding-smoke, adapter-cross-runtime]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.packages == 'true'
-    runs-on: ubuntu-latest
-    concurrency:
-      group: publish-canary-${{ github.ref }}
-      cancel-in-progress: true
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version-file: ".nvmrc"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: "package.json"
-
-      - name: Restore node_modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/node_modules"
-          key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
-
-      - name: Restore build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Determine canary version
-        id: canary_version
-        run: |
-          set -eo pipefail
-
-          BASE_VERSION=$(node -p "require('./packages/routecraft/package.json').version")
-          echo "Base version: $BASE_VERSION"
-
-          # Query npm for the highest canary build number for this base version
-          LATEST_CANARY=$(npm view @routecraft/routecraft versions --json 2>/dev/null | \
-            jq -r ".[] | select(startswith(\"${BASE_VERSION}-canary.\"))" | \
-            sed -n "s/^${BASE_VERSION}-canary\.\([0-9]*\)$/\1/p" | \
-            sort -nr | head -n1)
-
-          if [[ -n "$LATEST_CANARY" ]]; then
-            BUILD_NUMBER=$((LATEST_CANARY + 1))
-            echo "Latest canary build: $LATEST_CANARY, next: $BUILD_NUMBER"
-          else
-            BUILD_NUMBER=1
-            echo "No canary found for $BASE_VERSION, starting at 1"
-          fi
-
-          CANARY_VERSION="${BASE_VERSION}-canary.${BUILD_NUMBER}"
-          echo "Computed canary version: $CANARY_VERSION"
-
-          {
-            echo "canary_version=$CANARY_VERSION"
-            echo "base_version=$BASE_VERSION"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Update package versions
-        run: bun run version:set "${{ steps.canary_version.outputs.canary_version }}"
-
-      - name: Publish canary to npm
-        run: |
-          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft packages/ai packages/browser packages/testing; do
-            echo "Publishing $pkg..."
-            npm publish "./$pkg" --tag canary --access public --provenance
-          done
-
-  publish:
-    needs: [build, scaffolder-smoke, embedding-smoke, adapter-cross-runtime]
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Validate release name matches tag
-        run: |
-          TAG="${{ github.event.release.tag_name }}"
-          NAME="${{ github.event.release.name }}"
-          if [ "$TAG" != "$NAME" ]; then
-            echo "::error::Release name ('$NAME') does not match tag ('$TAG'). They must be identical."
-            exit 1
-          fi
-
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version-file: ".nvmrc"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: "package.json"
-
-      - name: Restore node_modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/node_modules"
-          key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
-
-      - name: Restore build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Update package versions
-        run: |
-          RELEASE_VERSION=${GITHUB_REF#refs/tags/v}
-          bun run version:set "$RELEASE_VERSION"
-
-      - name: Check package version
-        run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          RELEASE_VERSION=${GITHUB_REF#refs/tags/v}
-          if [ "$PKG_VERSION" != "$RELEASE_VERSION" ]; then
-            echo "Package version ($PKG_VERSION) does not match release version ($RELEASE_VERSION)"
-            exit 1
-          fi
-
-      - name: Publish packages to npm
-        run: |
-          for pkg in packages/routecraft packages/cli packages/create-routecraft packages/eslint-plugin-routecraft packages/ai packages/browser packages/testing; do
-            echo "Publishing $pkg..."
-            npm publish "./$pkg" --access public --provenance
-          done
-
-  build-and-deploy-docs:
-    needs:
-      [
-        validate,
-        test,
-        build,
-        scaffolder-smoke,
-        embedding-smoke,
-        adapter-cross-runtime,
-      ]
-    # `always()` keeps the deploy reachable when smoke jobs skip themselves
-    # (workflow_dispatch with no package changes). The `!contains(...)` checks
-    # still block deploy if any integration job that actually ran failed or
-    # was cancelled.
-    if: |
-      always()
-      && !contains(needs.*.result, 'failure')
-      && !contains(needs.*.result, 'cancelled')
-      && (
-        github.event_name == 'workflow_dispatch'
-        || github.event_name == 'release'
-        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-      )
-    runs-on: ubuntu-latest
-    concurrency:
-      group: pages
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    permissions:
-      contents: read
-      id-token: write
-      pages: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          # Full history + tags so the freeze step below can read docs content
-          # from the latest release tag.
-          fetch-depth: 0
-
-      - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version-file: .nvmrc
-
-      - name: Install bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: package.json
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      # The published docs (/docs and /cheat-sheet) track the last released
-      # version, never the in-development code on main. On a release the checked
-      # out ref already is that version, so nothing to do. On a main push or a
-      # manual run we overlay the docs and cheat-sheet content from the latest
-      # release tag, leaving the rest of the site (home, blog, changelog) on the
-      # main-branch cadence. This is what lets a blog post or a home-page typo
-      # ship without cutting a release, without leaking unreleased docs.
-      #
-      # Releases at or before MIN_FREEZE_VERSION predate the current docs styling
-      # and do not render with the present shell, so they are never frozen or
-      # published. Until a newer release exists, /docs publishes from the main
-      # working tree (labelled with the in-development version).
-      - name: Resolve docs release ref
-        id: docver
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          set -eo pipefail
-          git fetch --tags --force origin >/dev/null 2>&1 || true
-
-          # Exclusive lower bound: only releases strictly newer than this render
-          # with the current docs shell and are eligible to be frozen/published.
-          MIN_FREEZE_VERSION="v0.5.0"
-
-          # 0 (true) when $1 is strictly greater than $2 under version sort.
-          version_gt() {
-            [ "$1" != "$2" ] &&
-              [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
-          }
-
-          LATEST_TAG="$(git tag -l 'v*' | sort -V | tail -n1)"
-          if [ "$EVENT_NAME" = "release" ]; then
-            # The whole checkout is the released ref; advertise it, skip freeze.
-            LABEL="$REF_NAME"
-            FREEZE_TAG=""
-          elif [ -n "$LATEST_TAG" ] && version_gt "$LATEST_TAG" "$MIN_FREEZE_VERSION"; then
-            LABEL="$LATEST_TAG"
-            FREEZE_TAG="$LATEST_TAG"
-          else
-            # No eligible release yet: publish the working-tree docs and label
-            # them with the in-development version.
-            LABEL="v$(jq -r .version apps/routecraft.dev/package.json)"
-            FREEZE_TAG=""
-          fi
-          echo "label=$LABEL" >> "$GITHUB_OUTPUT"
-          echo "freeze_tag=$FREEZE_TAG" >> "$GITHUB_OUTPUT"
-          echo "Docs version label: $LABEL"
-          echo "Freeze docs to tag: ${FREEZE_TAG:-<none, using working tree>}"
-
-      # Snapshot the in-development docs (the /docs/next channel) from the
-      # checked out (main) content *before* the freeze below overlays /docs with
-      # the released tag. The build then runs with SKIP_DOCS_NEXT so prebuild
-      # does not regenerate next from the now-frozen /docs.
-      - name: Generate the next docs channel
-        run: node --experimental-strip-types apps/routecraft.dev/scripts/generate-docs-next.mjs
-
-      - name: Freeze docs and cheat-sheet to the released ref
-        if: steps.docver.outputs.freeze_tag != ''
-        env:
-          FREEZE_TAG: ${{ steps.docver.outputs.freeze_tag }}
-        run: |
-          set -eo pipefail
-          app=apps/routecraft.dev/src/app
-          # The generated next channel is untracked, so checking out the tag's
-          # docs path leaves src/app/docs/next intact.
-          git checkout "$FREEZE_TAG" -- "$app/docs" "$app/cheat-sheet"
-          # The changelog moved to a top-level /changelog on the main cadence.
-          # Older release refs still carry it under docs/changelog, so drop that
-          # copy and restore the main-branch redirect stub at the old URL.
-          rm -rf "$app/docs/changelog"
-          git checkout HEAD -- "$app/docs/changelog"
-
-      - name: Build docs
-        env:
-          NEXT_PUBLIC_DOC_VERSION: ${{ steps.docver.outputs.label }}
-          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
-          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
-          # next was snapshotted above from main; do not overwrite it from the
-          # frozen /docs during prebuild.
-          SKIP_DOCS_NEXT: "1"
-        run: bun run --filter routecraft.dev build
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: apps/routecraft.dev/out
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
