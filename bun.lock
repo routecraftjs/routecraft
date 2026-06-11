@@ -38,7 +38,7 @@
     },
     "apps/routecraft.dev": {
       "name": "routecraft.dev",
-      "version": "0.6.0",
+      "version": "0.5.0",
       "dependencies": {
         "@algolia/autocomplete-core": "^1.19.8",
         "@headlessui/react": "^2.2.10",
@@ -77,7 +77,7 @@
     },
     "examples": {
       "name": "examples",
-      "version": "0.6.0",
+      "version": "0.5.0",
       "dependencies": {
         "@routecraft/ai": "workspace:*",
         "@routecraft/routecraft": "workspace:*",
@@ -95,7 +95,7 @@
     },
     "packages/ai": {
       "name": "@routecraft/ai",
-      "version": "0.6.0",
+      "version": "0.5.0",
       "dependencies": {
         "@standard-schema/spec": "^1.1.0",
         "ai": "^6.0.174",
@@ -126,7 +126,7 @@
         "@huggingface/transformers": "^3.8.1",
         "@modelcontextprotocol/sdk": "^1.27.1",
         "@openrouter/ai-sdk-provider": "^2.2.3",
-        "@routecraft/routecraft": "^0.6.0",
+        "@routecraft/routecraft": ">=0.5.0 <1.0.0",
         "express": "^5.0.0",
         "ollama-ai-provider-v2": "^3.3.1",
         "yaml": "^2.8.0",
@@ -146,7 +146,7 @@
     },
     "packages/browser": {
       "name": "@routecraft/browser",
-      "version": "0.6.0",
+      "version": "0.5.0",
       "devDependencies": {
         "@routecraft/routecraft": "workspace:*",
         "@routecraft/testing": "workspace:*",
@@ -154,7 +154,7 @@
         "vitest": "^4.1.5",
       },
       "peerDependencies": {
-        "@routecraft/routecraft": "^0.6.0",
+        "@routecraft/routecraft": ">=0.5.0 <1.0.0",
         "agent-browser": "^0.17.1",
       },
       "optionalPeers": [
@@ -163,7 +163,7 @@
     },
     "packages/cli": {
       "name": "@routecraft/cli",
-      "version": "0.6.0",
+      "version": "0.5.0",
       "bin": {
         "craft": "./dist/index.js",
       },
@@ -194,7 +194,7 @@
     },
     "packages/create-routecraft": {
       "name": "create-routecraft",
-      "version": "0.6.0",
+      "version": "0.5.0",
       "bin": {
         "create-routecraft": "./dist/index.js",
       },
@@ -207,7 +207,7 @@
     },
     "packages/eslint-plugin-routecraft": {
       "name": "@routecraft/eslint-plugin-routecraft",
-      "version": "0.6.0",
+      "version": "0.5.0",
       "devDependencies": {
         "@types/eslint": "^9.6.1",
         "tsup": "^8.5.1",
@@ -220,19 +220,19 @@
     },
     "packages/os": {
       "name": "@routecraft/os",
-      "version": "0.6.0",
+      "version": "0.5.0",
       "devDependencies": {
         "@routecraft/routecraft": "workspace:*",
         "vitest": "^4.1.5",
         "zod": "^4.4.3",
       },
       "peerDependencies": {
-        "@routecraft/routecraft": "^0.6.0",
+        "@routecraft/routecraft": ">=0.5.0 <1.0.0",
       },
     },
     "packages/prettier-plugin-routecraft": {
       "name": "@routecraft/prettier-plugin-routecraft",
-      "version": "0.6.0",
+      "version": "0.5.0",
       "devDependencies": {
         "prettier": "^3.8.3",
         "tsup": "^8.5.1",
@@ -245,7 +245,7 @@
     },
     "packages/routecraft": {
       "name": "@routecraft/routecraft",
-      "version": "0.6.0",
+      "version": "0.5.0",
       "dependencies": {
         "@opentelemetry/api": "^1.9.1",
         "@standard-schema/spec": "^1.1.0",
@@ -306,7 +306,7 @@
     },
     "packages/testing": {
       "name": "@routecraft/testing",
-      "version": "0.6.0",
+      "version": "0.5.0",
       "dependencies": {
         "@standard-schema/spec": "^1.1.0",
       },
@@ -314,7 +314,7 @@
         "@routecraft/routecraft": "workspace:*",
       },
       "peerDependencies": {
-        "@routecraft/routecraft": "^0.6.0",
+        "@routecraft/routecraft": ">=0.5.0 <1.0.0",
       },
     },
   },

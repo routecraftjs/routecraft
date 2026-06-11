@@ -89,7 +89,7 @@ Publishable manifests never use the `workspace:` protocol. An ecosystem package 
 
 ```jsonc
 "peerDependencies": {
-  "@routecraft/routecraft": "^0.6.0"   // published contract: real semver range
+  "@routecraft/routecraft": ">=0.5.0 <1.0.0"   // published contract: real semver range
 },
 "devDependencies": {
   "@routecraft/routecraft": "workspace:*"  // local dev: always the in-tree copy
@@ -98,7 +98,8 @@ Publishable manifests never use the `workspace:` protocol. An ecosystem package 
 
 Why this shape:
 
-- The `peerDependencies` range is what users see after publish. Bundling or hard-depending on core would cause duplicate-instance bugs (two `RoutecraftError` classes, two adapter registries); the peer forces a single instance, and the real range documents compatibility. Changesets keeps the range current (`onlyUpdatePeerDependentsWhenOutOfRange` stops core minors from major-cascading through it).
+- The `peerDependencies` range is what users see after publish. Bundling or hard-depending on core would cause duplicate-instance bugs (two `RoutecraftError` classes, two adapter registries); the peer forces a single instance, and the real range documents compatibility.
+- The range form is version-era specific. Pre-1.0 it must be `>=0.5.0 <1.0.0`: in 0.x semver, `^0.5.0` excludes 0.6.0, so every core minor would leave the range and changesets major-bumps peer dependents whose range is left (`onlyUpdatePeerDependentsWhenOutOfRange` controls WHEN that cascade fires, not its size). At v1, tighten to `^1.0.0`; minors then stay in range and the cascade only fires on real majors.
 - The `devDependencies` `workspace:*` keeps local development synced: Bun resolves it to the in-tree package, so editing core is immediately visible. `workspace:*` (not `workspace:^x.y.z`) so version bumps never touch devDependencies.
 - The CLI is the one exception: it keeps core in `dependencies` with a plain `^` range, because `craft` needs core at runtime and users install the CLI standalone.
 
@@ -138,6 +139,8 @@ Integration tests require a tarball + global CLI install and aren't expected to 
 
 Versioning and publishing are owned by [changesets](https://github.com/changesets/changesets); model: vercel/ai. Never hand-edit `package.json` versions.
 
+The core invariant: **`package.json` always holds the LAST RELEASED version**, never the upcoming one. Pending changesets describe what the next release will contain, and the auto-maintained "Version Packages" PR is the release gate: nothing stable ships until a human merges it. Canaries are calculated previews of that upcoming release (pending changesets included), so the canary channel always shows where the next stable will land.
+
 ### Contributor side
 
 Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick the affected package(s) and bump level, describe the change. Internal-only changes skip it (or use `bunx changeset add --empty` if a status check demands one).
@@ -147,7 +150,7 @@ Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick 
 - `.changeset/config.json` declares a `fixed` group, the **core train**: `@routecraft/routecraft`, `@routecraft/cli`, `@routecraft/testing`, `create-routecraft`, `@routecraft/eslint-plugin-routecraft`, `@routecraft/prettier-plugin-routecraft`. These always share one version number.
 - Everything else (`@routecraft/ai`, `@routecraft/browser`, future vendor packages) versions independently.
 - `routecraft.dev` and `examples` are ignored; `@routecraft/os` is versioned but never tagged/published (private).
-- `onlyUpdatePeerDependentsWhenOutOfRange` is on, so a core minor does not major-cascade through ecosystem peer ranges. It lives under changesets' `___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH` key, so re-check the changesets release notes for it whenever bumping `@changesets/cli`.
+- `onlyUpdatePeerDependentsWhenOutOfRange` is on, so a core bump that stays inside ecosystem peer ranges does not cascade at all. When a bump DOES leave the range, changesets major-bumps the dependents, which is why the pre-1.0 peer range form is `>=0.5.0 <1.0.0` (see section 5). The flag lives under changesets' `___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH` key, so re-check the changesets release notes for it whenever bumping `@changesets/cli`.
 
 ### Pipeline
 
@@ -157,7 +160,7 @@ All rows below run inside `release.yml`, which triggers via `workflow_run` after
 |---------|-----|--------|
 | Main push with pending changesets | `release` (changesets action) | Opens/updates the "Version Packages" PR: runs `bun run version-packages` (= `changeset version` + `scripts/sync-derived-versions.mjs`, which patches the `.claude-plugin/{plugin,marketplace}.json` versions from core). |
 | Merging the "Version Packages" PR | `release` | `bun run release` (= build + `changeset publish`) publishes to npm with provenance, creates one GitHub Release per package version (tags like `@routecraft/routecraft@0.7.0`), and pushes a `v<core-version>` tag; `build-and-deploy-docs` then freezes the docs to that fresh tag in the same workflow run. |
-| Main push touching packages | `publish-canary` (after `release`) | Publishes canaries of the packages CHANGED by the push (`0.6.1-canary-<datetime>`) under the npm `canary` dist-tag, no git tags. A synthetic changeset is generated from the git diff (base sha handed over from CI as the `push-base` artifact), so canaries flow on every merge whether or not the PR carried a changeset. The fixed core train always moves together (a change to any train member canaries the whole train, lockstep); independent packages (ai, browser) only get a canary when they themselves changed, calculated from their own version line. |
+| Main push touching packages | `publish-canary` (after `release`) | Publishes canaries of the packages CHANGED by the push (`0.6.0-canary-<datetime>`, calculated from the last release plus pending changesets) under the npm `canary` dist-tag, no git tags. A synthetic changeset is generated from the git diff (base sha handed over from CI as the `push-base` artifact), so canaries flow on every merge whether or not the PR carried a changeset. The fixed core train always moves together (a change to any train member canaries the whole train, lockstep); independent packages (ai, browser) canary when they themselves changed OR while they carry a pending changeset (the canary previews the whole upcoming release). |
 
 npm auth is tokenless: **Trusted Publishing** (OIDC) is configured on npmjs.com per package, and `npm publish` picks it up via the job's `id-token: write` permission (requires npm >= 11.5; Node 24 from `.nvmrc` bundles it). Provenance is generated automatically. Two operational notes:
 
