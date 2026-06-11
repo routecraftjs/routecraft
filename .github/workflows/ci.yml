@@ -313,6 +313,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history: the snapshot step diffs against the pre-push commit
+          # (github.event.before) to find which packages changed.
+          fetch-depth: 0
 
       - name: Use Node.js from .nvmrc
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -337,33 +341,51 @@ jobs:
           path: "**/dist"
           key: build-${{ github.event.pull_request.head.sha || github.sha }}
 
-      # Every main push with package changes ships a fresh canary of EVERY
-      # public package, in lockstep (same snapshot timestamp), regardless of
-      # pending changesets. Downstream projects track the `canary` dist-tag
-      # across all packages, so partial or skipped snapshots would leave them
-      # with incompatible mixes. The synthetic changeset below covers all
-      # public packages; combined with snapshot.useCalculatedVersion the
-      # canary versions stay above the last stable (e.g. 0.6.1-canary-<ts>)
-      # and keep satisfying ^-ranged internal peers.
-      - name: Create snapshot changeset covering all public packages
+      # Every main push ships a fresh canary of the packages CHANGED by that
+      # push (no changeset required: a synthetic one is generated from the
+      # git diff). The fixed core train moves together whenever any train
+      # member changed; independent packages (ai, browser) only get a canary
+      # when they themselves changed, versioned from their OWN version line
+      # via snapshot.useCalculatedVersion (e.g. 0.6.1-canary-<datetime>).
+      - name: Create snapshot changeset for changed packages
+        id: snapshot
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
+          set -eo pipefail
+          BASE="$BEFORE"
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            BASE="$(git rev-parse HEAD~1)"
+          fi
+          CHANGED_DIRS=$(git diff --name-only "$BASE" HEAD -- packages/ | cut -d/ -f2 | sort -u)
           {
             echo '---'
-            for f in packages/*/package.json; do
+            for d in $CHANGED_DIRS; do
+              f="packages/$d/package.json"
+              [ -f "$f" ] || continue
               node -e "const p=require('./$f'); if (!p.private) console.log('\"' + p.name + '\": patch')"
             done
             echo '---'
             echo ''
-            echo 'Lockstep canary snapshot for this commit.'
+            echo 'Canary snapshot of the packages changed in this push.'
           } > .changeset/snapshot-canary.md
           cat .changeset/snapshot-canary.md
+          if grep -q '": patch' .changeset/snapshot-canary.md; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            rm .changeset/snapshot-canary.md
+            echo "No public package changed; skipping canary."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Version snapshot
+        if: steps.snapshot.outputs.publish == 'true'
         run: bunx changeset version --snapshot canary
 
       # Tokenless npm auth: Trusted Publishing (OIDC) is configured on
       # npmjs.com per package, pinned to this repo + this workflow file.
       - name: Publish snapshot to npm
+        if: steps.snapshot.outputs.publish == 'true'
         run: |
           bun run build
           bunx changeset publish --tag canary --no-git-tag
