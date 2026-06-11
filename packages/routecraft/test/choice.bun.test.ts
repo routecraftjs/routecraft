@@ -451,13 +451,13 @@ describe("choice operation", () => {
 
   /**
    * @case Type-level: BranchBuilder.transform propagates the Return generic to the next builder stage
-   * @preconditions A BranchBuilder<number> transforms numbers into strings
-   * @expectedResult The resulting builder is exactly BranchBuilder<string>; subsequent .to() narrows the exchange body
+   * @preconditions A BranchBuilder<{ body: number }> transforms numbers into strings
+   * @expectedResult The resulting builder is exactly BranchBuilder<{ body: string }>; subsequent .to() narrows the exchange body
    */
   test("type-level: BranchBuilder.transform propagates body type", () => {
-    const b = new BranchBuilder<number>();
+    const b = new BranchBuilder<{ body: number }>();
     const b2 = b.transform((n) => n.toString());
-    expectTypeOf(b2).toEqualTypeOf<BranchBuilder<string>>();
+    expectTypeOf(b2).toEqualTypeOf<BranchBuilder<{ body: string }>>();
   });
 
   /**
@@ -569,14 +569,14 @@ describe("choice operation", () => {
 
   /**
    * @case Type-level: BranchBuilder.enrich propagates merged body type (Current & R) to the next builder stage
-   * @preconditions A BranchBuilder<{ a: number }> enriches with a destination returning { b: string }
-   * @expectedResult The resulting builder is BranchBuilder<{ a: number } & { b: string }>
+   * @preconditions A BranchBuilder<{ body: { a: number } }> enriches with a destination returning { b: string }
+   * @expectedResult The resulting builder is BranchBuilder<{ body: { a: number } & { b: string } }>
    */
   test("type-level: BranchBuilder.enrich propagates merged body type", () => {
-    const b = new BranchBuilder<{ a: number }>();
+    const b = new BranchBuilder<{ body: { a: number } }>();
     const b2 = b.enrich(() => ({ b: "x" }));
     expectTypeOf(b2).toEqualTypeOf<
-      BranchBuilder<{ a: number } & { b: string }>
+      BranchBuilder<{ body: { a: number } & { b: string } }>
     >();
   });
 
@@ -762,17 +762,17 @@ describe("choice operation", () => {
 
   /**
    * @case Type-level: BranchBuilder inherits the type-preserving ops correctly
-   * @preconditions A BranchBuilder<T> calls filter / header / tap
-   * @expectedResult Each returns BranchBuilder<T> (same subclass, same body type)
+   * @preconditions A BranchBuilder<{ body: T }> calls filter / header / tap
+   * @expectedResult Each returns BranchBuilder<{ body: T }> (same subclass, same body type)
    */
-  test("type-level: type-preserving ops on BranchBuilder return BranchBuilder<T>", () => {
-    const b = new BranchBuilder<Order>();
+  test("type-level: type-preserving ops on BranchBuilder return BranchBuilder<{ body: T }>", () => {
+    const b = new BranchBuilder<{ body: Order }>();
     const afterFilter = b.filter(() => true);
     const afterHeader = b.header("k", "v");
     const afterTap = b.tap(() => undefined);
-    expectTypeOf(afterFilter).toEqualTypeOf<BranchBuilder<Order>>();
-    expectTypeOf(afterHeader).toEqualTypeOf<BranchBuilder<Order>>();
-    expectTypeOf(afterTap).toEqualTypeOf<BranchBuilder<Order>>();
+    expectTypeOf(afterFilter).toEqualTypeOf<BranchBuilder<{ body: Order }>>();
+    expectTypeOf(afterHeader).toEqualTypeOf<BranchBuilder<{ body: Order }>>();
+    expectTypeOf(afterTap).toEqualTypeOf<BranchBuilder<{ body: Order }>>();
   });
 
   /**

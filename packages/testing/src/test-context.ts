@@ -5,7 +5,7 @@ import type {
   EventName,
   EventHandler,
   RouteDefinition,
-  RouteBuilder,
+  AnyRouteBuilder,
   AdapterOverride,
 } from "@routecraft/routecraft";
 import {
@@ -304,9 +304,9 @@ export class TestContextBuilder {
   routes(
     routes:
       | RouteDefinition[]
-      | RouteBuilder<unknown>[]
+      | AnyRouteBuilder[]
       | RouteDefinition
-      | RouteBuilder<unknown>,
+      | AnyRouteBuilder,
   ): this {
     this.builder.routes(routes);
     return this;

@@ -150,21 +150,27 @@ export {
   ContextBuilder,
   craft,
   RouteBuilder,
+  type AnyRouteBuilder,
   type RouteOptions,
 } from "./builder.ts";
 
 /**
- * Type-only re-exports of the shared builder base. Exposed so that
- * `registerDsl` can augment a single interface and have both `RouteBuilder`
+ * Type-only re-exports of the shared builder base and its type-state
+ * machinery. Exposed so that `registerDsl` can augment a single interface
+ * (`StepBuilderBase<S extends BuilderState>`) and have both `RouteBuilder`
  * and `BranchBuilder` inherit the augmentation via class-interface
- * inheritance. The class value is deliberately not re-exported -- the base
- * is not a public extension point and the closed-world `Retyped` helper
- * falls through to `never` for any subclass outside the framework-owned
- * set.
- *
- * @internal
+ * inheritance; `SetBody` and `Retyped` are the helpers type-changing sugar
+ * uses to advance the bag. The class value is deliberately not re-exported --
+ * the base is not a public extension point and the closed-world `Retyped`
+ * helper falls through to `never` for any subclass outside the
+ * framework-owned set.
  */
-export type { StepBuilderBase, Retyped } from "./step-builder-base.ts";
+export type {
+  StepBuilderBase,
+  BuilderState,
+  SetBody,
+  Retyped,
+} from "./step-builder-base.ts";
 
 export { CraftClient } from "./client.ts";
 

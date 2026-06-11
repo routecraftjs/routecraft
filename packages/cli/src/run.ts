@@ -7,7 +7,7 @@ import {
   logger,
   shutdownHandler,
   RUNNER_ARGV,
-  type RouteBuilder,
+  type AnyRouteBuilder,
   type RouteDefinition,
 } from "@routecraft/routecraft";
 
@@ -98,7 +98,7 @@ function configureRoutes(
 
   // Handle single RouteBuilder or RouteDefinition (brand-based guards for cross-instance)
   if (isRouteBuilder(defaultExport)) {
-    contextBuilder.routes(defaultExport as RouteBuilder<unknown>);
+    contextBuilder.routes(defaultExport as AnyRouteBuilder);
     logger.info("Loaded single RouteBuilder from default export");
     return { success: true };
   }
@@ -129,7 +129,7 @@ function configureRoutes(
 
     defaultExport.forEach((routeOrBuilder) =>
       contextBuilder.routes(
-        routeOrBuilder as RouteDefinition | RouteBuilder<unknown>,
+        routeOrBuilder as RouteDefinition | AnyRouteBuilder,
       ),
     );
     logger.info(

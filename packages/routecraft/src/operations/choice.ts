@@ -9,7 +9,11 @@ import {
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { COLLECT_STEPS } from "../dsl-symbol.ts";
-import { StepBuilderBase } from "../step-builder-base.ts";
+import {
+  StepBuilderBase,
+  type BuilderState,
+  type SetBody,
+} from "../step-builder-base.ts";
 
 /**
  * Predicate that decides whether a choice branch matches an exchange.
@@ -98,9 +102,11 @@ export class HaltStep implements Step<HaltAdapter> {
  * deliberately absent because they have no coherent meaning inside a
  * converging branch.
  *
- * @template Current - Body type entering this branch
+ * @template S - The {@link BuilderState} bag entering this branch
  */
-export class BranchBuilder<Current = unknown> extends StepBuilderBase<Current> {
+export class BranchBuilder<
+  S extends BuilderState = BuilderState,
+> extends StepBuilderBase<S> {
   private readonly steps: Step<Adapter>[] = [];
 
   protected override pushStep<T extends Adapter>(step: Step<T>): void {
@@ -119,7 +125,7 @@ export class BranchBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *
    * @returns This builder (for chaining, though no further steps will execute)
    */
-  halt(): BranchBuilder<Current> {
+  halt(): BranchBuilder<S> {
     this.pushStep(new HaltStep());
     return this;
   }
@@ -144,10 +150,14 @@ export class BranchBuilder<Current = unknown> extends StepBuilderBase<Current> {
  * Calling `otherwise` more than once on the same choice is an authoring
  * mistake and throws at configuration time (RC5001).
  *
- * @template In  - Body type entering the choice (from the main pipeline)
+ * @template S   - The {@link BuilderState} bag entering the choice (from the
+ *   main pipeline); predicates and branches see `S["body"]`
  * @template Out - Body type leaving the choice (all branches must converge)
  */
-export class ChoiceSubBuilder<In = unknown, Out = In> {
+export class ChoiceSubBuilder<
+  S extends BuilderState = BuilderState,
+  Out = S["body"],
+> {
   private readonly whenBranches: ChoiceBranch[] = [];
   private otherwiseBranch?: ChoiceBranch;
 
@@ -162,10 +172,10 @@ export class ChoiceSubBuilder<In = unknown, Out = In> {
    * @returns This builder (for chaining)
    */
   when(
-    predicate: ChoicePredicate<In>,
-    branchFn: (b: BranchBuilder<In>) => BranchBuilder<Out>,
+    predicate: ChoicePredicate<S["body"]>,
+    branchFn: (b: BranchBuilder<S>) => BranchBuilder<SetBody<S, Out>>,
   ): this {
-    const branch = new BranchBuilder<In>();
+    const branch = new BranchBuilder<S>();
     branchFn(branch);
     this.whenBranches.push({
       predicate: predicate as ChoicePredicate<unknown>,
@@ -183,14 +193,16 @@ export class ChoiceSubBuilder<In = unknown, Out = In> {
    * @param branchFn - Callback that defines the sub-pipeline for the default branch
    * @returns This builder (for chaining)
    */
-  otherwise(branchFn: (b: BranchBuilder<In>) => BranchBuilder<Out>): this {
+  otherwise(
+    branchFn: (b: BranchBuilder<S>) => BranchBuilder<SetBody<S, Out>>,
+  ): this {
     if (this.otherwiseBranch) {
       throw rcError("RC5001", undefined, {
         message:
           "choice() may have at most one otherwise() branch; called twice",
       });
     }
-    const branch = new BranchBuilder<In>();
+    const branch = new BranchBuilder<S>();
     branchFn(branch);
     this.otherwiseBranch = {
       predicate: () => true,

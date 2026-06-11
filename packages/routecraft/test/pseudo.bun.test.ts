@@ -55,70 +55,78 @@ describe("Pseudo adapter", () => {
     /**
      * @case Pseudo in .from() is accepted and RouteBuilder type is R
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<UserData>
+     * @expectedResult RouteBuilder<{ body: UserData }>
      */
-    test("from() with pseudo sets RouteBuilder<R>", () => {
+    test("from() with pseudo sets RouteBuilder<{ body: R }>", () => {
       const src = pseudo<{ poll: number }>("src");
       const route = craft().from(src<UserData>({ poll: 1000 }));
-      expectTypeOf(route).toEqualTypeOf<RouteBuilder<UserData>>();
+      expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: UserData }>>();
     });
 
     /**
      * @case Pseudo in .enrich() is accepted and the body type merges Current & R
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<string & EnrichedData> (enrich merges, it does not replace)
+     * @expectedResult RouteBuilder<{ body: string & EnrichedData }> (enrich merges, it does not replace)
      */
-    test("enrich() with pseudo merges RouteBuilder<Current & R>", () => {
+    test("enrich() with pseudo merges RouteBuilder<{ body: Current & R }>", () => {
       const mcp = pseudo<McpOpts>("mcp");
       const route = craft()
         .from(simple("hello"))
         .enrich(mcp<EnrichedData>({ server: "x", tool: "y" }));
-      expectTypeOf(route).toEqualTypeOf<RouteBuilder<string & EnrichedData>>();
+      expectTypeOf(route).toEqualTypeOf<
+        RouteBuilder<{ body: string & EnrichedData }>
+      >();
     });
 
     /**
      * @case Pseudo in .to() is accepted and RouteBuilder type is R
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<{ id: string }>
+     * @expectedResult RouteBuilder<{ body: { id: string } }>
      */
-    test("to() with pseudo sets RouteBuilder<R>", () => {
+    test("to() with pseudo sets RouteBuilder<{ body: R }>", () => {
       const db = pseudo<{ table: string }>("db");
       const route = craft()
         .from(simple("data"))
         .to(db<{ id: string }>({ table: "events" }));
-      expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ id: string }>>();
+      expectTypeOf(route).toEqualTypeOf<
+        RouteBuilder<{ body: { id: string } }>
+      >();
     });
 
     /**
      * @case Pseudo in .tap() preserves current body type
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<{ count: number }>
+     * @expectedResult RouteBuilder<{ body: { count: number } }>
      */
     test("tap() with pseudo preserves current type", () => {
       const metrics = pseudo<{ metric: string }>("metrics");
       const route = craft()
         .from(simple({ count: 1 }))
         .tap(metrics({ metric: "items" }));
-      expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ count: number }>>();
+      expectTypeOf(route).toEqualTypeOf<
+        RouteBuilder<{ body: { count: number } }>
+      >();
     });
 
     /**
      * @case Pseudo in .process() is accepted and RouteBuilder type is R
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<{ answer: string }>
+     * @expectedResult RouteBuilder<{ body: { answer: string } }>
      */
-    test("process() with pseudo sets RouteBuilder<R>", () => {
+    test("process() with pseudo sets RouteBuilder<{ body: R }>", () => {
       const ai = pseudo<{ model: string }>("ai");
       const route = craft()
         .from(simple("prompt"))
         .process(ai<{ answer: string }>({ model: "gpt-4" }));
-      expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ answer: string }>>();
+      expectTypeOf(route).toEqualTypeOf<
+        RouteBuilder<{ body: { answer: string } }>
+      >();
     });
 
     /**
      * @case Chained pseudo enrich then split then to composes types
      * @preconditions src, mcp, and db pseudo factories; a typed pseudo source so the enrich merge has an object body
-     * @expectedResult RouteBuilder<{ id: string }>
+     * @expectedResult RouteBuilder<{ body: { id: string } }>
      */
     test("chained pseudo adapters compose types correctly", () => {
       const src = pseudo<{ poll: number }>("src");
@@ -135,7 +143,9 @@ describe("Pseudo adapter", () => {
             }),
         ))
         .to(db<{ id: string }>({ table: "emails" }));
-      expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ id: string }>>();
+      expectTypeOf(route).toEqualTypeOf<
+        RouteBuilder<{ body: { id: string } }>
+      >();
     });
 
     /**

@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { BRAND, isRouteBuilder, setBrand } from "./brand.ts";
-import { StepBuilderBase } from "./step-builder-base.ts";
+import {
+  StepBuilderBase,
+  type BuilderState,
+  type SetBody,
+} from "./step-builder-base.ts";
 import {
   type RouteDefinition,
   type ErrorHandler,
@@ -231,11 +235,11 @@ export class ContextBuilder {
   routes(
     routes:
       | RouteDefinition[]
-      | RouteBuilder<unknown>[]
+      | AnyRouteBuilder[]
       | RouteDefinition
-      | RouteBuilder<unknown>,
+      | AnyRouteBuilder,
   ): this {
-    const addOne = (route: RouteDefinition | RouteBuilder<unknown>): void => {
+    const addOne = (route: RouteDefinition | AnyRouteBuilder): void => {
       if (isRouteBuilder(route)) {
         this.definitions.push(
           ...(route as { build: () => RouteDefinition[] }).build(),
@@ -320,6 +324,19 @@ export class ContextBuilder {
 }
 
 /**
+ * Any route builder, regardless of its tracked {@link BuilderState}.
+ *
+ * `RouteBuilder<S>` is invariant in its state bag (the body type appears in
+ * both parameter and return positions), so a fully chained
+ * `RouteBuilder<{ body: X }>` is not assignable to
+ * `RouteBuilder<BuilderState>`. Positions that accept "some finished route
+ * builder" (`ContextBuilder.routes`, the CLI loader, test harnesses) only
+ * ever call `.build()`, which does not involve the bag at all, so this
+ * minimal structural alias is the correct parameter type for them.
+ */
+export type AnyRouteBuilder = Pick<RouteBuilder, "build">;
+
+/**
  * Options for configuring a route.
  */
 export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
@@ -338,7 +355,7 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  * The type parameter tracks the data type flowing through the route
  * at each step, providing type safety throughout the route definition.
  *
- * @template Current The type of data currently flowing through the route
+ * @template S The {@link BuilderState} bag tracking the data flowing through the route
  *
  * @example
  * ```typescript
@@ -396,7 +413,9 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
   }
 }
 
-export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
+export class RouteBuilder<
+  S extends BuilderState = BuilderState,
+> extends StepBuilderBase<S> {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
 
@@ -656,7 +675,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *
    * @experimental
    */
-  override cache(options: CacheOptions<Current> = {}): this {
+  override cache(options: CacheOptions<S["body"]> = {}): this {
     if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
       // Route scope: stage the resolved config onto pendingOptions so
       // the next `.from()` writes it into the new RouteDefinition.
@@ -767,16 +786,16 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * flag threaded through the builder could make it compile-time, but that is a
    * larger change deferred for the v0 unstable surface.
    */
-  from<T>(source: SourceLike<T>): RouteBuilder<T>;
-  from<T>(source: SourceLike<unknown>): RouteBuilder<T>;
+  from<T>(source: SourceLike<T>): RouteBuilder<SetBody<S, T>>;
+  from<T>(source: SourceLike<unknown>): RouteBuilder<SetBody<S, T>>;
   from<T>(
     ...sources: [
       SourceLike<unknown>,
       SourceLike<unknown>,
       ...Array<SourceLike<unknown>>,
     ]
-  ): RouteBuilder<T>;
-  from<T>(...sources: Array<SourceLike<T>>): RouteBuilder<T> {
+  ): RouteBuilder<SetBody<S, T>>;
+  from<T>(...sources: Array<SourceLike<T>>): RouteBuilder<SetBody<S, T>> {
     this.assertNoPendingWrappers("from");
     if (sources.length === 0) {
       throw rcError("RC2001", undefined, {
@@ -943,14 +962,14 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * // Split a string by delimiter (return exchanges)
    * .split<string>((exchange) => exchange.body.split(",").map(body => new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })))
    */
-  split<ItemType = Current extends Array<infer U> ? U : Current>(
+  split<ItemType = S["body"] extends Array<infer U> ? U : S["body"]>(
     splitter?:
-      | Splitter<Current, ItemType>
-      | CallableSplitter<Current, ItemType>,
-  ): RouteBuilder<ItemType> {
+      | Splitter<S["body"], ItemType>
+      | CallableSplitter<S["body"], ItemType>,
+  ): RouteBuilder<SetBody<S, ItemType>> {
     // If no splitter is provided, use default splitter: arrays are split, non-arrays as single item
     if (!splitter) {
-      const defaultSplitter: CallableSplitter<Current, ItemType> = (
+      const defaultSplitter: CallableSplitter<S["body"], ItemType> = (
         exchange,
       ) => {
         const context = getExchangeContext(exchange);
@@ -977,9 +996,9 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
         ];
       };
 
-      this.pushStep(new SplitStep<Current, ItemType>(defaultSplitter));
+      this.pushStep(new SplitStep<S["body"], ItemType>(defaultSplitter));
     } else {
-      this.pushStep(new SplitStep<Current, ItemType>(splitter));
+      this.pushStep(new SplitStep<S["body"], ItemType>(splitter));
     }
 
     return this.retype<ItemType>();
@@ -1005,20 +1024,20 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *   return { body: sum, headers: exchanges[0].headers };
    * })
    */
-  aggregate<ResultType = Current[]>(
+  aggregate<ResultType = Array<S["body"]>>(
     aggregator?:
-      | Aggregator<Current, ResultType>
-      | CallableAggregator<Current, ResultType>,
-  ): RouteBuilder<ResultType> {
+      | Aggregator<S["body"], ResultType>
+      | CallableAggregator<S["body"], ResultType>,
+  ): RouteBuilder<SetBody<S, ResultType>> {
     if (!aggregator) {
       // Use default aggregator which collects bodies into an array
       this.pushStep(
-        new AggregateStep<Current, ResultType>(
-          defaultAggregate as CallableAggregator<Current, ResultType>,
+        new AggregateStep<S["body"], ResultType>(
+          defaultAggregate as CallableAggregator<S["body"], ResultType>,
         ),
       );
     } else {
-      this.pushStep(new AggregateStep<Current, ResultType>(aggregator));
+      this.pushStep(new AggregateStep<S["body"], ResultType>(aggregator));
     }
     return this.retype<ResultType>();
   }
@@ -1040,7 +1059,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * not resume for it.
    *
    * All branches must produce exchanges of the same type `Out` (defaults to
-   * `Current`), which becomes the body type of the builder after the choice.
+   * the current body), which becomes the body type of the builder after the choice.
    *
    * @template Out - Body type produced by every branch (enforced by the
    *   branch callback return types)
@@ -1057,12 +1076,12 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * .to(finalDest)
    * ```
    */
-  choice<Out = Current>(
-    fn: (c: ChoiceSubBuilder<Current, Out>) => ChoiceSubBuilder<Current, Out>,
-  ): RouteBuilder<Out> {
-    const sub = new ChoiceSubBuilder<Current, Out>();
+  choice<Out = S["body"]>(
+    fn: (c: ChoiceSubBuilder<S, Out>) => ChoiceSubBuilder<S, Out>,
+  ): RouteBuilder<SetBody<S, Out>> {
+    const sub = new ChoiceSubBuilder<S, Out>();
     fn(sub);
-    this.pushStep(new ChoiceStep<Current>(sub[COLLECT_STEPS]()));
+    this.pushStep(new ChoiceStep<S["body"]>(sub[COLLECT_STEPS]()));
     return this.retype<Out>();
   }
 
