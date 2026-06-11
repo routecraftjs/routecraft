@@ -8,33 +8,34 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 ---
 
-## v0.7.0 {% badge color="gray" %}In development{% /badge %}
-
-The pre-v1 architecture release: the contracts that freeze at v1 changed shape once, now, so they do not have to change after. Every route runs ~25% faster (steps wrapped with `.error()` ~45% faster) and event throughput doubles. See the [0.6.x to 0.7.0 migration guide](/docs/migrating/0.6-to-0.7) for upgrade steps.
-
-### Core {% badge color="red" %}Breaking{% /badge %}
-
-- **Fixed event names; identity in the payload** -- hierarchical names like `route:<id>:exchange:failed` become a fixed set (`route:exchange:failed`) with `routeId` in `details`. Wildcard patterns on `ctx.on()` / `ctx.once()` are replaced by exact names, the `"*"` catch-all, and the `forRoute()` filter helper (the `event()` source adapter keeps its pattern support); ecosystem packages declare events by merging into `EventDetailsMap`. See the [migration guide](/docs/migrating/0.6-to-0.7#1-events-fixed-names-identity-in-the-payload).
-- **`Subscription` source contract** -- source adapters receive a single `Subscription` object (`{ context, signal, meta, ready(), complete(), emit() }`) instead of five positional parameters. `.from()` additionally accepts async generator functions and (async) iterables, and `@routecraft/testing` adds a `testSubscription()` helper. See the [migration guide](/docs/migrating/0.6-to-0.7#2-sources-the-subscription-object).
-- **`StepOutcome` step contract** -- custom `Step` implementations return what happened (`continue` / `complete` / `drop` / `branch` / `fanOut`) and the executor owns all scheduling; the wrapper buffer/relay protocol is gone. Custom aggregators return `{ body, headers? }` instead of a fabricated `Exchange`. See the [migration guide](/docs/migrating/0.6-to-0.7#3-custom-steps-and-aggregators).
-- **Namespaced error-code registry** -- ecosystem packages own codes under a claimed namespace via `registerErrorCodes()` plus `ErrorCodeRegistry` declaration merging; `RC` is reserved for core. Adds `RC1003` (error-code registration failed). See the [migration guide](/docs/migrating/0.6-to-0.7#4-error-codes-ai-namespace).
-
-### AI & MCP {% badge color="red" %}Breaking{% /badge %}
-
-- **AI error codes renamed** -- `RC5025` / `RC5026` / `RC5027` become `AI1001` / `AI1002` / `AI1003` under the new `AI` namespace; update any code or alerting that matches on `error.rc`.
-
-### Internals
-
-- **Engine restructuring** -- `CraftContext` delegates events to an internal `EventBus`; adapter config keys (`cron`, `direct`, `mail`, `telemetry`, `http`) move to per-module config appliers; the route engine splits into `pipeline/` modules (executor, validation, synthetic steps). Two behavioural notes: context store seeding for adapter config now happens in `initPlugins()` (called automatically by `start()`), and mail/carddav client managers drain in reverse-plugin-order teardown.
-- **Uniform factory tagging** -- every public adapter factory is tagged for `mockAdapter()`, enforced by a conformance test; previously `direct`, `simple`, `timer`, `cron`, `log`, `noop`, and others (plus two transformer-mode branches of `html()` / `json()`) were silently unmockable.
-
 ---
 
 ## v0.6.0 {% badge color="gray" %}In development{% /badge %}
 
-This section tracks changes landing on `main` since the v0.5.0 release. Release notes will be finalised when v0.6.0 is tagged. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) for upgrade steps on the breaking AI surface changes below.
+This section tracks changes landing on `main` since the v0.5.0 release; release notes will be finalised when v0.6.0 is tagged. 0.6.0 is the architecture release before v1: the contracts that freeze at v1 changed shape once, now, so they do not have to change after, and in exchange every route runs ~25% faster (steps wrapped with `.error()` ~45% faster) with doubled event throughput. Upgrade steps live in two guides: the [0.5.x to 0.6.0 guide](/docs/migrating/0.5-to-0.6) (AI surface, HTTP source, mail envelope) and the [0.6.0 canary-line guide](/docs/migrating/0.6) (architecture contracts below).
+
+### Core {% badge color="red" %}Breaking{% /badge %}
+
+- **Fixed event names; identity in the payload** -- hierarchical names like `route:<id>:exchange:failed` become a fixed set (`route:exchange:failed`) with `routeId` in `details`. Wildcard patterns on `ctx.on()` / `ctx.once()` are replaced by exact names, the `"*"` catch-all, and the `forRoute()` filter helper (the `event()` source adapter keeps its pattern support); ecosystem packages declare events by merging into `EventDetailsMap`. `plugin:registered` is removed (it duplicated `plugin:starting`). See the [migration guide](/docs/migrating/0.6#1-events-fixed-names-identity-in-the-payload).
+- **`Subscription` source contract** -- source adapters receive a single `Subscription` object (`{ context, signal, meta, ready(), complete(), emit() }`) instead of five positional parameters. `.from()` additionally accepts async generator functions and (async) iterables, and `@routecraft/testing` adds a `testSubscription()` helper. See the [migration guide](/docs/migrating/0.6#2-sources-the-subscription-object).
+- **`StepOutcome` step contract** -- custom `Step` implementations return what happened (`continue` / `complete` / `drop` / `branch` / `fanOut`) and the executor owns all scheduling; the wrapper buffer/relay protocol is gone. Per-execution metadata rides the outcome instead of mutating the shared `Step` instance. Custom aggregators return `{ body, headers? }` instead of a fabricated `Exchange`. See the [migration guide](/docs/migrating/0.6#3-custom-steps-and-aggregators).
+- **Namespaced error-code registry** -- ecosystem packages own codes under a claimed namespace via `registerErrorCodes()` plus `ErrorCodeRegistry` declaration merging; `RC` is reserved for core. Adds `RC1003` (error-code registration failed). See the [migration guide](/docs/migrating/0.6#4-error-codes-ai-namespace).
+- **Type-enforced builder positioning** -- `craft()` returns a pre-`from` builder, so pipeline operations before `.from()` are compile errors; builder generics move to a state bag (`RouteBuilder<{ body: T }>`, `AnyRouteBuilder` for lists). See the [migration guide](/docs/migrating/0.6#5-builder-position-is-type-enforced).
+- **Splitters return child bodies** -- `.split()` callbacks return values (or `splitChild(body, headers)` for per-child header overrides) instead of hand-built `Exchange` instances; the framework owns child construction. See the [migration guide](/docs/migrating/0.6#6-splitters-return-bodies).
+- **Consumer SPI** -- `Consumer.register` receives the `Message` envelope and consumer classes construct from one `ConsumerDeps` bag; `Message`, `ProcessingQueue`, `ConsumerType`, and `ConsumerDeps` are exported. See the [migration guide](/docs/migrating/0.6#7-consumer-spi-envelopes-and-a-deps-bag).
+- **Per-adapter header key objects** -- `HeadersKeys` keeps framework keys only; adapter keys move to `TimerHeaders` / `CronHeaders` / `FileHeaders` / `CsvHeaders` / `JsonlHeaders` / `MailHeaders` / `CarddavHeaders`; `HEADER_MAIL_*` / `HEADER_CARDDAV_*` and `HeaderKeysRegistry` are removed (wire keys unchanged). `.header()` rejects every engine-owned `routecraft.*` key up front. See the [migration guide](/docs/migrating/0.6#8-header-keys-per-adapter-objects).
+- **`client.sendDirect` and public capability discovery** -- `CraftClient.send` is renamed `sendDirect` (response generic defaults to `unknown`); `context.capabilities()` replaces reads of the internal direct registry, and `ADAPTER_DIRECT_REGISTRY` / `getDirectChannel` / `sanitizeEndpoint` are no longer exported. See the [migration guide](/docs/migrating/0.6#9-client-and-capability-discovery).
+- **Naming sweeps** -- `CardDAV*` exports become `Carddav*` (acronym casing per the `Http` precedent) and jsonl's three file option types fold into one `JsonlFileOptions`. See the [migration guide](/docs/migrating/0.6#10-renames-carddav-casing-and-jsonlfileoptions).
+
+### Core
+
+- **Recovery directives** -- `.error()` handlers may return `recovery.drop(reason?)` (discard the failing exchange) or `recovery.rethrow()` (decline recovery) instead of a recovery body or a manual throw.
+- **Open error and principal models** -- `rcError` accepts a per-occurrence `retryable` override; `RCMeta.category` and `Principal.kind` accept ecosystem-defined strings alongside the known values.
+- **Plugin identity and lifecycle** -- plugins may declare `name` (used as `pluginId` on events and logs) and reserve `dependsOn`; `registerTeardown` callbacks unwind LIFO; `getRoutes()` returns a copy.
 
 ### AI & MCP {% badge color="red" %}Breaking{% /badge %}
+
+- **AI error codes renamed** -- `RC5025` / `RC5026` / `RC5027` become `AI1001` / `AI1002` / `AI1003` under the new `AI` namespace; update any code or alerting that matches on `error.rc`.
 
 - **Agent blocks replace skills** -- `AgentOptions.skills` and `agentPlugin({ skills })` are removed in favour of a `blocks` record that unifies skills, memory, identity, and instructions, with progressive disclosure now the default. See the [migration guide](/docs/migrating/0.5-to-0.6).
 - **`skills({ source })` and `fromFile(path)` builders** -- `skills` now returns a `blocks` record to spread into `blocks: { ... }`; `fromFile` reads a UTF-8 file at resolution time.
@@ -44,6 +45,11 @@ This section tracks changes landing on `main` since the v0.5.0 release. Release 
 - **`skills:` frontmatter on `agents()` rejected** -- supply `blocks` through the per-agent overrides map instead.
 - **New error codes `RC5025`-`RC5027`** -- block resolution failure, name collision / reserved `_block_` prefix, and block misconfiguration.
 
+### Internals
+
+- **Engine restructuring** -- `CraftContext` delegates events to an internal `EventBus`; adapter config keys (`cron`, `direct`, `mail`, `telemetry`, `http`) move to per-module config appliers; the route engine splits into `pipeline/` modules (executor, validation, synthetic steps). Two behavioural notes: context store seeding for adapter config now happens in `initPlugins()` (called automatically by `start()`), and plugin teardown (including `registerTeardown` callbacks) drains in reverse order.
+- **Uniform factory tagging** -- every public adapter factory is tagged for `mockAdapter()`, enforced by a conformance test; previously `direct`, `simple`, `timer`, `cron`, `log`, `noop`, and others (plus two transformer-mode branches of `html()` / `json()`) were silently unmockable.
+
 ### Adapters
 
 - **HTTP source** {% badge color="red" %}Breaking{% /badge %} -- `http()` is now a two-sided adapter. `http({ path, method? })` exposes a route over HTTP via `defineConfig({ http: { port, host, auth } })`; Bun runtimes bind through `Bun.serve` and Node 22+ uses a zero-dependency `node:http` shim. Global auth accepts `jwt()` / `jwks()` bearer or `apiKey({...})`; per-route constraints reuse `.authorize({...})`. Per-route auth handling has three modes via `http({ auth: "required" | "optional" | "skip" })`: secure-by-default `"required"`, `"optional"` (admit anonymously, attach principal when a valid credential is present, reject invalid credentials), and `"skip"` (bypass the middleware entirely for truly identity-free routes like RSS or probes). Built-in `/health`, `/ready`, and `/openapi.json` endpoints register automatically. Each is configured via the uniform `http: { builtins: { health, ready, openapi } }` block with `{ enabled, requireAuth }` per endpoint (Spring-Actuator-inspired). Defaults gate the `routes` count on `/ready` from anonymous callers (`requireAuth: true`) and keep `/openapi.json` public (`requireAuth: false`, matching the Stripe / GitHub / Twilio convention). Request bodies are parsed by `Content-Type` (JSON / text / urlencoded / multipart), capped by `maxBodySize`. Adds error codes `RC5018` (request rejected) and `RC5019` (server bind failed). **Breaking:** the destination option type `HttpOptions<T>` is renamed `HttpClientOptions<T>` (the source uses `HttpServerOptions`); a type-only change with no runtime impact. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6#3-http-option-type-renamed-for-the-two-sided-adapter).
@@ -52,7 +58,7 @@ This section tracks changes landing on `main` since the v0.5.0 release. Release 
 
 ### Mail
 
-- **Mail source envelope moves to headers** {% badge color="red" %}Breaking{% /badge %} -- `.from(mail(...))` now follows the payload-on-`body`, envelope-on-`headers` convention shared with the HTTP source. The exchange `body` is a `MailBody` (`{ text?, html?, attachments? }`) and the envelope (`from`, `to`, `cc`, `bcc`, `subject`, `date`, `messageId`, `replyTo`, `flags`, `sender`, `rawHeaders`) lands on `routecraft.mail.*` headers, declaration-merged into `RoutecraftHeaders` and exported as `HEADER_MAIL_*` constants. `.input({ body })` now validates against the message content alone. The fetch destination (`.enrich(mail(...))`) still returns `MailMessage[]` unchanged. New exported type `MailBody`. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6#mail-envelope-headers).
+- **Mail source envelope moves to headers** {% badge color="red" %}Breaking{% /badge %} -- `.from(mail(...))` now follows the payload-on-`body`, envelope-on-`headers` convention shared with the HTTP source. The exchange `body` is a `MailBody` (`{ text?, html?, attachments? }`) and the envelope (`from`, `to`, `cc`, `bcc`, `subject`, `date`, `messageId`, `replyTo`, `flags`, `sender`, `rawHeaders`) lands on `routecraft.mail.*` headers, declaration-merged into `RoutecraftHeaders` and exported on the `MailHeaders` key object. `.input({ body })` now validates against the message content alone. The fetch destination (`.enrich(mail(...))`) still returns `MailMessage[]` unchanged. New exported type `MailBody`. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6#mail-envelope-headers).
 - **Direct mail no longer misclassified as auto-forwarded** -- a single first-hop ARC seal (`i=1`, `cv=none`) added by the delivering MX is no longer read as forwarding, so DMARC-aligned direct mail stays `direct` / `verified` instead of `unverified`. Mailing-list and validated-forward classification are unchanged.
 
 ### Docs site
