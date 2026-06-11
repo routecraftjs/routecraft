@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, type CraftPlugin } from "@routecraft/routecraft";
+import { craft, simple, noop, type CraftPlugin } from "@routecraft/routecraft";
 
 describe("CraftContext", () => {
   let t: TestContext;
@@ -283,6 +283,22 @@ describe("Route Independence", () => {
 
     // Assert that the NoopAdapter's send method was called.
     expect(sendSpy).toHaveBeenCalled();
+  });
+
+  /**
+   * @case getRoutes returns a defensive copy of the route list
+   * @preconditions Context with one registered route
+   * @expectedResult Mutating the returned array does not affect the context's routes
+   */
+  test("getRoutes returns a copy", async () => {
+    t = await testContext()
+      .routes(craft().id("copy-route").from(simple("x")).to(noop()))
+      .build();
+
+    const routes = t.ctx.getRoutes();
+    expect(routes).toHaveLength(1);
+    routes.length = 0;
+    expect(t.ctx.getRoutes()).toHaveLength(1);
   });
 });
 

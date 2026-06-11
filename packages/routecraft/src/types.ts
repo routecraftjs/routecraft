@@ -521,7 +521,6 @@ export interface EventDetailsMap {
   };
 
   // -- Plugin lifecycle --
-  "plugin:registered": { pluginId: string; pluginIndex: number };
   "plugin:starting": { pluginId: string; pluginIndex: number };
   "plugin:started": { pluginId: string; pluginIndex: number };
   "plugin:stopping": { pluginId: string; pluginIndex: number };
