@@ -413,6 +413,66 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
   }
 }
 
+/**
+ * The route builder BEFORE `.from()`: only route-scope staging is reachable.
+ *
+ * `craft()` returns this type, and every staging method on the full
+ * {@link RouteBuilder} (`.id()`, `.title()`, ...) flips the chain back into
+ * it, so calling a pipeline operation (`.to()`, `.transform()`, `.split()`,
+ * ...) before `.from()` is a COMPILE error rather than only the runtime
+ * RC2001/RC2002 it has always been. The runtime guards remain for plain
+ * JavaScript users; this interface is the type-level mirror of the same
+ * contract.
+ *
+ * There is no separate runtime class: the value behind this type is the one
+ * `RouteBuilder` instance, re-surfaced. `.from()` opens the route and hands
+ * back the full pipeline surface.
+ *
+ * @template S - The {@link BuilderState} bag carried into the next route
+ */
+export interface PreFromBuilder<S extends BuilderState = BuilderState> {
+  /** Set the route id for the next route. See {@link RouteBuilder.id}. */
+  id(id: string): this;
+  /** Set a human-readable title for the next route. See {@link RouteBuilder.title}. */
+  title(value: string): this;
+  /** Set a human-readable description for the next route. See {@link RouteBuilder.description}. */
+  description(value: string): this;
+  /** Declare input schemas for the next route. See {@link RouteBuilder.input}. */
+  input(schemas: RouteSchemas | StandardSchemaV1): this;
+  /** Declare output schemas for the next route. See {@link RouteBuilder.output}. */
+  output(schemas: RouteSchemas | StandardSchemaV1): this;
+  /** Tag the next route. See {@link RouteBuilder.tag}. */
+  tag(value: Tag | Tag[]): this;
+  /** Configure batch processing for the next route. See {@link RouteBuilder.batch}. */
+  batch(options?: { size?: number; flushIntervalMs?: number }): this;
+  /**
+   * Attach a ROUTE-SCOPE error handler (catch-all) to the next route. The
+   * step-scope variant lives on the post-`.from()` builder; position picks
+   * the mode. See {@link RouteBuilder.error}.
+   */
+  error(handler: ErrorHandler): this;
+  /**
+   * Configure ROUTE-SCOPE caching for the next route (whole-pipeline
+   * memoisation). The step-scope variant lives on the post-`.from()`
+   * builder. See {@link RouteBuilder.cache}.
+   */
+  cache(options?: CacheOptions<unknown>): this;
+  /** Declare an authorization requirement on the next route. See {@link RouteBuilder.authorize}. */
+  authorize(options?: AuthorizeOptions): this;
+  /** Open the route: define its source(s) and enter the pipeline surface. See {@link RouteBuilder.from}. */
+  from<T>(source: SourceLike<T>): RouteBuilder<SetBody<S, T>>;
+  from<T>(source: SourceLike<unknown>): RouteBuilder<SetBody<S, T>>;
+  from<T>(
+    ...sources: [
+      SourceLike<unknown>,
+      SourceLike<unknown>,
+      ...Array<SourceLike<unknown>>,
+    ]
+  ): RouteBuilder<SetBody<S, T>>;
+  /** Finalize and return the route definition(s). See {@link RouteBuilder.build}. */
+  build(): RouteDefinition[];
+}
+
 export class RouteBuilder<
   S extends BuilderState = BuilderState,
 > extends StepBuilderBase<S> {
@@ -451,11 +511,11 @@ export class RouteBuilder<
    * craft().id('ingest-api').from(http({ path: '/ingest', method: 'POST' })).to(log()).build();
    * ```
    */
-  id(id: string): this {
+  id(id: string): PreFromBuilder {
     this.assertNoPendingWrappers("id");
     this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
     logger.trace({ route: id }, "Staging route id for next route");
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -463,9 +523,9 @@ export class RouteBuilder<
    * direct / mcp registries so discovery consumers (agents, docs) can
    * display it alongside the id.
    */
-  title(value: string): this {
+  title(value: string): PreFromBuilder {
     this.mergeDiscovery({ title: value });
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -473,9 +533,9 @@ export class RouteBuilder<
    * discovery-aware adapters when exposing the route to external consumers
    * (agents, MCP clients).
    */
-  description(value: string): this {
+  description(value: string): PreFromBuilder {
     this.mergeDiscovery({ description: value });
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -487,9 +547,9 @@ export class RouteBuilder<
    * To flow the body type through the chain, pass it as a generic on
    * `.from<T>(source)` after the `.input()` call.
    */
-  input(schemas: RouteSchemas | StandardSchemaV1): this {
+  input(schemas: RouteSchemas | StandardSchemaV1): PreFromBuilder {
     this.mergeDiscovery({ input: this.normalizeSchemas(schemas) });
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -499,9 +559,9 @@ export class RouteBuilder<
    * either a bundle (`{ body, headers }`) or a bare Standard Schema as a
    * body-only shorthand.
    */
-  output(schemas: RouteSchemas | StandardSchemaV1): this {
+  output(schemas: RouteSchemas | StandardSchemaV1): PreFromBuilder {
     this.mergeDiscovery({ output: this.normalizeSchemas(schemas) });
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -517,7 +577,7 @@ export class RouteBuilder<
    * `destructiveHint`, `idempotentHint`, `openWorldHint`), so the same fact is
    * declared once; explicit `annotations` on `mcp()` still override per-key.
    */
-  tag(value: Tag | Tag[]): this {
+  tag(value: Tag | Tag[]): PreFromBuilder {
     const incoming = (Array.isArray(value) ? value : [value]).map((t) => {
       if (typeof t !== "string" || t.trim() === "") {
         throw rcError("RC2001", undefined, {
@@ -530,7 +590,7 @@ export class RouteBuilder<
     const merged = [...existing];
     for (const t of incoming) if (!merged.includes(t)) merged.push(t);
     this.mergeDiscovery({ tags: merged });
-    return this;
+    return this.prelude();
   }
 
   private mergeDiscovery(partial: Partial<RouteDiscovery>): void {
@@ -569,7 +629,7 @@ export class RouteBuilder<
    * craft().batch({ size: 10, flushIntervalMs: 1000 }).from(timer(1000)).to(log()).build();
    * ```
    */
-  batch(options?: { size?: number; flushIntervalMs?: number }): this {
+  batch(options?: { size?: number; flushIntervalMs?: number }): PreFromBuilder {
     const mapped = {
       size: options?.size,
       time: options?.flushIntervalMs,
@@ -582,7 +642,7 @@ export class RouteBuilder<
       },
     };
     logger.trace("Staging batch processing for next route");
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -742,7 +802,7 @@ export class RouteBuilder<
    *   .id('admin').authorize({ roles: ['admin'] }).from(adminSrc).to(noop())
    * ```
    */
-  authorize(options?: AuthorizeOptions): this {
+  authorize(options?: AuthorizeOptions): PreFromBuilder {
     const next = this.pendingOptions ?? {};
     const existing = next.authorizers ?? [];
     this.pendingOptions = {
@@ -750,7 +810,7 @@ export class RouteBuilder<
       authorizers: [...existing, options ?? {}],
     };
     logger.trace("Staging route-scope authorization for next route");
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -886,6 +946,16 @@ export class RouteBuilder<
 
     this.routes.push(this.currentRoute);
     return this.retype<T>();
+  }
+
+  /**
+   * Re-surface this instance as the pre-`.from()` staging type. The single
+   * cast point for the route-scope staging methods, mirroring `retype()` on
+   * the base class: there is one runtime object, and position in the chain
+   * decides which type-level surface is reachable.
+   */
+  private prelude(): PreFromBuilder {
+    return this as unknown as PreFromBuilder;
   }
 
   /**
@@ -1154,6 +1224,6 @@ export class RouteBuilder<
  *   .to(log())
  * ```
  */
-export function craft(): RouteBuilder {
+export function craft(): PreFromBuilder {
   return new RouteBuilder();
 }

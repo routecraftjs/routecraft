@@ -151,6 +151,7 @@ export {
   craft,
   RouteBuilder,
   type AnyRouteBuilder,
+  type PreFromBuilder,
   type RouteOptions,
 } from "./builder.ts";
 

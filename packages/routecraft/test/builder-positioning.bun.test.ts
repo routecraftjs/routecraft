@@ -1,6 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, expectTypeOf, test } from "bun:test";
 import { z } from "zod";
-import { craft, isRoutecraftError, noop, simple } from "@routecraft/routecraft";
+import {
+  craft,
+  isRoutecraftError,
+  noop,
+  simple,
+  type RouteBuilder,
+} from "@routecraft/routecraft";
 
 function expectRC2001(thunk: () => unknown): void {
   let caught: unknown;
@@ -60,11 +66,15 @@ describe("RouteBuilder strict metadata positioning", () => {
    */
   test("pipeline op throws when metadata is staged after a previous .from() with no consuming .from()", () => {
     expectRC2001(() =>
-      craft()
-        .id("first")
-        .from(simple("a"))
-        .to(noop())
-        .id("second")
+      // Cast simulates a plain-JS caller: the PreFromBuilder typestate
+      // rejects this at compile time, but the runtime guard must still fire.
+      (
+        craft()
+          .id("first")
+          .from(simple("a"))
+          .to(noop())
+          .id("second") as unknown as RouteBuilder
+      )
         .to(noop())
         .build(),
     );
@@ -118,5 +128,23 @@ describe("RouteBuilder strict metadata positioning", () => {
       .build();
 
     expect(route.discovery?.input?.body).toBe(schema);
+  });
+
+  /**
+   * @case PreFromBuilder typestate hides pipeline operations before .from()
+   * @preconditions craft() returns PreFromBuilder; .id() flips a full builder back into it
+   * @expectedResult Neither craft() nor a post-.id() chain exposes .to/.transform/.split at the type level, while .from() restores the full pipeline surface
+   */
+  test("pre-from typestate hides pipeline operations at the type level", () => {
+    const pre = craft();
+    expectTypeOf(pre).not.toHaveProperty("to");
+    expectTypeOf(pre).not.toHaveProperty("transform");
+    expectTypeOf(pre).not.toHaveProperty("split");
+
+    const staged = craft().id("a").from(simple("x")).to(noop()).id("b");
+    expectTypeOf(staged).not.toHaveProperty("to");
+
+    const opened = craft().from(simple("x"));
+    expectTypeOf(opened).toHaveProperty("to");
   });
 });
