@@ -97,6 +97,14 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
+      # The node_modules cache is best-effort; reinstall on a miss instead of
+      # failing later with a confusing missing-binary error.
+      - name: Install dependencies on cache miss
+        run: |
+          if [ ! -d node_modules ]; then
+            bun install --frozen-lockfile
+          fi
+
       - name: Run checks
         run: |
           bun run format
@@ -126,6 +134,14 @@ jobs:
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
+
+      # The node_modules cache is best-effort; reinstall on a miss instead of
+      # failing later with a confusing missing-binary error.
+      - name: Install dependencies on cache miss
+        run: |
+          if [ ! -d node_modules ]; then
+            bun install --frozen-lockfile
+          fi
 
       - name: Run tests
         run: bun run test:coverage
@@ -160,6 +176,14 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
+      # The node_modules cache is best-effort; reinstall on a miss instead of
+      # failing later with a confusing missing-binary error.
+      - name: Install dependencies on cache miss
+        run: |
+          if [ ! -d node_modules ]; then
+            bun install --frozen-lockfile
+          fi
+
       - name: Build packages
         run: bun run build
         env:
@@ -171,11 +195,19 @@ jobs:
       - name: Check bundle size
         run: bun run limit:size
 
-      - name: Cache build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Artifacts, not actions/cache: the cache service is eventually
+      # consistent, so a same-run consumer job can miss a key saved seconds
+      # earlier (observed: smoke jobs packing an empty dist). Artifacts are
+      # guaranteed within the run that produced them.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
+          name: build-dist
+          path: |
+            packages/*/dist
+            examples/dist
+          if-no-files-found: error
+          retention-days: 1
 
   scaffolder-smoke:
     needs: [changes, validate, test, build]
@@ -202,11 +234,18 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
-      - name: Restore build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # The node_modules cache is best-effort; reinstall on a miss instead of
+      # failing later with a confusing missing-binary error.
+      - name: Install dependencies on cache miss
+        run: |
+          if [ ! -d node_modules ]; then
+            bun install --frozen-lockfile
+          fi
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
+          name: build-dist
 
       - name: Run scaffolder integration tests (bun)
         env:
@@ -232,22 +271,12 @@ jobs:
         with:
           node-version-file: ".nvmrc"
 
-      - name: Install bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # No bun and no workspace node_modules: the smoke deliberately uses only
+      # node + npm so it matches a real Node user embedding the tarball.
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          bun-version-file: "package.json"
-
-      - name: Restore node_modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/node_modules"
-          key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
-
-      - name: Restore build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
+          name: build-dist
 
       - name: Smoke test Node embedding (pack + npm install + node runner.ts)
         run: node .github/scripts/smoke-test-embedding.mjs
@@ -270,8 +299,10 @@ jobs:
         with:
           node-version-file: ".nvmrc"
 
+      # Installed in both matrix legs: the dependency-install fallback below
+      # needs bun even on the node leg. The node tests themselves still run
+      # under plain node via npm.
       - name: Install bun
-        if: matrix.runtime == 'bun'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: "package.json"
@@ -282,11 +313,18 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
-      - name: Restore build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # The node_modules cache is best-effort; reinstall on a miss instead of
+      # failing later with a confusing missing-binary error.
+      - name: Install dependencies on cache miss
+        run: |
+          if [ ! -d node_modules ]; then
+            bun install --frozen-lockfile
+          fi
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
+          name: build-dist
 
       - name: Run cross-runtime adapter tests (bun)
         if: matrix.runtime == 'bun'
@@ -335,11 +373,14 @@ jobs:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/bun.lock') }}
 
-      - name: Restore build artifacts
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: "**/dist"
-          key: build-${{ github.event.pull_request.head.sha || github.sha }}
+      # The node_modules cache is best-effort; reinstall on a miss instead of
+      # failing later with a confusing missing-binary error. No dist download
+      # here: the publish step rebuilds after versioning anyway.
+      - name: Install dependencies on cache miss
+        run: |
+          if [ ! -d node_modules ]; then
+            bun install --frozen-lockfile
+          fi
 
       # Every main push ships a fresh canary of the packages CHANGED by that
       # push (no changeset required: a synthetic one is generated from the
@@ -358,6 +399,7 @@ jobs:
             BASE="$(git rev-parse HEAD~1)"
           fi
           CHANGED_DIRS=$(git diff --name-only "$BASE" HEAD -- packages/ | cut -d/ -f2 | sort -u)
+          mkdir -p .changeset
           {
             echo '---'
             for d in $CHANGED_DIRS; do
@@ -403,14 +445,17 @@ jobs:
     # `always()` keeps the deploy reachable when smoke jobs skip themselves
     # (workflow_dispatch with no package changes). The `!contains(...)` checks
     # still block deploy if any integration job that actually ran failed or
-    # was cancelled.
+    # was cancelled. Deploys only run from main, manual dispatches included:
+    # a dispatch on a feature branch must not rebuild the published site from
+    # that branch's content and reachable tags.
     if: |
       always()
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
+      && github.ref == 'refs/heads/main'
       && (
         github.event_name == 'workflow_dispatch'
-        || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        || github.event_name == 'push'
       )
     runs-on: ubuntu-latest
     concurrency:

@@ -16,7 +16,7 @@ What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce and 
                                   (bun + node)
 ```
 
-The `setup` job runs `bun install --frozen-lockfile` and seeds the workspace's `**/node_modules`. Every downstream job restores that cache (key: `hashFiles('**/bun.lock')`), so the install only repeats on a cache miss. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
+The `setup` job runs `bun install --frozen-lockfile` and seeds the workspace's `**/node_modules`. Downstream jobs restore that cache (key: `hashFiles('**/bun.lock')`) and reinstall on a miss; the GitHub cache service is best-effort, so a miss must never fail a job. Build output is passed differently: `build` uploads `packages/*/dist` and `examples/dist` as a run artifact (`build-dist`) that the smoke and cross-runtime jobs download. Artifacts are guaranteed within the run that produced them, which a cache key is not. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
 
 Real releases do not live in ci.yml: `release.yml` runs the changesets action on every push to `main` (see section 9). ci.yml's `publish-snapshot` only ships throwaway canary builds.
 

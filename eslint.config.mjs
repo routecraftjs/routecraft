@@ -53,7 +53,7 @@ export default [
     ...routecraftPlugin.configs.recommended,
   },
   {
-    files: ["**/*.test.{js,ts,mjs,cjs}", "**/*.spec.{js,ts,mjs,cjs}"],
+    files: ["**/*.test.{js,ts,tsx,mjs,cjs}", "**/*.spec.{js,ts,tsx,mjs,cjs}"],
     plugins: {
       custom: {
         rules: {
