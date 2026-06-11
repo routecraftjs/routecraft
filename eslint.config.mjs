@@ -19,7 +19,7 @@ export default [
     ],
   },
   {
-    files: ["**/*.{js,mjs,cjs,ts}"],
+    files: ["**/*.{js,mjs,cjs,ts,tsx}"],
     languageOptions: {
       globals: {
         ...globals.browser,
