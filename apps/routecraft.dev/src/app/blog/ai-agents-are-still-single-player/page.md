@@ -7,6 +7,7 @@ authorRole: Founder, DevOptix
 version: '0.6.0+'
 draft: false
 featured: true
+home: true
 tags:
   - ai-agents
   - organizations

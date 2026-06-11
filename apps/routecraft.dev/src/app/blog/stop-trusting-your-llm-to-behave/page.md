@@ -6,6 +6,7 @@ author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
 draft: false
+featured: true
 tags:
   - ai-agents
   - security

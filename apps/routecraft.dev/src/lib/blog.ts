@@ -19,6 +19,8 @@ export interface BlogPostMeta {
   /** Routecraft version the post was written for / verified against. */
   version?: string
   featured?: boolean
+  /** Pin this post as the homepage pick, independent of dates. One post should carry it. */
+  home?: boolean
   draft?: boolean
   image?: string
   imageAlt?: string
@@ -70,6 +72,7 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
     tags: Array.isArray(data.tags) ? data.tags.map(String) : undefined,
     version: typeof data.version === 'string' ? data.version : undefined,
     featured: Boolean(data.featured),
+    home: Boolean(data.home),
     draft: Boolean(data.draft),
     image: typeof data.image === 'string' ? data.image : undefined,
     imageAlt: typeof data.imageAlt === 'string' ? data.imageAlt : undefined,
@@ -110,6 +113,7 @@ export function getFeaturedPost(
   posts: BlogPostMeta[] = getAllBlogPosts(),
 ): BlogPostMeta | undefined {
   return (
+    posts.find((p) => p.home && !p.draft) ??
     posts.find((p) => p.featured && !p.draft) ??
     posts.find((p) => !p.draft) ??
     posts[0]
