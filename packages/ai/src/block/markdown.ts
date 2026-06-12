@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, basename, extname } from "node:path";
-import { rcError } from "@routecraft/routecraft";
+import { loadOptionalPeer, rcError } from "@routecraft/routecraft";
 
 /**
  * Parsed markdown document: front matter as a plain object plus the
@@ -33,24 +33,12 @@ let cachedParseYaml: YamlParse | undefined;
 
 async function loadYamlParse(): Promise<YamlParse> {
   if (cachedParseYaml) return cachedParseYaml;
-  try {
-    const mod = (await import("yaml")) as { parse: YamlParse };
-    cachedParseYaml = mod.parse;
-    return cachedParseYaml;
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      (err.message.includes("ERR_MODULE_NOT_FOUND") ||
-        err.message.includes("Cannot find module") ||
-        err.message.includes("Cannot find package")) &&
-      err.message.includes("yaml")
-    ) {
-      throw new Error(
-        `The markdown loaders (agents() / skills()) require the "yaml" package. Install it with: bun add yaml`,
-      );
-    }
-    throw err;
-  }
+  const mod = (await loadOptionalPeer(() => import("yaml"), {
+    adapterName: "Markdown loader (agents() / skills())",
+    packageName: "yaml",
+  })) as { parse: YamlParse };
+  cachedParseYaml = mod.parse;
+  return cachedParseYaml;
 }
 
 /**
@@ -83,17 +71,20 @@ async function splitFrontmatter(
   const yamlText = raw.slice(3, end).trim();
   const body = raw.slice(end + 4).trim();
   let parsed: unknown;
-  try {
-    if (yamlText) {
-      const parseYaml = await loadYamlParse();
+  if (yamlText) {
+    // Load OUTSIDE the parse-error wrap: a missing `yaml` package must
+    // surface as RC5017 with an install hint, not as a misleading
+    // "front matter failed to parse" error pointing at the user's file.
+    const parseYaml = await loadYamlParse();
+    try {
       parsed = parseYaml(yamlText);
-    } else {
-      parsed = {};
+    } catch (err) {
+      throw rcError("RC5003", undefined, {
+        message: `Markdown file "${path}": YAML front matter failed to parse. ${(err as Error).message}`,
+      });
     }
-  } catch (err) {
-    throw rcError("RC5003", undefined, {
-      message: `Markdown file "${path}": YAML front matter failed to parse. ${(err as Error).message}`,
-    });
+  } else {
+    parsed = {};
   }
   if (parsed !== null && typeof parsed !== "object") {
     throw rcError("RC5003", undefined, {
