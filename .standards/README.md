@@ -16,7 +16,9 @@ Internal development standards for Routecraft contributors (human and AI). These
 | [Type Safety Registries](./type-safety-registries.md) | Declaration-merging registries for typed adapters and endpoints; codegen direction |
 | [Testing](./testing.md) | Runner conventions, JSDoc-on-every-test, helpers from `@routecraft/testing`, lifecycle pattern, assertion patterns |
 | [CI/CD](./ci-cd.md) | PR gates, hook policy, peer-dependency rules, optional peer dependencies, release flow |
+| [Package Boundaries](./package-boundaries.md) | Standards-in-core vs vendors-grouped-by-ecosystem, the bounded package count, core dependency policy (minimal-dependency ambition with pragmatic exceptions), packages created on first adapter |
 | [Resilience Wrappers](./resilience-wrappers.md) | Dual-mode wrapper pattern (`.error()` and future `.retry()`/`.timeout()`/`.cache()`/...), authoring contract, stacking + cascade rules |
+| [Pre-from Filter Chain](./pre-from-filter-chain.md) | Fixed ordered chain at route scope (`error` / `authorize` / `parse` / `input` / `throttle` / `circuitBreaker` / `retry` / `timeout` / `cacheCheck` / pipeline / `cacheStore`); framework picks the order, future wrappers slot into reserved positions |
 | [Security](./security.md) | JWT / JWKS verification rules, principal propagation across the exchange, bearer-token handling, OAuth `userinfo` enrichment, RFC 9728 metadata, `authorize()` semantics |
 | [API Stability](./api-stability.md) | The v0 policy: the whole public API is unstable, so we tag only `@internal` (non-public) and `@deprecated`; per-symbol `@experimental` / `@beta` / `@stable` tiers arrive at v1 |
 | [Content and Docs](./content-and-docs.md) | Where content belongs across the docs site and blog (the five surfaces), the depth axis between introduction and advanced, code-lives-once, nav-matches-folders, the `route.ts` public-surface decision, and the static-export redirect constraint |

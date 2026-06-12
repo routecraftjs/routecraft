@@ -39,6 +39,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [Type Safety Registries](.standards/type-safety-registries.md) -- declaration-merging registries for typed adapters and endpoints
 - [Testing](.standards/testing.md) -- runner conventions, JSDoc-on-every-test, helpers, lifecycle, assertion patterns
 - [CI/CD](.standards/ci-cd.md) -- PR gates, hook policy, peer-dependency rules, release flow
+- [Package Boundaries](.standards/package-boundaries.md) -- standards-in-core vs vendors-grouped-by-ecosystem, bounded package count, core dependency policy (minimal-dependency ambition with pragmatic exceptions), packages created on first adapter
 - [Resilience Wrappers](.standards/resilience-wrappers.md) -- dual-mode wrapper pattern (`.error()` and future resilience ops), authoring contract
 - [Pre-from Filter Chain](.standards/pre-from-filter-chain.md) -- fixed ordered chain at route scope (`error` / `authorize` / `parse` / `input` / `throttle` / `circuitBreaker` / `retry` / `timeout` / `cacheCheck` / pipeline / `cacheStore`); framework picks the order, future wrappers slot into reserved positions
 - [Security](.standards/security.md) -- JWT / JWKS verification, principal propagation, bearer-token handling, `userinfo` enrichment, RFC 9728 metadata, `authorize()` semantics
