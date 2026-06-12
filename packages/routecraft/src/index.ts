@@ -384,6 +384,7 @@ export type {
 } from "./telemetry/index.ts";
 export {
   type MailAuth,
+  type MailReconnectOptions,
   type MailServerOptions,
   type MailClientOptions,
   type MailOptions,

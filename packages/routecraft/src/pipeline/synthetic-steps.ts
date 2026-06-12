@@ -4,7 +4,7 @@ import {
   OperationType,
   DefaultExchange,
   EXCHANGE_INTERNALS,
-  markDropped,
+  emitExchangeDropped,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -119,14 +119,8 @@ export function buildParseStep(
           // counting parse failures see step:failed; subscribers
           // tracking drop policy see exchange:dropped.
           emitStepFailed(cause);
-          // Mark dropped before `exchange:dropped` fires so subscribers
-          // calling `isDropped(event.details.exchange)` observe the
-          // correct state. The route engine reads it after `runPipeline`
-          // to skip `exchange:completed`.
-          markDropped(exchange);
-          context?.emit("route:exchange:dropped", {
+          emitExchangeDropped(context, {
             routeId,
-            exchangeId: exchange.id,
             correlationId,
             reason: PARSE_DROPPED_REASON,
             exchange,

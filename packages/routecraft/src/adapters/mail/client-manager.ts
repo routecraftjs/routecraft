@@ -320,6 +320,10 @@ export class MailClientManager {
     if (overrides.onParseError !== undefined)
       result.onParseError = overrides.onParseError;
 
+    // Source connection-recovery tuning (#425).
+    if (overrides.reconnect !== undefined)
+      result.reconnect = overrides.reconnect;
+
     return result;
   }
 

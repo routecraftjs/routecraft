@@ -305,8 +305,9 @@ type ExchangeInternals = {
    */
   startedAt?: number;
   /**
-   * Set by filter, choice (halt + unmatched), and the synthetic parse
-   * step when an exchange is dropped. The runtime engine reads this
+   * Set when an exchange is dropped (filter, choice halt / unmatched,
+   * parse drop, input-validation drop, `recovery.drop()` directives; see
+   * {@link emitExchangeDropped}). The runtime engine reads this
    * after `runPipeline` completes to skip `exchange:completed` emission.
    * Stored on internals so the flag survives `rewrap`: the engine
    * rewraps an exchange before each step (to update the operation
@@ -364,8 +365,11 @@ export function getExchangeRoute(exchange: Exchange): Route | undefined {
 }
 
 /**
- * Mark an exchange as dropped. Idempotent. Used by filter, choice, halt,
- * and the synthetic parse step's drop branch.
+ * Mark an exchange as dropped. Idempotent. Drop sites that also emit
+ * `route:exchange:dropped` go through {@link emitExchangeDropped}, which
+ * wraps this; call this directly only when there is no emission to pair
+ * with (e.g. the cache wrapper's loader-drop path, or marking ahead of an
+ * earlier event that carries the exchange).
  *
  * The drop flag lives on the exchange's internals object (which is shared
  * by reference across `rewrap`) rather than a per-instance WeakSet, so a
@@ -381,6 +385,45 @@ export function markDropped(exchange: Exchange): void {
       INTERNALS_KEY
     ] ?? EXCHANGE_INTERNALS.get(exchange);
   if (internals) internals.dropped = true;
+}
+
+/**
+ * Drop an exchange: mark it dropped, then emit `route:exchange:dropped`.
+ *
+ * This is the single sanctioned way to drop an exchange from a step or
+ * pipeline site. The mark MUST precede the emission so a subscriber that
+ * calls `isDropped(event.details.exchange)` observes the correct state;
+ * the runtime engine reads the flag after `runPipeline` to skip
+ * `exchange:completed` (see `pipeline/executor.ts`). The mark is
+ * unconditional ({@link markDropped} is idempotent); the emission is
+ * skipped when no context is bound, which keeps the drop flag correct
+ * for synthetic exchanges in unit tests.
+ *
+ * Sites that emit additional events before the drop (`step:completed`,
+ * `step:failed`, `operation:choice:unmatched`, error-handler events)
+ * keep those emissions local and call this helper last, so
+ * `route:exchange:dropped` stays the final event for the exchange.
+ *
+ * @internal
+ */
+export function emitExchangeDropped(
+  context: CraftContext | undefined,
+  details: {
+    routeId: string;
+    correlationId: string;
+    reason: string;
+    exchange: Exchange;
+  },
+): void {
+  const { routeId, correlationId, reason, exchange } = details;
+  markDropped(exchange);
+  context?.emit("route:exchange:dropped", {
+    routeId,
+    exchangeId: exchange.id,
+    correlationId,
+    reason,
+    exchange,
+  });
 }
 
 /**

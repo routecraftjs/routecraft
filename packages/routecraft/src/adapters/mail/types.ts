@@ -111,6 +111,38 @@ export interface MailContextConfig {
 // ---------------------------------------------------------------------------
 
 /**
+ * Tuning for the mail source's connection-recovery behaviour. Applies to
+ * every connection-type failure the source can hit: the initial connect at
+ * route start, IDLE drops, and fetch failures in both IDLE and poll mode.
+ * Authentication failures never reconnect; they are fatal immediately.
+ *
+ * Delays grow exponentially from `baseDelayMs` up to `maxDelayMs`, with full
+ * jitter (each delay is drawn uniformly from [0, current backoff]).
+ */
+export interface MailReconnectOptions {
+  /**
+   * Give up after this many consecutive failed attempts; the source then
+   * rejects with RC5010 and the route stops (`route:source:failed` fires).
+   * Pass `Infinity` for a channel that must never give up.
+   *
+   * @default 30
+   */
+  maxAttempts?: number;
+  /**
+   * Backoff for the first retry, in milliseconds.
+   *
+   * @default 1000
+   */
+  baseDelayMs?: number;
+  /**
+   * Upper bound for the exponential backoff, in milliseconds.
+   *
+   * @default 60000
+   */
+  maxDelayMs?: number;
+}
+
+/**
  * Options when using the mail adapter as a Server (IMAP read).
  * Used with `.enrich(mail({...}))` or `.from(mail(folder, {...}))`.
  */
@@ -217,6 +249,34 @@ export interface MailServerOptions {
    * @default "fail"
    */
   onParseError?: OnParseError;
+
+  /**
+   * Reconnect behaviour for connection-type failures on the long-running
+   * source connection (initial connect, IDLE drops, fetch failures). Pass an
+   * object to tune the backoff, or `false` to disable reconnection entirely
+   * so the first connection failure stops the route. Defaults to
+   * `{ maxAttempts: 30, baseDelayMs: 1000, maxDelayMs: 60000 }`.
+   *
+   * Only meaningful in Source mode (`.from(mail(folder, {...}))`); the fetch
+   * destination performs one-shot fetches and ignores this option.
+   *
+   * Note that with reconnection enabled the source signals readiness before
+   * the first connection succeeds, so `route:started` no longer guarantees
+   * the mailbox was reachable: an unreachable server at startup leaves the
+   * route running in a degraded-but-recovering state instead of failing.
+   *
+   * @example
+   * ```typescript
+   * // A channel that must never give up (multi-channel agent harness)
+   * mail('INBOX', { reconnect: { maxAttempts: Infinity } })
+   *
+   * // Fail fast: any connection failure stops the route
+   * mail('INBOX', { reconnect: false })
+   * ```
+   *
+   * @default { maxAttempts: 30, baseDelayMs: 1000, maxDelayMs: 60000 }
+   */
+  reconnect?: MailReconnectOptions | false;
 }
 
 /**

@@ -1839,6 +1839,349 @@ describe("Mail Adapter", () => {
     });
 
     /**
+     * @case IDLE drain fetch failure triggers reconnect instead of killing the route
+     * @preconditions First fetch() (the IDLE entry drain) throws a connection error, later fetches succeed, idle() resolves promptly
+     * @expectedResult mailboxOpen is called more than once (initial + reconnect) and no context error is recorded
+     */
+    test("IDLE reconnects when the drain fetch fails", async () => {
+      // Zero jitter so the reconnect backoff collapses to 0ms in the test.
+      const mathRandomSpy = spyOn(Math, "random").mockReturnValue(0);
+
+      let fetchCalls = 0;
+      mockFetch.mockImplementation(() => {
+        fetchCalls++;
+        if (fetchCalls === 1) {
+          throw new Error("Connection not available");
+        }
+        return {
+          async *[Symbol.asyncIterator]() {},
+        };
+      });
+      mockIdle.mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 2));
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-idle-drain-reconnect")
+            .from(mail("INBOX", {}))
+            .to(spy()),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 50));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      // Failed entry drain + at least the post-reconnect drain
+      expect(fetchCalls).toBeGreaterThanOrEqual(2);
+      // Initial open + reconnect open
+      expect(mockMailboxOpen.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(t.errors).toHaveLength(0);
+      mathRandomSpy.mockRestore();
+    });
+
+    /**
+     * @case Initial connect failure at route start retries instead of failing the route
+     * @preconditions connect() rejects on the first attempt (server unreachable at startup), succeeds afterwards
+     * @expectedResult The source reconnects (connect called at least twice) and no context error is recorded
+     */
+    test("retries the initial connect when the server is unreachable at startup", async () => {
+      // Zero jitter so the reconnect backoff collapses to 0ms in the test.
+      const mathRandomSpy = spyOn(Math, "random").mockReturnValue(0);
+
+      let connectCalls = 0;
+      mockConnect.mockImplementation(async () => {
+        connectCalls++;
+        if (connectCalls === 1) {
+          throw new Error("ECONNREFUSED");
+        }
+      });
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {},
+      }));
+      mockIdle.mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 2));
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-startup-reconnect")
+            .from(mail("INBOX", {}))
+            .to(spy()),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 50));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(connectCalls).toBeGreaterThanOrEqual(2);
+      expect(t.errors).toHaveLength(0);
+      mathRandomSpy.mockRestore();
+    });
+
+    /**
+     * @case reconnect: false disables reconnection (fail fast)
+     * @preconditions idle() rejects with a transient connection error and the source is configured with reconnect: false
+     * @expectedResult The route stops with RC5010 and no reconnect attempt is made (mailboxOpen called once)
+     */
+    test("reconnect: false stops the route on the first connection failure", async () => {
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {},
+      }));
+      mockIdle.mockImplementation(async () => {
+        throw new Error("ECONNRESET");
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-reconnect-disabled")
+            .from(mail("INBOX", { reconnect: false }))
+            .to(spy()),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 30));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0]).toMatchObject({ rc: "RC5010" });
+      // No reconnect: mailboxOpen called once at initial subscribe
+      expect(mockMailboxOpen.mock.calls.length).toBe(1);
+    });
+
+    /**
+     * @case reconnect.maxAttempts caps the reconnect loop
+     * @preconditions idle() drops the connection, every reconnect attempt fails (mailboxOpen rejects after the first call), maxAttempts: 2, zero jitter
+     * @expectedResult The source gives up with RC5010 after exactly 2 attempts (mailboxOpen: 1 initial + 2 reconnects)
+     */
+    test("gives up with RC5010 after reconnect.maxAttempts attempts", async () => {
+      // Zero jitter so the reconnect backoff collapses to 0ms in the test.
+      const mathRandomSpy = spyOn(Math, "random").mockReturnValue(0);
+
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {},
+      }));
+      let mailboxOpens = 0;
+      mockMailboxOpen.mockImplementation(async () => {
+        mailboxOpens++;
+        if (mailboxOpens > 1) {
+          throw new Error("Connection not available");
+        }
+        return { exists: 0 };
+      });
+      mockIdle.mockImplementation(async () => {
+        throw new Error("ECONNRESET");
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-reconnect-max-attempts")
+            .from(mail("INBOX", { reconnect: { maxAttempts: 2 } }))
+            .to(spy()),
+        )
+        .build();
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 50));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(t.errors).toHaveLength(1);
+      expect(t.errors[0]).toMatchObject({ rc: "RC5010" });
+      expect((t.errors[0] as Error).message).toContain("after 2 attempts");
+      expect(mailboxOpens).toBe(3);
+      mathRandomSpy.mockRestore();
+    });
+
+    /**
+     * @case route:source:failed fires when a source exhausts its reconnect attempts
+     * @preconditions Reconnect gives up (maxAttempts: 1, every attempt fails), listener registered before start
+     * @expectedResult Event fires once with the route id, the mail adapterId, and the RC5010 error
+     */
+    test("emits route:source:failed when the source gives up", async () => {
+      // Zero jitter so the reconnect backoff collapses to 0ms in the test.
+      const mathRandomSpy = spyOn(Math, "random").mockReturnValue(0);
+
+      mockFetch.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {},
+      }));
+      let mailboxOpens = 0;
+      mockMailboxOpen.mockImplementation(async () => {
+        mailboxOpens++;
+        if (mailboxOpens > 1) {
+          throw new Error("Connection not available");
+        }
+        return { exists: 0 };
+      });
+      mockIdle.mockImplementation(async () => {
+        throw new Error("ECONNRESET");
+      });
+
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-source-failed-event")
+            .from(mail("INBOX", { reconnect: { maxAttempts: 1 } }))
+            .to(spy()),
+        )
+        .build();
+
+      const failures: Array<{
+        routeId: string;
+        adapter?: string;
+        error: unknown;
+      }> = [];
+      t.ctx.on("route:source:failed", (payload) => {
+        failures.push(payload.details);
+      });
+
+      const startPromise = t.ctx.start();
+      await new Promise((r) => setTimeout(r, 50));
+      await t.ctx.stop();
+      await startPromise.catch(() => {});
+
+      expect(failures).toHaveLength(1);
+      expect(failures[0].routeId).toBe("test-source-failed-event");
+      expect(failures[0].adapter).toBe("routecraft.adapter.mail");
+      expect(failures[0].error).toMatchObject({ rc: "RC5010" });
+      mathRandomSpy.mockRestore();
+    });
+
+    /**
+     * @case Throws RC5003 at subscribe for invalid reconnect tuning
+     * @preconditions reconnect.maxAttempts: 0 (must be a positive integer or Infinity)
+     * @expectedResult t.test() rejects with RC5003
+     */
+    test("throws when reconnect.maxAttempts is invalid", async () => {
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-guard-reconnect")
+            .from(mail("INBOX", { reconnect: { maxAttempts: 0 } }))
+            .to(spy()),
+        )
+        .build();
+
+      await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
+    });
+
+    /**
+     * @case Throws RC5003 at subscribe when reconnect delays are inverted
+     * @preconditions reconnect.maxDelayMs smaller than reconnect.baseDelayMs
+     * @expectedResult t.test() rejects with RC5003
+     */
+    test("throws when reconnect.maxDelayMs is below baseDelayMs", async () => {
+      t = await testContext()
+        .with({
+          mail: {
+            accounts: {
+              default: {
+                imap: {
+                  host: "imap.test.com",
+                  auth: { user: "u", pass: "p" },
+                },
+              },
+            },
+          },
+        })
+        .routes(
+          craft()
+            .id("test-guard-reconnect-delays")
+            .from(
+              mail("INBOX", {
+                reconnect: { baseDelayMs: 5_000, maxDelayMs: 1_000 },
+              }),
+            )
+            .to(spy()),
+        )
+        .build();
+
+      await expect(t.test()).rejects.toMatchObject({ rc: "RC5003" });
+    });
+
+    /**
      * @case Throws RC5003 at subscribe when markSeen is false without pollIntervalMs
      * @preconditions markSeen: false with no pollIntervalMs (IDLE flood footgun)
      * @expectedResult t.test() rejects with RC5003

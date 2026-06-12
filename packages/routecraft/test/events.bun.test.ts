@@ -171,6 +171,78 @@ describe("Events API", () => {
   });
 
   /**
+   * @case route:source:failed fires when a source subscription rejects while running
+   * @preconditions Callable source calls ready() then rejects (a dead channel, not a teardown)
+   * @expectedResult Event fires once with the route id and the rejection error
+   */
+  test("emits route:source:failed when a source rejects while running", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("source-dies")
+          .from(async (sub) => {
+            sub.ready();
+            throw new Error("channel died");
+          })
+          .to(log()),
+      )
+      .build();
+
+    const failures: Array<{ routeId: string; error: unknown }> = [];
+    t.ctx.on("route:source:failed", (payload) => {
+      failures.push(payload.details);
+    });
+
+    try {
+      await t.ctx.start();
+    } catch {
+      // start() rejects when the only route fails; the event is the assertion
+    }
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0].routeId).toBe("source-dies");
+    expect((failures[0].error as Error).message).toBe("channel died");
+  });
+
+  /**
+   * @case route:source:failed does not fire for an abort/teardown rejection
+   * @preconditions Source rejects only in reaction to its abort signal (orderly context stop)
+   * @expectedResult No route:source:failed event is emitted
+   */
+  test("does not emit route:source:failed when a source rejects on teardown", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("source-teardown-reject")
+          .from((sub) => {
+            sub.ready();
+            return new Promise<void>((_, reject) => {
+              sub.signal.addEventListener(
+                "abort",
+                () => reject(new Error("teardown reject")),
+                { once: true },
+              );
+            });
+          })
+          .to(log()),
+      )
+      .build();
+
+    const failures: unknown[] = [];
+    t.ctx.on("route:source:failed", (payload) => {
+      failures.push(payload.details);
+    });
+
+    const startPromise = t.ctx.start();
+    await new Promise((r) => setTimeout(r, 10));
+    await t.ctx.stop();
+    await startPromise.catch(() => {});
+
+    expect(failures).toHaveLength(0);
+  });
+
+  /**
    * @case test() rejects when a route throws during start (before routeStarted)
    * @preconditions Route with source that throws in subscribe() before calling onReady
    * @expectedResult test() rejects and does not hang; error is in t.errors
