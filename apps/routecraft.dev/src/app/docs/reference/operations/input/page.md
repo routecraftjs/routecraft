@@ -12,7 +12,7 @@ input(
 
 Declare input validation for the next route. The engine validates the incoming body and headers against these schemas **before any pipeline step runs**; a validation failure emits `exchange:dropped` and the pipeline never sees the message. Accepts either a bundle (`{ body, headers }`) or a bare Standard Schema as a body-only shorthand.
 
-To flow the validated body type through the chain, pass it as a generic on `.from<T>(source)` after the `.input()` call.
+A body schema also retypes the chain: its inferred output flows into an untyped source, so `.from(direct())` after `.input({ body })` is already narrowed without repeating the type as `.from<T>()`. A typed source (such as `mcp()`) or an explicit `.from<T>()` generic still wins.
 
 ```ts
 craft()
