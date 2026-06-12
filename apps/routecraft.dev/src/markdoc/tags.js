@@ -1,4 +1,5 @@
 import { Callout } from '@/components/Callout'
+import { LightboxImage } from '@/components/Lightbox'
 import { Badge } from '@/components/Badge'
 import { QuickLink, QuickLinks } from '@/components/QuickLinks'
 import { CodeTabs, CodeTab } from '@/components/CodeTabs'
@@ -31,9 +32,8 @@ const tags = {
     },
     render: ({ src, alt = '', caption }) => (
       <figure>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt={alt} />
-        <figcaption>{caption}</figcaption>
+        <LightboxImage src={src} alt={alt} caption={caption} />
+        {caption ? <figcaption>{caption}</figcaption> : null}
       </figure>
     ),
   },

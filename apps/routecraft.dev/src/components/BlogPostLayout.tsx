@@ -5,8 +5,10 @@ import { Prose } from '@/components/Prose'
 import { TableOfContents } from '@/components/TableOfContents'
 import { BlogMeta } from '@/components/BlogMeta'
 import { BlogCoverInline } from '@/components/BlogCover'
+import { LightboxImage } from '@/components/Lightbox'
+import { RelatedPosts } from '@/components/RelatedPosts'
 import { collectSections } from '@/lib/sections'
-import { formatBlogDate, getAllBlogPosts } from '@/lib/blog'
+import { formatBlogDate, getAllBlogPosts, getRelatedPosts } from '@/lib/blog'
 
 interface BlogPostFrontmatter {
   title?: string
@@ -22,6 +24,7 @@ interface BlogPostFrontmatter {
   coverGlyph?: string
   readingTime?: number
   draft?: boolean
+  related?: string[]
   slug?: string
 }
 
@@ -54,6 +57,10 @@ export function BlogPostLayout({
   const tableOfContents = collectSections(nodes)
   const date = typeof frontmatter.date === 'string' ? frontmatter.date : ''
   const { slug, figureNumber } = resolveSlugAndFigure(frontmatter)
+
+  const allPosts = getAllBlogPosts()
+  const current = allPosts.find((post) => post.slug === slug)
+  const related = current ? getRelatedPosts(current, 2, allPosts) : []
 
   return (
     <>
@@ -116,11 +123,10 @@ export function BlogPostLayout({
 
           {frontmatter.image ? (
             <figure className="mt-12 border border-ink/15">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <LightboxImage
                 src={frontmatter.image}
                 alt={frontmatter.imageAlt ?? frontmatter.title}
-                className="w-full"
+                caption={frontmatter.imageAlt}
               />
             </figure>
           ) : (
@@ -139,6 +145,8 @@ export function BlogPostLayout({
           <div className="mt-12">
             <Prose>{children}</Prose>
           </div>
+
+          <RelatedPosts posts={related} />
 
           <footer className="mt-20 border-t border-ink/15 pt-8">
             <p className="font-editorial text-[1rem] text-ink/70 italic">

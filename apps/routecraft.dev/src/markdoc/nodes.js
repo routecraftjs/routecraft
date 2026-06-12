@@ -6,6 +6,7 @@ import Markdoc from '@markdoc/markdoc'
 import { PageLayout } from '@/components/PageLayout'
 import { Fence } from '@/components/Fence'
 import { InlineCode } from '@/components/InlineCode'
+import { LightboxImage } from '@/components/Lightbox'
 
 let documentSlugifyMap = new Map()
 
@@ -132,6 +133,12 @@ const nodes = {
         type: String,
       },
     },
+  },
+  // Standard markdown images (`![alt](src "title")`) open in a lightbox so
+  // readers can inspect diagrams and screenshots at full resolution.
+  image: {
+    ...defaultNodes.image,
+    render: LightboxImage,
   },
 }
 
