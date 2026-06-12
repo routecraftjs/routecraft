@@ -122,6 +122,16 @@ export function extractOutcomeMetadata(
  *   (choice routes into the matched branch).
  * - `fanOut`: schedule each child exchange independently through the
  *   remaining steps (split).
+ * - `suspend`: exit the pipeline and wait for an external answer, resuming
+ *   later from the same position. **Reserved stub, never produced yet.** The
+ *   kind is declared now so the route-level suspend/resume feature can land
+ *   it post-1.0 without a breaking change to this frozen contract; see the
+ *   suspend/resume tracking issue for the full design. `exchange` is carried
+ *   because the eventual executor serializes it into the suspension
+ *   checkpoint. Until that feature ships, no step returns this and the
+ *   executor rejects it loudly (`RC5032`) rather than silently dropping the
+ *   exchange. This mirrors the forward-compat `SuspendError` stub in
+ *   `@routecraft/ai`.
  *
  * The union is OPEN across minor releases: new kinds may be added as the
  * engine grows (the executor exhaustively handles every kind it ships
@@ -133,7 +143,8 @@ export type StepOutcome =
   | { kind: "complete"; exchange: Exchange; metadata?: StepOutcomeMetadata }
   | { kind: "drop"; metadata?: StepOutcomeMetadata }
   | { kind: "branch"; exchange: Exchange; steps: Step<Adapter>[] }
-  | { kind: "fanOut"; exchanges: Exchange[] };
+  | { kind: "fanOut"; exchanges: Exchange[] }
+  | { kind: "suspend"; exchange: Exchange };
 
 /**
  * Narrow executor capability handed to {@link Step.execute}.
