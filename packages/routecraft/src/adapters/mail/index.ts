@@ -134,24 +134,47 @@ export function mail(
 }
 
 /**
+ * Option keys that exist on {@link MailServerOptions} but not on
+ * {@link MailClientOptions}. Keys shared by both sides (`host`, `port`,
+ * `secure`, `auth`, `account`, `from`) carry no intent and are excluded
+ * by the `Exclude<>` automatically.
+ */
+type ServerOnlyKey = Exclude<keyof MailServerOptions, keyof MailClientOptions>;
+
+/**
+ * Exhaustive map of server-only keys, used by {@link hasServerKeys} to
+ * discriminate fetch intent from send intent at runtime. `Record<ServerOnlyKey,
+ * true>` makes the list exhaustive by construction: adding a field to
+ * MailServerOptions that is absent from MailClientOptions without listing it
+ * here is a compile error, so this runtime heuristic cannot drift from the
+ * option types (it previously had: `verify`, `onParseError`, `description`,
+ * and `keywords` dispatched to the send destination).
+ */
+const SERVER_ONLY_KEYS: Record<ServerOnlyKey, true> = {
+  folder: true,
+  markSeen: true,
+  since: true,
+  unseen: true,
+  to: true,
+  subject: true,
+  body: true,
+  header: true,
+  limit: true,
+  description: true,
+  keywords: true,
+  pollIntervalMs: true,
+  includeHeaders: true,
+  verify: true,
+  onParseError: true,
+  reconnect: true,
+};
+
+/**
  * Check whether options contain server-specific keys that indicate
  * an IMAP fetch/source intent rather than an SMTP send intent.
  */
 function hasServerKeys(opts: object): boolean {
-  return (
-    "folder" in opts ||
-    "markSeen" in opts ||
-    "since" in opts ||
-    "unseen" in opts ||
-    "limit" in opts ||
-    "pollIntervalMs" in opts ||
-    "subject" in opts ||
-    "to" in opts ||
-    "body" in opts ||
-    "header" in opts ||
-    "includeHeaders" in opts ||
-    "reconnect" in opts
-  );
+  return Object.keys(SERVER_ONLY_KEYS).some((key) => key in opts);
 }
 
 // Re-export types for public API

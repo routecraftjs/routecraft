@@ -17,6 +17,8 @@ import {
   parseAuthResults,
 } from "../src/adapters/mail/analysis.ts";
 import type { MailServerOptions } from "../src/adapters/mail/types.ts";
+import { MailFetchDestinationAdapter } from "../src/adapters/mail/fetch-destination.ts";
+import { MailSendDestinationAdapter } from "../src/adapters/mail/send-destination.ts";
 
 // Mock functions declared at module scope for mock.module hoisting
 const mockFetch = mock();
@@ -199,6 +201,56 @@ describe("Mail Adapter", () => {
     test("mail({ action: 'flag' }) returns an Operation Destination", () => {
       const adapter = mail({ action: "flag", flags: "\\Seen" });
       expect(adapter).toHaveProperty("send");
+    });
+
+    /**
+     * @case every server-only MailServerOptions key dispatches to the Fetch Destination
+     * @preconditions One mail({ [key]: value }) call per key that exists on
+     *   MailServerOptions but not MailClientOptions. Regression: `verify`,
+     *   `onParseError`, `description`, and `keywords` were missing from the
+     *   runtime heuristic and dispatched to the Send Destination.
+     * @expectedResult Each call returns a MailFetchDestinationAdapter
+     */
+    test("each server-only key dispatches to the Fetch Destination", () => {
+      const probes: MailServerOptions[] = [
+        { folder: "INBOX" },
+        { markSeen: true },
+        { since: new Date() },
+        { unseen: true },
+        { to: "ops@example.com" },
+        { subject: "invoice" },
+        { body: "urgent" },
+        { header: { "List-Id": "announcements.example.com" } },
+        { limit: 5 },
+        { description: "incoming invoices" },
+        { keywords: ["invoices"] },
+        { pollIntervalMs: 1000 },
+        { includeHeaders: true },
+        { verify: "headers" },
+        { onParseError: "drop" },
+      ];
+      for (const opts of probes) {
+        expect(mail(opts)).toBeInstanceOf(MailFetchDestinationAdapter);
+      }
+    });
+
+    /**
+     * @case mail({ host, port, secure, auth, account }) returns a Send Destination
+     * @preconditions Object with only keys shared by MailServerOptions and
+     *   MailClientOptions (no server-only key present)
+     * @expectedResult Returns a MailSendDestinationAdapter (current heuristic
+     *   resolves shared-key-only options to send; see issue #433 for the
+     *   type-level ambiguity this leaves open)
+     */
+    test("mail({ shared keys only }) returns a Send Destination", () => {
+      const adapter = mail({
+        host: "smtp.example.com",
+        port: 465,
+        secure: true,
+        auth: { user: "me@example.com", pass: "secret" },
+        account: "support",
+      });
+      expect(adapter).toBeInstanceOf(MailSendDestinationAdapter);
     });
 
     /**
