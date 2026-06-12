@@ -49,21 +49,15 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
 
   return {
     async apply(ctx: CraftContext) {
-      ctx.setStore(
-        MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
-        true,
-      );
+      ctx.setStore(MCP_PLUGIN_REGISTERED, true);
 
       // Create and store tool registry
       toolRegistry = new McpToolRegistry();
-      ctx.setStore(
-        MCP_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-        toolRegistry,
-      );
+      ctx.setStore(MCP_TOOL_REGISTRY, toolRegistry);
 
       // Store stdio managers map so destination adapter can call tools on stdio clients
       ctx.setStore(
-        MCP_STDIO_MANAGERS as keyof import("@routecraft/routecraft").StoreRegistry,
+        MCP_STDIO_MANAGERS,
         stdioManagers as unknown as Map<
           string,
           {
@@ -84,10 +78,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
         for (const [k, v] of clientEntries) {
           map.set(k, v);
         }
-        ctx.setStore(
-          ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
-          map,
-        );
+        ctx.setStore(ADAPTER_MCP_CLIENT_SERVERS, map);
 
         // Start stdio clients and list HTTP client tools
         for (const [serverId, config] of clientEntries) {

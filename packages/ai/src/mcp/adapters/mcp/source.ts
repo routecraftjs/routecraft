@@ -97,24 +97,17 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
       });
     }
 
-    const registered = context.getStore(
-      MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
-    ) as boolean | undefined;
+    const registered = context.getStore(MCP_PLUGIN_REGISTERED);
     if (registered !== true) {
       throw new Error(
         "MCP plugin required: routes using .from(mcp(...)) require the MCP plugin. Add mcpPlugin() to your config: plugins: [mcpPlugin()].",
       );
     }
 
-    let registry = context.getStore(
-      MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-    ) as Map<string, McpLocalToolEntry> | undefined;
+    let registry = context.getStore(MCP_LOCAL_TOOL_REGISTRY);
     if (!registry) {
       registry = new Map<string, McpLocalToolEntry>();
-      context.setStore(
-        MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-        registry,
-      );
+      context.setStore(MCP_LOCAL_TOOL_REGISTRY, registry);
     }
 
     if (registry.has(endpoint)) {
@@ -166,9 +159,7 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     sub.signal.addEventListener(
       "abort",
       () => {
-        const current = context.getStore(
-          MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-        ) as Map<string, McpLocalToolEntry> | undefined;
+        const current = context.getStore(MCP_LOCAL_TOOL_REGISTRY);
         current?.delete(endpoint);
       },
       { once: true },

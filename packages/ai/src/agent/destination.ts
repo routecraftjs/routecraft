@@ -22,7 +22,6 @@ import {
 import type { AgentDeltaListener } from "./events.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
-  AgentDefaultOptions,
   AgentOptions,
   AgentPrincipalRenderer,
   AgentRegisteredOptions,
@@ -191,9 +190,7 @@ export class AgentDestinationAdapter implements Destination<
           `"${AGENT_REGISTRY_STORE_DESCRIPTION}" store can be read.`,
       });
     }
-    const registry = context.getStore(
-      ADAPTER_AGENT_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-    ) as Map<string, AgentRegisteredOptions> | undefined;
+    const registry = context.getStore(ADAPTER_AGENT_REGISTRY);
     if (!registry) {
       throw rcError("RC5004", undefined, {
         message:
@@ -245,9 +242,7 @@ function mergeWithDefaults(
   base: AgentOptions | AgentRegisteredOptions,
   context: CraftContext | undefined,
 ): AgentOptions | AgentRegisteredOptions {
-  const defaults = context?.getStore(
-    ADAPTER_AGENT_DEFAULT_OPTIONS as keyof import("@routecraft/routecraft").StoreRegistry,
-  ) as AgentDefaultOptions | undefined;
+  const defaults = context?.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
   if (!defaults) return base;
   const out = { ...base } as AgentOptions | AgentRegisteredOptions;
   if (out.model === undefined && defaults.model !== undefined) {
