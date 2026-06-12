@@ -103,13 +103,6 @@ const ops: Op[] = [
     description: 'Pause before the next operation.',
   },
   {
-    name: 'onError',
-    category: 'Wrapper',
-    signature: '.onError(handler)',
-    description: 'Handle errors from the next operation only.',
-    planned: true,
-  },
-  {
     name: 'cache',
     category: 'Wrapper',
     signature: '.cache({ key, ttl })',
