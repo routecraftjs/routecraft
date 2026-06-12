@@ -519,7 +519,7 @@ Stack `.authorize()` calls to AND-combine; the first failure short-circuits.
 import { authorize } from "@routecraft/routecraft"
 
 craft()
-  .from(mail({ /* ... */ }))
+  .from(mail("INBOX", { /* ... */ }))
   .process(attachEmailPrincipal)
   .validate(authorize({ predicate: (p) => p.email?.endsWith("@yourcompany.com") === true }))
   .to(yourDestination)

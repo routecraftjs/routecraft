@@ -221,12 +221,13 @@ await ctx.stop()`}</CheatCode>
 .to(jsonl({ file: './out.jsonl' }))
 .to(csv({ file: './out.csv' }))
 
-// Send email via SMTP
-.to(mail({
-  to: ex => ex.body.email,
+// Send email via SMTP (payload from the exchange body)
+.transform(body => ({
+  to: body.email,
   subject: 'Hello',
-  text: ex => ex.body.text,
-}))`}</CheatCode>
+  text: body.text,
+}))
+.to(mail())`}</CheatCode>
           </CheatSection>
 
           <CheatSection id="exchanges" eyebrow="Envelope" title="Exchanges">
