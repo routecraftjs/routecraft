@@ -18,11 +18,16 @@ const capabilities = craft()
   })
   .to(noop());
 
-// 2. Build and start the context (don't await start -- direct sources block until aborted)
+// 2. Build and start the context (don't await start -- direct sources block
+//    until aborted; the catch surfaces startup failures)
 const contextBuilder = new ContextBuilder();
 contextBuilder.routes(capabilities);
 const { context, client } = await contextBuilder.build();
-context.start();
+context.start().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error("Routecraft context failed", err);
+  process.exitCode = 1;
+});
 
 // 3. Wire Commander with full control, dispatch into routes via client.sendDirect()
 const program = new Command().name("my-tool").version("1.0.0");

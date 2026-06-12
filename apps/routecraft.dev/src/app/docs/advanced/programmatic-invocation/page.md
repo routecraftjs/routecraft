@@ -62,7 +62,12 @@ const { context, client } = await new ContextBuilder()
 
 // Not awaited: start() resolves only when every route has run to
 // completion, and direct() routes stay live until context.stop().
-context.start();
+// Attach a catch so a startup failure surfaces instead of becoming an
+// unhandled rejection.
+context.start().catch((err) => {
+  console.error('Routecraft context failed', err);
+  process.exitCode = 1;
+});
 
 // Dispatch from anywhere
 const result = await client.sendDirect('greet', { name: 'World' });
@@ -96,7 +101,7 @@ const routes = craft()
 const contextBuilder = new ContextBuilder();
 contextBuilder.routes(routes);
 const { context, client } = await contextBuilder.build();
-context.start();
+context.start().catch(console.error);
 
 // 3. Wire Commander commands to client.sendDirect()
 const program = new Command().name('my-tool').version('1.0.0');
@@ -135,7 +140,7 @@ my-tool --help               # Commander-generated help
 
 ### Lifecycle
 
-- Call `context.start()` before dispatching, but do not `await` it when the context contains `direct()` routes: the returned promise resolves only when every route has run to completion, and `direct()` routes stay live until `context.stop()`. The direct endpoints subscribe during the `start()` call itself, so dispatching right after it is safe.
+- Call `context.start()` before dispatching, but do not `await` it when the context contains `direct()` routes: the returned promise resolves only when every route has run to completion, and `direct()` routes stay live until `context.stop()`. The direct endpoints subscribe during the `start()` call itself, so dispatching right after it is safe. Attach a `.catch()` to the returned promise so startup failures surface instead of becoming unhandled rejections.
 - Stop the context after the CLI command finishes. The `postAction` hook in the example above handles this automatically.
 - For error handling, wrap `client.sendDirect()` in a try/catch and set `process.exitCode` as needed.
 
@@ -158,7 +163,9 @@ const routes = craft()
 const contextBuilder = new ContextBuilder();
 contextBuilder.routes(routes);
 const { context, client } = await contextBuilder.build();
-context.start(); // not awaited: resolves only when all routes complete
+// Not awaited (resolves only when all routes complete); catch surfaces
+// startup failures.
+context.start().catch(console.error);
 
 export { client };
 ```
@@ -189,7 +196,9 @@ const routes = craft()
 const contextBuilder = new ContextBuilder();
 contextBuilder.routes(routes);
 const { context, client } = await contextBuilder.build();
-context.start(); // not awaited: resolves only when all routes complete
+// Not awaited (resolves only when all routes complete); catch surfaces
+// startup failures.
+context.start().catch(console.error);
 
 const app = express();
 app.use(express.json());

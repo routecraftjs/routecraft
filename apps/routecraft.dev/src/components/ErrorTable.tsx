@@ -151,7 +151,7 @@ const errors: ErrorRow[] = [
     retryable: false,
   },
   // RC5025-RC5027 (agent blocks) moved to the AI namespace as
-  // AI1001-AI1003; see the AI sections on the errors page.
+  // AI1001-AI1003, listed at the end of this table.
   {
     code: 'RC5028',
     category: 'Adapter',
@@ -181,6 +181,26 @@ const errors: ErrorRow[] = [
     category: 'Runtime',
     message: 'Unknown error',
     retryable: true,
+  },
+  // Ecosystem namespaces (registered via registerErrorCodes). @routecraft/ai
+  // owns AI*; AI1001-AI1003 replaced the retired core codes RC5025-RC5027.
+  {
+    code: 'AI1001',
+    category: 'Adapter',
+    message: 'Agent block resolution failed',
+    retryable: false,
+  },
+  {
+    code: 'AI1002',
+    category: 'Adapter',
+    message: 'Agent block name collision',
+    retryable: false,
+  },
+  {
+    code: 'AI1003',
+    category: 'Adapter',
+    message: 'Agent block misconfigured',
+    retryable: false,
   },
 ]
 
