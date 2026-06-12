@@ -539,6 +539,24 @@ export interface EventDetailsMap {
     outputTokens?: number;
     totalTokens?: number;
   };
+  /**
+   * Emitted after every successful agent dispatch alongside
+   * `route:agent:finished`. Carries the full token breakdown for the
+   * dispatch so consumers can compute cost without subscribing to the
+   * broader lifecycle event.
+   *
+   * Cache fields are present only when the provider reports them (e.g.
+   * Anthropic with prompt caching enabled).
+   */
+  "route:agent:usage": ExchangeScoped & {
+    agentName?: string;
+    model: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
   "route:agent:error": ExchangeScoped & {
     agentName?: string;
     model: string;
