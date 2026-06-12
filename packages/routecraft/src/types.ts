@@ -408,17 +408,71 @@ export interface EventDetailsMap {
   };
   "route:batch:stopped": { routeId: string; batchId: string };
 
-  // -- Retry (reserved for the retry wrapper) --
-  "route:retry:started": ExchangeScoped & { maxAttempts: number };
+  // -- Retry (route- and step-scope wrapper) --
+  "route:retry:started": ExchangeScoped & {
+    /** Label of the wrapped step, or `"route"` when `scope === "route"`. */
+    stepLabel: string;
+    scope: "route" | "step";
+    maxAttempts: number;
+  };
+  /** A failed attempt will be re-attempted after `backoffMs`. */
   "route:retry:attempt": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
     attemptNumber: number;
     maxAttempts: number;
+    /** Actual wait before the next attempt (exponential backoff applied). */
     backoffMs: number;
     lastError?: unknown;
   };
   "route:retry:stopped": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
     attemptNumber: number;
     success: boolean;
+    /**
+     * Present when `success` is false: the raw error that caused the
+     * final failure (non-retryable error, exhausted attempts, or the
+     * last failure when shutdown interrupted the backoff).
+     */
+    error?: unknown;
+  };
+
+  // -- Delay (step-scope wrapper) --
+  "route:delay:started": ExchangeScoped & {
+    stepLabel: string;
+    scope: "step";
+    delayMs: number;
+  };
+  "route:delay:stopped": ExchangeScoped & {
+    stepLabel: string;
+    scope: "step";
+    delayMs: number;
+    elapsed: number;
+    /** True when route shutdown cut the wait short (the step still ran). */
+    cancelled: boolean;
+  };
+
+  // -- Timeout (route- and step-scope wrapper) --
+  "route:timeout:started": ExchangeScoped & {
+    /** Label of the wrapped step, or `"route"` when `scope === "route"`. */
+    stepLabel: string;
+    scope: "route" | "step";
+    timeoutMs: number;
+  };
+  /** The deadline fired before the guarded execution settled; RC5011 follows. */
+  "route:timeout:expired": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
+    timeoutMs: number;
+    elapsed: number;
+  };
+  /** The guarded execution settled within the deadline. */
+  "route:timeout:stopped": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
+    timeoutMs: number;
+    elapsed: number;
   };
 
   // -- Error handler (route- and step-scope wrappers) --

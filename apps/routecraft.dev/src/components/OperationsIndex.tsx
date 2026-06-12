@@ -1,5 +1,8 @@
 import Link from 'next/link'
 
+import { type Section } from '@/lib/sections'
+import { slug } from '@/lib/slug'
+
 interface Op {
   name: string
   category: string
@@ -77,9 +80,8 @@ const ops: Op[] = [
   {
     name: 'retry',
     category: 'Wrapper',
-    signature: '.retry(times | options)',
-    description: 'Retry the next operation on failure.',
-    planned: true,
+    signature: '.retry(options?)',
+    description: 'Retry the next operation (or the whole pipeline) on failure.',
   },
   {
     name: 'throttle',
@@ -92,29 +94,20 @@ const ops: Op[] = [
     name: 'timeout',
     category: 'Wrapper',
     signature: '.timeout(ms)',
-    description: 'Cancel the next operation after a deadline.',
-    planned: true,
+    description:
+      'Fail the next operation (or the whole pipeline) after a deadline.',
   },
   {
     name: 'delay',
     category: 'Wrapper',
     signature: '.delay(ms)',
     description: 'Pause before the next operation.',
-    planned: true,
-  },
-  {
-    name: 'onError',
-    category: 'Wrapper',
-    signature: '.onError(handler)',
-    description: 'Handle errors from the next operation only.',
-    planned: true,
   },
   {
     name: 'cache',
     category: 'Wrapper',
     signature: '.cache({ key, ttl })',
     description: 'Cache and reuse the result of the next operation.',
-    planned: true,
   },
 
   // Transform
@@ -265,6 +258,32 @@ const categories = [
   'Side Effects',
 ] as const
 
+/**
+ * Right-sidebar "On this page" sections for the operations index. The
+ * component renders no markdown headings, so `collectSections` cannot
+ * derive the page outline from the AST; this mirrors the rendered
+ * structure (category header ids, per-operation row ids) instead.
+ */
+export function operationsTocSections(): Array<Section> {
+  return categories
+    .map((category) => ({
+      level: 2 as const,
+      id: `ops-${slug(category)}`,
+      title: category as string,
+      children: ops
+        .filter((o) => o.category === category)
+        .map((op) => ({
+          level: 3 as const,
+          id: `op-${slug(op.name)}`,
+          title: op.name,
+          ...(op.planned
+            ? { badges: [{ text: 'planned', color: 'purple' as const }] }
+            : {}),
+        })),
+    }))
+    .filter((section) => section.children.length > 0)
+}
+
 export function OperationsIndex() {
   return (
     <div className="not-prose mt-8 flex flex-col gap-14">
@@ -272,12 +291,12 @@ export function OperationsIndex() {
         const items = ops.filter((o) => o.category === category)
         if (items.length === 0) return null
         return (
-          <section key={category} aria-labelledby={`ops-${category}`}>
+          <section key={category} aria-labelledby={`ops-${slug(category)}`}>
             <header className="flex items-center gap-3 border-b border-ink/15 pb-3">
               <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
               <h3
-                id={`ops-${category}`}
-                className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/65 uppercase"
+                id={`ops-${slug(category)}`}
+                className="scroll-mt-28 font-mono text-[0.65rem] tracking-[0.22em] text-ink/65 uppercase lg:scroll-mt-34"
               >
                 {category}
               </h3>
@@ -287,9 +306,13 @@ export function OperationsIndex() {
             </header>
             <ul role="list" className="divide-y divide-ink/10">
               {items.map((op) => (
-                <li key={op.name}>
+                <li
+                  key={op.name}
+                  id={`op-${slug(op.name)}`}
+                  className="scroll-mt-28 lg:scroll-mt-34"
+                >
                   <Link
-                    href={`/docs/reference/operations/${op.name.toLowerCase()}`}
+                    href={`/docs/reference/operations/${slug(op.name)}`}
                     className="group grid grid-cols-[minmax(0,16rem)_1fr_auto] items-baseline gap-x-6 gap-y-1 py-3.5 transition hover:bg-paper-deep/30"
                   >
                     <code className="font-mono text-[0.92rem] text-ink transition group-hover:text-cobalt-500">

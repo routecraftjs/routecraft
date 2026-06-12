@@ -159,6 +159,16 @@ export {
   MemoryCacheProvider,
   type MemoryCacheProviderOptions,
 } from "./operations/cache-provider.ts";
+export { DelayWrapperStep } from "./operations/delay-wrapper.ts";
+export {
+  TimeoutWrapperStep,
+  type ResolvedTimeoutOptions,
+} from "./operations/timeout-wrapper.ts";
+export {
+  RetryWrapperStep,
+  type RetryOptions,
+  type ResolvedRetryOptions,
+} from "./operations/retry-wrapper.ts";
 
 export {
   ContextBuilder,

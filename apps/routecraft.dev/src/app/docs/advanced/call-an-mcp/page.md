@@ -120,7 +120,7 @@ agent({
 })
 ```
 
-Why a route and not a richer guard? A guard runs once and holds no state. Caching, timeouts, throttling, retries, and fallbacks each need something wrapped around the call with its own state and lifecycle, which is exactly what a route step is. Today a wrapped route gives you [`authorize()`](/docs/reference/operations/authorize), [`error()`](/docs/reference/operations/error) fallbacks, and `.tap(log())` for an audit trail immediately. [`cache()`](/docs/reference/operations/cache), [`timeout()`](/docs/reference/operations/timeout), [`throttle()`](/docs/reference/operations/throttle), and [`retry()`](/docs/reference/operations/retry) are planned; when they ship they drop onto the same route with no change to how the agent consumes the tool. The route is the only place that behaviour can ever live.
+Why a route and not a richer guard? A guard runs once and holds no state. Caching, timeouts, throttling, retries, and fallbacks each need something wrapped around the call with its own state and lifecycle, which is exactly what a route step is. Today a wrapped route gives you [`authorize()`](/docs/reference/operations/authorize), [`error()`](/docs/reference/operations/error) fallbacks, [`cache()`](/docs/reference/operations/cache), [`timeout()`](/docs/reference/operations/timeout), [`retry()`](/docs/reference/operations/retry), and `.tap(log())` for an audit trail. [`throttle()`](/docs/reference/operations/throttle) is planned; when it ships it drops onto the same route with no change to how the agent consumes the tool. The route is the only place that behaviour can ever live.
 
 ---
 

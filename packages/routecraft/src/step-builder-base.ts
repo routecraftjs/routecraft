@@ -26,6 +26,12 @@ import {
   CacheWrapperStep,
   type CacheOptions,
 } from "./operations/cache-wrapper.ts";
+import { DelayWrapperStep } from "./operations/delay-wrapper.ts";
+import { TimeoutWrapperStep } from "./operations/timeout-wrapper.ts";
+import {
+  RetryWrapperStep,
+  type RetryOptions,
+} from "./operations/retry-wrapper.ts";
 import {
   type Processor,
   type CallableProcessor,
@@ -52,7 +58,7 @@ import { PUSH_STEP } from "./dsl-symbol.ts";
 
 /**
  * Builder hook that wraps a single step in a "dual-mode wrapper"
- * (e.g. `.error()`, future `.retry()` / `.timeout()` / `.cache()`).
+ * (e.g. `.error()`, `.retry()`, `.timeout()`, `.cache()`, `.delay()`).
  * Pushed onto {@link StepBuilderBase}'s pending wrapper stack when the
  * builder method runs in step scope; folded around the next pushed
  * step inside {@link StepBuilderBase.applyPendingWrappers}.
@@ -189,7 +195,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * vs. branch step array). Subclass-specific validation (e.g.
    * `RouteBuilder.requireSource`) lives in the implementation. Subclasses
    * MUST run `step` through {@link applyPendingWrappers} so dual-mode
-   * wrappers (`.error()`, future `.retry()`, etc.) attach to the right
+   * wrappers (`.error()`, `.retry()`, `.timeout()`, etc.) attach to the right
    * step.
    *
    * @param step - The step to append
@@ -258,6 +264,91 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   cache(options: CacheOptions<S["body"]> = {}): this {
     this.pendingStepWrappers.push(
       (inner) => new CacheWrapperStep(inner, options as CacheOptions),
+    );
+    return this;
+  }
+
+  /**
+   * Wait a fixed time before the next step runs. Pass-through: the
+   * exchange is unchanged by the wait. The wait is cancelled when the
+   * route shuts down mid-wait; the wrapped step still runs, so no
+   * exchange is silently dropped by a shutdown.
+   *
+   * Step scope only: there is no route-scope form (a route-scope delay
+   * is equivalent to a delay before the first step) and the pre-from
+   * filter chain reserves no slot for it.
+   *
+   * Stacks with other wrappers in declaration order (first-declared
+   * outermost): `.retry().delay(1000).process(op)` waits before each
+   * attempt, because retry re-runs the delay-wrapped step.
+   *
+   * @param delayMs - Milliseconds to wait before the next step
+   * @returns This builder (same subclass, same body type)
+   */
+  delay(delayMs: number): this {
+    this.pendingStepWrappers.push(
+      (inner) => new DelayWrapperStep(inner, delayMs),
+    );
+    return this;
+  }
+
+  /**
+   * Bound the next step with a deadline. When the step settles in time
+   * its outcome passes through unchanged; when the deadline fires first
+   * the wrapper throws `RC5011` (Request timeout, `retryable: true`),
+   * so an outer `.retry()` re-attempts it by default and `.error()`
+   * handlers can branch on the code.
+   *
+   * The step is not cancelled on expiry (promises cannot be
+   * cancelled): it keeps running in the background and its eventual
+   * result is discarded, so side effects of the abandoned attempt may
+   * still happen. The timeout bounds how long the pipeline waits, not
+   * the work itself.
+   *
+   * On `RouteBuilder`, this method is dual-mode: called BEFORE
+   * `.from()` it bounds each run of the whole pipeline at pre-from
+   * filter chain position 8 (inside `.retry()`, so each attempt gets
+   * its own deadline); called AFTER `.from()` it wraps the next step.
+   *
+   * @param timeoutMs - Deadline in milliseconds
+   * @returns This builder (same subclass, same body type)
+   */
+  timeout(timeoutMs: number): this {
+    this.pendingStepWrappers.push(
+      (inner) => new TimeoutWrapperStep(inner, timeoutMs),
+    );
+    return this;
+  }
+
+  /**
+   * Re-attempt the next step on failure with configurable backoff.
+   * Each attempt receives the same (frozen) exchange, so a re-attempt
+   * always starts from the input that failed. After the final attempt
+   * fails, the original error propagates unchanged to outer wrappers
+   * or the route-level handler.
+   *
+   * By default only errors with `retryable: false` (validation, auth,
+   * config) are NOT re-attempted; everything else, including timeouts
+   * (`RC5011`) and unknown third-party errors, is retried. Override
+   * with `retryOn`.
+   *
+   * On `RouteBuilder`, this method is dual-mode: called BEFORE
+   * `.from()` it re-runs the whole pipeline at pre-from filter chain
+   * position 7 (outside `.timeout()`, inside `.error()`); called AFTER
+   * `.from()` it wraps the next step.
+   *
+   * Stacks with other wrappers in declaration order (first-declared
+   * outermost): `.retry().timeout(5000).to(dest)` gives each attempt
+   * its own 5s deadline.
+   *
+   * @param options - `maxAttempts` (default 3), `backoffMs` (default
+   *   1000), `exponential` (default false), `retryOn` (default: skip
+   *   non-retryable RoutecraftErrors)
+   * @returns This builder (same subclass, same body type)
+   */
+  retry(options: RetryOptions = {}): this {
+    this.pendingStepWrappers.push(
+      (inner) => new RetryWrapperStep(inner, options),
     );
     return this;
   }

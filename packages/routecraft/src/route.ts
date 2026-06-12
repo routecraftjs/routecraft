@@ -20,6 +20,8 @@ import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type Source, type Subscription } from "./operations/from.ts";
+import { type ResolvedRetryOptions } from "./operations/retry-wrapper.ts";
+import { type ResolvedTimeoutOptions } from "./operations/timeout-wrapper.ts";
 import {
   type Adapter,
   type Step,
@@ -231,6 +233,26 @@ export type RouteDefinition<T = unknown> = {
    * metadata into their registries.
    */
   readonly discovery?: RouteDiscovery;
+
+  /**
+   * Route-scope `.retry()` config (pre-from filter chain position #7).
+   * Unlike the cache filters, retry is not a flat step in
+   * `postParseFilters`: it scopes over the whole chain tail (timeout,
+   * cache-check, user pipeline, cache-store) and re-runs it on
+   * failure, so the pipeline executor wraps the tail in a retry
+   * segment step when this is set. See
+   * `.standards/pre-from-filter-chain.md`.
+   */
+  readonly retry?: ResolvedRetryOptions;
+
+  /**
+   * Route-scope `.timeout()` config (pre-from filter chain position
+   * #8). Bounds each run of the chain tail below it with a deadline;
+   * placed inside `retry` so every attempt gets its own deadline. Like
+   * `retry`, realized as a segment step wrapped around the tail by the
+   * pipeline executor rather than a flat `postParseFilters` entry.
+   */
+  readonly timeout?: ResolvedTimeoutOptions;
 };
 
 /**

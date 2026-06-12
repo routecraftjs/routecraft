@@ -1,5 +1,9 @@
 import Link from 'next/link'
 
+import { slug } from '@/lib/slug'
+
+import { type Section } from '@/lib/sections'
+
 interface Plugin {
   number: string
   name: string
@@ -51,18 +55,35 @@ const plugins: Plugin[] = [
   },
 ]
 
+/**
+ * Right-sidebar "On this page" sections for the plugin index. The
+ * component renders no markdown headings, so `collectSections` cannot
+ * derive the page outline from the AST; this mirrors the rendered
+ * per-plugin row ids instead.
+ */
+export function pluginIndexTocSections(): Array<Section> {
+  return plugins.map((p) => ({
+    level: 2 as const,
+    id: `plugin-${slug(p.name)}`,
+    title: p.name,
+    children: [],
+  }))
+}
+
 export function PluginIndex() {
   return (
     <ol className="not-prose mt-8 list-none">
       {plugins.map((p, i) => (
         <li
           key={p.name}
+          id={`plugin-${slug(p.name)}`}
           className={
-            i === 0 ? 'border-y border-ink/15' : 'border-b border-ink/15'
+            (i === 0 ? 'border-y border-ink/15' : 'border-b border-ink/15') +
+            ' scroll-mt-28 lg:scroll-mt-34'
           }
         >
           <Link
-            href={`/docs/reference/plugins/${p.name.toLowerCase()}`}
+            href={`/docs/reference/plugins/${slug(p.name)}`}
             className="group grid grid-cols-[auto_1fr_auto] items-baseline gap-x-6 py-7 transition"
           >
             <span className="font-editorial text-[1.5rem] text-cobalt-500/55 italic tabular-nums transition group-hover:text-cobalt-500">

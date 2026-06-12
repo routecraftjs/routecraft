@@ -1,5 +1,8 @@
 import Link from 'next/link'
 
+import { type Section } from '@/lib/sections'
+import { slug } from '@/lib/slug'
+
 type Role = 'Source' | 'Destination' | 'Transformer' | 'Processor'
 
 interface Adapter {
@@ -197,6 +200,29 @@ const roleClassname: Record<Role, string> = {
   Processor: 'border-ink/25 text-ink/65',
 }
 
+/**
+ * Right-sidebar "On this page" sections for the adapter grid. The
+ * component renders no markdown headings, so `collectSections` cannot
+ * derive the page outline from the AST; this mirrors the rendered
+ * structure (category header ids, per-adapter card ids) instead.
+ */
+export function adapterGridTocSections(): Array<Section> {
+  return categories
+    .map((category) => ({
+      level: 2 as const,
+      id: `adapters-${slug(category)}`,
+      title: category as string,
+      children: adapters
+        .filter((a) => a.category === category)
+        .map((adapter) => ({
+          level: 3 as const,
+          id: `adapter-${slug(adapter.name)}`,
+          title: adapter.name,
+        })),
+    }))
+    .filter((section) => section.children.length > 0)
+}
+
 export function AdapterGrid() {
   return (
     <div className="not-prose mt-8 flex flex-col gap-14">
@@ -204,12 +230,15 @@ export function AdapterGrid() {
         const items = adapters.filter((a) => a.category === category)
         if (items.length === 0) return null
         return (
-          <section key={category} aria-labelledby={`adapters-${category}`}>
+          <section
+            key={category}
+            aria-labelledby={`adapters-${slug(category)}`}
+          >
             <header className="flex items-center gap-3 border-b border-ink/15 pb-3">
               <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
               <h3
-                id={`adapters-${category}`}
-                className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/65 uppercase"
+                id={`adapters-${slug(category)}`}
+                className="scroll-mt-28 font-mono text-[0.65rem] tracking-[0.22em] text-ink/65 uppercase lg:scroll-mt-34"
               >
                 {category}
               </h3>
@@ -222,9 +251,13 @@ export function AdapterGrid() {
               className="mt-5 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 sm:grid-cols-2 lg:grid-cols-3"
             >
               {items.map((item) => (
-                <li key={item.name} className="bg-paper">
+                <li
+                  key={item.name}
+                  id={`adapter-${slug(item.name)}`}
+                  className="scroll-mt-28 bg-paper lg:scroll-mt-34"
+                >
                   <Link
-                    href={`/docs/reference/adapters/${item.name.toLowerCase()}`}
+                    href={`/docs/reference/adapters/${slug(item.name)}`}
                     className="group flex h-full flex-col gap-3 p-5 transition hover:bg-paper-deep/40"
                   >
                     <div className="flex items-baseline justify-between gap-3">

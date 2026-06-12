@@ -30,8 +30,8 @@ below).
 | 4 | `input` | shipped | yes (`RC5002`) | schema validation; deterministic, not retried |
 | 5 | `throttle` | planned | yes (`RC5013`) | rate limit valid requests (not pre-auth; that's source-layer DoS protection) |
 | 6 | `circuitBreaker` | planned (#139) | yes (new RC code, fast-fail when open) | counts inner failures; trips after threshold |
-| 7 | `retry` | planned | yes (final attempt's throw) | re-runs everything below on failure |
-| 8 | `timeout` | planned | yes (`RC5011`) | per-attempt deadline |
+| 7 | `retry` | shipped (#148) | yes (final attempt's throw) | re-runs everything below on failure |
+| 8 | `timeout` | shipped (#147) | yes (`RC5011`) | per-attempt deadline |
 | 9 | `cacheCheck` | shipped (#112) | yes (`RC5028` / `RC5029`) | hit → short-circuit pipeline |
 | — | **user pipeline** | — | — | declaration order; everything after `.from()` |
 | 10 | `cacheStore` | shipped (#112) | swallows (`cache:failed phase:"set"`) | best-effort write; runs only on miss-success |
@@ -238,11 +238,21 @@ as a follow-up; until then, parse-attached sources still stash
 the validator on `internals.applyValidation` and the parse step
 runs it.
 
-Filters 5-8 (`throttle`, `circuitBreaker`, `retry`, `timeout`)
-will be added by their respective issues into the
-`postParseFilters` slot at the documented positions. Each adds
-~one filter implementation, not ~100 lines of inlined executor
-logic.
+Filters 7-8 (`retry` #148, `timeout` #147) are shipped. They are
+NOT flat `postParseFilters` entries: each scopes OVER the chain
+tail below it (retry re-runs it, timeout bounds each run), which a
+sequential filter in a flat step queue cannot express. They live as
+`retry` / `timeout` fields on `RouteDefinition`; the pipeline
+executor wraps the tail (`postParseFilters` + user steps +
+`postFromFilters`) in segment steps that re-enter `runPipeline`
+with `rethrowUnhandled` so a failed attempt surfaces to the
+wrapping segment instead of firing the default error path per
+attempt. See `buildRetrySegmentStep` / `buildTimeoutSegmentStep`
+in `packages/routecraft/src/pipeline/executor.ts`.
+
+Filters 5-6 (`throttle`, `circuitBreaker`) will be added by their
+respective issues at the documented positions, following the same
+segment pattern where they need scope over the tail.
 
 ---
 
