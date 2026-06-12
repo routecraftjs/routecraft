@@ -5,7 +5,7 @@ import {
   HeadersKeys,
   getExchangeContext,
   getExchangeRoute,
-  markDropped,
+  emitExchangeDropped,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { COLLECT_STEPS } from "../dsl-symbol.ts";
@@ -70,19 +70,12 @@ export class HaltStep implements Step<HaltAdapter> {
       HeadersKeys.CORRELATION_ID
     ] as string;
 
-    // Mark before emit so subscribers calling `isDropped(event.details.exchange)`
-    // observe the correct state.
-    markDropped(exchange);
-
-    if (context) {
-      context.emit("route:exchange:dropped", {
-        routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        reason: "halted",
-        exchange,
-      });
-    }
+    emitExchangeDropped(context, {
+      routeId,
+      correlationId,
+      reason: "halted",
+      exchange,
+    });
 
     return { kind: "drop" };
   }
@@ -300,9 +293,6 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
     }
 
     if (!matchedBranch) {
-      // Mark before emit so subscribers calling
-      // `isDropped(event.details.exchange)` observe the correct state.
-      markDropped(exchange);
       if (context) {
         context.emit("route:step:completed", {
           routeId,
@@ -317,14 +307,13 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
           exchangeId: exchange.id,
           correlationId,
         });
-        context.emit("route:exchange:dropped", {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          reason: "unmatched",
-          exchange,
-        });
       }
+      emitExchangeDropped(context, {
+        routeId,
+        correlationId,
+        reason: "unmatched",
+        exchange,
+      });
       return { kind: "drop" };
     }
 
