@@ -505,7 +505,7 @@ For programmatic assertions ("the agent must have replied via `replyEmail`, othe
 ```ts
 craft()
   .id("inbox-bot")
-  .from(mail({ account: "support" }))
+  .from(mail("INBOX", { account: "support" }))
   .to(agent({
     system: "Reply to the customer via replyEmail. If you cannot answer, leave it unanswered.",
     tools: tools(["replyEmail"]),

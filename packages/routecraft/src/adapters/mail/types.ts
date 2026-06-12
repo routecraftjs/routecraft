@@ -155,7 +155,13 @@ export interface MailServerOptions {
   secure?: boolean;
   /** Authentication credentials */
   auth?: MailAuth;
-  /** IMAP mailbox folder (default 'INBOX') */
+  /**
+   * IMAP mailbox folder. Required in the object-form fetch destination
+   * (`mail({ folder: 'INBOX', ... })`), where it is the key that
+   * distinguishes a fetch from an SMTP send. Optional on this type only
+   * because the source form passes it positionally
+   * (`mail('INBOX', { ... })`).
+   */
   folder?: string;
   /** Mark fetched messages as seen (default true) */
   markSeen?: boolean;
@@ -178,13 +184,13 @@ export interface MailServerOptions {
    * @example
    * ```typescript
    * // Match emails with Reply-To containing "no-reply"
-   * mail({ header: { "Reply-To": "no-reply" } })
+   * mail({ folder: "INBOX", header: { "Reply-To": "no-reply" } })
    *
    * // Match emails with a specific List-Id
-   * mail({ header: { "List-Id": "announcements.example.com" } })
+   * mail({ folder: "INBOX", header: { "List-Id": "announcements.example.com" } })
    *
    * // OR within a header: match "noreply" or "no-reply" in Reply-To
-   * mail({ header: { "Reply-To": ["noreply", "no-reply"] } })
+   * mail({ folder: "INBOX", header: { "Reply-To": ["noreply", "no-reply"] } })
    * ```
    */
   header?: Record<string, string | string[]>;
