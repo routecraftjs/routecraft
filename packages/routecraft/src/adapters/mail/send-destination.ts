@@ -9,6 +9,7 @@ import type {
 import {
   getClientManager,
   createSmtpTransport,
+  buildMessageOptions,
   throwMailConnectionError,
 } from "./shared.ts";
 
@@ -74,35 +75,7 @@ export class MailSendDestinationAdapter implements Destination<
       transporter = this.cachedTransporter;
     }
 
-    const payload = exchange.body;
-
-    // Threading sugar: a reply that only knows the original Message-ID
-    // still gets a References header, so clients stitch the thread. An
-    // empty string or empty array counts as "not given", matching the
-    // documented inReplyTo contract.
-    const hasReferences = Array.isArray(payload.references)
-      ? payload.references.length > 0
-      : payload.references !== undefined && payload.references !== "";
-    const references = hasReferences ? payload.references : payload.inReplyTo;
-
-    const mailOptions = {
-      from: payload.from ?? resolved.from,
-      to: payload.to,
-      subject: payload.subject,
-      text: payload.text,
-      html: payload.html,
-      cc: payload.cc ?? resolved.cc,
-      bcc: payload.bcc ?? resolved.bcc,
-      replyTo: payload.replyTo ?? resolved.replyTo,
-      headers: payload.headers,
-      inReplyTo: payload.inReplyTo,
-      references,
-      attachments: payload.attachments?.map((att) => ({
-        filename: att.filename,
-        content: att.content,
-        contentType: att.contentType,
-      })),
-    };
+    const mailOptions = buildMessageOptions(exchange.body, resolved);
 
     try {
       const info = await transporter.sendMail(mailOptions);

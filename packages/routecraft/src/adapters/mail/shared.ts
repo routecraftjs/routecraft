@@ -228,6 +228,61 @@ export function splitMailMessage(message: MailMessage): {
 }
 
 /**
+ * Composed message options accepted by both nodemailer's `sendMail` and
+ * `MailComposer`. One shape for the two egress paths (SMTP send and IMAP
+ * append) so a composed reply threads identically wherever it ends up.
+ */
+export interface MailMessageOptions {
+  from?: string | undefined;
+  to: string | string[];
+  subject: string;
+  text?: string | undefined;
+  html?: string | undefined;
+  cc?: string | string[] | undefined;
+  bcc?: string | string[] | undefined;
+  replyTo?: string | undefined;
+  headers?: Record<string, string> | undefined;
+  inReplyTo?: string | undefined;
+  references?: string | string[] | undefined;
+  attachments?: MailSendPayload["attachments"] | undefined;
+}
+
+/**
+ * Map a {@link MailSendPayload} onto nodemailer message options, merging
+ * option-level defaults (from, replyTo, cc, bcc) and deriving the
+ * threading headers. Shared by the SMTP send destination and the IMAP
+ * append flow so the threading contract lives in one place.
+ */
+export function buildMessageOptions(
+  payload: MailSendPayload,
+  defaults: MailClientOptions,
+): MailMessageOptions {
+  // Threading sugar: a reply that only knows the original Message-ID
+  // still gets a References header, so clients stitch the thread. An
+  // empty string or empty array counts as "not given", matching the
+  // documented inReplyTo contract.
+  const hasReferences = Array.isArray(payload.references)
+    ? payload.references.length > 0
+    : payload.references !== undefined && payload.references !== "";
+  const references = hasReferences ? payload.references : payload.inReplyTo;
+
+  return {
+    from: payload.from ?? defaults.from,
+    to: payload.to,
+    subject: payload.subject,
+    text: payload.text,
+    html: payload.html,
+    cc: payload.cc ?? defaults.cc,
+    bcc: payload.bcc ?? defaults.bcc,
+    replyTo: payload.replyTo ?? defaults.replyTo,
+    headers: payload.headers,
+    inReplyTo: payload.inReplyTo,
+    references,
+    attachments: payload.attachments,
+  };
+}
+
+/**
  * Build a raw MIME message from a MailSendPayload using nodemailer's MailComposer.
  */
 export async function buildMimeMessage(
@@ -235,17 +290,7 @@ export async function buildMimeMessage(
   smtpDefaults: MailClientOptions,
 ): Promise<Buffer> {
   const MailComposer = (await import("nodemailer/lib/mail-composer")).default;
-  const composer = new MailComposer({
-    from: payload.from ?? smtpDefaults.from,
-    to: payload.to,
-    subject: payload.subject,
-    text: payload.text,
-    html: payload.html,
-    cc: payload.cc ?? smtpDefaults.cc,
-    bcc: payload.bcc ?? smtpDefaults.bcc,
-    replyTo: payload.replyTo ?? smtpDefaults.replyTo,
-    attachments: payload.attachments,
-  });
+  const composer = new MailComposer(buildMessageOptions(payload, smtpDefaults));
   return composer.compile().build();
 }
 

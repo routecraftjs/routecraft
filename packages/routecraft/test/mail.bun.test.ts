@@ -75,8 +75,13 @@ mock.module("nodemailer", () => ({
   }),
 }));
 
+const mockMailComposerOptions = mock();
+
 mock.module("nodemailer/lib/mail-composer", () => ({
   default: class MockMailComposer {
+    constructor(options: Record<string, unknown>) {
+      mockMailComposerOptions(options);
+    }
     compile() {
       return {
         build: mock().mockResolvedValue(Buffer.from("raw mime")),
@@ -957,6 +962,40 @@ describe("Mail Adapter", () => {
         expect.any(Buffer),
         ["\\Draft"],
         undefined,
+      );
+    });
+
+    /**
+     * @case Append composes with threading fields and custom headers
+     * @preconditions Exchange body sets inReplyTo and headers, no references
+     * @expectedResult MailComposer receives inReplyTo, the derived References
+     *   chain, and the custom headers, same as the SMTP send path
+     */
+    test("append carries threading fields into the composed MIME", async () => {
+      const adapter = mail({ action: "append", folder: "Drafts" });
+      const context = await buildMailContext();
+      const exchange = {
+        id: "test",
+        headers: {},
+        body: {
+          to: "recipient@test.com",
+          subject: "Re: Draft",
+          text: "Draft reply body",
+          inReplyTo: "<original@example.com>",
+          headers: { "X-Auto-Response-Suppress": "All" },
+        },
+        logger: console,
+      } as any;
+      attachContext(exchange, context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockMailComposerOptions).toHaveBeenCalledWith(
+        expect.objectContaining({
+          inReplyTo: "<original@example.com>",
+          references: "<original@example.com>",
+          headers: { "X-Auto-Response-Suppress": "All" },
+        }),
       );
     });
 
