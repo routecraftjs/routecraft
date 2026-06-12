@@ -474,6 +474,100 @@ describe("Mail Adapter", () => {
         }),
       );
     });
+
+    /**
+     * @case Threading fields and custom headers are forwarded to nodemailer
+     * @preconditions Payload sets inReplyTo and headers but no references
+     * @expectedResult sendMail receives inReplyTo, headers, and a References
+     *   chain derived from inReplyTo so the reply threads in mail clients
+     */
+    test("forwards inReplyTo, derived references, and custom headers", async () => {
+      mockSendMail.mockResolvedValue({
+        messageId: "<reply@example.com>",
+        accepted: ["recipient@example.com"],
+        rejected: [],
+        response: "250 OK",
+      });
+
+      const sendAdapter = mail({
+        host: "smtp.test.com",
+        auth: { user: "u", pass: "p" },
+        from: "me@test.com",
+      });
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-send-threading")
+            .from(
+              simple({
+                to: "recipient@example.com",
+                subject: "Re: Hello",
+                text: "Reply body",
+                inReplyTo: "<original@example.com>",
+                headers: { "X-Auto-Response-Suppress": "All" },
+              }),
+            )
+            .to(sendAdapter as any),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(mockSendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          inReplyTo: "<original@example.com>",
+          references: "<original@example.com>",
+          headers: { "X-Auto-Response-Suppress": "All" },
+        }),
+      );
+    });
+
+    /**
+     * @case An explicit references chain wins over the derived one
+     * @preconditions Payload sets both inReplyTo and references
+     * @expectedResult sendMail receives the explicit references array unchanged
+     */
+    test("explicit references override the inReplyTo-derived chain", async () => {
+      mockSendMail.mockResolvedValue({
+        messageId: "<reply@example.com>",
+        accepted: ["recipient@example.com"],
+        rejected: [],
+        response: "250 OK",
+      });
+
+      const sendAdapter = mail({
+        host: "smtp.test.com",
+        auth: { user: "u", pass: "p" },
+        from: "me@test.com",
+      });
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-send-references")
+            .from(
+              simple({
+                to: "recipient@example.com",
+                subject: "Re: Hello",
+                text: "Reply body",
+                inReplyTo: "<msg-2@example.com>",
+                references: ["<msg-1@example.com>", "<msg-2@example.com>"],
+              }),
+            )
+            .to(sendAdapter as any),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(mockSendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          inReplyTo: "<msg-2@example.com>",
+          references: ["<msg-1@example.com>", "<msg-2@example.com>"],
+        }),
+      );
+    });
   });
 
   describe("Named accounts", () => {

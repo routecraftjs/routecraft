@@ -85,6 +85,11 @@ export class MailSendDestinationAdapter implements Destination<
       cc: payload.cc ?? resolved.cc,
       bcc: payload.bcc ?? resolved.bcc,
       replyTo: payload.replyTo ?? resolved.replyTo,
+      headers: payload.headers,
+      inReplyTo: payload.inReplyTo,
+      // Threading sugar: a reply that only knows the original Message-ID
+      // still gets a References header, so clients stitch the thread.
+      references: payload.references ?? payload.inReplyTo,
       attachments: payload.attachments?.map((att) => ({
         filename: att.filename,
         content: att.content,
