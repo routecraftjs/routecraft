@@ -49,6 +49,7 @@ export interface ExecutorDeps {
     | "errorHandler"
     | "retry"
     | "timeout"
+    | "throttle"
   >;
   buildForward(): ForwardFn;
   /**
@@ -122,8 +123,9 @@ export async function runPipeline(
   //   (parse if present) -> source-attached
   //   retry segment      -> route-scope .retry() (#7, wraps the tail)
   //   timeout segment    -> route-scope .timeout() (#8, wraps the tail)
-  //   postParseFilters   -> .cache() check (#9), future
-  //                         .throttle() / .circuitBreaker() (positions 5-6)
+  //   throttle gate      -> route-scope .throttle() (#5, admits once,
+  //                         OUTSIDE the retry / timeout segments)
+  //   postParseFilters   -> .cache() check (#9), future .circuitBreaker() (#6)
   //   userSteps          -> declaration order, unchanged
   //   postFromFilters    -> .cache() store
   //
@@ -155,6 +157,15 @@ export async function runPipeline(
   }
   if (deps.definition.retry) {
     tail = [buildRetrySegmentStep(deps, tail, deps.definition.retry)];
+  }
+  // Route-scope throttle (#5) is the outermost resilience filter: it
+  // admits an exchange ONCE, then the retry / timeout segments (and the
+  // cache-check + user pipeline below them) run. A retried attempt
+  // re-runs only the wrapped tail, so it never re-acquires a token.
+  // Unlike retry / timeout it does not scope over the tail, so it is a
+  // flat sibling step prepended here rather than a wrapping segment.
+  if (deps.definition.throttle) {
+    tail = [deps.definition.throttle, ...tail];
   }
 
   const initialSteps: Step<Adapter>[] = [

@@ -169,6 +169,11 @@ export {
   type RetryOptions,
   type ResolvedRetryOptions,
 } from "./operations/retry-wrapper.ts";
+export {
+  ThrottleWrapperStep,
+  type ThrottleOptions,
+  type ResolvedThrottleOptions,
+} from "./operations/throttle-wrapper.ts";
 
 export {
   ContextBuilder,

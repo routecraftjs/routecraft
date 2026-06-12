@@ -13,6 +13,10 @@ import {
   PARSE_DROPPED_REASON,
 } from "../adapters/shared/parse.ts";
 import { type Adapter, type Step } from "../types.ts";
+import {
+  acquireThrottleSlot,
+  type TokenBucket,
+} from "../operations/throttle-wrapper.ts";
 
 /**
  * Synthetic pipeline steps the engine inserts around user steps: the
@@ -367,6 +371,84 @@ export function buildCacheStoreStep(
           });
         }
       }
+      return { kind: "continue", exchange } as const;
+    },
+  };
+}
+
+/**
+ * Synthetic adapter carrier for the route-scope throttle gate. Distinct
+ * id so telemetry correlating by `adapter` can tell route-scope rate
+ * limiting apart from the user pipeline. No behaviour; the step's
+ * `execute` does the work.
+ */
+const THROTTLE_CHECK_STEP_ADAPTER: Adapter = {
+  adapterId: "routecraft.throttle",
+};
+
+/**
+ * Build the route-scope `.throttle()` gate (pre-from chain position #5).
+ * Acquires a token from the route-shared {@link TokenBucket}, pacing the
+ * exchange when the bucket is empty, then continues the pipeline
+ * unchanged. It still runs before the cache check, so a paced request
+ * does not consume a cache lookup until it is admitted.
+ *
+ * Unlike `.retry()` / `.timeout()`, throttle does not scope OVER the
+ * chain tail (it neither re-runs nor bounds it): it is a one-shot gate.
+ * Because it must sit OUTSIDE the retry / timeout segments (which wrap
+ * `postParseFilters`), it rides on the dedicated `RouteDefinition.throttle`
+ * field rather than in `postParseFilters`; the executor prepends it to
+ * the tail AFTER those segments wrap, so a retried attempt re-runs only
+ * the tail below it and never re-acquires a token.
+ *
+ * The single `bucket` is built once per route by `RouteBuilder.from()`
+ * and closed over here, so all exchanges on the route share one limiter.
+ * Emits the `route:throttle:*` family with `scope: "route"`.
+ * `skipStepEvents: true` keeps `runPipeline` from emitting generic
+ * lifecycle events for this internal step.
+ *
+ * @internal Exported only so `RouteBuilder.from()` can assemble it onto
+ * `RouteDefinition.throttle`. Not part of the public API; the signature
+ * may change without notice.
+ */
+export function buildThrottleCheckStep(bucket: TokenBucket): Step<Adapter> {
+  return {
+    operation: OperationType.THROTTLE,
+    label: "throttle",
+    adapter: THROTTLE_CHECK_STEP_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange) {
+      const internals = EXCHANGE_INTERNALS.get(exchange);
+      const context = internals?.context;
+      const route = internals?.route;
+      const routeId =
+        route?.definition.id ??
+        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      const scoped = {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel: "route",
+        scope: "route" as const,
+      };
+
+      await acquireThrottleSlot(bucket, {
+        ...(route ? { signal: route.signal } : {}),
+        onDelayed: (waitMs) => {
+          context?.emit("route:throttle:delayed", { ...scoped, waitMs });
+        },
+        onPassed: (waited, elapsed) => {
+          context?.emit("route:throttle:passed", {
+            ...scoped,
+            waited,
+            elapsed,
+          });
+        },
+      });
+
       return { kind: "continue", exchange } as const;
     },
   };

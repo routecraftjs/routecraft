@@ -2,8 +2,8 @@
 title: Pre-from Filter Chain
 ---
 
-How `.authorize()`, `.input()`, `.cache()`, `.error()` (and future
-`.retry()` / `.timeout()` / `.circuitBreaker()` / `.throttle()`)
+How `.authorize()`, `.input()`, `.cache()`, `.error()`, `.throttle()`,
+`.retry()`, `.timeout()` (and the planned `.circuitBreaker()`)
 compose around your route. {% .lead %}
 
 Routecraft runs a **fixed ordered chain** of framework filters
@@ -24,7 +24,7 @@ Outside in (position 1 wraps everything below):
 | 2 | `authorize` (stacks) | shipped | `.authorize({ roles, scopes, predicate })` | principal on `exchange.headers` |
 | 3 | `parse` | shipped | source adapter (HTTP, mail, CSV, ...) | raw body bytes → typed body |
 | 4 | `input` | shipped (eager) | `.input(schema)` | typed body / headers |
-| 5 | `throttle` | planned | `.throttle({...})` | rate limit on the route |
+| 5 | `throttle` | shipped | `.throttle({ requestsPerSecond })` | rate limit on the route |
 | 6 | `circuitBreaker` | planned ([#139](https://github.com/routecraftjs/routecraft/issues/139)) | `.circuitBreaker({...})` | failure stats; fast-fails when open |
 | 7 | `retry` | shipped | `.retry({...})` | re-runs everything below on failure |
 | 8 | `timeout` | shipped | `.timeout(ms)` | per-attempt deadline |

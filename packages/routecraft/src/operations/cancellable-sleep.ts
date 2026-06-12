@@ -41,7 +41,7 @@ export class SleepAbortedError extends Error {
  * and never waits out a delay or retry backoff it no longer needs.
  *
  * Shared by the resilience wrappers: `.delay()` (the wait itself),
- * `.retry()` (the backoff between attempts), and future `.throttle()`
+ * `.retry()` (the backoff between attempts), and `.throttle()`
  * (the pacing wait). Route shutdown exposes the signal via
  * `Route.signal`.
  *

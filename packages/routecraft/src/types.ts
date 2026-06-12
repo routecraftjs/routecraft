@@ -475,6 +475,25 @@ export interface EventDetailsMap {
     elapsed: number;
   };
 
+  // -- Throttle (route- and step-scope wrapper) --
+  /** No token was free; the exchange will wait `waitMs` before admission. */
+  "route:throttle:delayed": ExchangeScoped & {
+    /** Label of the wrapped step, or `"route"` when `scope === "route"`. */
+    stepLabel: string;
+    scope: "route" | "step";
+    /** Pacing wait applied before this exchange is admitted. */
+    waitMs: number;
+  };
+  /** The exchange was admitted through the rate limiter. */
+  "route:throttle:passed": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
+    /** True when the exchange had to wait for a token before admission. */
+    waited: boolean;
+    /** Total time spent in the throttle gate (0 on the fast path). */
+    elapsed: number;
+  };
+
   // -- Error handler (route- and step-scope wrappers) --
   "route:error-handler:invoked": ExchangeScoped & {
     originalError: unknown;

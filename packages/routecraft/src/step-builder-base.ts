@@ -33,6 +33,10 @@ import {
   type RetryOptions,
 } from "./operations/retry-wrapper.ts";
 import {
+  ThrottleWrapperStep,
+  type ThrottleOptions,
+} from "./operations/throttle-wrapper.ts";
+import {
   type Processor,
   type CallableProcessor,
   ProcessStep,
@@ -349,6 +353,36 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   retry(options: RetryOptions = {}): this {
     this.pendingStepWrappers.push(
       (inner) => new RetryWrapperStep(inner, options),
+    );
+    return this;
+  }
+
+  /**
+   * Rate-limit the next step to a maximum number of calls per time
+   * window. Exchanges that exceed the rate are paced (delayed) rather
+   * than dropped, so backpressure flows back through the pipeline. The
+   * limiter state (a token bucket) is shared across every exchange on
+   * the route, so concurrent exchanges queue fairly behind one rate.
+   *
+   * Supply exactly one of `requestsPerSecond` or `requestsPerMinute`.
+   * After an idle window up to that many calls burst through
+   * immediately, then admissions settle to the configured rate.
+   *
+   * On `RouteBuilder`, this method is dual-mode: called BEFORE
+   * `.from()` it rate-limits the whole pipeline at pre-from filter chain
+   * position 5 (outside the resilience wrappers, so a throttled request
+   * never reaches retry / timeout); called AFTER `.from()` it wraps the
+   * next step.
+   *
+   * The pacing wait is cancellable: when the route shuts down mid-wait
+   * the exchange is admitted immediately rather than dropped.
+   *
+   * @param options - `{ requestsPerSecond }` or `{ requestsPerMinute }`
+   * @returns This builder (same subclass, same body type)
+   */
+  throttle(options: ThrottleOptions): this {
+    this.pendingStepWrappers.push(
+      (inner) => new ThrottleWrapperStep(inner, options),
     );
     return this;
   }

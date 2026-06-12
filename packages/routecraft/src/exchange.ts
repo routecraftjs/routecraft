@@ -43,6 +43,8 @@ export enum OperationType {
   HEADER = "header",
   /** Conditionally route the exchange through one of several branches */
   CHOICE = "choice",
+  /** Rate limit an operation, pacing exchanges that exceed the rate */
+  THROTTLE = "throttle",
   /** Short-circuit the pipeline: drop the exchange without further steps */
   HALT = "halt",
 }

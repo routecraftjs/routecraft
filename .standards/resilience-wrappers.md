@@ -1,8 +1,8 @@
 # Resilience Wrappers
 
 Authoring contract for "dual-mode wrapper" operations: a single builder
-method (`.error()`, `.cache()`, `.retry()`, `.timeout()`, future
-`.circuitBreaker()` / `.throttle()`) that applies at either route scope
+method (`.error()`, `.cache()`, `.retry()`, `.timeout()`,
+`.throttle()`, future `.circuitBreaker()`) that applies at either route scope
 (when staged before `.from()`) or step scope (when chained after
 `.from()`). `.delay()` follows the step-scope half of this contract but
 is deliberately step-scope only: a route-scope delay is equivalent to a
@@ -21,7 +21,7 @@ Three categories cover every operation in the framework:
 | Category | Position | Examples |
 |----------|----------|----------|
 | Route-only | Before `.from()` only. Configures the route. | `.id()`, `.batch()`, `.title()`, `.description()`, `.input()`, `.output()` |
-| Dual-mode wrapper | Same method, position decides scope. | `.error()`, `.cache()`, `.retry()`, `.timeout()`, future `.circuitBreaker()`, `.throttle()` |
+| Dual-mode wrapper | Same method, position decides scope. | `.error()`, `.cache()`, `.retry()`, `.timeout()`, `.throttle()`, future `.circuitBreaker()` |
 | Step-only wrapper | After `.from()` only; wraps the next step. | `.delay()` (no route-scope form by design) |
 | Pipeline | After `.from()` only. Already enforced by the builder type system. | `.transform()`, `.to()`, `.process()`, `.enrich()`, `.split()`, `.aggregate()`, `.tap()`, `.filter()`, `.validate()`, `.choice()`, `.header()` |
 
@@ -193,19 +193,26 @@ step wrapping cannot provide:
 |---------|-----------------|------------------------|
 | Step-level `.circuitBreaker()` | Trip on N consecutive step failures, fail-fast subsequent calls. | Pausing the consumer during cooldown. |
 | Route-level `.circuitBreaker()` | NOT well-served by a wrapper alone. | Pausing the source consumer (HTTP / queue / cron) during cooldown so backpressure flows back to the caller / queue. |
-| Route-level `.throttle()` (rate limit on the consumer) | NOT well-served by a wrapper alone. | Token-bucket at the consumer. |
+| Route-level `.throttle()` (rate limit on the route) | Pacing exchanges through a shared token bucket so downstream calls stay within the rate (shipped as a flat gate at chain position #5). | Pausing the source consumer so it stops PULLING; the shipped gate paces in-flight exchanges instead, so under high concurrency they queue in memory. |
 
-These need a paired `Consumer` integration (a consumer that observes
-breaker / throttle state and pauses pulling). Track this constraint
-in the new operation's issue and scope its acceptance criteria
-accordingly.
+The circuit-breaker rows still need a paired `Consumer` integration (a
+consumer that observes breaker state and pauses pulling). Throttle
+shipped its wrapper / gate half (#151); the consumer-pausing half (true
+source backpressure, plus the `maxQueueSize` bound on in-flight
+exchanges) is a tracked follow-up. Track this kind of constraint in the
+new operation's issue and scope its acceptance criteria accordingly.
 
 ## 8. `.standards` checklist for a new wrapper
 
 - [ ] New `XWrapperStep` extends `WrapperStep`, implements
       `runInner(exchange, ctx)` returning a `StepOutcome` (pass `ctx`
-      straight to `this.inner.execute`; never store per-execution
-      state on `this`).
+      straight to `this.inner.execute`; never store per-EXECUTION
+      state on `this`, since one wrapper instance is shared across
+      every exchange on the route). Per-ROUTE shared state IS allowed
+      and is sometimes the point: `.throttle()` keeps its token bucket
+      on `this` precisely so all exchanges share one rate limiter.
+      The rule bars leaking one exchange's state into the next, not
+      deliberately shared route-level state.
 - [ ] Dual-mode `.x(...)` builder method on `StepBuilderBase` (step
       scope) with an override on `RouteBuilder` for the pre-from
       path.

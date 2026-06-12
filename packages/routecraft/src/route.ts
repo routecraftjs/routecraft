@@ -34,6 +34,7 @@ import { InMemoryProcessingQueue } from "./queue.ts";
 import {
   buildCacheCheckStep,
   buildCacheStoreStep,
+  buildThrottleCheckStep,
 } from "./pipeline/synthetic-steps.ts";
 import {
   applyInputValidation,
@@ -45,7 +46,7 @@ import {
 import { runPipeline, type ExecutorDeps } from "./pipeline/executor.ts";
 
 // Re-exported for existing imports (builder.ts and @internal consumers).
-export { buildCacheCheckStep, buildCacheStoreStep };
+export { buildCacheCheckStep, buildCacheStoreStep, buildThrottleCheckStep };
 
 /**
  * Function that forwards a payload to another route via the direct adapter and returns its result.
@@ -206,10 +207,11 @@ export type RouteDefinition<T = unknown> = {
   /**
    * Framework-managed filters that run AFTER the source-attached parse
    * step but BEFORE the user pipeline. Today: the route-scope
-   * `cache-check` filter (chain position #9). Future resilience
-   * wrappers (`throttle`, `circuitBreaker`, `retry`, `timeout` at
-   * positions #5-#8) slot in between input and cacheCheck once they
-   * land.
+   * `cache-check` filter (chain position #9). The future
+   * `circuitBreaker` (#6) slots in once it lands. Route-scope
+   * `throttle` (#5), `retry` (#7), and `timeout` (#8) instead sit
+   * OUTSIDE this array (it is wrapped by the retry / timeout segments),
+   * so they ride on their own definition fields below.
    *
    * @internal
    */
@@ -253,6 +255,19 @@ export type RouteDefinition<T = unknown> = {
    * pipeline executor rather than a flat `postParseFilters` entry.
    */
   readonly timeout?: ResolvedTimeoutOptions;
+
+  /**
+   * Route-scope `.throttle()` admission gate (pre-from filter chain
+   * position #5). A one-shot gate built once per route around a shared
+   * token bucket, so unlike retry / timeout it is a flat step rather
+   * than a segment. The pipeline executor places it OUTSIDE the retry
+   * (#7) / timeout (#8) segments (throttle #5 is above them in the
+   * chain) and runs it once per exchange; a retried attempt re-runs
+   * only the tail below it and never re-acquires a token.
+   *
+   * @internal
+   */
+  readonly throttle?: Step<Adapter>;
 };
 
 /**
