@@ -11,7 +11,7 @@ export function RelatedPosts({ posts }: { posts: BlogPostMeta[] }) {
   if (posts.length === 0) return null
 
   return (
-    <section className="mt-20 border-t border-ink/15 pt-10">
+    <section className="mt-20">
       <SectionLabel label="Keep reading" />
       <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">
         {posts.map((post) => (

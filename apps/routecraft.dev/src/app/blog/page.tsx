@@ -1,8 +1,9 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 
-import { BlogCard } from '@/components/BlogCard'
+import { BlogIndex } from '@/components/BlogIndex'
 import { FeaturedBlogCard } from '@/components/FeaturedBlogCard'
+import { SectionLabel } from '@/components/SectionLabel'
 import { getAllBlogPosts } from '@/lib/blog'
 
 export const metadata: Metadata = {
@@ -64,33 +65,12 @@ export default function BlogIndexPage() {
             </section>
           )}
 
-          {rest.length > 0 && (
-            <section className="mt-24">
-              <SectionLabel label="Recent posts" />
-              <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {rest.map((post) => (
-                  <BlogCard key={post.slug} post={post} />
-                ))}
-              </div>
-            </section>
-          )}
+          {rest.length > 0 && <BlogIndex posts={rest} />}
 
           <SubscribeCallout />
         </>
       )}
     </main>
-  )
-}
-
-function SectionLabel({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-4">
-      <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-500" />
-      <span className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
-        {label}
-      </span>
-      <span className="h-px flex-1 bg-ink/15" />
-    </div>
   )
 }
 

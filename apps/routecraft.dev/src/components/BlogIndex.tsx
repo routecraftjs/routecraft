@@ -11,6 +11,11 @@ import { SectionLabel } from '@/components/SectionLabel'
 // the DOM bounded no matter how many posts the archive grows to.
 const BATCH = 9
 
+// Cap the inline tag chips so the filter bar stays a tidy row or two however
+// large the tag vocabulary grows. The rest fold behind a "+N more" toggle and
+// stay findable via the search box.
+const MAX_VISIBLE_TAGS = 8
+
 /**
  * The filterable, incrementally-loaded post grid below the featured section.
  * Filtering and pagination run in the browser because the site is a static
@@ -22,6 +27,7 @@ export function BlogIndex({ posts }: { posts: BlogPostMeta[] }) {
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [query, setQuery] = useState('')
   const [visible, setVisible] = useState(BATCH)
+  const [tagsExpanded, setTagsExpanded] = useState(false)
 
   // Tags ordered by how often they appear, so the most useful filters lead.
   const allTags = useMemo(() => {
@@ -35,6 +41,17 @@ export function BlogIndex({ posts }: { posts: BlogPostMeta[] }) {
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([tag]) => tag)
   }, [posts])
+
+  // Collapsed, show the top tags plus any selected tag that would otherwise be
+  // hidden, so an active filter never disappears off the end of the list.
+  const visibleTags = useMemo(() => {
+    if (tagsExpanded) return allTags
+    const top = allTags.slice(0, MAX_VISIBLE_TAGS)
+    const pinned = selectedTags.filter((tag) => !top.includes(tag))
+    return [...top, ...pinned]
+  }, [allTags, tagsExpanded, selectedTags])
+
+  const hiddenTagCount = allTags.length - visibleTags.length
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -97,7 +114,7 @@ export function BlogIndex({ posts }: { posts: BlogPostMeta[] }) {
             >
               All
             </button>
-            {allTags.map((tag) => (
+            {visibleTags.map((tag) => (
               <button
                 key={tag}
                 type="button"
@@ -108,6 +125,24 @@ export function BlogIndex({ posts }: { posts: BlogPostMeta[] }) {
                 {tag}
               </button>
             ))}
+            {!tagsExpanded && hiddenTagCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setTagsExpanded(true)}
+                className="px-2 py-1.5 font-mono text-[0.65rem] tracking-[0.2em] text-cobalt-500 uppercase transition hover:text-cobalt-600"
+              >
+                +{hiddenTagCount} more
+              </button>
+            )}
+            {tagsExpanded && allTags.length > MAX_VISIBLE_TAGS && (
+              <button
+                type="button"
+                onClick={() => setTagsExpanded(false)}
+                className="px-2 py-1.5 font-mono text-[0.65rem] tracking-[0.2em] text-cobalt-500 uppercase transition hover:text-cobalt-600"
+              >
+                Show less
+              </button>
+            )}
           </div>
         )}
 
