@@ -130,8 +130,8 @@ export const CsvHeaders = {
 declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     /** The 1-based row number when reading a CSV file in chunked mode */
-    "routecraft.csv.row"?: number;
+    [CsvHeaders.ROW]?: number;
     /** The file path when reading a CSV file in chunked mode */
-    "routecraft.csv.path"?: string;
+    [CsvHeaders.PATH]?: string;
   }
 }

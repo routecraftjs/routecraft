@@ -6,6 +6,7 @@
  */
 
 import type { Exchange } from "../../exchange.ts";
+import { MailHeaders } from "./shared.ts";
 import type { MailSender } from "./analysis.ts";
 import type { OnParseError } from "../shared/parse.ts";
 
@@ -500,41 +501,41 @@ export type MailFetchResult = MailMessage[];
 declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     /** IMAP UID of the source message. */
-    "routecraft.mail.uid"?: number;
+    [MailHeaders.UID]?: number;
     /** IMAP folder the message was fetched from. */
-    "routecraft.mail.folder"?: string;
+    [MailHeaders.FOLDER]?: string;
     /** `Message-ID` header of the source message. */
-    "routecraft.mail.messageId"?: string;
+    [MailHeaders.MESSAGE_ID]?: string;
     /**
      * Literal `From:` header. For mailing-list forwards this is the rewritten
      * list address; use {@link MailSender} on `routecraft.mail.sender` for the
      * real sender when `verify !== "off"`.
      */
-    "routecraft.mail.from"?: string;
+    [MailHeaders.FROM]?: string;
     /** Recipient address(es), always normalised to an array. */
-    "routecraft.mail.to"?: string[];
+    [MailHeaders.TO]?: string[];
     /** CC recipient address(es). Absent when the message had none. */
-    "routecraft.mail.cc"?: string[];
+    [MailHeaders.CC]?: string[];
     /** BCC recipient address(es). Absent when the message had none. */
-    "routecraft.mail.bcc"?: string[];
+    [MailHeaders.BCC]?: string[];
     /** Subject line. */
-    "routecraft.mail.subject"?: string;
+    [MailHeaders.SUBJECT]?: string;
     /** Date the message was sent. */
-    "routecraft.mail.date"?: Date;
+    [MailHeaders.DATE]?: Date;
     /** Reply-To address, when present. */
-    "routecraft.mail.replyTo"?: string;
+    [MailHeaders.REPLY_TO]?: string;
     /** IMAP flags (e.g. `\Seen`, `\Flagged`). */
-    "routecraft.mail.flags"?: ReadonlySet<string>;
+    [MailHeaders.FLAGS]?: ReadonlySet<string>;
     /**
      * Computed effective sender with forward-chain and authentication
      * evidence. Absent when the source is configured with `verify: "off"`.
      */
-    "routecraft.mail.sender"?: MailSender;
+    [MailHeaders.SENDER]?: MailSender;
     /**
      * Raw email headers requested via the `includeHeaders` option. Keys are
      * lowercased header names; values are strings or arrays for multi-value
      * headers (e.g. multiple `Received` lines).
      */
-    "routecraft.mail.rawHeaders"?: Readonly<Record<string, string | string[]>>;
+    [MailHeaders.RAW_HEADERS]?: Readonly<Record<string, string | string[]>>;
   }
 }

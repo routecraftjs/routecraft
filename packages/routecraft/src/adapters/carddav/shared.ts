@@ -55,13 +55,13 @@ export const CarddavHeaders = {
 declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     /** vCard UID of a contact. */
-    "routecraft.carddav.uid"?: string;
+    [CarddavHeaders.UID]?: string;
     /** DAV object URL of a contact. */
-    "routecraft.carddav.url"?: string;
+    [CarddavHeaders.URL]?: string;
     /** DAV ETag of a contact. */
-    "routecraft.carddav.etag"?: string;
+    [CarddavHeaders.ETAG]?: string;
     /** Named account a contact was read from. */
-    "routecraft.carddav.account"?: string;
+    [CarddavHeaders.ACCOUNT]?: string;
   }
 }
 

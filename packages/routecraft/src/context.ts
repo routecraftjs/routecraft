@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
-import {
-  DefaultRoute,
-  type Route,
-  type RouteDefinition,
-  type RouteDiscovery,
-} from "./route.ts";
-import { ADAPTER_DIRECT_REGISTRY } from "./adapters/direct/shared.ts";
+import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
+import { CAPABILITY_REGISTRY, type Capability } from "./capabilities.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
@@ -90,19 +85,6 @@ export interface CraftPlugin {
   apply(ctx: CraftContext): void | Promise<void>;
   /** Called when the context stops, after routes have drained. Optional. */
   teardown?(ctx: CraftContext): void | Promise<void>;
-}
-
-/**
- * A discoverable capability registered in a context: a direct endpoint
- * plus the route's discovery bundle (`.title()` / `.description()` /
- * `.input()` / `.output()` / `.tag()`).
- *
- * Returned by {@link CraftContext.capabilities}; dispatch into a
- * capability with `CraftClient.sendDirect(endpoint, body)`.
- */
-export interface Capability extends RouteDiscovery {
-  /** Raw endpoint / route id, exactly as passed to `.id(...)` / `direct(...)`. */
-  endpoint: string;
 }
 
 /**
@@ -558,14 +540,9 @@ export class CraftContext {
    *   the registry.
    */
   capabilities(): Capability[] {
-    const registry = this.getStore(ADAPTER_DIRECT_REGISTRY);
+    const registry = this.getStore(CAPABILITY_REGISTRY);
     if (!registry) return [];
-    return [...registry.entries()].map(([key, meta]) => ({
-      ...meta,
-      // The registry is keyed by the sanitised (URL-encoded) endpoint;
-      // the public surface speaks raw ids.
-      endpoint: decodeURIComponent(key),
-    }));
+    return [...registry.values()].map((capability) => ({ ...capability }));
   }
 
   /**

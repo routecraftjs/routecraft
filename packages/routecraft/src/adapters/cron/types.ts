@@ -99,16 +99,16 @@ export const CronHeaders = {
 declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     /** The cron expression that triggered this exchange */
-    "routecraft.cron.expression"?: string;
+    [CronHeaders.EXPRESSION]?: string;
     /** The timestamp when the cron job fired, in ISO 8601 format */
-    "routecraft.cron.firedTime"?: string;
+    [CronHeaders.FIRED_TIME]?: string;
     /** The next timestamp when the cron job will fire, in ISO 8601 format */
-    "routecraft.cron.nextRun"?: string;
+    [CronHeaders.NEXT_RUN]?: string;
     /** The number of times the cron job has fired */
-    "routecraft.cron.counter"?: number;
+    [CronHeaders.COUNTER]?: number;
     /** The IANA timezone for the cron schedule */
-    "routecraft.cron.timezone"?: string;
+    [CronHeaders.TIMEZONE]?: string;
     /** The human-readable name for the cron job */
-    "routecraft.cron.name"?: string;
+    [CronHeaders.NAME]?: string;
   }
 }

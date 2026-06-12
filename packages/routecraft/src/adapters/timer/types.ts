@@ -63,14 +63,14 @@ export const TimerHeaders = {
 declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     /** The exact timestamp when the timer fired, in ISO 8601 format */
-    "routecraft.timer.time"?: string;
+    [TimerHeaders.TIME]?: string;
     /** The timestamp when the exchange was created, in ISO 8601 format */
-    "routecraft.timer.firedTime"?: string;
+    [TimerHeaders.FIRED_TIME]?: string;
     /** The period in milliseconds between timer firings */
-    "routecraft.timer.periodMs"?: number;
+    [TimerHeaders.PERIOD_MS]?: number;
     /** The number of times the timer has fired */
-    "routecraft.timer.counter"?: number;
+    [TimerHeaders.COUNTER]?: number;
     /** The next timestamp when the timer will fire, in ISO 8601 format */
-    "routecraft.timer.nextRun"?: string;
+    [TimerHeaders.NEXT_RUN]?: string;
   }
 }

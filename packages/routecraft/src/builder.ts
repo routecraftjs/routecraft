@@ -454,18 +454,16 @@ export interface PreFromBuilder<S extends BuilderState = BuilderState> {
   cache(options?: CacheOptions<unknown>): this;
   /** Declare an authorization requirement on the next route. See {@link RouteBuilder.authorize}. */
   authorize(options?: AuthorizeOptions): this;
-  /** Open the route: define its source(s) and enter the pipeline surface. See {@link RouteBuilder.from}. */
-  from<T>(source: SourceLike<T>): RouteBuilder<SetBody<S, T>>;
-  from<T>(source: SourceLike<unknown>): RouteBuilder<SetBody<S, T>>;
-  from<T>(
-    ...sources: [
-      SourceLike<unknown>,
-      SourceLike<unknown>,
-      ...Array<SourceLike<unknown>>,
-    ]
-  ): RouteBuilder<SetBody<S, T>>;
+  /**
+   * Open the route: define its source(s) and enter the pipeline surface.
+   * Derived from the class via an indexed-access type so the (ordering
+   * sensitive) overload set is defined exactly once, on
+   * {@link RouteBuilder.from}; a future overload change cannot diverge
+   * between the pre-`from` and post-`from` surfaces.
+   */
+  from: RouteBuilder<S>["from"];
   /** Finalize and return the route definition(s). See {@link RouteBuilder.build}. */
-  build(): RouteDefinition[];
+  build: RouteBuilder<S>["build"];
 }
 
 export class RouteBuilder<

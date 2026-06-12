@@ -474,12 +474,15 @@ type RewrapState = {
 const REWRAP_CAPSULE = Symbol("routecraft.exchange.rewrap");
 
 /**
- * Carrier for {@link RewrapState}, constructable only inside this module
- * (see {@link REWRAP_CAPSULE}).
+ * Branded {@link RewrapState}, constructable only inside this module (see
+ * {@link REWRAP_CAPSULE}). Flat (brand on the state object itself, not a
+ * wrapper around it) so the per-step rewrap hot path allocates one object
+ * for the capsule, not two; the module-private symbol gives the same
+ * unforgeability either way.
  *
  * @internal
  */
-type RewrapCapsule = { readonly [REWRAP_CAPSULE]: RewrapState };
+type RewrapCapsule = RewrapState & { readonly [REWRAP_CAPSULE]: true };
 
 /**
  * Default implementation of the Exchange interface.
@@ -549,7 +552,7 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
     options?: DefaultExchangeOptions<T>,
     rewrap?: RewrapCapsule,
   ) {
-    const rewrapState = rewrap?.[REWRAP_CAPSULE];
+    const rewrapState = rewrap?.[REWRAP_CAPSULE] === true ? rewrap : undefined;
     // Per-key gating preserves required defaults (`ID`, `OPERATION`,
     // `ROUTE_ID`, `CORRELATION_ID`) when a caller supplies only some of
     // them, instead of an all-or-nothing fast path that would silently
@@ -749,7 +752,11 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
         headers: newHeaders,
         body: ("body" in partial ? partial.body : prev.body) as T,
       },
-      { [REWRAP_CAPSULE]: { internals: prevInternals, logger: prev.logger } },
+      {
+        [REWRAP_CAPSULE]: true,
+        internals: prevInternals,
+        logger: prev.logger,
+      },
     );
   }
 }

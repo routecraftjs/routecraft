@@ -1,7 +1,6 @@
 import type { CraftContext } from "../../context";
 import type { Exchange } from "../../exchange";
 import type { RegisteredDirectEndpoint } from "../../registry";
-import type { RouteSchemas, Tag } from "../../route";
 
 /**
  * @deprecated Use `CraftConfig.direct` (a `Pick<DirectBaseOptions, "channelType">`) instead.
@@ -34,29 +33,6 @@ export interface DirectChannel<T = unknown> {
     handler: (message: T) => Promise<T>,
   ): Promise<void>;
   unsubscribe(context: CraftContext, endpoint: string): Promise<void>;
-}
-
-/**
- * Metadata for a direct route stored in the direct route registry.
- *
- * Populated from the route's `discovery` bundle at subscribe time; the
- * direct adapter mirrors the shared tool-shape fields so in-process
- * agents can inspect the available capabilities. MCP adapter keeps its
- * own registry for protocol-specific extras.
- */
-export interface DirectRouteMetadata {
-  /** Route name (matches the sanitized endpoint). */
-  endpoint: string;
-  /** Human-readable display title. */
-  title?: string;
-  /** Human-readable description of what this route does. */
-  description?: string;
-  /** Input schemas (request body, request headers). */
-  input?: RouteSchemas;
-  /** Output schemas (response body, response headers). */
-  output?: RouteSchemas;
-  /** Tags used by selectors (e.g. `tools({ tagged: "read-only" })`). */
-  tags?: Tag[];
 }
 
 /**

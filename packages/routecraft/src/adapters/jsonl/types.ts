@@ -121,8 +121,8 @@ export const JsonlHeaders = {
 declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     /** The 1-based line number when reading a JSONL file in chunked mode */
-    "routecraft.jsonl.line"?: number;
+    [JsonlHeaders.LINE]?: number;
     /** The file path when reading a JSONL file in chunked mode */
-    "routecraft.jsonl.path"?: string;
+    [JsonlHeaders.PATH]?: string;
   }
 }

@@ -1,12 +1,14 @@
 import { markDropped, type Exchange } from "./exchange.ts";
+import { BRAND, isBranded } from "./brand.ts";
 import type { CraftContext } from "./context.ts";
 import type { Route } from "./route.ts";
 
 /**
- * Brand key marking a {@link Recovery} directive. `Symbol.for` so directives
- * survive crossing duplicate copies of the package (CLI vs user module).
+ * Brand key marking a {@link Recovery} directive. Registered in
+ * {@link BRAND} (`Symbol.for`) so directives survive crossing duplicate
+ * copies of the package (CLI vs user module).
  */
-const RECOVERY = Symbol.for("routecraft.recovery");
+const RECOVERY = BRAND.Recovery;
 
 /**
  * Directive returned from an {@link ErrorHandler} to drop the failing
@@ -76,11 +78,7 @@ export const recovery = {
 
 /** Type guard for {@link Recovery} directives. */
 export function isRecovery(value: unknown): value is Recovery {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as Record<PropertyKey, unknown>)[RECOVERY] === true
-  );
+  return isBranded(value, RECOVERY);
 }
 
 /**

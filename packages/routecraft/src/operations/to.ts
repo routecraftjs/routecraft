@@ -1,4 +1,9 @@
-import { type Adapter, type Step, type StepOutcome } from "../types.ts";
+import {
+  type Adapter,
+  type Step,
+  type StepOutcome,
+  extractOutcomeMetadata,
+} from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -83,19 +88,9 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
       result = await Promise.resolve(this.adapter.send(exchange));
     }
 
-    // Extract metadata if the adapter provides it (skip when overridden; mock
-    // results are typically primitives and have no adapter metadata). The
-    // metadata rides the OUTCOME, not the step: Step instances are shared
-    // across exchanges.
-    const getMetadata = (
-      this.adapter as {
-        getMetadata?: (result: unknown) => Record<string, unknown>;
-      }
-    ).getMetadata;
-    const metadata =
-      !override && getMetadata
-        ? getMetadata.call(this.adapter, result)
-        : undefined;
+    // The metadata rides the OUTCOME, not the step: Step instances are
+    // shared across exchanges.
+    const metadata = extractOutcomeMetadata(this.adapter, result, !!override);
 
     // If result is defined, replace body with result via a derived
     // exchange (the original is frozen; constructing a new wrapper preserves

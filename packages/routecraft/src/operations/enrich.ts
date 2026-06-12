@@ -1,5 +1,9 @@
 import { ENRICH_MERGE_TYPE } from "../brand.ts";
-import { type Step, type StepOutcome } from "../types.ts";
+import {
+  type Step,
+  type StepOutcome,
+  extractOutcomeMetadata,
+} from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -222,18 +226,13 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
       enrichmentData = await Promise.resolve(this.adapter.send(exchange));
     }
 
-    // Extract metadata if the adapter provides it (skip when overridden).
     // The metadata rides the OUTCOME, not the step: Step instances are
     // shared across exchanges.
-    const getMetadata = (
-      this.adapter as {
-        getMetadata?: (result: unknown) => Record<string, unknown>;
-      }
-    ).getMetadata;
-    const metadata =
-      !override && getMetadata
-        ? getMetadata.call(this.adapter, enrichmentData)
-        : undefined;
+    const metadata = extractOutcomeMetadata(
+      this.adapter,
+      enrichmentData,
+      !!override,
+    );
 
     // Use the provided aggregator or the default one
     const aggregator = this.aggregator || defaultEnrichAggregator;

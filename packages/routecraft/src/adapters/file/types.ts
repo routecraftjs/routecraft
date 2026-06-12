@@ -50,8 +50,8 @@ export const FileHeaders = {
 declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     /** The 1-based line number when reading a file in chunked mode */
-    "routecraft.file.line"?: number;
+    [FileHeaders.LINE]?: number;
     /** The file path when reading a file in chunked mode */
-    "routecraft.file.path"?: string;
+    [FileHeaders.PATH]?: string;
   }
 }

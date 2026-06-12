@@ -4,7 +4,7 @@ title: Migrating from 0.5.x to 0.6.0
 
 What changed between Routecraft 0.5.0 and 0.6.0, and how to update. {% .lead %}
 
-0.6.0 is a large release: a set of surface changes plus the architecture pass before v1. The contracts that freeze at v1 changed shape once, now, so they do not have to change after; in exchange every route runs ~25% faster (steps wrapped with `.error()` ~45% faster) and event throughput doubles.
+0.6.0 is a large release: a set of surface changes plus the architecture pass before v1. The contracts that freeze at v1 changed shape once, now, so they do not have to change after; the engine rework also brings a significant performance improvement to route and event processing.
 
 Surface changes:
 

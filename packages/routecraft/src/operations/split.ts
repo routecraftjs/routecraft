@@ -5,7 +5,7 @@ import {
   getAdapterLabel,
   type StepOutcome,
 } from "../types.ts";
-import { INTERNALS_KEY, isExchange } from "../brand.ts";
+import { BRAND, INTERNALS_KEY, isBranded, isExchange } from "../brand.ts";
 import { rcError } from "../error.ts";
 import {
   type Exchange,
@@ -33,10 +33,11 @@ declare module "@routecraft/routecraft" {
 }
 
 /**
- * Brand key marking a {@link SplitChild} envelope. `Symbol.for` so envelopes
- * survive crossing duplicate copies of the package (CLI vs user module).
+ * Brand key marking a {@link SplitChild} envelope. Registered in
+ * {@link BRAND} (`Symbol.for`) so envelopes survive crossing duplicate
+ * copies of the package (CLI vs user module).
  */
-const SPLIT_CHILD = Symbol.for("routecraft.split.child");
+const SPLIT_CHILD = BRAND.SplitChild;
 
 /**
  * Per-child envelope produced by {@link splitChild}: a body plus optional
@@ -75,11 +76,7 @@ export function splitChild<R>(
 
 /** Type guard for {@link SplitChild} envelopes. */
 export function isSplitChild(value: unknown): value is SplitChild {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as Record<PropertyKey, unknown>)[SPLIT_CHILD] === true
-  );
+  return isBranded(value, SPLIT_CHILD);
 }
 
 /**
@@ -214,7 +211,9 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
         body: childBody,
         headers: {
           ...exchange.headers,
-          ...(envelope?.headers ?? {}),
+          // Spreading undefined is a no-op, so plain children pay no
+          // empty-object allocation.
+          ...envelope?.headers,
           [HeadersKeys.ID]: randomUUID(),
           [HeadersKeys.SPLIT_HIERARCHY]: splitHierarchy,
         },

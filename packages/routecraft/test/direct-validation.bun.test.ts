@@ -2,7 +2,6 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, direct } from "@routecraft/routecraft";
-import { ADAPTER_DIRECT_REGISTRY } from "../src/adapters/direct/shared.ts";
 
 /**
  * Direct adapter validation tests
@@ -1317,19 +1316,18 @@ describe("Direct adapter validation", () => {
   // ============================================================
   describe("Registry and discovery", () => {
     /**
-     * @case Routes are registered in the direct route registry
+     * @case Routes are registered as discoverable capabilities
      * @preconditions Route created via direct()
-     * @expectedResult Registry contains the endpoint entry
+     * @expectedResult capabilities() contains the endpoint entry
      */
-    test("routes register in store", async () => {
+    test("routes register as capabilities", async () => {
       t = await testContext()
         .routes([craft().id("test-endpoint").from(direct()).to(mock())])
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-      expect(registry).toBeDefined();
-      expect(registry?.has("test-endpoint")).toBe(true);
+      const endpoints = t.ctx.capabilities().map((c) => c.endpoint);
+      expect(endpoints).toContain("test-endpoint");
     });
 
     /**
@@ -1365,19 +1363,19 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Registry created if not exists
+     * @case Capability registry materialises on first registration
      * @preconditions No routes registered yet
-     * @expectedResult Registry created on first registration
+     * @expectedResult capabilities() reports the first registered endpoint
      */
-    test("registry created if not exists", async () => {
+    test("capability registry created on first registration", async () => {
       t = await testContext()
         .routes([craft().id("first-endpoint").from(direct()).to(mock())])
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-      expect(registry).toBeDefined();
-      expect(registry).toBeInstanceOf(Map);
+      expect(t.ctx.capabilities().map((c) => c.endpoint)).toContain(
+        "first-endpoint",
+      );
     });
 
     /**
@@ -1395,19 +1393,19 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-      expect(registry?.size).toBe(3);
-      expect(registry?.has("endpoint-a")).toBe(true);
-      expect(registry?.has("endpoint-b")).toBe(true);
-      expect(registry?.has("endpoint-c")).toBe(true);
+      const endpoints = t.ctx.capabilities().map((c) => c.endpoint);
+      expect(endpoints).toHaveLength(3);
+      expect(endpoints).toContain("endpoint-a");
+      expect(endpoints).toContain("endpoint-b");
+      expect(endpoints).toContain("endpoint-c");
     });
 
     /**
-     * @case Registry metadata captures the full tool shape (name/title/description/schemas/annotations/icons)
+     * @case Capability metadata captures the full tool shape (name/title/description/schemas)
      * @preconditions Route declares every tool-shape field
-     * @expectedResult Registry entry mirrors the declared options
+     * @expectedResult Capability entry mirrors the declared options
      */
-    test("registry captures full tool-shape metadata", async () => {
+    test("capability captures full tool-shape metadata", async () => {
       t = await testContext()
         .routes([
           craft()
@@ -1422,8 +1420,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-      const routes = registry ? Array.from(registry.values()) : [];
+      const routes = t.ctx.capabilities();
       expect(routes).toHaveLength(1);
       expect(routes[0]).toEqual({
         endpoint: "my-endpoint",
@@ -1435,14 +1432,15 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Sanitized endpoint names used in registry
-     * @preconditions Endpoint name has special characters
-     * @expectedResult URL-encoded name in registry (collision-free)
+     * @case Capability endpoints keep their raw ids
+     * @preconditions Endpoint name has URL-unsafe characters ("/")
+     * @expectedResult capabilities() lists the raw id; the URL-encoded
+     *                 channel key never leaks into the discovery surface
      */
-    test("sanitized endpoint names used in registry", async () => {
+    test("capability endpoints keep raw ids", async () => {
       // Route id cannot contain `:` because event names are colon-delimited;
-      // other URL-unsafe characters (like `/`) are still encoded in the
-      // registry key so distinct ids never collide on disk-like lookups.
+      // other URL-unsafe characters (like `/`) are encoded only in the
+      // direct adapter's channel key, a transport detail.
       t = await testContext()
         .routes([
           craft().id("my.special/endpoint/name").from(direct()).to(mock()),
@@ -1450,9 +1448,9 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-      expect(registry?.has("my.special%2Fendpoint%2Fname")).toBe(true);
-      expect(registry?.has("my.special/endpoint/name")).toBe(false);
+      const endpoints = t.ctx.capabilities().map((c) => c.endpoint);
+      expect(endpoints).toContain("my.special/endpoint/name");
+      expect(endpoints).not.toContain("my.special%2Fendpoint%2Fname");
     });
   });
 
@@ -1599,10 +1597,10 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      const registry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-      expect(registry?.size).toBe(2);
-      expect(registry?.has("endpoint-1")).toBe(true);
-      expect(registry?.has("endpoint-2")).toBe(true);
+      const endpoints = t.ctx.capabilities().map((c) => c.endpoint);
+      expect(endpoints).toHaveLength(2);
+      expect(endpoints).toContain("endpoint-1");
+      expect(endpoints).toContain("endpoint-2");
     });
   });
 });

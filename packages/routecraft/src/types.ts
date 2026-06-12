@@ -79,6 +79,27 @@ export interface Step<T extends Adapter> {
 export type StepOutcomeMetadata = Record<string, unknown>;
 
 /**
+ * Read {@link StepOutcomeMetadata} from an adapter's optional
+ * `getMetadata(result)` hook. Shared by the `to` and `enrich` steps so
+ * the metadata contract has one implementation; `skip` short-circuits
+ * when a test override replaced the adapter result (mock results are
+ * typically primitives and carry no adapter metadata).
+ *
+ * @internal
+ */
+export function extractOutcomeMetadata(
+  adapter: Adapter,
+  result: unknown,
+  skip: boolean,
+): StepOutcomeMetadata | undefined {
+  if (skip) return undefined;
+  const getMetadata = (
+    adapter as { getMetadata?: (result: unknown) => StepOutcomeMetadata }
+  ).getMetadata;
+  return getMetadata ? getMetadata.call(adapter, result) : undefined;
+}
+
+/**
  * What a step did with its exchange. Returned from {@link Step.execute};
  * the pipeline executor translates outcomes into scheduling:
  *
