@@ -148,8 +148,8 @@ Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick 
 ### Versioning model
 
 - `.changeset/config.json` declares a `fixed` group, the **core train**: `@routecraft/routecraft`, `@routecraft/cli`, `@routecraft/testing`, `create-routecraft`, `@routecraft/eslint-plugin-routecraft`, `@routecraft/prettier-plugin-routecraft`. These always share one version number.
-- Everything else (`@routecraft/ai`, `@routecraft/browser`, future vendor packages) versions independently.
-- `routecraft.dev` and `examples` are ignored; `@routecraft/os` is versioned but never tagged/published (private).
+- Everything else (`@routecraft/ai`, `@routecraft/os`, future vendor packages) versions independently.
+- `routecraft.dev` and `examples` are ignored.
 - `onlyUpdatePeerDependentsWhenOutOfRange` is on, so a core bump that stays inside ecosystem peer ranges does not cascade at all. When a bump DOES leave the range, changesets major-bumps the dependents, which is why the pre-1.0 peer range form is `>=0.5.0 <1.0.0` (see section 5). The flag lives under changesets' `___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH` key, so re-check the changesets release notes for it whenever bumping `@changesets/cli`.
 
 ### Pipeline
@@ -160,7 +160,7 @@ All rows below run inside `release.yml`, which triggers via `workflow_run` after
 |---------|-----|--------|
 | Main push with pending changesets | `release` (changesets action) | Opens/updates the "Version Packages" PR: runs `bun run version-packages` (= `changeset version` + `scripts/sync-derived-versions.mjs`, which patches the `.claude-plugin/{plugin,marketplace}.json` versions from core). |
 | Merging the "Version Packages" PR | `release` | `bun run release` (= build + `changeset publish`) publishes to npm with provenance, creates one GitHub Release per package version (tags like `@routecraft/routecraft@0.7.0`), and pushes a `v<core-version>` tag; `build-and-deploy-docs` then freezes the docs to that fresh tag in the same workflow run. |
-| Main push touching packages | `publish-canary` (after `release`) | Publishes canaries of the packages CHANGED by the push (`0.6.0-canary-<datetime>`, calculated from the last release plus pending changesets) under the npm `canary` dist-tag, no git tags. A synthetic changeset is generated from the git diff (base sha handed over from CI as the `push-base` artifact), so canaries flow on every merge whether or not the PR carried a changeset. The fixed core train always moves together (a change to any train member canaries the whole train, lockstep); independent packages (ai, browser) canary when they themselves changed OR while they carry a pending changeset (the canary previews the whole upcoming release). |
+| Main push touching packages | `publish-canary` (after `release`) | Publishes canaries of the packages CHANGED by the push (`0.6.0-canary-<datetime>`, calculated from the last release plus pending changesets) under the npm `canary` dist-tag, no git tags. A synthetic changeset is generated from the git diff (base sha handed over from CI as the `push-base` artifact), so canaries flow on every merge whether or not the PR carried a changeset. The fixed core train always moves together (a change to any train member canaries the whole train, lockstep); independent packages (ai, os) canary when they themselves changed OR while they carry a pending changeset (the canary previews the whole upcoming release). |
 
 npm auth is tokenless: **Trusted Publishing** (OIDC) is configured on npmjs.com per package, and `npm publish` picks it up via the job's `id-token: write` permission (requires npm >= 11.5; Node 24 from `.nvmrc` bundles it). Provenance is generated automatically. Two operational notes:
 

@@ -115,7 +115,7 @@ const PROJECT_LINKS = [
   `- npm: [@routecraft/routecraft](https://www.npmjs.com/package/@routecraft/routecraft)`,
   `- npm: [@routecraft/ai](https://www.npmjs.com/package/@routecraft/ai)`,
   `- npm: [@routecraft/cli](https://www.npmjs.com/package/@routecraft/cli)`,
-  `- npm: [@routecraft/browser](https://www.npmjs.com/package/@routecraft/browser)`,
+  `- npm: [@routecraft/os](https://www.npmjs.com/package/@routecraft/os)`,
   `- npm: [@routecraft/testing](https://www.npmjs.com/package/@routecraft/testing)`,
 ].join('\n')
 

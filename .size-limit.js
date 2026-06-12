@@ -59,10 +59,10 @@ export default [
     "packages/ai/package.json",
   ),
   makeNodeEsmConfig(
-    "@routecraft/browser",
-    "packages/browser/dist/index.js",
+    "@routecraft/os",
+    "packages/os/dist/index.js",
     "100 kb",
-    "packages/browser/package.json",
+    "packages/os/package.json",
   ),
   makeNodeEsmConfig(
     "@routecraft/testing",
