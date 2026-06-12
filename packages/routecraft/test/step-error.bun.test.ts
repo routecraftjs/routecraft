@@ -692,4 +692,37 @@ describe(".error() step scope: dual-mode wrapper", () => {
     expect(wrapped.label).toBe("fake-step");
     expect(wrapped.skipStepEvents).toBe(true);
   });
+
+  /**
+   * @case A step returns the reserved `suspend` outcome before suspend/resume is implemented
+   * @preconditions Custom wrapper step returns { kind: "suspend", exchange } from execute
+   * @expectedResult Executor rejects it with RC5032 (fails loud) instead of silently dropping the exchange; the sink is never reached
+   */
+  test("suspend outcome is rejected with RC5032 until the feature lands", async () => {
+    const suspendingStep = (inner: Step<Adapter>): Step<Adapter> => ({
+      operation: inner.operation,
+      adapter: inner.adapter,
+      label: "suspending-step",
+      // Forward-compat stub: the kind is declared on the union but no
+      // built-in step produces it yet, so the executor must reject it.
+      async execute(exchange: Exchange): Promise<StepOutcome> {
+        return { kind: "suspend", exchange };
+      },
+    });
+
+    const sink = spy();
+    type WrapBuilder = {
+      pendingStepWrappers: Array<(s: Step<Adapter>) => Step<Adapter>>;
+    };
+    const builder = craft().id("suspend-rejected").from(simple("hi"));
+    (builder as unknown as WrapBuilder).pendingStepWrappers.push(
+      suspendingStep,
+    );
+
+    t = await testContext().routes(builder.to(sink)).build();
+    await t.test();
+
+    expect(sink.received).toHaveLength(0);
+    expect(t.errors.some((e) => e.rc === "RC5032")).toBe(true);
+  });
 });
