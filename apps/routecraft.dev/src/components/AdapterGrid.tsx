@@ -216,7 +216,7 @@ export function adapterGridTocSections(): Array<Section> {
         .filter((a) => a.category === category)
         .map((adapter) => ({
           level: 3 as const,
-          id: `adapter-${adapter.name.toLowerCase()}`,
+          id: `adapter-${slug(adapter.name)}`,
           title: adapter.name,
         })),
     }))
@@ -253,11 +253,11 @@ export function AdapterGrid() {
               {items.map((item) => (
                 <li
                   key={item.name}
-                  id={`adapter-${item.name.toLowerCase()}`}
+                  id={`adapter-${slug(item.name)}`}
                   className="scroll-mt-28 bg-paper lg:scroll-mt-34"
                 >
                   <Link
-                    href={`/docs/reference/adapters/${item.name.toLowerCase()}`}
+                    href={`/docs/reference/adapters/${slug(item.name)}`}
                     className="group flex h-full flex-col gap-3 p-5 transition hover:bg-paper-deep/40"
                   >
                     <div className="flex items-baseline justify-between gap-3">

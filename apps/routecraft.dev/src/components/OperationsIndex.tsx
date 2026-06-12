@@ -274,7 +274,7 @@ export function operationsTocSections(): Array<Section> {
         .filter((o) => o.category === category)
         .map((op) => ({
           level: 3 as const,
-          id: `op-${op.name.toLowerCase()}`,
+          id: `op-${slug(op.name)}`,
           title: op.name,
           ...(op.planned
             ? { badges: [{ text: 'planned', color: 'purple' as const }] }
@@ -308,11 +308,11 @@ export function OperationsIndex() {
               {items.map((op) => (
                 <li
                   key={op.name}
-                  id={`op-${op.name.toLowerCase()}`}
+                  id={`op-${slug(op.name)}`}
                   className="scroll-mt-28 lg:scroll-mt-34"
                 >
                   <Link
-                    href={`/docs/reference/operations/${op.name.toLowerCase()}`}
+                    href={`/docs/reference/operations/${slug(op.name)}`}
                     className="group grid grid-cols-[minmax(0,16rem)_1fr_auto] items-baseline gap-x-6 gap-y-1 py-3.5 transition hover:bg-paper-deep/30"
                   >
                     <code className="font-mono text-[0.92rem] text-ink transition group-hover:text-cobalt-500">
