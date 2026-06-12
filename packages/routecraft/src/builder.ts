@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { BRAND, isRouteBuilder, setBrand } from "./brand.ts";
-import { StepBuilderBase } from "./step-builder-base.ts";
+import { BRAND, setBrand } from "./brand.ts";
+import {
+  StepBuilderBase,
+  type BuilderState,
+  type SetBody,
+} from "./step-builder-base.ts";
 import {
   type RouteDefinition,
   type ErrorHandler,
@@ -29,12 +33,7 @@ import {
   type Consumer,
   type ConsumerType,
 } from "./types.ts";
-import {
-  type Exchange,
-  DefaultExchange,
-  getExchangeContext,
-  OperationType,
-} from "./exchange.ts";
+import { OperationType } from "./exchange.ts";
 import {
   type Splitter,
   type CallableSplitter,
@@ -77,7 +76,7 @@ import {
  * await context.start();
  *
  * // Dispatch messages programmatically
- * await client.send('my-endpoint', { data: 'hello' });
+ * await client.sendDirect('my-endpoint', { data: 'hello' });
  * ```
  *
  * Plugins run before routes are registered, allowing them to:
@@ -231,15 +230,18 @@ export class ContextBuilder {
   routes(
     routes:
       | RouteDefinition[]
-      | RouteBuilder<unknown>[]
+      | AnyRouteBuilder[]
       | RouteDefinition
-      | RouteBuilder<unknown>,
+      | AnyRouteBuilder,
   ): this {
-    const addOne = (route: RouteDefinition | RouteBuilder<unknown>): void => {
-      if (isRouteBuilder(route)) {
-        this.definitions.push(
-          ...(route as { build: () => RouteDefinition[] }).build(),
-        );
+    const addOne = (route: RouteDefinition | AnyRouteBuilder): void => {
+      // Structural check, matching `AnyRouteBuilder` (and the duck-typing
+      // promise above): anything with a callable `.build()` is treated as
+      // a builder. The brand check alone would misclassify unbranded
+      // structural builders as RouteDefinitions; RouteDefinition has no
+      // `build`, so the duck-type cannot misfire the other way.
+      if (typeof (route as Partial<AnyRouteBuilder>).build === "function") {
+        this.definitions.push(...(route as AnyRouteBuilder).build());
       } else {
         this.definitions.push(route as RouteDefinition);
       }
@@ -269,7 +271,7 @@ export class ContextBuilder {
    *   .build();
    *
    * await context.start();
-   * await client.send('greet', { name: 'World' });
+   * await client.sendDirect('greet', { name: 'World' });
    * ```
    */
   async build(): Promise<{ context: CraftContext; client: CraftClient }> {
@@ -320,6 +322,19 @@ export class ContextBuilder {
 }
 
 /**
+ * Any route builder, regardless of its tracked {@link BuilderState}.
+ *
+ * `RouteBuilder<S>` is invariant in its state bag (the body type appears in
+ * both parameter and return positions), so a fully chained
+ * `RouteBuilder<{ body: X }>` is not assignable to
+ * `RouteBuilder<BuilderState>`. Positions that accept "some finished route
+ * builder" (`ContextBuilder.routes`, the CLI loader, test harnesses) only
+ * ever call `.build()`, which does not involve the bag at all, so this
+ * minimal structural alias is the correct parameter type for them.
+ */
+export type AnyRouteBuilder = Pick<RouteBuilder, "build">;
+
+/**
  * Options for configuring a route.
  */
 export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
@@ -338,7 +353,7 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  * The type parameter tracks the data type flowing through the route
  * at each step, providing type safety throughout the route definition.
  *
- * @template Current The type of data currently flowing through the route
+ * @template S The {@link BuilderState} bag tracking the data flowing through the route
  *
  * @example
  * ```typescript
@@ -396,7 +411,67 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
   }
 }
 
-export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
+/**
+ * The route builder BEFORE `.from()`: only route-scope staging is reachable.
+ *
+ * `craft()` returns this type, and every staging method on the full
+ * {@link RouteBuilder} (`.id()`, `.title()`, ...) flips the chain back into
+ * it, so calling a pipeline operation (`.to()`, `.transform()`, `.split()`,
+ * ...) before `.from()` is a COMPILE error rather than only the runtime
+ * RC2001/RC2002 it has always been. The runtime guards remain for plain
+ * JavaScript users; this interface is the type-level mirror of the same
+ * contract.
+ *
+ * There is no separate runtime class: the value behind this type is the one
+ * `RouteBuilder` instance, re-surfaced. `.from()` opens the route and hands
+ * back the full pipeline surface.
+ *
+ * @template S - The {@link BuilderState} bag carried into the next route
+ */
+export interface PreFromBuilder<S extends BuilderState = BuilderState> {
+  /** Set the route id for the next route. See {@link RouteBuilder.id}. */
+  id(id: string): this;
+  /** Set a human-readable title for the next route. See {@link RouteBuilder.title}. */
+  title(value: string): this;
+  /** Set a human-readable description for the next route. See {@link RouteBuilder.description}. */
+  description(value: string): this;
+  /** Declare input schemas for the next route. See {@link RouteBuilder.input}. */
+  input(schemas: RouteSchemas | StandardSchemaV1): this;
+  /** Declare output schemas for the next route. See {@link RouteBuilder.output}. */
+  output(schemas: RouteSchemas | StandardSchemaV1): this;
+  /** Tag the next route. See {@link RouteBuilder.tag}. */
+  tag(value: Tag | Tag[]): this;
+  /** Configure batch processing for the next route. See {@link RouteBuilder.batch}. */
+  batch(options?: { size?: number; flushIntervalMs?: number }): this;
+  /**
+   * Attach a ROUTE-SCOPE error handler (catch-all) to the next route. The
+   * step-scope variant lives on the post-`.from()` builder; position picks
+   * the mode. See {@link RouteBuilder.error}.
+   */
+  error(handler: ErrorHandler): this;
+  /**
+   * Configure ROUTE-SCOPE caching for the next route (whole-pipeline
+   * memoisation). The step-scope variant lives on the post-`.from()`
+   * builder. See {@link RouteBuilder.cache}.
+   */
+  cache(options?: CacheOptions<unknown>): this;
+  /** Declare an authorization requirement on the next route. See {@link RouteBuilder.authorize}. */
+  authorize(options?: AuthorizeOptions): this;
+  /**
+   * Open the route: define its source(s) and enter the pipeline surface.
+   * Derived from the class via an indexed-access type so the (ordering
+   * sensitive) overload set is defined exactly once, on
+   * {@link RouteBuilder.from}; a future overload change cannot diverge
+   * between the pre-`from` and post-`from` surfaces.
+   */
+  from: RouteBuilder<S>["from"];
+  /** Finalize and return the route definition(s). See {@link RouteBuilder.build}. */
+  build: RouteBuilder<S>["build"];
+}
+
+export class RouteBuilder<
+  S extends BuilderState = BuilderState,
+> extends StepBuilderBase<S> {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
 
@@ -432,11 +507,11 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * craft().id('ingest-api').from(http({ path: '/ingest', method: 'POST' })).to(log()).build();
    * ```
    */
-  id(id: string): this {
+  id(id: string): PreFromBuilder {
     this.assertNoPendingWrappers("id");
     this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
     logger.trace({ route: id }, "Staging route id for next route");
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -444,9 +519,9 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * direct / mcp registries so discovery consumers (agents, docs) can
    * display it alongside the id.
    */
-  title(value: string): this {
+  title(value: string): PreFromBuilder {
     this.mergeDiscovery({ title: value });
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -454,9 +529,9 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * discovery-aware adapters when exposing the route to external consumers
    * (agents, MCP clients).
    */
-  description(value: string): this {
+  description(value: string): PreFromBuilder {
     this.mergeDiscovery({ description: value });
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -468,9 +543,9 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * To flow the body type through the chain, pass it as a generic on
    * `.from<T>(source)` after the `.input()` call.
    */
-  input(schemas: RouteSchemas | StandardSchemaV1): this {
+  input(schemas: RouteSchemas | StandardSchemaV1): PreFromBuilder {
     this.mergeDiscovery({ input: this.normalizeSchemas(schemas) });
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -480,9 +555,9 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * either a bundle (`{ body, headers }`) or a bare Standard Schema as a
    * body-only shorthand.
    */
-  output(schemas: RouteSchemas | StandardSchemaV1): this {
+  output(schemas: RouteSchemas | StandardSchemaV1): PreFromBuilder {
     this.mergeDiscovery({ output: this.normalizeSchemas(schemas) });
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -498,7 +573,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * `destructiveHint`, `idempotentHint`, `openWorldHint`), so the same fact is
    * declared once; explicit `annotations` on `mcp()` still override per-key.
    */
-  tag(value: Tag | Tag[]): this {
+  tag(value: Tag | Tag[]): PreFromBuilder {
     const incoming = (Array.isArray(value) ? value : [value]).map((t) => {
       if (typeof t !== "string" || t.trim() === "") {
         throw rcError("RC2001", undefined, {
@@ -511,7 +586,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     const merged = [...existing];
     for (const t of incoming) if (!merged.includes(t)) merged.push(t);
     this.mergeDiscovery({ tags: merged });
-    return this;
+    return this.prelude();
   }
 
   private mergeDiscovery(partial: Partial<RouteDiscovery>): void {
@@ -550,20 +625,20 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * craft().batch({ size: 10, flushIntervalMs: 1000 }).from(timer(1000)).to(log()).build();
    * ```
    */
-  batch(options?: { size?: number; flushIntervalMs?: number }): this {
+  batch(options?: { size?: number; flushIntervalMs?: number }): PreFromBuilder {
     const mapped = {
       size: options?.size,
       time: options?.flushIntervalMs,
-    } as unknown;
+    };
     this.pendingOptions = {
       ...(this.pendingOptions ?? {}),
       consumer: {
-        type: BatchConsumer as unknown as ConsumerType<Consumer>,
+        type: BatchConsumer,
         options: mapped,
       },
     };
     logger.trace("Staging batch processing for next route");
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -656,7 +731,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *
    * @experimental
    */
-  override cache(options: CacheOptions<Current> = {}): this {
+  override cache(options: CacheOptions<S["body"]> = {}): this {
     if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
       // Route scope: stage the resolved config onto pendingOptions so
       // the next `.from()` writes it into the new RouteDefinition.
@@ -723,7 +798,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *   .id('admin').authorize({ roles: ['admin'] }).from(adminSrc).to(noop())
    * ```
    */
-  authorize(options?: AuthorizeOptions): this {
+  authorize(options?: AuthorizeOptions): PreFromBuilder {
     const next = this.pendingOptions ?? {};
     const existing = next.authorizers ?? [];
     this.pendingOptions = {
@@ -731,7 +806,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
       authorizers: [...existing, options ?? {}],
     };
     logger.trace("Staging route-scope authorization for next route");
-    return this;
+    return this.prelude();
   }
 
   /**
@@ -767,16 +842,16 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * flag threaded through the builder could make it compile-time, but that is a
    * larger change deferred for the v0 unstable surface.
    */
-  from<T>(source: SourceLike<T>): RouteBuilder<T>;
-  from<T>(source: SourceLike<unknown>): RouteBuilder<T>;
+  from<T>(source: SourceLike<T>): RouteBuilder<SetBody<S, T>>;
+  from<T>(source: SourceLike<unknown>): RouteBuilder<SetBody<S, T>>;
   from<T>(
     ...sources: [
       SourceLike<unknown>,
       SourceLike<unknown>,
       ...Array<SourceLike<unknown>>,
     ]
-  ): RouteBuilder<T>;
-  from<T>(...sources: Array<SourceLike<T>>): RouteBuilder<T> {
+  ): RouteBuilder<SetBody<S, T>>;
+  from<T>(...sources: Array<SourceLike<T>>): RouteBuilder<SetBody<S, T>> {
     this.assertNoPendingWrappers("from");
     if (sources.length === 0) {
       throw rcError("RC2001", undefined, {
@@ -785,7 +860,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
     }
     const id = this.pendingOptions?.id ?? randomUUID();
     const consumer = this.pendingOptions?.consumer ?? {
-      type: SimpleConsumer as unknown as ConsumerType<Consumer>,
+      type: SimpleConsumer,
       options: undefined,
     };
     const errorHandler = this.pendingOptions?.errorHandler;
@@ -870,6 +945,16 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
   }
 
   /**
+   * Re-surface this instance as the pre-`.from()` staging type. The single
+   * cast point for the route-scope staging methods, mirroring `retype()` on
+   * the base class: there is one runtime object, and position in the chain
+   * decides which type-level surface is reachable.
+   */
+  private prelude(): PreFromBuilder {
+    return this as unknown as PreFromBuilder;
+  }
+
+  /**
    * Internal method to ensure a source has been defined for the current route.
    * Throws an error if no source has been defined.
    *
@@ -927,59 +1012,45 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * are treated as a single item (one exchange). Framework maintains `routecraft.split_hierarchy`
    * headers for aggregation.
    *
+   * Splitters return the child BODIES (or `splitChild(body, headers)`
+   * envelopes for per-child header overrides); the framework constructs the
+   * child exchanges, assigns fresh ids, and inherits the parent's headers.
+   *
    * @template ItemType The type of items in the array (inferred from array if not specified)
-   * @param splitter Optional adapter or function (exchange) => Exchange<ItemType>[]
+   * @param splitter Optional adapter or function `(exchange) => SplitResult<ItemType>[]`
    * @returns A RouteBuilder with the item type
    * @example
    * // Automatically split an array of numbers
    * .from<number[]>(source)
    * .split() // ItemType is inferred as number
    *
-   * // Custom splitting logic - exchange-aware
+   * // Custom splitting logic - return the child bodies
    * .from(source)
-   * .split<User>((exchange) => exchange.body.users.map(body =>
-   *   new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })))
+   * .split<User>((exchange) => exchange.body.users)
    *
-   * // Split a string by delimiter (return exchanges)
-   * .split<string>((exchange) => exchange.body.split(",").map(body => new DefaultExchange(getExchangeContext(exchange)!, { body, headers: exchange.headers })))
+   * // Split a string by delimiter, with per-child header overrides
+   * .split<string>((exchange) =>
+   *   exchange.body.split(",").map((part, i) => splitChild(part, { "x-part": i })))
    */
-  split<ItemType = Current extends Array<infer U> ? U : Current>(
+  split<ItemType = S["body"] extends Array<infer U> ? U : S["body"]>(
     splitter?:
-      | Splitter<Current, ItemType>
-      | CallableSplitter<Current, ItemType>,
-  ): RouteBuilder<ItemType> {
+      | Splitter<S["body"], ItemType>
+      | CallableSplitter<S["body"], ItemType>,
+  ): RouteBuilder<SetBody<S, ItemType>> {
     // If no splitter is provided, use default splitter: arrays are split, non-arrays as single item
     if (!splitter) {
-      const defaultSplitter: CallableSplitter<Current, ItemType> = (
+      const defaultSplitter: CallableSplitter<S["body"], ItemType> = (
         exchange,
       ) => {
-        const context = getExchangeContext(exchange);
-        if (!context) {
-          throw rcError("RC5001", undefined, {
-            message: "Exchange has no context; cannot execute default split",
-          });
-        }
         const body = exchange.body;
-        if (Array.isArray(body)) {
-          return (body as ItemType[]).map(
-            (b) =>
-              new DefaultExchange(context, {
-                body: b,
-                headers: exchange.headers,
-              }),
-          ) as Exchange<ItemType>[];
-        }
-        return [
-          new DefaultExchange(context, {
-            body: body as unknown as ItemType,
-            headers: exchange.headers,
-          }),
-        ];
+        return Array.isArray(body)
+          ? (body as ItemType[])
+          : [body as unknown as ItemType];
       };
 
-      this.pushStep(new SplitStep<Current, ItemType>(defaultSplitter));
+      this.pushStep(new SplitStep<S["body"], ItemType>(defaultSplitter));
     } else {
-      this.pushStep(new SplitStep<Current, ItemType>(splitter));
+      this.pushStep(new SplitStep<S["body"], ItemType>(splitter));
     }
 
     return this.retype<ItemType>();
@@ -1005,20 +1076,20 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    *   return { body: sum, headers: exchanges[0].headers };
    * })
    */
-  aggregate<ResultType = Current[]>(
+  aggregate<ResultType = Array<S["body"]>>(
     aggregator?:
-      | Aggregator<Current, ResultType>
-      | CallableAggregator<Current, ResultType>,
-  ): RouteBuilder<ResultType> {
+      | Aggregator<S["body"], ResultType>
+      | CallableAggregator<S["body"], ResultType>,
+  ): RouteBuilder<SetBody<S, ResultType>> {
     if (!aggregator) {
       // Use default aggregator which collects bodies into an array
       this.pushStep(
-        new AggregateStep<Current, ResultType>(
-          defaultAggregate as CallableAggregator<Current, ResultType>,
+        new AggregateStep<S["body"], ResultType>(
+          defaultAggregate as CallableAggregator<S["body"], ResultType>,
         ),
       );
     } else {
-      this.pushStep(new AggregateStep<Current, ResultType>(aggregator));
+      this.pushStep(new AggregateStep<S["body"], ResultType>(aggregator));
     }
     return this.retype<ResultType>();
   }
@@ -1040,7 +1111,7 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * not resume for it.
    *
    * All branches must produce exchanges of the same type `Out` (defaults to
-   * `Current`), which becomes the body type of the builder after the choice.
+   * the current body), which becomes the body type of the builder after the choice.
    *
    * @template Out - Body type produced by every branch (enforced by the
    *   branch callback return types)
@@ -1057,12 +1128,12 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
    * .to(finalDest)
    * ```
    */
-  choice<Out = Current>(
-    fn: (c: ChoiceSubBuilder<Current, Out>) => ChoiceSubBuilder<Current, Out>,
-  ): RouteBuilder<Out> {
-    const sub = new ChoiceSubBuilder<Current, Out>();
+  choice<Out = S["body"]>(
+    fn: (c: ChoiceSubBuilder<S, Out>) => ChoiceSubBuilder<S, Out>,
+  ): RouteBuilder<SetBody<S, Out>> {
+    const sub = new ChoiceSubBuilder<S, Out>();
     fn(sub);
-    this.pushStep(new ChoiceStep<Current>(sub[COLLECT_STEPS]()));
+    this.pushStep(new ChoiceStep<S["body"]>(sub[COLLECT_STEPS]()));
     return this.retype<Out>();
   }
 
@@ -1135,6 +1206,6 @@ export class RouteBuilder<Current = unknown> extends StepBuilderBase<Current> {
  *   .to(log())
  * ```
  */
-export function craft(): RouteBuilder {
+export function craft(): PreFromBuilder {
   return new RouteBuilder();
 }

@@ -331,4 +331,61 @@ describe("Plugin System", () => {
     expect(capturedEvents[1].pluginId).toBe("MyTestPlugin");
     expect(capturedEvents[1].pluginIndex).toBe(0);
   });
+
+  /**
+   * @case Plugin `name` field takes precedence over the constructor name
+   *       as the pluginId on lifecycle event payloads
+   * @preconditions Plain-object plugin with name: "my-plugin" registered;
+   *                context built (initPlugins runs)
+   * @expectedResult plugin:starting and plugin:started carry pluginId "my-plugin"
+   */
+  test("plugin name is used as pluginId on lifecycle events", async () => {
+    const seen: { event: string; pluginId: string }[] = [];
+    const plugin: CraftPlugin = {
+      name: "my-plugin",
+      apply: () => {},
+    };
+
+    t = await testContext()
+      .on("plugin:starting", ({ details }) => {
+        seen.push({ event: "starting", pluginId: details.pluginId });
+      })
+      .on("plugin:started", ({ details }) => {
+        seen.push({ event: "started", pluginId: details.pluginId });
+      })
+      .with({ plugins: [plugin] })
+      .build();
+
+    expect(seen).toEqual([
+      { event: "starting", pluginId: "my-plugin" },
+      { event: "started", pluginId: "my-plugin" },
+    ]);
+  });
+
+  /**
+   * @case registerTeardown callbacks unwind in reverse registration order
+   * @preconditions One plugin registers two teardown callbacks during apply()
+   * @expectedResult On stop the second callback runs before the first (LIFO)
+   */
+  test("registerTeardown callbacks run LIFO", async () => {
+    const order: string[] = [];
+    const plugin: CraftPlugin = {
+      apply(ctx) {
+        ctx.registerTeardown(() => {
+          order.push("first-registered");
+        });
+        ctx.registerTeardown(() => {
+          order.push("second-registered");
+        });
+      },
+    };
+
+    t = await testContext()
+      .with({ plugins: [plugin] })
+      .build();
+
+    await t.ctx.stop();
+
+    expect(order).toEqual(["second-registered", "first-registered"]);
+  });
 });

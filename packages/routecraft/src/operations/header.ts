@@ -32,6 +32,47 @@ export interface HeaderSetter<T = unknown> extends Adapter {
 }
 
 /**
+ * Engine-owned headers `.header()` rejects up front, mapped to the
+ * suggestion shown in the RC5003 error:
+ *
+ * - `routecraft.id`: `DefaultExchange.rewrap` unconditionally restores
+ *   `prev.id` into the new headers, so a write would land in the merged
+ *   record but be overwritten by the next rewrap, silently no-op-ing.
+ * - `routecraft.operation`: rewritten by the engine before every step to
+ *   reflect the current operation; a write is equally futile.
+ * - `routecraft.route`: set at exchange construction; a write would
+ *   persist but lie about which route owns the exchange.
+ * - `routecraft.split_hierarchy`: maintained by split/aggregate to
+ *   correlate children with their parent; a write corrupts joins.
+ *
+ * Rejecting at construction gives a clear message instead of a phantom
+ * bug. The rest of the reserved `routecraft.*` namespace (correlation id,
+ * principal, adapter envelope keys) is deliberately settable: those keys
+ * are documented inputs (e.g. addressing a mail operation via
+ * `MailHeaders.UID`). A `Map` (not an object literal) so user keys that
+ * collide with `Object.prototype` members ("toString", "constructor",
+ * "__proto__", ...) are never misread as engine-owned.
+ */
+const ENGINE_OWNED_HEADERS: ReadonlyMap<string, string> = new Map([
+  [
+    HeadersKeys.ID,
+    "Identity is set once when the exchange is constructed and propagates automatically. If you need to correlate with an upstream id, use routecraft.correlation_id (settable via .header() or by source adapters).",
+  ],
+  [
+    HeadersKeys.OPERATION,
+    "The engine rewrites the operation header before every step; observe it via exchange.headers instead of setting it.",
+  ],
+  [
+    HeadersKeys.ROUTE_ID,
+    "The route id is bound when the exchange is constructed. To hand work to another route, use forward() or a direct() destination.",
+  ],
+  [
+    HeadersKeys.SPLIT_HIERARCHY,
+    "The split hierarchy is maintained by .split() / .aggregate(). To attach your own grouping metadata, use a custom header key.",
+  ],
+]);
+
+/**
  * Step that sets or overrides a single header on the exchange. Body type is unchanged.
  */
 export class HeaderStep<T = unknown> implements Step<HeaderSetter<T>> {
@@ -42,17 +83,11 @@ export class HeaderStep<T = unknown> implements Step<HeaderSetter<T>> {
     key: string,
     setterOrValue: CallableHeaderSetter<T> | HeaderLiteral,
   ) {
-    // Exchange identity is framework-owned: `DefaultExchange.rewrap`
-    // unconditionally restores `prev.id` into the new headers so identity
-    // is preserved across every pipeline step. A `.header()` write of
-    // `routecraft.id` would land in the merged record but be overwritten
-    // by the next rewrap, silently no-op-ing. Reject up front with a
-    // clear message rather than letting the user chase a phantom bug.
-    if (key === HeadersKeys.ID) {
+    const suggestion = ENGINE_OWNED_HEADERS.get(key);
+    if (suggestion !== undefined) {
       throw rcError("RC5003", undefined, {
-        message: `.header() cannot set "${HeadersKeys.ID}": exchange identity is framework-owned and preserved across every rewrap.`,
-        suggestion:
-          "Identity is set once when the exchange is constructed and propagates automatically. If you need to correlate with an upstream id, use routecraft.correlation_id (settable via .header() or by source adapters).",
+        message: `.header() cannot set "${key}": this header is framework-owned and maintained by the engine.`,
+        suggestion,
       });
     }
 

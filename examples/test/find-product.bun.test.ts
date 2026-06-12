@@ -15,13 +15,13 @@ describe("Find Product Routes", () => {
    * @case Dispatch a criteria into the reusable find-product route; it reads the
    *   catalogue from disk, casts it to Product[], and returns the matching item.
    * @preconditions find-product registered; context started; data/products.json on disk
-   * @expectedResult client.send resolves to the single Product whose id matches
+   * @expectedResult client.sendDirect resolves to the single Product whose id matches
    */
   test("reads the catalogue from disk and returns the matching product", async () => {
     t = await testContext().routes(routes).build();
     await t.startAndWaitReady();
 
-    const result = await t.client.send<{ id: string }, Product | null>(
+    const result = await t.client.sendDirect<{ id: string }, Product | null>(
       "find-product",
       { id: "GIZMO-C" },
     );
@@ -43,7 +43,7 @@ describe("Find Product Routes", () => {
     t = await testContext().routes(routes).build();
     await t.startAndWaitReady();
 
-    const result = await t.client.send<{ id: string }, Product | null>(
+    const result = await t.client.sendDirect<{ id: string }, Product | null>(
       "find-product",
       { id: "DOES-NOT-EXIST" },
     );

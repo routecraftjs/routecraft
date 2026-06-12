@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
+import {
+  CAPABILITY_REGISTRY,
+  snapshotCapability,
+  type Capability,
+} from "./capabilities.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
@@ -68,6 +73,19 @@ export type MergedOptions<T> = {
  * from apply() for one-off cleanup callbacks.
  */
 export interface CraftPlugin {
+  /**
+   * Stable identifier for the plugin, surfaced as `pluginId` on
+   * `plugin:*` event payloads and in logs. Falls back to the plugin's
+   * constructor name (or `plugin-<index>`) when omitted.
+   */
+  name?: string;
+  /**
+   * RESERVED. Names of plugins this plugin depends on. Not enforced yet:
+   * declaring it today has no effect, but the key is reserved so a
+   * future dependency-ordered initialisation can use it without a
+   * breaking change.
+   */
+  dependsOn?: string[];
   apply(ctx: CraftContext): void | Promise<void>;
   /** Called when the context stops, after routes have drained. Optional. */
   teardown?(ctx: CraftContext): void | Promise<void>;
@@ -263,18 +281,22 @@ export class CraftContext {
    * @returns A string identifier for the plugin
    */
   private getPluginId(plugin: CraftPlugin, index: number): string {
+    if (typeof plugin.name === "string" && plugin.name) return plugin.name;
     const constructorName =
       plugin.constructor?.name !== "Object" ? plugin.constructor?.name : null;
     return constructorName ?? `plugin-${index}`;
   }
 
   /**
-   * Run plugins from config. Call this before registerRoutes() so plugins can
-   * set up state or dynamically add routes.
+   * Run plugins from config. Called by the builder's `build()` (and by
+   * `start()` as an idempotent fallback) before routes are registered so
+   * plugins can set up state or dynamically add routes.
    *
    * Fails fast: on first plugin error, logs, emits `error`, and rethrows.
    *
    * @throws Rethrows if any plugin's `apply(ctx)` throws
+   * @internal Public for the builder and tests; not part of the supported
+   *   embedding surface. The context initialises plugins itself.
    */
   async initPlugins(): Promise<void> {
     if (this.pluginsInitialized) return;
@@ -300,13 +322,9 @@ export class CraftContext {
         // Generate plugin ID from constructor name or index
         const pluginId = this.getPluginId(plugin as CraftPlugin, pluginIndex);
 
-        // Emit registered event
-        this.emit("plugin:registered", {
-          pluginId,
-          pluginIndex,
-        });
-
-        // Emit starting event
+        // Emit starting event (plugins are "registered" at construction;
+        // a separate plugin:registered event fired at the same moment with
+        // the same payload carried no extra information and was removed).
         this.emit("plugin:starting", {
           pluginId,
           pluginIndex,
@@ -333,7 +351,9 @@ export class CraftContext {
   /**
    * Register a teardown callback to run when the context stops. Plugins use this
    * to release resources (e.g. caches, native handles) after routes have drained.
-   * Callbacks run in registration order before `context:stopped` is emitted.
+   * Callbacks run in REVERSE registration order (LIFO, mirroring plugin
+   * teardown) before `context:stopped` is emitted, so resources unwind in
+   * the opposite order they were acquired.
    *
    * @param fn - Callback (sync or async) to run during stop()
    */
@@ -505,10 +525,28 @@ export class CraftContext {
   /**
    * Get all routes registered with this context.
    *
-   * @returns Array of routes
+   * @returns A copy of the route list. Mutating the returned array does
+   *   not affect the context; routes are managed via `registerRoutes()`.
    */
   getRoutes(): Route[] {
-    return this.routes;
+    return [...this.routes];
+  }
+
+  /**
+   * List the discoverable capabilities registered in this context: every
+   * direct endpoint together with its route's discovery metadata. Agents
+   * and embedding code use this instead of reaching into the (internal)
+   * direct registry; dispatch into a capability with
+   * `CraftClient.sendDirect(capability.endpoint, body)`.
+   *
+   * @returns A fresh array of capability snapshots. Endpoints are the raw
+   *   ids as passed to `.id(...)`; mutating the result does not affect
+   *   the registry.
+   */
+  capabilities(): Capability[] {
+    const registry = this.getStore(CAPABILITY_REGISTRY);
+    if (!registry) return [];
+    return [...registry.values()].map(snapshotCapability);
   }
 
   /**
@@ -760,9 +798,11 @@ export class CraftContext {
         }
       }
     }
-    for (const fn of this.teardownCallbacks) {
+    // LIFO: unwind registered teardowns in the opposite order they were
+    // acquired, mirroring the reverse plugin teardown above.
+    for (let i = this.teardownCallbacks.length - 1; i >= 0; i--) {
       try {
-        await Promise.resolve(fn());
+        await Promise.resolve(this.teardownCallbacks[i]());
       } catch (err) {
         this.logger.warn(
           { err },

@@ -183,24 +183,10 @@ export type {
 export { MAIL_CLIENT_MANAGER } from "./shared.ts";
 export { MailClientManager } from "./client-manager.ts";
 
-// Re-export the `routecraft.mail.*` header key constants so consumers reading
+// Re-export the `routecraft.mail.*` header key object so consumers reading
 // envelope metadata off the source exchange get named constants and type-safe
 // autocomplete (the keys are also declaration-merged into `RoutecraftHeaders`).
-export {
-  HEADER_MAIL_UID,
-  HEADER_MAIL_FOLDER,
-  HEADER_MAIL_MESSAGE_ID,
-  HEADER_MAIL_FROM,
-  HEADER_MAIL_TO,
-  HEADER_MAIL_CC,
-  HEADER_MAIL_BCC,
-  HEADER_MAIL_SUBJECT,
-  HEADER_MAIL_DATE,
-  HEADER_MAIL_REPLY_TO,
-  HEADER_MAIL_FLAGS,
-  HEADER_MAIL_SENDER,
-  HEADER_MAIL_RAW_HEADERS,
-} from "./shared.ts";
+export { MailHeaders } from "./shared.ts";
 
 // Sender analysis
 export type {

@@ -4,14 +4,31 @@ title: Migrating from 0.5.x to 0.6.0
 
 What changed between Routecraft 0.5.0 and 0.6.0, and how to update. {% .lead %}
 
-Four consumer-visible changes:
+0.6.0 is a large release: a set of surface changes plus the architecture pass before v1. The contracts that freeze at v1 changed shape once, now, so they do not have to change after; the engine rework also brings a significant performance improvement to route and event processing.
+
+Surface changes:
 
 1. **`skills` is replaced by a unified `blocks` record.** Skills, memory, identity, instructions, and any future system-prompt contribution are now one primitive.
 2. **Tag selectors on `tools()` are removed.** Programmatic `tools((catalog) => [...])` is the new escape hatch for "give me all read-only tools" style selection.
 3. **The `http()` destination option type is renamed.** `HttpOptions<T>` becomes `HttpClientOptions<T>` now that `http()` is a two-sided adapter (the new HTTP source uses `HttpServerOptions`). Type-only change; runtime behaviour and the `http({...})` call sites are unchanged.
 4. **The mail source moves the envelope from `body` to `routecraft.mail.*` headers.** `.from(mail(...))` now delivers the message content on `exchange.body` and the envelope (from, subject, recipients, ...) on headers, matching the HTTP source.
 
-Every other consumer-visible part of the public API is unchanged.
+Architecture changes:
+
+5. **Event names are a fixed set; identity moved into the payload.** `route:<id>:exchange:failed` becomes `route:exchange:failed` with `routeId` in `details`. Wildcard subscriptions are replaced by exact names, the `"*"` catch-all, and the `forRoute()` filter helper.
+6. **Source adapters receive one `Subscription` object.** The positional `subscribe(context, handler, abortController, onReady?, meta?)` signature is gone. `.from()` additionally accepts async generator functions and iterables.
+7. **Custom `Step` implementations return a `StepOutcome`.** Steps no longer receive the engine queue; the executor owns scheduling. Per-execution metadata rides the outcome, not the `Step` instance. Custom aggregators return `{ body, headers? }` instead of a fabricated `Exchange`.
+8. **`@routecraft/ai` error codes are renamed.** `RC5025`/`RC5026`/`RC5027` become `AI1001`/`AI1002`/`AI1003`; ecosystem packages now register their own namespaced codes via `registerErrorCodes()`.
+9. **The builder enforces position in the type system.** `craft()` returns a pre-`from` builder; pipeline operations before `.from()` are now compile errors. Builder generics take a state bag (`RouteBuilder<{ body: T }>`).
+10. **Splitters return child bodies.** `.split()` callbacks return values (or `splitChild(body, headers)`) instead of hand-built `Exchange` instances.
+11. **Consumers take envelopes and a deps bag.** `Consumer.register` receives the `Message` envelope; consumer classes construct from a single `ConsumerDeps` object.
+12. **Header keys are consolidated.** `HeadersKeys` keeps framework keys only; adapter keys move to per-adapter objects (`MailHeaders`, `CronHeaders`, `TimerHeaders`, `FileHeaders`, `CsvHeaders`, `JsonlHeaders`, `CarddavHeaders`). `HEADER_MAIL_*` / `HEADER_CARDDAV_*` constants and `HeaderKeysRegistry` are removed.
+13. **`client.send` is now `client.sendDirect`**, and capability discovery is public: `context.capabilities()` replaces reads of the internal direct registry.
+14. **Naming sweeps.** `CardDAV*` exports become `Carddav*` (acronym casing, per the `Http` precedent); jsonl's `JsonlSourceOptions` / `JsonlDestinationOptions` / `JsonlCombinedOptions` fold into one `JsonlFileOptions`.
+
+Routes built only from the DSL (`craft().from(...).transform(...).to(...)`) with framework adapters need changes for the agent/tools/mail surface (1-4) where used, event subscriptions (5), builder call order that was already a runtime error (9), and adapter header constants (12). The rest affects adapter authors and advanced integrations.
+
+Two behavioural notes that are not API changes: context store seeding for `cron`/`direct`/`mail` config now happens in `initPlugins()` (called automatically by `start()`) instead of the `CraftContext` constructor, and plugin teardown plus `registerTeardown` callbacks now unwind in reverse (LIFO) order.
 
 ---
 
@@ -25,7 +42,7 @@ A block body has:
 - `lifetime` (optional, default `"dispatch"`): `"dispatch"` re-runs the resolver on every dispatch; `"context"` runs it once per `CraftContext` and reuses the result.
 - `value`: a static string used verbatim, or a function `(exchange, context, events, client) => string | Promise<string>`. The `client` carries `forward(routeId, payload)`, the same callable route `.error()` handlers receive, so a resolver can delegate to a registered direct route. `events` is reserved (always `[]` today) for a forthcoming exchange-event log.
 
-The block's `name` is the record key, not a field on the body. Names starting with the reserved `_block_` prefix are rejected (`RC5026`).
+The block's `name` is the record key, not a field on the body. Names starting with the reserved `_block_` prefix are rejected (`AI1002`).
 
 The big semantic shift: progressive disclosure is now the default for skills. The model sees each skill's name and description in the tool list and loads the body via a tool call only when relevant. This matches Claude Code's actual default. To preserve the legacy "always inject every skill" behaviour, opt into `mode: "inject"`.
 
@@ -125,7 +142,7 @@ agent({
 
 Groups flatten depth-first into a single canonical name joined by `__`. A skill `onboarding` under the `skills` group resolves to `skills__onboarding` for its system-prompt heading, its loader tool (`_block_load_skills__onboarding`), and its `AgentResult.blocksLoaded` entry. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`.
 
-Grouping isolates collisions (a skill named `tone` resolves to `skills__tone`, distinct from a top-level `tone` block) and lets you remove or replace the whole collection by its top-level key. Two blocks that flatten to the same name are rejected with `RC5026`. The empty-name and reserved-`_block_`-prefix rules apply at every nesting level. Per-member merge inside a group is not supported in 0.6.0: a per-agent group replaces a default group of the same name wholesale, and `skills: false` removes the whole group.
+Grouping isolates collisions (a skill named `tone` resolves to `skills__tone`, distinct from a top-level `tone` block) and lets you remove or replace the whole collection by its top-level key. Two blocks that flatten to the same name are rejected with `AI1002`. The empty-name and reserved-`_block_`-prefix rules apply at every nesting level. Per-member merge inside a group is not supported in 0.6.0: a per-agent group replaces a default group of the same name wholesale, and `skills: false` removes the whole group.
 
 ### 1.3 `agents()` markdown loader: `skills:` frontmatter is rejected
 
@@ -222,7 +239,7 @@ A resolver that needs nothing more than the `CraftContext` can ignore the client
 
 ### 1.5 Loader tool naming reservation
 
-Progressive blocks are exposed to the model as synthetic tools named `_block_load_<blockName>`. Any user tool (fn id, direct route id, or block name) starting with `_block_` is rejected at construction or dispatch time with `RC5026`. Rename the offending tool or block.
+Progressive blocks are exposed to the model as synthetic tools named `_block_load_<blockName>`. Any user tool (fn id, direct route id, or block name) starting with `_block_` is rejected at construction or dispatch time with `AI1002`. Rename the offending tool or block.
 
 ### 1.6 `AgentResult`: tool-call partitioning and `blocksLoaded`
 
@@ -268,9 +285,9 @@ Two `agentPlugin` installs that each set `defaultOptions.blocks` now merge addit
 
 | Code     | Meaning                                                                                                       |
 | -------- | ------------------------------------------------------------------------------------------------------------- |
-| `RC5025` | Block resolver threw or returned a non-string. Inject mode aborts the dispatch; progressive mode reports back to the model as a tool error.       |
-| `RC5026` | Block name collides with another block, a user tool, or uses the reserved `_block_` prefix.                   |
-| `RC5027` | Block misconfigured: invalid `mode`, missing `description` on a progressive block, non-string non-function `value`, etc.       |
+| `AI1001` | Block resolver threw or returned a non-string. Inject mode aborts the dispatch; progressive mode reports back to the model as a tool error.       |
+| `AI1002` | Block name collides with another block, a user tool, or uses the reserved `_block_` prefix.                   |
+| `AI1003` | Block misconfigured: invalid `mode`, missing `description` on a progressive block, non-string non-function `value`, etc.       |
 
 ---
 
@@ -357,7 +374,7 @@ If you never imported `HttpOptions` by name (the common case, since `http({...})
 The mail **source** (`.from(mail(folder, options))`) used to deliver one fat object on `exchange.body` that mixed the message content (`body.text`, `body.html`, `attachments`) with the envelope (`from`, `to`, `subject`, `date`, `cc`, `bcc`, `replyTo`, `messageId`, `flags`, `sender`, `rawHeaders`). It now follows the same payload-on-`body`, envelope-on-`headers` convention as the HTTP source:
 
 - **`exchange.body`** is a `MailBody`: just `{ text?, html?, attachments? }`. Attachments are message content, so they stay on the body.
-- **`exchange.headers`** carries the envelope under the `routecraft.mail.*` namespace. The keys are declaration-merged into `RoutecraftHeaders` for autocomplete and exported as named constants (`HEADER_MAIL_FROM`, `HEADER_MAIL_SUBJECT`, ...).
+- **`exchange.headers`** carries the envelope under the `routecraft.mail.*` namespace. The keys are declaration-merged into `RoutecraftHeaders` for autocomplete and exported on the `MailHeaders` key object (`MailHeaders.FROM`, `MailHeaders.SUBJECT`, ...; see [section 12](#12-header-keys-per-adapter-objects)).
 
 Two things this unlocks: `.input({ body })` on a mail route now validates against the message content alone (no need to model envelope fields), and `mail -> transform -> http` collapses to one mental model.
 
@@ -434,7 +451,247 @@ The field-to-header mapping:
 
 ---
 
-## 5. What is new in 0.6.0
+## 5. Events: fixed names, identity in the payload
+
+Every hierarchical event name loses its identity segment. The payload already carried `routeId` (and now always does), so subscriptions become exact names plus payload filtering.
+
+| Old name | 0.6.0 name |
+| --- | --- |
+| `route:<id>:registered` / `:starting` / `:started` / `:stopping` / `:stopped` | `route:registered` / `route:starting` / `route:started` / `route:stopping` / `route:stopped` |
+| `route:<id>:error` / `route:<id>:error:caught` | `route:error` / `route:error:caught` |
+| `route:<id>:exchange:started` / `:completed` / `:failed` / `:dropped` / `:restored` | `route:exchange:started` / `:completed` / `:failed` / `:dropped` / `:restored` |
+| `route:<id>:step:started` / `:completed` / `:failed` | `route:step:started` / `:completed` / `:failed` |
+| `route:<id>:step:<label>:error` | `route:step:error` (step label is `details.operation`) |
+| `route:<id>:batch:started` / `:flushed` / `:stopped` | `route:batch:started` / `:flushed` / `:stopped` |
+| `route:<id>:error-handler:invoked` / `:recovered` / `:failed` | `route:error-handler:invoked` / `:recovered` / `:failed` |
+| `route:<id>:cache:hit` / `:miss` / `:stored` / `:failed` | `route:cache:hit` / `:miss` / `:stored` / `:failed` |
+| `route:<id>:operation:choice:matched` / `:unmatched` | `route:operation:choice:matched` / `:unmatched` |
+| `route:<id>:agent:*` (all agent events) | `route:agent:*` (same suffixes) |
+| `plugin:<pluginId>:starting` / `:started` / `:stopping` / `:stopped` | `plugin:starting` / ... (`pluginId` in payload); `plugin:<pluginId>:registered` is removed (subscribe to `plugin:starting`) |
+| `context:*`, `auth:*`, `agent:registered`, `agent:tool:registered` | unchanged |
+
+Migrate by table lookup, not regex: several route ids contain words like `batch` or `started`, and a regex will corrupt names (`route:my-batch:stopped` must become `route:stopped`, but `route:r1:batch:stopped` must become `route:batch:stopped`).
+
+**Per-route subscriptions** use the `forRoute()` helper (or filter on `details.routeId`):
+
+```ts
+// Before
+ctx.on('route:orders:exchange:failed', ({ details }) => alert(details.error))
+
+// After (0.6.0)
+import { forRoute } from '@routecraft/routecraft'
+ctx.on('route:exchange:failed', forRoute('orders', ({ details }) => alert(details.error)))
+```
+
+**Wildcard patterns** are removed from `ctx.on()` / `ctx.once()`. The only pattern is the catch-all `"*"`, which observes every event. Patterns like `route:*` or `route:**` now throw `RC2001` with migration guidance.
+
+```ts
+// Before: ctx.on('route:*:exchange:*', handler) / ctx.on('**', handler)
+ctx.on('*', (payload) => sink.write(payload._event, payload.details))
+```
+
+The `event()` **source adapter** keeps its pattern support (`event('route:*')` still works there); patterns match against the emitted name behind a single catch-all subscription.
+
+**Ecosystem events** are declared by merging into `EventDetailsMap` (the same pattern as `StoreRegistry`):
+
+```ts
+declare module '@routecraft/routecraft' {
+  interface EventDetailsMap {
+    'plugin:myext:thing:happened': { routeId: string; thing: string }
+  }
+}
+```
+
+## 6. Sources: the `Subscription` object
+
+`CallableSource` collapses from five positional parameters to one object. Everything you had is still there under a named field, plus `complete()` replaces the abort-to-finish idiom:
+
+```ts
+// Before
+async subscribe(context, handler, abortController, onReady) {
+  onReady?.()
+  while (!abortController.signal.aborted) {
+    await handler(await poll(), { 'x-origin': 'poll' })
+  }
+  abortController.abort() // finite source done
+}
+
+// After (0.6.0)
+async subscribe(sub: Subscription<T>) {
+  sub.ready()
+  while (!sub.signal.aborted) {
+    await sub.emit({ message: await poll(), headers: { 'x-origin': 'poll' } })
+  }
+  sub.complete() // finite source done
+}
+```
+
+Field map: `context` -> `sub.context`, `handler(msg, headers, parse, parseFailureMode)` -> `sub.emit({ message, headers, parse, parseFailureMode })`, `abortController.signal` -> `sub.signal`, `abortController.abort()` -> `sub.complete(reason?)`, `onReady?.()` -> `sub.ready()`, `meta` -> `sub.meta` (now always present).
+
+New since the same release, built on this contract:
+
+```ts
+// Generator sources: each yield is one exchange
+.from(async function* (sub) {
+  while (!sub.signal.aborted) yield await poll()
+})
+
+// Bare (async) iterables work too
+.from(someAsyncIterable)
+```
+
+For driving a source directly in unit tests, `@routecraft/testing` adds `testSubscription({ context, handler, abortController })`.
+
+## 7. Custom steps and aggregators
+
+`Step.execute` no longer receives the remaining steps and the engine queue. Steps return what happened; the executor schedules:
+
+```ts
+// Before
+async execute(exchange, remainingSteps, queue) {
+  const next = DefaultExchange.rewrap(exchange, { body: transform(exchange.body) })
+  queue.push({ exchange: next, steps: remainingSteps })
+}
+
+// After (0.6.0)
+async execute(exchange: Exchange): Promise<StepOutcome> {
+  const next = DefaultExchange.rewrap(exchange, { body: transform(exchange.body) })
+  return { kind: 'continue', exchange: next }
+}
+```
+
+Outcomes: `continue` (run remaining steps), `complete` (skip remaining steps, success), `drop` (halted; emit your drop events and `markDropped` first), `branch` (prepend steps, then remaining), `fanOut` (schedule each child). Join-style steps consume pending siblings via the `StepContext` second argument (`ctx.takePending(predicate)`).
+
+Wrapper authors (`WrapperStep` subclasses): `runInner(exchange, ctx)` now returns the inner's `StepOutcome` and there is no `innerQueue` buffer to manage; recovery returns a substitute outcome.
+
+Custom **aggregators** return the combined body (plus optional headers) instead of a fake exchange:
+
+```ts
+// Before: return { ...exchanges[0], body: merged } as Exchange
+// After:
+.aggregate((exchanges) => ({ body: merge(exchanges.map((e) => e.body)) }))
+```
+
+## 8. Error codes: `AI` namespace
+
+`@routecraft/ai`'s agent-block codes moved out of core and were renumbered:
+
+| Old code | 0.6.0 code | Meaning |
+| --- | --- | --- |
+| `RC5025` | `AI1001` | Agent block resolution failed |
+| `RC5026` | `AI1002` | Agent block name collision |
+| `RC5027` | `AI1003` | Agent block misconfigured |
+
+Update any code or alerting that matches on `error.rc`. Core `RC####` codes are otherwise unchanged (one addition: `RC1003`, error-code registration failed).
+
+Ecosystem packages can now own codes under a claimed namespace:
+
+```ts
+declare module '@routecraft/routecraft' {
+  interface ErrorCodeRegistry {
+    ACME1001: RCMeta
+  }
+}
+registerErrorCodes('ACME', { ACME1001: { ... } }, 'my-package')
+```
+
+Namespaces are claimable by exactly one package; `RC` is reserved for core; codes are the namespace plus four digits.
+
+## 9. Builder position is type-enforced
+
+`craft()` returns a pre-`from` builder exposing only the staging methods (`id`, `title`, `description`, `input`, `output`, `tag`, `batch`, `authorize`, route-scope `error` / `cache`) plus `.from()`. Pipeline operations before `.from()` no longer compile (they were already `RC2001` / `RC2002` runtime errors):
+
+```ts
+// Compile error now (was a runtime error)
+craft().transform(fn).from(source)
+
+// Correct order
+craft().id('orders').from(source).transform(fn)
+```
+
+Builder generics also moved to a state bag. If you annotate builder types, `RouteBuilder<T>` becomes `RouteBuilder<{ body: T }>`; for heterogeneous lists of finished builders use `AnyRouteBuilder`. DSL extensions via `registerDsl` augment `StepBuilderBase<S extends BuilderState>` and advance the bag with `Retyped<this, SetBody<S, NewBody>>`.
+
+## 10. Splitters return bodies
+
+`.split()` callbacks return the child values; the framework builds the child exchanges (fresh id, inherited headers, split hierarchy). Per-child header overrides use the `splitChild` envelope:
+
+```ts
+// Before: hand-built child Exchange instances
+.split((exchange) => exchange.body.items.map((item) =>
+  DefaultExchange.rewrap(exchange, { body: item })))
+
+// After (0.6.0): return the bodies
+.split((exchange) => exchange.body.items)
+
+// Per-child header overrides
+.split((exchange) => exchange.body.lines.map((line, i) => splitChild(line, { 'x-line': i })))
+```
+
+## 11. Consumer SPI: envelopes and a deps bag
+
+Custom `Consumer` implementations construct from one `ConsumerDeps` object and register a handler that receives the same `Message` envelope sources enqueue:
+
+```ts
+// Before
+class MyConsumer implements Consumer {
+  constructor(context, definition, channel, options) { ... }
+  register(handler) {
+    this.channel.setHandler((m) => handler(m.message, m.headers, m.parse, m.parseFailureMode))
+  }
+}
+
+// After (0.6.0)
+class MyConsumer implements Consumer {
+  constructor(deps: ConsumerDeps) { ... } // { context, definition, channel, options }
+  register(handler: (envelope: Message) => Promise<Exchange>) {
+    this.channel.setHandler(handler)
+  }
+}
+```
+
+`Message`, `ProcessingQueue`, `ConsumerType`, and `ConsumerDeps` are exported from the barrel. `deps.options` is `unknown`; the consumer owns narrowing its own options.
+
+## 12. Header keys: per-adapter objects
+
+`HeadersKeys` now carries framework keys only (`ID`, `OPERATION`, `ROUTE_ID`, `CORRELATION_ID`, `SPLIT_HIERARCHY`, `AUTH_PRINCIPAL`). Adapter keys live on per-adapter objects exported next to each adapter:
+
+| Old | New |
+| --- | --- |
+| `HeadersKeys.TIMER_*` | `TimerHeaders.*` |
+| `HeadersKeys.CRON_*` | `CronHeaders.*` |
+| `HeadersKeys.FILE_LINE` / `FILE_PATH` | `FileHeaders.LINE` / `FileHeaders.PATH` |
+| `HeadersKeys.CSV_ROW` / `CSV_PATH` | `CsvHeaders.ROW` / `CsvHeaders.PATH` |
+| `HeadersKeys.JSONL_LINE` / `JSONL_PATH` | `JsonlHeaders.LINE` / `JsonlHeaders.PATH` |
+| `HEADER_MAIL_UID`, `HEADER_MAIL_FROM`, ... | `MailHeaders.UID`, `MailHeaders.FROM`, ... |
+| `HEADER_CARDDAV_UID`, ... | `CarddavHeaders.UID`, ... |
+
+The wire keys (`routecraft.timer.time`, `routecraft.mail.uid`, ...) are unchanged, so code that used raw strings keeps working. `HeaderKeysRegistry` is removed: adapters and ecosystem packages declare typed headers by merging into `RoutecraftHeaders` directly. The whole `routecraft.*` header namespace is reserved; `.header()` now rejects every engine-owned key (`routecraft.id`, `routecraft.operation`, `routecraft.route`, `routecraft.split_hierarchy`) up front.
+
+## 13. Client and capability discovery
+
+`CraftClient.send` is renamed `sendDirect`, and its response generic defaults to `unknown` (narrow explicitly):
+
+```ts
+// Before
+const result = await client.send<Req, Res>('greet', { name })
+
+// After (0.6.0)
+const result = await client.sendDirect<Req, Res>('greet', { name })
+```
+
+Capability discovery is public API: `context.capabilities()` returns every discoverable direct endpoint with its route's metadata (`endpoint`, `title`, `description`, `input`, `output`, `tags`). The internals it replaces (`ADAPTER_DIRECT_REGISTRY`, `getDirectChannel`, `sanitizeEndpoint`, `DirectRouteMetadata`) are no longer exported.
+
+Request/reply drops now surface as errors: when the target route discards the exchange (a filter rejects it, or an error handler returns `recovery.drop()`), `client.sendDirect()` and the error-handler `forward()` callable reject with `RC5031` instead of silently resolving with the caller's own request body as the "response".
+
+## 14. Renames: Carddav casing and JsonlFileOptions
+
+Acronyms in identifiers are cased as words (`Http` precedent), so every `CardDAV*` export is now `Carddav*`: `CarddavAdapter`, `CarddavClientManager`, `CarddavOptions`, `CarddavAction`, `CarddavDriverClient`, `CarddavTargetExtractor`, `CarddavWriteResult`, `CarddavDeleteResult`, `CarddavContextConfig`, `CarddavAccountConfig`, `throwCarddavError`, `ResolvedCarddavConnection`. `CARDDAV_CLIENT_MANAGER` and `DEFAULT_CARDDAV_SERVER_URL` are unchanged.
+
+The carddav option types also adopt the two-sided Server/Client naming (matching `MailServerOptions` / `MailClientOptions`): `CardDAVReadOptions` becomes `CarddavServerOptions`, and `CardDAVWriteOptions` / `CardDAVDeleteOptions` fold into a single `CarddavClientOptions` (their fields were identical; the `action` field still distinguishes writes from deletes). Call sites are unchanged; only type annotations need the new names.
+
+The jsonl adapter folds its file options into one type, matching `JsonFileOptions` / `CsvFileOptions`: `JsonlSourceOptions`, `JsonlDestinationOptions`, and `JsonlCombinedOptions` become `JsonlFileOptions` (discriminated by `mode`, plus `chunked`). Call sites are unchanged; only type annotations need the new name.
+
+## 15. What is new in 0.6.0
 
 For context, no migration required:
 
@@ -444,4 +701,8 @@ For context, no migration required:
 - `agent:block:loaded` / `agent:block:error` context events.
 - `AgentResult.blocksLoaded`.
 - `tools((catalog) => [...])` builder form with `ToolsCatalog` shape.
-- New error codes (`RC5018`, `RC5019` for HTTP; `RC5025`, `RC5026`, `RC5027` for agent blocks).
+- New error codes (`RC5018`, `RC5019` for HTTP; `AI1001`-`AI1003` for agent blocks, see [section 8](#8-error-codes-ai-namespace); `RC1003` for error-code registration).
+- **Recovery directives**: `.error()` handlers (route scope and step scope) may return `recovery.drop(reason?)` to discard the failing exchange (emits `route:exchange:dropped`) or `recovery.rethrow()` to decline recovery, instead of recovering with a body or throwing manually.
+- **`rcError` retryable override**: `rcError(code, cause, { retryable })` flips the retry classification for one occurrence.
+- **Open categories and kinds**: `RCMeta.category` and `Principal.kind` accept ecosystem-defined strings alongside the known values.
+- **Plugin identity**: plugins may declare `name` (used as `pluginId` on events and logs) and reserve `dependsOn` for future ordered initialisation. Note: a plugin instance that already carried an unrelated string `name` property now reports that value as its `pluginId` instead of the constructor name; rename the property or set `name` to the id you want. `context.getRoutes()` returns a copy.

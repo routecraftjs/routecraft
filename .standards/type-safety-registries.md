@@ -1,6 +1,6 @@
-# Type Safety: Registries and Header Tracking
+# Type Safety: Registries
 
-Compile-time safety for string-based adapter APIs via declaration merging, and header type tracking through the builder chain.
+Compile-time safety for string-based adapter APIs via declaration merging.
 
 ---
 
@@ -121,39 +121,6 @@ mcp('unknown-server:tool')      // red line: 'unknown-server' not in registry
 
 - Tool-level validation. The registry constrains the server name prefix, not the tool name after `:`. `mcp('github:nonexistent_tool')` compiles fine and only fails when the MCP server is called. Knowing which tools a server exposes requires pinging the server and reading its tool list at dev-time.
 - Syncing with `mcpPlugin({ clients: { ... } })` config. Same drift risk as LLM providers above.
-
----
-
-## Header tracking
-
-No declaration merging needed. Headers are tracked automatically through the builder chain.
-
-```typescript
-craft()
-  .from(direct('orders', {}))
-  .header('x-tenant', 'acme')
-  .header('x-priority', 'high')
-  .process((exchange) => {
-    exchange.headers['x-tenant']    // HeaderValue - tracked, autocomplete works
-    exchange.headers['x-priority']  // HeaderValue - tracked
-    exchange.headers['x-other']     // not tracked yet - no autocomplete, type is undefined
-    return exchange;
-  })
-  .filter((exchange) => {
-    exchange.headers['x-tenant']    // still tracked
-    return exchange.headers['x-priority'] === 'high';
-  })
-```
-
-Headers accumulate left-to-right through `.header()` calls and are preserved through every subsequent operation (`.process()`, `.filter()`, `.tap()`, `.to()`, `.transform()`, `.split()`, `.aggregate()`, `.validate()`, `.enrich()`).
-
-Framework headers (`routecraft.operation`, `routecraft.route`, `routecraft.correlation_id`) are always accessible regardless of which user headers have been set.
-
-**What this does NOT cover:**
-
-- Red-line errors for accessing headers that have NOT been set. TypeScript does not error when you access a key that is absent from an intersection type - it just returns `HeaderValue | undefined`. You see which headers ARE tracked (via autocomplete), but you do not get a compiler error for reading one that was not set.
-- Headers set inside `.process()` callbacks. If you mutate `exchange.headers['x-new'] = 'val'` inside a processor body, the builder chain does not know about it. Only `.header()` calls on the builder accumulate into the tracked type.
-- `.split()` children inheriting parent headers in the type system. The headers type is preserved through `.split()` / `.aggregate()` at the builder level, but if a custom splitter creates new exchanges with a different headers object, the type system has no way to know.
 
 ---
 

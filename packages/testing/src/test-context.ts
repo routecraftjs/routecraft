@@ -5,7 +5,7 @@ import type {
   EventName,
   EventHandler,
   RouteDefinition,
-  RouteBuilder,
+  AnyRouteBuilder,
   AdapterOverride,
 } from "@routecraft/routecraft";
 import {
@@ -162,7 +162,7 @@ export class TestContext {
    * whose subscribe blocks until the route is aborted. The start promise is
    * stored internally and awaited by {@link stop} for clean shutdown.
    *
-   * Use with {@link CraftClient.send} (via `t.client`) for direct endpoints,
+   * Use with {@link CraftClient.sendDirect} (via `t.client`) for direct endpoints,
    * or drive sources directly via the context store, then call `drain()` /
    * `stop()` when done.
    *
@@ -304,9 +304,9 @@ export class TestContextBuilder {
   routes(
     routes:
       | RouteDefinition[]
-      | RouteBuilder<unknown>[]
+      | AnyRouteBuilder[]
       | RouteDefinition
-      | RouteBuilder<unknown>,
+      | AnyRouteBuilder,
   ): this {
     this.builder.routes(routes);
     return this;

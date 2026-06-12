@@ -10,6 +10,10 @@ export const BRAND = {
   RouteDefinition: Symbol.for("routecraft.RouteDefinition"),
   RoutecraftError: Symbol.for("routecraft.RoutecraftError"),
   Exchange: Symbol.for("routecraft.Exchange"),
+  // Envelope brands: value objects (not class instances) marked with
+  // `[brand]: true` so they survive crossing duplicate package copies.
+  SplitChild: Symbol.for("routecraft.split.child"),
+  Recovery: Symbol.for("routecraft.recovery"),
 } as const;
 
 export const INTERNALS_KEY = Symbol.for("routecraft.exchange.internals");
@@ -48,7 +52,16 @@ export function setInternals<K extends symbol, V>(
   (obj as unknown as Record<symbol, V>)[key] = value;
 }
 
-function isBranded(obj: unknown, key: symbol): boolean {
+/**
+ * Shared brand predicate: true when `obj` is an object carrying
+ * `[key]: true`. The single implementation of the cross-instance
+ * identity check; all guards in this module and the envelope guards
+ * (`isSplitChild`, `isRecovery`) go through it so any future hardening
+ * of the check lands once.
+ *
+ * @internal
+ */
+export function isBranded(obj: unknown, key: symbol): boolean {
   return (
     typeof obj === "object" &&
     obj !== null &&

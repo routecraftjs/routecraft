@@ -39,44 +39,39 @@ declare module "@routecraft/routecraft" {
 // Header constants
 // ---------------------------------------------------------------------------
 
-/** Header key for the IMAP UID of the source message. */
-export const HEADER_MAIL_UID = "routecraft.mail.uid";
-
-/** Header key for the IMAP folder of the source message. */
-export const HEADER_MAIL_FOLDER = "routecraft.mail.folder";
-
-/** Header key for the `Message-ID` of the source message. */
-export const HEADER_MAIL_MESSAGE_ID = "routecraft.mail.messageId";
-
-/** Header key for the literal `From:` address. */
-export const HEADER_MAIL_FROM = "routecraft.mail.from";
-
-/** Header key for the recipient address(es) (always an array). */
-export const HEADER_MAIL_TO = "routecraft.mail.to";
-
-/** Header key for the CC recipient address(es). */
-export const HEADER_MAIL_CC = "routecraft.mail.cc";
-
-/** Header key for the BCC recipient address(es). */
-export const HEADER_MAIL_BCC = "routecraft.mail.bcc";
-
-/** Header key for the subject line. */
-export const HEADER_MAIL_SUBJECT = "routecraft.mail.subject";
-
-/** Header key for the date the message was sent. */
-export const HEADER_MAIL_DATE = "routecraft.mail.date";
-
-/** Header key for the Reply-To address. */
-export const HEADER_MAIL_REPLY_TO = "routecraft.mail.replyTo";
-
-/** Header key for the IMAP flags. */
-export const HEADER_MAIL_FLAGS = "routecraft.mail.flags";
-
-/** Header key for the computed effective sender (when `verify !== "off"`). */
-export const HEADER_MAIL_SENDER = "routecraft.mail.sender";
-
-/** Header key for the raw email headers (requested via `includeHeaders`). */
-export const HEADER_MAIL_RAW_HEADERS = "routecraft.mail.rawHeaders";
+/**
+ * Header keys the mail source sets for the message envelope. Keys live
+ * under the reserved `routecraft.mail.*` namespace; the value types are
+ * merged into `RoutecraftHeaders` in `./types.ts`.
+ */
+export const MailHeaders = {
+  /** IMAP UID of the source message. */
+  UID: "routecraft.mail.uid",
+  /** IMAP folder of the source message. */
+  FOLDER: "routecraft.mail.folder",
+  /** `Message-ID` of the source message. */
+  MESSAGE_ID: "routecraft.mail.messageId",
+  /** Literal `From:` address. */
+  FROM: "routecraft.mail.from",
+  /** Recipient address(es) (always an array). */
+  TO: "routecraft.mail.to",
+  /** CC recipient address(es). */
+  CC: "routecraft.mail.cc",
+  /** BCC recipient address(es). */
+  BCC: "routecraft.mail.bcc",
+  /** Subject line. */
+  SUBJECT: "routecraft.mail.subject",
+  /** Date the message was sent. */
+  DATE: "routecraft.mail.date",
+  /** Reply-To address. */
+  REPLY_TO: "routecraft.mail.replyTo",
+  /** IMAP flags. */
+  FLAGS: "routecraft.mail.flags",
+  /** Computed effective sender (when `verify !== "off"`). */
+  SENDER: "routecraft.mail.sender",
+  /** Raw email headers (requested via `includeHeaders`). */
+  RAW_HEADERS: "routecraft.mail.rawHeaders",
+} as const satisfies Record<string, `routecraft.mail.${string}`>;
 
 // ---------------------------------------------------------------------------
 // Client manager access
@@ -128,8 +123,8 @@ export function resolveMailTarget(
   if (extractor) return extractor(exchange);
 
   // 2. Headers (survive .transform())
-  const headerUid = exchange.headers[HEADER_MAIL_UID];
-  const headerFolder = exchange.headers[HEADER_MAIL_FOLDER];
+  const headerUid = exchange.headers[MailHeaders.UID];
+  const headerFolder = exchange.headers[MailHeaders.FOLDER];
   if (headerUid !== undefined && headerFolder !== undefined) {
     const uid = Number(headerUid);
     if (!Number.isFinite(uid) || uid < 1) {
@@ -204,28 +199,28 @@ export function splitMailMessage(message: MailMessage): {
   // conditional spreads for the optional envelope fields) rather than
   // post-assigning. Empty cc/bcc arrays are omitted to keep headers clean.
   const headers: ExchangeHeaders = {
-    [HEADER_MAIL_UID]: message.uid,
-    [HEADER_MAIL_FOLDER]: message.folder,
-    [HEADER_MAIL_MESSAGE_ID]: message.messageId,
-    [HEADER_MAIL_FROM]: message.from,
-    [HEADER_MAIL_TO]: toArray(message.to),
-    [HEADER_MAIL_SUBJECT]: message.subject,
-    [HEADER_MAIL_DATE]: message.date,
-    [HEADER_MAIL_FLAGS]: message.flags,
+    [MailHeaders.UID]: message.uid,
+    [MailHeaders.FOLDER]: message.folder,
+    [MailHeaders.MESSAGE_ID]: message.messageId,
+    [MailHeaders.FROM]: message.from,
+    [MailHeaders.TO]: toArray(message.to),
+    [MailHeaders.SUBJECT]: message.subject,
+    [MailHeaders.DATE]: message.date,
+    [MailHeaders.FLAGS]: message.flags,
     ...(message.cc !== undefined && message.cc.length > 0
-      ? { [HEADER_MAIL_CC]: message.cc }
+      ? { [MailHeaders.CC]: message.cc }
       : {}),
     ...(message.bcc !== undefined && message.bcc.length > 0
-      ? { [HEADER_MAIL_BCC]: message.bcc }
+      ? { [MailHeaders.BCC]: message.bcc }
       : {}),
     ...(message.replyTo !== undefined
-      ? { [HEADER_MAIL_REPLY_TO]: message.replyTo }
+      ? { [MailHeaders.REPLY_TO]: message.replyTo }
       : {}),
     ...(message.rawHeaders !== undefined
-      ? { [HEADER_MAIL_RAW_HEADERS]: message.rawHeaders }
+      ? { [MailHeaders.RAW_HEADERS]: message.rawHeaders }
       : {}),
     ...(message.sender !== undefined
-      ? { [HEADER_MAIL_SENDER]: message.sender }
+      ? { [MailHeaders.SENDER]: message.sender }
       : {}),
   };
 

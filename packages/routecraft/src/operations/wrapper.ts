@@ -149,10 +149,6 @@ export abstract class WrapperStep<
     const stepStart = Date.now();
     let outcome: StepOutcome;
     try {
-      // Clear metadata from a previous exchange so a runInner that skips
-      // the inner step (e.g. a cache hit) does not republish stale data
-      // in the completed event below.
-      delete this.inner.metadata;
       outcome = await this.runInner(exchange, ctx);
     } catch (err) {
       // Emit step:failed before propagating so observers see a
@@ -182,9 +178,11 @@ export abstract class WrapperStep<
         operation: stepLabel,
         ...(adapterLabel ? { adapter: adapterLabel } : {}),
         duration: Date.now() - stepStart,
-        // Mirror the executor: forward the inner step's adapter-populated
-        // observability metadata (set during execute()).
-        ...(this.inner.metadata ? { metadata: this.inner.metadata } : {}),
+        // Mirror the executor: forward the adapter-populated observability
+        // metadata carried on the inner step's outcome.
+        ...("metadata" in outcome && outcome.metadata
+          ? { metadata: outcome.metadata }
+          : {}),
       });
     }
 

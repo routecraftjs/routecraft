@@ -1,5 +1,6 @@
 import type { Cron as CronType } from "croner";
-import { HeadersKeys, type ExchangeHeaders } from "../../exchange";
+import { type ExchangeHeaders } from "../../exchange";
+import { CronHeaders } from "./types";
 import { type Source, type Subscription } from "../../operations/from";
 import { type CraftContext, type MergedOptions } from "../../context";
 import { loadOptionalPeer } from "../shared/optional-peer";
@@ -188,14 +189,14 @@ export class CronSourceAdapter
 
               const nextDate = job!.nextRun();
               const headers: ExchangeHeaders = {
-                [HeadersKeys.CRON_EXPRESSION]: this.expression,
-                [HeadersKeys.CRON_FIRED_TIME]: firedTime.toISOString(),
-                [HeadersKeys.CRON_COUNTER]: counter,
+                [CronHeaders.EXPRESSION]: this.expression,
+                [CronHeaders.FIRED_TIME]: firedTime.toISOString(),
+                [CronHeaders.COUNTER]: counter,
                 ...(nextDate
-                  ? { [HeadersKeys.CRON_NEXT_RUN]: nextDate.toISOString() }
+                  ? { [CronHeaders.NEXT_RUN]: nextDate.toISOString() }
                   : {}),
-                ...(timezone ? { [HeadersKeys.CRON_TIMEZONE]: timezone } : {}),
-                ...(name ? { [HeadersKeys.CRON_NAME]: name } : {}),
+                ...(timezone ? { [CronHeaders.TIMEZONE]: timezone } : {}),
+                ...(name ? { [CronHeaders.NAME]: name } : {}),
               };
 
               try {

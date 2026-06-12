@@ -8,6 +8,7 @@ import {
   type ExchangeHeaders,
   DefaultExchange,
   EXCHANGE_INTERNALS,
+  isDropped,
 } from "./exchange.ts";
 import { type RegisteredDirectEndpoint } from "./registry.ts";
 import {
@@ -19,7 +20,6 @@ import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type Source, type Subscription } from "./operations/from.ts";
-import { type OnParseError } from "./adapters/shared/parse.ts";
 import {
   type Adapter,
   type Step,
@@ -63,10 +63,17 @@ export type ForwardFn = (
  * The pipeline does not resume after this handler runs. The handler's return value
  * becomes the route's final exchange body. Use `forward` to delegate to another route.
  *
+ * Instead of a recovery body the handler may return a branded `Recovery`
+ * directive built with the `recovery` helpers (see `recovery.ts`):
+ * `recovery.drop(reason?)` discards the exchange (emits
+ * `route:exchange:dropped`, no `exchange:completed`), and
+ * `recovery.rethrow()` propagates the original error exactly as if the
+ * handler had thrown it. Plain (unbranded) return values are unaffected.
+ *
  * @param error - The thrown error
  * @param exchange - The exchange at the point of failure
  * @param forward - Sends a payload to another route via the direct adapter
- * @returns Static fallback value or result of forward()
+ * @returns Static fallback value, result of forward(), or a `Recovery` directive
  */
 export type ErrorHandler = (
   error: unknown,
@@ -334,12 +341,12 @@ export class DefaultRoute implements Route {
     );
     this.consumers = this.messageChannels.map(
       (channel) =>
-        new this.definition.consumer.type(
-          this.context,
-          this.definition,
+        new this.definition.consumer.type({
+          context: this.context,
+          definition: this.definition,
           channel,
-          this.definition.consumer.options,
-        ),
+          options: this.definition.consumer.options,
+        }),
     );
 
     // Emit routeStopping/routeStopped when the controller is aborted externally
@@ -634,13 +641,8 @@ export class DefaultRoute implements Route {
    * synthetic parse step when the source supplies a parser) before running the
    * route's steps.
    */
-  private buildConsumerHandler(): (
-    message: unknown,
-    headers?: ExchangeHeaders,
-    parse?: (raw: unknown) => unknown | Promise<unknown>,
-    parseFailureMode?: OnParseError,
-  ) => Promise<Exchange> {
-    return async (message, headers, parse, parseFailureMode) => {
+  private buildConsumerHandler(): (envelope: Message) => Promise<Exchange> {
+    return async ({ message, headers, parse, parseFailureMode }) => {
       const initialExchange = this.buildExchange(message, headers);
       const inputSchemas = this.definition.discovery?.input;
       const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
@@ -818,6 +820,14 @@ export class DefaultRoute implements Route {
       const channel = getDirectChannel(this.context, sanitized, {});
       const forwardExchange = this.buildExchange(payload);
       const result = await channel.send(sanitized, forwardExchange);
+      // Mirror CraftClient.sendDirect: a dropped exchange has no result,
+      // and resolving with its body would echo the forwarded payload back
+      // as if the target route produced it.
+      if (isDropped(result)) {
+        throw rcError("RC5031", undefined, {
+          message: `Forward target "${String(endpoint)}" dropped the exchange instead of completing it; there is no result body.`,
+        });
+      }
       return result.body;
     };
   }

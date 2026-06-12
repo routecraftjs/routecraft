@@ -1,5 +1,9 @@
 import { ENRICH_MERGE_TYPE } from "../brand.ts";
-import { type Step, type StepOutcome } from "../types.ts";
+import {
+  type Step,
+  type StepOutcome,
+  extractOutcomeMetadata,
+} from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -193,7 +197,6 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
   operation: OperationType = OperationType.ENRICH;
   adapter: Destination<T, R>;
   aggregator: EnrichAggregatorOption<T, R> | undefined;
-  metadata?: Record<string, unknown>;
 
   constructor(
     adapter: Destination<T, R> | CallableDestination<T, R>,
@@ -223,15 +226,13 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
       enrichmentData = await Promise.resolve(this.adapter.send(exchange));
     }
 
-    // Extract metadata if the adapter provides it (skip when overridden).
-    const getMetadata = (
-      this.adapter as {
-        getMetadata?: (result: unknown) => Record<string, unknown>;
-      }
-    ).getMetadata;
-    if (!override && getMetadata) {
-      this.metadata = getMetadata.call(this.adapter, enrichmentData);
-    }
+    // The metadata rides the OUTCOME, not the step: Step instances are
+    // shared across exchanges.
+    const metadata = extractOutcomeMetadata(
+      this.adapter,
+      enrichmentData,
+      !!override,
+    );
 
     // Use the provided aggregator or the default one
     const aggregator = this.aggregator || defaultEnrichAggregator;
@@ -254,7 +255,10 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
             headers: result.headers,
           });
 
-    // Push the exchange to the queue
-    return { kind: "continue", exchange: next };
+    return {
+      kind: "continue",
+      exchange: next,
+      ...(metadata ? { metadata } : {}),
+    };
   }
 }

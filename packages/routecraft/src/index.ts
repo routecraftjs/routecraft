@@ -26,7 +26,6 @@ export {
   type ExchangeHeaders,
   getExchangeContext,
   getExchangeRoute,
-  type HeaderKeysRegistry,
   HeadersKeys,
   type HeaderValue,
   type HeaderLiteral,
@@ -42,6 +41,7 @@ export {
   type CraftConfig,
   type CraftPlugin,
 } from "./context.ts";
+export { type Capability, registerCapability } from "./capabilities.ts";
 export { defineConfig } from "./define-config.ts";
 export { registerConfigApplier, type ConfigApplier } from "./config-applier.ts";
 export { type HttpConfig } from "./adapters/http/types.ts";
@@ -62,6 +62,14 @@ export { httpPlugin } from "./plugins/http/plugin.ts";
 export { apiKey } from "./plugins/http/auth.ts";
 /** @deprecated Use `CraftConfig.direct` instead. Will be removed in next major version. */
 export { type DirectConfig } from "./adapters/direct/types.ts";
+
+export {
+  recovery,
+  type Recovery,
+  type RecoveryDrop,
+  type RecoveryRethrow,
+  isRecovery,
+} from "./recovery.ts";
 
 export {
   DefaultRoute,
@@ -88,7 +96,13 @@ export { type Processor } from "./operations/process.ts";
 
 export { type Destination } from "./operations/to.ts";
 
-export { type Splitter } from "./operations/split.ts";
+export {
+  type Splitter,
+  type SplitResult,
+  type SplitChild,
+  splitChild,
+  isSplitChild,
+} from "./operations/split.ts";
 
 export { type Aggregator } from "./operations/aggregate.ts";
 
@@ -150,21 +164,28 @@ export {
   ContextBuilder,
   craft,
   RouteBuilder,
+  type AnyRouteBuilder,
+  type PreFromBuilder,
   type RouteOptions,
 } from "./builder.ts";
 
 /**
- * Type-only re-exports of the shared builder base. Exposed so that
- * `registerDsl` can augment a single interface and have both `RouteBuilder`
+ * Type-only re-exports of the shared builder base and its type-state
+ * machinery. Exposed so that `registerDsl` can augment a single interface
+ * (`StepBuilderBase<S extends BuilderState>`) and have both `RouteBuilder`
  * and `BranchBuilder` inherit the augmentation via class-interface
- * inheritance. The class value is deliberately not re-exported -- the base
- * is not a public extension point and the closed-world `Retyped` helper
- * falls through to `never` for any subclass outside the framework-owned
- * set.
- *
- * @internal
+ * inheritance; `SetBody` and `Retyped` are the helpers type-changing sugar
+ * uses to advance the bag. The class value is deliberately not re-exported --
+ * the base is not a public extension point and the closed-world `Retyped`
+ * helper falls through to `never` for any subclass outside the
+ * framework-owned set.
  */
-export type { StepBuilderBase, Retyped } from "./step-builder-base.ts";
+export type {
+  StepBuilderBase,
+  BuilderState,
+  SetBody,
+  Retyped,
+} from "./step-builder-base.ts";
 
 export { CraftClient } from "./client.ts";
 
@@ -180,6 +201,7 @@ export {
   RoutecraftError,
   type RCCode,
   type RCMeta,
+  type KnownErrorCategory,
   type ErrorCodeRegistry,
   rcError,
   registerErrorCodes,
@@ -231,14 +253,19 @@ export {
 export {
   type Adapter,
   type Consumer,
+  type ConsumerDeps,
+  type ConsumerType,
   type EventDetailsMap,
   type EventName,
   type EventHandler,
   type EventPayload,
   forRoute,
+  type Message,
+  type ProcessingQueue,
   type Step,
   type StepContext,
   type StepOutcome,
+  type StepOutcomeMetadata,
 } from "./types.ts";
 
 export { SimpleConsumer } from "./consumers/simple.ts";
@@ -285,21 +312,19 @@ export {
   type DirectChannelType,
   type DirectClientOptions,
   type DirectOptions,
-  type DirectRouteMetadata,
   type DirectServerOptions,
-  ADAPTER_DIRECT_REGISTRY,
-  getDirectChannel,
-  sanitizeEndpoint,
 } from "./adapters/direct/index.ts";
-export { type TimerOptions } from "./adapters/timer/index.ts";
+export { type TimerOptions, TimerHeaders } from "./adapters/timer/index.ts";
 export {
   type CronExpression,
   type CronOptions,
+  CronHeaders,
 } from "./adapters/cron/index.ts";
 export {
   type FileOptions,
   type FileAdapter,
   type FileReadAdapter,
+  FileHeaders,
 } from "./adapters/file/index.ts";
 export {
   type HtmlOptions,
@@ -322,14 +347,14 @@ export {
   type CsvData,
   type CsvAdapter,
   type CsvReadAdapter,
+  CsvHeaders,
 } from "./adapters/csv/index.ts";
 export {
   type JsonlOptions,
-  type JsonlSourceOptions,
-  type JsonlDestinationOptions,
-  type JsonlCombinedOptions,
+  type JsonlFileOptions,
   type JsonlTransformerOptions,
   type JsonlReadAdapter,
+  JsonlHeaders,
 } from "./adapters/jsonl/index.ts";
 export { type GroupOptions } from "./adapters/group/index.ts";
 export {
@@ -387,29 +412,14 @@ export {
   parseAuthResults,
   ANALYSIS_HEADER_NAMES,
   MailClientManager,
-  HEADER_MAIL_UID,
-  HEADER_MAIL_FOLDER,
-  HEADER_MAIL_MESSAGE_ID,
-  HEADER_MAIL_FROM,
-  HEADER_MAIL_TO,
-  HEADER_MAIL_CC,
-  HEADER_MAIL_BCC,
-  HEADER_MAIL_SUBJECT,
-  HEADER_MAIL_DATE,
-  HEADER_MAIL_REPLY_TO,
-  HEADER_MAIL_FLAGS,
-  HEADER_MAIL_SENDER,
-  HEADER_MAIL_RAW_HEADERS,
+  MailHeaders,
 } from "./adapters/mail/index.ts";
 export {
-  CardDAVAdapter,
-  CardDAVClientManager,
+  CarddavAdapter,
+  CarddavClientManager,
   CARDDAV_CLIENT_MANAGER,
   DEFAULT_CARDDAV_SERVER_URL,
-  HEADER_CARDDAV_UID,
-  HEADER_CARDDAV_URL,
-  HEADER_CARDDAV_ETAG,
-  HEADER_CARDDAV_ACCOUNT,
+  CarddavHeaders,
   VCard,
   VCardProperty,
   parseVCard,
@@ -417,20 +427,19 @@ export {
   VPARAM,
   type KnownProperty,
   type KnownParam,
-  type CardDAVOptions,
-  type CardDAVReadOptions,
-  type CardDAVWriteOptions,
-  type CardDAVDeleteOptions,
-  type CardDAVContextConfig,
-  type CardDAVAccountConfig,
-  type CardDAVAction,
-  type CardDAVTargetExtractor,
-  type CardDAVWriteResult,
-  type CardDAVDeleteResult,
-  type CardDAVDriverClient,
+  type CarddavOptions,
+  type CarddavServerOptions,
+  type CarddavClientOptions,
+  type CarddavContextConfig,
+  type CarddavAccountConfig,
+  type CarddavAction,
+  type CarddavTargetExtractor,
+  type CarddavWriteResult,
+  type CarddavDeleteResult,
+  type CarddavDriverClient,
   type DAVAddressBookLike,
   type DAVVCardLike,
-  type ResolvedCardDAVConnection,
+  type ResolvedCarddavConnection,
   type VCardBody,
   type VCardPropertyData,
   type VCardPropertyOptions,

@@ -63,9 +63,10 @@ All boundaries use `err.meta.message` (`RoutecraftError`) or `err.message` (plai
 
 ## Error Code Philosophy
 
-- **All codes are framework-owned.** Defined in `packages/routecraft/src/error.ts`. The `RCCode` type is a closed union. No external registration, no adapter-defined codes.
+- **Core owns the `RC` namespace.** Core codes are defined in `packages/routecraft/src/error.ts`. Ecosystem packages register their own namespaced codes (e.g. `AI1001`) via `ErrorCodeRegistry` declaration merging plus a runtime `registerErrorCodes(namespace, codes, owner)` call; each namespace is claimable by exactly one owner package.
 - **Codes represent failure patterns**, not step types. Community adapters use framework codes with specific message/suggestion overrides (e.g., `rcError("RC5010", cause, { message: "Redis connection refused on port 6379" })`).
-- **A code earns its place** when its docs page can provide specific, actionable troubleshooting steps. Otherwise, use the catch-all (RC5001) and put specifics in the message override.
+- **Generic RC codes are ecosystem-throwable.** Adapters and ecosystem packages may throw these core codes directly (with message/suggestion/retryable overrides) instead of minting their own: `RC5001` (step failed, catch-all), `RC5003` (adapter misconfigured), `RC5004` (no handler available), `RC5010` (connection failed), `RC5011` (timeout), `RC5012` (authentication failed), `RC5013` (rate limited), `RC5014` (resource not found), `RC5015` (permission denied), `RC5016` (source payload parse failed), `RC5017` (optional peer missing). The remaining RC codes are engine-internal; do not throw them from ecosystem code.
+- **A code earns its place** when its docs page can provide specific, actionable troubleshooting steps. Otherwise, use the catch-all (RC5001) and put specifics in the message override; register a namespaced code only when the failure pattern is genuinely package-specific.
 
 ### Progressive quality ladder for adapter authors
 
@@ -79,7 +80,7 @@ All boundaries use `err.meta.message` (`RoutecraftError`) or `err.message` (plai
 
 ## API
 
-- Use `rcError(rc, cause?, { message?, suggestion?, docs? })` from `packages/routecraft/src/error.ts` for framework and adapter errors.
+- Use `rcError(rc, cause?, { message?, suggestion?, docs?, retryable? })` from `packages/routecraft/src/error.ts` for framework and adapter errors.
 - Use normal `throw new Error` only when you do not need an RC code or docs link.
 - Log with `context.logger` in sources and `exchange.logger` in steps/destinations.
 - At boundaries: `logger.error({ err, operation, adapter }, err.meta.message)`.

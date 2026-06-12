@@ -1,5 +1,5 @@
 import type { Destination, CallableDestination } from "../../operations/to.ts";
-import type { JsonlDestinationOptions } from "./types.ts";
+import type { JsonlFileOptions } from "./types.ts";
 import { file } from "../file/index.ts";
 import { parseJsonl } from "./shared.ts";
 
@@ -16,7 +16,7 @@ import { parseJsonl } from "./shared.ts";
 export class JsonlDestinationAdapter implements Destination<unknown, unknown> {
   readonly adapterId = "routecraft.adapter.jsonl";
 
-  constructor(private readonly options: JsonlDestinationOptions) {}
+  constructor(private readonly options: JsonlFileOptions) {}
 
   send: CallableDestination<unknown, unknown> = async (exchange) => {
     const {

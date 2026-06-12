@@ -1,7 +1,8 @@
 import * as fsp from "node:fs/promises";
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { FileOptions } from "./types.ts";
-import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
+import { type ExchangeHeaders } from "../../exchange.ts";
+import { FileHeaders } from "./types.ts";
 import { forEachLine, throwFileError } from "../shared/line-reader.ts";
 
 /**
@@ -46,8 +47,8 @@ export class FileSourceAdapter implements Source<string> {
           sub.signal,
           async (line, lineNumber) => {
             const headers: ExchangeHeaders = {
-              [HeadersKeys.FILE_LINE]: lineNumber,
-              [HeadersKeys.FILE_PATH]: filePath,
+              [FileHeaders.LINE]: lineNumber,
+              [FileHeaders.PATH]: filePath,
             } as ExchangeHeaders;
             try {
               await sub.emit({ message: line, headers });

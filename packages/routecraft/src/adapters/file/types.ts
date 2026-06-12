@@ -34,3 +34,24 @@ export interface FileOptions {
    */
   chunked?: boolean;
 }
+
+/**
+ * Header keys the file source sets on chunked-mode exchanges. Keys live
+ * under the reserved `routecraft.file.*` namespace; the value types are
+ * merged into `RoutecraftHeaders` below.
+ */
+export const FileHeaders = {
+  /** The 1-based line number when reading a file in chunked mode */
+  LINE: "routecraft.file.line",
+  /** The file path when reading a file in chunked mode */
+  PATH: "routecraft.file.path",
+} as const satisfies Record<string, `routecraft.file.${string}`>;
+
+declare module "@routecraft/routecraft" {
+  interface RoutecraftHeaders {
+    /** The 1-based line number when reading a file in chunked mode */
+    [FileHeaders.LINE]?: number;
+    /** The file path when reading a file in chunked mode */
+    [FileHeaders.PATH]?: string;
+  }
+}

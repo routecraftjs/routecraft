@@ -62,16 +62,48 @@ import { PUSH_STEP } from "./dsl-symbol.ts";
 export type StepWrapperFactory = <T extends Adapter>(inner: Step<T>) => Step<T>;
 
 // Type-only imports to avoid a runtime cycle. The `Retyped` conditional below
-// resolves `this` into the concrete subclass typed at `NewT`; the value side
-// of each subclass is defined in its own module and imports StepBuilderBase,
-// not the other way around.
+// resolves `this` into the concrete subclass typed at the new state bag; the
+// value side of each subclass is defined in its own module and imports
+// StepBuilderBase, not the other way around.
 import type { RouteBuilder } from "./builder.ts";
 import type { BranchBuilder } from "./operations/choice.ts";
 
 /**
+ * The type-state bag threaded through the builder chain.
+ *
+ * Every builder generic (`RouteBuilder<S>`, `BranchBuilder<S>`,
+ * `StepBuilderBase<S>`) is parameterised by ONE bag rather than by loose
+ * type arguments, because declaration merging freezes generic arity: the
+ * moment an ecosystem package augments `interface StepBuilderBase<S>`, the
+ * parameter list can never change again. With a bag, new tracked facets
+ * (typed headers, accumulated tags, ...) become new OPTIONAL fields on this
+ * interface, which is a non-breaking change for every augmentation already
+ * in the wild.
+ *
+ * `body` is the only field today: the body type entering the next step.
+ */
+export interface BuilderState {
+  /** Body type entering the next pipeline step. */
+  body: unknown;
+}
+
+/**
+ * Replace the `body` field of a state bag, preserving every other (current
+ * or future) field. The single way builder methods advance the body type;
+ * using it everywhere means a new `BuilderState` field flows through every
+ * existing chain method untouched.
+ *
+ * @template S - The incoming state bag
+ * @template B - The new body type
+ */
+export type SetBody<S extends BuilderState, B> = {
+  [K in keyof S]: K extends "body" ? B : S[K];
+};
+
+/**
  * Maps the polymorphic `this` type of a `StepBuilderBase` call to the same
- * concrete subclass re-typed at the new body type `NewT`. Enables methods on
- * the shared base class to return `RouteBuilder<NewT>` or `BranchBuilder<NewT>`
+ * concrete subclass re-typed at the new state bag `S2`. Enables methods on
+ * the shared base class to return `RouteBuilder<S2>` or `BranchBuilder<S2>`
  * automatically based on the receiver at the call site, without each subclass
  * overriding every method to narrow its return.
  *
@@ -81,16 +113,20 @@ import type { BranchBuilder } from "./operations/choice.ts";
  * framework-owned subclass (for example, a `PathBuilder` for multicast) must
  * be added to the union below.
  *
- * @internal
  * @template This - The polymorphic `this` type inside a method on StepBuilderBase
- * @template NewT - The new body type to re-type the subclass at
+ * @template S2 - The new state bag to re-type the subclass at
  */
-export type Retyped<This, NewT> =
-  This extends RouteBuilder<unknown>
-    ? RouteBuilder<NewT>
-    : This extends BranchBuilder<unknown>
-      ? BranchBuilder<NewT>
+// The `infer` holes below are match-only: the builder classes are invariant
+// in their state bag, so a structural `extends RouteBuilder<BuilderState>`
+// check fails for concrete instantiations; inferential matching does not.
+/* eslint-disable @typescript-eslint/no-unused-vars */
+export type Retyped<This, S2 extends BuilderState> =
+  This extends RouteBuilder<infer _RS extends BuilderState>
+    ? RouteBuilder<S2>
+    : This extends BranchBuilder<infer _BS extends BuilderState>
+      ? BranchBuilder<S2>
       : never;
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 /**
  * Shared abstract base for builders that accumulate pipeline steps.
@@ -103,19 +139,20 @@ export type Retyped<This, NewT> =
  * `BranchBuilder` pushes into its internal step array.
  *
  * Return types are threaded through the polymorphic `this` via
- * {@link Retyped}, so a `.transform()` call on a `RouteBuilder<A>` returns
- * `RouteBuilder<B>` and the same call on `BranchBuilder<A>` returns
- * `BranchBuilder<B>`.
+ * {@link Retyped}, so a `.transform()` call on a `RouteBuilder<{ body: A }>`
+ * returns `RouteBuilder<{ body: B }>` and the same call on
+ * `BranchBuilder<{ body: A }>` returns `BranchBuilder<{ body: B }>`.
  *
- * This class is framework-internal. It is not exported from the package
- * entry point and should not be subclassed outside the framework; the
- * {@link Retyped} conditional is closed-world and external subclasses
- * would silently resolve to `never`.
+ * The class value is framework-internal and must not be subclassed outside
+ * the framework (the {@link Retyped} conditional is closed-world and external
+ * subclasses would silently resolve to `never`). The TYPE, however, is the
+ * documented augmentation point for DSL sugar: `registerDsl` adds the runtime
+ * method here, and ecosystem packages declare its type by merging into
+ * `interface StepBuilderBase<S extends BuilderState>` (see `registerDsl`).
  *
- * @internal
- * @template Current - Body type entering the next step
+ * @template S - The {@link BuilderState} bag for the chain position
  */
-export abstract class StepBuilderBase<Current = unknown> {
+export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   /**
    * Stack of step-scope wrapper factories declared since the last
    * pushed step, in declaration order. Folded around the next pushed
@@ -218,7 +255,7 @@ export abstract class StepBuilderBase<Current = unknown> {
    * @experimental Step-scope behaviour ships with the dual-mode
    * wrapper pattern (see `.standards/resilience-wrappers.md`).
    */
-  cache(options: CacheOptions<Current> = {}): this {
+  cache(options: CacheOptions<S["body"]> = {}): this {
     this.pendingStepWrappers.push(
       (inner) => new CacheWrapperStep(inner, options as CacheOptions),
     );
@@ -226,19 +263,20 @@ export abstract class StepBuilderBase<Current = unknown> {
   }
 
   /**
-   * Return `this` re-typed to the concrete subclass at a new body type.
+   * Return `this` re-typed to the concrete subclass with the state bag's
+   * `body` replaced by `B` (other bag fields preserved).
    *
-   * The single cast point used by every pipeline method that changes
-   * `Current`. Centralising it means `RouteBuilder` and `BranchBuilder`
+   * The single cast point used by every pipeline method that changes the
+   * body type. Centralising it means `RouteBuilder` and `BranchBuilder`
    * do not each need their own `withType<T>()` helper, and the closed-world
    * {@link Retyped} conditional resolves the return type to the caller's
    * concrete subclass.
    *
-   * @template T - New body type
+   * @template B - New body type
    * @returns This instance, re-typed
    */
-  protected retype<T>(): Retyped<this, T> {
-    return this as unknown as Retyped<this, T>;
+  protected retype<B>(): Retyped<this, SetBody<S, B>> {
+    return this as unknown as Retyped<this, SetBody<S, B>>;
   }
 
   /**
@@ -251,10 +289,10 @@ export abstract class StepBuilderBase<Current = unknown> {
    * @template R - Result body type; defaults to `void` (body unchanged)
    */
   to<R = void>(
-    destination: Destination<Current, R> | CallableDestination<Current, R>,
-  ): Retyped<this, R extends void ? Current : R> {
-    this.pushStep(new ToStep<Current, R>(destination));
-    return this.retype<R extends void ? Current : R>();
+    destination: Destination<S["body"], R> | CallableDestination<S["body"], R>,
+  ): Retyped<this, SetBody<S, R extends void ? S["body"] : R>> {
+    this.pushStep(new ToStep<S["body"], R>(destination));
+    return this.retype<R extends void ? S["body"] : R>();
   }
 
   /**
@@ -268,10 +306,10 @@ export abstract class StepBuilderBase<Current = unknown> {
    */
   transform<Return>(
     transformer:
-      | Transformer<Current, Return>
-      | CallableTransformer<Current, Return>,
-  ): Retyped<this, Return> {
-    this.pushStep(new TransformStep<Current, Return>(transformer));
+      | Transformer<S["body"], Return>
+      | CallableTransformer<S["body"], Return>,
+  ): Retyped<this, SetBody<S, Return>> {
+    this.pushStep(new TransformStep<S["body"], Return>(transformer));
     return this.retype<Return>();
   }
 
@@ -291,26 +329,29 @@ export abstract class StepBuilderBase<Current = unknown> {
   enrich<
     R,
     A extends
-      | DestinationAggregator<Current, R>
+      | DestinationAggregator<S["body"], R>
       | (DestinationAggregator<unknown, unknown> & {
           [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
         })
       | undefined = undefined,
   >(
-    destination: Destination<Current, R> | CallableDestination<Current, R>,
+    destination: Destination<S["body"], R> | CallableDestination<S["body"], R>,
     aggregator?: A,
   ): Retyped<
     this,
-    A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
+    SetBody<
+      S,
+      A extends { [ENRICH_MERGE_TYPE]: infer M } ? S["body"] & M : S["body"] & R
+    >
   > {
     this.pushStep(
-      new EnrichStep<Current, R>(
+      new EnrichStep<S["body"], R>(
         destination,
-        aggregator as EnrichAggregatorOption<Current, R> | undefined,
+        aggregator as EnrichAggregatorOption<S["body"], R> | undefined,
       ),
     );
     return this.retype<
-      A extends { [ENRICH_MERGE_TYPE]: infer M } ? Current & M : Current & R
+      A extends { [ENRICH_MERGE_TYPE]: infer M } ? S["body"] & M : S["body"] & R
     >();
   }
 
@@ -321,12 +362,14 @@ export abstract class StepBuilderBase<Current = unknown> {
    *
    * @param processor - Function that receives and returns the exchange
    * @returns The subclass builder re-typed to the processor's output body
-   * @template Return - Result body type (defaults to `Current`)
+   * @template Return - Result body type (defaults to the current body)
    */
-  process<Return = Current>(
-    processor: Processor<Current, Return> | CallableProcessor<Current, Return>,
-  ): Retyped<this, Return> {
-    this.pushStep(new ProcessStep<Current, Return>(processor));
+  process<Return = S["body"]>(
+    processor:
+      | Processor<S["body"], Return>
+      | CallableProcessor<S["body"], Return>,
+  ): Retyped<this, SetBody<S, Return>> {
+    this.pushStep(new ProcessStep<S["body"], Return>(processor));
     return this.retype<Return>();
   }
 
@@ -342,9 +385,9 @@ export abstract class StepBuilderBase<Current = unknown> {
     key: string,
     valueOrFn:
       | HeaderLiteral
-      | ((exchange: Exchange<Current>) => HeaderValue | Promise<HeaderValue>),
+      | ((exchange: Exchange<S["body"]>) => HeaderValue | Promise<HeaderValue>),
   ): this {
-    this.pushStep(new HeaderStep<Current>(key, valueOrFn));
+    this.pushStep(new HeaderStep<S["body"]>(key, valueOrFn));
     return this;
   }
 
@@ -381,8 +424,8 @@ export abstract class StepBuilderBase<Current = unknown> {
    *   .to(dest)
    * ```
    */
-  authenticate(resolver: CallableAuthenticator<Current>): this {
-    this.pushStep(new AuthenticateStep<Current>(resolver));
+  authenticate(resolver: CallableAuthenticator<S["body"]>): this {
+    this.pushStep(new AuthenticateStep<S["body"]>(resolver));
     return this;
   }
 
@@ -398,10 +441,10 @@ export abstract class StepBuilderBase<Current = unknown> {
    */
   tap(
     destination:
-      | Destination<Current, unknown>
-      | CallableDestination<Current, unknown>,
+      | Destination<S["body"], unknown>
+      | CallableDestination<S["body"], unknown>,
   ): this {
-    this.pushStep(new TapStep<Current>(destination));
+    this.pushStep(new TapStep<S["body"]>(destination));
     return this;
   }
 
@@ -413,8 +456,8 @@ export abstract class StepBuilderBase<Current = unknown> {
    * @param filter - Filter adapter or callable predicate
    * @returns This builder (same subclass, same body type)
    */
-  filter(filter: Filter<Current> | CallableFilter<Current>): this {
-    this.pushStep(new FilterStep<Current>(filter));
+  filter(filter: Filter<S["body"]> | CallableFilter<S["body"]>): this {
+    this.pushStep(new FilterStep<S["body"]>(filter));
     return this;
   }
 
@@ -427,12 +470,12 @@ export abstract class StepBuilderBase<Current = unknown> {
    *
    * @param validator - Validator adapter or callable
    * @returns The subclass builder re-typed to the validator's output body
-   * @template R - Output body type after validation (defaults to `Current`)
+   * @template R - Output body type after validation (defaults to the current body)
    */
-  validate<R = Current>(
-    validator: Validator<Current, R> | CallableValidator<Current, R>,
-  ): Retyped<this, R> {
-    this.pushStep(new ValidateStep<Current, R>(validator));
+  validate<R = S["body"]>(
+    validator: Validator<S["body"], R> | CallableValidator<S["body"], R>,
+  ): Retyped<this, SetBody<S, R>> {
+    this.pushStep(new ValidateStep<S["body"], R>(validator));
     return this.retype<R>();
   }
 

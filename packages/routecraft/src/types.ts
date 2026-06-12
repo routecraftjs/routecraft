@@ -57,13 +57,6 @@ export interface Step<T extends Adapter> {
   skipStepEvents?: boolean;
 
   /**
-   * Optional metadata populated by the adapter during execution.
-   * Used for observability, metrics, and cost tracking.
-   * Guidelines: small values only (IDs, names, counts, codes), no large bodies.
-   */
-  metadata?: Record<string, unknown>;
-
-  /**
    * Execute this step and report what happened. The executor owns all
    * scheduling: steps no longer see the work queue or the remaining
    * pipeline, they describe an outcome and the engine routes it.
@@ -73,6 +66,45 @@ export interface Step<T extends Adapter> {
    * steps receive an untyped exchange. Narrow or assert body type if needed.
    */
   execute(exchange: Exchange, ctx: StepContext): Promise<StepOutcome>;
+}
+
+/**
+ * Observability metadata a step may attach to its outcome (e.g. LLM token
+ * usage, HTTP status codes). The executor copies it into the
+ * `route:step:completed` event payload. Guidelines: small values only
+ * (IDs, names, counts, codes), no large bodies. Outcome-scoped on purpose:
+ * `Step` instances are shared across exchanges, so per-execution data must
+ * never live on the step itself.
+ */
+export type StepOutcomeMetadata = Record<string, unknown>;
+
+/**
+ * Read {@link StepOutcomeMetadata} from an adapter's optional
+ * `getMetadata(result)` hook. Shared by the `to` and `enrich` steps so
+ * the metadata contract has one implementation; `skip` short-circuits
+ * when a test override replaced the adapter result (mock results are
+ * typically primitives and carry no adapter metadata).
+ *
+ * @internal
+ */
+export function extractOutcomeMetadata(
+  adapter: Adapter,
+  result: unknown,
+  skip: boolean,
+): StepOutcomeMetadata | undefined {
+  if (skip) return undefined;
+  const getMetadata = (
+    adapter as { getMetadata?: (result: unknown) => StepOutcomeMetadata }
+  ).getMetadata;
+  if (!getMetadata) return undefined;
+  // Best-effort: metadata is advisory (event-payload enrichment only). A
+  // throwing hook must not turn an adapter operation that already
+  // succeeded (and may have had side effects) into a route failure.
+  try {
+    return getMetadata.call(adapter, result);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -90,11 +122,16 @@ export interface Step<T extends Adapter> {
  *   (choice routes into the matched branch).
  * - `fanOut`: schedule each child exchange independently through the
  *   remaining steps (split).
+ *
+ * The union is OPEN across minor releases: new kinds may be added as the
+ * engine grows (the executor exhaustively handles every kind it ships
+ * with). Code that consumes outcomes (custom wrappers, tests) should pass
+ * unrecognised kinds through rather than throwing on them.
  */
 export type StepOutcome =
-  | { kind: "continue"; exchange: Exchange }
-  | { kind: "complete"; exchange: Exchange }
-  | { kind: "drop" }
+  | { kind: "continue"; exchange: Exchange; metadata?: StepOutcomeMetadata }
+  | { kind: "complete"; exchange: Exchange; metadata?: StepOutcomeMetadata }
+  | { kind: "drop"; metadata?: StepOutcomeMetadata }
   | { kind: "branch"; exchange: Exchange; steps: Step<Adapter>[] }
   | { kind: "fanOut"; exchanges: Exchange[] };
 
@@ -112,11 +149,31 @@ export interface StepContext {
 
 // MessageChannel lives with channel adapter now
 
-export type ConsumerType<T extends Consumer, O = unknown> = new (
-  context: CraftContext,
-  definition: RouteDefinition,
-  channel: unknown,
-  options: O,
+/**
+ * Construction dependencies handed to a {@link Consumer} by the route
+ * runtime, one bag per (source, consumer) pair.
+ *
+ * `options` is deliberately `unknown` here: route definitions store
+ * heterogeneous consumer configurations, so the typed options surface
+ * lives on the builder method that stages the consumer (e.g.
+ * `.batch(...)`). Each consumer narrows and defaults its own options in
+ * its constructor; it owns the interpretation of that value.
+ */
+export type ConsumerDeps = {
+  context: CraftContext;
+  definition: RouteDefinition;
+  channel: ProcessingQueue<Message>;
+  options: unknown;
+};
+
+/**
+ * Constructable consumer class. The single deps-bag parameter (rather
+ * than positional arguments) keeps every consumer class assignable to
+ * `ConsumerType<Consumer>` without casts, so route definitions can store
+ * any consumer implementation uniformly.
+ */
+export type ConsumerType<T extends Consumer = Consumer> = new (
+  deps: ConsumerDeps,
 ) => T;
 
 /**
@@ -161,29 +218,23 @@ export type Message<T = unknown> = {
 
 export interface Consumer<O = unknown> {
   context: CraftContext;
-  channel: unknown; // will be narrowed by specific consumer types
+  channel: ProcessingQueue<Message>;
   definition: RouteDefinition;
   options: O;
   /**
-   * Register the route handler. At runtime, message and the returned exchange's body
-   * are untyped (unknown). The builder chain is typed; narrow or assert in the handler
-   * if you need to access body fields.
+   * Register the route handler. The handler receives the same
+   * {@link Message} envelope that sources enqueue, so a pass-through
+   * consumer forwards it untouched while merging consumers (e.g. batch)
+   * synthesize new envelopes. At runtime the envelope's `message` and the
+   * returned exchange's body are untyped (unknown); the builder chain is
+   * typed, so narrow or assert in the handler if you need body fields.
    *
-   * The optional `parse` argument is forwarded by the consumer when the
-   * source adapter attached one to the queued `Message`. The route
-   * captures it on the exchange internals so `runPipeline` can apply it as a
-   * synthetic first pipeline step. Consumers that merge multiple messages
-   * (e.g. batch) parse items eagerly during enqueue and pass a `parse`-less
-   * call here.
+   * When the envelope carries a `parse` function the route captures it on
+   * the exchange internals so `runPipeline` can apply it as a synthetic
+   * first pipeline step. Consumers that merge multiple messages parse
+   * items eagerly during enqueue and hand over a `parse`-less envelope.
    */
-  register(
-    handler: (
-      message: unknown,
-      headers?: ExchangeHeaders,
-      parse?: (raw: unknown) => unknown | Promise<unknown>,
-      parseFailureMode?: OnParseError,
-    ) => Promise<Exchange>,
-  ): void;
+  register(handler: (envelope: Message) => Promise<Exchange>): void;
 }
 
 /**
@@ -499,7 +550,6 @@ export interface EventDetailsMap {
   };
 
   // -- Plugin lifecycle --
-  "plugin:registered": { pluginId: string; pluginIndex: number };
   "plugin:starting": { pluginId: string; pluginIndex: number };
   "plugin:started": { pluginId: string; pluginIndex: number };
   "plugin:stopping": { pluginId: string; pluginIndex: number };

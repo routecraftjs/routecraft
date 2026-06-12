@@ -175,7 +175,7 @@ const route = craft()
 const { context, client } = await new ContextBuilder().routes(route).build();
 context.start();
 
-await client.send("greet", { name: "World" });
+await client.sendDirect("greet", { name: "World" });
 ```
 
 You get full programmatic control: load specific capability files, run a single capability for a batch job, or integrate Routecraft into a larger Express, Next.js, or Fastify server. See the [Programmatic Invocation guide](/docs/advanced/programmatic-invocation) for the full pattern.

@@ -44,7 +44,7 @@ const route = craft()
 const { context, client } = await new ContextBuilder().routes(route).build();
 context.start();
 
-await client.send("greet", { name: "World" });
+await client.sendDirect("greet", { name: "World" });
 await context.stop();
 ```
 

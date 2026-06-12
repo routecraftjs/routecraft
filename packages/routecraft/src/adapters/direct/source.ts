@@ -38,7 +38,9 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
 
     const endpoint = sanitizeEndpoint(meta.routeId);
 
-    registerRoute(context, endpoint, meta.discovery);
+    // Discovery speaks raw route ids; the sanitised key is only for the
+    // channel map.
+    registerRoute(context, meta.routeId, meta.discovery);
 
     context.logger.debug(
       { endpoint, adapter: "direct" },

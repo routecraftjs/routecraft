@@ -4,9 +4,11 @@ import {
   getExchangeRoute,
   HeadersKeys,
   DefaultExchange,
+  markDropped,
 } from "../exchange.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
+import { isRecovery, applyDropDirective } from "../recovery.ts";
 import type { ErrorHandler } from "../route.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
@@ -102,6 +104,36 @@ export class ErrorWrapperStep<
           });
         }
         const recovered = await this.handler(innerError, exchange, forward);
+        if (isRecovery(recovered)) {
+          if (recovered.kind === "rethrow") {
+            // Declarative equivalent of `throw error` inside the
+            // handler: fall through to the handler-threw path below with
+            // the original error so the route-level cascade fires.
+            throw innerError;
+          }
+          // `recovery.drop()`: resolve the error by discarding the
+          // exchange (shared semantics in applyDropDirective). The
+          // forward guard above already threw when no route is bound, so
+          // context/routeId are present here in any framework-built
+          // pipeline; the fallback mark keeps the drop flag correct for
+          // synthetic exchanges in unit tests.
+          if (route && context && routeId) {
+            applyDropDirective({
+              context,
+              routeId,
+              exchange,
+              originalError: innerError,
+              failedOperation: stepLabel,
+              correlationId,
+              reason: recovered.reason,
+              scope: "step",
+              stepLabel,
+            });
+          } else {
+            markDropped(exchange);
+          }
+          return { kind: "drop" };
+        }
         // Build a recovered exchange (the original is frozen). Inheriting
         // identity / internals via rewrap keeps event correlation
         // (exchangeId, route binding) consistent across the recovery.

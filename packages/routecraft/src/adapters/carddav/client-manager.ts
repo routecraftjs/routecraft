@@ -11,15 +11,15 @@
 
 import { rcError } from "../../error.ts";
 import { loadOptionalPeer } from "../shared/optional-peer.ts";
-import type { CardDAVContextConfig } from "./types.ts";
+import type { CarddavContextConfig } from "./types.ts";
 import {
   DEFAULT_CARDDAV_SERVER_URL,
-  throwCardDAVError,
-  type CardDAVDriverClient,
+  throwCarddavError,
+  type CarddavDriverClient,
 } from "./shared.ts";
 
 /** Connection inputs resolved from account + context config. */
-export interface ResolvedCardDAVConnection {
+export interface ResolvedCarddavConnection {
   serverUrl: string;
   username: string;
   password: string;
@@ -30,7 +30,7 @@ export interface ResolvedCardDAVConnection {
  *
  * @experimental
  */
-export class CardDAVClientManager {
+export class CarddavClientManager {
   /**
    * Login seam. Resolves a driver client for the given connection. Exposed as a
    * static so tests can substitute a fake client without a network round-trip
@@ -38,8 +38,8 @@ export class CardDAVClientManager {
    * @internal
    */
   static createDriverClient: (
-    connection: ResolvedCardDAVConnection,
-  ) => Promise<CardDAVDriverClient> = async (connection) => {
+    connection: ResolvedCarddavConnection,
+  ) => Promise<CarddavDriverClient> = async (connection) => {
     const tsdav = await loadOptionalPeer(() => import("tsdav"), {
       adapterName: "carddav",
       packageName: "tsdav",
@@ -53,14 +53,14 @@ export class CardDAVClientManager {
       authMethod: "Basic",
       defaultAccountType: "carddav",
     });
-    return client as unknown as CardDAVDriverClient;
+    return client as unknown as CarddavDriverClient;
   };
 
-  private readonly clients = new Map<string, Promise<CardDAVDriverClient>>();
-  readonly config: CardDAVContextConfig;
+  private readonly clients = new Map<string, Promise<CarddavDriverClient>>();
+  readonly config: CarddavContextConfig;
   readonly defaultAccount: string;
 
-  constructor(config: CardDAVContextConfig) {
+  constructor(config: CarddavContextConfig) {
     this.config = config;
     const accounts = config.accounts ?? {};
     this.defaultAccount =
@@ -68,7 +68,7 @@ export class CardDAVClientManager {
   }
 
   /** Resolve the connection inputs for an account, throwing RC5003 if incomplete. */
-  resolveConnection(account?: string): ResolvedCardDAVConnection {
+  resolveConnection(account?: string): ResolvedCarddavConnection {
     const name = account ?? this.defaultAccount;
     const acct = this.config.accounts?.[name];
     if (!acct) {
@@ -96,16 +96,16 @@ export class CardDAVClientManager {
   }
 
   /** Acquire (and cache) a logged-in client for the given account. */
-  async getClient(account?: string): Promise<CardDAVDriverClient> {
+  async getClient(account?: string): Promise<CarddavDriverClient> {
     const name = account ?? this.defaultAccount;
     let pending = this.clients.get(name);
     if (!pending) {
       const connection = this.resolveConnection(name);
-      pending = CardDAVClientManager.createDriverClient(connection).catch(
+      pending = CarddavClientManager.createDriverClient(connection).catch(
         (error: unknown) => {
           // Drop the rejected promise so a later call can retry the login.
           this.clients.delete(name);
-          throwCardDAVError(error, "login");
+          throwCarddavError(error, "login");
         },
       );
       this.clients.set(name, pending);

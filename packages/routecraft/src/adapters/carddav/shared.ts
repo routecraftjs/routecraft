@@ -7,7 +7,7 @@
 
 import type { CraftContext } from "../../context.ts";
 import { rcError, RoutecraftError } from "../../error.ts";
-import type { CardDAVClientManager } from "./client-manager.ts";
+import type { CarddavClientManager } from "./client-manager.ts";
 
 /** Default CardDAV server for iCloud Contacts. */
 export const DEFAULT_CARDDAV_SERVER_URL = "https://contacts.icloud.com";
@@ -27,7 +27,7 @@ export const CARDDAV_CLIENT_MANAGER = Symbol.for(
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
-    [CARDDAV_CLIENT_MANAGER]: CardDAVClientManager;
+    [CARDDAV_CLIENT_MANAGER]: CarddavClientManager;
   }
 }
 
@@ -35,17 +35,35 @@ declare module "@routecraft/routecraft" {
 // Header constants
 // ---------------------------------------------------------------------------
 
-/** Header key for the vCard UID of a contact. */
-export const HEADER_CARDDAV_UID = "routecraft.carddav.uid";
+/**
+ * Header keys the CardDAV adapter sets for contact metadata. Keys live
+ * under the reserved `routecraft.carddav.*` namespace; the value types are
+ * merged into `RoutecraftHeaders` below.
+ * @experimental
+ */
+export const CarddavHeaders = {
+  /** vCard UID of a contact. */
+  UID: "routecraft.carddav.uid",
+  /** DAV object URL of a contact. */
+  URL: "routecraft.carddav.url",
+  /** DAV ETag of a contact. */
+  ETAG: "routecraft.carddav.etag",
+  /** Named account a contact was read from. */
+  ACCOUNT: "routecraft.carddav.account",
+} as const satisfies Record<string, `routecraft.carddav.${string}`>;
 
-/** Header key for the DAV object URL of a contact. */
-export const HEADER_CARDDAV_URL = "routecraft.carddav.url";
-
-/** Header key for the DAV ETag of a contact. */
-export const HEADER_CARDDAV_ETAG = "routecraft.carddav.etag";
-
-/** Header key for the named account a contact was read from. */
-export const HEADER_CARDDAV_ACCOUNT = "routecraft.carddav.account";
+declare module "@routecraft/routecraft" {
+  interface RoutecraftHeaders {
+    /** vCard UID of a contact. */
+    [CarddavHeaders.UID]?: string;
+    /** DAV object URL of a contact. */
+    [CarddavHeaders.URL]?: string;
+    /** DAV ETag of a contact. */
+    [CarddavHeaders.ETAG]?: string;
+    /** Named account a contact was read from. */
+    [CarddavHeaders.ACCOUNT]?: string;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Minimal DAV driver surface (subset of tsdav used by the adapter)
@@ -69,7 +87,7 @@ export interface DAVVCardLike {
  * surface keeps the adapter `any`-free (tsdav types `data` as `any`) and lets
  * tests substitute a lightweight fake.
  */
-export interface CardDAVDriverClient {
+export interface CarddavDriverClient {
   fetchAddressBooks(params?: {
     account?: unknown;
   }): Promise<DAVAddressBookLike[]>;
@@ -90,24 +108,24 @@ export interface CardDAVDriverClient {
 // ---------------------------------------------------------------------------
 
 /**
- * Get the CardDAVClientManager from the context, or null when no `carddav`
+ * Get the CarddavClientManager from the context, or null when no `carddav`
  * config was provided.
  */
 export function getClientManager(
   context: CraftContext | undefined,
-): CardDAVClientManager | null {
+): CarddavClientManager | null {
   if (!context) return null;
   return (
     (context.getStore(CARDDAV_CLIENT_MANAGER) as
-      | CardDAVClientManager
+      | CarddavClientManager
       | undefined) ?? null
   );
 }
 
-/** Get the CardDAVClientManager, throwing RC5003 when it is absent. */
+/** Get the CarddavClientManager, throwing RC5003 when it is absent. */
 export function requireClientManager(
   context: CraftContext | undefined,
-): CardDAVClientManager {
+): CarddavClientManager {
   const manager = getClientManager(context);
   if (!manager) {
     throw rcError("RC5003", undefined, {
@@ -164,7 +182,7 @@ export function selectAddressBook(
 // ---------------------------------------------------------------------------
 
 /** Map a thrown driver error (login, network) to a RoutecraftError. */
-export function throwCardDAVError(error: unknown, operation: string): never {
+export function throwCarddavError(error: unknown, operation: string): never {
   if (error instanceof RoutecraftError) throw error;
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();

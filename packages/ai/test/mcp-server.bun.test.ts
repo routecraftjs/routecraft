@@ -7,6 +7,7 @@ import {
   jwks,
   noop,
   rcError,
+  type AnyRouteBuilder,
   type Principal,
 } from "@routecraft/routecraft";
 import { mcp } from "../src/index.ts";
@@ -401,7 +402,7 @@ describe("McpServer", () => {
   describe("HTTP transport", () => {
     /** Start HTTP server with given route builders; returns post helper and port. Call initSession() to get session id. */
     async function startHttpServer(
-      routes: ReturnType<typeof craft>[],
+      routes: AnyRouteBuilder[],
       serverOptions: {
         port?: number;
         host?: string;

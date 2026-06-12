@@ -9,13 +9,7 @@ import {
 import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
 import { McpDestinationAdapter } from "../src/mcp/adapters/mcp/destination.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
-import {
-  craft,
-  simple,
-  direct,
-  DefaultExchange,
-  ADAPTER_DIRECT_REGISTRY,
-} from "@routecraft/routecraft";
+import { craft, simple, direct, DefaultExchange } from "@routecraft/routecraft";
 
 const MCP_LOCAL_KEY =
   MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry;
@@ -333,7 +327,7 @@ describe("mcp() DSL function", () => {
   /**
    * @case direct() routes never appear in the MCP local tool registry
    * @preconditions One direct() route and one mcp() route coexist
-   * @expectedResult MCP_LOCAL_TOOL_REGISTRY contains only the mcp() entry; ADAPTER_DIRECT_REGISTRY holds the direct entry
+   * @expectedResult MCP_LOCAL_TOOL_REGISTRY contains only the mcp() entry; the capability list holds the direct entry
    */
   test("direct() routes are absent from MCP_LOCAL_TOOL_REGISTRY", async () => {
     t = await testContext()
@@ -355,9 +349,9 @@ describe("mcp() DSL function", () => {
       | undefined;
     expect(Array.from(mcpRegistry?.keys() ?? [])).toEqual(["exposed"]);
 
-    const directRegistry = t.ctx.getStore(ADAPTER_DIRECT_REGISTRY);
-    expect(directRegistry?.has("internal")).toBe(true);
-    expect(directRegistry?.has("exposed")).toBe(false);
+    const endpoints = t.ctx.capabilities().map((c) => c.endpoint);
+    expect(endpoints).toContain("internal");
+    expect(endpoints).not.toContain("exposed");
   });
 
   /**

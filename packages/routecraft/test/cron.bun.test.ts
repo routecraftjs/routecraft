@@ -13,12 +13,8 @@ import {
 import FakeTimers from "@sinonjs/fake-timers";
 import { Cron } from "croner";
 import { cron } from "../src/index.ts";
-import { CronSourceAdapter } from "../src/adapters/cron/index.ts";
-import {
-  HeadersKeys,
-  type Exchange,
-  type ExchangeHeaders,
-} from "../src/exchange.ts";
+import { CronSourceAdapter, CronHeaders } from "../src/adapters/cron/index.ts";
+import { type Exchange, type ExchangeHeaders } from "../src/exchange.ts";
 import { CraftContext } from "../src/context.ts";
 
 // Bun:test 1.3.11 does not implement `node:test`'s `mock.timers` (the
@@ -149,9 +145,9 @@ describe("CronSourceAdapter", () => {
     expect(handler).toHaveBeenCalledTimes(1);
 
     const headers: ExchangeHeaders = handler.mock.calls[0][1];
-    expect(headers[HeadersKeys.CRON_EXPRESSION]).toBe("* * * * * *");
-    expect(headers[HeadersKeys.CRON_FIRED_TIME]).toBeDefined();
-    expect(headers[HeadersKeys.CRON_COUNTER]).toBe(1);
+    expect(headers[CronHeaders.EXPRESSION]).toBe("* * * * * *");
+    expect(headers[CronHeaders.FIRED_TIME]).toBeDefined();
+    expect(headers[CronHeaders.COUNTER]).toBe(1);
   });
 
   /**
@@ -226,7 +222,7 @@ describe("CronSourceAdapter", () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
     const headers: ExchangeHeaders = handler.mock.calls[0][1];
-    expect(headers[HeadersKeys.CRON_TIMEZONE]).toBe("America/New_York");
+    expect(headers[CronHeaders.TIMEZONE]).toBe("America/New_York");
   });
 
   /**
@@ -254,7 +250,7 @@ describe("CronSourceAdapter", () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
     const headers: ExchangeHeaders = handler.mock.calls[0][1];
-    expect(headers[HeadersKeys.CRON_NAME]).toBe("test-job");
+    expect(headers[CronHeaders.NAME]).toBe("test-job");
   });
 
   /**
@@ -308,8 +304,8 @@ describe("CronSourceAdapter", () => {
     expect(handler).toHaveBeenCalledTimes(2);
     const firstHeaders: ExchangeHeaders = handler.mock.calls[0][1];
     const secondHeaders: ExchangeHeaders = handler.mock.calls[1][1];
-    expect(firstHeaders[HeadersKeys.CRON_COUNTER]).toBe(1);
-    expect(secondHeaders[HeadersKeys.CRON_COUNTER]).toBe(2);
+    expect(firstHeaders[CronHeaders.COUNTER]).toBe(1);
+    expect(secondHeaders[CronHeaders.COUNTER]).toBe(2);
   });
 
   /**
@@ -351,8 +347,8 @@ describe("CronSourceAdapter", () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
     const headers: ExchangeHeaders = handler.mock.calls[0][1];
-    expect(headers[HeadersKeys.CRON_NAME]).toBe("factory-test");
-    expect(headers[HeadersKeys.CRON_TIMEZONE]).toBe("UTC");
+    expect(headers[CronHeaders.NAME]).toBe("factory-test");
+    expect(headers[CronHeaders.TIMEZONE]).toBe("UTC");
   });
 
   /**
@@ -433,7 +429,7 @@ describe("CronSourceAdapter", () => {
 
     expect(handler).toHaveBeenCalledTimes(2);
     const headers: ExchangeHeaders = handler.mock.calls[0][1];
-    const nextRun = headers[HeadersKeys.CRON_NEXT_RUN];
+    const nextRun = headers[CronHeaders.NEXT_RUN];
     expect(nextRun).toBeDefined();
     expect(new Date(nextRun as string).getTime()).toBeGreaterThan(0);
   });

@@ -2,12 +2,7 @@ import type { Source, CallableSource } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { Transformer } from "../../operations/transform.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
-import type {
-  JsonlSourceOptions,
-  JsonlDestinationOptions,
-  JsonlCombinedOptions,
-  JsonlTransformerOptions,
-} from "./types.ts";
+import type { JsonlFileOptions, JsonlTransformerOptions } from "./types.ts";
 import { JsonlSourceAdapter } from "./source.ts";
 import { JsonlDestinationAdapter } from "./destination.ts";
 import { JsonlTransformerAdapter } from "./transformer.ts";
@@ -37,7 +32,7 @@ export function jsonl<T = unknown, R = unknown>(
  * @returns A Source-only adapter
  */
 export function jsonl<T = unknown>(
-  options: JsonlSourceOptions & { chunked: true },
+  options: JsonlFileOptions & { path: string; chunked: true },
 ): Source<T> & { readonly adapterId: string };
 /**
  * Creates a read-mode JSONL adapter (source, and destination that returns the
@@ -47,7 +42,7 @@ export function jsonl<T = unknown>(
  * @returns A Source + read Destination adapter
  */
 export function jsonl<T = unknown>(
-  options: JsonlDestinationOptions & { mode: "read" },
+  options: JsonlFileOptions & { mode: "read" },
 ): JsonlReadAdapter<T>;
 /**
  * Creates a JSONL adapter for reading or writing JSON Lines files.
@@ -88,7 +83,7 @@ export function jsonl<T = unknown>(
  * ```
  */
 export function jsonl<T = unknown>(
-  options: JsonlCombinedOptions,
+  options: JsonlFileOptions & { path: string },
 ): Source<T[]> & Destination<unknown, void> & { readonly adapterId: string };
 /**
  * Creates a JSONL destination-only adapter.
@@ -97,14 +92,10 @@ export function jsonl<T = unknown>(
  * @returns A Destination-only adapter
  */
 export function jsonl(
-  options: JsonlDestinationOptions,
+  options: JsonlFileOptions,
 ): Destination<unknown, void> & { readonly adapterId: string };
 export function jsonl<T = unknown, R = unknown>(
-  options:
-    | JsonlSourceOptions
-    | JsonlDestinationOptions
-    | JsonlCombinedOptions
-    | JsonlTransformerOptions<T, R> = {},
+  options: JsonlFileOptions | JsonlTransformerOptions<T, R> = {},
 ):
   | (Transformer<T, R> & { readonly adapterId: string })
   | Source<T>
@@ -117,7 +108,7 @@ export function jsonl<T = unknown, R = unknown>(
   // Transformer mode: no path means parse a JSONL string already in the body.
   if (
     !("path" in options) ||
-    (options as JsonlDestinationOptions).path === undefined
+    (options as JsonlFileOptions).path === undefined
   ) {
     const transformer = new JsonlTransformerAdapter<T, R>(
       options as JsonlTransformerOptions<T, R>,
@@ -133,8 +124,8 @@ export function jsonl<T = unknown, R = unknown>(
   }
 
   // Destination-only: path is a function (not valid for source)
-  if (typeof (options as JsonlDestinationOptions).path === "function") {
-    const destOptions = options as JsonlDestinationOptions;
+  if (typeof (options as JsonlFileOptions).path === "function") {
+    const destOptions = options as JsonlFileOptions;
     const destination = new JsonlDestinationAdapter(destOptions);
     // A function path cannot be a source. Read mode returns JsonlReadAdapter
     // (which includes Source); attach a subscribe that throws the same clear
@@ -160,10 +151,10 @@ export function jsonl<T = unknown, R = unknown>(
     return tagged as unknown as Destination<unknown, void>;
   }
 
-  const sourceOptions = options as JsonlSourceOptions;
-  const source = new JsonlSourceAdapter<T>(sourceOptions);
+  const fileOptions = options as JsonlFileOptions & { path: string };
+  const source = new JsonlSourceAdapter<T>(fileOptions);
 
-  if (sourceOptions.chunked) {
+  if (fileOptions.chunked) {
     return tagAdapter(
       {
         adapterId: "routecraft.adapter.jsonl",
@@ -174,26 +165,9 @@ export function jsonl<T = unknown, R = unknown>(
     ) as Source<T>;
   }
 
-  const combined = options as JsonlCombinedOptions;
-  const destOptions: JsonlDestinationOptions = {
-    path: sourceOptions.path,
-  };
-  if (sourceOptions.encoding) {
-    destOptions.encoding = sourceOptions.encoding;
-  }
-  if (combined.mode) {
-    destOptions.mode = combined.mode;
-  }
-  if (combined.createDirs) {
-    destOptions.createDirs = combined.createDirs;
-  }
-  if (combined.replacer) {
-    destOptions.replacer = combined.replacer;
-  }
-  if (sourceOptions.reviver) {
-    destOptions.reviver = sourceOptions.reviver;
-  }
-  const destination = new JsonlDestinationAdapter(destOptions);
+  // One options bag drives both sides; the destination ignores the
+  // source-only fields (chunked, onParseError).
+  const destination = new JsonlDestinationAdapter(fileOptions);
 
   const tagged = tagAdapter(
     {
@@ -204,7 +178,7 @@ export function jsonl<T = unknown, R = unknown>(
     jsonl,
     args,
   );
-  if (combined.mode === "read") {
+  if (fileOptions.mode === "read") {
     return tagged as unknown as JsonlReadAdapter<T>;
   }
   return tagged as unknown as Source<T[]> & Destination<unknown, void>;
@@ -212,9 +186,8 @@ export function jsonl<T = unknown, R = unknown>(
 
 // Re-export types
 export type {
-  JsonlSourceOptions,
-  JsonlDestinationOptions,
-  JsonlCombinedOptions,
+  JsonlFileOptions,
   JsonlTransformerOptions,
   JsonlOptions,
 } from "./types.ts";
+export { JsonlHeaders } from "./types.ts";

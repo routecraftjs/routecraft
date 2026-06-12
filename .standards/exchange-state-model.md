@@ -25,7 +25,7 @@ A contributor adding new state asks:
 
 1. Is it the payload the route is operating on? --> `body`.
 2. Does the same instance need to outlive the exchange and be shared across routes? --> `context.store` (typed via `StoreRegistry`).
-3. Anything else per-exchange that must survive the exchange? --> `headers` (typed via `RoutecraftHeaders` augmentation or `HeaderKeysRegistry`).
+3. Anything else per-exchange that must survive the exchange? --> `headers` (typed via `RoutecraftHeaders` declaration merging).
 4. Want ergonomic dotted access (`ex.foo`) for a known core concern? --> add a getter on `DefaultExchange` that reads from `headers`. Plugin-defined concerns export an external helper (`getTenant(ex)`) instead of patching the prototype.
 
 That's it. No primitive/structured split. No second per-exchange bag. No stored-field "special cases" for cross-cutting concerns. One Principal --> one header key + one getter. One Span (future) --> one header key (and external helper if warranted).

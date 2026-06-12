@@ -1,12 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import {
-  craft,
-  simple,
-  http,
-  DefaultExchange,
-  getExchangeContext,
-} from "@routecraft/routecraft";
+import { craft, simple, http } from "@routecraft/routecraft";
 
 describe("HTTP Adapter", () => {
   let t: TestContext;
@@ -376,16 +370,8 @@ describe("HTTP Adapter", () => {
           .from(simple("trigger"))
           .enrich(http({ url: "https://api.example.com/items" }))
           .split((exchange) => {
-            const ctx = getExchangeContext(exchange)!;
             const body = exchange.body as { body?: unknown[] };
-            const items = Array.isArray(body?.body) ? body.body : [];
-            return items.map(
-              (b) =>
-                new DefaultExchange(ctx, {
-                  body: b,
-                  headers: exchange.headers,
-                }),
-            );
+            return Array.isArray(body?.body) ? body.body : [];
           })
           .to(s),
       )

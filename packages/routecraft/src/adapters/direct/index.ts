@@ -104,7 +104,6 @@ export type {
   DirectChannel,
   DirectChannelType,
   DirectEndpoint,
-  DirectRouteMetadata,
   DirectBaseOptions,
   DirectServerOptions,
   DirectClientOptions,
@@ -115,7 +114,6 @@ export type {
 export {
   ADAPTER_DIRECT_STORE,
   ADAPTER_DIRECT_OPTIONS,
-  ADAPTER_DIRECT_REGISTRY,
   getDirectChannel,
   sanitizeEndpoint,
 } from "./shared";

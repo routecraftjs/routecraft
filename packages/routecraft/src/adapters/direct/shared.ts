@@ -1,10 +1,10 @@
 import type { CraftContext } from "../../context";
+import { registerCapability, type Capability } from "../../capabilities";
 import { rcError } from "../../error";
 import type { RouteDiscovery } from "../../route";
 import type {
   DirectChannel,
   DirectChannelType,
-  DirectRouteMetadata,
   DirectBaseOptions,
 } from "./types";
 import type { Exchange } from "../../exchange";
@@ -27,19 +27,10 @@ export const ADAPTER_DIRECT_OPTIONS = Symbol.for(
   "routecraft.adapter.direct.options",
 );
 
-/**
- * Store key for the direct route registry (endpoint -> metadata).
- * @internal
- */
-export const ADAPTER_DIRECT_REGISTRY = Symbol.for(
-  "routecraft.adapter.direct.registry",
-);
-
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [ADAPTER_DIRECT_STORE]: Map<string, DirectChannel<Exchange>>;
     [ADAPTER_DIRECT_OPTIONS]: Pick<DirectBaseOptions, "channelType">;
-    [ADAPTER_DIRECT_REGISTRY]: Map<string, DirectRouteMetadata>;
   }
 }
 
@@ -101,40 +92,33 @@ export function getDirectChannel<T>(
 }
 
 /**
- * Register route metadata in context store for discovery. The metadata
- * comes from the route's discovery bundle (set via `.title()` /
+ * Register the route as a discoverable capability. The metadata comes
+ * from the route's discovery bundle (set via `.title()` /
  * `.description()` / `.input()` / `.output()` on the builder); direct
- * itself carries no discovery fields on its own options.
+ * itself carries no discovery fields on its own options. Writes into the
+ * core-owned capability registry keyed by the RAW endpoint id; the
+ * sanitised channel key stays a transport detail of this adapter.
  */
 export function registerRoute(
   context: CraftContext,
   endpoint: string,
   discovery?: RouteDiscovery,
 ): void {
-  let registry = context.getStore(ADAPTER_DIRECT_REGISTRY) as
-    | Map<string, DirectRouteMetadata>
-    | undefined;
-
-  if (!registry) {
-    registry = new Map<string, DirectRouteMetadata>();
-    context.setStore(ADAPTER_DIRECT_REGISTRY, registry);
-  }
-
-  const metadata: DirectRouteMetadata = { endpoint };
-  if (discovery?.title !== undefined) metadata.title = discovery.title;
+  const capability: Capability = { endpoint };
+  if (discovery?.title !== undefined) capability.title = discovery.title;
   if (discovery?.description !== undefined) {
-    metadata.description = discovery.description;
+    capability.description = discovery.description;
   }
-  if (discovery?.input !== undefined) metadata.input = discovery.input;
-  if (discovery?.output !== undefined) metadata.output = discovery.output;
+  if (discovery?.input !== undefined) capability.input = discovery.input;
+  if (discovery?.output !== undefined) capability.output = discovery.output;
   if (discovery?.tags !== undefined && discovery.tags.length > 0) {
-    metadata.tags = [...discovery.tags];
+    capability.tags = [...discovery.tags];
   }
-  registry.set(endpoint, metadata);
+  registerCapability(context, capability);
 
   context.logger.debug(
     { endpoint, adapter: "direct" },
-    "Registered direct route in discoverable registry",
+    "Registered direct route as a discoverable capability",
   );
 }
 

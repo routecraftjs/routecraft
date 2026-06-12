@@ -5,9 +5,9 @@ title: carddav
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-carddav(options?: CardDAVReadOptions): Source<VCardBody> & Destination<unknown, VCardBody[]>
-carddav(options: CardDAVWriteOptions): Destination<VCardBody, CardDAVWriteResult>
-carddav(options: CardDAVDeleteOptions): Destination<unknown, CardDAVDeleteResult>
+carddav(options?: CarddavServerOptions): Source<VCardBody> & Destination<unknown, VCardBody[]>
+carddav(options: CarddavClientOptions & { action: 'save' | 'create' | 'update' }): Destination<VCardBody, CarddavWriteResult>
+carddav(options: CarddavClientOptions & { action: 'delete' }): Destination<unknown, CarddavDeleteResult>
 ```
 
 Read and write contacts over CardDAV. Defaults to Apple iCloud Contacts (`https://contacts.icloud.com`) but works with any CardDAV server (Fastmail, Nextcloud, Google). The role is chosen by an `action` flag, the same way the mail adapter selects its mode: no `action` reads, `action` writes or deletes.
@@ -76,7 +76,7 @@ craft()
   .to(carddav({ action: 'update' }))
 ```
 
-**Delete (`.to()`):** `action: 'delete'` removes the contact resolved from the read headers (`routecraft.carddav.url`/`uid`), the body's `UID`, or a custom `target` extractor. Returns `CardDAVDeleteResult`. No match raises `RC5014`.
+**Delete (`.to()`):** `action: 'delete'` removes the contact resolved from the read headers (`routecraft.carddav.url`/`uid`), the body's `UID`, or a custom `target` extractor. Returns `CarddavDeleteResult`. No match raises `RC5014`.
 
 ```ts
 craft()
@@ -160,4 +160,4 @@ card.toString()                 // serialize to wire form
 
 **Known names:** `VCARD` and `VPARAM` are convenience constants for the standard vCard property and parameter names (e.g. `card.text(VCARD.FN)`), with `KnownProperty` / `KnownParam` union types. They are values for autocomplete and typo-safety, not a constraint: every method still accepts an arbitrary `string`, so any property works.
 
-**Exports:** `VCard`, `VCardProperty`, `parseVCard`, `VCARD`, `VPARAM` (values); `VCardBody`, `VCardPropertyData`, `CardDAVOptions`, `CardDAVReadOptions`, `CardDAVWriteOptions`, `CardDAVDeleteOptions`, `CardDAVContextConfig`, `CardDAVAccountConfig`, `CardDAVAction`, `CardDAVTargetExtractor`, `CardDAVWriteResult`, `CardDAVDeleteResult`, `VCardParam`, `VCardPropertyOptions`, `KnownProperty`, `KnownParam`, `CardDAVClientManager`, `CARDDAV_CLIENT_MANAGER` (types).
+**Exports:** `VCard`, `VCardProperty`, `parseVCard`, `VCARD`, `VPARAM`, `CarddavHeaders`, `CarddavClientManager`, `CARDDAV_CLIENT_MANAGER` (values); `VCardBody`, `VCardPropertyData`, `CarddavOptions`, `CarddavServerOptions`, `CarddavClientOptions`, `CarddavContextConfig`, `CarddavAccountConfig`, `CarddavAction`, `CarddavTargetExtractor`, `CarddavWriteResult`, `CarddavDeleteResult`, `VCardParam`, `VCardPropertyOptions`, `KnownProperty`, `KnownParam` (types).

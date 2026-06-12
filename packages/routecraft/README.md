@@ -150,7 +150,7 @@ route:step:started / completed / failed / error
 route:batch:started / flushed / stopped
 route:error-handler:invoked / recovered / failed
 route:cache:hit / miss / stored / failed
-plugin:registered / starting / started / stopping / stopped
+plugin:starting / started / stopping / stopped
 ```
 
 See the [events reference](https://routecraft.dev/docs/reference/events)

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, file, HeadersKeys } from "@routecraft/routecraft";
+import { craft, file, FileHeaders } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -75,10 +75,10 @@ describe("File Adapter - Chunked Mode", () => {
     await t.ctx.start();
 
     expect(s.received).toHaveLength(2);
-    expect(s.received[0].headers[HeadersKeys.FILE_LINE]).toBe(1);
-    expect(s.received[0].headers[HeadersKeys.FILE_PATH]).toBe(filePath);
-    expect(s.received[1].headers[HeadersKeys.FILE_LINE]).toBe(2);
-    expect(s.received[1].headers[HeadersKeys.FILE_PATH]).toBe(filePath);
+    expect(s.received[0].headers[FileHeaders.LINE]).toBe(1);
+    expect(s.received[0].headers[FileHeaders.PATH]).toBe(filePath);
+    expect(s.received[1].headers[FileHeaders.LINE]).toBe(2);
+    expect(s.received[1].headers[FileHeaders.PATH]).toBe(filePath);
   });
 
   /**

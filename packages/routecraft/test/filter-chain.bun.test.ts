@@ -137,8 +137,8 @@ describe("pre-from filter chain runtime", () => {
       .build();
 
     await t.startAndWaitReady();
-    const first = await t.client.send("cache-key-rewrap", "hello");
-    const second = await t.client.send("cache-key-rewrap", "hello");
+    const first = await t.client.sendDirect("cache-key-rewrap", "hello");
+    const second = await t.client.sendDirect("cache-key-rewrap", "hello");
 
     expect(transformRuns).toBe(1);
     expect(first).toBe("transformed:hello");

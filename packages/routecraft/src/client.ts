@@ -1,6 +1,6 @@
 import type { CraftContext } from "./context.ts";
 import type { Exchange, ExchangeHeaders } from "./exchange.ts";
-import { DefaultExchange } from "./exchange.ts";
+import { DefaultExchange, isDropped } from "./exchange.ts";
 import { rcError } from "./error.ts";
 import {
   ADAPTER_DIRECT_STORE,
@@ -25,7 +25,7 @@ import {
  *
  * // Dispatch from Commander action
  * program.command('greet').action(async (name) => {
- *   const result = await client.send('greet', { name });
+ *   const result = await client.sendDirect('greet', { name });
  *   console.log(result);
  * });
  * ```
@@ -34,18 +34,22 @@ export class CraftClient {
   constructor(private readonly ctx: CraftContext) {}
 
   /**
-   * Send a message to a direct endpoint and return the result.
+   * Send a message to a direct endpoint and return the result. The name
+   * carries the transport: future transports (e.g. HTTP dispatch) get
+   * their own verbs instead of overloading one `send`.
    *
    * The context must be started and the target route must be subscribed
-   * before calling send.
+   * before calling sendDirect.
    *
    * @param endpoint - Direct endpoint name (must match the endpoint string passed to `direct(endpoint, options)`)
    * @param body - Request body
    * @param headers - Optional exchange headers
-   * @returns The response body from the route
+   * @returns The response body from the route. `R` defaults to `unknown`:
+   *   the route's output type is not derivable from the request type, so
+   *   callers narrow explicitly.
    * @throws {RoutecraftError} RC5004 if no direct channel exists for the endpoint
    */
-  async send<T = unknown, R = T>(
+  async sendDirect<T = unknown, R = unknown>(
     endpoint: string,
     body: T,
     headers?: ExchangeHeaders,
@@ -62,7 +66,15 @@ export class CraftClient {
       body,
       ...(headers !== undefined && { headers }),
     });
-    const result = await channel.send(sanitized, exchange);
-    return (result as Exchange).body as R;
+    const result = (await channel.send(sanitized, exchange)) as Exchange;
+    // A dropped exchange has no response: resolving with its body would
+    // hand the caller back its own request as if it were the route's
+    // output. Surface the drop as an error the caller can branch on.
+    if (isDropped(result)) {
+      throw rcError("RC5031", undefined, {
+        message: `Direct endpoint "${endpoint}" dropped the exchange instead of completing it; there is no response body.`,
+      });
+    }
+    return result.body as R;
   }
 }

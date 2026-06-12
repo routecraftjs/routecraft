@@ -217,7 +217,6 @@ Plugin events are scoped to a plugin ID.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:registered` | Plugin registered | `{ pluginId, pluginIndex }` |
 | `plugin:starting` | Plugin is about to start | `{ pluginId, pluginIndex }` |
 | `plugin:started` | Plugin has started | `{ pluginId, pluginIndex }` |
 | `plugin:stopping` | Plugin is about to stop | `{ pluginId, pluginIndex }` |

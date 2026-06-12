@@ -7,22 +7,20 @@ import {
   VCard,
   VCARD,
   VPARAM,
-  HEADER_CARDDAV_URL,
-  HEADER_CARDDAV_UID,
-  HEADER_CARDDAV_ETAG,
+  CarddavHeaders,
   type VCardBody,
 } from "@routecraft/routecraft";
-import { CardDAVAdapter } from "../src/adapters/carddav/index.ts";
-import { CardDAVClientManager } from "../src/adapters/carddav/client-manager.ts";
+import { CarddavAdapter } from "../src/adapters/carddav/index.ts";
+import { CarddavClientManager } from "../src/adapters/carddav/client-manager.ts";
 import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
 import type {
-  CardDAVDriverClient,
+  CarddavDriverClient,
   DAVAddressBookLike,
   DAVVCardLike,
 } from "../src/adapters/carddav/shared.ts";
 import type {
-  CardDAVDeleteResult,
-  CardDAVWriteResult,
+  CarddavDeleteResult,
+  CarddavWriteResult,
 } from "../src/adapters/carddav/types.ts";
 
 // ---------------------------------------------------------------------------
@@ -73,7 +71,7 @@ const ACCOUNT_CONFIG = {
 // In-memory CardDAV fake (behaves like a precondition-honoring server)
 // ---------------------------------------------------------------------------
 
-interface FakeDriver extends CardDAVDriverClient {
+interface FakeDriver extends CarddavDriverClient {
   created: Array<{ vCardString: string; filename: string }>;
   updated: Array<{ vCard: DAVVCardLike }>;
   deleted: Array<{ vCard: DAVVCardLike }>;
@@ -142,9 +140,9 @@ function fakeDriver(initial: DAVVCardLike[] = []): FakeDriver {
   };
 }
 
-const ORIGINAL_CREATE_DRIVER = CardDAVClientManager.createDriverClient;
+const ORIGINAL_CREATE_DRIVER = CarddavClientManager.createDriverClient;
 afterEach(() => {
-  CardDAVClientManager.createDriverClient = ORIGINAL_CREATE_DRIVER;
+  CarddavClientManager.createDriverClient = ORIGINAL_CREATE_DRIVER;
 });
 
 /** A minimal context carrying the carddav store, for direct `adapter.send`. */
@@ -398,7 +396,7 @@ describe("CardDAV source (read)", () => {
    * @expectedResult Two exchanges; each body is plain; headers carry url/uid/etag
    */
   test("emits one plain body per card with identity on headers", async () => {
-    CardDAVClientManager.createDriverClient = async () =>
+    CarddavClientManager.createDriverClient = async () =>
       fakeDriver([
         { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
         {
@@ -421,9 +419,9 @@ describe("CardDAV source (read)", () => {
     expect(typeof (body as { text?: unknown }).text).toBe("undefined");
     expect(VCard.wrap(body).text("FN")).toBe("Jane Q Doe");
     const headers = s.received[0]?.headers ?? {};
-    expect(headers[HEADER_CARDDAV_URL]).toBe(`${BOOK_URL}abc-123.vcf`);
-    expect(headers[HEADER_CARDDAV_ETAG]).toBe('"1"');
-    expect(headers[HEADER_CARDDAV_UID]).toBe("ABC-123");
+    expect(headers[CarddavHeaders.URL]).toBe(`${BOOK_URL}abc-123.vcf`);
+    expect(headers[CarddavHeaders.ETAG]).toBe('"1"');
+    expect(headers[CarddavHeaders.UID]).toBe("ABC-123");
   });
 
   /**
@@ -432,7 +430,7 @@ describe("CardDAV source (read)", () => {
    * @expectedResult Only the first card is emitted
    */
   test("honors the limit option", async () => {
-    CardDAVClientManager.createDriverClient = async () =>
+    CarddavClientManager.createDriverClient = async () =>
       fakeDriver([
         { url: `${BOOK_URL}a.vcf`, data: ICLOUD_VCARD },
         { url: `${BOOK_URL}b.vcf`, data: ICLOUD_VCARD },
@@ -458,7 +456,7 @@ describe("CardDAV source (read)", () => {
    * @expectedResult The route records an error rather than tearing down the read
    */
   test("routes a malformed card to the error path", async () => {
-    CardDAVClientManager.createDriverClient = async () =>
+    CarddavClientManager.createDriverClient = async () =>
       fakeDriver([{ url: `${BOOK_URL}bad.vcf`, data: "garbage" }]);
 
     t = await testContext()
@@ -476,7 +474,7 @@ describe("CardDAV source (read)", () => {
    * @expectedResult The enriched body carries the fetched card data
    */
   test("enrich returns all cards", async () => {
-    CardDAVClientManager.createDriverClient = async () =>
+    CarddavClientManager.createDriverClient = async () =>
       fakeDriver([
         { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
       ]);
@@ -511,7 +509,7 @@ describe("CardDAV destination (write)", () => {
    */
   test("save creates when there is no url", async () => {
     const driver = fakeDriver([]);
-    CardDAVClientManager.createDriverClient = async () => driver;
+    CarddavClientManager.createDriverClient = async () => driver;
 
     const body = VCard.create().add("FN", "Sam Lee").data;
     const s = spy();
@@ -530,7 +528,7 @@ describe("CardDAV destination (write)", () => {
     expect(driver.created).toHaveLength(1);
     expect(driver.created[0]?.vCardString).toContain("FN:Sam Lee");
     expect(driver.created[0]?.vCardString).toContain("UID:");
-    expect((s.received[0]?.body as CardDAVWriteResult).created).toBe(true);
+    expect((s.received[0]?.body as CarddavWriteResult).created).toBe(true);
     expect(driver.calls.fetchVCards).toBe(0);
   });
 
@@ -543,7 +541,7 @@ describe("CardDAV destination (write)", () => {
     const driver = fakeDriver([
       { url: `${BOOK_URL}EXISTS.vcf`, etag: '"1"', data: ICLOUD_VCARD },
     ]);
-    CardDAVClientManager.createDriverClient = async () => driver;
+    CarddavClientManager.createDriverClient = async () => driver;
 
     const body = VCard.create().add("UID", "EXISTS").add("FN", "Up Date").data;
     t = await testContext()
@@ -569,7 +567,7 @@ describe("CardDAV destination (write)", () => {
    */
   test("url-escapes a UID with unsafe characters in the filename", async () => {
     const driver = fakeDriver([]);
-    CardDAVClientManager.createDriverClient = async () => driver;
+    CarddavClientManager.createDriverClient = async () => driver;
 
     const body = VCard.create().add("UID", "foo/bar").add("FN", "Slash").data;
     t = await testContext()
@@ -592,7 +590,7 @@ describe("CardDAV destination (write)", () => {
    * @expectedResult The route surfaces RC5001
    */
   test("rejects a non-VCard body", async () => {
-    CardDAVClientManager.createDriverClient = async () => fakeDriver([]);
+    CarddavClientManager.createDriverClient = async () => fakeDriver([]);
 
     t = await testContext()
       .with(ACCOUNT_CONFIG)
@@ -617,7 +615,7 @@ describe("CardDAV destination (write)", () => {
    */
   test("a plain body survives tap's snapshot clone", async () => {
     const driver = fakeDriver([]);
-    CardDAVClientManager.createDriverClient = async () => driver;
+    CarddavClientManager.createDriverClient = async () => driver;
 
     const body = VCard.create().add("FN", "Tapped").data;
     t = await testContext()
@@ -647,21 +645,21 @@ describe("CardDAV destination (write)", () => {
     const driver = fakeDriver([
       { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
     ]);
-    CardDAVClientManager.createDriverClient = async () => driver;
+    CarddavClientManager.createDriverClient = async () => driver;
     const ctx = await carddavCtx();
 
     const body = VCard.parse(ICLOUD_VCARD).set("NOTE", "updated").data;
-    const adapter = new CardDAVAdapter({ action: "update" });
+    const adapter = new CarddavAdapter({ action: "update" });
     const result = (await adapter.send(
       exchangeWith(
         {
-          [HEADER_CARDDAV_URL]: `${BOOK_URL}abc-123.vcf`,
-          [HEADER_CARDDAV_ETAG]: '"1"',
+          [CarddavHeaders.URL]: `${BOOK_URL}abc-123.vcf`,
+          [CarddavHeaders.ETAG]: '"1"',
         },
         body,
         ctx,
       ),
-    )) as CardDAVWriteResult;
+    )) as CarddavWriteResult;
 
     expect(driver.updated).toHaveLength(1);
     expect(driver.updated[0]?.vCard.url).toBe(`${BOOK_URL}abc-123.vcf`);
@@ -682,16 +680,16 @@ describe("CardDAV destination (write)", () => {
     const driver = fakeDriver([
       { url: `${BOOK_URL}abc-123.vcf`, etag: '"2"', data: ICLOUD_VCARD },
     ]);
-    CardDAVClientManager.createDriverClient = async () => driver;
+    CarddavClientManager.createDriverClient = async () => driver;
     const ctx = await carddavCtx();
 
-    const adapter = new CardDAVAdapter({ action: "update" });
+    const adapter = new CarddavAdapter({ action: "update" });
     await expect(
       adapter.send(
         exchangeWith(
           {
-            [HEADER_CARDDAV_URL]: `${BOOK_URL}abc-123.vcf`,
-            [HEADER_CARDDAV_ETAG]: '"1"',
+            [CarddavHeaders.URL]: `${BOOK_URL}abc-123.vcf`,
+            [CarddavHeaders.ETAG]: '"1"',
           },
           VCard.parse(ICLOUD_VCARD).data,
           ctx,
@@ -707,7 +705,7 @@ describe("CardDAV destination (write)", () => {
    * @expectedResult The route surfaces RC5014
    */
   test("update without a url raises RC5014", async () => {
-    CardDAVClientManager.createDriverClient = async () => fakeDriver([]);
+    CarddavClientManager.createDriverClient = async () => fakeDriver([]);
 
     t = await testContext()
       .with(ACCOUNT_CONFIG)
@@ -742,20 +740,20 @@ describe("CardDAV destination (delete)", () => {
     const driver = fakeDriver([
       { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
     ]);
-    CardDAVClientManager.createDriverClient = async () => driver;
+    CarddavClientManager.createDriverClient = async () => driver;
     const ctx = await carddavCtx();
 
-    const adapter = new CardDAVAdapter({ action: "delete" });
+    const adapter = new CarddavAdapter({ action: "delete" });
     const result = (await adapter.send(
       exchangeWith(
         {
-          [HEADER_CARDDAV_URL]: `${BOOK_URL}abc-123.vcf`,
-          [HEADER_CARDDAV_ETAG]: '"1"',
+          [CarddavHeaders.URL]: `${BOOK_URL}abc-123.vcf`,
+          [CarddavHeaders.ETAG]: '"1"',
         },
         VCard.create().data,
         ctx,
       ),
-    )) as CardDAVDeleteResult;
+    )) as CarddavDeleteResult;
 
     expect(driver.deleted[0]?.vCard.url).toBe(`${BOOK_URL}abc-123.vcf`);
     expect(driver.deleted[0]?.vCard.etag).toBe('"1"');
@@ -773,15 +771,15 @@ describe("CardDAV destination (delete)", () => {
     const driver = fakeDriver([
       { url: `${BOOK_URL}abc-123.vcf`, etag: '"1"', data: ICLOUD_VCARD },
     ]);
-    CardDAVClientManager.createDriverClient = async () => driver;
+    CarddavClientManager.createDriverClient = async () => driver;
     const ctx = await carddavCtx();
 
-    const adapter = new CardDAVAdapter({
+    const adapter = new CarddavAdapter({
       action: "delete",
       target: () => ({ url: `${BOOK_URL}abc-123.vcf` }),
     });
     await adapter.send(
-      exchangeWith({ [HEADER_CARDDAV_ETAG]: '"1"' }, VCard.create().data, ctx),
+      exchangeWith({ [CarddavHeaders.ETAG]: '"1"' }, VCard.create().data, ctx),
     );
 
     expect(driver.deleted[0]?.vCard.etag).toBe('"1"');
@@ -797,7 +795,7 @@ describe("CardDAV destination (delete)", () => {
     const driver = fakeDriver([
       { url: `${BOOK_URL}not-the-uid.vcf`, etag: '"1"', data: ICLOUD_VCARD },
     ]);
-    CardDAVClientManager.createDriverClient = async () => driver;
+    CarddavClientManager.createDriverClient = async () => driver;
 
     t = await testContext()
       .with(ACCOUNT_CONFIG)
@@ -820,7 +818,7 @@ describe("CardDAV destination (delete)", () => {
    * @expectedResult The route surfaces RC5014
    */
   test("delete without a match raises RC5014", async () => {
-    CardDAVClientManager.createDriverClient = async () => fakeDriver([]);
+    CarddavClientManager.createDriverClient = async () => fakeDriver([]);
 
     t = await testContext()
       .with(ACCOUNT_CONFIG)

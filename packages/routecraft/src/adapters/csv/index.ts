@@ -155,3 +155,4 @@ export type {
   CsvRow,
   CsvData,
 } from "./types.ts";
+export { CsvHeaders } from "./types.ts";

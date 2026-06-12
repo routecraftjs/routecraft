@@ -1,6 +1,11 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, log } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  log,
+  type AnyRouteBuilder,
+} from "@routecraft/routecraft";
 import { forRoute } from "../src/types.ts";
 import type { EventName, EventHandler } from "../src/types.ts";
 
@@ -412,7 +417,7 @@ describe("Event ordering", () => {
 
   /** Helper to run a route and return ALL events. */
   async function runAndCollect(
-    route: ReturnType<typeof craft>,
+    route: AnyRouteBuilder,
   ): Promise<CapturedEvent[]> {
     const t = await testContext().routes(route).build();
     const events = collect(t.ctx);

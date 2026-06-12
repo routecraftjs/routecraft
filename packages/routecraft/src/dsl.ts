@@ -9,7 +9,12 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Adapter, Step } from "./types.ts";
 import type { Exchange } from "./exchange.ts";
-import { StepBuilderBase, type Retyped } from "./step-builder-base.ts";
+import {
+  StepBuilderBase,
+  type BuilderState,
+  type Retyped,
+  type SetBody,
+} from "./step-builder-base.ts";
 import { PUSH_STEP } from "./dsl-symbol.ts";
 import { TapStep } from "./operations/tap.ts";
 import { TransformStep, mapper } from "./operations/transform.ts";
@@ -52,12 +57,15 @@ export interface DslRegistration {
  * future framework-owned subclass).
  *
  * TypeScript types for the new method must be provided separately via
- * module augmentation. Augment `StepBuilderBase<Current>` once and both
- * subclasses inherit the method via class-interface inheritance. Type-
- * preserving sugar should return `this`; type-changing sugar should use
- * `Retyped<this, NewT>` so the concrete subclass is preserved across the
- * chain. `StepBuilderBase` and `Retyped` are exposed as type-only
- * re-exports from the package entry for exactly this purpose.
+ * module augmentation. Augment `StepBuilderBase<S extends BuilderState>`
+ * once (the type parameter list must match the declaration exactly) and
+ * both subclasses inherit the method via class-interface inheritance.
+ * Type-preserving sugar should return `this`; type-changing sugar should
+ * use `Retyped<this, SetBody<S, NewBody>>` so the concrete subclass is
+ * preserved across the chain and any future `BuilderState` fields flow
+ * through untouched. `StepBuilderBase`, `BuilderState`, `SetBody`, and
+ * `Retyped` are exposed as type-only re-exports from the package entry
+ * for exactly this purpose.
  *
  * @param name - Method name to add to the shared base prototype
  * @param registration - Kind, label, and factory for the sugar method
@@ -72,12 +80,14 @@ export interface DslRegistration {
  * });
  *
  * declare module "@routecraft/routecraft" {
- *   interface StepBuilderBase<Current> {
+ *   interface StepBuilderBase<S extends BuilderState> {
  *     // Type-preserving: returns `this` (resolves to the concrete subclass)
  *     myStep(opts: MyOpts): this;
  *
  *     // Type-changing variant would look like:
- *     // myMap<Return>(fn: (src: Current) => Return): Retyped<this, Return>;
+ *     // myMap<Return>(
+ *     //   fn: (src: S["body"]) => Return,
+ *     // ): Retyped<this, SetBody<S, Return>>;
  *   }
  * }
  * ```
@@ -93,7 +103,7 @@ export function registerDsl(name: string, registration: DslRegistration): void {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic prototype patching requires indexing with a string key
   (StepBuilderBase.prototype as Record<string, any>)[name] = function (
-    this: StepBuilderBase<unknown>,
+    this: StepBuilderBase<BuilderState>,
     ...args: unknown[]
   ) {
     const step = factory(...args);
@@ -154,7 +164,7 @@ registerDsl("schema", {
 // for `.to` / `.transform` / `.enrich`). One declaration, both subclasses
 // pick it up.
 declare module "@routecraft/routecraft" {
-  interface StepBuilderBase<Current> {
+  interface StepBuilderBase<S extends BuilderState> {
     /**
      * Log the current exchange at info level. Type-preserving tap.
      *
@@ -162,7 +172,7 @@ declare module "@routecraft/routecraft" {
      * @param options - Optional log options (level defaults to "info")
      */
     log(
-      formatter?: (exchange: Exchange<Current>) => unknown,
+      formatter?: (exchange: Exchange<S["body"]>) => unknown,
       options?: LogOptions,
     ): this;
 
@@ -173,7 +183,7 @@ declare module "@routecraft/routecraft" {
      * @param options - Optional log options (level is always "debug")
      */
     debug(
-      formatter?: (exchange: Exchange<Current>) => unknown,
+      formatter?: (exchange: Exchange<S["body"]>) => unknown,
       options?: Omit<LogOptions, "level">,
     ): this;
 
@@ -192,8 +202,8 @@ declare module "@routecraft/routecraft" {
      * ```
      */
     map<Return>(fieldMappings: {
-      [K in keyof Return]: (src: Current) => Return[K];
-    }): Retyped<this, Return>;
+      [K in keyof Return]: (src: S["body"]) => Return[K];
+    }): Retyped<this, SetBody<S, Return>>;
 
     /**
      * Validate the exchange body against a Standard Schema. Sugar for
@@ -209,8 +219,8 @@ declare module "@routecraft/routecraft" {
      *   .to(dest)
      * ```
      */
-    schema<S extends StandardSchemaV1>(
-      standardSchema: S,
-    ): Retyped<this, StandardSchemaV1.InferOutput<S>>;
+    schema<Schema extends StandardSchemaV1>(
+      standardSchema: Schema,
+    ): Retyped<this, SetBody<S, StandardSchemaV1.InferOutput<Schema>>>;
   }
 }

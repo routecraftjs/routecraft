@@ -6,7 +6,7 @@ import {
   simple,
   jsonl,
   only,
-  HeadersKeys,
+  JsonlHeaders,
 } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
@@ -232,9 +232,10 @@ describe("JSONL Adapter", () => {
       await t.ctx.start();
 
       expect(s.received).toHaveLength(2);
-      expect(s.received[0].headers[HeadersKeys.JSONL_LINE]).toBe(1);
-      expect(s.received[0].headers[HeadersKeys.JSONL_PATH]).toBe(filePath);
-      expect(s.received[1].headers[HeadersKeys.JSONL_LINE]).toBe(2);
+      expect(s.received[0].headers[JsonlHeaders.LINE]).toBe(1);
+      expect(s.received[0].headers[JsonlHeaders.PATH]).toBe(filePath);
+      expect(s.received[1].headers[JsonlHeaders.LINE]).toBe(2);
+      expect(s.received[1].headers[JsonlHeaders.PATH]).toBe(filePath);
     });
 
     /**

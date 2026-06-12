@@ -16,6 +16,8 @@ import {
   noop,
   DefaultExchange,
   getExchangeContext,
+  splitChild,
+  HeadersKeys,
 } from "@routecraft/routecraft";
 import { defaultAggregate } from "../src/operations/aggregate.ts";
 import type { Exchange, Source } from "@routecraft/routecraft";
@@ -479,16 +481,8 @@ describe("Route Behavior", () => {
           .id("split-test")
           .from(simple("hello-world"))
           .split((exchange) => {
-            const ctx = getExchangeContext(exchange)!;
             const body = exchange.body;
-            const parts = typeof body === "string" ? body.split("-") : [];
-            return parts.map(
-              (b) =>
-                new DefaultExchange(ctx, {
-                  body: b,
-                  headers: exchange.headers,
-                }),
-            );
+            return typeof body === "string" ? body.split("-") : [];
           })
           .tap(tapSpy)
           .to(destSpy),
@@ -559,16 +553,8 @@ describe("Route Behavior", () => {
           .id("correlation-split-test")
           .from(simple("part1,part2"))
           .split((exchange) => {
-            const ctx = getExchangeContext(exchange)!;
             const body = exchange.body;
-            const parts = typeof body === "string" ? body.split(",") : [];
-            return parts.map(
-              (b) =>
-                new DefaultExchange(ctx, {
-                  body: b,
-                  headers: exchange.headers,
-                }),
-            );
+            return typeof body === "string" ? body.split(",") : [];
           })
           .tap(tapSpy)
           .to(noop()),
@@ -596,14 +582,7 @@ describe("Route Behavior", () => {
     const s = spy();
     const split = {
       split: (exchange: Exchange<string>) => {
-        const ctx = getExchangeContext(exchange)!;
-        return exchange.body.split("-").map(
-          (b) =>
-            new DefaultExchange(ctx, {
-              body: b,
-              headers: exchange.headers,
-            }),
-        );
+        return exchange.body.split("-");
       },
     };
     const splitSpy = spyOn(split, "split");
@@ -780,14 +759,7 @@ describe("Route Behavior", () => {
             },
           })
           .split<string>((exchange) => {
-            const ctx = getExchangeContext(exchange)!;
-            return exchange.body.split("-").map(
-              (b) =>
-                new DefaultExchange(ctx, {
-                  body: b,
-                  headers: exchange.headers,
-                }),
-            );
+            return exchange.body.split("-");
           })
           .tap(tapSpy)
           .to(noop()),
@@ -806,6 +778,131 @@ describe("Route Behavior", () => {
   });
 
   /**
+   * @case splitChild envelopes set per-child headers on top of inherited parent headers
+   * @preconditions A splitter returns splitChild(part, { "x-part": i }) envelopes; the parent exchange carries a custom header
+   * @expectedResult Each child sees the parent's custom header AND its own x-part value
+   */
+  test("splitChild overrides per-child headers while inheriting the parent's", async () => {
+    const tapSpy = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("split-child-headers-test")
+          .from<string>({
+            subscribe: async (sub) => {
+              await sub.emit({
+                message: "one-two",
+                headers: { "custom.header": "test-value" },
+              });
+            },
+          })
+          .split<string>((exchange) => exchange.body
+            .split("-")
+            .map((part, i) => splitChild(part, { "x-part": i })))
+          .tap(tapSpy)
+          .to(noop()),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(tapSpy.received).toHaveLength(2);
+    expect(tapSpy.received[0].headers["custom.header"]).toBe("test-value");
+    expect(tapSpy.received[0].headers["x-part"]).toBe(0);
+    expect(tapSpy.received[1].headers["x-part"]).toBe(1);
+    expect(tapSpy.received.map((e: Exchange) => e.body)).toEqual([
+      "one",
+      "two",
+    ]);
+  });
+
+  /**
+   * @case splitChild envelope headers cannot override engine-owned keys,
+   *       mirroring the `.header()` guard on the same contract
+   * @preconditions A splitter returns splitChild(part, headers) envelopes
+   *                whose headers include routecraft.id and routecraft.route
+   * @expectedResult Children keep the framework-assigned fresh ids and the
+   *                 real route id; the forged values are ignored
+   */
+  test("splitChild ignores engine-owned header overrides", async () => {
+    const tapSpy = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("split-child-engine-headers-test")
+          .from(simple("one-two"))
+          .split<string>((exchange) =>
+            (exchange.body as string).split("-").map((part) =>
+              splitChild(part, {
+                [HeadersKeys.ID]: "forged-id",
+                [HeadersKeys.ROUTE_ID]: "forged-route",
+              }),
+            ),
+          )
+          .tap(tapSpy)
+          .to(noop()),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(tapSpy.received).toHaveLength(2);
+    const ids = tapSpy.received.map((e: Exchange) => e.id);
+    expect(ids).not.toContain("forged-id");
+    expect(new Set(ids).size).toBe(2);
+    for (const ex of tapSpy.received) {
+      expect(ex.headers[HeadersKeys.ROUTE_ID]).toBe(
+        "split-child-engine-headers-test",
+      );
+    }
+  });
+
+  /**
+   * @case Splitters returning hand-built Exchange instances (the pre-0.6
+   *       contract) fail loudly instead of flowing Exchange objects
+   *       downstream as child bodies
+   * @preconditions A splitter (cast to bypass the types, simulating a
+   *                plain-JS caller) returns DefaultExchange instances
+   * @expectedResult The split step throws RC5003; the route's failure path
+   *                 fires instead of silent corruption
+   */
+  test("splitter returning Exchange instances throws RC5003", async () => {
+    const failures: unknown[] = [];
+
+    t = await testContext()
+      .on("route:exchange:failed", ({ details }) => {
+        failures.push(details.error);
+      })
+      .routes(
+        craft()
+          .id("split-legacy-exchange")
+          .from(simple("a-b"))
+          .split(((exchange: Exchange<string>) =>
+            exchange.body.split("-").map(
+              (part) =>
+                new DefaultExchange(getExchangeContext(exchange)!, {
+                  body: part,
+                }),
+            )) as unknown as (e: Exchange<string>) => string[])
+          .to(noop()),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(failures).toHaveLength(1);
+    expect((failures[0] as { rc?: string }).rc).toBe("RC5003");
+    expect(String((failures[0] as Error).message ?? failures[0])).toContain(
+      "splitters return child bodies",
+    );
+  });
+
+  /**
    * @case Verifies that split exchanges can be processed independently and aggregated correctly
    * @preconditions Split exchanges with individual processing
    * @expectedResult Aggregated result should reflect individual processing
@@ -818,19 +915,9 @@ describe("Route Behavior", () => {
         craft()
           .id("split-process-aggregate")
           .from(simple("1-2-3"))
-          .split<number>((exchange) => {
-            const ctx = getExchangeContext(exchange)!;
-            return exchange.body
-              .split("-")
-              .map((part) => parseInt(part))
-              .map(
-                (b) =>
-                  new DefaultExchange(ctx, {
-                    body: b,
-                    headers: exchange.headers,
-                  }),
-              );
-          })
+          .split<number>((exchange) => exchange.body
+            .split("-")
+            .map((part) => parseInt(part)))
           .transform<number>((body) => {
             // Double each number
             return body * 2;
@@ -867,14 +954,7 @@ describe("Route Behavior", () => {
           .id("split-error-aggregate")
           .from(simple("success1-error-success2"))
           .split<string>((exchange) => {
-            const ctx = getExchangeContext(exchange)!;
-            return exchange.body.split("-").map(
-              (b) =>
-                new DefaultExchange(ctx, {
-                  body: b,
-                  headers: exchange.headers,
-                }),
-            );
+            return exchange.body.split("-");
           })
           .process((exchange) => {
             if (exchange.body === "error") {
@@ -940,36 +1020,15 @@ describe("Route Behavior", () => {
           .id("nested-split-test")
           .from(simple("A:1-2|B:3-4"))
           .split<string>((exchange) => {
-            const ctx = getExchangeContext(exchange)!;
-            return exchange.body.split("|").map(
-              (b) =>
-                new DefaultExchange(ctx, {
-                  body: b,
-                  headers: exchange.headers,
-                }),
-            );
+            return exchange.body.split("|");
           })
           .process(processorSpy)
           .split<string>((exchange) => {
-            const ctx = getExchangeContext(exchange)!;
-            return exchange.body.split(":").map(
-              (b) =>
-                new DefaultExchange(ctx, {
-                  body: b,
-                  headers: exchange.headers,
-                }),
-            );
+            return exchange.body.split(":");
           })
           .process(processorSpy2)
           .split<string>((exchange) => {
-            const ctx = getExchangeContext(exchange)!;
-            return exchange.body.split("-").map(
-              (b) =>
-                new DefaultExchange(ctx, {
-                  body: b,
-                  headers: exchange.headers,
-                }),
-            );
+            return exchange.body.split("-");
           })
           .process(processorSpy3)
           .tap(tapSpy)

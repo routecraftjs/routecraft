@@ -87,7 +87,7 @@ run(`npm install "${tarballPath}"`, { cwd: smokeDir });
 
 // 3. Write a runner.ts that exercises the embedding API: ContextBuilder,
 //    a route with direct() source and log() destination, and a single
-//    client.send() to assert the dispatch path works end to end.
+//    client.sendDirect() to assert the dispatch path works end to end.
 const runnerSource = `import {
   craft,
   direct,
@@ -104,10 +104,15 @@ const route = craft()
 const builder = new ContextBuilder();
 builder.routes(route);
 const { context, client } = await builder.build();
+// Deliberately NOT awaited: start() resolves only when every route has
+// run to completion, and a direct route stays live until context.stop().
+// The direct channel subscription happens synchronously inside this call
+// (start() reaches the source subscription before its first await), so
+// sendDirect below cannot race it.
 context.start();
 
 try {
-  await client.send("greet", { name: "embedded-node" });
+  await client.sendDirect("greet", { name: "embedded-node" });
   console.log("[smoke-embedding] dispatched OK");
 } finally {
   await context.stop();

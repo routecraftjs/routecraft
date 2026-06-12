@@ -5,7 +5,8 @@ import type {
   Subscription,
 } from "../../operations/from.ts";
 import type { CsvFileOptions, CsvData, CsvRow } from "./types.ts";
-import { HeadersKeys, type ExchangeHeaders } from "../../exchange.ts";
+import { type ExchangeHeaders } from "../../exchange.ts";
+import { CsvHeaders } from "./types.ts";
 import { file } from "../file/index.ts";
 import { ensurePapaparse, parseCsv } from "./shared.ts";
 import { throwFileError } from "../shared/line-reader.ts";
@@ -176,8 +177,8 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
           const currentRow = rowNumber;
           const rowErrors = results.errors;
           const headers: ExchangeHeaders = {
-            [HeadersKeys.CSV_ROW]: currentRow,
-            [HeadersKeys.CSV_PATH]: filePath,
+            [CsvHeaders.ROW]: currentRow,
+            [CsvHeaders.PATH]: filePath,
           } as ExchangeHeaders;
 
           parser.pause();

@@ -8,6 +8,7 @@ import {
   simple,
   type Principal,
   type Source,
+  type RouteBuilder,
 } from "../../src/index.ts";
 
 type FailedEventDetails = { details: { error: unknown } };
@@ -474,11 +475,14 @@ describe(".authorize() positional rules", () => {
   test("throws RC2001 when a pipeline op follows a post-from .authorize()", () => {
     let caught: unknown;
     try {
-      craft()
-        .id("post-from")
-        .from(simple("hello"))
-        .authorize({ roles: ["admin"] })
-        .to(noop());
+      // Cast simulates a plain-JS caller: the PreFromBuilder typestate
+      // rejects this at compile time, but the runtime guard must still fire.
+      (
+        craft()
+          .id("post-from")
+          .from(simple("hello"))
+          .authorize({ roles: ["admin"] }) as unknown as RouteBuilder
+      ).to(noop());
     } catch (err) {
       caught = err;
     }
@@ -493,11 +497,13 @@ describe(".authorize() positional rules", () => {
    */
   test("RC2001 message enumerates .authorize as a staging op", () => {
     expect(() =>
-      craft()
-        .id("enum")
-        .from(simple("hello"))
-        .authorize({ roles: ["admin"] })
-        .to(noop()),
+      // Cast simulates a plain-JS caller (see above).
+      (
+        craft()
+          .id("enum")
+          .from(simple("hello"))
+          .authorize({ roles: ["admin"] }) as unknown as RouteBuilder
+      ).to(noop()),
     ).toThrow(/\.authorize/);
   });
 

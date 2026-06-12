@@ -75,4 +75,61 @@ describe("Header operation", () => {
         .to(spy()),
     ).toThrow(/routecraft\.id/);
   });
+
+  /**
+   * @case `.header()` rejects writes to every engine-owned key (operation,
+   *       route id, split hierarchy) while still allowing other reserved
+   *       `routecraft.*` keys like the correlation id
+   * @preconditions Builder pipelines try to set each engine-owned key and
+   *                the (settable) correlation id
+   * @expectedResult Engine-owned keys throw RC5003; correlation id builds fine
+   */
+  test("rejects engine-owned keys but allows correlation id", () => {
+    for (const key of [
+      HeadersKeys.OPERATION,
+      HeadersKeys.ROUTE_ID,
+      HeadersKeys.SPLIT_HIERARCHY,
+    ]) {
+      expect(() =>
+        craft()
+          .id(`header-rejects-${key}`)
+          .from(simple("test"))
+          .header(key, "value")
+          .to(spy()),
+      ).toThrow(/framework-owned/);
+    }
+
+    expect(() =>
+      craft()
+        .id("header-allows-correlation")
+        .from(simple("test"))
+        .header(HeadersKeys.CORRELATION_ID, "upstream-id")
+        .to(spy()),
+    ).not.toThrow();
+  });
+
+  /**
+   * @case Custom header keys that collide with Object.prototype members
+   *       ("toString", "constructor", "__proto__", ...) are legal and must
+   *       not be misread as engine-owned via the prototype chain
+   * @preconditions Builder pipelines set headers named after prototype members
+   * @expectedResult Routes build without throwing
+   */
+  test("allows header keys named after Object.prototype members", () => {
+    for (const key of [
+      "toString",
+      "constructor",
+      "hasOwnProperty",
+      "valueOf",
+      "__proto__",
+    ]) {
+      expect(() =>
+        craft()
+          .id(`header-prototype-${key}`)
+          .from(simple("test"))
+          .header(key, "value")
+          .to(spy()),
+      ).not.toThrow();
+    }
+  });
 });

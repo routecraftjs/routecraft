@@ -7,6 +7,7 @@ import {
   isDropped,
   setStartedAt,
 } from "../exchange.ts";
+import { isRecovery, applyDropDirective } from "../recovery.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -243,10 +244,6 @@ export async function runPipeline(
     }
 
     try {
-      // Step instances are shared across exchanges; clear adapter metadata
-      // from a previous execution so the completed event below only carries
-      // metadata written by this execute() call.
-      delete step.metadata;
       const outcome = await step.execute(exchange, stepContext);
 
       // The executor owns scheduling: translate the outcome into queue
@@ -290,8 +287,10 @@ export async function runPipeline(
           ...(adapterLabel ? { adapter: adapterLabel } : {}),
           duration: stepDuration,
           // Adapter-populated observability metadata (e.g. LLM token
-          // usage from to/enrich getMetadata), set during execute().
-          ...(step.metadata ? { metadata: step.metadata } : {}),
+          // usage from to/enrich getMetadata), carried on the outcome.
+          ...("metadata" in outcome && outcome.metadata
+            ? { metadata: outcome.metadata }
+            : {}),
         });
       }
     } catch (error) {
@@ -329,30 +328,59 @@ export async function runPipeline(
             exchange,
             forward,
           );
-          // Replace body via rewrap (frozen exchange); keep id and
-          // internals so telemetry continues to reference the same
-          // logical exchange.
-          const recovered = DefaultExchange.rewrap(exchange, {
-            body: result,
-          });
-          lastProcessedExchange = recovered;
+          if (isRecovery(result)) {
+            if (result.kind === "rethrow") {
+              // Declarative equivalent of `throw error` inside the
+              // handler: fall through to the handler-threw path below
+              // with the original error.
+              throw err;
+            }
+            // `recovery.drop()`: resolve the error by discarding the
+            // exchange (shared semantics in applyDropDirective).
+            applyDropDirective({
+              context: deps.context,
+              routeId: deps.routeId,
+              exchange,
+              originalError: err,
+              failedOperation: stepLabel,
+              correlationId,
+              reason: result.reason,
+              scope: "route",
+              route: deps.route,
+            });
+            // Only a drop of the PARENT exchange marks the run dropped
+            // (suppressing the parent's exchange:completed). A dropped
+            // split CHILD resolves that child alone, mirroring the
+            // handler-threw path's failedChildExchanges accounting.
+            if (exchange.id === parentExchangeId) {
+              dropped = true;
+            }
+          } else {
+            // Replace body via rewrap (frozen exchange); keep id and
+            // internals so telemetry continues to reference the same
+            // logical exchange.
+            const recovered = DefaultExchange.rewrap(exchange, {
+              body: result,
+            });
+            lastProcessedExchange = recovered;
 
-          // Error handler recovered
-          deps.context.emit("route:error:caught", {
-            routeId: deps.routeId,
-            error: err,
-            route: deps.route,
-            exchange: recovered,
-          });
-          deps.context.emit("route:error-handler:recovered", {
-            routeId: deps.routeId,
-            exchangeId: recovered.id,
-            correlationId,
-            originalError: err,
-            failedOperation: stepLabel,
-            recoveryStrategy: "route-error-handler",
-            scope: "route",
-          });
+            // Error handler recovered
+            deps.context.emit("route:error:caught", {
+              routeId: deps.routeId,
+              error: err,
+              route: deps.route,
+              exchange: recovered,
+            });
+            deps.context.emit("route:error-handler:recovered", {
+              routeId: deps.routeId,
+              exchangeId: recovered.id,
+              correlationId,
+              originalError: err,
+              failedOperation: stepLabel,
+              recoveryStrategy: "route-error-handler",
+              scope: "route",
+            });
+          }
         } catch (handlerError) {
           const handlerErr = processError(handlerError);
           exchange.logger.error(

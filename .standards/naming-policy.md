@@ -86,6 +86,40 @@ const greet: FnOptions = {
 
 A consistent vocabulary across the framework (`input` / `output`) means a reader can move between adapters without learning per-adapter renames. The previous mix (`schema`, `outputSchema`, etc.) made it harder to reason about which adapter validated what.
 
+## Acronym casing
+
+Acronyms in identifiers are cased as words: only the first letter is
+capitalised, however the acronym is written in prose. `Http` (not `HTTP`),
+`Csv`, `Jsonl`, `Mcp`, `Carddav` (not `CardDAV`). Prose and comments keep
+the canonical spelling ("the CardDAV protocol", "an HTTP request"); only
+identifiers fold. CONSTANT_CASE names uppercase the whole acronym as usual
+(`CARDDAV_CLIENT_MANAGER`, `DEFAULT_CARDDAV_SERVER_URL`).
+
+Why: mixed-caps acronyms produce unreadable juxtapositions
+(`CardDAVVCardLike`) and inconsistent prefix searches; `Http` is the
+established precedent across the codebase.
+
+## File-family option pattern
+
+Adapters in the file family (file, json, jsonl, csv) expose ONE options
+type for file I/O, `XxxFileOptions`, discriminated by `mode`
+(`'read' | 'write' | 'append' | 'delete'`) plus `chunked` for per-record
+source emission, instead of separate `XxxSourceOptions` /
+`XxxDestinationOptions` types. Fields that only apply to one mode say so
+in their JSDoc (`createDirs` is destination-only, `onParseError` is
+source-only). Factory overloads narrow the same type per call shape
+(`XxxFileOptions & { chunked: true }`, `& { mode: 'read' }`); they never
+introduce new option types. Transformer mode (no `path`) keeps its own
+`XxxTransformerOptions`, and the adapter's `XxxOptions` is the union of
+the two.
+
+Why: the file adapters are one behaviour with modes, not two adapters;
+split option types duplicated shared fields (`path`, `encoding`,
+`reviver`) and needed a third "combined" type for the source+destination
+overload. `JsonFileOptions` and `CsvFileOptions` set the pattern;
+`JsonlFileOptions` folded `JsonlSourceOptions` / `JsonlDestinationOptions`
+/ `JsonlCombinedOptions` into it.
+
 ## Summary
 
 | What | Convention |
@@ -93,6 +127,8 @@ A consistent vocabulary across the framework (`input` / `output`) means a reader
 | Interfaces | `Source` / `Destination` (pipeline role; all adapters) |
 | Option types (two-sided) | `XxxServerOptions` / `XxxClientOptions` |
 | Option types (single-role) | `XxxOptions` |
+| File-family file I/O | single `XxxFileOptions`, discriminated by `mode` / `chunked` |
+| Acronyms in identifiers | first-letter caps only (`Http`, `Carddav`, `Jsonl`) |
 | Schema fields | `input` / `output` (route builder and adapter options) |
 | Domain prompt source | `user` (chat) or `using` (embedding); not `input` |
 

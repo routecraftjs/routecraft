@@ -15,7 +15,7 @@ function createRouteDefinition(id: string): RouteDefinition {
     preParseFilters: [],
     postParseFilters: [],
     postFromFilters: [],
-    consumer: { type: BatchConsumer as never, options: {} },
+    consumer: { type: BatchConsumer, options: {} },
   } as RouteDefinition;
 }
 
@@ -43,12 +43,12 @@ describe("BatchConsumer", () => {
   test("Starts timing and emits batch:started on first queued message", async () => {
     const ctx = new CraftContext();
     const queue = new InMemoryProcessingQueue<Message>();
-    const consumer = new BatchConsumer(
-      ctx,
-      createRouteDefinition("batched-route"),
-      queue,
-      { size: 10, time: 50 },
-    );
+    const consumer = new BatchConsumer({
+      context: ctx,
+      definition: createRouteDefinition("batched-route"),
+      channel: queue,
+      options: { size: 10, time: 50 },
+    });
     const started: unknown[] = [];
     const flushed: unknown[] = [];
 
@@ -59,7 +59,7 @@ describe("BatchConsumer", () => {
       flushed.push(details);
     });
 
-    await consumer.register(async (message) => {
+    consumer.register(async ({ message }) => {
       return {
         id: "exchange-id",
         body: message,
@@ -99,12 +99,12 @@ describe("BatchConsumer", () => {
   test("routes parse failures through the registered handler instead of swallowing them", async () => {
     const ctx = new CraftContext();
     const queue = new InMemoryProcessingQueue<Message>();
-    const consumer = new BatchConsumer(
-      ctx,
-      createRouteDefinition("batched-parse"),
-      queue,
-      { size: 10, time: 50 },
-    );
+    const consumer = new BatchConsumer({
+      context: ctx,
+      definition: createRouteDefinition("batched-parse"),
+      channel: queue,
+      options: { size: 10, time: 50 },
+    });
 
     type HandlerCall = {
       message: unknown;
@@ -113,11 +113,11 @@ describe("BatchConsumer", () => {
     };
     const calls: HandlerCall[] = [];
 
-    await consumer.register(async (message, _headers, parse, mode) => {
+    consumer.register(async ({ message, parse, parseFailureMode }) => {
       calls.push({
         message,
         parseProvided: typeof parse === "function",
-        mode,
+        mode: parseFailureMode,
       });
       return {
         id: "exchange-id",
@@ -146,7 +146,8 @@ describe("BatchConsumer", () => {
     });
 
     // The bad item is routed immediately as its own per-item exchange:
-    // the batch consumer calls handler(rawMessage, headers, parse, mode).
+    // the batch consumer hands the handler an envelope carrying the raw
+    // message plus a parse fn that rethrows the captured error.
     await badPromise;
     expect(
       calls.some(
@@ -182,20 +183,20 @@ describe("BatchConsumer", () => {
   test("forwards principal header through the per-item parse-failure path", async () => {
     const ctx = new CraftContext();
     const queue = new InMemoryProcessingQueue<Message>();
-    const consumer = new BatchConsumer(
-      ctx,
-      createRouteDefinition("batched-principal-parse-fail"),
-      queue,
-      { size: 10, time: 50 },
-    );
+    const consumer = new BatchConsumer({
+      context: ctx,
+      definition: createRouteDefinition("batched-principal-parse-fail"),
+      channel: queue,
+      options: { size: 10, time: 50 },
+    });
 
     const calls: { principal: unknown }[] = [];
 
-    await consumer.register(async (_message, headers) => {
+    consumer.register(async ({ message, headers }) => {
       calls.push({ principal: headers?.["routecraft.auth.principal"] });
       return {
         id: "exchange-id",
-        body: _message,
+        body: message,
         headers: {},
         logger: ctx.logger,
       } as Exchange;
@@ -231,20 +232,20 @@ describe("BatchConsumer", () => {
   test("merges principal header with last-write-wins semantics", async () => {
     const ctx = new CraftContext();
     const queue = new InMemoryProcessingQueue<Message>();
-    const consumer = new BatchConsumer(
-      ctx,
-      createRouteDefinition("batched-principal-merged"),
-      queue,
-      { size: 10, time: 50 },
-    );
+    const consumer = new BatchConsumer({
+      context: ctx,
+      definition: createRouteDefinition("batched-principal-merged"),
+      channel: queue,
+      options: { size: 10, time: 50 },
+    });
 
     const calls: { principal: unknown }[] = [];
 
-    await consumer.register(async (_message, headers) => {
+    consumer.register(async ({ message, headers }) => {
       calls.push({ principal: headers?.["routecraft.auth.principal"] });
       return {
         id: "exchange-id",
-        body: _message,
+        body: message,
         headers: {},
         logger: ctx.logger,
       } as Exchange;
@@ -287,19 +288,19 @@ describe("BatchConsumer", () => {
     const routeId = "batched-stopped-route";
     const ctx = new CraftContext();
     const queue = new InMemoryProcessingQueue<Message>();
-    const consumer = new BatchConsumer(
-      ctx,
-      createRouteDefinition(routeId),
-      queue,
-      { size: 10, time: 50 },
-    );
+    const consumer = new BatchConsumer({
+      context: ctx,
+      definition: createRouteDefinition(routeId),
+      channel: queue,
+      options: { size: 10, time: 50 },
+    });
 
     const stopped: unknown[] = [];
     ctx.on("route:batch:stopped", ({ details }) => {
       stopped.push(details);
     });
 
-    await consumer.register(async (message) => {
+    consumer.register(async ({ message }) => {
       return {
         id: "exchange-id",
         body: message,
