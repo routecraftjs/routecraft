@@ -313,6 +313,98 @@ describe("agent context-bus events", () => {
   });
 
   /**
+   * @case agent:usage fires after a successful dispatch with token counts and model
+   * @preconditions Agent without tools; happy-path LLM call with usage reported
+   * @expectedResult Subscriber receives one usage event with inputTokens, outputTokens,
+   *   totalTokens, and model; no finishReason (that lives on agent:finished)
+   */
+  test("agent:usage emitted with token counts and model", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("usage-agent")
+          .from(simple("hi"))
+          .to(agent({ system: "x", model: "anthropic:claude-opus-4-7" })),
+      )
+      .build();
+
+    const usageEvents: unknown[] = [];
+    t.ctx.on(
+      "route:agent:usage" as never,
+      ({ details }: { details: unknown }) => {
+        usageEvents.push(details);
+      },
+    );
+
+    await t.test();
+
+    expect(usageEvents).toHaveLength(1);
+    const d = usageEvents[0] as Record<string, unknown>;
+    expect(d["routeId"]).toBe("usage-agent");
+    expect(d["model"]).toBe("anthropic:claude-opus-4-7");
+    expect(d["inputTokens"]).toBe(10);
+    expect(d["outputTokens"]).toBe(5);
+    expect(d["totalTokens"]).toBe(15);
+    expect(d["finishReason"]).toBeUndefined();
+  });
+
+  /**
+   * @case agent:usage includes cache token fields when the provider reports them
+   * @preconditions LLM mock returns usage with cacheReadTokens and cacheWriteTokens
+   * @expectedResult usage event carries cacheReadTokens and cacheWriteTokens
+   */
+  test("agent:usage includes cache tokens when provider reports them", async () => {
+    const { callLlm } = await import("../src/llm/providers/index.ts");
+    (callLlm as ReturnType<typeof mock>).mockImplementationOnce(
+      async (): Promise<LlmResult> => ({
+        text: "cached-response",
+        usage: {
+          inputTokens: 100,
+          outputTokens: 20,
+          totalTokens: 120,
+          cacheReadTokens: 80,
+          cacheWriteTokens: 20,
+        },
+        finishReason: "stop",
+      }),
+    );
+
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("cache-agent")
+          .from(simple("hi"))
+          .to(agent({ system: "x", model: "anthropic:claude-opus-4-7" })),
+      )
+      .build();
+
+    const usageEvents: unknown[] = [];
+    t.ctx.on(
+      "route:agent:usage" as never,
+      ({ details }: { details: unknown }) => {
+        usageEvents.push(details);
+      },
+    );
+
+    await t.test();
+
+    expect(usageEvents).toHaveLength(1);
+    const d = usageEvents[0] as Record<string, unknown>;
+    expect(d["cacheReadTokens"]).toBe(80);
+    expect(d["cacheWriteTokens"]).toBe(20);
+  });
+
+  /**
    * @case agent:started fires at dispatch start with model + tool names
    * @preconditions Inline agent with one tool; mocked callLlm
    * @expectedResult Subscriber receives one started event carrying the

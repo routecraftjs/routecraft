@@ -217,13 +217,22 @@ export type LlmOptionsMerged = Required<
   Omit<LlmOptions, "temperature" | "maxTokens">;
 
 /**
- * Token usage. Matches Vercel AI SDK LanguageModelUsage shape (inputTokens/outputTokens)
- * so result.usage can be used interchangeably with generateText() return value.
+ * Token usage reported by the provider. Mirrors the Vercel AI SDK
+ * `LanguageModelUsage` shape so result.usage can be used interchangeably
+ * with `generateText()` return values.
+ *
+ * Cache fields are populated only when the provider reports them (currently
+ * Anthropic with prompt caching enabled). Absent when the provider does not
+ * support caching or caching was not active for the call.
  */
 export interface LlmUsage {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  /** Cached input tokens read from the provider's cache (e.g. Anthropic prompt caching). */
+  cacheReadTokens?: number;
+  /** Input tokens written to the provider's cache for future calls. */
+  cacheWriteTokens?: number;
 }
 
 /**
