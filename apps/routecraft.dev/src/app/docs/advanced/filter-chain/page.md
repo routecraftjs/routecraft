@@ -26,8 +26,8 @@ Outside in (position 1 wraps everything below):
 | 4 | `input` | shipped (eager) | `.input(schema)` | typed body / headers |
 | 5 | `throttle` | planned | `.throttle({...})` | rate limit on the route |
 | 6 | `circuitBreaker` | planned ([#139](https://github.com/routecraftjs/routecraft/issues/139)) | `.circuitBreaker({...})` | failure stats; fast-fails when open |
-| 7 | `retry` | planned | `.retry({...})` | re-runs everything below on failure |
-| 8 | `timeout` | planned | `.timeout({...})` | per-attempt deadline |
+| 7 | `retry` | shipped | `.retry({...})` | re-runs everything below on failure |
+| 8 | `timeout` | shipped | `.timeout(ms)` | per-attempt deadline |
 | 9 | `cacheCheck` | shipped | `.cache({...})` | validated body → cache key |
 | - | **your pipeline** | - | `.transform()`, `.to()`, `.process()`, ... | the work |
 | 10 | `cacheStore` | shipped | `.cache({...})` | terminal body, written best-effort |
@@ -122,7 +122,7 @@ once per request. Retrying them is pointless.
 - **`input` before resilience wrappers.** A request that fails
   schema is never going to succeed on retry. Reject early.
 
-### Middle (5-8): resilience wrappers (planned)
+### Middle (5-8): resilience wrappers
 
 These DO retry / time out / fail fast. Standard outside-in
 following Resilience4J conventions.
@@ -190,9 +190,9 @@ The throw propagates up through `cacheCheck` (already passed; just
 re-throws), out to `.error()`. Nothing is cached. Next request with
 the same body re-runs the pipeline.
 
-### Future: retry inside timeout
+### Retry outside timeout
 
-Once `.retry()` and `.timeout()` ship:
+With route-scope `.retry()` and `.timeout()` declared on the route:
 
 ```
 error

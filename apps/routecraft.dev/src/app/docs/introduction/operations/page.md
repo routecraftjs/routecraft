@@ -41,9 +41,9 @@ Flow control operations decide which exchanges continue and how they are split o
 
 ### Wrappers
 
-Wrappers modify the behaviour of the **next operation only**. They do not stand alone -- they must be followed by the operation they wrap, placed immediately before it.
+Wrappers modify the behaviour of the **next operation only**. They do not stand alone -- they must be followed by the operation they wrap, placed immediately before it. Most are dual-mode: the same method called BEFORE `.from()` applies to the whole pipeline instead (see the [filter chain](/docs/advanced/filter-chain)).
 
-`.retry()` re-runs the next operation on failure. `.timeout()` cancels it if it takes too long. `.throttle()` rate-limits it. `.delay()` adds a pause before it runs. `.onError()` {% badge color="purple" %}planned{% /badge %} catches any error and lets you provide a fallback exchange. `.cache()` {% badge color="purple" %}planned{% /badge %} skips re-running if the same input has been seen before.
+`.retry()` re-runs the next operation on failure, with optional exponential backoff. `.timeout()` throws `RC5011` when it takes too long (the abandoned work is not cancelled; the pipeline just stops waiting). `.delay()` adds a pause before it runs (step scope only). `.error()` catches any error and lets you provide a fallback body. `.cache()` skips re-running if the same input has been seen before. `.throttle()` {% badge color="purple" %}planned{% /badge %} rate-limits it.
 
 Multiple wrappers can be stacked. They apply in outside-in order, so the first listed is the outermost. This means the order changes the semantics:
 

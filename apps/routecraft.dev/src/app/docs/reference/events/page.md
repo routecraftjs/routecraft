@@ -98,13 +98,34 @@ Split and aggregate use standard `step:started`/`step:completed` events (not ded
 
 After a split, each child exchange emits its own `exchange:started`. When aggregate consumes children, it emits `exchange:completed` for each child before continuing on the parent exchange.
 
-### Retry operations
+### Retry wrapper operations
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:retry:started` | Retry sequence started | `{ routeId, exchangeId, correlationId, maxAttempts }` |
-| `route:retry:attempt` | One retry attempt made | `{ routeId, exchangeId, correlationId, attemptNumber, maxAttempts, backoffMs, lastError? }` |
-| `route:retry:stopped` | Retry sequence ended | `{ routeId, exchangeId, correlationId, attemptNumber, success }` |
+| `route:retry:started` | Guarded execution began | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", maxAttempts }` |
+| `route:retry:attempt` | A failed attempt will be re-attempted after `backoffMs` | Same plus `attemptNumber`, `backoffMs` (the actual wait, exponential applied), `lastError?` |
+| `route:retry:stopped` | Final success or failure | Same plus `attemptNumber`, `success` |
+
+`scope` is `"route"` for `.retry()` declared BEFORE `.from()` (the whole pipeline is re-run) and `"step"` for the wrapper attached AFTER `.from()`. `stepLabel` is the wrapped step's label, or `"route"` at route scope. `route:retry:attempt` fires once per re-attempt, so a first-attempt success emits only `started` and `stopped`.
+
+### Delay wrapper operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:delay:started` | The wait began | `{ routeId, exchangeId, correlationId, stepLabel, scope: "step", delayMs }` |
+| `route:delay:stopped` | The wait ended; the wrapped step runs next | Same plus `elapsed`, `cancelled` |
+
+`cancelled: true` means route shutdown cut the wait short; the wrapped step still ran. `.delay()` is step-scope only, so `scope` is always `"step"`.
+
+### Timeout wrapper operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:timeout:started` | Guarded execution began | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", timeoutMs }` |
+| `route:timeout:stopped` | The guarded execution settled within the deadline | Same plus `elapsed` |
+| `route:timeout:expired` | The deadline fired first; an `RC5011` throw follows | Same plus `elapsed` |
+
+A failure of the wrapped operation *inside* the deadline does not emit a timeout event; the error propagates unchanged and is observable via `step:failed` / the error path. The abandoned work after an expiry keeps running in the background (promises cannot be cancelled); its eventual result is discarded.
 
 ### Choice operations
 

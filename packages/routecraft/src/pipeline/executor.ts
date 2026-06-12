@@ -5,6 +5,7 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
   isDropped,
+  OperationType,
   setStartedAt,
 } from "../exchange.ts";
 import { isRecovery, applyDropDirective } from "../recovery.ts";
@@ -18,6 +19,14 @@ import {
   getAdapterLabel,
 } from "../types.ts";
 import { buildParseStep } from "./synthetic-steps.ts";
+import {
+  DeadlineExceededError,
+  raceWithDeadline,
+} from "../operations/timeout-wrapper.ts";
+import {
+  executeWithRetry,
+  type ResolvedRetryOptions,
+} from "../operations/retry-wrapper.ts";
 import type { ForwardFn, Route, RouteDefinition } from "../route.ts";
 
 /**
@@ -38,8 +47,23 @@ export interface ExecutorDeps {
     | "steps"
     | "postFromFilters"
     | "errorHandler"
+    | "retry"
+    | "timeout"
   >;
   buildForward(): ForwardFn;
+  /**
+   * When set and no `errorHandler` is defined, an unhandled failure of
+   * the parent exchange THROWS out of `runPipeline` instead of firing
+   * the default error path (`route:error` + `context:error` +
+   * `route:exchange:failed`). Used by the route-scope resilience
+   * segment steps, whose nested executor invocations must surface a
+   * failed attempt to the wrapping retry / timeout logic rather than
+   * emitting terminal failure events per attempt. Failed split
+   * children keep the default per-child accounting.
+   *
+   * @internal
+   */
+  rethrowUnhandled?: boolean;
 }
 
 /**
@@ -85,9 +109,10 @@ export async function runPipeline(
   //
   //   preParseFilters    -> .authorize()
   //   (parse if present) -> source-attached
-  //   postParseFilters   -> .cache() check, future
-  //                         .throttle() / .circuitBreaker() / .retry() /
-  //                         .timeout() (positions 5-8 in the chain doc)
+  //   retry segment      -> route-scope .retry() (#7, wraps the tail)
+  //   timeout segment    -> route-scope .timeout() (#8, wraps the tail)
+  //   postParseFilters   -> .cache() check (#9), future
+  //                         .throttle() / .circuitBreaker() (positions 5-6)
   //   userSteps          -> declaration order, unchanged
   //   postFromFilters    -> .cache() store
   //
@@ -99,14 +124,34 @@ export async function runPipeline(
   // `internals.cacheKey` on the exchange -- per-invocation, no
   // shared closure -- so the filter steps can be constructed once
   // at builder time.
+  // Chain tail below the route-scope resilience wrappers: cacheCheck
+  // (#9), the user pipeline, and cacheStore (#10). Route-scope retry
+  // (#7) and timeout (#8) scope OVER this whole segment (retry re-runs
+  // it; timeout bounds each run), so they cannot be flat entries in
+  // the step array: each becomes a synthetic segment step that runs
+  // the tail via a nested executor invocation. Timeout wraps first so
+  // retry is outermost: every attempt gets its own deadline
+  // (Resilience4J convention, see `.standards/pre-from-filter-chain.md`).
+  let tail: Step<Adapter>[] = [
+    ...deps.definition.postParseFilters,
+    ...deps.definition.steps,
+    ...deps.definition.postFromFilters,
+  ];
+  if (deps.definition.timeout) {
+    tail = [
+      buildTimeoutSegmentStep(deps, tail, deps.definition.timeout.timeoutMs),
+    ];
+  }
+  if (deps.definition.retry) {
+    tail = [buildRetrySegmentStep(deps, tail, deps.definition.retry)];
+  }
+
   const initialSteps: Step<Adapter>[] = [
     ...deps.definition.preParseFilters,
     ...(sourceParse
       ? [buildParseStep(sourceParse, sourceFailureMode, sourceValidate)]
       : []),
-    ...deps.definition.postParseFilters,
-    ...deps.definition.steps,
-    ...deps.definition.postFromFilters,
+    ...tail,
   ];
 
   const queue: { exchange: Exchange; steps: Step<Adapter>[] }[] = [
@@ -446,6 +491,16 @@ export async function runPipeline(
         };
       }
 
+      // No error handler -- inside a nested resilience segment the
+      // parent's failure must surface to the wrapping segment step
+      // (retry decides whether to re-attempt; timeout maps its own
+      // expiry) instead of firing the default error path per attempt.
+      // Failed split children keep the default per-child accounting
+      // below.
+      if (deps.rethrowUnhandled && exchange.id === parentExchangeId) {
+        throw err;
+      }
+
       // No error handler -- route-level error
       exchange.logger.error(
         {
@@ -527,6 +582,174 @@ export async function runPipeline(
     failed,
     dropped,
     error: stepError,
+  };
+}
+
+/**
+ * Synthetic adapter carriers for the route-scope resilience segment
+ * steps. Distinct adapter ids so telemetry correlating by `adapter`
+ * can tell retry re-runs (`routecraft.retry`) from deadline guards
+ * (`routecraft.timeout`) without parsing the step label. Neither
+ * carrier has behaviour; the steps' `execute` does the work.
+ */
+const RETRY_SEGMENT_ADAPTER: Adapter = { adapterId: "routecraft.retry" };
+const TIMEOUT_SEGMENT_ADAPTER: Adapter = { adapterId: "routecraft.timeout" };
+
+/**
+ * Executor deps for a nested segment run: same route identity and
+ * capabilities, but the step arrays carry only the wrapped segment and
+ * no `errorHandler` / `retry` / `timeout` (the outer invocation owns
+ * filter #1 and the segment wrappers themselves; omitting them here is
+ * also what stops the nested run from re-wrapping recursively).
+ * `rethrowUnhandled` makes a failed attempt throw out of the nested
+ * `runPipeline` so the segment step can react.
+ */
+function nestedSegmentDeps(
+  deps: ExecutorDeps,
+  segment: Step<Adapter>[],
+): ExecutorDeps {
+  return {
+    routeId: deps.routeId,
+    context: deps.context,
+    route: deps.route,
+    buildForward: () => deps.buildForward(),
+    rethrowUnhandled: true,
+    definition: {
+      preParseFilters: [],
+      postParseFilters: [],
+      steps: segment,
+      postFromFilters: [],
+    },
+  };
+}
+
+/**
+ * Build the route-scope `.timeout()` segment step (pre-from chain
+ * position #8). Runs the chain tail via a nested executor invocation
+ * raced against the deadline. On expiry, emits `route:timeout:expired`
+ * and throws `RC5011`; the abandoned nested run keeps executing in the
+ * background (promises cannot be cancelled) with its eventual
+ * settlement discarded.
+ *
+ * `skipStepEvents: true` keeps `runPipeline` from emitting generic
+ * lifecycle events for this internal step; the segment emits its own
+ * `route:timeout:*` family with `scope: "route"`.
+ */
+function buildTimeoutSegmentStep(
+  deps: ExecutorDeps,
+  segment: Step<Adapter>[],
+  timeoutMs: number,
+): Step<Adapter> {
+  return {
+    operation: OperationType.PROCESS,
+    label: "timeout",
+    adapter: TIMEOUT_SEGMENT_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange) {
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      const scoped = {
+        routeId: deps.routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel: "route",
+        scope: "route" as const,
+        timeoutMs,
+      };
+      deps.context.emit("route:timeout:started", scoped);
+      const start = Date.now();
+      try {
+        const result = await raceWithDeadline(
+          runPipeline(nestedSegmentDeps(deps, segment), exchange, Date.now()),
+          timeoutMs,
+        );
+        deps.context.emit("route:timeout:stopped", {
+          ...scoped,
+          elapsed: Date.now() - start,
+        });
+        if (result.dropped) return { kind: "drop" } as const;
+        return { kind: "continue", exchange: result.exchange } as const;
+      } catch (err) {
+        if (!(err instanceof DeadlineExceededError)) throw err;
+        deps.context.emit("route:timeout:expired", {
+          ...scoped,
+          elapsed: Date.now() - start,
+        });
+        throw rcError("RC5011", undefined, {
+          message: `Route "${deps.routeId}" pipeline exceeded its ${timeoutMs}ms timeout`,
+        });
+      }
+    },
+  };
+}
+
+/**
+ * Build the route-scope `.retry()` segment step (pre-from chain
+ * position #7). Re-runs the chain tail (including a nested timeout
+ * segment, the cache check, the user pipeline, and the cache store)
+ * via nested executor invocations until an attempt succeeds, the error
+ * is non-retryable, or attempts are exhausted; then the final error
+ * propagates unchanged to the route-scope `.error()` handler or the
+ * default error path.
+ *
+ * A dropped attempt (filter rejection, parse-drop) is a deliberate
+ * resolution, not a failure: it is never re-attempted.
+ */
+function buildRetrySegmentStep(
+  deps: ExecutorDeps,
+  segment: Step<Adapter>[],
+  options: ResolvedRetryOptions,
+): Step<Adapter> {
+  return {
+    operation: OperationType.PROCESS,
+    label: "retry",
+    adapter: RETRY_SEGMENT_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange) {
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      const scoped = {
+        routeId: deps.routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel: "route",
+        scope: "route" as const,
+      };
+      const result = await executeWithRetry(
+        () =>
+          runPipeline(nestedSegmentDeps(deps, segment), exchange, Date.now()),
+        options,
+        {
+          signal: deps.route.signal,
+          onStarted: () => {
+            deps.context.emit("route:retry:started", {
+              ...scoped,
+              maxAttempts: options.maxAttempts,
+            });
+          },
+          onAttempt: (attemptNumber, waitMs, lastError) => {
+            deps.context.emit("route:retry:attempt", {
+              ...scoped,
+              attemptNumber,
+              maxAttempts: options.maxAttempts,
+              backoffMs: waitMs,
+              lastError,
+            });
+          },
+          onStopped: (attemptNumber, success) => {
+            deps.context.emit("route:retry:stopped", {
+              ...scoped,
+              attemptNumber,
+              success,
+            });
+          },
+        },
+      );
+      if (result.dropped) return { kind: "drop" } as const;
+      return { kind: "continue", exchange: result.exchange } as const;
+    },
   };
 }
 

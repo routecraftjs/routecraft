@@ -1,10 +1,13 @@
 # Resilience Wrappers
 
 Authoring contract for "dual-mode wrapper" operations: a single builder
-method (`.error()`, future `.retry()` / `.timeout()` / `.cache()` /
-`.circuitBreaker()` / `.throttle()` / `.delay()`) that applies at
-either route scope (when staged before `.from()`) or step scope (when
-chained after `.from()`).
+method (`.error()`, `.cache()`, `.retry()`, `.timeout()`, future
+`.circuitBreaker()` / `.throttle()`) that applies at either route scope
+(when staged before `.from()`) or step scope (when chained after
+`.from()`). `.delay()` follows the step-scope half of this contract but
+is deliberately step-scope only: a route-scope delay is equivalent to a
+delay before the first step, and the pre-from filter chain reserves no
+slot for it.
 
 The pattern is shared so every future resilience operation has the
 same mental model, ESLint behaviour, docs layout, and observability.
@@ -18,7 +21,8 @@ Three categories cover every operation in the framework:
 | Category | Position | Examples |
 |----------|----------|----------|
 | Route-only | Before `.from()` only. Configures the route. | `.id()`, `.batch()`, `.title()`, `.description()`, `.input()`, `.output()` |
-| Dual-mode wrapper | Same method, position decides scope. | `.error()`, future `.retry()`, `.timeout()`, `.cache()`, `.circuitBreaker()`, `.throttle()`, `.delay()` |
+| Dual-mode wrapper | Same method, position decides scope. | `.error()`, `.cache()`, `.retry()`, `.timeout()`, future `.circuitBreaker()`, `.throttle()` |
+| Step-only wrapper | After `.from()` only; wraps the next step. | `.delay()` (no route-scope form by design) |
 | Pipeline | After `.from()` only. Already enforced by the builder type system. | `.transform()`, `.to()`, `.process()`, `.enrich()`, `.split()`, `.aggregate()`, `.tap()`, `.filter()`, `.validate()`, `.choice()`, `.header()` |
 
 ## 2. Dual-mode contract
@@ -101,7 +105,7 @@ export class TimeoutWrapperStep<T extends Adapter = Adapter>
     return await Promise.race([
       this.inner.execute(exchange, ctx),
       sleep(this.ms).then(() => {
-        throw rcError("RC5012", undefined, {
+        throw rcError("RC5011", undefined, {
           message: `Step "${this.label}" exceeded ${this.ms}ms timeout`,
         });
       }),

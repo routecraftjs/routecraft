@@ -54,6 +54,11 @@ import {
   resolveCacheOptions,
   type ResolvedCacheOptions,
 } from "./operations/cache-wrapper.ts";
+import {
+  type RetryOptions,
+  type ResolvedRetryOptions,
+  resolveRetryOptions,
+} from "./operations/retry-wrapper.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -456,6 +461,19 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
    * builder. See {@link RouteBuilder.cache}.
    */
   cache(options?: CacheOptions<unknown>): this;
+  /**
+   * Configure a ROUTE-SCOPE retry for the next route (re-run the whole
+   * pipeline on failure, chain position 7). The step-scope variant
+   * lives on the post-`.from()` builder. See {@link RouteBuilder.retry}.
+   */
+  retry(options?: RetryOptions): this;
+  /**
+   * Configure a ROUTE-SCOPE timeout for the next route (per-attempt
+   * deadline over the whole pipeline, chain position 8). The
+   * step-scope variant lives on the post-`.from()` builder. See
+   * {@link RouteBuilder.timeout}.
+   */
+  timeout(timeoutMs: number): this;
   /** Declare an authorization requirement on the next route. See {@link RouteBuilder.authorize}. */
   authorize(options?: AuthorizeOptions): this;
   /** Finalize and return the route definition(s). See {@link RouteBuilder.build}. */
@@ -541,6 +559,8 @@ export class RouteBuilder<
         };
         errorHandler?: ErrorHandler;
         cacheConfig?: ResolvedCacheOptions;
+        retryConfig?: ResolvedRetryOptions;
+        timeoutConfig?: { timeoutMs: number };
         discovery?: RouteDiscovery;
         authorizers?: AuthorizeOptions[];
       }
@@ -821,6 +841,71 @@ export class RouteBuilder<
   }
 
   /**
+   * Timeout. Dual-mode:
+   *
+   * - **Before `.from()` (route scope):** bounds each run of the whole
+   *   pipeline with a deadline at pre-from filter chain position 8
+   *   (inside `.retry()`, so every attempt gets its own deadline). On
+   *   expiry the pipeline throws `RC5011`, which a route-scope
+   *   `.error()` handler catches like any other failure.
+   *
+   * - **After `.from()` (step scope):** wraps the immediately-next
+   *   step; see {@link StepBuilderBase.timeout} for the step-scope
+   *   contract.
+   *
+   * The bounded work is not cancelled on expiry (promises cannot be
+   * cancelled); the timeout bounds how long the route waits, not the
+   * work itself.
+   */
+  override timeout(timeoutMs: number): this {
+    if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
+      // Route scope: stage the config onto pendingOptions so the next
+      // `.from()` writes it into the new RouteDefinition.
+      this.pendingOptions = {
+        ...(this.pendingOptions ?? {}),
+        timeoutConfig: { timeoutMs },
+      };
+      logger.trace("Staging route-scope timeout config for next route");
+      return this;
+    }
+    return super.timeout(timeoutMs);
+  }
+
+  /**
+   * Retry. Dual-mode:
+   *
+   * - **Before `.from()` (route scope):** re-runs the whole pipeline
+   *   on failure at pre-from filter chain position 7 (outside
+   *   `.timeout()`, inside `.error()`). Every attempt re-runs the
+   *   chain tail including the cache check, so a value cached by a
+   *   previous attempt short-circuits the next one. After the final
+   *   attempt fails, the error reaches the route-scope `.error()`
+   *   handler (when set) or the default error path.
+   *
+   * - **After `.from()` (step scope):** wraps the immediately-next
+   *   step; see {@link StepBuilderBase.retry} for the step-scope
+   *   contract.
+   *
+   * Route-scope re-attempts re-run user steps and their side effects;
+   * wrap only the flaky step with step-scope `.retry()` when the rest
+   * of the pipeline must not repeat.
+   */
+  override retry(options: RetryOptions = {}): this {
+    if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
+      // Route scope: stage the resolved config (validates maxAttempts
+      // at staging time) so the next `.from()` writes it into the new
+      // RouteDefinition, mirroring the `.cache()` staging convention.
+      this.pendingOptions = {
+        ...(this.pendingOptions ?? {}),
+        retryConfig: resolveRetryOptions(options),
+      };
+      logger.trace("Staging route-scope retry config for next route");
+      return this;
+    }
+    return super.retry(options);
+  }
+
+  /**
    * Declare an authorization requirement on the next route. **Route-only**:
    * stages the authorizer onto the next-route options and runs at route
    * entry, before any pipeline step. Same staging convention as `.id`,
@@ -942,6 +1027,8 @@ export class RouteBuilder<
     };
     const errorHandler = this.pendingOptions?.errorHandler;
     const cacheConfig = this.pendingOptions?.cacheConfig;
+    const retryConfig = this.pendingOptions?.retryConfig;
+    const timeoutConfig = this.pendingOptions?.timeoutConfig;
     const discovery = this.pendingOptions?.discovery;
     const authorizers = this.pendingOptions?.authorizers ?? [];
 
@@ -1011,6 +1098,12 @@ export class RouteBuilder<
       },
       ...(errorHandler ? { errorHandler } : {}),
       ...(discovery ? { discovery } : {}),
+      // Route-scope retry (#7) and timeout (#8) scope over the chain
+      // tail rather than running as flat filters, so they live as
+      // definition fields; the pipeline executor wraps the tail in the
+      // matching segment steps. See `.standards/pre-from-filter-chain.md`.
+      ...(retryConfig ? { retry: retryConfig } : {}),
+      ...(timeoutConfig ? { timeout: timeoutConfig } : {}),
     };
     setBrand(this.currentRoute, BRAND.RouteDefinition);
 

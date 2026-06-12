@@ -173,10 +173,10 @@ Check network, DNS, ports, and firewall; verify the service is running.
 Request timeout
 
 **Why it happens**  
-The operation exceeded its deadline (e.g. ETIMEDOUT).
+The operation exceeded its deadline: a `.timeout()` wrapper (step or route scope) expired before the wrapped work settled, or an adapter hit a network deadline (e.g. ETIMEDOUT).
 
 **Suggestion**  
-Increase timeout or configure retry with backoff.
+Increase the timeout or configure retry with backoff. Registered `retryable: true`, so a wrapping `.retry()` re-attempts timeouts by default.
 
 ## RC5012
 Authentication failed
