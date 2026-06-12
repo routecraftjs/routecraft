@@ -460,6 +460,27 @@ export interface MailSendPayload {
   from?: string;
   /** Reply-to address (overrides option-level replyTo) */
   replyTo?: string;
+  /**
+   * `Message-ID` of the message this send replies to. Sets the
+   * `In-Reply-To` header and, when `references` is not given (or is
+   * empty), also seeds the `References` header so the reply stitches
+   * into the original thread in real mail clients. The inbound side
+   * exposes the value as the `routecraft.mail.messageId` header
+   * ({@link MailHeaders.MESSAGE_ID}).
+   */
+  inReplyTo?: string;
+  /**
+   * Explicit `References` chain for threading (oldest first). Overrides
+   * the chain derived from `inReplyTo`. Pass the original message's
+   * `References` plus its `Message-ID` to preserve deep threads.
+   */
+  references?: string | string[];
+  /**
+   * Custom RFC 5322 headers set on the outgoing message (e.g.
+   * `X-Auto-Response-Suppress`, `List-Id`). Threading is easier via
+   * `inReplyTo` / `references`, which win over the same keys given here.
+   */
+  headers?: Record<string, string>;
   /** File attachments */
   attachments?: Array<{
     filename: string;

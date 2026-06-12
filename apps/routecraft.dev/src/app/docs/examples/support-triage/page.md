@@ -27,7 +27,7 @@ export default craft()
   .id('lookup-customer')
   .description('Look up a customer and their plan by email address')
   .input({ body: LookupInput })
-  .from<LookupInput>(direct())
+  .from(direct())
   .to(http({ method: 'GET', url: (ex) => `https://api.example.com/customers/${ex.body.email}` }))
 ```
 
@@ -47,7 +47,7 @@ export default craft()
   .id('post-brief')
   .description('Post a triage brief to the internal support channel')
   .input({ body: BriefInput })
-  .from<BriefInput>(direct())
+  .from(direct())
   .to(http({ method: 'POST', url: 'https://chat.example.com/support/briefs' }))
 ```
 

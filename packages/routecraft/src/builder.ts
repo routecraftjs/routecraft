@@ -412,31 +412,32 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
 }
 
 /**
- * The route builder BEFORE `.from()`: only route-scope staging is reachable.
- *
- * `craft()` returns this type, and every staging method on the full
- * {@link RouteBuilder} (`.id()`, `.title()`, ...) flips the chain back into
- * it, so calling a pipeline operation (`.to()`, `.transform()`, `.split()`,
- * ...) before `.from()` is a COMPILE error rather than only the runtime
- * RC2001/RC2002 it has always been. The runtime guards remain for plain
- * JavaScript users; this interface is the type-level mirror of the same
- * contract.
- *
- * There is no separate runtime class: the value behind this type is the one
- * `RouteBuilder` instance, re-surfaced. `.from()` opens the route and hands
- * back the full pipeline surface.
+ * Route-scope staging methods shared by both pre-`.from()` surfaces
+ * ({@link PreFromBuilder} and {@link PreFromTypedBuilder}). Methods return
+ * `this` so the chain keeps whichever surface it is on: staging calls after
+ * a typed `.input()` do not lose the staged body type.
  *
  * @template S - The {@link BuilderState} bag carried into the next route
  */
-export interface PreFromBuilder<S extends BuilderState = BuilderState> {
+export interface PreFromStaging<S extends BuilderState = BuilderState> {
   /** Set the route id for the next route. See {@link RouteBuilder.id}. */
   id(id: string): this;
   /** Set a human-readable title for the next route. See {@link RouteBuilder.title}. */
   title(value: string): this;
   /** Set a human-readable description for the next route. See {@link RouteBuilder.description}. */
   description(value: string): this;
-  /** Declare input schemas for the next route. See {@link RouteBuilder.input}. */
-  input(schemas: RouteSchemas | StandardSchemaV1): this;
+  /**
+   * Declare input schemas for the next route and retype the chain. When a
+   * body schema is given (bare, or as `{ body }`), the schema's inferred
+   * output type becomes the body type the following `.from(source)` opens
+   * the pipeline with, so no duplicated `.from<T>()` generic is needed.
+   * See {@link RouteBuilder.input}.
+   */
+  input<Schema extends StandardSchemaV1>(
+    schemas: Schema | (RouteSchemas & { body: Schema }),
+  ): PreFromTypedBuilder<SetBody<S, StandardSchemaV1.InferOutput<Schema>>>;
+  /** Declare input schemas (no body schema, so no retyping). See {@link RouteBuilder.input}. */
+  input(schemas: RouteSchemas): this;
   /** Declare output schemas for the next route. See {@link RouteBuilder.output}. */
   output(schemas: RouteSchemas | StandardSchemaV1): this;
   /** Tag the next route. See {@link RouteBuilder.tag}. */
@@ -457,6 +458,32 @@ export interface PreFromBuilder<S extends BuilderState = BuilderState> {
   cache(options?: CacheOptions<unknown>): this;
   /** Declare an authorization requirement on the next route. See {@link RouteBuilder.authorize}. */
   authorize(options?: AuthorizeOptions): this;
+  /** Finalize and return the route definition(s). See {@link RouteBuilder.build}. */
+  build: RouteBuilder<S>["build"];
+}
+
+/**
+ * The route builder BEFORE `.from()`: only route-scope staging is reachable.
+ *
+ * `craft()` returns this type, and every staging method on the full
+ * {@link RouteBuilder} (`.id()`, `.title()`, ...) flips the chain back into
+ * it, so calling a pipeline operation (`.to()`, `.transform()`, `.split()`,
+ * ...) before `.from()` is a COMPILE error rather than only the runtime
+ * RC2001/RC2002 it has always been. The runtime guards remain for plain
+ * JavaScript users; this interface is the type-level mirror of the same
+ * contract.
+ *
+ * There is no separate runtime class: the value behind this type is the one
+ * `RouteBuilder` instance, re-surfaced. `.from()` opens the route and hands
+ * back the full pipeline surface. A `.input()` call with a body schema
+ * flips the chain into {@link PreFromTypedBuilder} instead, which seeds
+ * `.from()` with the schema's inferred body type.
+ *
+ * @template S - The {@link BuilderState} bag carried into the next route
+ */
+export interface PreFromBuilder<
+  S extends BuilderState = BuilderState,
+> extends PreFromStaging<S> {
   /**
    * Open the route: define its source(s) and enter the pipeline surface.
    * Derived from the class via an indexed-access type so the (ordering
@@ -465,8 +492,37 @@ export interface PreFromBuilder<S extends BuilderState = BuilderState> {
    * between the pre-`from` and post-`from` surfaces.
    */
   from: RouteBuilder<S>["from"];
-  /** Finalize and return the route definition(s). See {@link RouteBuilder.build}. */
-  build: RouteBuilder<S>["build"];
+}
+
+/**
+ * The pre-`.from()` surface after `.input()` declared a body schema: the
+ * schema's inferred output type is staged in `S`, and `.from(source)` opens
+ * the pipeline with that body type instead of inferring (typically
+ * `unknown`) from the source adapter. The engine validates every inbound
+ * body against the schema before the first step runs, which is what makes
+ * seeding the static type from the schema sound.
+ *
+ * An explicit `.from<T>(source)` generic still overrides the staged type.
+ *
+ * @template S - The {@link BuilderState} bag, body already set from the schema
+ */
+export interface PreFromTypedBuilder<
+  S extends BuilderState = BuilderState,
+> extends PreFromStaging<S> {
+  /**
+   * Open the route with the body type staged by `.input()`. Accepts one or
+   * more sources; multi-ingress routes require the `.input()` body schema
+   * anyway (RC2001), so every channel validates to this one type.
+   */
+  from(
+    ...sources: [SourceLike<unknown>, ...Array<SourceLike<unknown>>]
+  ): RouteBuilder<S>;
+  /**
+   * Open the route with an explicit body type, overriding the staged one.
+   */
+  from<T>(
+    ...sources: [SourceLike<unknown>, ...Array<SourceLike<unknown>>]
+  ): RouteBuilder<SetBody<S, T>>;
 }
 
 export class RouteBuilder<
@@ -540,10 +596,29 @@ export class RouteBuilder<
    * step runs; a validation failure emits `exchange:dropped` and the
    * pipeline never sees the message. Accepts either a bundle
    * (`{ body, headers }`) or a bare Standard Schema as a body-only shorthand.
-   * To flow the body type through the chain, pass it as a generic on
-   * `.from<T>(source)` after the `.input()` call.
+   *
+   * When a body schema is given, the chain is retyped: the following
+   * `.from(source)` opens the pipeline with the schema's inferred output
+   * type, so the type does not have to be repeated as a `.from<T>()`
+   * generic. An explicit `.from<T>()` still overrides the staged type.
+   *
+   * @example
+   * ```typescript
+   * craft()
+   *   .id('lookup-user')
+   *   .input({ body: UserQuerySchema })
+   *   .from(direct())
+   *   // the body is already typed as the schema output
+   *   .transform((body) => findUser(body.userId))
+   * ```
    */
-  input(schemas: RouteSchemas | StandardSchemaV1): PreFromBuilder {
+  input<Schema extends StandardSchemaV1>(
+    schemas: Schema | (RouteSchemas & { body: Schema }),
+  ): PreFromTypedBuilder<SetBody<S, StandardSchemaV1.InferOutput<Schema>>>;
+  input(schemas: RouteSchemas): PreFromBuilder;
+  input(
+    schemas: RouteSchemas | StandardSchemaV1,
+  ): PreFromBuilder | PreFromTypedBuilder<SetBody<S, unknown>> {
     this.mergeDiscovery({ input: this.normalizeSchemas(schemas) });
     return this.prelude();
   }
@@ -814,7 +889,9 @@ export class RouteBuilder<
    * This is typically the first step in defining a route.
    *
    * @template T The type of data produced by the source
-   * @param source A source adapter or function
+   * @param sources One or more source adapters or functions. Multiple
+   *   sources require `.input({ body })` declared first (RC2001) so every
+   *   ingress validates to the same body type.
    * @returns A RouteBuilder with the specified type T
    * @example
    * // Simple source with inferred type
@@ -826,9 +903,9 @@ export class RouteBuilder<
    *   return response.json();
    * })
    *
-   * // After `.input({ body: schema })`, pass the inferred body type to
-   * // flow it through the chain:
-   * // .input({ body: MySchema }).from<z.infer<typeof MySchema>>(direct())
+   * // After `.input({ body: schema })`, the schema's inferred output type
+   * // flows through the chain automatically (see PreFromTypedBuilder):
+   * // .input({ body: MySchema }).from(direct())
    *
    * // Expose one capability on several ingresses (internal + agents +
    * // integrations) that all feed the same pipeline. Multi-ingress requires
@@ -837,10 +914,10 @@ export class RouteBuilder<
    *
    * The multiple-source `.input()` requirement is a deliberate build-time
    * precondition, enforced at `.from()` with RC2001 rather than in the type
-   * system: the variadic overload is statically reachable and `T` defaults to
-   * `unknown` unless you pass it explicitly (`.from<Query>(...)`). A type-level
-   * flag threaded through the builder could make it compile-time, but that is a
-   * larger change deferred for the v0 unstable surface.
+   * system: the variadic overload is statically reachable on THIS class.
+   * Chains that declare `.input({ body })` first go through
+   * {@link PreFromTypedBuilder.from} instead, where the staged schema type
+   * seeds the body so multi-ingress is typed without an explicit generic.
    */
   from<T>(source: SourceLike<T>): RouteBuilder<SetBody<S, T>>;
   from<T>(source: SourceLike<unknown>): RouteBuilder<SetBody<S, T>>;

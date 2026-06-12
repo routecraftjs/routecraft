@@ -20,7 +20,7 @@ const priceCheck = craft()
   .title("Price check")
   .description("Validate one order item and apply pricing rules")
   .input({ body: OrderItemSchema })
-  .from<OrderItem>(direct())
+  .from(direct())
   .filter((ex) => {
     if (ex.body.quantity > 100) return { reason: "quantity exceeds limit" };
     return true;

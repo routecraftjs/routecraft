@@ -75,8 +75,13 @@ mock.module("nodemailer", () => ({
   }),
 }));
 
+const mockMailComposerOptions = mock();
+
 mock.module("nodemailer/lib/mail-composer", () => ({
   default: class MockMailComposer {
+    constructor(options: Record<string, unknown>) {
+      mockMailComposerOptions(options);
+    }
     compile() {
       return {
         build: mock().mockResolvedValue(Buffer.from("raw mime")),
@@ -474,6 +479,146 @@ describe("Mail Adapter", () => {
         }),
       );
     });
+
+    /**
+     * @case Threading fields and custom headers are forwarded to nodemailer
+     * @preconditions Payload sets inReplyTo and headers but no references
+     * @expectedResult sendMail receives inReplyTo, headers, and a References
+     *   chain derived from inReplyTo so the reply threads in mail clients
+     */
+    test("forwards inReplyTo, derived references, and custom headers", async () => {
+      mockSendMail.mockResolvedValue({
+        messageId: "<reply@example.com>",
+        accepted: ["recipient@example.com"],
+        rejected: [],
+        response: "250 OK",
+      });
+
+      const sendAdapter = mail({
+        host: "smtp.test.com",
+        auth: { user: "u", pass: "p" },
+        from: "me@test.com",
+      });
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-send-threading")
+            .from(
+              simple({
+                to: "recipient@example.com",
+                subject: "Re: Hello",
+                text: "Reply body",
+                inReplyTo: "<original@example.com>",
+                headers: { "X-Auto-Response-Suppress": "All" },
+              }),
+            )
+            .to(sendAdapter as any),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(mockSendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          inReplyTo: "<original@example.com>",
+          references: "<original@example.com>",
+          headers: { "X-Auto-Response-Suppress": "All" },
+        }),
+      );
+    });
+
+    /**
+     * @case An explicit references chain wins over the derived one
+     * @preconditions Payload sets both inReplyTo and references
+     * @expectedResult sendMail receives the explicit references array unchanged
+     */
+    test("explicit references override the inReplyTo-derived chain", async () => {
+      mockSendMail.mockResolvedValue({
+        messageId: "<reply@example.com>",
+        accepted: ["recipient@example.com"],
+        rejected: [],
+        response: "250 OK",
+      });
+
+      const sendAdapter = mail({
+        host: "smtp.test.com",
+        auth: { user: "u", pass: "p" },
+        from: "me@test.com",
+      });
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-send-references")
+            .from(
+              simple({
+                to: "recipient@example.com",
+                subject: "Re: Hello",
+                text: "Reply body",
+                inReplyTo: "<msg-2@example.com>",
+                references: ["<msg-1@example.com>", "<msg-2@example.com>"],
+              }),
+            )
+            .to(sendAdapter as any),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(mockSendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          inReplyTo: "<msg-2@example.com>",
+          references: ["<msg-1@example.com>", "<msg-2@example.com>"],
+        }),
+      );
+    });
+
+    /**
+     * @case An empty references value counts as absent for the derivation
+     * @preconditions Payload sets inReplyTo and references: [] (empty array)
+     * @expectedResult sendMail receives a References chain derived from
+     *   inReplyTo instead of the empty array, so the reply still threads
+     */
+    test("empty references still derives the chain from inReplyTo", async () => {
+      mockSendMail.mockResolvedValue({
+        messageId: "<reply@example.com>",
+        accepted: ["recipient@example.com"],
+        rejected: [],
+        response: "250 OK",
+      });
+
+      const sendAdapter = mail({
+        host: "smtp.test.com",
+        auth: { user: "u", pass: "p" },
+        from: "me@test.com",
+      });
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-send-empty-references")
+            .from(
+              simple({
+                to: "recipient@example.com",
+                subject: "Re: Hello",
+                text: "Reply body",
+                inReplyTo: "<original@example.com>",
+                references: [],
+              }),
+            )
+            .to(sendAdapter as any),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(mockSendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          references: "<original@example.com>",
+        }),
+      );
+    });
   });
 
   describe("Named accounts", () => {
@@ -817,6 +962,40 @@ describe("Mail Adapter", () => {
         expect.any(Buffer),
         ["\\Draft"],
         undefined,
+      );
+    });
+
+    /**
+     * @case Append composes with threading fields and custom headers
+     * @preconditions Exchange body sets inReplyTo and headers, no references
+     * @expectedResult MailComposer receives inReplyTo, the derived References
+     *   chain, and the custom headers, same as the SMTP send path
+     */
+    test("append carries threading fields into the composed MIME", async () => {
+      const adapter = mail({ action: "append", folder: "Drafts" });
+      const context = await buildMailContext();
+      const exchange = {
+        id: "test",
+        headers: {},
+        body: {
+          to: "recipient@test.com",
+          subject: "Re: Draft",
+          text: "Draft reply body",
+          inReplyTo: "<original@example.com>",
+          headers: { "X-Auto-Response-Suppress": "All" },
+        },
+        logger: console,
+      } as any;
+      attachContext(exchange, context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      expect(mockMailComposerOptions).toHaveBeenCalledWith(
+        expect.objectContaining({
+          inReplyTo: "<original@example.com>",
+          references: "<original@example.com>",
+          headers: { "X-Auto-Response-Suppress": "All" },
+        }),
       );
     });
 

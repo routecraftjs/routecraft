@@ -17,7 +17,7 @@ export default craft()
   .title("Greet user")
   .description("Greet a user by name")
   .input({ body: GreetInput })
-  .from<GreetInput>(mcp())
+  .from(mcp())
   .filter(() => {
     if (!process.env["JWT_SECRET"]) return { reason: "JWT_SECRET not set" };
     return true;
