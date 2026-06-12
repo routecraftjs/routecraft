@@ -2,7 +2,7 @@
   "name": "@routecraft/os",
   "version": "0.5.0",
   "private": true,
-  "description": "System-native adapters for Routecraft: shell execution and browser automation",
+  "description": "System-native host adapters for Routecraft: sandboxed shell execution, with browser automation and other host capabilities to follow",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
