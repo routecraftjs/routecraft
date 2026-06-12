@@ -25,7 +25,7 @@ async function loadAgentBrowser(): Promise<AgentBrowserLib> {
     return cached;
   } catch {
     throw new Error(
-      '@routecraft/browser: the "agent-browser" package is required for this adapter. Install it with: npm install agent-browser',
+      '@routecraft/os: the "agent-browser" package is required for this adapter. Install it with: npm install agent-browser',
     );
   }
 }

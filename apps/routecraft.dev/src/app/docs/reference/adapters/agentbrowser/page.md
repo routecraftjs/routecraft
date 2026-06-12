@@ -5,7 +5,7 @@ title: agentBrowser
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-import { agentBrowser } from '@routecraft/browser'
+import { agentBrowser } from '@routecraft/os'
 ```
 
 Automate a browser session using the [agent-browser](https://www.npmjs.com/package/agent-browser) library. Each exchange gets an isolated session (derived from `exchange.id`), so `split()`/`aggregate()` flows work correctly. Use with `.to()`, `.enrich()`, or `.tap()`. Requires `agent-browser` as a peer dependency.
@@ -13,7 +13,7 @@ Automate a browser session using the [agent-browser](https://www.npmjs.com/packa
 **Navigate and take a snapshot:**
 
 ```ts
-import { agentBrowser } from '@routecraft/browser'
+import { agentBrowser } from '@routecraft/os'
 
 craft()
   .id('scrape-page')

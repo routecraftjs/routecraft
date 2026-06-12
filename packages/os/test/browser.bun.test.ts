@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple } from "@routecraft/routecraft";
-import type { AgentBrowserResult } from "@routecraft/browser";
+import type { AgentBrowserResult } from "@routecraft/os";
 
 type CommandArg = { id: string; action: string; [key: string]: unknown };
 type CommandResult = Promise<{
@@ -28,7 +28,7 @@ mock.module("agent-browser/dist/browser.js", () => ({
   BrowserManager: BrowserManagerMock,
 }));
 
-const { agentBrowser } = await import("@routecraft/browser");
+const { agentBrowser } = await import("@routecraft/os");
 const { sanitizeSessionId } =
   await import("../src/adapters/agent-browser/shared.ts");
 

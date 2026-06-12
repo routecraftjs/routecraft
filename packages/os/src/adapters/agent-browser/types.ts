@@ -35,7 +35,7 @@ export interface AgentBrowserCommandMap<T = unknown> {
   press: { key: string };
   hover: { selector: Resolvable<T, string> };
   focus: { selector: Resolvable<T, string> };
-  select: { selector: Resolvable<T, string>; value: string };
+  select: { selector: Resolvable<T, string>; value: Resolvable<T, string> };
   check: { selector: Resolvable<T, string> };
   uncheck: { selector: Resolvable<T, string> };
   scroll: {
