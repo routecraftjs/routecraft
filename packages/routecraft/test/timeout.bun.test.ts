@@ -76,6 +76,10 @@ describe("Timeout wrapper (.timeout())", () => {
     await t.test();
 
     expect(s.received).toHaveLength(0);
+    // The abandoned inner work settles after the deadline; its outcome
+    // must be discarded, never delivered downstream late.
+    await sleep(350);
+    expect(s.received).toHaveLength(0);
     expect(t.errors).toHaveLength(1);
     expect(t.errors[0].rc).toBe("RC5011");
     expect(t.errors[0].retryable).toBe(true);
@@ -182,6 +186,10 @@ describe("Timeout wrapper (.timeout())", () => {
 
     await t.test();
 
+    expect(s.received).toHaveLength(0);
+    // The abandoned nested run settles after the deadline; its outcome
+    // must be discarded, never delivered downstream late.
+    await sleep(350);
     expect(s.received).toHaveLength(0);
     expect(t.errors).toHaveLength(1);
     expect(t.errors[0].rc).toBe("RC5011");

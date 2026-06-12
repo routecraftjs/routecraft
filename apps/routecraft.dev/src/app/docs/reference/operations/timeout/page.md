@@ -55,3 +55,5 @@ craft()
 ```
 
 Route-scope `.timeout()` sits at position 8 of the [filter chain](/docs/advanced/filter-chain): inside route-scope `.retry()` (each attempt gets its own deadline) and outside the cache check (a cache hit counts as a fast success and never expires). Builder call order does not matter; the framework fixes the chain order.
+
+**Abandonment at route scope is bounded.** When the deadline fires, the step that was in flight still settles (promises cannot be cancelled) but its outcome is discarded and no further pipeline steps are scheduled: a `.to()` later in the pipeline will not fire after the caller has already received `RC5011`. At step scope only the single wrapped step is abandoned, so there is nothing downstream to suppress.

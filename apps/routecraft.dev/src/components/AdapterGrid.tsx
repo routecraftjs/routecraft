@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
 import { type Section } from '@/lib/sections'
+import { slug } from '@/lib/slug'
 
 type Role = 'Source' | 'Destination' | 'Transformer' | 'Processor'
 
@@ -198,8 +199,6 @@ const roleClassname: Record<Role, string> = {
   Transformer: 'border-ink/25 text-ink/65',
   Processor: 'border-ink/25 text-ink/65',
 }
-
-const slug = (value: string) => value.toLowerCase().replace(/\s+/g, '-')
 
 /**
  * Right-sidebar "On this page" sections for the adapter grid. The

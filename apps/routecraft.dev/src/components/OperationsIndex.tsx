@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
 import { type Section } from '@/lib/sections'
+import { slug } from '@/lib/slug'
 
 interface Op {
   name: string
@@ -256,8 +257,6 @@ const categories = [
   'Flow Control',
   'Side Effects',
 ] as const
-
-const slug = (value: string) => value.toLowerCase().replace(/\s+/g, '-')
 
 /**
  * Right-sidebar "On this page" sections for the operations index. The

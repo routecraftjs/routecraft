@@ -64,6 +64,17 @@ export interface ExecutorDeps {
    * @internal
    */
   rethrowUnhandled?: boolean;
+  /**
+   * When set, the step loop stops scheduling further steps once the
+   * signal aborts: the in-flight step settles, its outcome is
+   * discarded, and the queue drains without running the remaining
+   * steps. Used by the route-scope timeout segment so an expired
+   * attempt cannot keep producing downstream side effects (e.g. a
+   * `.to()` firing after the caller already received RC5011).
+   *
+   * @internal
+   */
+  abortSignal?: AbortSignal;
 }
 
 /**
@@ -198,6 +209,12 @@ export async function runPipeline(
   };
 
   while (queue.length > 0) {
+    // Abandoned segment run (route-scope timeout expired): stop
+    // scheduling. The result of this invocation is already discarded
+    // by the segment step, so running further steps would only produce
+    // side effects after the exchange has failed.
+    if (deps.abortSignal?.aborted) break;
+
     const popped = queue.shift()!;
     const { steps } = popped;
     // `let` because the engine may rewrap the exchange below to update
@@ -607,6 +624,7 @@ const TIMEOUT_SEGMENT_ADAPTER: Adapter = { adapterId: "routecraft.timeout" };
 function nestedSegmentDeps(
   deps: ExecutorDeps,
   segment: Step<Adapter>[],
+  abortSignal?: AbortSignal,
 ): ExecutorDeps {
   return {
     routeId: deps.routeId,
@@ -614,6 +632,7 @@ function nestedSegmentDeps(
     route: deps.route,
     buildForward: () => deps.buildForward(),
     rethrowUnhandled: true,
+    ...(abortSignal ? { abortSignal } : {}),
     definition: {
       preParseFilters: [],
       postParseFilters: [],
@@ -626,10 +645,11 @@ function nestedSegmentDeps(
 /**
  * Build the route-scope `.timeout()` segment step (pre-from chain
  * position #8). Runs the chain tail via a nested executor invocation
- * raced against the deadline. On expiry, emits `route:timeout:expired`
- * and throws `RC5011`; the abandoned nested run keeps executing in the
- * background (promises cannot be cancelled) with its eventual
- * settlement discarded.
+ * raced against the deadline. On expiry, emits `route:timeout:expired`,
+ * throws `RC5011`, and aborts the nested run: the in-flight step
+ * settles (promises cannot be cancelled) with its outcome discarded,
+ * and no further steps are scheduled, so an expired attempt cannot
+ * keep producing downstream side effects.
  *
  * `skipStepEvents: true` keeps `runPipeline` from emitting generic
  * lifecycle events for this internal step; the segment emits its own
@@ -659,9 +679,14 @@ function buildTimeoutSegmentStep(
       };
       deps.context.emit("route:timeout:started", scoped);
       const start = Date.now();
+      const abandon = new AbortController();
       try {
         const result = await raceWithDeadline(
-          runPipeline(nestedSegmentDeps(deps, segment), exchange, Date.now()),
+          runPipeline(
+            nestedSegmentDeps(deps, segment, abandon.signal),
+            exchange,
+            Date.now(),
+          ),
           timeoutMs,
         );
         deps.context.emit("route:timeout:stopped", {
@@ -672,6 +697,10 @@ function buildTimeoutSegmentStep(
         return { kind: "continue", exchange: result.exchange } as const;
       } catch (err) {
         if (!(err instanceof DeadlineExceededError)) throw err;
+        // Stop the abandoned run from scheduling further steps: its
+        // result is discarded, so any remaining steps would only run
+        // side effects after the exchange has already failed.
+        abandon.abort();
         deps.context.emit("route:timeout:expired", {
           ...scoped,
           elapsed: Date.now() - start,

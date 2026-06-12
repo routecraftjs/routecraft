@@ -152,8 +152,12 @@ export async function executeWithRetry<R>(
         hooks.onStopped(attemptNumber, false, err);
         throw err;
       }
+      // Clamp to the platform timer ceiling (2^31 - 1 ms): past it,
+      // setTimeout coerces the delay (Node clamps to 1ms, so a huge
+      // exponential wait would fire instantly) and 2 ** n overflows to
+      // Infinity around attempt 1024. Unreachable for sane configs.
       const waitMs = options.exponential
-        ? options.backoffMs * 2 ** (attemptNumber - 1)
+        ? Math.min(options.backoffMs * 2 ** (attemptNumber - 1), 2_147_483_647)
         : options.backoffMs;
       hooks.onAttempt(attemptNumber, waitMs, err);
       try {
