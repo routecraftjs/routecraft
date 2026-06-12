@@ -20,6 +20,8 @@ Defines the source adapter(s) and creates the capability. Must come after all ot
 
 **Returns:** `RouteBuilder<T>` where `T` is the body type produced by the source.
 
+When the route declares `.input()` with a body schema before `.from()`, `T` defaults to the schema's inferred output type and the generic can be omitted; see [input](/docs/reference/operations/input). An explicit `.from<T>()` still overrides it.
+
 ```ts
 .id('timer-route')
 .from(timer({ intervalMs: 1000 }))

@@ -13,7 +13,7 @@ const greetRoute = craft()
   .title("Greet user")
   .description("Look up a user by id and return a greeting message")
   .input({ body: GreetInput })
-  .from<GreetInput>(direct())
+  .from(direct())
   .enrich(
     http<GreetInput, { name: string }>({
       method: "GET",

@@ -21,7 +21,7 @@ export default craft()
   .title("Greet user")
   .description("Greet a user by name")
   .input({ body: GreetInput })
-  .from<GreetInput>(direct())
+  .from(direct())
   .debug()
   .to(
     agent({

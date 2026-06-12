@@ -166,6 +166,8 @@ export {
   RouteBuilder,
   type AnyRouteBuilder,
   type PreFromBuilder,
+  type PreFromStaging,
+  type PreFromTypedBuilder,
   type RouteOptions,
 } from "./builder.ts";
 
