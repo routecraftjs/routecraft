@@ -57,9 +57,7 @@ export function resolveModel(
     );
   }
 
-  const store = context.getStore(
-    ADAPTER_LLM_PROVIDERS as keyof import("@routecraft/routecraft").StoreRegistry,
-  ) as Map<string, LlmModelConfig> | undefined;
+  const store = context.getStore(ADAPTER_LLM_PROVIDERS);
   if (!store) {
     throw new Error(
       `LLM provider not found: no providers registered. Add llmPlugin({ providers: { ollama: { provider: "ollama" }, ... } }) to your config.`,

@@ -1,7 +1,13 @@
 import type { Source, Subscription } from "../../operations/from.ts";
 import type { Exchange } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
-import type { MailBody, MailMessage, MailServerOptions } from "./types.ts";
+import { isRoutecraftError } from "../../brand.ts";
+import type {
+  MailBody,
+  MailMessage,
+  MailReconnectOptions,
+  MailServerOptions,
+} from "./types.ts";
 import type { MailClientManager } from "./client-manager.ts";
 import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
 import {
@@ -18,12 +24,39 @@ import {
 
 type ImapClient = InstanceType<typeof import("imapflow").ImapFlow>;
 
-/** Cap reconnect attempts so an unrecoverable server fault does not loop forever. */
+/** Default cap on reconnect attempts; override via `reconnect.maxAttempts`. */
 const MAIL_RECONNECT_MAX_ATTEMPTS = 30;
-/** Initial backoff between mail reconnect attempts. */
+/** Default initial backoff between mail reconnect attempts. */
 const MAIL_RECONNECT_BASE_MS = 1_000;
-/** Cap for exponential backoff. */
+/** Default cap for exponential backoff. */
 const MAIL_RECONNECT_MAX_MS = 60_000;
+
+/**
+ * Resolve the `reconnect` option against defaults. `null` means reconnection
+ * is disabled (`reconnect: false`) and connection failures are fatal
+ * immediately.
+ */
+function resolveReconnect(
+  options: MailServerOptions,
+): Required<MailReconnectOptions> | null {
+  if (options.reconnect === false) return null;
+  return {
+    maxAttempts: options.reconnect?.maxAttempts ?? MAIL_RECONNECT_MAX_ATTEMPTS,
+    baseDelayMs: options.reconnect?.baseDelayMs ?? MAIL_RECONNECT_BASE_MS,
+    maxDelayMs: options.reconnect?.maxDelayMs ?? MAIL_RECONNECT_MAX_MS,
+  };
+}
+
+/**
+ * Fail-fast path (`reconnect: false`): surface the connection failure as a
+ * boundary error. Errors already wrapped by a lower boundary (RC5001 fetch
+ * failures, RC5010 standalone connect failures) pass through unchanged; raw
+ * socket errors (e.g. from `client.idle()`) get the RC5010 connection wrap.
+ */
+function throwFailFast(error: unknown): never {
+  if (isRoutecraftError(error)) throw error;
+  throwMailConnectionError(error, "IMAP");
+}
 
 /**
  * Source adapter that receives email messages from IMAP using IDLE or polling.
@@ -126,16 +159,10 @@ export class MailSourceAdapter implements Source<MailBody> {
 
     const markSeenEnabled = resolved.markSeen !== false;
 
-    // Mutable ref so the idle loop can swap the client on reconnect while
-    // the abort handler still releases whatever connection is current.
+    // Mutable ref so the connect/idle/poll paths can swap the client on
+    // reconnect while the abort handler still releases whatever connection
+    // is current.
     const clientRef: { current: ImapClient | null } = { current: null };
-    clientRef.current = await this.acquireAndOpen(
-      manager,
-      account,
-      resolved,
-      folder,
-      usePool,
-    );
 
     let released = false;
     const releaseClient = () => {
@@ -185,7 +212,25 @@ export class MailSourceAdapter implements Source<MailBody> {
     };
 
     try {
+      // Signal readiness before the first connection attempt: with reconnect
+      // enabled, an IMAP server that is unreachable at route start leaves the
+      // route running in a degraded-but-recovering state instead of failing
+      // startup. The tradeoff is that `route:started` no longer guarantees
+      // the mailbox was reachable.
       sub.ready();
+
+      await this.initialConnect(
+        clientRef,
+        manager,
+        account,
+        resolved,
+        folder,
+        usePool,
+        abortController,
+        logger,
+      );
+      // Aborted while still connecting: nothing to drain or watch.
+      if (!clientRef.current) return;
 
       if (resolved.pollIntervalMs) {
         await this.pollLoop(
@@ -259,6 +304,62 @@ export class MailSourceAdapter implements Source<MailBody> {
   }
 
   /**
+   * Establish the first connection of the subscription. With reconnect
+   * enabled, a connection failure here enters the same backoff loop as a
+   * mid-life drop, so a server that is unreachable at route start is retried
+   * instead of killing the route. Auth failures and `reconnect: false` keep
+   * the fail-fast behaviour. Leaves `clientRef.current` null when the
+   * subscription is aborted before a connection could be established.
+   */
+  private async initialConnect(
+    clientRef: { current: ImapClient | null },
+    manager: MailClientManager | null,
+    account: string | undefined,
+    options: MailServerOptions,
+    folder: string,
+    usePool: boolean,
+    abortController: AbortController,
+    logger?: MailFetchLogger,
+  ): Promise<void> {
+    try {
+      clientRef.current = await this.acquireAndOpen(
+        manager,
+        account,
+        options,
+        folder,
+        usePool,
+      );
+    } catch (error) {
+      if (abortController.signal.aborted) return;
+      if (isMailAuthError(error)) {
+        // Auth failures will not recover on reconnect; surface clearly and stop.
+        throwMailConnectionError(error, "IMAP");
+      }
+      const reconnect = resolveReconnect(options);
+      if (!reconnect) throwFailFast(error);
+      logger?.warn(
+        {
+          err: error instanceof Error ? error : new Error(String(error)),
+          folder,
+        },
+        "mail adapter initial connect failed; attempting reconnect",
+      );
+      await this.reconnectWithBackoff(
+        clientRef,
+        manager,
+        account,
+        options,
+        folder,
+        usePool,
+        "connect",
+        reconnect,
+        abortController,
+        logger,
+      );
+    }
+  }
+
+  /**
    * Reconnect on a dropped connection using the same backoff as IDLE. Without
    * this, a transient socket failure during a fetch would tear the
    * subscription down for good and the only recovery is a process restart.
@@ -276,6 +377,7 @@ export class MailSourceAdapter implements Source<MailBody> {
     logger?: MailFetchLogger,
   ): Promise<void> {
     const onParseError = options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
+    const reconnect = resolveReconnect(options);
     while (!abortController.signal.aborted) {
       const client = clientRef.current;
       if (!client) return;
@@ -289,6 +391,7 @@ export class MailSourceAdapter implements Source<MailBody> {
           // Auth failures will not recover on reconnect; surface clearly and stop.
           throwMailConnectionError(error, "IMAP");
         }
+        if (!reconnect) throwFailFast(error);
         logger?.warn(
           {
             err: error instanceof Error ? error : new Error(String(error)),
@@ -304,6 +407,7 @@ export class MailSourceAdapter implements Source<MailBody> {
           folder,
           usePool,
           "poll",
+          reconnect,
           abortController,
           logger,
         );
@@ -362,29 +466,44 @@ export class MailSourceAdapter implements Source<MailBody> {
     abortController: AbortController,
     logger?: MailFetchLogger,
   ): Promise<void> {
-    // Drain whatever matches on startup, then transition into IDLE.
-    await this.drainOnce(
-      clientRef,
-      options,
-      folder,
-      markSeenEnabled,
-      handler,
-      abortController,
-      logger,
-    );
-
+    const reconnect = resolveReconnect(options);
+    // Drain on entry, after every IDLE wake, and after every reconnect: mail
+    // that arrived during an outage would otherwise sit unseen until the
+    // next new-arrival notification. The drain runs inside the same
+    // catch-and-reconnect handling as idle() itself; a connection dropped
+    // between the IDLE wake and the fetch must reconnect, not kill the
+    // subscription (the failure mode behind #425).
+    let needDrain = true;
     while (!abortController.signal.aborted) {
       const client = clientRef.current;
       if (!client) return;
 
       try {
+        if (needDrain) {
+          await this.drainOnce(
+            clientRef,
+            options,
+            folder,
+            markSeenEnabled,
+            handler,
+            abortController,
+            logger,
+          );
+          needDrain = false;
+        }
+        if (abortController.signal.aborted) return;
         await client.idle();
+        needDrain = true;
       } catch (error) {
         if (abortController.signal.aborted) return;
         if (isMailAuthError(error)) {
           // Auth failures will not recover on reconnect; surface clearly and stop.
           throwMailConnectionError(error, "IMAP");
         }
+        // A parse rethrow out of the drain (`onParseError: 'abort'`) is a
+        // deliberate source kill, not a connection failure: never reconnect.
+        if (isParseError(error)) throw error;
+        if (!reconnect) throwFailFast(error);
         logger?.warn(
           {
             err: error instanceof Error ? error : new Error(String(error)),
@@ -400,24 +519,13 @@ export class MailSourceAdapter implements Source<MailBody> {
           folder,
           usePool,
           "idle",
+          reconnect,
           abortController,
           logger,
         );
         if (abortController.signal.aborted) return;
-        continue;
+        needDrain = true;
       }
-
-      if (abortController.signal.aborted) return;
-
-      await this.drainOnce(
-        clientRef,
-        options,
-        folder,
-        markSeenEnabled,
-        handler,
-        abortController,
-        logger,
-      );
     }
   }
 
@@ -464,11 +572,12 @@ export class MailSourceAdapter implements Source<MailBody> {
   }
 
   /**
-   * Replace a dead IMAP client after a fetch or IDLE failure. Exponential
-   * backoff with jitter, capped total attempts. Releases the current client
-   * on the first attempt so the pool slot is freed for the new connection.
-   * `mode` is interpolated into log lines and the give-up error so operators
-   * can tell which loop the reconnect was driven from.
+   * Replace a dead IMAP client after a connect, fetch, or IDLE failure.
+   * Exponential backoff with jitter; attempts, base, and cap come from the
+   * resolved `reconnect` option. Releases the current client on the first
+   * attempt so the pool slot is freed for the new connection. `mode` is
+   * interpolated into log lines and the give-up error so operators can tell
+   * which path the reconnect was driven from.
    */
   private async reconnectWithBackoff(
     clientRef: { current: ImapClient | null },
@@ -477,7 +586,8 @@ export class MailSourceAdapter implements Source<MailBody> {
     options: MailServerOptions,
     folder: string,
     usePool: boolean,
-    mode: "idle" | "poll",
+    mode: "connect" | "idle" | "poll",
+    reconnect: Required<MailReconnectOptions>,
     abortController: AbortController,
     logger?: MailFetchLogger,
   ): Promise<void> {
@@ -495,12 +605,14 @@ export class MailSourceAdapter implements Source<MailBody> {
       }
     }
 
-    for (let attempt = 1; attempt <= MAIL_RECONNECT_MAX_ATTEMPTS; attempt++) {
+    for (let attempt = 1; attempt <= reconnect.maxAttempts; attempt++) {
       if (abortController.signal.aborted) return;
 
+      // 2**(attempt-1) overflows to Infinity for large attempt counts
+      // (maxAttempts: Infinity); min() then pins the base to maxDelayMs.
       const base = Math.min(
-        MAIL_RECONNECT_BASE_MS * 2 ** (attempt - 1),
-        MAIL_RECONNECT_MAX_MS,
+        reconnect.baseDelayMs * 2 ** (attempt - 1),
+        reconnect.maxDelayMs,
       );
       // Full jitter: pick uniformly in [0, base] so retries don't thunder.
       const delay = Math.floor(Math.random() * base);
@@ -515,6 +627,20 @@ export class MailSourceAdapter implements Source<MailBody> {
           folder,
           usePool,
         );
+        if (abortController.signal.aborted) {
+          // The subscription's abort handler already ran while no client was
+          // current, so nothing will release this late arrival: do it here.
+          if (usePool) {
+            try {
+              manager!.releaseImap(account, fresh);
+            } catch {
+              // Ignore release errors during teardown
+            }
+          } else {
+            await fresh.logout().catch(() => {});
+          }
+          return;
+        }
         clientRef.current = fresh;
         logger?.debug(
           { folder, attempt, mode },
@@ -538,7 +664,7 @@ export class MailSourceAdapter implements Source<MailBody> {
     }
 
     throw rcError("RC5010", undefined, {
-      message: `Mail adapter ${mode} reconnect gave up after ${MAIL_RECONNECT_MAX_ATTEMPTS} attempts on folder "${folder}".`,
+      message: `Mail adapter ${mode} reconnect gave up after ${reconnect.maxAttempts} attempts on folder "${folder}".`,
     });
   }
 }
@@ -578,6 +704,46 @@ function validateSourceOptions(
       "mail source `limit` with IDLE: backlog beyond the limit will only " +
         "drain when new mail arrives. Use pollIntervalMs for predictable drain.",
     );
+  }
+
+  if (options.reconnect !== undefined && options.reconnect !== false) {
+    const { maxAttempts, baseDelayMs, maxDelayMs } = options.reconnect;
+    if (
+      maxAttempts !== undefined &&
+      maxAttempts !== Infinity &&
+      !(Number.isInteger(maxAttempts) && maxAttempts >= 1)
+    ) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "Mail source reconnect.maxAttempts must be a positive integer or Infinity.",
+      });
+    }
+    if (
+      baseDelayMs !== undefined &&
+      !(Number.isFinite(baseDelayMs) && baseDelayMs >= 1)
+    ) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "Mail source reconnect.baseDelayMs must be a positive number of milliseconds.",
+      });
+    }
+    if (
+      maxDelayMs !== undefined &&
+      !(Number.isFinite(maxDelayMs) && maxDelayMs >= 1)
+    ) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "Mail source reconnect.maxDelayMs must be a positive number of milliseconds.",
+      });
+    }
+    const base = baseDelayMs ?? MAIL_RECONNECT_BASE_MS;
+    const max = maxDelayMs ?? MAIL_RECONNECT_MAX_MS;
+    if (max < base) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "Mail source reconnect.maxDelayMs must be greater than or equal to reconnect.baseDelayMs.",
+      });
+    }
   }
 }
 

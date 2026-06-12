@@ -41,9 +41,7 @@ function resolveProviderAndModel(
       `Embedding adapter: model id "${modelId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so embedding providers can be read.`,
     );
   }
-  const store = context.getStore(
-    ADAPTER_EMBEDDING_PROVIDERS as keyof import("@routecraft/routecraft").StoreRegistry,
-  ) as Map<string, EmbeddingModelConfig> | undefined;
+  const store = context.getStore(ADAPTER_EMBEDDING_PROVIDERS);
   if (!store) {
     throw new Error(
       "Embedding provider not found: no providers registered. Add embeddingPlugin({ providers: { huggingface: {} } }) to your config.",
@@ -88,9 +86,7 @@ export class EmbeddingDestinationAdapter<T = unknown>
   public options: Partial<EmbeddingOptions>;
 
   mergedOptions(context: CraftContext): EmbeddingOptions {
-    const store = context.getStore(
-      ADAPTER_EMBEDDING_OPTIONS as keyof import("@routecraft/routecraft").StoreRegistry,
-    ) as Partial<EmbeddingOptions> | undefined;
+    const store = context.getStore(ADAPTER_EMBEDDING_OPTIONS);
     return { ...store, ...this.options } as EmbeddingOptions;
   }
 

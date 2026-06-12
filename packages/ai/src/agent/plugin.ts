@@ -115,9 +115,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
     apply(ctx: CraftContext) {
       // Merge into an existing registry when present so multiple
       // `agentPlugin({...})` entries compose instead of overwriting.
-      const existingAgents = ctx.getStore(
-        ADAPTER_AGENT_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-      ) as Map<string, AgentRegisteredOptions> | undefined;
+      const existingAgents = ctx.getStore(ADAPTER_AGENT_REGISTRY);
       const agentMap =
         existingAgents ?? new Map<string, AgentRegisteredOptions>();
       for (const [id, entry] of Object.entries(agents)) {
@@ -145,15 +143,10 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
         agentMap.set(id, entry);
       }
       if (!existingAgents) {
-        ctx.setStore(
-          ADAPTER_AGENT_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-          agentMap,
-        );
+        ctx.setStore(ADAPTER_AGENT_REGISTRY, agentMap);
       }
 
-      const existingFns = ctx.getStore(
-        ADAPTER_FN_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-      ) as Map<string, FnEntry> | undefined;
+      const existingFns = ctx.getStore(ADAPTER_FN_REGISTRY);
       const fnMap = existingFns ?? new Map<string, FnEntry>();
       for (const [id, entry] of Object.entries(functions)) {
         if (id.trim() === "") {
@@ -177,21 +170,13 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
         fnMap.set(id, entry);
       }
       if (!existingFns) {
-        ctx.setStore(
-          ADAPTER_FN_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-          fnMap,
-        );
+        ctx.setStore(ADAPTER_FN_REGISTRY, fnMap);
       }
 
       if (defaultOptions !== undefined) {
-        const existing = ctx.getStore(
-          ADAPTER_AGENT_DEFAULT_OPTIONS as keyof import("@routecraft/routecraft").StoreRegistry,
-        ) as AgentDefaultOptions | undefined;
+        const existing = ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
         const merged = mergePluginDefaults(existing, defaultOptions);
-        ctx.setStore(
-          ADAPTER_AGENT_DEFAULT_OPTIONS as keyof import("@routecraft/routecraft").StoreRegistry,
-          merged,
-        );
+        ctx.setStore(ADAPTER_AGENT_DEFAULT_OPTIONS, merged);
       }
 
       emitRegistrations(ctx, agents, functions);

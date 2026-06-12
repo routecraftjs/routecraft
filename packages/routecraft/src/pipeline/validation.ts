@@ -5,6 +5,7 @@ import {
   type ExchangeHeaders,
   HeadersKeys,
   DefaultExchange,
+  emitExchangeDropped,
 } from "../exchange.ts";
 import { rcError, RoutecraftError, formatSchemaIssues } from "../error.ts";
 import type { ErrorHandler, ForwardFn, Route } from "../route.ts";
@@ -161,9 +162,8 @@ export function emitInputValidationFailure(
     exchangeId: exchange.id,
     correlationId,
   });
-  deps.context.emit("route:exchange:dropped", {
+  emitExchangeDropped(deps.context, {
     routeId,
-    exchangeId: exchange.id,
     correlationId,
     reason: `input validation failed: ${message}`,
     exchange,

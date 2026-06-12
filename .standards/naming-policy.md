@@ -41,6 +41,22 @@ export type MailOptions = MailServerOptions | MailClientOptions;
 
 Do not invent an empty `XxxBaseOptions` to make the structure look uniform; the union is what matters and an empty parent only adds friction. The decision rule is "would I write the same field on both Server and Client?" -- if yes for two or more fields, factor; otherwise, declare independently.
 
+### Discriminating the two sides
+
+Every call shape of a multiplexed factory must be distinguishable by a **required, side-unique key** (or by argument kind: string vs object vs function). At most one side per facade may offer an all-optional "bare default" form; that slot goes to the most common zero-config use.
+
+| Facade | Discrimination |
+|--------|----------------|
+| `http` | `path` (server) vs `url` (client), both required |
+| `mcp` | bare object (source) vs required `url` / `serverId` (client) |
+| `carddav` | bare object (read) vs required `action` (write) |
+| `direct` | bare/options object (source) vs endpoint string/function (destination) |
+| `mail` | bare object (send) vs required `folder` (fetch) vs required `action` (operations) |
+
+Key-sniffing heuristics over *optional* keys are forbidden. TypeScript resolves overloads from arguments only (never from the `.to()` / `.enrich()` context), so when two sides are both all-optional the compiler silently picks the first structurally matching overload while the runtime guesses from whichever keys happen to be present -- the two drift apart and the types lie (issue #433 is the case study; the mail adapter's old `hasServerKeys()` shipped four keys out of sync). Optional phantom/brand fields do not fix this: they do not affect assignability of object literals.
+
+When an ambiguous shape can still reach the factory at runtime (plain JS), throw `RC5003` naming the conflicting keys; never guess a side.
+
 ## Single-role adapters
 
 Adapters that only act as source or only as destination (timer, simple, log, noop) use a single options type: **XxxOptions** (e.g., `TimerOptions`, `LogOptions`). Do not use Server/Client in their option names.

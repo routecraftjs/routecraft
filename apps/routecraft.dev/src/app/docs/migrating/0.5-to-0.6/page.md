@@ -449,6 +449,26 @@ The field-to-header mapping:
 
 `.to(mail({ action: "move", ... }))` and the other IMAP operations already resolved their target from the `routecraft.mail.uid` / `routecraft.mail.folder` headers (or a custom `target` extractor), so chains like `mail source -> filter -> mail move` keep working without change.
 
+### 4.4 Object-form fetch requires `folder`
+
+`MailServerOptions` (IMAP fetch) and `MailClientOptions` (SMTP send) overlap on `host` / `port` / `secure` / `auth` / `account`, so the old object-form overloads could not tell a fetch from a send: the compiler resolved ambiguous calls to the fetch overload while the runtime key-sniffed its way to the send adapter, and the two regularly disagreed. In 0.6.0 the object-form fetch destination requires `folder`, which is the discriminator: an options object with `folder` is a fetch, one without it is a send. Fetch-only keys without `folder` are a compile error, and plain JS gets `RC5003` at construction instead of a guessed side.
+
+**Before (0.5.x):**
+
+```ts
+.enrich(mail({ unseen: true, limit: 10 }))
+```
+
+**After (0.6.0):**
+
+```ts
+.enrich(mail({ folder: "INBOX", unseen: true, limit: 10 }))
+// or keep the shorthand when defaults suffice
+.enrich(mail("INBOX"))
+```
+
+The `mail("INBOX")` string shorthand, the two-argument source form, `{ action }` operations, and bare `mail()` sends are unchanged. Send options gain real typechecking from this: `.to(mail({ host, auth }))` now resolves to `Destination<MailSendPayload, MailSendResult>` instead of the fetch signature, so payload mistakes surface at compile time and no cast is needed.
+
 ---
 
 ## 5. Events: fixed names, identity in the payload

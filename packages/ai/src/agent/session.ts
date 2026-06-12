@@ -312,14 +312,19 @@ export class AgentSession {
     // string. Falls back to "unknown" only when the provider didn't
     // report one.
     const finishReason = result.finishReason ?? "unknown";
-    ctx.emit("route:agent:finished", {
+    const agentName =
+      this.input.agentName !== undefined
+        ? { agentName: this.input.agentName }
+        : {};
+    const identity = {
       routeId: id.routeId,
       exchangeId: id.exchangeId,
       correlationId: id.correlationId,
-      ...(this.input.agentName !== undefined && {
-        agentName: this.input.agentName,
-      }),
+      ...agentName,
       model: this.input.model,
+    };
+    ctx.emit("route:agent:finished", {
+      ...identity,
       finishReason,
       ...(result.usage?.inputTokens !== undefined && {
         inputTokens: result.usage.inputTokens,
@@ -329,6 +334,24 @@ export class AgentSession {
       }),
       ...(result.usage?.totalTokens !== undefined && {
         totalTokens: result.usage.totalTokens,
+      }),
+    });
+    ctx.emit("route:agent:usage", {
+      ...identity,
+      ...(result.usage?.inputTokens !== undefined && {
+        inputTokens: result.usage.inputTokens,
+      }),
+      ...(result.usage?.outputTokens !== undefined && {
+        outputTokens: result.usage.outputTokens,
+      }),
+      ...(result.usage?.totalTokens !== undefined && {
+        totalTokens: result.usage.totalTokens,
+      }),
+      ...(result.usage?.cacheReadTokens !== undefined && {
+        cacheReadTokens: result.usage.cacheReadTokens,
+      }),
+      ...(result.usage?.cacheWriteTokens !== undefined && {
+        cacheWriteTokens: result.usage.cacheWriteTokens,
       }),
     });
   }

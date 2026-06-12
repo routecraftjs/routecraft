@@ -80,16 +80,28 @@ export function assertLanguageModelShape(
   }
 }
 
-/** Pass through AI SDK usage so LlmUsage matches LanguageModelUsage (inputTokens/outputTokens). */
+/** Pass through AI SDK usage into LlmUsage, including cache token details when present. */
 export function toLlmUsage(u: {
   inputTokens?: number | undefined;
   outputTokens?: number | undefined;
   totalTokens?: number | undefined;
+  inputTokenDetails?:
+    | {
+        cacheReadTokens?: number | undefined;
+        cacheWriteTokens?: number | undefined;
+      }
+    | undefined;
 }): LlmUsage {
   return {
     ...(u.inputTokens !== undefined && { inputTokens: u.inputTokens }),
     ...(u.outputTokens !== undefined && { outputTokens: u.outputTokens }),
     ...(u.totalTokens !== undefined && { totalTokens: u.totalTokens }),
+    ...(u.inputTokenDetails?.cacheReadTokens !== undefined && {
+      cacheReadTokens: u.inputTokenDetails.cacheReadTokens,
+    }),
+    ...(u.inputTokenDetails?.cacheWriteTokens !== undefined && {
+      cacheWriteTokens: u.inputTokenDetails.cacheWriteTokens,
+    }),
   };
 }
 
