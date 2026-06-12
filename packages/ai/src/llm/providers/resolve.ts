@@ -68,9 +68,16 @@ async function resolveAnthropic(
     adapterName: "Anthropic LLM",
     packageName: "@ai-sdk/anthropic",
   })) as {
-    createAnthropic: (s: { apiKey: string }) => (m: string) => unknown;
+    createAnthropic: (s: {
+      apiKey: string;
+      baseURL?: string;
+    }) => (m: string) => unknown;
   };
-  const anthropic = mod.createAnthropic({ apiKey: config.apiKey });
+  const settings: { apiKey: string; baseURL?: string } = {
+    apiKey: config.apiKey,
+  };
+  if (config.baseURL !== undefined) settings.baseURL = config.baseURL;
+  const anthropic = mod.createAnthropic(settings);
   return anthropic(modelId);
 }
 
@@ -82,9 +89,16 @@ async function resolveGemini(
     adapterName: "Gemini LLM",
     packageName: "@ai-sdk/google",
   })) as {
-    createGoogleGenerativeAI: (s: { apiKey: string }) => (m: string) => unknown;
+    createGoogleGenerativeAI: (s: {
+      apiKey: string;
+      baseURL?: string;
+    }) => (m: string) => unknown;
   };
-  const google = mod.createGoogleGenerativeAI({ apiKey: config.apiKey });
+  const settings: { apiKey: string; baseURL?: string } = {
+    apiKey: config.apiKey,
+  };
+  if (config.baseURL !== undefined) settings.baseURL = config.baseURL;
+  const google = mod.createGoogleGenerativeAI(settings);
   return google(modelId);
 }
 

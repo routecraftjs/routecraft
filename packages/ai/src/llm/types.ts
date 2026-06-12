@@ -52,6 +52,13 @@ export interface LlmModelConfigOpenAI {
 export interface LlmModelConfigAnthropic {
   provider: "anthropic";
   apiKey: string;
+  /**
+   * Anthropic API URL. Optional: the SDK default applies when unset.
+   * Set it to route through a gateway or proxy. Configuring it here wins
+   * over the ambient `ANTHROPIC_BASE_URL` environment variable, which the
+   * SDK falls back to when no explicit URL is passed.
+   */
+  baseURL?: string;
 }
 
 export interface LlmModelConfigOpenRouter {
@@ -78,6 +85,11 @@ export interface LlmModelConfigOllama {
 export interface LlmModelConfigGemini {
   provider: "gemini";
   apiKey: string;
+  /**
+   * Gemini API URL. Optional: the SDK default applies when unset.
+   * Set it to route through a gateway or proxy.
+   */
+  baseURL?: string;
 }
 
 export interface LlmModelConfigLmStudio {
@@ -138,6 +150,7 @@ export interface LlmOpenAIProviderOptions {
 }
 export interface LlmAnthropicProviderOptions {
   apiKey: string;
+  baseURL?: string;
 }
 export interface LlmOpenRouterProviderOptions {
   apiKey: string;
@@ -145,6 +158,7 @@ export interface LlmOpenRouterProviderOptions {
 }
 export interface LlmGeminiProviderOptions {
   apiKey: string;
+  baseURL?: string;
 }
 export interface LlmLmStudioProviderOptions {
   baseURL?: string;
