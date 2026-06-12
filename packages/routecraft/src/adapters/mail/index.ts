@@ -149,13 +149,15 @@ function hasServerKeys(opts: object): boolean {
     "to" in opts ||
     "body" in opts ||
     "header" in opts ||
-    "includeHeaders" in opts
+    "includeHeaders" in opts ||
+    "reconnect" in opts
   );
 }
 
 // Re-export types for public API
 export type {
   MailAuth,
+  MailReconnectOptions,
   MailServerOptions,
   MailClientOptions,
   MailOptions,

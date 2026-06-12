@@ -35,7 +35,7 @@ craft()
 
 **Source delivery modes:** the source runs in one of two modes.
 
-- **IDLE (default):** the server pushes notifications when new mail arrives. The `\Seen` flag is the cross-cycle dedupe state, so each message is delivered exactly once per subscription. IDLE is the right default for "process each new email once" workloads. If the IMAP connection drops mid-subscription the source reconnects automatically with exponential backoff; auth failures stop the subscription immediately.
+- **IDLE (default):** the server pushes notifications when new mail arrives. The `\Seen` flag is the cross-cycle dedupe state, so each message is delivered exactly once per subscription. IDLE is the right default for "process each new email once" workloads.
 - **Poll (opt-in):** set `pollIntervalMs` to fetch on a cadence instead of IDLE. Required whenever you opt out of the `\Seen` dedupe model (`markSeen: false` or `unseen: false`), for example to re-evaluate the inbox on every cycle and rely on a folder move as the done-signal. IDLE has no cycle boundary, so combining it with those overrides would refetch the entire folder on every inbound message; the source throws `RC5003` at startup to prevent this footgun.
 
 ```ts
@@ -55,6 +55,18 @@ craft()
 ```
 
 The `\Seen` flag is written per-message **after** the handler resolves successfully, so a downstream failure leaves the message un-Seen and it is retried on the next cycle. `limit` combined with IDLE is a latency trap (backlog beyond the limit only drains when new mail arrives) and emits a warning at subscribe time.
+
+**Connection recovery:** every connection-type failure on the source connection (the initial connect at route start, an IDLE drop, a failed fetch in either mode) goes through the same reconnect loop: exponential backoff with full jitter, growing from `reconnect.baseDelayMs` (default 1s) up to `reconnect.maxDelayMs` (default 60s), for up to `reconnect.maxAttempts` (default 30) consecutive failed attempts. After a reconnect the folder is drained immediately, so mail that arrived during the outage is delivered without waiting for the next new-arrival notification. Authentication failures never reconnect; they stop the route immediately with `RC5012`.
+
+Because the initial connect retries too, the source signals readiness before the first connection succeeds: an IMAP server that is unreachable at route start leaves the route running in a degraded-but-recovering state, and `route:started` does not guarantee the mailbox was reachable. When the attempts cap is exhausted the source gives up with `RC5010` and the route stops; subscribe to [`route:source:failed`](/docs/reference/events) to alarm on a dead channel. Set `reconnect: { maxAttempts: Infinity }` for a channel that must never give up, or `reconnect: false` to disable recovery and fail on the first connection error.
+
+```ts
+// A long-lived agent channel: keep retrying forever, alarm via events.
+craft()
+  .id('inbox-agent')
+  .from(mail('INBOX', { reconnect: { maxAttempts: Infinity } }))
+  .to(processMessage())
+```
 
 **Fetch destination (IMAP pull):** Pass a folder string or server options to fetch messages. Use with `.enrich()` to pull mail on demand.
 
@@ -175,6 +187,7 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `limit` | `number` | | Maximum messages per fetch |
 | `pollIntervalMs` | `number` | | Poll interval in ms (default: IMAP IDLE) |
 | `account` | `string` | | Named account from context config (uses default if omitted) |
+| `reconnect` | `MailReconnectOptions \| false` | `{ maxAttempts: 30, baseDelayMs: 1000, maxDelayMs: 60000 }` | Source-mode connection recovery. `maxAttempts` caps consecutive failed attempts (`Infinity` = never give up), delays grow exponentially from `baseDelayMs` to `maxDelayMs` with full jitter. `false` disables recovery (fail on the first connection error). See the connection recovery notes above. |
 | `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a per-message MIME parse failure. See [parse error handling](/docs/reference/adapters#parse-error-handling). All three modes mark the malformed message Seen so it does not refetch forever. `'fail'` routes the failure through the route's `.error()` handler (or `exchange:failed` if no handler is set). `'drop'` does NOT invoke `.error()`; it emits `exchange:dropped` with `reason: 'parse-failed'` so subscribers can count parse drops as a structured event without scraping logs. Pre-#187 behaviour was equivalent to a silent `'drop'` (logged at debug, no event); set `onParseError: 'drop'` to keep lossy-ingest semantics with structured observability. |
 
 **Client options (`MailClientOptions`):**

@@ -587,8 +587,29 @@ export class DefaultRoute implements Route {
           };
           // Coerce to a promise so a void return and an async rejection are
           // handled uniformly by Promise.all; a synchronous throw is caught by
-          // the surrounding try because the map runs inside it.
-          return Promise.resolve(activeSource.subscribe(subscription));
+          // the surrounding try because the map runs inside it. A rejection
+          // means the source gave up producing (a dead channel), which is a
+          // state operators must be able to alarm on: emit the per-source
+          // event here, before the route-level abort below, so listeners see
+          // which ingress died even on a multi-ingress route. A rejection
+          // after the source's controller aborted is teardown noise (an
+          // orderly stop, or a sibling being torn down because another
+          // source already failed), not a dead channel: skip the event.
+          return Promise.resolve(activeSource.subscribe(subscription)).catch(
+            (error: unknown) => {
+              if (!sourceController.signal.aborted) {
+                this.context.emit("route:source:failed", {
+                  routeId: this.definition.id,
+                  route: this,
+                  ...(activeSource.adapterId
+                    ? { adapter: activeSource.adapterId }
+                    : {}),
+                  error,
+                });
+              }
+              throw error;
+            },
+          );
         },
       );
       await Promise.all(subscriptions);
