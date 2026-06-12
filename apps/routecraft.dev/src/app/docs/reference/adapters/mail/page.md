@@ -7,8 +7,8 @@ title: mail
 ```ts
 mail(folder: string, options: Partial<MailServerOptions>): Source<MailBody>
 mail(folder: string): Destination<unknown, MailFetchResult>
-mail(options: Partial<MailServerOptions>): Destination<unknown, MailFetchResult>
 mail(action: MailAction): Destination<unknown, void>
+mail(options: MailServerOptions & { folder: string }): Destination<unknown, MailFetchResult>
 mail(options?: Partial<MailClientOptions>): Destination<MailSendPayload, MailSendResult>
 ```
 
@@ -68,7 +68,7 @@ craft()
   .to(processMessage())
 ```
 
-**Fetch destination (IMAP pull):** Pass a folder string or server options to fetch messages. Use with `.enrich()` to pull mail on demand.
+**Fetch destination (IMAP pull):** Pass a folder string, or server options containing `folder`, to fetch messages. Use with `.enrich()` to pull mail on demand. The `folder` key is required in the object form: it is what distinguishes a fetch from a send, the same way `http` splits on `path` vs `url`.
 
 ```ts
 craft()
@@ -76,9 +76,16 @@ craft()
   .from(cron('0 */5 * * * *'))
   .enrich(mail('INBOX'))
   .to(log())
+
+// Object form: `folder` is required and marks the fetch intent
+craft()
+  .id('check-unread')
+  .from(cron('0 */5 * * * *'))
+  .enrich(mail({ folder: 'INBOX', unseen: true, limit: 10 }))
+  .to(log())
 ```
 
-**Send destination (SMTP):** Call with no arguments or client options to send email. The exchange body must be a `MailSendPayload`.
+**Send destination (SMTP):** Call with no arguments or client options (no `folder`) to send email. The exchange body must be a `MailSendPayload`.
 
 ```ts
 craft()
@@ -173,7 +180,7 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `port` | `number` | `993` | IMAP port |
 | `secure` | `boolean` | `true` | Use TLS |
 | `auth` | `MailAuth` | | `{ user, pass }` credentials |
-| `folder` | `string` | `'INBOX'` | IMAP mailbox folder |
+| `folder` | `string` | | IMAP mailbox folder. Required in the object-form fetch destination, where it is the fetch/send discriminator; passed positionally in the source form |
 | `markSeen` | `boolean` | `true` | Mark fetched messages as seen |
 | `since` | `Date` | | Only fetch messages since this date |
 | `unseen` | `boolean` | `true` | Only fetch unseen messages |
