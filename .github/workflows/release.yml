@@ -101,7 +101,7 @@ jobs:
   # Every main push that changed a public package ships a fresh canary of the
   # CHANGED packages (no changeset required: a synthetic one is generated from
   # the git diff). The fixed core train moves together whenever any train
-  # member changed; independent packages (ai, browser) only get a canary when
+  # member changed; independent packages (ai, os) only get a canary when
   # they themselves changed, versioned from their OWN version line via
   # snapshot.useCalculatedVersion (e.g. 0.6.1-canary-<datetime>).
   #
