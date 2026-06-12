@@ -135,10 +135,19 @@ expandFixedGroups();
 // 4. Fold in public packages whose current version was never published.
 for (const [name, pkg] of packages) {
   if (keep.has(name)) continue;
-  const res = await fetch(
-    `https://registry.npmjs.org/${encodeURIComponent(name)}`,
-    { headers: { accept: "application/vnd.npm.install-v1+json" } },
-  );
+  let res;
+  try {
+    res = await fetch(
+      `https://registry.npmjs.org/${encodeURIComponent(name)}`,
+      {
+        headers: { accept: "application/vnd.npm.install-v1+json" },
+        // Fail loudly instead of letting a stalled connection hang the job.
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+  } catch (err) {
+    throw new Error(`npm registry lookup failed for ${name}`, { cause: err });
+  }
   if (res.status !== 404) {
     if (!res.ok) {
       throw new Error(`npm registry returned ${res.status} for ${name}`);
