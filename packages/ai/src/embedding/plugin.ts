@@ -37,18 +37,12 @@ export function embeddingPlugin(
           );
         }
       }
-      ctx.setStore(
-        ADAPTER_EMBEDDING_PROVIDERS as keyof import("@routecraft/routecraft").StoreRegistry,
-        map,
-      );
+      ctx.setStore(ADAPTER_EMBEDDING_PROVIDERS, map);
       if (
         options.defaultOptions &&
         Object.keys(options.defaultOptions).length > 0
       ) {
-        ctx.setStore(
-          ADAPTER_EMBEDDING_OPTIONS as keyof import("@routecraft/routecraft").StoreRegistry,
-          options.defaultOptions,
-        );
+        ctx.setStore(ADAPTER_EMBEDDING_OPTIONS, options.defaultOptions);
       }
     },
     async teardown() {

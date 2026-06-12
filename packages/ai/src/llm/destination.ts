@@ -91,9 +91,7 @@ export class LlmDestinationAdapter<
   public options: Partial<LlmOptionsMerged>;
 
   mergedOptions(context: CraftContext): LlmOptionsMerged {
-    const store = context.getStore(
-      ADAPTER_LLM_OPTIONS as keyof import("@routecraft/routecraft").StoreRegistry,
-    ) as Partial<LlmOptionsMerged> | undefined;
+    const store = context.getStore(ADAPTER_LLM_OPTIONS);
     return {
       temperature: DEFAULT_TEMPERATURE,
       maxTokens: DEFAULT_MAX_TOKENS,

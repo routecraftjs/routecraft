@@ -51,18 +51,12 @@ export function llmPlugin(
         if (opts !== undefined)
           map.set(providerId, toModelConfig(providerId, opts));
       }
-      ctx.setStore(
-        ADAPTER_LLM_PROVIDERS as keyof import("@routecraft/routecraft").StoreRegistry,
-        map,
-      );
+      ctx.setStore(ADAPTER_LLM_PROVIDERS, map);
       if (
         options.defaultOptions &&
         Object.keys(options.defaultOptions).length > 0
       ) {
-        ctx.setStore(
-          ADAPTER_LLM_OPTIONS as keyof import("@routecraft/routecraft").StoreRegistry,
-          options.defaultOptions,
-        );
+        ctx.setStore(ADAPTER_LLM_OPTIONS, options.defaultOptions);
       }
     },
   };

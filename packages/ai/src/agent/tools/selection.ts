@@ -698,10 +698,7 @@ function listKnownMcpClients(registry: McpToolRegistry): string[] {
 
 function listKnownNames(ctx: CraftContext): string[] {
   const fnNames = [
-    ...(
-      (ctx.getStore(ADAPTER_FN_REGISTRY) as Map<string, FnEntry> | undefined) ??
-      new Map()
-    ).keys(),
+    ...(ctx.getStore(ADAPTER_FN_REGISTRY) ?? new Map<string, FnEntry>()).keys(),
   ];
   const routeNames = ctx.capabilities().map((c) => `Direct(${c.endpoint})`);
   return [...fnNames, ...routeNames].sort();
