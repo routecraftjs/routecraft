@@ -83,11 +83,14 @@ Routecraft's mission is secure-by-default integration, and the os package is whe
 
 Browser automation was split into `@routecraft/browser` in #168, but it is a system-native capability and belongs with `shell`. The os package's own description already claimed "shell execution and browser automation," so this aligns the package with its stated intent.
 
-Migration (npm names are immutable, so this is a move, not a rename):
+Current registry state: `@routecraft/os` is `private: true` and unpublished (a placeholder for shell, #181), while `@routecraft/browser` is published at `0.5.0`. There is therefore no name collision; the merge is simply the first publish of `@routecraft/os`.
+
+Migration:
 
 1. Move the adapter source into `packages/os`; export `agentBrowser()` from `@routecraft/os`; add `agent-browser` as an optional peer there.
-2. `npm deprecate "@routecraft/browser@*" "Moved to @routecraft/os"`.
-3. We are v0 with an explicitly unstable public API (`api-stability.md`), so take the clean break: no long-lived re-export shim.
+2. Remove `private: true` from `packages/os/package.json` and publish `@routecraft/os` (carrying shell and the browser adapter).
+3. `npm deprecate "@routecraft/browser@*" "Moved to @routecraft/os"`.
+4. We are v0 with an explicitly unstable public API (`api-stability.md`), so take the clean break: no long-lived re-export shim.
 
 Accepted trade-off: a browser-driver change now bumps the whole `@routecraft/os` version, the same blast-radius trade-off accepted for vendor packages (section 4). The factory keeps the name `agentBrowser()`, which ties it to the library it wraps and leaves room for sibling browser drivers.
 
