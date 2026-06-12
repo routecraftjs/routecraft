@@ -1069,8 +1069,9 @@ export class RouteBuilder<
     //                       scoping note: folding it in changes cross-route
     //                       context:error semantics and is tracked separately.)
     //   postParseFilters  -> .cache() check (#9); reserved slots for future
-    //                        .throttle() / .circuitBreaker() / .retry() /
-    //                        .timeout() (positions 5-8)
+    //                        .throttle() / .circuitBreaker() (positions 5-6).
+    //                        Route-scope .retry() (#7) / .timeout() (#8) ride
+    //                        on RouteDefinition fields instead (see below)
     //   userSteps         -> declaration order, unchanged
     //   postFromFilters   -> .cache() store (#10)
     //
@@ -1347,8 +1348,8 @@ export class RouteBuilder<
   }
 
   /**
-   * Throw when a step-scope wrapper (`.error()`, future `.retry()` /
-   * `.timeout()` / `.cache()`) was staged but the user is starting a
+   * Throw when a step-scope wrapper (`.error()`, `.retry()`,
+   * `.timeout()`, `.cache()`, `.delay()`) was staged but the user is starting a
    * new route or finalising the build without consuming it. A wrapper
    * attaches to the immediately next pipeline step; if no step
    * follows on the current route, the wrapper would silently leak
@@ -1361,7 +1362,7 @@ export class RouteBuilder<
     if (this.pendingStepWrappers.length > 0) {
       throw rcError("RC2001", undefined, {
         message:
-          `Wrapper(s) staged via .error() (or future .retry() / .timeout() / .cache()) but no step followed before .${method}(). ` +
+          `Wrapper(s) staged via .error() / .retry() / .timeout() / .cache() / .delay() but no step followed before .${method}(). ` +
           `A wrapper attaches to the immediately next pipeline step; orphaning one (or letting it leak into the next route) is almost always a mistake.`,
       });
     }

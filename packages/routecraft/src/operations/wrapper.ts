@@ -33,7 +33,7 @@ const NON_WRAPPABLE_OPERATIONS: ReadonlySet<OperationType> = new Set([
 
 /**
  * Abstract base for "dual-mode wrapper" operations: a single concept
- * (`.error()`, future `.retry()`, `.timeout()`, `.cache()`, ...) that
+ * (`.error()`, `.retry()`, `.timeout()`, `.cache()`, ...) that
  * applies at either route scope (when staged before `.from()`) or step
  * scope (when chained after `.from()`). The route-scope path is wired
  * by the builder via existing fields on `RouteDefinition`. The
@@ -78,7 +78,7 @@ export abstract class WrapperStep<
     if (NON_WRAPPABLE_OPERATIONS.has(inner.operation)) {
       throw rcError("RC5003", undefined, {
         message:
-          `Wrapper operations (e.g. .error(), future .retry() / .timeout() / .cache()) cannot wrap "${inner.operation}" steps. ` +
+          `Wrapper operations (.error() / .retry() / .timeout() / .cache() / .delay()) cannot wrap "${inner.operation}" steps. ` +
           `Aggregate consumes pending siblings (shared join state) and split fans out children; both have semantics ` +
           `that conflict with per-execution wrapper recovery. Wrap the steps downstream of split / upstream of aggregate instead.`,
       });

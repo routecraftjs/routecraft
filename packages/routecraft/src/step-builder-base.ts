@@ -58,7 +58,7 @@ import { PUSH_STEP } from "./dsl-symbol.ts";
 
 /**
  * Builder hook that wraps a single step in a "dual-mode wrapper"
- * (e.g. `.error()`, future `.retry()` / `.timeout()` / `.cache()`).
+ * (e.g. `.error()`, `.retry()`, `.timeout()`, `.cache()`, `.delay()`).
  * Pushed onto {@link StepBuilderBase}'s pending wrapper stack when the
  * builder method runs in step scope; folded around the next pushed
  * step inside {@link StepBuilderBase.applyPendingWrappers}.
@@ -195,7 +195,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * vs. branch step array). Subclass-specific validation (e.g.
    * `RouteBuilder.requireSource`) lives in the implementation. Subclasses
    * MUST run `step` through {@link applyPendingWrappers} so dual-mode
-   * wrappers (`.error()`, future `.retry()`, etc.) attach to the right
+   * wrappers (`.error()`, `.retry()`, `.timeout()`, etc.) attach to the right
    * step.
    *
    * @param step - The step to append
