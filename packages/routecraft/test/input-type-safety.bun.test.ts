@@ -92,6 +92,32 @@ describe(".input() retyping type safety", () => {
   });
 
   /**
+   * @case A route without .input() keeps source inference
+   * @preconditions No .input() call, untyped direct() source
+   * @expectedResult RouteBuilder<{ body: unknown }>
+   */
+  test("no input() leaves the body unknown", () => {
+    const route = craft().id("plain").from(direct());
+    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: unknown }>>();
+  });
+
+  /**
+   * @case A typed .input() does not leak into the next chained route
+   * @preconditions Route 1 uses typed .input(); route 2 is staged with .id()
+   *   and opens with an untyped direct() source
+   * @expectedResult Route 2's builder is RouteBuilder<{ body: unknown }>
+   */
+  test("typed input() does not leak into the next route", () => {
+    const route = craft()
+      .id("first")
+      .input({ body: querySchema })
+      .from(direct())
+      .id("second")
+      .from(direct());
+    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: unknown }>>();
+  });
+
+  /**
    * @case Downstream steps see the schema output type on the body
    * @preconditions Typed .input() and a .transform() reading the body
    * @expectedResult The transform callback's body parameter is Query

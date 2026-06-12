@@ -608,8 +608,8 @@ export class RouteBuilder<
    *   .id('lookup-user')
    *   .input({ body: UserQuerySchema })
    *   .from(direct())
-   *   // ex.body is already typed as the schema output
-   *   .transform((ex) => findUser(ex.body.userId))
+   *   // the body is already typed as the schema output
+   *   .transform((body) => findUser(body.userId))
    * ```
    */
   input<Schema extends StandardSchemaV1>(

@@ -137,3 +137,28 @@ describe("lmstudio LLM provider", () => {
     ).toThrow(/lmstudio"\]\.baseURL/);
   });
 });
+
+describe("keyed provider baseURL validation", () => {
+  /**
+   * @case llmPlugin rejects a non-string baseURL on openai, anthropic, gemini
+   * @preconditions Each keyed provider config sets baseURL to a number
+   * @expectedResult Build throws a TypeError naming the provider's baseURL,
+   *   so a plain-JS config cannot pass a non-string through to the SDK
+   */
+  test("validation rejects a non-string baseURL for each keyed provider", () => {
+    for (const provider of ["openai", "anthropic", "gemini"] as const) {
+      expect(() =>
+        llmPlugin({
+          providers: {
+            // Simulates a plain-JS config: the cast smuggles a number past
+            // the compile-time string type so the runtime guard must catch it.
+            [provider]: {
+              apiKey: "sk-test",
+              baseURL: 1234 as unknown as string,
+            },
+          },
+        }),
+      ).toThrow(new RegExp(`${provider}"\\]\\.baseURL`));
+    }
+  });
+});
