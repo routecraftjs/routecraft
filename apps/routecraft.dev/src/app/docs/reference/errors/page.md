@@ -238,7 +238,7 @@ A source adapter that converts raw bytes into a structured body (json, html, csv
 Optional peer dependency missing
 
 **Why it happens**  
-An adapter with a driver declared as an optional peer dependency was used, but the package is not installed. Examples: `cron()` requires `croner`, `html()` requires `cheerio`, `mail()` requires `imapflow` / `nodemailer` / `mailparser`. The package itself loads without these peers; the error fires lazily on first use of the adapter so unrelated routes never need the drivers.
+An adapter with a driver declared as an optional peer dependency was used, but the package is not installed. Examples: `cron()` requires `croner`, `html()` requires `cheerio`, `mail()` requires `imapflow` / `nodemailer` / `mailparser`, and the `agents()` / `skills()` markdown loaders in `@routecraft/ai` require `yaml` for front-matter parsing. The package itself loads without these peers; the error fires lazily on first use of the adapter so unrelated routes never need the drivers.
 
 **Suggestion**  
 Install the package the error message names. For example:

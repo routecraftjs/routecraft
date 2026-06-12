@@ -889,7 +889,9 @@ export class RouteBuilder<
    * This is typically the first step in defining a route.
    *
    * @template T The type of data produced by the source
-   * @param source A source adapter or function
+   * @param sources One or more source adapters or functions. Multiple
+   *   sources require `.input({ body })` declared first (RC2001) so every
+   *   ingress validates to the same body type.
    * @returns A RouteBuilder with the specified type T
    * @example
    * // Simple source with inferred type

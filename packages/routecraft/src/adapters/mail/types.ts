@@ -462,10 +462,11 @@ export interface MailSendPayload {
   replyTo?: string;
   /**
    * `Message-ID` of the message this send replies to. Sets the
-   * `In-Reply-To` header and, when `references` is not given, also seeds
-   * the `References` header so the reply stitches into the original
-   * thread in real mail clients. The inbound side exposes the value as
-   * the `routecraft.mail.messageId` header ({@link MailHeaders.MESSAGE_ID}).
+   * `In-Reply-To` header and, when `references` is not given (or is
+   * empty), also seeds the `References` header so the reply stitches
+   * into the original thread in real mail clients. The inbound side
+   * exposes the value as the `routecraft.mail.messageId` header
+   * ({@link MailHeaders.MESSAGE_ID}).
    */
   inReplyTo?: string;
   /**

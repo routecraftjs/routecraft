@@ -568,6 +568,52 @@ describe("Mail Adapter", () => {
         }),
       );
     });
+
+    /**
+     * @case An empty references value counts as absent for the derivation
+     * @preconditions Payload sets inReplyTo and references: [] (empty array)
+     * @expectedResult sendMail receives a References chain derived from
+     *   inReplyTo instead of the empty array, so the reply still threads
+     */
+    test("empty references still derives the chain from inReplyTo", async () => {
+      mockSendMail.mockResolvedValue({
+        messageId: "<reply@example.com>",
+        accepted: ["recipient@example.com"],
+        rejected: [],
+        response: "250 OK",
+      });
+
+      const sendAdapter = mail({
+        host: "smtp.test.com",
+        auth: { user: "u", pass: "p" },
+        from: "me@test.com",
+      });
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-send-empty-references")
+            .from(
+              simple({
+                to: "recipient@example.com",
+                subject: "Re: Hello",
+                text: "Reply body",
+                inReplyTo: "<original@example.com>",
+                references: [],
+              }),
+            )
+            .to(sendAdapter as any),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(mockSendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          references: "<original@example.com>",
+        }),
+      );
+    });
   });
 
   describe("Named accounts", () => {

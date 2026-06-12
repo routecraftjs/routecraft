@@ -60,8 +60,8 @@ export default craft()
   .id("my-capability")              // required for direct-call routing
   .title("Human-readable title")    // surfaced in MCP tools and the TUI
   .description("What this does")    // surfaced in MCP tools
-  .input({ body: Input })           // typed and validated at the boundary
-  .from<Input>(/* source */)
+  .input({ body: Input })           // typed and validated at the boundary; retypes the chain
+  .from(/* source */)               // body is already typed as the Input schema output
   // operations
   .to(/* destination */);
 ```
@@ -70,7 +70,7 @@ Authoring rules to keep in mind:
 
 - **Keep the DSL readable -- this is the point of the framework**: `route.ts` exists so a reader can follow the *flow* (where data comes from, what happens to it in order, where it lands) without reading the inner workings of every step. A wall of inline logic defeats that. Never inline a large `transform`, `process`, `enrich`, or `filter` body. Extract anything beyond a couple of trivial lines into a named function in a sibling internal file in the capability folder (e.g. `summarise.ts`, `map-order.ts`) and pass the reference: `.transform(toOrderLine)` instead of `.transform((x) => { /* 30 lines */ })`. The named step then reads like a verb in the pipeline. Inline lambdas are fine only when they are short and self-evident
 - **Metadata first**: `.id()`, `.title()`, `.description()`, `.input()`, `.output()`, `.error()`, `.batch()` come **before** `.from(...)`. Once you call `.from(...)`, you are in the pipeline and metadata methods no longer apply
-- **Typed bodies**: pass the input type to `.from<Input>(...)` so the operations downstream stay typed without casts
+- **Typed bodies**: declare `.input({ body: Schema })` before `.from(...)`; the chain is retyped from the schema's inferred output, so no `.from<Input>(...)` generic is needed. An explicit `.from<T>(...)` still overrides the inferred type when you need to
 - **No mutation**: pure transforms return new objects via spread. Side effects belong in `.tap(destination)`
 - **Choose the right destination operator**:
   - `.to(dest)` -- send and ignore the destination's result body (terminal or pass-through with original body)

@@ -39,6 +39,27 @@ export async function resolveLanguageModel(
   }
 }
 
+/**
+ * Settings shared by the keyed cloud providers (OpenAI, Anthropic, Gemini):
+ * a required API key plus an optional API URL override.
+ */
+interface KeyedProviderSettings {
+  apiKey: string;
+  baseURL?: string;
+}
+
+/**
+ * Build the SDK factory settings for a keyed provider. `baseURL` is omitted
+ * entirely when unset (rather than passed as `undefined`) so the settings
+ * object mirrors the user's config and the SDK's own default and env-var
+ * resolution applies untouched.
+ */
+function keyedSettings(config: KeyedProviderSettings): KeyedProviderSettings {
+  const settings: KeyedProviderSettings = { apiKey: config.apiKey };
+  if (config.baseURL !== undefined) settings.baseURL = config.baseURL;
+  return settings;
+}
+
 async function resolveOpenAI(
   config: import("../types.ts").LlmModelConfigOpenAI,
   modelId: string,
@@ -47,16 +68,9 @@ async function resolveOpenAI(
     adapterName: "OpenAI LLM",
     packageName: "@ai-sdk/openai",
   })) as {
-    createOpenAI: (s: {
-      apiKey: string;
-      baseURL?: string;
-    }) => (m: string) => unknown;
+    createOpenAI: (s: KeyedProviderSettings) => (m: string) => unknown;
   };
-  const settings: { apiKey: string; baseURL?: string } = {
-    apiKey: config.apiKey,
-  };
-  if (config.baseURL !== undefined) settings.baseURL = config.baseURL;
-  const openai = mod.createOpenAI(settings);
+  const openai = mod.createOpenAI(keyedSettings(config));
   return openai(modelId);
 }
 
@@ -68,16 +82,9 @@ async function resolveAnthropic(
     adapterName: "Anthropic LLM",
     packageName: "@ai-sdk/anthropic",
   })) as {
-    createAnthropic: (s: {
-      apiKey: string;
-      baseURL?: string;
-    }) => (m: string) => unknown;
+    createAnthropic: (s: KeyedProviderSettings) => (m: string) => unknown;
   };
-  const settings: { apiKey: string; baseURL?: string } = {
-    apiKey: config.apiKey,
-  };
-  if (config.baseURL !== undefined) settings.baseURL = config.baseURL;
-  const anthropic = mod.createAnthropic(settings);
+  const anthropic = mod.createAnthropic(keyedSettings(config));
   return anthropic(modelId);
 }
 
@@ -89,16 +96,11 @@ async function resolveGemini(
     adapterName: "Gemini LLM",
     packageName: "@ai-sdk/google",
   })) as {
-    createGoogleGenerativeAI: (s: {
-      apiKey: string;
-      baseURL?: string;
-    }) => (m: string) => unknown;
+    createGoogleGenerativeAI: (
+      s: KeyedProviderSettings,
+    ) => (m: string) => unknown;
   };
-  const settings: { apiKey: string; baseURL?: string } = {
-    apiKey: config.apiKey,
-  };
-  if (config.baseURL !== undefined) settings.baseURL = config.baseURL;
-  const google = mod.createGoogleGenerativeAI(settings);
+  const google = mod.createGoogleGenerativeAI(keyedSettings(config));
   return google(modelId);
 }
 

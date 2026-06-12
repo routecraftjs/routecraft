@@ -286,6 +286,9 @@ craft()
 | `bcc` | `string \| string[]?` | BCC recipients |
 | `from` | `string?` | Sender (overrides option-level `from`) |
 | `replyTo` | `string?` | Reply-to (overrides option-level `replyTo`) |
+| `inReplyTo` | `string?` | `Message-ID` of the message being replied to. Sets `In-Reply-To` and, when `references` is not set, also seeds `References` so mail clients stitch the thread. The inbound side exposes the value as the `routecraft.mail.messageId` header |
+| `references` | `string \| string[]?` | Explicit `References` chain (oldest first). Overrides the chain derived from `inReplyTo` |
+| `headers` | `Record<string, string>?` | Custom RFC 5322 headers on the outgoing message (e.g. `X-Auto-Response-Suppress`). The threading fields above win over the same keys given here |
 | `attachments` | `Array<{ filename, content, contentType? }>?` | File attachments |
 
 **`MailSendResult`:**

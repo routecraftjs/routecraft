@@ -76,6 +76,15 @@ export class MailSendDestinationAdapter implements Destination<
 
     const payload = exchange.body;
 
+    // Threading sugar: a reply that only knows the original Message-ID
+    // still gets a References header, so clients stitch the thread. An
+    // empty string or empty array counts as "not given", matching the
+    // documented inReplyTo contract.
+    const hasReferences = Array.isArray(payload.references)
+      ? payload.references.length > 0
+      : payload.references !== undefined && payload.references !== "";
+    const references = hasReferences ? payload.references : payload.inReplyTo;
+
     const mailOptions = {
       from: payload.from ?? resolved.from,
       to: payload.to,
@@ -87,9 +96,7 @@ export class MailSendDestinationAdapter implements Destination<
       replyTo: payload.replyTo ?? resolved.replyTo,
       headers: payload.headers,
       inReplyTo: payload.inReplyTo,
-      // Threading sugar: a reply that only knows the original Message-ID
-      // still gets a References header, so clients stitch the thread.
-      references: payload.references ?? payload.inReplyTo,
+      references,
       attachments: payload.attachments?.map((att) => ({
         filename: att.filename,
         content: att.content,
