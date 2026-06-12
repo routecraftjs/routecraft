@@ -150,24 +150,8 @@ const errors: ErrorRow[] = [
     message: 'authenticate() called without a subject',
     retryable: false,
   },
-  {
-    code: 'RC5025',
-    category: 'Adapter',
-    message: 'Agent block resolution failed',
-    retryable: false,
-  },
-  {
-    code: 'RC5026',
-    category: 'Adapter',
-    message: 'Agent block name collision',
-    retryable: false,
-  },
-  {
-    code: 'RC5027',
-    category: 'Adapter',
-    message: 'Agent block misconfigured',
-    retryable: false,
-  },
+  // RC5025-RC5027 (agent blocks) moved to the AI namespace as
+  // AI1001-AI1003; see the AI sections on the errors page.
   {
     code: 'RC5028',
     category: 'Adapter',

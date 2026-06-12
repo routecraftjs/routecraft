@@ -17,6 +17,7 @@ import {
   DefaultExchange,
   getExchangeContext,
   splitChild,
+  HeadersKeys,
 } from "@routecraft/routecraft";
 import { defaultAggregate } from "../src/operations/aggregate.ts";
 import type { Exchange, Source } from "@routecraft/routecraft";
@@ -815,6 +816,49 @@ describe("Route Behavior", () => {
       "one",
       "two",
     ]);
+  });
+
+  /**
+   * @case splitChild envelope headers cannot override engine-owned keys,
+   *       mirroring the `.header()` guard on the same contract
+   * @preconditions A splitter returns splitChild(part, headers) envelopes
+   *                whose headers include routecraft.id and routecraft.route
+   * @expectedResult Children keep the framework-assigned fresh ids and the
+   *                 real route id; the forged values are ignored
+   */
+  test("splitChild ignores engine-owned header overrides", async () => {
+    const tapSpy = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("split-child-engine-headers-test")
+          .from(simple("one-two"))
+          .split<string>((exchange) =>
+            (exchange.body as string).split("-").map((part) =>
+              splitChild(part, {
+                [HeadersKeys.ID]: "forged-id",
+                [HeadersKeys.ROUTE_ID]: "forged-route",
+              }),
+            ),
+          )
+          .tap(tapSpy)
+          .to(noop()),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(tapSpy.received).toHaveLength(2);
+    const ids = tapSpy.received.map((e: Exchange) => e.id);
+    expect(ids).not.toContain("forged-id");
+    expect(new Set(ids).size).toBe(2);
+    for (const ex of tapSpy.received) {
+      expect(ex.headers[HeadersKeys.ROUTE_ID]).toBe(
+        "split-child-engine-headers-test",
+      );
+    }
   });
 
   /**

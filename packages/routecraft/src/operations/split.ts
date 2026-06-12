@@ -205,8 +205,10 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
       // Spread parent headers first so cross-cutting concerns
       // (`routecraft.auth.principal`, future tracing/tenancy keys) flow
       // through to every child. A `splitChild` envelope's headers override
-      // on collision; the framework assigns the fresh id and the
-      // split-hierarchy slot last.
+      // on collision EXCEPT for engine-owned keys: id, split hierarchy,
+      // route id, and operation are reasserted after the envelope spread,
+      // mirroring the `.header()` guard so the same runtime contract holds
+      // on both APIs (an envelope value for those keys is ignored).
       const postProcessedExchange = new DefaultExchange<R>(context, {
         body: childBody,
         headers: {
@@ -214,6 +216,12 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
           // Spreading undefined is a no-op, so plain children pay no
           // empty-object allocation.
           ...envelope?.headers,
+          [HeadersKeys.ROUTE_ID]: exchange.headers[
+            HeadersKeys.ROUTE_ID
+          ] as string,
+          [HeadersKeys.OPERATION]: exchange.headers[
+            HeadersKeys.OPERATION
+          ] as string,
           [HeadersKeys.ID]: randomUUID(),
           [HeadersKeys.SPLIT_HIERARCHY]: splitHierarchy,
         },

@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
-import { CAPABILITY_REGISTRY, type Capability } from "./capabilities.ts";
+import {
+  CAPABILITY_REGISTRY,
+  snapshotCapability,
+  type Capability,
+} from "./capabilities.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
@@ -542,7 +546,7 @@ export class CraftContext {
   capabilities(): Capability[] {
     const registry = this.getStore(CAPABILITY_REGISTRY);
     if (!registry) return [];
-    return [...registry.values()].map((capability) => ({ ...capability }));
+    return [...registry.values()].map(snapshotCapability);
   }
 
   /**

@@ -130,4 +130,4 @@ bun add papaparse
 
 **Peer dependency:** Requires `papaparse` to be installed separately.
 
-**Exported types:** `CsvAdapter`, `CsvReadAdapter`, `CsvOptions`, `CsvTransformerOptions`, `CsvFileOptions`, `CsvRow`, `CsvData`
+**Exported symbols:** `CsvHeaders` (the header key object used above, e.g. `CsvHeaders.ROW` / `CsvHeaders.PATH`); types `CsvAdapter`, `CsvReadAdapter`, `CsvOptions`, `CsvTransformerOptions`, `CsvFileOptions`, `CsvRow`, `CsvData`

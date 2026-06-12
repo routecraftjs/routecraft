@@ -113,4 +113,4 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 | `JsonlHeaders.LINE` (`routecraft.jsonl.line`) | `number` | 1-based line number in the source file |
 | `JsonlHeaders.PATH` (`routecraft.jsonl.path`) | `string` | Path of the source file |
 
-**Exported types:** `JsonlReadAdapter`, `JsonlFileOptions`, `JsonlTransformerOptions`, `JsonlOptions`
+**Exported symbols:** `JsonlHeaders` (chunked-mode header keys, `JsonlHeaders.LINE` / `JsonlHeaders.PATH`); types `JsonlReadAdapter`, `JsonlFileOptions`, `JsonlTransformerOptions`, `JsonlOptions`

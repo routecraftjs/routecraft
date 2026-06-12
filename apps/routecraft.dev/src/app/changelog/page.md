@@ -43,7 +43,7 @@ This section tracks changes landing on `main` since the v0.5.0 release; release 
 - **Tag selectors on `tools()` removed** -- the `{ tagged }` / `{ tagged, from }` variants and the `tags` override on `directTool` are gone. Use the new `tools((catalog) => [...])` builder form for dynamic selection.
 - **Block-loader calls partitioned out of `toolCalls`** -- progressive loads surface on `AgentResult.blocksLoaded` and emit `agent:block:*` events instead of `agent:tool:*`.
 - **`skills:` frontmatter on `agents()` rejected** -- supply `blocks` through the per-agent overrides map instead.
-- **New error codes `RC5025`-`RC5027`** -- block resolution failure, name collision / reserved `_block_` prefix, and block misconfiguration.
+- **New error codes `AI1001`-`AI1003`** -- block resolution failure, name collision / reserved `_block_` prefix, and block misconfiguration.
 
 ### Internals
 

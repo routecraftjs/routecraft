@@ -56,5 +56,21 @@ export function registerCapability(
     registry = new Map<string, Capability>();
     context.setStore(CAPABILITY_REGISTRY, registry);
   }
-  registry.set(capability.endpoint, { ...capability });
+  registry.set(capability.endpoint, snapshotCapability(capability));
+}
+
+/**
+ * Copy a capability, cloning the mutable `tags` array so neither the
+ * registering adapter nor a `capabilities()` caller can mutate the
+ * registry's copy (or vice versa) through a shared reference. Schemas
+ * (`input` / `output`) are intentionally shared: they are live Standard
+ * Schema objects, not data.
+ *
+ * @internal
+ */
+export function snapshotCapability(capability: Capability): Capability {
+  return {
+    ...capability,
+    ...(capability.tags ? { tags: [...capability.tags] } : {}),
+  };
 }

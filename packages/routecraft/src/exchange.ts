@@ -465,24 +465,16 @@ type RewrapState = {
 };
 
 /**
- * Module-private key gating the rewrap fast path of the
- * {@link DefaultExchange} constructor. The symbol is deliberately NOT
- * exported: external code cannot build a {@link RewrapCapsule}, so the
- * public constructor surface is effectively `(context, options?)` and the
- * internal state-threading parameter is unreachable outside this module.
+ * Module-private hand-off slot for the rewrap fast path. `rewrap` writes
+ * the previous exchange's state here immediately before calling the
+ * constructor, which consumes (and clears) it as its first action; the
+ * construction is synchronous, so nothing can interleave. Threading the
+ * state through a slot instead of a constructor parameter keeps the
+ * exported constructor surface at `(context, options?)`: no internal type
+ * appears in the published declarations and external code has no way to
+ * supply rewrap state.
  */
-const REWRAP_CAPSULE = Symbol("routecraft.exchange.rewrap");
-
-/**
- * Branded {@link RewrapState}, constructable only inside this module (see
- * {@link REWRAP_CAPSULE}). Flat (brand on the state object itself, not a
- * wrapper around it) so the per-step rewrap hot path allocates one object
- * for the capsule, not two; the module-private symbol gives the same
- * unforgeability either way.
- *
- * @internal
- */
-type RewrapCapsule = RewrapState & { readonly [REWRAP_CAPSULE]: true };
+let pendingRewrap: RewrapState | undefined;
 
 /**
  * Default implementation of the Exchange interface.
@@ -539,20 +531,18 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
    *   id by including `headers["routecraft.id"]`; set the principal by
    *   including `headers["routecraft.auth.principal"]`. Both default to
    *   sensible runtime values when omitted (id: `randomUUID()`).
-   * @param rewrap Internal: when {@link DefaultExchange.rewrap} is
-   *   building a derived instance, it threads the previous exchange's
-   *   internals and logger through this parameter so they are genuinely
-   *   shared (not just copied) and the constructor skips
-   *   `logger.child(...)` work that the rewrap path would otherwise repeat.
-   *   The capsule's symbol key is module-private, so this parameter cannot
-   *   be supplied from outside the framework.
    */
-  constructor(
-    context: CraftContext,
-    options?: DefaultExchangeOptions<T>,
-    rewrap?: RewrapCapsule,
-  ) {
-    const rewrapState = rewrap?.[REWRAP_CAPSULE] === true ? rewrap : undefined;
+  constructor(context: CraftContext, options?: DefaultExchangeOptions<T>) {
+    // Consume the rewrap hand-off slot first so it can never leak into a
+    // later construction (including when this constructor throws). When
+    // {@link DefaultExchange.rewrap} is building a derived instance, the
+    // slot threads the previous exchange's internals and logger through so
+    // they are genuinely shared (not just copied) and the constructor
+    // skips `logger.child(...)` work the rewrap path would otherwise
+    // repeat. The slot is module-private, so this path is unreachable
+    // from outside the framework.
+    const rewrapState = pendingRewrap;
+    pendingRewrap = undefined;
     // Per-key gating preserves required defaults (`ID`, `OPERATION`,
     // `ROUTE_ID`, `CORRELATION_ID`) when a caller supplies only some of
     // them, instead of an all-or-nothing fast path that would silently
@@ -746,17 +736,13 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
       baseHeaders[HeadersKeys.ID] === prev.id
         ? baseHeaders
         : { ...baseHeaders, [HeadersKeys.ID]: prev.id };
-    return new DefaultExchange<T>(
-      context,
-      {
-        headers: newHeaders,
-        body: ("body" in partial ? partial.body : prev.body) as T,
-      },
-      {
-        [REWRAP_CAPSULE]: true,
-        internals: prevInternals,
-        logger: prev.logger,
-      },
-    );
+    pendingRewrap = {
+      internals: prevInternals,
+      logger: prev.logger,
+    };
+    return new DefaultExchange<T>(context, {
+      headers: newHeaders,
+      body: ("body" in partial ? partial.body : prev.body) as T,
+    });
   }
 }

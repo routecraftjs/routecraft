@@ -76,9 +76,20 @@ export const recovery = {
   },
 };
 
-/** Type guard for {@link Recovery} directives. */
+/**
+ * Type guard for {@link Recovery} directives. Checks the brand AND the
+ * directive shape: a branded object with an unknown `kind` (e.g. a
+ * hand-built object reusing the `Symbol.for` brand) must not pass as a
+ * directive, so only the two known shapes are accepted; anything else
+ * keeps its plain-recovery-body meaning.
+ */
 export function isRecovery(value: unknown): value is Recovery {
-  return isBranded(value, RECOVERY);
+  if (!isBranded(value, RECOVERY)) return false;
+  const directive = value as { kind?: unknown; reason?: unknown };
+  return (
+    directive.kind === "rethrow" ||
+    (directive.kind === "drop" && typeof directive.reason === "string")
+  );
 }
 
 /**

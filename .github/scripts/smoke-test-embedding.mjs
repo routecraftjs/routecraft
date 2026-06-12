@@ -104,6 +104,11 @@ const route = craft()
 const builder = new ContextBuilder();
 builder.routes(route);
 const { context, client } = await builder.build();
+// Deliberately NOT awaited: start() resolves only when every route has
+// run to completion, and a direct route stays live until context.stop().
+// The direct channel subscription happens synchronously inside this call
+// (start() reaches the source subscription before its first await), so
+// sendDirect below cannot race it.
 context.start();
 
 try {

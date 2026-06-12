@@ -42,7 +42,7 @@ A block body has:
 - `lifetime` (optional, default `"dispatch"`): `"dispatch"` re-runs the resolver on every dispatch; `"context"` runs it once per `CraftContext` and reuses the result.
 - `value`: a static string used verbatim, or a function `(exchange, context, events, client) => string | Promise<string>`. The `client` carries `forward(routeId, payload)`, the same callable route `.error()` handlers receive, so a resolver can delegate to a registered direct route. `events` is reserved (always `[]` today) for a forthcoming exchange-event log.
 
-The block's `name` is the record key, not a field on the body. Names starting with the reserved `_block_` prefix are rejected (`RC5026`).
+The block's `name` is the record key, not a field on the body. Names starting with the reserved `_block_` prefix are rejected (`AI1002`).
 
 The big semantic shift: progressive disclosure is now the default for skills. The model sees each skill's name and description in the tool list and loads the body via a tool call only when relevant. This matches Claude Code's actual default. To preserve the legacy "always inject every skill" behaviour, opt into `mode: "inject"`.
 
@@ -142,7 +142,7 @@ agent({
 
 Groups flatten depth-first into a single canonical name joined by `__`. A skill `onboarding` under the `skills` group resolves to `skills__onboarding` for its system-prompt heading, its loader tool (`_block_load_skills__onboarding`), and its `AgentResult.blocksLoaded` entry. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`.
 
-Grouping isolates collisions (a skill named `tone` resolves to `skills__tone`, distinct from a top-level `tone` block) and lets you remove or replace the whole collection by its top-level key. Two blocks that flatten to the same name are rejected with `RC5026`. The empty-name and reserved-`_block_`-prefix rules apply at every nesting level. Per-member merge inside a group is not supported in 0.6.0: a per-agent group replaces a default group of the same name wholesale, and `skills: false` removes the whole group.
+Grouping isolates collisions (a skill named `tone` resolves to `skills__tone`, distinct from a top-level `tone` block) and lets you remove or replace the whole collection by its top-level key. Two blocks that flatten to the same name are rejected with `AI1002`. The empty-name and reserved-`_block_`-prefix rules apply at every nesting level. Per-member merge inside a group is not supported in 0.6.0: a per-agent group replaces a default group of the same name wholesale, and `skills: false` removes the whole group.
 
 ### 1.3 `agents()` markdown loader: `skills:` frontmatter is rejected
 
@@ -239,7 +239,7 @@ A resolver that needs nothing more than the `CraftContext` can ignore the client
 
 ### 1.5 Loader tool naming reservation
 
-Progressive blocks are exposed to the model as synthetic tools named `_block_load_<blockName>`. Any user tool (fn id, direct route id, or block name) starting with `_block_` is rejected at construction or dispatch time with `RC5026`. Rename the offending tool or block.
+Progressive blocks are exposed to the model as synthetic tools named `_block_load_<blockName>`. Any user tool (fn id, direct route id, or block name) starting with `_block_` is rejected at construction or dispatch time with `AI1002`. Rename the offending tool or block.
 
 ### 1.6 `AgentResult`: tool-call partitioning and `blocksLoaded`
 
@@ -285,9 +285,9 @@ Two `agentPlugin` installs that each set `defaultOptions.blocks` now merge addit
 
 | Code     | Meaning                                                                                                       |
 | -------- | ------------------------------------------------------------------------------------------------------------- |
-| `RC5025` | Block resolver threw or returned a non-string. Inject mode aborts the dispatch; progressive mode reports back to the model as a tool error.       |
-| `RC5026` | Block name collides with another block, a user tool, or uses the reserved `_block_` prefix.                   |
-| `RC5027` | Block misconfigured: invalid `mode`, missing `description` on a progressive block, non-string non-function `value`, etc.       |
+| `AI1001` | Block resolver threw or returned a non-string. Inject mode aborts the dispatch; progressive mode reports back to the model as a tool error.       |
+| `AI1002` | Block name collides with another block, a user tool, or uses the reserved `_block_` prefix.                   |
+| `AI1003` | Block misconfigured: invalid `mode`, missing `description` on a progressive block, non-string non-function `value`, etc.       |
 
 ---
 
@@ -681,7 +681,7 @@ const result = await client.sendDirect<Req, Res>('greet', { name })
 
 Capability discovery is public API: `context.capabilities()` returns every discoverable direct endpoint with its route's metadata (`endpoint`, `title`, `description`, `input`, `output`, `tags`). The internals it replaces (`ADAPTER_DIRECT_REGISTRY`, `getDirectChannel`, `sanitizeEndpoint`, `DirectRouteMetadata`) are no longer exported.
 
-Request/reply drops now surface as errors: when the target route discards the exchange (a filter rejects it, the source's `onParseError` is `'drop'`, or an error handler returns `recovery.drop()`), `client.sendDirect()` and the error-handler `forward()` callable reject with `RC5031` instead of silently resolving with the caller's own request body as the "response".
+Request/reply drops now surface as errors: when the target route discards the exchange (a filter rejects it, or an error handler returns `recovery.drop()`), `client.sendDirect()` and the error-handler `forward()` callable reject with `RC5031` instead of silently resolving with the caller's own request body as the "response".
 
 ## 14. Renames: Carddav casing and JsonlFileOptions
 

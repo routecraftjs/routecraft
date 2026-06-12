@@ -49,9 +49,9 @@ describe("CraftClient", () => {
       .build();
 
     await t.startAndWaitReady();
-    await expect(t.client.sendDirect("does-not-exist", {})).rejects.toThrow(
-      "No direct channel",
-    );
+    await expect(
+      t.client.sendDirect("does-not-exist", {}),
+    ).rejects.toMatchObject({ rc: "RC5004" });
   });
 
   /**

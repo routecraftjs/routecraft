@@ -67,4 +67,4 @@ Read and write plain text files. For structured data, use `json` or `csv` adapte
 .from(file({ path: './big.txt', chunked: true }))
 ```
 
-**Exported types:** `FileAdapter`, `FileReadAdapter`, `FileOptions`
+**Exported symbols:** `FileHeaders` (chunked-mode header keys, `FileHeaders.LINE` / `FileHeaders.PATH`); types `FileAdapter`, `FileReadAdapter`, `FileOptions`

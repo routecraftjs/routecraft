@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { BRAND, isRouteBuilder, setBrand } from "./brand.ts";
+import { BRAND, setBrand } from "./brand.ts";
 import {
   StepBuilderBase,
   type BuilderState,
@@ -235,10 +235,13 @@ export class ContextBuilder {
       | AnyRouteBuilder,
   ): this {
     const addOne = (route: RouteDefinition | AnyRouteBuilder): void => {
-      if (isRouteBuilder(route)) {
-        this.definitions.push(
-          ...(route as { build: () => RouteDefinition[] }).build(),
-        );
+      // Structural check, matching `AnyRouteBuilder` (and the duck-typing
+      // promise above): anything with a callable `.build()` is treated as
+      // a builder. The brand check alone would misclassify unbranded
+      // structural builders as RouteDefinitions; RouteDefinition has no
+      // `build`, so the duck-type cannot misfire the other way.
+      if (typeof (route as Partial<AnyRouteBuilder>).build === "function") {
+        this.definitions.push(...(route as AnyRouteBuilder).build());
       } else {
         this.definitions.push(route as RouteDefinition);
       }

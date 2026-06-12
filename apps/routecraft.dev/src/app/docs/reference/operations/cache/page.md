@@ -37,7 +37,10 @@ craft()
   .id('file-processor')
   .from(fileWatcher())
   .cache({ key: e => e.headers[FileHeaders.PATH] as string })
-  .process(expensiveOperation) // Result is cached per file path
+  // Cached per file path: an in-place edit of the same file reuses the
+  // cached result until the TTL expires. Omit `key` to hash the body
+  // (the file contents) instead, so edits produce a fresh key.
+  .process(expensiveOperation)
   .to(destination)
 
 // Custom provider (e.g. an isolated in-memory store, or future Redis)

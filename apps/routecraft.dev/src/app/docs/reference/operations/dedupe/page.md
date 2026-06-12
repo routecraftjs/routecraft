@@ -29,7 +29,10 @@ craft()
   .id('file-processor')
   .from(fileWatcher())
   .dedupe({ key: e => e.headers[FileHeaders.PATH] as string })
-  .process(expensiveProcessing) // Skip files already processed
+  // Process each path at most once. An in-place edit of a seen path is
+  // also skipped; omit `key` to dedupe on the body (file contents) when
+  // changed content should be reprocessed.
+  .process(expensiveProcessing)
   .to(destination)
 ```
 

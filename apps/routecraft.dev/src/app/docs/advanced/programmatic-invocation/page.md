@@ -49,7 +49,7 @@ node --experimental-strip-types runner.ts
 
 ## How it works
 
-When you build a context with `ContextBuilder`, you get back both the `context` and a `client`. The client's `send()` method dispatches a message to any route that uses a `direct()` source, runs it through the full route pipeline (transforms, destinations, error handling), and returns the result.
+When you build a context with `ContextBuilder`, you get back both the `context` and a `client`. The client's `sendDirect()` method dispatches a message to any route that uses a `direct()` source, runs it through the full route pipeline (transforms, destinations, error handling), and returns the result.
 
 This means you can embed Routecraft as a library inside any application. The routes hold your business logic; the surrounding code handles I/O, user interaction, or HTTP plumbing.
 
@@ -60,7 +60,9 @@ const { context, client } = await new ContextBuilder()
   .routes(myRoutes)
   .build();
 
-await context.start();
+// Not awaited: start() resolves only when every route has run to
+// completion, and direct() routes stay live until context.stop().
+context.start();
 
 // Dispatch from anywhere
 const result = await client.sendDirect('greet', { name: 'World' });
@@ -133,7 +135,7 @@ my-tool --help               # Commander-generated help
 
 ### Lifecycle
 
-- Call `context.start()` before dispatching. `direct()` sources are ready immediately since they wait for explicit `send()` calls.
+- Call `context.start()` before dispatching, but do not `await` it when the context contains `direct()` routes: the returned promise resolves only when every route has run to completion, and `direct()` routes stay live until `context.stop()`. The direct endpoints subscribe during the `start()` call itself, so dispatching right after it is safe.
 - Stop the context after the CLI command finishes. The `postAction` hook in the example above handles this automatically.
 - For error handling, wrap `client.sendDirect()` in a try/catch and set `process.exitCode` as needed.
 
@@ -156,7 +158,7 @@ const routes = craft()
 const contextBuilder = new ContextBuilder();
 contextBuilder.routes(routes);
 const { context, client } = await contextBuilder.build();
-await context.start();
+context.start(); // not awaited: resolves only when all routes complete
 
 export { client };
 ```
@@ -187,7 +189,7 @@ const routes = craft()
 const contextBuilder = new ContextBuilder();
 contextBuilder.routes(routes);
 const { context, client } = await contextBuilder.build();
-await context.start();
+context.start(); // not awaited: resolves only when all routes complete
 
 const app = express();
 app.use(express.json());
@@ -204,7 +206,7 @@ app.listen(3000);
 
 - Start the context once at boot, not per-request.
 - For graceful shutdown, call `context.stop()` in your server's shutdown handler (e.g., `process.on('SIGTERM', ...)`).
-- `client.sendDirect()` throws a `RoutecraftError` (`RC5004`) if the endpoint does not exist. Return a 404 or appropriate status in your error handler.
+- `client.sendDirect()` throws a `RoutecraftError` (`RC5004`) whenever no direct handler is subscribed for the endpoint: the id is unknown, `context.start()` has not been called yet, or the context has stopped. Branch on `error.rc === 'RC5004'` and map it to a 404 only when the context is known to be running.
 
 ---
 

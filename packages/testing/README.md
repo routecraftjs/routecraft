@@ -62,6 +62,7 @@ Wrapper around `CraftContext` with:
 - **`errors`** -- Collected capability errors.
 - **`test(options?)`** -- Runs start, waits for capabilities to be ready, optionally delays, drains, then stops. Assert after `await t.test()`.
 - **`startAndWaitReady()`** -- Starts the context and waits for all capabilities to be ready without draining. Use with `t.client.sendDirect()` to send to a direct endpoint, then call `stop()` when done.
+- **`client`** -- The `CraftClient` for the context; `t.client.sendDirect(endpoint, body, headers?)` dispatches to a direct endpoint (see below).
 - **`stop()`** / **`drain()`** -- Lifecycle helpers.
 
 ### `t.client.sendDirect(endpoint, body, headers?)`

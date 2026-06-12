@@ -235,6 +235,7 @@ describe("JSONL Adapter", () => {
       expect(s.received[0].headers[JsonlHeaders.LINE]).toBe(1);
       expect(s.received[0].headers[JsonlHeaders.PATH]).toBe(filePath);
       expect(s.received[1].headers[JsonlHeaders.LINE]).toBe(2);
+      expect(s.received[1].headers[JsonlHeaders.PATH]).toBe(filePath);
     });
 
     /**

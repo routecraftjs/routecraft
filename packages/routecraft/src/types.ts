@@ -96,7 +96,15 @@ export function extractOutcomeMetadata(
   const getMetadata = (
     adapter as { getMetadata?: (result: unknown) => StepOutcomeMetadata }
   ).getMetadata;
-  return getMetadata ? getMetadata.call(adapter, result) : undefined;
+  if (!getMetadata) return undefined;
+  // Best-effort: metadata is advisory (event-payload enrichment only). A
+  // throwing hook must not turn an adapter operation that already
+  // succeeded (and may have had side effects) into a route failure.
+  try {
+    return getMetadata.call(adapter, result);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
