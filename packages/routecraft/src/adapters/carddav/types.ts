@@ -107,23 +107,24 @@ interface CarddavCommonOptions {
   keywords?: string[];
 }
 
-/** Read role: `.from(carddav())` (source) and `.enrich(carddav())` (fetch-all). */
-export interface CarddavReadOptions extends CarddavCommonOptions {
+/**
+ * Server-role options: `.from(carddav())` (source) and `.enrich(carddav())`
+ * (fetch-all). Named per the two-sided adapter policy (Server = we receive),
+ * matching `MailServerOptions`.
+ */
+export interface CarddavServerOptions extends CarddavCommonOptions {
   action?: undefined;
   /** Maximum number of contacts to read. */
   limit?: number;
 }
 
-/** Write role: `.to(carddav({ action: 'save' | 'create' | 'update' }))`. */
-export interface CarddavWriteOptions extends CarddavCommonOptions {
-  action: "save" | "create" | "update";
-  /** Resolve the target contact when the body lacks `url`/`uid`. */
-  target?: CarddavTargetExtractor;
-}
-
-/** Delete role: `.to(carddav({ action: 'delete' }))`. */
-export interface CarddavDeleteOptions extends CarddavCommonOptions {
-  action: "delete";
+/**
+ * Client-role options: `.to(carddav({ action }))` for writes (`'save'`,
+ * `'create'`, `'update'`) and deletes (`'delete'`). Named per the two-sided
+ * adapter policy (Client = we send), matching `MailClientOptions`.
+ */
+export interface CarddavClientOptions extends CarddavCommonOptions {
+  action: CarddavAction;
   /** Resolve the target contact when the body lacks `url`/`uid`. */
   target?: CarddavTargetExtractor;
 }
@@ -132,10 +133,7 @@ export interface CarddavDeleteOptions extends CarddavCommonOptions {
  * Options for the CardDAV adapter. The `action` flag selects the role: absent
  * means read (`.from`/`.enrich`); present means write or delete (`.to`).
  */
-export type CarddavOptions =
-  | CarddavReadOptions
-  | CarddavWriteOptions
-  | CarddavDeleteOptions;
+export type CarddavOptions = CarddavServerOptions | CarddavClientOptions;
 
 // ---------------------------------------------------------------------------
 // Results

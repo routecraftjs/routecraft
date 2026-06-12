@@ -687,6 +687,8 @@ Request/reply drops now surface as errors: when the target route discards the ex
 
 Acronyms in identifiers are cased as words (`Http` precedent), so every `CardDAV*` export is now `Carddav*`: `CarddavAdapter`, `CarddavClientManager`, `CarddavOptions`, `CarddavAction`, `CarddavDriverClient`, `CarddavTargetExtractor`, `CarddavWriteResult`, `CarddavDeleteResult`, `CarddavContextConfig`, `CarddavAccountConfig`, `throwCarddavError`, `ResolvedCarddavConnection`. `CARDDAV_CLIENT_MANAGER` and `DEFAULT_CARDDAV_SERVER_URL` are unchanged.
 
+The carddav option types also adopt the two-sided Server/Client naming (matching `MailServerOptions` / `MailClientOptions`): `CardDAVReadOptions` becomes `CarddavServerOptions`, and `CardDAVWriteOptions` / `CardDAVDeleteOptions` fold into a single `CarddavClientOptions` (their fields were identical; the `action` field still distinguishes writes from deletes). Call sites are unchanged; only type annotations need the new names.
+
 The jsonl adapter folds its file options into one type, matching `JsonFileOptions` / `CsvFileOptions`: `JsonlSourceOptions`, `JsonlDestinationOptions`, and `JsonlCombinedOptions` become `JsonlFileOptions` (discriminated by `mode`, plus `chunked`). Call sites are unchanged; only type annotations need the new name.
 
 ## 15. What is new in 0.6.0

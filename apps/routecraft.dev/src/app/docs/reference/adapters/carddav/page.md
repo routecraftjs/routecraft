@@ -5,9 +5,9 @@ title: carddav
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-carddav(options?: CarddavReadOptions): Source<VCardBody> & Destination<unknown, VCardBody[]>
-carddav(options: CarddavWriteOptions): Destination<VCardBody, CarddavWriteResult>
-carddav(options: CarddavDeleteOptions): Destination<unknown, CarddavDeleteResult>
+carddav(options?: CarddavServerOptions): Source<VCardBody> & Destination<unknown, VCardBody[]>
+carddav(options: CarddavClientOptions & { action: 'save' | 'create' | 'update' }): Destination<VCardBody, CarddavWriteResult>
+carddav(options: CarddavClientOptions & { action: 'delete' }): Destination<unknown, CarddavDeleteResult>
 ```
 
 Read and write contacts over CardDAV. Defaults to Apple iCloud Contacts (`https://contacts.icloud.com`) but works with any CardDAV server (Fastmail, Nextcloud, Google). The role is chosen by an `action` flag, the same way the mail adapter selects its mode: no `action` reads, `action` writes or deletes.
@@ -160,4 +160,4 @@ card.toString()                 // serialize to wire form
 
 **Known names:** `VCARD` and `VPARAM` are convenience constants for the standard vCard property and parameter names (e.g. `card.text(VCARD.FN)`), with `KnownProperty` / `KnownParam` union types. They are values for autocomplete and typo-safety, not a constraint: every method still accepts an arbitrary `string`, so any property works.
 
-**Exports:** `VCard`, `VCardProperty`, `parseVCard`, `VCARD`, `VPARAM`, `CarddavHeaders`, `CarddavClientManager`, `CARDDAV_CLIENT_MANAGER` (values); `VCardBody`, `VCardPropertyData`, `CarddavOptions`, `CarddavReadOptions`, `CarddavWriteOptions`, `CarddavDeleteOptions`, `CarddavContextConfig`, `CarddavAccountConfig`, `CarddavAction`, `CarddavTargetExtractor`, `CarddavWriteResult`, `CarddavDeleteResult`, `VCardParam`, `VCardPropertyOptions`, `KnownProperty`, `KnownParam` (types).
+**Exports:** `VCard`, `VCardProperty`, `parseVCard`, `VCARD`, `VPARAM`, `CarddavHeaders`, `CarddavClientManager`, `CARDDAV_CLIENT_MANAGER` (values); `VCardBody`, `VCardPropertyData`, `CarddavOptions`, `CarddavServerOptions`, `CarddavClientOptions`, `CarddavContextConfig`, `CarddavAccountConfig`, `CarddavAction`, `CarddavTargetExtractor`, `CarddavWriteResult`, `CarddavDeleteResult`, `VCardParam`, `VCardPropertyOptions`, `KnownProperty`, `KnownParam` (types).

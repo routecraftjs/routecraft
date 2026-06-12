@@ -4,11 +4,10 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import { CarddavAdapter } from "./adapter.ts";
 import type { VCardBody } from "./vcard.ts";
 import type {
-  CarddavDeleteOptions,
+  CarddavClientOptions,
   CarddavDeleteResult,
   CarddavOptions,
-  CarddavReadOptions,
-  CarddavWriteOptions,
+  CarddavServerOptions,
   CarddavWriteResult,
 } from "./types.ts";
 
@@ -55,13 +54,13 @@ import type {
  * @experimental
  */
 export function carddav(
-  options?: CarddavReadOptions,
+  options?: CarddavServerOptions,
 ): Source<VCardBody> & Destination<unknown, VCardBody[]>;
 export function carddav(
-  options: CarddavWriteOptions,
+  options: CarddavClientOptions & { action: "save" | "create" | "update" },
 ): Destination<VCardBody, CarddavWriteResult>;
 export function carddav(
-  options: CarddavDeleteOptions,
+  options: CarddavClientOptions & { action: "delete" },
 ): Destination<unknown, CarddavDeleteResult>;
 export function carddav(
   options?: CarddavOptions,
@@ -109,9 +108,8 @@ export { VCARD, VPARAM } from "./constants.ts";
 export type { KnownProperty, KnownParam } from "./constants.ts";
 export type {
   CarddavOptions,
-  CarddavReadOptions,
-  CarddavWriteOptions,
-  CarddavDeleteOptions,
+  CarddavServerOptions,
+  CarddavClientOptions,
   CarddavContextConfig,
   CarddavAccountConfig,
   CarddavAction,
