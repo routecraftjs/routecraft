@@ -36,7 +36,7 @@ JWT, JWKS, API keys, OAuth flows, and the principal object are protocol-level st
 Zero third-party runtime dependencies in core is the **ambition, not a hard rule**. Exceptions are allowed when the library is popular, well maintained, and makes the effort significantly easier than inlining or reimplementing. Adding a hard dependency to core is a reviewed decision, not a default.
 
 - **Accepted core dependencies** (the current exception list): `pino`, `lru-cache`, `@opentelemetry/api`, `@standard-schema/spec`. The latter two are interface standards with no meaningful runtime of their own.
-- **Bun-native APIs** (Redis, S3) are always fine: no external SDK is introduced.
+- **Bun-native APIs** (`Bun.redis`, `Bun.s3`, `bun:sqlite`) do not count against the dependency budget: no external SDK is introduced. They are not a blanket license, though: core targets Node 22+ as well as Bun, so any Bun-native usage needs a Node-equivalent code path (a `node:` builtin or an optional peer such as `@aws-sdk/client-s3`), proven by cross-runtime tests in both arms per [`ci-cd.md` section 2](./ci-cd.md#2-the-pr-gates).
 - **Vendor and protocol SDKs for adapters are never hard dependencies.** They are optional peers loaded through `loadOptionalPeer` with an `RC5017` install hint, per [`ci-cd.md` section 6](./ci-cd.md#6-optional-peer-dependencies-provider-sdks). Installing core must never pull a vendor SDK transitively.
 
 Ecosystem packages are not bound by the core ambition. `@routecraft/ai` depends on the Vercel AI SDK and that is accepted: `@routecraft/ai` is **not core**, and docs must not present it as such. Ecosystem packages still follow the `@routecraft/*` peer-dependency shape in [`ci-cd.md` section 5](./ci-cd.md#5-dependency-policy-on-routecraft).
