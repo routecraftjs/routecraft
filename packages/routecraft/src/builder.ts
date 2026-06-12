@@ -59,6 +59,7 @@ import {
   type ResolvedRetryOptions,
   resolveRetryOptions,
 } from "./operations/retry-wrapper.ts";
+import { type ResolvedTimeoutOptions } from "./operations/timeout-wrapper.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -560,7 +561,7 @@ export class RouteBuilder<
         errorHandler?: ErrorHandler;
         cacheConfig?: ResolvedCacheOptions;
         retryConfig?: ResolvedRetryOptions;
-        timeoutConfig?: { timeoutMs: number };
+        timeoutConfig?: ResolvedTimeoutOptions;
         discovery?: RouteDiscovery;
         authorizers?: AuthorizeOptions[];
       }
@@ -889,6 +890,13 @@ export class RouteBuilder<
    * Route-scope re-attempts re-run user steps and their side effects;
    * wrap only the flaky step with step-scope `.retry()` when the rest
    * of the pipeline must not repeat.
+   *
+   * With a `.split()` in the pipeline, every child still processes to
+   * completion on each attempt, but only a failure of the MAIN
+   * exchange triggers a re-attempt: a failed split child resolves
+   * through the per-child failure events exactly as it would without
+   * `.retry()`. Wrap a flaky per-child step with step-scope `.retry()`
+   * after the split instead.
    */
   override retry(options: RetryOptions = {}): this {
     if (this.currentRoute === undefined || this.pendingOptions !== undefined) {

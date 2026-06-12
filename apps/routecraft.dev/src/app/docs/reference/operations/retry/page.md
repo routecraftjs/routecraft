@@ -98,3 +98,5 @@ craft()
 Route-scope `.retry()` sits at position 7 of the [filter chain](/docs/advanced/filter-chain): outside `.timeout()` (each attempt gets its own deadline) and inside `.error()` (the handler sees the final attempt's failure, not every intermediate one). Builder call order does not matter; the framework fixes the chain order.
 
 **Re-attempts re-run side effects.** A route-scope re-attempt runs the whole pipeline again, including every `.to()` and `.tap()` that completed before the failure (and any `.split()` fan-out). When the rest of the pipeline must not repeat, wrap only the flaky step with step-scope `.retry()` instead. Note that route-scope `.cache()` composes well here: a value cached by a previous attempt short-circuits the next one.
+
+**Split children are not individually retried.** With a `.split()` in the pipeline, every child still processes to completion on each attempt, but only a failure of the *main* exchange triggers a re-attempt; a failed split child resolves through the per-child failure events exactly as it would without `.retry()`. To re-attempt a flaky per-child step, wrap that step with step-scope `.retry()` after the split instead.

@@ -738,11 +738,12 @@ function buildRetrySegmentStep(
               lastError,
             });
           },
-          onStopped: (attemptNumber, success) => {
+          onStopped: (attemptNumber, success, error) => {
             deps.context.emit("route:retry:stopped", {
               ...scoped,
               attemptNumber,
               success,
+              ...(error !== undefined ? { error } : {}),
             });
           },
         },

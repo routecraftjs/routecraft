@@ -211,6 +211,8 @@ accordingly.
       path.
 - [ ] Route-scope wiring documented (where the runtime applies it).
 - [ ] Events: `route:x:invoked`, `route:x:recovered`, `route:x:failed`
+      (or a documented domain-specific family per section 6, e.g.
+      `cache:hit/miss/stored`, `retry:started/attempt/stopped`)
       declared in `EventDetailsMap` with `routeId`,
       `scope: "route" | "step"` and `stepLabel?` in the payload.
 - [ ] Tests covering: step-scope happy path, step-scope failure,

@@ -430,6 +430,12 @@ export interface EventDetailsMap {
     scope: "route" | "step";
     attemptNumber: number;
     success: boolean;
+    /**
+     * Present when `success` is false: the raw error that caused the
+     * final failure (non-retryable error, exhausted attempts, or the
+     * last failure when shutdown interrupted the backoff).
+     */
+    error?: unknown;
   };
 
   // -- Delay (step-scope wrapper) --

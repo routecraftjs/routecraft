@@ -39,11 +39,11 @@ export interface RetryOptions {
 }
 
 /**
- * {@link RetryOptions} with every field populated. Shared between the
- * step-scope wrapper and the route-scope segment step in the pipeline
- * executor.
- *
- * @internal
+ * {@link RetryOptions} with every field populated. This is the shape
+ * stored on `RouteDefinition.retry` for route-scope `.retry()` (and is
+ * therefore part of the public definition surface); internally it is
+ * shared between the step-scope wrapper and the route-scope segment
+ * step in the pipeline executor.
  */
 export interface ResolvedRetryOptions {
   maxAttempts: number;
@@ -101,9 +101,14 @@ export interface RetryHooks {
   /** Route abort signal; cancels the backoff wait on shutdown. */
   signal?: AbortSignal;
   onStarted(): void;
-  /** A failed attempt will be re-attempted after `waitMs`. */
+  /**
+   * A failed attempt will be re-attempted after `waitMs`. `lastError`
+   * is the raw thrown value (matching the event payload's `unknown`),
+   * not the Error normalised for the `retryOn` check.
+   */
   onAttempt(attemptNumber: number, waitMs: number, lastError: unknown): void;
-  onStopped(attemptNumber: number, success: boolean): void;
+  /** Final outcome. `error` is the final raw thrown value on failure. */
+  onStopped(attemptNumber: number, success: boolean, error?: unknown): void;
 }
 
 /**
@@ -126,21 +131,19 @@ export async function executeWithRetry<R>(
   hooks: RetryHooks,
 ): Promise<R> {
   hooks.onStarted();
-  let lastError: unknown;
-  for (
-    let attemptNumber = 1;
-    attemptNumber <= options.maxAttempts;
-    attemptNumber++
-  ) {
+  // Unbounded loop on purpose: every iteration either returns or
+  // throws once `attemptNumber` reaches `maxAttempts` (validated >= 1
+  // by resolveRetryOptions), and an explicit bound would leave dead
+  // code after the loop to satisfy control-flow analysis.
+  for (let attemptNumber = 1; ; attemptNumber++) {
     try {
       const result = await attempt();
       hooks.onStopped(attemptNumber, true);
       return result;
     } catch (err) {
-      lastError = err;
       const error = err instanceof Error ? err : new Error(String(err));
       if (attemptNumber >= options.maxAttempts || !options.retryOn(error)) {
-        hooks.onStopped(attemptNumber, false);
+        hooks.onStopped(attemptNumber, false, err);
         throw err;
       }
       const waitMs = options.exponential
@@ -153,13 +156,11 @@ export async function executeWithRetry<R>(
         if (!(sleepErr instanceof SleepAbortedError)) throw sleepErr;
         // Shutdown during backoff: surface the last real failure
         // instead of attempting work on a stopping route.
-        hooks.onStopped(attemptNumber, false);
+        hooks.onStopped(attemptNumber, false, err);
         throw err;
       }
     }
   }
-  // Unreachable: the final loop iteration either returned or threw.
-  throw lastError;
 }
 
 /**
@@ -232,12 +233,13 @@ export class RetryWrapperStep<
             });
           }
         },
-        onStopped: (attemptNumber, success) => {
+        onStopped: (attemptNumber, success, error) => {
           if (shouldEmit) {
             context.emit("route:retry:stopped", {
               ...scoped,
               attemptNumber,
               success,
+              ...(error !== undefined ? { error } : {}),
             });
           }
         },

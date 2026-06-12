@@ -21,6 +21,7 @@ import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type Source, type Subscription } from "./operations/from.ts";
 import { type ResolvedRetryOptions } from "./operations/retry-wrapper.ts";
+import { type ResolvedTimeoutOptions } from "./operations/timeout-wrapper.ts";
 import {
   type Adapter,
   type Step,
@@ -251,7 +252,7 @@ export type RouteDefinition<T = unknown> = {
    * `retry`, realized as a segment step wrapped around the tail by the
    * pipeline executor rather than a flat `postParseFilters` entry.
    */
-  readonly timeout?: { timeoutMs: number };
+  readonly timeout?: ResolvedTimeoutOptions;
 };
 
 /**

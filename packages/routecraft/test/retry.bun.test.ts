@@ -135,6 +135,9 @@ describe("Retry wrapper (.retry())", () => {
     expect(t.errors[0].message).toContain("always fails");
     expect(stopped).toHaveLength(1);
     expect(stopped[0]).toMatchObject({ attemptNumber: 2, success: false });
+    expect((stopped[0] as { error?: Error }).error?.message).toContain(
+      "always fails",
+    );
   });
 
   /**
@@ -348,6 +351,34 @@ describe("Retry wrapper (.retry())", () => {
       stepLabel: "route",
       maxAttempts: 2,
     });
+  });
+
+  /**
+   * @case Route-scope retry preserves split fan-out: every child processes inside the retried segment
+   * @preconditions Route with .retry() declared BEFORE .from() and an unbalanced .split() (no aggregate) in the pipeline
+   * @expectedResult All split children reach the destination on a successful run; nothing is collapsed or dropped by the retry segment
+   */
+  test("route scope: all split children process under retry", async () => {
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("retry-split-fanout")
+          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .from(simple("a-b-c"))
+          .split((exchange) =>
+            typeof exchange.body === "string" ? exchange.body.split("-") : [],
+          )
+          .transform((body: string) => body.toUpperCase())
+          .to(s),
+      )
+      .build();
+
+    await t.test();
+
+    expect(t.errors).toHaveLength(0);
+    expect(s.received.map((r) => r.body).sort()).toEqual(["A", "B", "C"]);
   });
 
   /**

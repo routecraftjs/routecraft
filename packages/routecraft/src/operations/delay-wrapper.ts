@@ -29,11 +29,11 @@ import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 export class DelayWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
-  constructor(
-    inner: Step<T>,
-    private readonly delayMs: number,
-  ) {
+  readonly #delayMs: number;
+
+  constructor(inner: Step<T>, delayMs: number) {
     super(inner);
+    this.#delayMs = delayMs;
   }
 
   protected override async runInner(
@@ -56,14 +56,14 @@ export class DelayWrapperStep<
         correlationId,
         stepLabel,
         scope: "step",
-        delayMs: this.delayMs,
+        delayMs: this.#delayMs,
       });
     }
 
     const start = Date.now();
     let cancelled = false;
     try {
-      await cancellableSleep(this.delayMs, route?.signal);
+      await cancellableSleep(this.#delayMs, route?.signal);
     } catch (err) {
       if (!(err instanceof SleepAbortedError)) throw err;
       // Route shutdown: skip the remaining wait but still run the
@@ -79,7 +79,7 @@ export class DelayWrapperStep<
         correlationId,
         stepLabel,
         scope: "step",
-        delayMs: this.delayMs,
+        delayMs: this.#delayMs,
         elapsed: Date.now() - start,
         cancelled,
       });

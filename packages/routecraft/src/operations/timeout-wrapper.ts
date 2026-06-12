@@ -9,6 +9,17 @@ import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 
 /**
+ * Route-scope `.timeout()` config. This is the shape stored on
+ * `RouteDefinition.timeout` (and is therefore part of the public
+ * definition surface); the builder stages it pre-`.from()` and the
+ * pipeline executor's timeout segment consumes it.
+ */
+export interface ResolvedTimeoutOptions {
+  /** Deadline in milliseconds for each run of the bounded segment. */
+  timeoutMs: number;
+}
+
+/**
  * Sentinel error rejected by the deadline arm of
  * {@link raceWithDeadline}. Callers map it to the public `RC5011`
  * timeout error; it never escapes the framework.
@@ -81,11 +92,11 @@ export async function raceWithDeadline<R>(
 export class TimeoutWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
-  constructor(
-    inner: Step<T>,
-    private readonly timeoutMs: number,
-  ) {
+  readonly #timeoutMs: number;
+
+  constructor(inner: Step<T>, timeoutMs: number) {
     super(inner);
+    this.#timeoutMs = timeoutMs;
   }
 
   protected override async runInner(
@@ -108,7 +119,7 @@ export class TimeoutWrapperStep<
         correlationId,
         stepLabel,
         scope: "step",
-        timeoutMs: this.timeoutMs,
+        timeoutMs: this.#timeoutMs,
       });
     }
 
@@ -116,7 +127,7 @@ export class TimeoutWrapperStep<
     try {
       const outcome = await raceWithDeadline(
         this.inner.execute(exchange, ctx),
-        this.timeoutMs,
+        this.#timeoutMs,
       );
       if (shouldEmit) {
         context.emit("route:timeout:stopped", {
@@ -125,7 +136,7 @@ export class TimeoutWrapperStep<
           correlationId,
           stepLabel,
           scope: "step",
-          timeoutMs: this.timeoutMs,
+          timeoutMs: this.#timeoutMs,
           elapsed: Date.now() - start,
         });
       }
@@ -139,12 +150,12 @@ export class TimeoutWrapperStep<
           correlationId,
           stepLabel,
           scope: "step",
-          timeoutMs: this.timeoutMs,
+          timeoutMs: this.#timeoutMs,
           elapsed: Date.now() - start,
         });
       }
       throw rcError("RC5011", undefined, {
-        message: `Step "${stepLabel}" exceeded its ${this.timeoutMs}ms timeout`,
+        message: `Step "${stepLabel}" exceeded its ${this.#timeoutMs}ms timeout`,
       });
     }
   }
