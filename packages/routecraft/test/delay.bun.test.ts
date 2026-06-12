@@ -167,6 +167,20 @@ describe("Delay wrapper (.delay())", () => {
   });
 
   /**
+   * @case Invalid delay durations are rejected at build time
+   * @preconditions A delay wrapper configured with a negative and a NaN duration
+   * @expectedResult Building the route throws RC5003 before any exchange is processed
+   */
+  test("rejects non-finite or negative delayMs at build time", () => {
+    expect(() =>
+      craft().id("delay-negative").from(simple("in")).delay(-1).to(spy()),
+    ).toThrow(/delayMs/);
+    expect(() =>
+      craft().id("delay-nan").from(simple("in")).delay(Number.NaN).to(spy()),
+    ).toThrow(/delayMs/);
+  });
+
+  /**
    * @case Builder body type is preserved across .delay()
    * @preconditions Route chaining .delay() between typed transforms
    * @expectedResult The chain compiles with the string body type flowing through the wrapper and produces the typed result

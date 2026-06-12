@@ -59,7 +59,10 @@ import {
   type ResolvedRetryOptions,
   resolveRetryOptions,
 } from "./operations/retry-wrapper.ts";
-import { type ResolvedTimeoutOptions } from "./operations/timeout-wrapper.ts";
+import {
+  type ResolvedTimeoutOptions,
+  resolveTimeoutOptions,
+} from "./operations/timeout-wrapper.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -860,11 +863,12 @@ export class RouteBuilder<
    */
   override timeout(timeoutMs: number): this {
     if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
-      // Route scope: stage the config onto pendingOptions so the next
-      // `.from()` writes it into the new RouteDefinition.
+      // Route scope: stage the resolved config (validates the deadline
+      // at staging time) so the next `.from()` writes it into the new
+      // RouteDefinition.
       this.pendingOptions = {
         ...(this.pendingOptions ?? {}),
-        timeoutConfig: { timeoutMs },
+        timeoutConfig: resolveTimeoutOptions(timeoutMs),
       };
       logger.trace("Staging route-scope timeout config for next route");
       return this;
@@ -1149,7 +1153,8 @@ export class RouteBuilder<
       throw rcError("RC2001", undefined, {
         message:
           `Route metadata staged but no .from() called: route-level configuration ` +
-          `(.id / .title / .description / .input / .output / .batch / .error / .authorize) must be ` +
+          `(.id / .title / .description / .input / .output / .batch / .error / .authorize / ` +
+          `.cache / .retry / .timeout) must be ` +
           `followed by .from() before pipeline operations on the next route.`,
       });
     }

@@ -6,7 +6,11 @@ import {
 } from "../exchange.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
-import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
+import {
+  assertDurationMs,
+  cancellableSleep,
+  SleepAbortedError,
+} from "./cancellable-sleep.ts";
 
 /**
  * Step-scope `.delay()` wrapper. Waits a fixed time, then runs the
@@ -33,6 +37,7 @@ export class DelayWrapperStep<
 
   constructor(inner: Step<T>, delayMs: number) {
     super(inner);
+    assertDurationMs("delay(delayMs)", delayMs, 0);
     this.#delayMs = delayMs;
   }
 

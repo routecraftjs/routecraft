@@ -8,7 +8,11 @@ import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
-import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
+import {
+  assertDurationMs,
+  cancellableSleep,
+  SleepAbortedError,
+} from "./cancellable-sleep.ts";
 
 /**
  * Options for the `.retry()` wrapper (step scope and route scope).
@@ -82,9 +86,11 @@ export function resolveRetryOptions(
       message: `retry({ maxAttempts }) must be an integer >= 1, got ${String(maxAttempts)}.`,
     });
   }
+  const backoffMs = options.backoffMs ?? 1000;
+  assertDurationMs("retry({ backoffMs })", backoffMs, 0);
   return {
     maxAttempts,
-    backoffMs: options.backoffMs ?? 1000,
+    backoffMs,
     exponential: options.exponential ?? false,
     retryOn: options.retryOn ?? defaultRetryOn,
   };

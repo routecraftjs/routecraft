@@ -1,3 +1,24 @@
+import { rcError } from "../error.ts";
+
+/**
+ * Validate a wrapper duration option at build time. `setTimeout`
+ * silently coerces non-finite or negative values to 0, which would
+ * turn a typo like `.timeout(Number.NaN)` into an instant expiry at
+ * runtime instead of a fail-fast config error.
+ *
+ * @param option - Option name for the error message (e.g. "delay(delayMs)")
+ * @param ms - The duration to validate
+ * @param min - Smallest allowed value (0 for waits, 1 for deadlines)
+ * @internal
+ */
+export function assertDurationMs(option: string, ms: number, min: 0 | 1): void {
+  if (!Number.isFinite(ms) || ms < min) {
+    throw rcError("RC5003", undefined, {
+      message: `${option} must be a finite number >= ${min}, got ${String(ms)}.`,
+    });
+  }
+}
+
 /**
  * Sentinel error rejected by {@link cancellableSleep} when the supplied
  * signal aborts before the timer fires. Callers catch it to tell an

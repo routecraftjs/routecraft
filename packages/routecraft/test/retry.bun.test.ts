@@ -468,6 +468,21 @@ describe("Retry wrapper (.retry())", () => {
   });
 
   /**
+   * @case Invalid backoff durations are rejected at build time
+   * @preconditions A retry wrapper configured with a negative backoffMs
+   * @expectedResult Building the route throws RC5003 instead of silently coercing the wait to zero
+   */
+  test("rejects negative backoffMs at build time", () => {
+    expect(() =>
+      craft()
+        .id("retry-bad-backoff")
+        .from(simple("in"))
+        .retry({ backoffMs: -100 })
+        .to(spy()),
+    ).toThrow(/backoffMs/);
+  });
+
+  /**
    * @case Builder body type is preserved across .retry()
    * @preconditions Route chaining .retry() between typed transforms
    * @expectedResult The chain compiles with the string body type flowing through the wrapper and produces the typed result

@@ -269,6 +269,28 @@ describe("Timeout wrapper (.timeout())", () => {
   });
 
   /**
+   * @case Invalid timeout deadlines are rejected at build time in both scopes
+   * @preconditions Timeout wrappers configured with 0 and NaN deadlines, step scope and route scope
+   * @expectedResult Building throws RC5003 instead of deferring to an instant runtime expiry
+   */
+  test("rejects non-finite or non-positive timeoutMs at build time", () => {
+    expect(() =>
+      craft().id("timeout-zero").from(simple("in")).timeout(0).to(spy()),
+    ).toThrow(/timeoutMs/);
+    expect(() =>
+      craft()
+        .id("timeout-nan")
+        .from(simple("in"))
+        .timeout(Number.NaN)
+        .to(spy()),
+    ).toThrow(/timeoutMs/);
+    // Route scope validates at staging time, before .from().
+    expect(() => craft().id("timeout-route-zero").timeout(0)).toThrow(
+      /timeoutMs/,
+    );
+  });
+
+  /**
    * @case Builder body type is preserved across .timeout()
    * @preconditions Route chaining .timeout() between typed transforms
    * @expectedResult The chain compiles with the string body type flowing through the wrapper and produces the typed result

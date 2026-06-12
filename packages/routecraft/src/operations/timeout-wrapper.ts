@@ -7,6 +7,7 @@ import {
 import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
+import { assertDurationMs } from "./cancellable-sleep.ts";
 
 /**
  * Route-scope `.timeout()` config. This is the shape stored on
@@ -17,6 +18,22 @@ import { WrapperStep } from "./wrapper.ts";
 export interface ResolvedTimeoutOptions {
   /** Deadline in milliseconds for each run of the bounded segment. */
   timeoutMs: number;
+}
+
+/**
+ * Validate a user-supplied timeout into a {@link ResolvedTimeoutOptions}.
+ * Shared by the step-scope wrapper constructor and the builder's
+ * route-scope staging so both fail fast on a non-finite or
+ * non-positive deadline (a `setTimeout(NaN)` would otherwise expire
+ * instantly at runtime).
+ *
+ * @internal
+ */
+export function resolveTimeoutOptions(
+  timeoutMs: number,
+): ResolvedTimeoutOptions {
+  assertDurationMs("timeout(timeoutMs)", timeoutMs, 1);
+  return { timeoutMs };
 }
 
 /**
@@ -96,7 +113,7 @@ export class TimeoutWrapperStep<
 
   constructor(inner: Step<T>, timeoutMs: number) {
     super(inner);
-    this.#timeoutMs = timeoutMs;
+    this.#timeoutMs = resolveTimeoutOptions(timeoutMs).timeoutMs;
   }
 
   protected override async runInner(
