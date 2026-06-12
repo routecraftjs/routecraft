@@ -83,7 +83,7 @@ Routecraft's mission is secure-by-default integration, and the os package is whe
 
 Browser automation was split into `@routecraft/browser` in #168, but it is a system-native capability and belongs with `shell`. The os package's own description already claimed "shell execution and browser automation," so this aligns the package with its stated intent.
 
-Current registry state: `@routecraft/os` is `private: true` and unpublished (a placeholder for shell, #181), while `@routecraft/browser` is published at `0.5.0`. There is therefore no name collision; the merge is simply the first publish of `@routecraft/os`.
+At the time of the merge `@routecraft/os` was an unpublished placeholder (private, reserved for shell, #181) and `@routecraft/browser` was published at `0.5.0`, so there was no name collision. `@routecraft/os` is now public and carries the browser adapter; `@routecraft/browser` is deprecated on npm pointing at it.
 
 Migration:
 
@@ -149,7 +149,7 @@ Zero third-party runtime dependencies in core is the **ambition, not a hard rule
 - **Bun-native APIs** (`Bun.redis`, `Bun.s3`, `bun:sqlite`) do not count against the budget, but core targets Node 22+ as well as Bun, so any Bun-native usage needs a Node-equivalent path (a `node:` builtin or an optional peer such as `@aws-sdk/client-s3`), proven by cross-runtime tests per [`ci-cd.md` section 2](./ci-cd.md#2-the-pr-gates).
 - **Vendor and protocol SDKs for adapters are never hard dependencies.** They are optional peers loaded through `loadOptionalPeer` with an `RC5017` install hint, per [`ci-cd.md` section 6](./ci-cd.md#6-optional-peer-dependencies-provider-sdks). Installing core must never pull a vendor SDK transitively.
 
-Ecosystem and system-native packages are not bound by the core ambition. `@routecraft/ai` depends on the Vercel AI SDK, and `@routecraft/os` depends (optionally) on `execa`, `shescape`, `dockerode`, `agent-browser`. They still follow the `@routecraft/*` peer-dependency shape in [`ci-cd.md` section 5](./ci-cd.md#5-dependency-policy-on-routecraft).
+Ecosystem and system-native packages are not bound by the core ambition. `@routecraft/ai` depends on the Vercel AI SDK, and `@routecraft/os` depends optionally on `agent-browser` today (adding `execa`/`shescape`/`dockerode` when `shell` lands). They still follow the `@routecraft/*` peer-dependency shape in [`ci-cd.md` section 5](./ci-cd.md#5-dependency-policy-on-routecraft).
 
 ## 8. The complete module map
 
@@ -192,6 +192,56 @@ Three kinds of module. The 8-to-12 bound governs only the first group.
 - `telegram` lands in `@routecraft/messaging`, not a `@routecraft/telegram` package (#367/#368 stale on the name).
 - `@routecraft/redis` as a standalone package name (#366) is stale; redis is a core cache provider.
 - `@routecraft/browser` folds into `@routecraft/os` (#168 reversed on packaging, capability retained).
+
+## 10. The resulting structure: packages and their adapters
+
+Applying the rules above produces the package structure below. Use it to place any new adapter, and when a new package or grouping is created, record it here so this guide stays the source of truth.
+
+**Build legend:** `Native-core` = adapter in `@routecraft/routecraft`. `Native-pkg` = adapter in a vendor or domain package. `MCP` = no adapter; recommend the vendor's official MCP server via `mcp()`. `Both` = native for the data/event plane, MCP for agent actions.
+
+### Layer 1 - data plane (Native-core)
+
+The full core adapter plan is in section 2.2. In short: formats (csv, json, jsonl, html, yaml); HTTP family (http, SSE, websocket, graphql, oauth server, OpenAPI); files (file, ftp/sftp); mail; cron/timer; relational (postgres, mysql/mariadb, sqlite); NoSQL/search (mongodb, cassandra, elasticsearch/opensearch); cache (redis); object store (s3); messaging (kafka, rabbitmq/amqp, mqtt, nats); RPC (grpc).
+
+### Layer 2 - cloud ecosystems (Native-pkg, one package per vendor)
+
+| Ecosystem | Package | Adapters |
+|---|---|---|
+| AWS | `@routecraft/aws` | sqs, sns, dynamodb, kinesis, lambda, ses, eventbridge (s3 stays core) |
+| Google | `@routecraft/google` | googlechat (#370), gmail, sheets, docs, drive, calendar, pubsub, bigquery |
+| Azure / Microsoft | `@routecraft/azure` | service bus, event hubs, blob, cosmos, teams, outlook, excel, graph |
+
+### Layer 3 - messaging / comms (`@routecraft/messaging`)
+
+| Tool | Build | Note |
+|---|---|---|
+| slack | Both | native event source + official MCP for actions |
+| telegram (#367/#368) | Native-pkg | births the package; no official MCP (community only) |
+| discord | Native-pkg | no official MCP (community only) |
+| twilio | Native-pkg | official MCP is alpha; native for SMS/voice/webhooks |
+
+### Layer 4 - action-plane SaaS (MCP, no adapter)
+
+Recommend the vendor's official MCP server through `mcp()`; ship no adapter. People can still write their own. Official MCP servers confirmed mid-2026 unless noted.
+
+| Tool | Category | Build |
+|---|---|---|
+| github | dev | Both (optional native webhook source; MCP for actions) |
+| gitlab, sentry, vercel, cloudflare | dev / infra | MCP |
+| jira / confluence (atlassian), linear, asana, monday | project mgmt | MCP |
+| trello, clickup | project mgmt | MCP (partner/community) |
+| notion | docs | MCP |
+| salesforce, hubspot, pipedrive | CRM | MCP |
+| stripe, paypal, square | payments | MCP |
+| shopify, woocommerce | e-commerce | MCP |
+| airtable | structured data | MCP |
+| intercom, plaid | support / fintech | MCP |
+| typeform, google forms, calendly | forms / scheduling | Native-trivial (`http()` webhook) or MCP |
+| mailchimp, brevo, sendgrid | email marketing | Native-light (core `mail`/`http`) or MCP |
+
+### Layer 5 - AI providers (`@routecraft/ai`)
+
+Provider entries via the Vercel AI SDK seam (#385), not packages. Have: openai, anthropic, gemini, openrouter, ollama, custom. Planned: mistral, cohere, deepseek, perplexity, bedrock, vertex, azure openai.
 
 ## Related
 
