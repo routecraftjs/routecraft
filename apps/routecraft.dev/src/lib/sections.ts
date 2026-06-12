@@ -1,7 +1,10 @@
 import { type Node } from '@markdoc/markdoc'
 import { slugifyWithCounter } from '@sindresorhus/slugify'
 
+import { adapterGridTocSections } from '@/components/AdapterGrid'
 import { type BadgeColor } from '@/components/Badge'
+import { operationsTocSections } from '@/components/OperationsIndex'
+import { pluginIndexTocSections } from '@/components/PluginIndex'
 
 interface HeadingNode extends Node {
   type: 'heading'
@@ -86,6 +89,23 @@ export type Section = H2Node['attributes'] & {
   children: Array<Subsection>
 }
 
+/**
+ * Index components render entire reference catalogues (operations,
+ * adapters, plugins) as React tags rather than markdown headings, so
+ * walking the Markdoc AST alone produces an empty "On this page"
+ * sidebar for those pages. Each component exports its outline (with
+ * ids matching the DOM it renders); this registry maps the Markdoc tag
+ * name to that outline so `collectSections` can expand it in place.
+ * The lazy thunks keep the data co-located with the component that
+ * renders it; components import only the `Section` TYPE back, so there
+ * is no runtime import cycle.
+ */
+const indexTagSections: Record<string, () => Array<Section>> = {
+  'operations-index': operationsTocSections,
+  'adapter-grid': adapterGridTocSections,
+  'plugin-index': pluginIndexTocSections,
+}
+
 export function collectSections(
   nodes: Array<Node>,
   slugify = slugifyWithCounter(),
@@ -93,6 +113,11 @@ export function collectSections(
   const sections: Array<Section> = []
 
   for (const node of nodes) {
+    if (node.type === 'tag' && node.tag && node.tag in indexTagSections) {
+      sections.push(...indexTagSections[node.tag]())
+      continue
+    }
+
     if (isH2Node(node) || isH3Node(node)) {
       const { title, badges } = extractHeadingContent(node)
       if (title) {
