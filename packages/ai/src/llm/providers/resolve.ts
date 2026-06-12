@@ -39,6 +39,25 @@ export async function resolveLanguageModel(
   }
 }
 
+/**
+ * Build the `{ apiKey, baseURL? }` settings bag shared by the keyed cloud
+ * providers (OpenAI, Anthropic, Gemini). `baseURL` is only set when
+ * configured so the SDK's own resolution still applies when absent; when
+ * configured, config beats ambient env vars such as `ANTHROPIC_BASE_URL`.
+ *
+ * @internal
+ */
+export function keyedProviderSettings(config: {
+  apiKey: string;
+  baseURL?: string;
+}): { apiKey: string; baseURL?: string } {
+  const settings: { apiKey: string; baseURL?: string } = {
+    apiKey: config.apiKey,
+  };
+  if (config.baseURL !== undefined) settings.baseURL = config.baseURL;
+  return settings;
+}
+
 async function resolveOpenAI(
   config: import("../types.ts").LlmModelConfigOpenAI,
   modelId: string,
@@ -52,11 +71,7 @@ async function resolveOpenAI(
       baseURL?: string;
     }) => (m: string) => unknown;
   };
-  const settings: { apiKey: string; baseURL?: string } = {
-    apiKey: config.apiKey,
-  };
-  if (config.baseURL !== undefined) settings.baseURL = config.baseURL;
-  const openai = mod.createOpenAI(settings);
+  const openai = mod.createOpenAI(keyedProviderSettings(config));
   return openai(modelId);
 }
 
@@ -68,9 +83,12 @@ async function resolveAnthropic(
     adapterName: "Anthropic LLM",
     packageName: "@ai-sdk/anthropic",
   })) as {
-    createAnthropic: (s: { apiKey: string }) => (m: string) => unknown;
+    createAnthropic: (s: {
+      apiKey: string;
+      baseURL?: string;
+    }) => (m: string) => unknown;
   };
-  const anthropic = mod.createAnthropic({ apiKey: config.apiKey });
+  const anthropic = mod.createAnthropic(keyedProviderSettings(config));
   return anthropic(modelId);
 }
 
@@ -82,9 +100,12 @@ async function resolveGemini(
     adapterName: "Gemini LLM",
     packageName: "@ai-sdk/google",
   })) as {
-    createGoogleGenerativeAI: (s: { apiKey: string }) => (m: string) => unknown;
+    createGoogleGenerativeAI: (s: {
+      apiKey: string;
+      baseURL?: string;
+    }) => (m: string) => unknown;
   };
-  const google = mod.createGoogleGenerativeAI({ apiKey: config.apiKey });
+  const google = mod.createGoogleGenerativeAI(keyedProviderSettings(config));
   return google(modelId);
 }
 

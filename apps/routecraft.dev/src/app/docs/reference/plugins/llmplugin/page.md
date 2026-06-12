@@ -40,10 +40,10 @@ export default config
 | Provider | Options | Description |
 |----------|---------|-------------|
 | `openai` | `{ apiKey: string, baseURL?: string }` | OpenAI API |
-| `anthropic` | `{ apiKey: string }` | Anthropic API |
+| `anthropic` | `{ apiKey: string, baseURL?: string }` | Anthropic API |
 | `openrouter` | `{ apiKey: string, modelId?: string }` | OpenRouter API |
 | `ollama` | `{ baseURL?: string, modelId?: string }` | Local Ollama instance |
-| `gemini` | `{ apiKey: string }` | Google Gemini API |
+| `gemini` | `{ apiKey: string, baseURL?: string }` | Google Gemini API |
 | `lmstudio` | `{ baseURL?: string, apiKey?: string, modelId?: string }` | Local [LM Studio](https://lmstudio.ai) server (OpenAI-compatible; defaults to `http://localhost:1234/v1`) |
 | `custom` | `{ model: model \| (modelId) => model, modelId?: string }` | Any AI SDK model object you supply, or a factory (in-process, no key, no network). Typed as `unknown` and validated at runtime so no engine type leaks into your code. |
 

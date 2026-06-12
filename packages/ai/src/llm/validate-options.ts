@@ -54,6 +54,15 @@ export function validateLlmPluginOptions(options: LlmPluginOptions): void {
             `llmPlugin: providers["${providerId}"].apiKey is required`,
           );
         }
+        if (
+          providerId !== "openrouter" &&
+          (opts as { baseURL?: string }).baseURL !== undefined &&
+          typeof (opts as { baseURL?: string }).baseURL !== "string"
+        ) {
+          throw new TypeError(
+            `llmPlugin: providers["${providerId}"].baseURL must be a string when provided`,
+          );
+        }
         break;
       case "ollama":
       case "lmstudio":

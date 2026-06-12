@@ -52,6 +52,12 @@ export interface LlmModelConfigOpenAI {
 export interface LlmModelConfigAnthropic {
   provider: "anthropic";
   apiKey: string;
+  /**
+   * Anthropic API URL. Optional: when omitted the SDK falls back to the
+   * `ANTHROPIC_BASE_URL` environment variable, then its built-in default.
+   * Set it so config beats ambient env vars.
+   */
+  baseURL?: string;
 }
 
 export interface LlmModelConfigOpenRouter {
@@ -78,6 +84,12 @@ export interface LlmModelConfigOllama {
 export interface LlmModelConfigGemini {
   provider: "gemini";
   apiKey: string;
+  /**
+   * Gemini API URL. Optional: when omitted the SDK falls back to the
+   * `GOOGLE_GENERATIVE_AI_BASE_URL` environment variable, then its
+   * built-in default. Set it so config beats ambient env vars.
+   */
+  baseURL?: string;
 }
 
 export interface LlmModelConfigLmStudio {
@@ -138,6 +150,7 @@ export interface LlmOpenAIProviderOptions {
 }
 export interface LlmAnthropicProviderOptions {
   apiKey: string;
+  baseURL?: string;
 }
 export interface LlmOpenRouterProviderOptions {
   apiKey: string;
@@ -145,6 +158,7 @@ export interface LlmOpenRouterProviderOptions {
 }
 export interface LlmGeminiProviderOptions {
   apiKey: string;
+  baseURL?: string;
 }
 export interface LlmLmStudioProviderOptions {
   baseURL?: string;
