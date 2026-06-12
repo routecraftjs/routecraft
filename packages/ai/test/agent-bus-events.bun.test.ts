@@ -354,11 +354,13 @@ describe("agent context-bus events", () => {
   });
 
   /**
-   * @case agent:usage includes cache token fields when the provider reports them
-   * @preconditions LLM mock returns usage with cacheReadTokens and cacheWriteTokens
+   * @case agent:usage propagates cache token fields from LlmResult.usage to the event
+   * @preconditions LLM mock returns LlmResult with cacheReadTokens and cacheWriteTokens
+   *   already on usage (i.e. the toLlmUsage conversion has already run in the provider
+   *   layer; this test covers session.ts propagation, not the conversion itself)
    * @expectedResult usage event carries cacheReadTokens and cacheWriteTokens
    */
-  test("agent:usage includes cache tokens when provider reports them", async () => {
+  test("agent:usage propagates cache token fields to the event", async () => {
     const { callLlm } = await import("../src/llm/providers/index.ts");
     (callLlm as ReturnType<typeof mock>).mockImplementationOnce(
       async (): Promise<LlmResult> => ({

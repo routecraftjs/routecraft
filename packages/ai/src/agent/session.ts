@@ -336,26 +336,24 @@ export class AgentSession {
         totalTokens: result.usage.totalTokens,
       }),
     });
-    if (result.usage) {
-      ctx.emit("route:agent:usage", {
-        ...identity,
-        ...(result.usage.inputTokens !== undefined && {
-          inputTokens: result.usage.inputTokens,
-        }),
-        ...(result.usage.outputTokens !== undefined && {
-          outputTokens: result.usage.outputTokens,
-        }),
-        ...(result.usage.totalTokens !== undefined && {
-          totalTokens: result.usage.totalTokens,
-        }),
-        ...(result.usage.cacheReadTokens !== undefined && {
-          cacheReadTokens: result.usage.cacheReadTokens,
-        }),
-        ...(result.usage.cacheWriteTokens !== undefined && {
-          cacheWriteTokens: result.usage.cacheWriteTokens,
-        }),
-      });
-    }
+    ctx.emit("route:agent:usage", {
+      ...identity,
+      ...(result.usage?.inputTokens !== undefined && {
+        inputTokens: result.usage.inputTokens,
+      }),
+      ...(result.usage?.outputTokens !== undefined && {
+        outputTokens: result.usage.outputTokens,
+      }),
+      ...(result.usage?.totalTokens !== undefined && {
+        totalTokens: result.usage.totalTokens,
+      }),
+      ...(result.usage?.cacheReadTokens !== undefined && {
+        cacheReadTokens: result.usage.cacheReadTokens,
+      }),
+      ...(result.usage?.cacheWriteTokens !== undefined && {
+        cacheWriteTokens: result.usage.cacheWriteTokens,
+      }),
+    });
   }
 
   /**
