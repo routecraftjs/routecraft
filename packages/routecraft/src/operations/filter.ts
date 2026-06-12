@@ -10,7 +10,7 @@ import {
   HeadersKeys,
   getExchangeContext,
   getExchangeRoute,
-  markDropped,
+  emitExchangeDropped,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 
@@ -109,33 +109,22 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
           "Filter rejected exchange",
         );
 
-        // Mark the exchange as dropped before emitting `exchange:dropped`
-        // so a subscriber that calls `isDropped(event.details.exchange)`
-        // observes the correct state. The drop flag lives on the
-        // exchange's shared internals object (see `markDropped` /
-        // `isDropped` in `exchange.ts`); the route engine reads it
-        // after `runPipeline` to skip `exchange:completed`.
-        markDropped(exchange);
+        // Emit step:completed first, then exchange:dropped
+        context?.emit("route:step:completed", {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          operation: stepLabel,
+          ...(adapterLabel ? { adapter: adapterLabel } : {}),
+          duration: Date.now() - stepStart,
+        });
 
-        if (context) {
-          // Emit step:completed first, then exchange:dropped
-          context.emit("route:step:completed", {
-            routeId,
-            exchangeId: exchange.id,
-            correlationId,
-            operation: stepLabel,
-            ...(adapterLabel ? { adapter: adapterLabel } : {}),
-            duration: Date.now() - stepStart,
-          });
-
-          context.emit("route:exchange:dropped", {
-            routeId,
-            exchangeId: exchange.id,
-            correlationId,
-            reason: dropReason,
-            exchange,
-          });
-        }
+        emitExchangeDropped(context, {
+          routeId,
+          correlationId,
+          reason: dropReason,
+          exchange,
+        });
         return { kind: "drop" };
       }
     } catch (error: unknown) {

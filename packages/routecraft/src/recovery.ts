@@ -1,4 +1,4 @@
-import { markDropped, type Exchange } from "./exchange.ts";
+import { markDropped, emitExchangeDropped, type Exchange } from "./exchange.ts";
 import { BRAND, isBranded } from "./brand.ts";
 import type { CraftContext } from "./context.ts";
 import type { Route } from "./route.ts";
@@ -137,6 +137,9 @@ export function applyDropDirective(args: {
     stepLabel,
   } = args;
 
+  // Mark eagerly (ahead of the final mark-and-emit below) so subscribers
+  // to `route:error:caught`, whose payload carries the exchange, already
+  // observe `isDropped(exchange) === true`.
   markDropped(exchange);
 
   if (scope === "route" && route) {
@@ -160,9 +163,8 @@ export function applyDropDirective(args: {
     ...(stepLabel !== undefined ? { stepLabel } : {}),
   });
 
-  context.emit("route:exchange:dropped", {
+  emitExchangeDropped(context, {
     routeId,
-    exchangeId: exchange.id,
     correlationId,
     reason,
     exchange,
