@@ -8,7 +8,7 @@ import {
 } from "../exchange.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
-import { isRecovery } from "../recovery.ts";
+import { isRecovery, applyDropDirective } from "../recovery.ts";
 import type { ErrorHandler } from "../route.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
@@ -112,28 +112,25 @@ export class ErrorWrapperStep<
             throw innerError;
           }
           // `recovery.drop()`: resolve the error by discarding the
-          // exchange. Mark before emitting so subscribers observing the
-          // event see `isDropped(exchange) === true`; the route engine
-          // reads the flag to skip `exchange:completed`.
-          markDropped(exchange);
+          // exchange (shared semantics in applyDropDirective). The
+          // forward guard above already threw when no route is bound, so
+          // context/routeId are present here in any framework-built
+          // pipeline; the fallback mark keeps the drop flag correct for
+          // synthetic exchanges in unit tests.
           if (route && context && routeId) {
-            context.emit("route:error-handler:recovered", {
+            applyDropDirective({
+              context,
               routeId,
-              exchangeId: exchange.id,
-              correlationId,
+              exchange,
               originalError: innerError,
               failedOperation: stepLabel,
-              recoveryStrategy: "step-error-handler",
+              correlationId,
+              reason: recovered.reason,
               scope: "step",
               stepLabel,
             });
-            context.emit("route:exchange:dropped", {
-              routeId,
-              exchangeId: exchange.id,
-              correlationId,
-              reason: recovered.reason,
-              exchange,
-            });
+          } else {
+            markDropped(exchange);
           }
           return { kind: "drop" };
         }

@@ -107,4 +107,29 @@ describe("Header operation", () => {
         .to(spy()),
     ).not.toThrow();
   });
+
+  /**
+   * @case Custom header keys that collide with Object.prototype members
+   *       ("toString", "constructor", "__proto__", ...) are legal and must
+   *       not be misread as engine-owned via the prototype chain
+   * @preconditions Builder pipelines set headers named after prototype members
+   * @expectedResult Routes build without throwing
+   */
+  test("allows header keys named after Object.prototype members", () => {
+    for (const key of [
+      "toString",
+      "constructor",
+      "hasOwnProperty",
+      "valueOf",
+      "__proto__",
+    ]) {
+      expect(() =>
+        craft()
+          .id(`header-prototype-${key}`)
+          .from(simple("test"))
+          .header(key, "value")
+          .to(spy()),
+      ).not.toThrow();
+    }
+  });
 });

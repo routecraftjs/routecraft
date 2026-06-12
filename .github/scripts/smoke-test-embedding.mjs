@@ -87,7 +87,7 @@ run(`npm install "${tarballPath}"`, { cwd: smokeDir });
 
 // 3. Write a runner.ts that exercises the embedding API: ContextBuilder,
 //    a route with direct() source and log() destination, and a single
-//    client.send() to assert the dispatch path works end to end.
+//    client.sendDirect() to assert the dispatch path works end to end.
 const runnerSource = `import {
   craft,
   direct,
@@ -107,7 +107,7 @@ const { context, client } = await builder.build();
 context.start();
 
 try {
-  await client.send("greet", { name: "embedded-node" });
+  await client.sendDirect("greet", { name: "embedded-node" });
   console.log("[smoke-embedding] dispatched OK");
 } finally {
   await context.stop();

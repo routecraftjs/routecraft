@@ -1,6 +1,6 @@
 import type { CraftContext } from "./context.ts";
 import type { Exchange, ExchangeHeaders } from "./exchange.ts";
-import { DefaultExchange } from "./exchange.ts";
+import { DefaultExchange, isDropped } from "./exchange.ts";
 import { rcError } from "./error.ts";
 import {
   ADAPTER_DIRECT_STORE,
@@ -66,7 +66,15 @@ export class CraftClient {
       body,
       ...(headers !== undefined && { headers }),
     });
-    const result = await channel.send(sanitized, exchange);
-    return (result as Exchange).body as R;
+    const result = (await channel.send(sanitized, exchange)) as Exchange;
+    // A dropped exchange has no response: resolving with its body would
+    // hand the caller back its own request as if it were the route's
+    // output. Surface the drop as an error the caller can branch on.
+    if (isDropped(result)) {
+      throw rcError("RC5031", undefined, {
+        message: `Direct endpoint "${endpoint}" dropped the exchange instead of completing it; there is no response body.`,
+      });
+    }
+    return result.body as R;
   }
 }

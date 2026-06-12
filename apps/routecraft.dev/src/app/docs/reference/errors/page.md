@@ -407,6 +407,15 @@ A conditional write failed because the resource changed on the server since it w
 **Suggestion**  
 Re-read the resource to pick up the current state and ETag, re-apply your change, and write again.
 
+## RC5031
+Exchange dropped before completion
+
+**Why it happens**  
+A request/reply caller (`client.sendDirect()` or an error handler's `forward()`) dispatched into a route that discarded the exchange instead of completing it: a `.filter()` rejected it, the source's `onParseError` was `'drop'`, or an `.error()` handler returned `recovery.drop()`. A dropped exchange has no response body, so resolving would hand the caller back its own request; the framework rejects instead. This is **not retryable**: the same input is dropped the same way every time.
+
+**Suggestion**  
+If the caller should receive a value, recover with a body in `.error()` instead of `recovery.drop()`, or let the exchange pass the filter. If dropping is intended, catch the error and branch on `error.rc === 'RC5031'`.
+
 ## RC9901
 Unknown error
 

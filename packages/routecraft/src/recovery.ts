@@ -1,3 +1,7 @@
+import { markDropped, type Exchange } from "./exchange.ts";
+import type { CraftContext } from "./context.ts";
+import type { Route } from "./route.ts";
+
 /**
  * Brand key marking a {@link Recovery} directive. `Symbol.for` so directives
  * survive crossing duplicate copies of the package (CLI vs user module).
@@ -77,4 +81,81 @@ export function isRecovery(value: unknown): value is Recovery {
     value !== null &&
     (value as Record<PropertyKey, unknown>)[RECOVERY] === true
   );
+}
+
+/**
+ * Apply a {@link RecoveryDrop} directive on behalf of an error handler:
+ * mark the exchange dropped and emit the recovery lifecycle events. The
+ * single implementation keeps route-scope (pipeline executor) and
+ * step-scope (ErrorWrapperStep) drop semantics identical.
+ *
+ * Marks BEFORE emitting so a subscriber observing the events sees
+ * `isDropped(exchange) === true`; the route engine reads the flag to skip
+ * `exchange:completed`.
+ *
+ * @internal
+ */
+export function applyDropDirective(args: {
+  context: CraftContext;
+  routeId: string;
+  exchange: Exchange;
+  /** The error the handler was invoked with. */
+  originalError: unknown;
+  /** Step label of the operation that failed. */
+  failedOperation: string;
+  correlationId: string;
+  /** Drop reason from the directive, surfaced on `route:exchange:dropped`. */
+  reason: string;
+  scope: "route" | "step";
+  /**
+   * Owning route. Present at route scope, where the handler resolution
+   * additionally emits `route:error:caught` (the event the docs attribute
+   * to route-handler recovery); step scope never emitted it.
+   */
+  route?: Route;
+  stepLabel?: string;
+}): void {
+  const {
+    context,
+    routeId,
+    exchange,
+    originalError,
+    failedOperation,
+    correlationId,
+    reason,
+    scope,
+    route,
+    stepLabel,
+  } = args;
+
+  markDropped(exchange);
+
+  if (scope === "route" && route) {
+    context.emit("route:error:caught", {
+      routeId,
+      error: originalError,
+      route,
+      exchange,
+    });
+  }
+
+  context.emit("route:error-handler:recovered", {
+    routeId,
+    exchangeId: exchange.id,
+    correlationId,
+    originalError,
+    failedOperation,
+    recoveryStrategy:
+      scope === "route" ? "route-error-handler" : "step-error-handler",
+    scope,
+    ...(stepLabel !== undefined ? { stepLabel } : {}),
+  });
+
+  context.emit("route:exchange:dropped", {
+    routeId,
+    exchangeId: exchange.id,
+    correlationId,
+    reason,
+    exchange,
+  });
 }

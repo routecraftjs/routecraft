@@ -295,6 +295,9 @@ describe("Recovery directives (recovery.drop / recovery.rethrow)", () => {
       .on("route:error-handler:recovered", () => {
         events.push("recovered");
       })
+      .on("route:error:caught", () => {
+        events.push("caught");
+      })
       .on("route:exchange:failed", () => {
         events.push("failed");
       })
@@ -316,9 +319,58 @@ describe("Recovery directives (recovery.drop / recovery.rethrow)", () => {
 
     expect(events).toContain("dropped");
     expect(events).toContain("recovered");
+    // Drop is a handler resolution like body recovery, so the route-scope
+    // caught event fires for both.
+    expect(events).toContain("caught");
     expect(events).not.toContain("failed");
     expect(events).not.toContain("completed");
     expect(dropReason).toBe("poison");
+  });
+
+  /**
+   * @case Route-scope drop of a split CHILD resolves only that child
+   * @preconditions Route splits into children; one child throws and the
+   *                route-scope handler returns recovery.drop()
+   * @expectedResult The child is dropped; the PARENT exchange still emits
+   *                 route:exchange:completed (the run is not marked dropped)
+   */
+  test("route-scope drop of a split child does not suppress parent completion", async () => {
+    const droppedIds: string[] = [];
+    const completedIds: string[] = [];
+    let parentId: string | undefined;
+
+    t = await testContext()
+      .on("route:exchange:started", ({ details }) => {
+        // First started event is the parent (children get fresh ids).
+        parentId ??= details.exchangeId;
+      })
+      .on("route:exchange:dropped", ({ details }) => {
+        droppedIds.push(details.exchangeId);
+      })
+      .on("route:exchange:completed", ({ details }) => {
+        completedIds.push(details.exchangeId);
+      })
+      .routes(
+        craft()
+          .id("split-child-drop")
+          .error(() => recovery.drop("bad child"))
+          .from(simple([1, 2]))
+          .split()
+          .transform((n: unknown) => {
+            if (n === 2) throw new Error("boom");
+            return n;
+          }),
+      )
+      .build();
+
+    await t.test();
+
+    expect(parentId).toBeDefined();
+    // The failing child was dropped, not the parent.
+    expect(droppedIds).toHaveLength(1);
+    expect(droppedIds[0]).not.toBe(parentId);
+    // The parent's lifecycle completes despite the child drop.
+    expect(completedIds).toContain(parentId as string);
   });
 
   /**

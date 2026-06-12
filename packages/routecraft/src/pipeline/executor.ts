@@ -5,10 +5,9 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
   isDropped,
-  markDropped,
   setStartedAt,
 } from "../exchange.ts";
-import { isRecovery } from "../recovery.ts";
+import { isRecovery, applyDropDirective } from "../recovery.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -337,27 +336,25 @@ export async function runPipeline(
               throw err;
             }
             // `recovery.drop()`: resolve the error by discarding the
-            // exchange. Mark before emitting so subscribers observing the
-            // event see `isDropped(exchange) === true`; the route engine
-            // reads the flag to skip `exchange:completed`.
-            markDropped(exchange);
-            deps.context.emit("route:error-handler:recovered", {
+            // exchange (shared semantics in applyDropDirective).
+            applyDropDirective({
+              context: deps.context,
               routeId: deps.routeId,
-              exchangeId: exchange.id,
-              correlationId,
+              exchange,
               originalError: err,
               failedOperation: stepLabel,
-              recoveryStrategy: "route-error-handler",
-              scope: "route",
-            });
-            deps.context.emit("route:exchange:dropped", {
-              routeId: deps.routeId,
-              exchangeId: exchange.id,
               correlationId,
               reason: result.reason,
-              exchange,
+              scope: "route",
+              route: deps.route,
             });
-            dropped = true;
+            // Only a drop of the PARENT exchange marks the run dropped
+            // (suppressing the parent's exchange:completed). A dropped
+            // split CHILD resolves that child alone, mirroring the
+            // handler-threw path's failedChildExchanges accounting.
+            if (exchange.id === parentExchangeId) {
+              dropped = true;
+            }
           } else {
             // Replace body via rewrap (frozen exchange); keep id and
             // internals so telemetry continues to reference the same

@@ -374,7 +374,7 @@ If you never imported `HttpOptions` by name (the common case, since `http({...})
 The mail **source** (`.from(mail(folder, options))`) used to deliver one fat object on `exchange.body` that mixed the message content (`body.text`, `body.html`, `attachments`) with the envelope (`from`, `to`, `subject`, `date`, `cc`, `bcc`, `replyTo`, `messageId`, `flags`, `sender`, `rawHeaders`). It now follows the same payload-on-`body`, envelope-on-`headers` convention as the HTTP source:
 
 - **`exchange.body`** is a `MailBody`: just `{ text?, html?, attachments? }`. Attachments are message content, so they stay on the body.
-- **`exchange.headers`** carries the envelope under the `routecraft.mail.*` namespace. The keys are declaration-merged into `RoutecraftHeaders` for autocomplete and exported as named constants (`HEADER_MAIL_FROM`, `HEADER_MAIL_SUBJECT`, ...).
+- **`exchange.headers`** carries the envelope under the `routecraft.mail.*` namespace. The keys are declaration-merged into `RoutecraftHeaders` for autocomplete and exported on the `MailHeaders` key object (`MailHeaders.FROM`, `MailHeaders.SUBJECT`, ...; see [section 12](#12-header-keys-per-adapter-objects)).
 
 Two things this unlocks: `.input({ body })` on a mail route now validates against the message content alone (no need to model envelope fields), and `mail -> transform -> http` collapses to one mental model.
 
@@ -681,6 +681,8 @@ const result = await client.sendDirect<Req, Res>('greet', { name })
 
 Capability discovery is public API: `context.capabilities()` returns every discoverable direct endpoint with its route's metadata (`endpoint`, `title`, `description`, `input`, `output`, `tags`). The internals it replaces (`ADAPTER_DIRECT_REGISTRY`, `getDirectChannel`, `sanitizeEndpoint`, `DirectRouteMetadata`) are no longer exported.
 
+Request/reply drops now surface as errors: when the target route discards the exchange (a filter rejects it, the source's `onParseError` is `'drop'`, or an error handler returns `recovery.drop()`), `client.sendDirect()` and the error-handler `forward()` callable reject with `RC5031` instead of silently resolving with the caller's own request body as the "response".
+
 ## 14. Renames: Carddav casing and JsonlFileOptions
 
 Acronyms in identifiers are cased as words (`Http` precedent), so every `CardDAV*` export is now `Carddav*`: `CarddavAdapter`, `CarddavClientManager`, `CarddavOptions`, `CarddavAction`, `CarddavDriverClient`, `CarddavTargetExtractor`, `CarddavWriteResult`, `CarddavDeleteResult`, `CarddavContextConfig`, `CarddavAccountConfig`, `throwCarddavError`, `ResolvedCarddavConnection`. `CARDDAV_CLIENT_MANAGER` and `DEFAULT_CARDDAV_SERVER_URL` are unchanged.
@@ -701,4 +703,4 @@ For context, no migration required:
 - **Recovery directives**: `.error()` handlers (route scope and step scope) may return `recovery.drop(reason?)` to discard the failing exchange (emits `route:exchange:dropped`) or `recovery.rethrow()` to decline recovery, instead of recovering with a body or throwing manually.
 - **`rcError` retryable override**: `rcError(code, cause, { retryable })` flips the retry classification for one occurrence.
 - **Open categories and kinds**: `RCMeta.category` and `Principal.kind` accept ecosystem-defined strings alongside the known values.
-- **Plugin identity**: plugins may declare `name` (used as `pluginId` on events and logs) and reserve `dependsOn` for future ordered initialisation. `context.getRoutes()` returns a copy.
+- **Plugin identity**: plugins may declare `name` (used as `pluginId` on events and logs) and reserve `dependsOn` for future ordered initialisation. Note: a plugin instance that already carried an unrelated string `name` property now reports that value as its `pluginId` instead of the constructor name; rename the property or set `name` to the id you want. `context.getRoutes()` returns a copy.

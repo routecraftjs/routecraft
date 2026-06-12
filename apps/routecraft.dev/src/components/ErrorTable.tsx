@@ -187,6 +187,12 @@ const errors: ErrorRow[] = [
     retryable: false,
   },
   {
+    code: 'RC5031',
+    category: 'Runtime',
+    message: 'Exchange dropped before completion',
+    retryable: false,
+  },
+  {
     code: 'RC9901',
     category: 'Runtime',
     message: 'Unknown error',

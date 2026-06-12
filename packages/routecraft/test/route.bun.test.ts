@@ -15,6 +15,7 @@ import {
   log,
   noop,
   DefaultExchange,
+  getExchangeContext,
   splitChild,
 } from "@routecraft/routecraft";
 import { defaultAggregate } from "../src/operations/aggregate.ts";
@@ -814,6 +815,47 @@ describe("Route Behavior", () => {
       "one",
       "two",
     ]);
+  });
+
+  /**
+   * @case Splitters returning hand-built Exchange instances (the pre-0.6
+   *       contract) fail loudly instead of flowing Exchange objects
+   *       downstream as child bodies
+   * @preconditions A splitter (cast to bypass the types, simulating a
+   *                plain-JS caller) returns DefaultExchange instances
+   * @expectedResult The split step throws RC5003; the route's failure path
+   *                 fires instead of silent corruption
+   */
+  test("splitter returning Exchange instances throws RC5003", async () => {
+    const failures: unknown[] = [];
+
+    t = await testContext()
+      .on("route:exchange:failed", ({ details }) => {
+        failures.push(details.error);
+      })
+      .routes(
+        craft()
+          .id("split-legacy-exchange")
+          .from(simple("a-b"))
+          .split(((exchange: Exchange<string>) =>
+            exchange.body.split("-").map(
+              (part) =>
+                new DefaultExchange(getExchangeContext(exchange)!, {
+                  body: part,
+                }),
+            )) as unknown as (e: Exchange<string>) => string[])
+          .to(noop()),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(failures).toHaveLength(1);
+    expect((failures[0] as { rc?: string }).rc).toBe("RC5003");
+    expect(String((failures[0] as Error).message ?? failures[0])).toContain(
+      "splitters return child bodies",
+    );
   });
 
   /**

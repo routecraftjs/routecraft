@@ -8,6 +8,7 @@ import {
   type ExchangeHeaders,
   DefaultExchange,
   EXCHANGE_INTERNALS,
+  isDropped,
 } from "./exchange.ts";
 import { type RegisteredDirectEndpoint } from "./registry.ts";
 import {
@@ -819,6 +820,14 @@ export class DefaultRoute implements Route {
       const channel = getDirectChannel(this.context, sanitized, {});
       const forwardExchange = this.buildExchange(payload);
       const result = await channel.send(sanitized, forwardExchange);
+      // Mirror CraftClient.sendDirect: a dropped exchange has no result,
+      // and resolving with its body would echo the forwarded payload back
+      // as if the target route produced it.
+      if (isDropped(result)) {
+        throw rcError("RC5031", undefined, {
+          message: `Forward target "${String(endpoint)}" dropped the exchange instead of completing it; there is no result body.`,
+        });
+      }
       return result.body;
     };
   }

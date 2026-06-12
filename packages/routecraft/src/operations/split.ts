@@ -5,7 +5,8 @@ import {
   getAdapterLabel,
   type StepOutcome,
 } from "../types.ts";
-import { INTERNALS_KEY } from "../brand.ts";
+import { INTERNALS_KEY, isExchange } from "../brand.ts";
+import { rcError } from "../error.ts";
 import {
   type Exchange,
   type ExchangeHeaders,
@@ -189,6 +190,17 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
 
     const children: Exchange<R>[] = [];
     for (const result of splitResults) {
+      // Loud guard for the pre-0.6 splitter contract: hand-built Exchange
+      // instances are no longer accepted (the framework owns child
+      // construction). The types catch this for TS users; this check
+      // catches plain-JS / `as any` splitters that would otherwise flow
+      // a whole Exchange object downstream as the child body.
+      if (isExchange(result)) {
+        throw rcError("RC5003", undefined, {
+          message:
+            ".split() returned an Exchange instance; splitters return child bodies. Return the value itself, or splitChild(body, headers) for per-child header overrides.",
+        });
+      }
       const envelope = isSplitChild(result)
         ? (result as SplitChild<R>)
         : undefined;

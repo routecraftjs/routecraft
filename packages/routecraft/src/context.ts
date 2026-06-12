@@ -295,7 +295,7 @@ export class CraftContext {
    * @returns A string identifier for the plugin
    */
   private getPluginId(plugin: CraftPlugin, index: number): string {
-    if (plugin.name) return plugin.name;
+    if (typeof plugin.name === "string" && plugin.name) return plugin.name;
     const constructorName =
       plugin.constructor?.name !== "Object" ? plugin.constructor?.name : null;
     return constructorName ?? `plugin-${index}`;

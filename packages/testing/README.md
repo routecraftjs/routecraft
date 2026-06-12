@@ -61,16 +61,16 @@ Wrapper around `CraftContext` with:
 - **`logger`** -- A runner-agnostic spy logger. Inspect calls via `t.logger.info.mock.calls`, or build the context with your runner's mock factory (`testContext({ fn: vi.fn })` for Vitest, `testContext({ fn: mock })` for bun:test) to use native matchers like `toHaveBeenCalledWith`.
 - **`errors`** -- Collected capability errors.
 - **`test(options?)`** -- Runs start, waits for capabilities to be ready, optionally delays, drains, then stops. Assert after `await t.test()`.
-- **`startAndWaitReady()`** -- Starts the context and waits for all capabilities to be ready without draining. Use with `t.client.send()` to send to a direct endpoint, then call `stop()` when done.
+- **`startAndWaitReady()`** -- Starts the context and waits for all capabilities to be ready without draining. Use with `t.client.sendDirect()` to send to a direct endpoint, then call `stop()` when done.
 - **`stop()`** / **`drain()`** -- Lifecycle helpers.
 
-### `t.client.send(endpoint, body, headers?)`
+### `t.client.sendDirect(endpoint, body, headers?)`
 
 Send a message to a direct endpoint and return the result via the `CraftClient`. Use with `startAndWaitReady()`.
 
 ```typescript
 await t.startAndWaitReady();
-const result = await t.client.send('send-email', { to: 'user@example.com' });
+const result = await t.client.sendDirect('send-email', { to: 'user@example.com' });
 await t.stop();
 ```
 

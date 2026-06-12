@@ -4,6 +4,7 @@ import {
   craft,
   direct,
   noop,
+  recovery,
   getExchangeContext,
   DefaultExchange,
   type Exchange,
@@ -81,5 +82,52 @@ describe("CraftClient", () => {
       { "x-request-id": "abc-123" },
     );
     expect(result).toBe("abc-123");
+  });
+
+  /**
+   * @case sendDirect rejects with RC5031 when the route drops the exchange
+   * @preconditions Direct route whose .error() handler returns recovery.drop()
+   * @expectedResult The promise rejects with RC5031 instead of resolving with
+   *                 the caller's own request body
+   */
+  test("sendDirect rejects with RC5031 when the exchange is dropped", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("drops-request")
+          .error(() => recovery.drop("poison"))
+          .from(direct())
+          .transform(() => {
+            throw new Error("boom");
+          }),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    await expect(
+      t.client.sendDirect("drops-request", { id: 1 }),
+    ).rejects.toMatchObject({ rc: "RC5031" });
+  });
+
+  /**
+   * @case sendDirect rejects with RC5031 when a filter drops the exchange
+   * @preconditions Direct route with a .filter() that rejects the request
+   * @expectedResult The promise rejects with RC5031 (a drop is not a response)
+   */
+  test("sendDirect rejects with RC5031 when a filter drops the exchange", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("filters-request")
+          .from(direct())
+          .filter(() => false)
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    await expect(
+      t.client.sendDirect("filters-request", { id: 1 }),
+    ).rejects.toMatchObject({ rc: "RC5031" });
   });
 });
