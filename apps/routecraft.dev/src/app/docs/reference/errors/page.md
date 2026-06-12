@@ -416,6 +416,15 @@ A request/reply caller (`client.sendDirect()` or an error handler's `forward()`)
 **Suggestion**  
 If the caller should receive a value, recover with a body in `.error()` instead of `recovery.drop()`, or let the exchange pass the filter. If dropping is intended, catch the error and branch on `error.rc === 'RC5031'`.
 
+## RC5032
+Unsupported step outcome
+
+**Why it happens**  
+A step returned a `StepOutcome` whose `kind` the engine cannot schedule. In practice this only happens with a custom step: the built-in steps always return a supported kind. The `suspend` kind is declared on the outcome union (reserved for the future route-level suspend/resume feature) but is not implemented yet, so the executor rejects it rather than silently dropping the exchange. This is **not retryable**: the same step returns the same outcome every time.
+
+**Suggestion**  
+Return one of the supported outcomes from your step: `continue`, `complete`, `drop`, `branch`, or `fanOut`. Suspend/resume is not available yet; follow the tracking issue for when `suspend` becomes producible.
+
 ## RC9901
 Unknown error
 

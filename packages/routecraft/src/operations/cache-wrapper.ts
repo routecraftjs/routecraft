@@ -228,11 +228,16 @@ export class CacheWrapperStep<
             // Abort via sentinel so `getOrCompute` writes nothing.
             throw new CacheLoaderDrop();
           }
-          if (outcome.kind === "fanOut" || outcome.kind === "branch") {
+          if (
+            outcome.kind === "fanOut" ||
+            outcome.kind === "branch" ||
+            outcome.kind === "suspend"
+          ) {
             // The wrapper caches and replays a single output. Fan-out
             // would lose all but one child; a branch outcome carries
-            // live steps that cannot be cached. split / aggregate are
-            // already blocked at construction by WrapperStep; this
+            // live steps that cannot be cached; a suspend exchange is
+            // mid-flight and must never be cache-stored. split / aggregate
+            // are already blocked at construction by WrapperStep; this
             // guards choice and custom steps explicitly (the
             // pre-outcome engine silently discarded a wrapped choice's
             // branch steps instead).

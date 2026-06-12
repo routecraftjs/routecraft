@@ -271,6 +271,15 @@ export async function runPipeline(
           // The step marked the exchange dropped and emitted its drop
           // events; schedule nothing.
           break;
+        case "suspend":
+          // Reserved StepOutcome kind: declared for the route-level
+          // suspend/resume feature but not yet producible. No step returns
+          // it today, so reaching here means a custom step emitted a kind the
+          // engine cannot yet schedule. Fail loud rather than silently drop
+          // the exchange.
+          throw rcError("RC5032", undefined, {
+            message: `Step "${stepLabel}" returned a "suspend" outcome, but suspend/resume is not implemented yet.`,
+          });
       }
 
       // Emit step:completed event unless the step manages its own events

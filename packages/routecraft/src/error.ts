@@ -76,6 +76,7 @@ export interface ErrorCodeRegistry {
   RC5029: RCMeta;
   RC5030: RCMeta;
   RC5031: RCMeta;
+  RC5032: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -319,6 +320,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The target route discarded the exchange instead of completing it (a filter rejected it, the source's onParseError was 'drop', or an error handler returned recovery.drop()), so there is no response body for a request/reply caller. If the caller should receive a value, recover with a body in .error() or let the exchange pass the filter.",
     docs: `${DOCS_BASE}#rc-5031`,
+    retryable: false,
+  },
+  RC5032: {
+    category: "Runtime",
+    message: "Unsupported step outcome",
+    suggestion:
+      "A step returned a StepOutcome kind the engine cannot schedule yet. The 'suspend' kind is reserved for the route-level suspend/resume feature and is not implemented; no built-in step produces it. If you wrote a custom step, return a supported outcome (continue, complete, drop, branch, fanOut). Retrying will not help.",
+    docs: `${DOCS_BASE}#rc-5032`,
     retryable: false,
   },
   RC9901: {
