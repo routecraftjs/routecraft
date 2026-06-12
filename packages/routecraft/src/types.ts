@@ -314,6 +314,19 @@ export interface EventDetailsMap {
     route: Route;
     exchange?: Exchange<unknown>;
   };
+  /**
+   * A source subscription rejected: the source gave up producing (e.g. a
+   * connection-backed source exhausted its reconnect attempts) and the route
+   * is about to stop. Distinct from `route:stopping`, which also fires for
+   * orderly shutdowns; subscribe to this one to alarm on a dead channel.
+   */
+  "route:source:failed": {
+    routeId: string;
+    route: Route;
+    /** `adapterId` of the failed source, when the adapter declares one. */
+    adapter?: string;
+    error: unknown;
+  };
   "route:error": {
     routeId: string;
     error: unknown;

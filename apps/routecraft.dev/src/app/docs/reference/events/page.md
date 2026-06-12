@@ -38,6 +38,9 @@ All events share the same envelope:
 | `route:started` | Capability is running | `{ route }` |
 | `route:stopping` | Capability is stopping | `{ route, reason?, exchange? }` |
 | `route:stopped` | Capability has stopped | `{ route, exchange? }` |
+| `route:source:failed` | A source gave up producing (e.g. a connection-backed source exhausted its reconnect attempts) and the route is about to stop | `{ routeId, route, adapter?, error }` |
+
+`route:source:failed` is the signal to alarm on for a dead channel: unlike `route:stopping`, it never fires for an orderly shutdown. `adapter` is the `adapterId` of the failed source when the adapter declares one (e.g. `routecraft.adapter.mail`).
 
 ## Exchange events
 
