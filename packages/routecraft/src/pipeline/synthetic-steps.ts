@@ -17,6 +17,7 @@ import {
 import { type Adapter, type Step } from "../types.ts";
 import {
   ThrottleController,
+  throttleEmitHooks,
   type ResolvedThrottleOptions,
 } from "../operations/throttle-wrapper.ts";
 
@@ -445,21 +446,7 @@ export function buildThrottleCheckStep(
 
       await controller.acquire(exchange, route, {
         ...(route ? { signal: route.signal } : {}),
-        onDelayed: (waitMs, key) => {
-          context?.emit("route:throttle:delayed", {
-            ...scoped,
-            waitMs,
-            ...(key !== undefined ? { key } : {}),
-          });
-        },
-        onPassed: (waited, elapsed, key) => {
-          context?.emit("route:throttle:passed", {
-            ...scoped,
-            waited,
-            elapsed,
-            ...(key !== undefined ? { key } : {}),
-          });
-        },
+        ...throttleEmitHooks(context, scoped, true),
       });
 
       return { kind: "continue", exchange } as const;

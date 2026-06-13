@@ -377,6 +377,72 @@ describe("Throttle wrapper (.throttle())", () => {
         .throttle({ rate: 10, key: () => "k", maxKeys: 0 })
         .to(spy()),
     ).toThrow(/maxKeys/);
+
+    // An "effectively unlimited" maxKeys would OOM via LRU pre-allocation.
+    expect(() =>
+      craft()
+        .id("throttle-huge-maxkeys")
+        .from(simple("in"))
+        .throttle({ rate: 10, key: () => "k", maxKeys: 100_000_000 })
+        .to(spy()),
+    ).toThrow(/maxKeys/);
+  });
+
+  /**
+   * @case A throwing key selector fails the exchange with a clear error rather than a generic failure
+   * @preconditions .throttle({ key }) whose selector dereferences a missing field and throws
+   * @expectedResult The exchange fails on the default error path with an RC5003 message naming the key selector
+   */
+  test("a throwing key selector fails with a clear error", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("throttle-key-throws")
+          .from(simple("in"))
+          .throttle({
+            rate: 10,
+            // A selector that throws (e.g. dereferencing a missing field).
+            key: () => {
+              throw new Error("no principal");
+            },
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.test();
+
+    expect(t.errors).toHaveLength(1);
+    expect(t.errors[0].message).toMatch(/key/);
+  });
+
+  /**
+   * @case A sub-1 burst is floored so the first call still admits immediately
+   * @preconditions .throttle({ rate: 2, burst: 0.5 }) over a single exchange
+   * @expectedResult Capacity floors at 1, so the lone exchange passes without pacing (no delayed event)
+   */
+  test("floors a sub-1 burst so the first call is not paced", async () => {
+    const s = spy();
+    const delayed: unknown[] = [];
+
+    t = await testContext()
+      .on("route:throttle:delayed", (payload) => {
+        delayed.push(payload.details);
+      })
+      .routes(
+        craft()
+          .id("throttle-small-burst")
+          .from(simple("only"))
+          .throttle({ rate: 2, burst: 0.5 })
+          .to(s),
+      )
+      .build();
+
+    await t.test();
+
+    expect(t.errors).toHaveLength(0);
+    expect(s.received).toHaveLength(1);
+    expect(delayed).toHaveLength(0);
   });
 
   /**

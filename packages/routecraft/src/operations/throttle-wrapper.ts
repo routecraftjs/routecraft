@@ -2,6 +2,7 @@ import { LRUCache } from "lru-cache";
 import { type Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
+import type { CraftContext } from "../context.ts";
 import type { Route } from "../route.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { wrapperEventScope } from "./event-scope.ts";
@@ -37,6 +38,14 @@ const MAX_TIMER_MS = 2_147_483_647;
 const DEFAULT_MAX_KEYS = 10_000;
 
 /**
+ * Hard ceiling on `maxKeys`. The per-key LRU pre-allocates index arrays
+ * sized to its `max`, so this bounds the eager allocation a single
+ * `.throttle({ key })` can trigger and stops an absurd value from OOMing
+ * the process at build time.
+ */
+const MAX_KEYS_CEILING = 1_000_000;
+
+/**
  * Options for the `.throttle()` wrapper (step scope and route scope).
  */
 export interface ThrottleOptions {
@@ -57,7 +66,10 @@ export interface ThrottleOptions {
    * Partition the limit: each distinct key gets its own independent
    * bucket, so you can rate-limit per user, per IP, per tenant, etc.
    * Omit for a single bucket shared across the whole route (a global
-   * limit). The selector runs once per exchange.
+   * limit). The selector runs once per exchange and MUST return a
+   * string; coalesce missing values (e.g. `?? "anonymous"`). A selector
+   * that throws fails the exchange (it is user code, like a transform),
+   * so guard it rather than relying on the never-drops contract.
    *
    * @example Per authenticated principal
    * ```ts
@@ -118,7 +130,9 @@ export function resolveThrottleOptions(
   }
   if (!(per in WINDOW_MS)) {
     throw rcError("RC5003", undefined, {
-      message: `throttle({ per }) must be one of "second", "minute", "hour", got ${String(per)}.`,
+      message: `throttle({ per }) must be one of ${Object.keys(WINDOW_MS)
+        .map((u) => `"${u}"`)
+        .join(", ")}, got ${String(per)}.`,
     });
   }
   if (burst !== undefined && (!Number.isFinite(burst) || burst <= 0)) {
@@ -126,16 +140,20 @@ export function resolveThrottleOptions(
       message: `throttle({ burst }) must be a finite number > 0, got ${String(burst)}.`,
     });
   }
-  if (!Number.isInteger(maxKeys) || maxKeys < 1) {
+  // Upper-bound `maxKeys`: the per-key LRU pre-allocates index arrays
+  // sized to `max` at construction, so an "effectively unlimited" value
+  // would OOM the process the moment the limiter is built, not gradually.
+  if (!Number.isInteger(maxKeys) || maxKeys < 1 || maxKeys > MAX_KEYS_CEILING) {
     throw rcError("RC5003", undefined, {
-      message: `throttle({ maxKeys }) must be an integer >= 1, got ${String(maxKeys)}.`,
+      message: `throttle({ maxKeys }) must be an integer between 1 and ${MAX_KEYS_CEILING}, got ${String(maxKeys)}.`,
     });
   }
 
   return {
-    // Floor an absent burst at 1 so a sub-1 rate still admits the first
-    // call immediately; an explicit burst is honoured as given.
-    capacity: burst ?? Math.max(1, rate),
+    // Capacity floors at 1 so a sub-1 rate (or an accidental sub-1
+    // `burst`) still admits the first call immediately instead of pacing
+    // every exchange.
+    capacity: Math.max(1, burst ?? rate),
     refillPerMs: rate / WINDOW_MS[per],
     ...(key ? { key } : {}),
     maxKeys,
@@ -214,13 +232,17 @@ export class ThrottleLimiter {
   constructor(options: ResolvedThrottleOptions) {
     this.#options = options;
     if (options.key) {
-      // Idle keys are dropped once their bucket would have fully
-      // refilled: a full bucket is indistinguishable from a fresh one,
-      // so eviction is lossless and a returning key just rebuilds an
-      // identical full bucket. `ttl` = refill-to-full time;
-      // `updateAgeOnGet` makes it "idle since last use". `max` is the
-      // hard ceiling for a flood of distinct keys WITHIN one ttl window
-      // (e.g. random-IP abuse), so memory stays bounded regardless.
+      // Idle keys are dropped once their bucket would have refilled to
+      // full: a full bucket is indistinguishable from a fresh one, so a
+      // returning key just rebuilds an identical full bucket. `ttl` =
+      // refill-to-full FROM EMPTY; `updateAgeOnGet` makes it "idle since
+      // last use". A bucket driven negative (heavy backlog) needs longer
+      // than `ttl` to truly reach full, so evicting it at `ttl` can
+      // forgive a little unpaid debt and grant the returning key an early
+      // burst -- a bounded, self-correcting over-admit at the eviction
+      // boundary, accepted as the price of cheap memory reclamation.
+      // `max` is the hard ceiling for a flood of distinct keys WITHIN one
+      // ttl window (e.g. random-IP abuse), so memory stays bounded.
       const ttl = Math.max(
         1,
         Math.ceil(options.capacity / options.refillPerMs),
@@ -242,7 +264,19 @@ export class ThrottleLimiter {
       this.#single ??= new TokenBucket(this.#options, now);
       return { waitMs: this.#single.reserve(now) };
     }
-    const key = this.#options.key(exchange);
+    let key: string;
+    try {
+      key = this.#options.key(exchange);
+    } catch (err) {
+      // The selector is user code; surface a clear, actionable error
+      // rather than a generic step failure. Throttle's "only ever
+      // delays" contract covers the rate mechanism, not a throwing key
+      // selector (use a fallback such as `?? "anonymous"`).
+      throw rcError("RC5003", err, {
+        message:
+          'throttle({ key }) selector threw; it must return a string for every exchange (e.g. coalesce a missing value with `?? "anonymous"`).',
+      });
+    }
     let bucket = this.#keyed!.get(key);
     if (!bucket) {
       bucket = new TokenBucket(this.#options, now);
@@ -270,6 +304,52 @@ export interface ThrottleHooks {
    * it was charged against (absent when unkeyed).
    */
   onPassed(waited: boolean, elapsed: number, key?: string): void;
+}
+
+/** Event-scope bindings shared by the `route:throttle:*` payloads. */
+export interface ThrottleEventScope {
+  routeId: string;
+  exchangeId: string;
+  correlationId: string;
+  stepLabel: string;
+  scope: "route" | "step";
+}
+
+/**
+ * Build the `onDelayed` / `onPassed` half of {@link ThrottleHooks} that
+ * emits the `route:throttle:*` events. Shared by the step-scope wrapper
+ * and the route-scope gate so the event payload shape lives in one place
+ * (only the `scoped` descriptor and the `emit` guard differ between
+ * them). `context?.emit` no-ops when the exchange carries no context.
+ *
+ * @internal
+ */
+export function throttleEmitHooks(
+  context: CraftContext | undefined,
+  scoped: ThrottleEventScope,
+  emit: boolean,
+): Pick<ThrottleHooks, "onDelayed" | "onPassed"> {
+  return {
+    onDelayed: (waitMs, key) => {
+      if (emit) {
+        context?.emit("route:throttle:delayed", {
+          ...scoped,
+          waitMs,
+          ...(key !== undefined ? { key } : {}),
+        });
+      }
+    },
+    onPassed: (waited, elapsed, key) => {
+      if (emit) {
+        context?.emit("route:throttle:passed", {
+          ...scoped,
+          waited,
+          elapsed,
+          ...(key !== undefined ? { key } : {}),
+        });
+      }
+    },
+  };
 }
 
 /**
@@ -381,25 +461,7 @@ export class ThrottleWrapperStep<
 
     await this.#controller.acquire(exchange, route, {
       ...(route ? { signal: route.signal } : {}),
-      onDelayed: (waitMs, key) => {
-        if (shouldEmit) {
-          context.emit("route:throttle:delayed", {
-            ...scoped,
-            waitMs,
-            ...(key !== undefined ? { key } : {}),
-          });
-        }
-      },
-      onPassed: (waited, elapsed, key) => {
-        if (shouldEmit) {
-          context.emit("route:throttle:passed", {
-            ...scoped,
-            waited,
-            elapsed,
-            ...(key !== undefined ? { key } : {}),
-          });
-        }
-      },
+      ...throttleEmitHooks(context, scoped, Boolean(shouldEmit)),
     });
 
     return await this.inner.execute(exchange, ctx);

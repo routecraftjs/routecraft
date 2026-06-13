@@ -47,7 +47,7 @@ craft()
   .to(destination)
 ```
 
-Common selectors: `ex.principal?.sub` (per user), `ex.headers['x-forwarded-for']` (per IP), `ex.headers['x-tenant-id']` (per tenant).
+Common selectors: `ex.principal?.sub` (per user), `ex.headers['x-forwarded-for']` (per IP), `ex.headers['x-tenant-id']` (per tenant). The selector must return a string for every exchange, so coalesce missing values (`?? 'anonymous'`); a selector that throws fails the exchange like any user callback. `maxKeys` must be between 1 and 1,000,000 (the per-key store pre-allocates to its bound).
 
 The per-key buckets live in an LRU bounded by `maxKeys`, and an idle key's bucket is evicted once it would have fully refilled (a full bucket is indistinguishable from a fresh one, so this is lossless). A key seen again after eviction simply starts with a full bucket. This keeps memory bounded even with an unbounded key space.
 
