@@ -22,7 +22,7 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "@opentelemetry/sdk-trace-base": "^2.7.1",
+    "@opentelemetry/sdk-trace-base": "^2.8.0",
     "@routecraft/routecraft": "^0.5.0",
     "agent-browser": "^0.17.1",
     "cheerio": "^1.2.0",

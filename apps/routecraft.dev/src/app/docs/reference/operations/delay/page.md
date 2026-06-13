@@ -40,4 +40,4 @@ craft()
 
 **Events:** `route:delay:started` when the wait begins; `route:delay:stopped` when it ends (with `elapsed` and the `cancelled` flag). See the [events reference](/docs/reference/events).
 
-**`.delay()` vs `.throttle()`:** Delay is a fixed wait per exchange. Rate limiting to N requests per second across concurrent exchanges is `.throttle()` (planned), which shares route-level limiter state.
+**`.delay()` vs `.throttle()`:** Delay is a fixed wait per exchange. Rate limiting to N requests per second across concurrent exchanges is `.throttle()`, which shares a token bucket across the route so it caps the aggregate call rate.

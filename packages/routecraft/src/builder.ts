@@ -14,6 +14,7 @@ import {
   type Tag,
   buildCacheCheckStep,
   buildCacheStoreStep,
+  buildThrottleCheckStep,
 } from "./route.ts";
 import {
   CraftContext,
@@ -63,6 +64,11 @@ import {
   type ResolvedTimeoutOptions,
   resolveTimeoutOptions,
 } from "./operations/timeout-wrapper.ts";
+import {
+  type ThrottleOptions,
+  type ResolvedThrottleOptions,
+  resolveThrottleOptions,
+} from "./operations/throttle-wrapper.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -478,6 +484,12 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
    * {@link RouteBuilder.timeout}.
    */
   timeout(timeoutMs: number): this;
+  /**
+   * Configure a ROUTE-SCOPE throttle for the next route (rate-limit the
+   * whole pipeline, chain position 5). The step-scope variant lives on
+   * the post-`.from()` builder. See {@link RouteBuilder.throttle}.
+   */
+  throttle(options: ThrottleOptions): this;
   /** Declare an authorization requirement on the next route. See {@link RouteBuilder.authorize}. */
   authorize(options?: AuthorizeOptions): this;
   /** Finalize and return the route definition(s). See {@link RouteBuilder.build}. */
@@ -565,6 +577,7 @@ export class RouteBuilder<
         cacheConfig?: ResolvedCacheOptions;
         retryConfig?: ResolvedRetryOptions;
         timeoutConfig?: ResolvedTimeoutOptions;
+        throttleConfigs?: ResolvedThrottleOptions[];
         discovery?: RouteDiscovery;
         authorizers?: AuthorizeOptions[];
       }
@@ -918,6 +931,50 @@ export class RouteBuilder<
   }
 
   /**
+   * Throttle. Dual-mode:
+   *
+   * - **Before `.from()` (route scope):** rate-limits the whole pipeline
+   *   at pre-from filter chain position 5, OUTSIDE the resilience
+   *   wrappers (a throttled request never reaches retry / timeout). The
+   *   gate runs before the cache check, so a paced request does not
+   *   consume a cache lookup until it is admitted. Each gate's limiter
+   *   is built per Route, so a definition reused across contexts does
+   *   not share buckets.
+   *
+   *   Stacking is supported: multiple `.throttle()` calls before
+   *   `.from()` AND-combine into independent gates (e.g. a global
+   *   ceiling plus a per-principal `key` limit); the exchange must be
+   *   admitted by all of them.
+   *
+   *   This gate paces exchanges WITHIN the pipeline: it rate-limits the
+   *   downstream work but does not pause the source consumer, so under
+   *   high concurrency exchanges queue in flight while they wait for a
+   *   token. True source backpressure (a consumer that stops pulling) is
+   *   a follow-up; see `.standards/resilience-wrappers.md` section 7.
+   *
+   * - **After `.from()` (step scope):** wraps the immediately-next step;
+   *   see {@link StepBuilderBase.throttle} for the step-scope contract.
+   */
+  override throttle(options: ThrottleOptions): this {
+    if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
+      // Route scope: append the resolved config (validates at staging
+      // time) so the next `.from()` builds one gate per config. Stacking
+      // accumulates rather than overwriting, so independent limits
+      // compose.
+      this.pendingOptions = {
+        ...(this.pendingOptions ?? {}),
+        throttleConfigs: [
+          ...(this.pendingOptions?.throttleConfigs ?? []),
+          resolveThrottleOptions(options),
+        ],
+      };
+      logger.trace("Staging route-scope throttle config for next route");
+      return this;
+    }
+    return super.throttle(options);
+  }
+
+  /**
    * Declare an authorization requirement on the next route. **Route-only**:
    * stages the authorizer onto the next-route options and runs at route
    * entry, before any pipeline step. Same staging convention as `.id`,
@@ -1041,6 +1098,7 @@ export class RouteBuilder<
     const cacheConfig = this.pendingOptions?.cacheConfig;
     const retryConfig = this.pendingOptions?.retryConfig;
     const timeoutConfig = this.pendingOptions?.timeoutConfig;
+    const throttleConfigs = this.pendingOptions?.throttleConfigs;
     const discovery = this.pendingOptions?.discovery;
     const authorizers = this.pendingOptions?.authorizers ?? [];
 
@@ -1072,10 +1130,11 @@ export class RouteBuilder<
     //                       `.standards/pre-from-filter-chain.md` for the
     //                       scoping note: folding it in changes cross-route
     //                       context:error semantics and is tracked separately.)
-    //   postParseFilters  -> .cache() check (#9); reserved slots for future
-    //                        .throttle() / .circuitBreaker() (positions 5-6).
-    //                        Route-scope .retry() (#7) / .timeout() (#8) ride
-    //                        on RouteDefinition fields instead (see below)
+    //   postParseFilters  -> .cache() check (#9); reserved slot for future
+    //                        .circuitBreaker() (#6). Route-scope .throttle()
+    //                        (#5), .retry() (#7), and .timeout() (#8) sit
+    //                        OUTSIDE this array and ride on RouteDefinition
+    //                        fields instead (see below)
     //   userSteps         -> declaration order, unchanged
     //   postFromFilters   -> .cache() store (#10)
     //
@@ -1089,6 +1148,18 @@ export class RouteBuilder<
     const postParseFilters: Step<Adapter>[] = cacheConfig
       ? [buildCacheCheckStep(cacheConfig)]
       : [];
+
+    // Route-scope throttle (#5) is a one-shot admission gate, not a
+    // segment, but it must sit OUTSIDE the retry (#7) / timeout (#8)
+    // segments so a retried attempt re-runs only the tail below it and
+    // never re-acquires a token. It therefore rides on its own
+    // definition field (like retry / timeout) rather than in
+    // `postParseFilters`, which the executor wraps INSIDE the segments.
+    // One gate per `.throttle()` call (they AND-combine); each gate's
+    // limiter is built per Route at runtime, not shared here.
+    const throttleGates = throttleConfigs?.map((cfg) =>
+      buildThrottleCheckStep(cfg),
+    );
 
     const postFromFilters: Step<Adapter>[] = cacheConfig
       ? [buildCacheStoreStep(cacheConfig)]
@@ -1117,6 +1188,9 @@ export class RouteBuilder<
       // matching segment steps. See `.standards/pre-from-filter-chain.md`.
       ...(retryConfig ? { retry: retryConfig } : {}),
       ...(timeoutConfig ? { timeout: timeoutConfig } : {}),
+      ...(throttleGates && throttleGates.length > 0
+        ? { throttle: throttleGates }
+        : {}),
     };
     setBrand(this.currentRoute, BRAND.RouteDefinition);
 

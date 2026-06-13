@@ -475,6 +475,44 @@ export interface EventDetailsMap {
     elapsed: number;
   };
 
+  // -- Throttle (route- and step-scope wrapper) --
+  /** No token was free; the exchange will wait `waitMs` before admission (delay mode). */
+  "route:throttle:delayed": ExchangeScoped & {
+    /** Label of the wrapped step, or `"route"` when `scope === "route"`. */
+    stepLabel: string;
+    scope: "route" | "step";
+    /** Pacing wait applied before this exchange is admitted. */
+    waitMs: number;
+    /** Partition key the exchange was charged against, when `key` is set. */
+    key?: string;
+    /** Gate label, when `.throttle({ label })` is set. */
+    label?: string;
+  };
+  /** The exchange was admitted through the rate limiter. */
+  "route:throttle:passed": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
+    /** True when the exchange had to wait for a token before admission. */
+    waited: boolean;
+    /** Total time spent in the throttle gate (0 on the fast path). */
+    elapsed: number;
+    /** Partition key the exchange was charged against, when `key` is set. */
+    key?: string;
+    /** Gate label, when `.throttle({ label })` is set. */
+    label?: string;
+  };
+  /** The exchange exceeded the rate and was rejected (reject mode); `RC5013` follows. */
+  "route:throttle:rejected": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
+    /** Time until a token would free, for a Retry-After style hint. */
+    retryAfterMs: number;
+    /** Partition key the exchange was charged against, when `key` is set. */
+    key?: string;
+    /** Gate label, when `.throttle({ label })` is set. */
+    label?: string;
+  };
+
   // -- Error handler (route- and step-scope wrappers) --
   "route:error-handler:invoked": ExchangeScoped & {
     originalError: unknown;

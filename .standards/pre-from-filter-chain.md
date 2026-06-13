@@ -7,9 +7,10 @@ which `.input()`, `.authorize()`, `.cache()`, `.error()`, etc. are
 called on the builder. Builder order is for ergonomics; runtime
 order is the framework's call.
 
-This document is the single source of truth for that order. Future
-resilience wrappers (`.retry()`, `.timeout()`, `.circuitBreaker()`,
-`.throttle()`) slot into the positions named below.
+This document is the single source of truth for that order. The
+resilience wrappers (`.throttle()`, `.retry()`, `.timeout()`) slot into
+the positions named below; the future `.circuitBreaker()` reserves
+position #6.
 
 Inspiration: Spring's `FilterChainProxy` / `WebSecurityConfigurerAdapter`
 and Resilience4J's wrapper composition. The framework picks the
@@ -28,7 +29,7 @@ below).
 | 2 | `authorize` (stacks) | shipped | yes (`RC5012` / `RC5015`) | identity gate; deterministic, not retried |
 | 3 | `parse` | shipped (source-attached) | yes (`RC5016`) | raw bytes → typed body; deterministic, not retried |
 | 4 | `input` | shipped | yes (`RC5002`) | schema validation; deterministic, not retried |
-| 5 | `throttle` | planned | yes (`RC5013`) | rate limit valid requests (not pre-auth; that's source-layer DoS protection) |
+| 5 | `throttle` | shipped (#151) | `mode: 'reject'` only (`RC5013`); default `'delay'` paces | rate limit valid requests (not pre-auth; that's source-layer DoS protection). Delay paces; reject fails fast with `RC5013` |
 | 6 | `circuitBreaker` | planned (#139) | yes (new RC code, fast-fail when open) | counts inner failures; trips after threshold |
 | 7 | `retry` | shipped (#148) | yes (final attempt's throw) | re-runs everything below on failure |
 | 8 | `timeout` | shipped (#147) | yes (`RC5011`) | per-attempt deadline |
@@ -142,12 +143,17 @@ processes normally.
    they own).
 3. `error` catches.
 
-### Throttle rejects
+### Throttle paces (delay mode) or rejects (reject mode)
 
-1. `throttle` throws `RC5013`.
-2. `circuitBreaker` is *inside* throttle, so it doesn't run; doesn't
-   count this as a failure.
-3. `error` catches.
+1. `throttle` finds the route's token bucket empty. In the default
+   `delay` mode the exchange waits; in `mode: 'reject'` it throws
+   `RC5013` immediately (without consuming a token).
+2. While a delayed exchange waits, nothing below it runs;
+   `circuitBreaker` (inside throttle) sees no attempt, so it counts no
+   failure. A rejected exchange likewise never reaches the inner layers.
+3. On delay, once a token frees the exchange is admitted and the chain
+   continues; `error` is not invoked by a pure pace. On reject, the
+   `RC5013` propagates to `error` (or the default error path).
 
 ### Cache hit
 
@@ -202,15 +208,18 @@ write.
 
 Today (as of #112 / #395 / 0.6.0):
 
-- Filters 1-4 and 9-10 are implemented; the chain runs in the
-  order documented above.
+- Filters 1-5 and 7-10 are implemented (only #6
+  `circuitBreaker` remains); the chain runs in the order documented
+  above.
 - The chain is **first-class data** on `RouteDefinition`:
   - `preParseFilters: Step<Adapter>[]` -- authorize steps in
     declaration order (chain position #2).
   - `postParseFilters: Step<Adapter>[]` -- route-scope cache-check
-    filter (chain position #9). Future resilience wrappers
-    (`throttle`, `circuitBreaker`, `retry`, `timeout`) slot in
-    here between input and cacheCheck once they land.
+    filter (chain position #9). The future `circuitBreaker` (#6)
+    slots in here once it lands. Route-scope `throttle` (#5) is a
+    one-shot gate but must sit OUTSIDE the retry / timeout segments,
+    which wrap this array, so it rides on its own field (below)
+    rather than here.
   - `postFromFilters: Step<Adapter>[]` -- route-scope cache-store
     filter (chain position #10).
   - `errorHandler?: ErrorHandler` -- the `.error()` route-scope
@@ -250,9 +259,22 @@ wrapping segment instead of firing the default error path per
 attempt. See `buildRetrySegmentStep` / `buildTimeoutSegmentStep`
 in `packages/routecraft/src/pipeline/executor.ts`.
 
-Filters 5-6 (`throttle`, `circuitBreaker`) will be added by their
-respective issues at the documented positions, following the same
-segment pattern where they need scope over the tail.
+Filter 5 (`throttle` #151) is shipped. It is a one-shot admission
+gate (it neither re-runs nor bounds the tail), so it is a flat
+`buildThrottleCheckStep` rather than a segment; but because the chain
+places it OUTSIDE retry (#7) / timeout (#8), the executor prepends it
+to the tail AFTER those segments wrap, so a retried attempt re-runs
+only the tail below it and never re-acquires a token. It rides on the
+`throttle` field of `RouteDefinition` (built once per route around a
+shared token bucket), not in `postParseFilters` (which the segments
+wrap). See `buildThrottleCheckStep` in
+`packages/routecraft/src/pipeline/synthetic-steps.ts` and the
+`deps.definition.throttle` placement in
+`packages/routecraft/src/pipeline/executor.ts`.
+
+Filter 6 (`circuitBreaker`) will be added by its issue at the
+documented position, following the segment pattern where it needs
+scope over the tail.
 
 ---
 

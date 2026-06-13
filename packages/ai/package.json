@@ -24,22 +24,22 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
-    "ai": "^6.0.203"
+    "ai": "^6.0.204"
   },
   "devDependencies": {
     "@routecraft/routecraft": "workspace:*",
     "@sinonjs/fake-timers": "^11.3.1",
     "@types/sinonjs__fake-timers": "^15.0.1",
-    "@ai-sdk/anthropic": "^3.0.74",
-    "@ai-sdk/google": "^3.0.67",
-    "@ai-sdk/openai": "^3.0.58",
+    "@ai-sdk/anthropic": "^3.0.84",
+    "@ai-sdk/google": "^3.0.82",
+    "@ai-sdk/openai": "^3.0.71",
     "@ai-sdk/openai-compatible": "^1.0.0",
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@openrouter/ai-sdk-provider": "^2.9.0",
+    "@openrouter/ai-sdk-provider": "^2.9.1",
     "express": "^5.2.1",
     "jose": "^6.2.3",
-    "ollama-ai-provider-v2": "^3.5.0",
+    "ollama-ai-provider-v2": "^3.6.0",
     "vitest": "^4.1.5",
     "yaml": "^2.8.4",
     "zod": "^4.4.3"

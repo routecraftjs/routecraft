@@ -1,9 +1,5 @@
-import {
-  type Exchange,
-  getExchangeContext,
-  getExchangeRoute,
-  HeadersKeys,
-} from "../exchange.ts";
+import { type Exchange } from "../exchange.ts";
+import { wrapperEventScope } from "./event-scope.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
@@ -203,13 +199,8 @@ export class RetryWrapperStep<
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const route = getExchangeRoute(exchange);
-    const context = getExchangeContext(exchange);
-    const routeId = route?.definition.id;
-    const stepLabel = this.label ?? String(this.operation);
-    const correlationId = exchange.headers[
-      HeadersKeys.CORRELATION_ID
-    ] as string;
+    const { route, context, routeId, stepLabel, correlationId } =
+      wrapperEventScope(exchange, this);
     const shouldEmit = route && context && routeId;
     const scoped = {
       routeId: routeId as string,

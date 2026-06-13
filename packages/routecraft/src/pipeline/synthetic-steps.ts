@@ -5,6 +5,8 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
   emitExchangeDropped,
+  getExchangeContext,
+  getExchangeRoute,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -13,6 +15,11 @@ import {
   PARSE_DROPPED_REASON,
 } from "../adapters/shared/parse.ts";
 import { type Adapter, type Step } from "../types.ts";
+import {
+  ThrottleController,
+  throttleEmitHooks,
+  type ResolvedThrottleOptions,
+} from "../operations/throttle-wrapper.ts";
 
 /**
  * Synthetic pipeline steps the engine inserts around user steps: the
@@ -367,6 +374,82 @@ export function buildCacheStoreStep(
           });
         }
       }
+      return { kind: "continue", exchange } as const;
+    },
+  };
+}
+
+/**
+ * Synthetic adapter carrier for the route-scope throttle gate. Distinct
+ * id so telemetry correlating by `adapter` can tell route-scope rate
+ * limiting apart from the user pipeline. No behaviour; the step's
+ * `execute` does the work.
+ */
+const THROTTLE_CHECK_STEP_ADAPTER: Adapter = {
+  adapterId: "routecraft.throttle",
+};
+
+/**
+ * Build a route-scope `.throttle()` gate (pre-from chain position #5).
+ * Acquires a token from the route's limiter, pacing the exchange when
+ * the bucket is empty, then continues the pipeline unchanged. It still
+ * runs before the cache check, so a paced request does not consume a
+ * cache lookup until it is admitted.
+ *
+ * Unlike `.retry()` / `.timeout()`, throttle does not scope OVER the
+ * chain tail (it neither re-runs nor bounds it): it is a one-shot gate.
+ * Because it must sit OUTSIDE the retry / timeout segments (which wrap
+ * `postParseFilters`), it rides on the dedicated `RouteDefinition.throttle`
+ * field rather than in `postParseFilters`; the executor prepends it to
+ * the tail AFTER those segments wrap, so a retried attempt re-runs only
+ * the tail below it and never re-acquires a token. Multiple `.throttle()`
+ * calls produce multiple gates that all must admit the exchange.
+ *
+ * The {@link ThrottleController} keys its buckets by Route, so the same
+ * definition registered into several contexts gives each Route its own
+ * limiter rather than one shared bucket. Reading route/context through
+ * `getExchangeRoute`/`getExchangeContext` (symbol-first, cross-instance
+ * safe) keeps the gate consistent with the step-scope wrapper. Emits the
+ * `route:throttle:*` family with `scope: "route"`. `skipStepEvents: true`
+ * keeps `runPipeline` from emitting generic lifecycle events for this
+ * internal step.
+ *
+ * @internal Exported only so `RouteBuilder.from()` can assemble it onto
+ * `RouteDefinition.throttle`. Not part of the public API; the signature
+ * may change without notice.
+ */
+export function buildThrottleCheckStep(
+  options: ResolvedThrottleOptions,
+): Step<Adapter> {
+  const controller = new ThrottleController(options);
+  return {
+    operation: OperationType.THROTTLE,
+    label: "throttle",
+    adapter: THROTTLE_CHECK_STEP_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange) {
+      const route = getExchangeRoute(exchange);
+      const context = getExchangeContext(exchange);
+      const routeId =
+        route?.definition.id ??
+        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      const scoped = {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel: "route",
+        scope: "route" as const,
+        ...(controller.label !== undefined ? { label: controller.label } : {}),
+      };
+
+      await controller.acquire(exchange, route, {
+        ...(route ? { signal: route.signal } : {}),
+        ...throttleEmitHooks(context, scoped, true),
+      });
+
       return { kind: "continue", exchange } as const;
     },
   };
