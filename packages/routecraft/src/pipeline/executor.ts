@@ -162,10 +162,11 @@ export async function runPipeline(
   // admits an exchange ONCE, then the retry / timeout segments (and the
   // cache-check + user pipeline below them) run. A retried attempt
   // re-runs only the wrapped tail, so it never re-acquires a token.
-  // Unlike retry / timeout it does not scope over the tail, so it is a
-  // flat sibling step prepended here rather than a wrapping segment.
+  // Unlike retry / timeout it does not scope over the tail, so each gate
+  // is a flat sibling step prepended here rather than a wrapping segment;
+  // multiple gates (stacked `.throttle()` calls) all run before the tail.
   if (deps.definition.throttle) {
-    tail = [deps.definition.throttle, ...tail];
+    tail = [...deps.definition.throttle, ...tail];
   }
 
   const initialSteps: Step<Adapter>[] = [

@@ -172,6 +172,7 @@ export {
 export {
   ThrottleWrapperStep,
   type ThrottleOptions,
+  type ThrottleTimeUnit,
   type ResolvedThrottleOptions,
 } from "./operations/throttle-wrapper.ts";
 

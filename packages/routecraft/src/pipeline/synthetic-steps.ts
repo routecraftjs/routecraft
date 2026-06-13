@@ -5,6 +5,8 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
   emitExchangeDropped,
+  getExchangeContext,
+  getExchangeRoute,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -14,8 +16,8 @@ import {
 } from "../adapters/shared/parse.ts";
 import { type Adapter, type Step } from "../types.ts";
 import {
-  acquireThrottleSlot,
-  type TokenBucket,
+  ThrottleController,
+  type ResolvedThrottleOptions,
 } from "../operations/throttle-wrapper.ts";
 
 /**
@@ -387,11 +389,11 @@ const THROTTLE_CHECK_STEP_ADAPTER: Adapter = {
 };
 
 /**
- * Build the route-scope `.throttle()` gate (pre-from chain position #5).
- * Acquires a token from the route-shared {@link TokenBucket}, pacing the
- * exchange when the bucket is empty, then continues the pipeline
- * unchanged. It still runs before the cache check, so a paced request
- * does not consume a cache lookup until it is admitted.
+ * Build a route-scope `.throttle()` gate (pre-from chain position #5).
+ * Acquires a token from the route's limiter, pacing the exchange when
+ * the bucket is empty, then continues the pipeline unchanged. It still
+ * runs before the cache check, so a paced request does not consume a
+ * cache lookup until it is admitted.
  *
  * Unlike `.retry()` / `.timeout()`, throttle does not scope OVER the
  * chain tail (it neither re-runs nor bounds it): it is a one-shot gate.
@@ -399,28 +401,34 @@ const THROTTLE_CHECK_STEP_ADAPTER: Adapter = {
  * `postParseFilters`), it rides on the dedicated `RouteDefinition.throttle`
  * field rather than in `postParseFilters`; the executor prepends it to
  * the tail AFTER those segments wrap, so a retried attempt re-runs only
- * the tail below it and never re-acquires a token.
+ * the tail below it and never re-acquires a token. Multiple `.throttle()`
+ * calls produce multiple gates that all must admit the exchange.
  *
- * The single `bucket` is built once per route by `RouteBuilder.from()`
- * and closed over here, so all exchanges on the route share one limiter.
- * Emits the `route:throttle:*` family with `scope: "route"`.
- * `skipStepEvents: true` keeps `runPipeline` from emitting generic
- * lifecycle events for this internal step.
+ * The {@link ThrottleController} keys its buckets by Route, so the same
+ * definition registered into several contexts gives each Route its own
+ * limiter rather than one shared bucket. Reading route/context through
+ * `getExchangeRoute`/`getExchangeContext` (symbol-first, cross-instance
+ * safe) keeps the gate consistent with the step-scope wrapper. Emits the
+ * `route:throttle:*` family with `scope: "route"`. `skipStepEvents: true`
+ * keeps `runPipeline` from emitting generic lifecycle events for this
+ * internal step.
  *
  * @internal Exported only so `RouteBuilder.from()` can assemble it onto
  * `RouteDefinition.throttle`. Not part of the public API; the signature
  * may change without notice.
  */
-export function buildThrottleCheckStep(bucket: TokenBucket): Step<Adapter> {
+export function buildThrottleCheckStep(
+  options: ResolvedThrottleOptions,
+): Step<Adapter> {
+  const controller = new ThrottleController(options);
   return {
     operation: OperationType.THROTTLE,
     label: "throttle",
     adapter: THROTTLE_CHECK_STEP_ADAPTER,
     skipStepEvents: true,
     async execute(exchange) {
-      const internals = EXCHANGE_INTERNALS.get(exchange);
-      const context = internals?.context;
-      const route = internals?.route;
+      const route = getExchangeRoute(exchange);
+      const context = getExchangeContext(exchange);
       const routeId =
         route?.definition.id ??
         (exchange.headers[HeadersKeys.ROUTE_ID] as string);
@@ -435,16 +443,21 @@ export function buildThrottleCheckStep(bucket: TokenBucket): Step<Adapter> {
         scope: "route" as const,
       };
 
-      await acquireThrottleSlot(bucket, {
+      await controller.acquire(exchange, route, {
         ...(route ? { signal: route.signal } : {}),
-        onDelayed: (waitMs) => {
-          context?.emit("route:throttle:delayed", { ...scoped, waitMs });
+        onDelayed: (waitMs, key) => {
+          context?.emit("route:throttle:delayed", {
+            ...scoped,
+            waitMs,
+            ...(key !== undefined ? { key } : {}),
+          });
         },
-        onPassed: (waited, elapsed) => {
+        onPassed: (waited, elapsed, key) => {
           context?.emit("route:throttle:passed", {
             ...scoped,
             waited,
             elapsed,
+            ...(key !== undefined ? { key } : {}),
           });
         },
       });

@@ -68,7 +68,6 @@ import {
   type ThrottleOptions,
   type ResolvedThrottleOptions,
   resolveThrottleOptions,
-  TokenBucket,
 } from "./operations/throttle-wrapper.ts";
 
 /**
@@ -578,7 +577,7 @@ export class RouteBuilder<
         cacheConfig?: ResolvedCacheOptions;
         retryConfig?: ResolvedRetryOptions;
         timeoutConfig?: ResolvedTimeoutOptions;
-        throttleConfig?: ResolvedThrottleOptions;
+        throttleConfigs?: ResolvedThrottleOptions[];
         discovery?: RouteDiscovery;
         authorizers?: AuthorizeOptions[];
       }
@@ -937,10 +936,15 @@ export class RouteBuilder<
    * - **Before `.from()` (route scope):** rate-limits the whole pipeline
    *   at pre-from filter chain position 5, OUTSIDE the resilience
    *   wrappers (a throttled request never reaches retry / timeout). The
-   *   gate runs as a flat `postParseFilters` step before the cache
-   *   check, so a paced request does not consume a cache lookup until it
-   *   is admitted. The token bucket is built once here and shared across
-   *   every exchange on the route.
+   *   gate runs before the cache check, so a paced request does not
+   *   consume a cache lookup until it is admitted. Each gate's limiter
+   *   is built per Route, so a definition reused across contexts does
+   *   not share buckets.
+   *
+   *   Stacking is supported: multiple `.throttle()` calls before
+   *   `.from()` AND-combine into independent gates (e.g. a global
+   *   ceiling plus a per-principal `key` limit); the exchange must be
+   *   admitted by all of them.
    *
    *   This gate paces exchanges WITHIN the pipeline: it rate-limits the
    *   downstream work but does not pause the source consumer, so under
@@ -953,13 +957,16 @@ export class RouteBuilder<
    */
   override throttle(options: ThrottleOptions): this {
     if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
-      // Route scope: stage the resolved config (validates the rate at
-      // staging time) so the next `.from()` builds the shared token
-      // bucket and the gate step, mirroring the `.cache()` staging
-      // convention.
+      // Route scope: append the resolved config (validates at staging
+      // time) so the next `.from()` builds one gate per config. Stacking
+      // accumulates rather than overwriting, so independent limits
+      // compose.
       this.pendingOptions = {
         ...(this.pendingOptions ?? {}),
-        throttleConfig: resolveThrottleOptions(options),
+        throttleConfigs: [
+          ...(this.pendingOptions?.throttleConfigs ?? []),
+          resolveThrottleOptions(options),
+        ],
       };
       logger.trace("Staging route-scope throttle config for next route");
       return this;
@@ -1091,7 +1098,7 @@ export class RouteBuilder<
     const cacheConfig = this.pendingOptions?.cacheConfig;
     const retryConfig = this.pendingOptions?.retryConfig;
     const timeoutConfig = this.pendingOptions?.timeoutConfig;
-    const throttleConfig = this.pendingOptions?.throttleConfig;
+    const throttleConfigs = this.pendingOptions?.throttleConfigs;
     const discovery = this.pendingOptions?.discovery;
     const authorizers = this.pendingOptions?.authorizers ?? [];
 
@@ -1148,10 +1155,11 @@ export class RouteBuilder<
     // never re-acquires a token. It therefore rides on its own
     // definition field (like retry / timeout) rather than in
     // `postParseFilters`, which the executor wraps INSIDE the segments.
-    // The shared token bucket is built once here, per route.
-    const throttleGate = throttleConfig
-      ? buildThrottleCheckStep(new TokenBucket(throttleConfig))
-      : undefined;
+    // One gate per `.throttle()` call (they AND-combine); each gate's
+    // limiter is built per Route at runtime, not shared here.
+    const throttleGates = throttleConfigs?.map((cfg) =>
+      buildThrottleCheckStep(cfg),
+    );
 
     const postFromFilters: Step<Adapter>[] = cacheConfig
       ? [buildCacheStoreStep(cacheConfig)]
@@ -1180,7 +1188,9 @@ export class RouteBuilder<
       // matching segment steps. See `.standards/pre-from-filter-chain.md`.
       ...(retryConfig ? { retry: retryConfig } : {}),
       ...(timeoutConfig ? { timeout: timeoutConfig } : {}),
-      ...(throttleGate ? { throttle: throttleGate } : {}),
+      ...(throttleGates && throttleGates.length > 0
+        ? { throttle: throttleGates }
+        : {}),
     };
     setBrand(this.currentRoute, BRAND.RouteDefinition);
 

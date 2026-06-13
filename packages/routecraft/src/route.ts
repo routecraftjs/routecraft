@@ -257,17 +257,19 @@ export type RouteDefinition<T = unknown> = {
   readonly timeout?: ResolvedTimeoutOptions;
 
   /**
-   * Route-scope `.throttle()` admission gate (pre-from filter chain
-   * position #5). A one-shot gate built once per route around a shared
-   * token bucket, so unlike retry / timeout it is a flat step rather
-   * than a segment. The pipeline executor places it OUTSIDE the retry
-   * (#7) / timeout (#8) segments (throttle #5 is above them in the
-   * chain) and runs it once per exchange; a retried attempt re-runs
-   * only the tail below it and never re-acquires a token.
+   * Route-scope `.throttle()` admission gates (pre-from filter chain
+   * position #5), in declaration order. Each is a one-shot gate (a flat
+   * step, not a segment like retry / timeout); the exchange must be
+   * admitted by ALL of them, so stacking `.throttle()` calls AND-combines
+   * independent limits (e.g. a global ceiling plus a per-principal rate).
+   * The pipeline executor places them OUTSIDE the retry (#7) / timeout
+   * (#8) segments (throttle #5 is above them in the chain) and runs them
+   * once per exchange; a retried attempt re-runs only the tail below and
+   * never re-acquires a token.
    *
    * @internal
    */
-  readonly throttle?: Step<Adapter>;
+  readonly throttle?: Step<Adapter>[];
 };
 
 /**

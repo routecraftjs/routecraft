@@ -483,6 +483,8 @@ export interface EventDetailsMap {
     scope: "route" | "step";
     /** Pacing wait applied before this exchange is admitted. */
     waitMs: number;
+    /** Partition key the exchange was charged against, when `key` is set. */
+    key?: string;
   };
   /** The exchange was admitted through the rate limiter. */
   "route:throttle:passed": ExchangeScoped & {
@@ -492,6 +494,8 @@ export interface EventDetailsMap {
     waited: boolean;
     /** Total time spent in the throttle gate (0 on the fast path). */
     elapsed: number;
+    /** Partition key the exchange was charged against, when `key` is set. */
+    key?: string;
   };
 
   // -- Error handler (route- and step-scope wrappers) --

@@ -358,26 +358,27 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   }
 
   /**
-   * Rate-limit the next step to a maximum number of calls per time
-   * window. Exchanges that exceed the rate are paced (delayed) rather
-   * than dropped, so backpressure flows back through the pipeline. The
-   * limiter state (a token bucket) is shared across every exchange on
-   * the route, so concurrent exchanges queue fairly behind one rate.
+   * Rate-limit the next step to `rate` calls per `per` window (token
+   * bucket). Exchanges that exceed the rate are paced (delayed) rather
+   * than dropped, so backpressure flows back through the pipeline.
    *
-   * Supply exactly one of `requestsPerSecond` or `requestsPerMinute`.
-   * After an idle window up to that many calls burst through
+   * By default the limiter is one bucket shared across the route (a
+   * global limit). Pass a `key` selector to partition it per user / IP /
+   * tenant: each distinct key gets its own bucket, bounded by `maxKeys`.
+   * After an idle window up to `burst` calls (default `rate`) pass
    * immediately, then admissions settle to the configured rate.
    *
    * On `RouteBuilder`, this method is dual-mode: called BEFORE
    * `.from()` it rate-limits the whole pipeline at pre-from filter chain
    * position 5 (outside the resilience wrappers, so a throttled request
    * never reaches retry / timeout); called AFTER `.from()` it wraps the
-   * next step.
+   * next step. Multiple `.throttle()` calls AND-combine into independent
+   * limits.
    *
    * The pacing wait is cancellable: when the route shuts down mid-wait
    * the exchange is admitted immediately rather than dropped.
    *
-   * @param options - `{ requestsPerSecond }` or `{ requestsPerMinute }`
+   * @param options - `{ rate, per?, burst?, key?, maxKeys? }`
    * @returns This builder (same subclass, same body type)
    */
   throttle(options: ThrottleOptions): this {
