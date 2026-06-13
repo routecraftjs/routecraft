@@ -446,6 +446,81 @@ describe("Throttle wrapper (.throttle())", () => {
   });
 
   /**
+   * @case Reject mode fails over-limit exchanges fast with RC5013 instead of pacing them
+   * @preconditions .throttle({ rate: 1, mode: "reject" }) over three concurrent exchanges
+   * @expectedResult The first is admitted; the other two are rejected (RC5013 on the error path) and emit route:throttle:rejected with a retryAfterMs hint
+   */
+  test("reject mode fails over-limit exchanges with RC5013", async () => {
+    const s = spy();
+    const rejected: { retryAfterMs: number }[] = [];
+
+    t = await testContext()
+      .on("route:throttle:rejected", (payload) => {
+        rejected.push(payload.details as { retryAfterMs: number });
+      })
+      .routes(
+        craft()
+          .id("throttle-reject")
+          .from(simple([0, 1, 2]))
+          .throttle({ rate: 1, mode: "reject" })
+          .to(s),
+      )
+      .build();
+
+    await t.test();
+
+    // Capacity 1: one admitted, two rejected (rejection does not consume
+    // a token, so it never paces).
+    expect(s.received).toHaveLength(1);
+    expect(t.errors).toHaveLength(2);
+    expect(t.errors.every((e) => e.rc === "RC5013")).toBe(true);
+    expect(rejected).toHaveLength(2);
+    expect(rejected.every((r) => r.retryAfterMs > 0)).toBe(true);
+  });
+
+  /**
+   * @case An invalid mode is rejected at build time
+   * @preconditions .throttle({ rate: 10, mode: "nope" })
+   * @expectedResult Building the route throws RC5003 naming mode
+   */
+  test("rejects an invalid mode at build time", () => {
+    expect(() =>
+      craft()
+        .id("throttle-bad-mode")
+        .from(simple("in"))
+        .throttle({ rate: 10, mode: "nope" as "delay" })
+        .to(spy()),
+    ).toThrow(/mode/);
+  });
+
+  /**
+   * @case A configured label is carried on the throttle events
+   * @preconditions .throttle({ rate: 100, label: "my-gate" }) over one exchange
+   * @expectedResult The route:throttle:passed event carries label "my-gate"
+   */
+  test("carries a configured label on events", async () => {
+    const passed: { label?: string }[] = [];
+
+    t = await testContext()
+      .on("route:throttle:passed", (payload) => {
+        passed.push(payload.details as { label?: string });
+      })
+      .routes(
+        craft()
+          .id("throttle-label")
+          .from(simple("x"))
+          .throttle({ rate: 100, label: "my-gate" })
+          .to(spy()),
+      )
+      .build();
+
+    await t.test();
+
+    expect(passed).toHaveLength(1);
+    expect(passed[0].label).toBe("my-gate");
+  });
+
+  /**
    * @case Builder body type is preserved across .throttle()
    * @preconditions Route chaining .throttle() between typed transforms
    * @expectedResult The chain compiles with the string body flowing through the wrapper and produces the typed result

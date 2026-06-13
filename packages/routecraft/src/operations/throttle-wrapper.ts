@@ -54,6 +54,16 @@ export interface ThrottleOptions {
   /** Time window the `rate` is measured over. Default `"second"`. */
   per?: ThrottleTimeUnit;
   /**
+   * Behaviour when an exchange exceeds the rate:
+   * - `"delay"` (default): pace it, waiting until a token frees. Smooths
+   *   bursty traffic into a steady rate; never drops an exchange.
+   * - `"reject"`: throw `RC5013` immediately so the caller fails fast
+   *   (e.g. a source returns 429) instead of being buffered. Avoids the
+   *   unbounded in-flight growth that delay can accumulate under a fast
+   *   source. A rejected exchange does NOT consume a token.
+   */
+  mode?: "delay" | "reject";
+  /**
    * Burst allowance: the most calls admitted back-to-back after an idle
    * window before pacing kicks in (the token bucket's capacity). Default
    * is `rate` (one window's worth). Set it lower for stricter pacing, or
@@ -85,6 +95,12 @@ export interface ThrottleOptions {
    * `10_000`. Ignored when `key` is not set.
    */
   maxKeys?: number;
+  /**
+   * Optional label carried on this throttle's `route:throttle:*` events,
+   * so stacked gates (e.g. a global limit plus a per-IP limit) can be
+   * told apart in logs and metrics. Has no effect on behaviour.
+   */
+  label?: string;
 }
 
 /**
@@ -98,10 +114,14 @@ export interface ResolvedThrottleOptions {
   capacity: number;
   /** Tokens replenished per millisecond (`rate / windowMs`). */
   refillPerMs: number;
+  /** On-limit behaviour. */
+  mode: "delay" | "reject";
   /** Per-exchange partition selector; absent means a single shared bucket. */
   key?: (exchange: Exchange) => string;
   /** LRU cap on distinct keys (only meaningful when `key` is set). */
   maxKeys: number;
+  /** Optional label for `route:throttle:*` events. */
+  label?: string;
 }
 
 /**
@@ -118,11 +138,18 @@ export function resolveThrottleOptions(
   const {
     rate,
     per = "second",
+    mode = "delay",
     burst,
     key,
     maxKeys = DEFAULT_MAX_KEYS,
+    label,
   } = options;
 
+  if (mode !== "delay" && mode !== "reject") {
+    throw rcError("RC5003", undefined, {
+      message: `throttle({ mode }) must be "delay" or "reject", got ${String(mode)}.`,
+    });
+  }
   if (!Number.isFinite(rate) || rate <= 0) {
     throw rcError("RC5003", undefined, {
       message: `throttle({ rate }) must be a finite number > 0, got ${String(rate)}.`,
@@ -155,8 +182,10 @@ export function resolveThrottleOptions(
     // every exchange.
     capacity: Math.max(1, burst ?? rate),
     refillPerMs: rate / WINDOW_MS[per],
+    mode,
     ...(key ? { key } : {}),
     maxKeys,
+    ...(label !== undefined ? { label } : {}),
   };
 }
 
@@ -214,6 +243,27 @@ export class TokenBucket {
     // being coerced to ~1ms by setTimeout and admitted immediately.
     return Math.min(waitMs, MAX_TIMER_MS);
   }
+
+  /**
+   * Reject-mode acquire: take a token only if one is available right now.
+   * Returns `0` when admitted; otherwise the time (ms) until a token
+   * would free, WITHOUT consuming one (a rejected request must not drive
+   * the bucket negative or it would penalise later conforming calls).
+   */
+  tryAcquire(now: number = Date.now()): number {
+    const elapsed = Math.max(0, now - this.#lastRefillAt);
+    this.#tokens = Math.min(
+      this.#capacity,
+      this.#tokens + elapsed * this.#refillPerMs,
+    );
+    this.#lastRefillAt = now;
+
+    if (this.#tokens >= 1) {
+      this.#tokens -= 1;
+      return 0;
+    }
+    return (1 - this.#tokens) / this.#refillPerMs;
+  }
 }
 
 /**
@@ -256,13 +306,18 @@ export class ThrottleLimiter {
   }
 
   /**
-   * Reserve a slot for `exchange`, returning the wait (ms) and the
-   * partition key it was charged against (absent when unkeyed).
+   * Resolve the {@link TokenBucket} for `exchange` (the shared one, or
+   * the per-key one, creating it on first use), plus the partition key it
+   * belongs to (absent when unkeyed). The caller decides whether to
+   * `reserve` (delay) or `tryAcquire` (reject) against it.
    */
-  reserve(exchange: Exchange, now: number): { waitMs: number; key?: string } {
+  bucketFor(
+    exchange: Exchange,
+    now: number,
+  ): { bucket: TokenBucket; key?: string } {
     if (!this.#options.key) {
       this.#single ??= new TokenBucket(this.#options, now);
-      return { waitMs: this.#single.reserve(now) };
+      return { bucket: this.#single };
     }
     let key: string;
     try {
@@ -282,7 +337,7 @@ export class ThrottleLimiter {
       bucket = new TokenBucket(this.#options, now);
       this.#keyed!.set(key, bucket);
     }
-    return { waitMs: bucket.reserve(now), key };
+    return { bucket, key };
   }
 }
 
@@ -304,6 +359,11 @@ export interface ThrottleHooks {
    * it was charged against (absent when unkeyed).
    */
   onPassed(waited: boolean, elapsed: number, key?: string): void;
+  /**
+   * Reject-mode only: the exchange exceeded the rate and is being failed.
+   * `retryAfterMs` is how long until a token would free.
+   */
+  onRejected(retryAfterMs: number, key?: string): void;
 }
 
 /** Event-scope bindings shared by the `route:throttle:*` payloads. */
@@ -313,6 +373,8 @@ export interface ThrottleEventScope {
   correlationId: string;
   stepLabel: string;
   scope: "route" | "step";
+  /** Optional gate label, when configured. */
+  label?: string;
 }
 
 /**
@@ -328,7 +390,7 @@ export function throttleEmitHooks(
   context: CraftContext | undefined,
   scoped: ThrottleEventScope,
   emit: boolean,
-): Pick<ThrottleHooks, "onDelayed" | "onPassed"> {
+): Pick<ThrottleHooks, "onDelayed" | "onPassed" | "onRejected"> {
   return {
     onDelayed: (waitMs, key) => {
       if (emit) {
@@ -345,6 +407,15 @@ export function throttleEmitHooks(
           ...scoped,
           waited,
           elapsed,
+          ...(key !== undefined ? { key } : {}),
+        });
+      }
+    },
+    onRejected: (retryAfterMs, key) => {
+      if (emit) {
+        context?.emit("route:throttle:rejected", {
+          ...scoped,
+          retryAfterMs,
           ...(key !== undefined ? { key } : {}),
         });
       }
@@ -370,6 +441,11 @@ export class ThrottleController {
     this.#options = options;
   }
 
+  /** Optional gate label, surfaced on the `route:throttle:*` events. */
+  get label(): string | undefined {
+    return this.#options.label;
+  }
+
   #limiterFor(route: Route | undefined): ThrottleLimiter {
     if (!route) {
       // No attached route (e.g. a step run in isolation): fall back to a
@@ -386,11 +462,11 @@ export class ThrottleController {
   }
 
   /**
-   * Acquire a slot, pacing the caller when the bucket is empty. The
-   * pacing wait is cancellable: when the route shuts down mid-wait the
-   * exchange is admitted immediately rather than dropped, mirroring
-   * `.delay()`. Rate limiting only ever delays an exchange; it never
-   * drops one.
+   * Acquire a slot. In `delay` mode (default) the caller is paced when
+   * the bucket is empty; the pacing wait is cancellable, so on route
+   * shutdown the exchange is admitted rather than dropped. In `reject`
+   * mode an over-limit exchange is failed fast with `RC5013` (and a
+   * `route:throttle:rejected` event) without consuming a token.
    */
   async acquire(
     exchange: Exchange,
@@ -398,7 +474,23 @@ export class ThrottleController {
     hooks: ThrottleHooks,
   ): Promise<void> {
     const start = Date.now();
-    const { waitMs, key } = this.#limiterFor(route).reserve(exchange, start);
+    const { bucket, key } = this.#limiterFor(route).bucketFor(exchange, start);
+
+    if (this.#options.mode === "reject") {
+      const retryAfterMs = bucket.tryAcquire(start);
+      if (retryAfterMs <= 0) {
+        hooks.onPassed(false, 0, key);
+        return;
+      }
+      hooks.onRejected(retryAfterMs, key);
+      throw rcError("RC5013", undefined, {
+        message: `throttle rejected the exchange: rate limit exceeded${
+          key !== undefined ? ` for key "${key}"` : ""
+        }. Retry after ~${Math.ceil(retryAfterMs)}ms.`,
+      });
+    }
+
+    const waitMs = bucket.reserve(start);
     if (waitMs <= 0) {
       hooks.onPassed(false, 0, key);
       return;
@@ -451,12 +543,15 @@ export class ThrottleWrapperStep<
     const { route, context, routeId, stepLabel, correlationId } =
       wrapperEventScope(exchange, this);
     const shouldEmit = route && context && routeId;
-    const scoped = {
+    const scoped: ThrottleEventScope = {
       routeId: routeId as string,
       exchangeId: exchange.id,
       correlationId,
       stepLabel,
-      scope: "step" as const,
+      scope: "step",
+      ...(this.#controller.label !== undefined
+        ? { label: this.#controller.label }
+        : {}),
     };
 
     await this.#controller.acquire(exchange, route, {

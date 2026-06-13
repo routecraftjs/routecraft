@@ -442,6 +442,7 @@ export function buildThrottleCheckStep(
         correlationId,
         stepLabel: "route",
         scope: "route" as const,
+        ...(controller.label !== undefined ? { label: controller.label } : {}),
       };
 
       await controller.acquire(exchange, route, {

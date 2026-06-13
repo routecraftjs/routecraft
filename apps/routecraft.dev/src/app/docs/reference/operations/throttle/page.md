@@ -8,9 +8,11 @@ title: throttle
 throttle(options: {
   rate: number
   per?: 'second' | 'minute' | 'hour' | 'day'
+  mode?: 'delay' | 'reject'
   burst?: number
   key?: (exchange: Exchange) => string
   maxKeys?: number
+  label?: string
 }): RouteBuilder<Current>
 ```
 
@@ -29,11 +31,24 @@ craft()
 **Parameters:**
 - `rate` - allowed requests per `per` window. A finite number greater than 0.
 - `per` - the time window, one of `'second'` (default), `'minute'`, `'hour'`, `'day'`.
+- `mode` - what to do with an over-limit exchange: `'delay'` (default) paces it; `'reject'` fails it fast (see below). 
 - `burst` - bucket capacity: the most calls admitted back-to-back after an idle window before pacing kicks in. Defaults to `rate` (one window's worth). Set it lower for strict pacing, higher to tolerate spikes. Because it is independent of `per`, `{ rate: 600, per: 'minute' }` does not silently allow a 600-wide burst unless you also ask for `burst: 600`.
 - `key` - partition the limit per user / IP / tenant (see below). Omit for one shared bucket across the route.
-- `maxKeys` - cap on distinct keys tracked at once when `key` is set (default `10_000`).
+- `maxKeys` - cap on distinct keys tracked at once when `key` is set (default `10_000`, max `1_000_000`).
+- `label` - tag carried on this throttle's events so stacked gates can be told apart.
 
 Invalid options are rejected at build time (`RC5003`).
+
+## Delay vs reject
+
+By default an over-limit exchange is **delayed** (paced) until a token frees: this smooths bursty traffic into a steady rate and never drops an exchange. Set `mode: 'reject'` to instead **fail fast** -- the exchange throws `RC5013` immediately (emitting `route:throttle:rejected`), which a source can translate into a `429` and which a route-scope `.error()` can catch. Reject does not consume a token, and it avoids the unbounded in-flight buffering that delay can accumulate under a source that pulls faster than the rate.
+
+```ts
+craft()
+  .from(httpSource)
+  .throttle({ rate: 100, per: 'minute', mode: 'reject' }) // 429 over the limit
+  .to(handler)
+```
 
 ## Per-key throttling
 
@@ -86,6 +101,6 @@ craft()
   .to(http({ url: 'https://api.example.com' }))
 ```
 
-**Events:** `route:throttle:passed` for every admitted exchange (with `waited`, and `key` when keyed) and `route:throttle:delayed` when an exchange must pace (with `waitMs`, and `key` when keyed). See the [events reference](/docs/reference/events).
+**Events:** `route:throttle:passed` for every admitted exchange (with `waited`), `route:throttle:delayed` when an exchange must pace (with `waitMs`, delay mode), and `route:throttle:rejected` when an exchange is failed fast (with `retryAfterMs`, reject mode). All carry `key` when keyed and `label` when set. See the [events reference](/docs/reference/events).
 
 **`.throttle()` vs `.delay()`:** Delay is a fixed wait applied to every exchange independently. Throttle shares a rate-limiter across the route (or per key), so it caps the aggregate call rate rather than spacing each exchange by a constant.

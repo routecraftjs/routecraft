@@ -29,7 +29,7 @@ below).
 | 2 | `authorize` (stacks) | shipped | yes (`RC5012` / `RC5015`) | identity gate; deterministic, not retried |
 | 3 | `parse` | shipped (source-attached) | yes (`RC5016`) | raw bytes → typed body; deterministic, not retried |
 | 4 | `input` | shipped | yes (`RC5002`) | schema validation; deterministic, not retried |
-| 5 | `throttle` | shipped (#151) | no (paces, never rejects) | rate limit valid requests (not pre-auth; that's source-layer DoS protection); a future drop strategy would reject with `RC5013` |
+| 5 | `throttle` | shipped (#151) | `mode: 'reject'` only (`RC5013`); default `'delay'` paces | rate limit valid requests (not pre-auth; that's source-layer DoS protection). Delay paces; reject fails fast with `RC5013` |
 | 6 | `circuitBreaker` | planned (#139) | yes (new RC code, fast-fail when open) | counts inner failures; trips after threshold |
 | 7 | `retry` | shipped (#148) | yes (final attempt's throw) | re-runs everything below on failure |
 | 8 | `timeout` | shipped (#147) | yes (`RC5011`) | per-attempt deadline |
@@ -143,15 +143,17 @@ processes normally.
    they own).
 3. `error` catches.
 
-### Throttle paces
+### Throttle paces (delay mode) or rejects (reject mode)
 
-1. `throttle` finds the route's token bucket empty and waits (the
-   exchange is delayed, not rejected). The shipped throttle always
-   paces; a future drop strategy would instead throw `RC5013` here.
-2. While the exchange waits, nothing below it runs; `circuitBreaker`
-   (inside throttle) sees no attempt, so it counts no failure.
-3. Once a token frees, the exchange is admitted and the chain
-   continues normally. `error` is not invoked by a pure pace.
+1. `throttle` finds the route's token bucket empty. In the default
+   `delay` mode the exchange waits; in `mode: 'reject'` it throws
+   `RC5013` immediately (without consuming a token).
+2. While a delayed exchange waits, nothing below it runs;
+   `circuitBreaker` (inside throttle) sees no attempt, so it counts no
+   failure. A rejected exchange likewise never reaches the inner layers.
+3. On delay, once a token frees the exchange is admitted and the chain
+   continues; `error` is not invoked by a pure pace. On reject, the
+   `RC5013` propagates to `error` (or the default error path).
 
 ### Cache hit
 

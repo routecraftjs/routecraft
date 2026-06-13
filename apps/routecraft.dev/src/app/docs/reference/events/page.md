@@ -131,10 +131,11 @@ A failure of the wrapped operation *inside* the deadline does not emit a timeout
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:throttle:delayed` | No token was free; the exchange will pace before admission | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", waitMs, key? }` |
-| `route:throttle:passed` | The exchange was admitted through the rate limiter | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", waited, elapsed, key? }` (no `waitMs`; `waited` is true when it had to pace, `elapsed` is total time in the gate) |
+| `route:throttle:delayed` | Delay mode: no token was free, the exchange will pace before admission | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", waitMs, key?, label? }` |
+| `route:throttle:passed` | The exchange was admitted through the rate limiter | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", waited, elapsed, key?, label? }` (no `waitMs`; `waited` is true when it had to pace, `elapsed` is total time in the gate) |
+| `route:throttle:rejected` | Reject mode: the exchange exceeded the rate and is failed with `RC5013` | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", retryAfterMs, key?, label? }` |
 
-`scope` is `"route"` for `.throttle()` declared BEFORE `.from()` (the whole pipeline is rate-limited) and `"step"` for the wrapper attached AFTER `.from()`. `stepLabel` is the wrapped step's label, or `"route"` at route scope. An exchange admitted from the burst (no wait) emits only `route:throttle:passed` with `waited: false`; a paced exchange emits `route:throttle:delayed` first, then `route:throttle:passed` with `waited: true`. Throttle only ever delays an exchange; it never drops one, so there is no failure event.
+`scope` is `"route"` for `.throttle()` declared BEFORE `.from()` (the whole pipeline is rate-limited) and `"step"` for the wrapper attached AFTER `.from()`. `stepLabel` is the wrapped step's label, or `"route"` at route scope. An exchange admitted from the burst (no wait) emits only `route:throttle:passed` with `waited: false`; a paced exchange emits `route:throttle:delayed` first, then `route:throttle:passed` with `waited: true`. In the default delay mode throttle only ever delays an exchange and never drops one; in `mode: 'reject'` an over-limit exchange instead emits `route:throttle:rejected` and is failed with `RC5013`. `label` is present when `.throttle({ label })` is set, so stacked gates can be told apart.
 
 ### Choice operations
 
