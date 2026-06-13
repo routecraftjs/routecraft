@@ -246,9 +246,10 @@ accordingly.
 - `#187` (source-level parse error recovery): once parsing moves into
   the pipeline, `.error()` wraps the parse step to get "log and skip
   bad rows, continue processing" as a composable pattern.
-- `#139` (Circuit Breaker): see "When a wrapper is not enough"; the
-  step-scope side is a wrapper, the route-scope side needs consumer
-  integration.
+- `#139` (Circuit Breaker): shipped at both scopes (step-scope wrapper +
+  route-scope segment). See "When a wrapper is not enough" for the
+  outstanding consumer-pausing follow-up (pausing the source from pulling
+  during cooldown).
 - `#112` (Cache): dual-mode at both scopes. Step-scope wraps the
   immediately-next step via `CacheWrapperStep`. Route-scope (called
   BEFORE `.from()`) caches the route's terminal body keyed by the
@@ -265,8 +266,8 @@ accordingly.
   route-scope counterpart of this contract. Documents the fixed
   ordered chain (`error` -> `authorize` -> `parse` -> `input` ->
   `throttle` -> `circuitBreaker` -> `retry` -> `timeout` ->
-  `cacheCheck` -> pipeline -> `cacheStore`) and reserves slots for
-  the future resilience wrappers listed in section 1.
+  `cacheCheck` -> pipeline -> `cacheStore`); every position is now filled
+  by a shipped operation (see section 1).
 - `WrapperStep` source: `packages/routecraft/src/operations/wrapper.ts`.
 - `ErrorWrapperStep` source:
   `packages/routecraft/src/operations/error-wrapper.ts`.

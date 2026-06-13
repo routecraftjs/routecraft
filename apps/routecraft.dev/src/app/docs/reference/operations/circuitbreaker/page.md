@@ -60,7 +60,7 @@ Like the other resilience wrappers, position decides scope.
 craft()
   .id('resilient-route')
   .circuitBreaker({ failureThreshold: 10, fallback: () => ({ degraded: true }) })
-  .from(direct('input'))
+  .from(direct())
   .to(http({ url: 'https://flaky.api/endpoint' }))
 ```
 
@@ -69,7 +69,7 @@ craft()
 ```ts
 craft()
   .id('enrich-order')
-  .from(direct('orders'))
+  .from(direct())
   .circuitBreaker({ failureThreshold: 3, windowMs: 30_000 })
   .to(http({ url: 'https://inventory.api/check' })) // protected
   .transform(formatResponse) // NOT protected

@@ -16,6 +16,7 @@ import {
   type Adapter,
   type Step,
   type StepContext,
+  type StepOutcome,
   getAdapterLabel,
 } from "../types.ts";
 import { buildParseStep } from "./synthetic-steps.ts";
@@ -649,6 +650,22 @@ const CIRCUIT_BREAKER_SEGMENT_ADAPTER: Adapter = {
 };
 
 /**
+ * Convert a nested segment run's result into the {@link StepOutcome} the
+ * outer pipeline schedules: a deliberately dropped run resolves as a
+ * drop, every other run continues with the produced exchange. Shared by
+ * the timeout / retry / circuit-breaker segment builders so the mapping
+ * lives in one place.
+ */
+function segmentResultToOutcome(result: {
+  exchange: Exchange;
+  dropped: boolean;
+}): StepOutcome {
+  return result.dropped
+    ? ({ kind: "drop" } as const)
+    : ({ kind: "continue", exchange: result.exchange } as const);
+}
+
+/**
  * Executor deps for a nested segment run: same route identity and
  * capabilities, but the step arrays carry only the wrapped segment and
  * no `errorHandler` / `retry` / `timeout` (the outer invocation owns
@@ -729,8 +746,7 @@ function buildTimeoutSegmentStep(
           ...scoped,
           elapsed: Date.now() - start,
         });
-        if (result.dropped) return { kind: "drop" } as const;
-        return { kind: "continue", exchange: result.exchange } as const;
+        return segmentResultToOutcome(result);
       } catch (err) {
         if (!(err instanceof DeadlineExceededError)) throw err;
         // Stop the abandoned run from scheduling further steps: its
@@ -813,8 +829,7 @@ function buildRetrySegmentStep(
           },
         },
       );
-      if (result.dropped) return { kind: "drop" } as const;
-      return { kind: "continue", exchange: result.exchange } as const;
+      return segmentResultToOutcome(result);
     },
   };
 }
@@ -884,16 +899,14 @@ function buildCircuitBreakerSegmentStep(
             controller.options,
             `for route "${deps.routeId}"`,
           ),
-        async () => {
-          const result = await runPipeline(
-            nestedSegmentDeps(deps, segment),
-            exchange,
-            Date.now(),
-          );
-          return result.dropped
-            ? ({ kind: "drop" } as const)
-            : ({ kind: "continue", exchange: result.exchange } as const);
-        },
+        async () =>
+          segmentResultToOutcome(
+            await runPipeline(
+              nestedSegmentDeps(deps, segment),
+              exchange,
+              Date.now(),
+            ),
+          ),
       );
     },
   };

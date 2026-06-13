@@ -1,5 +1,6 @@
 import { type Exchange, DefaultExchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
+import { logger } from "../logger.ts";
 import type { CraftContext } from "../context.ts";
 import type { Route } from "../route.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
@@ -204,7 +205,19 @@ export class CircuitBreakerMachine {
 
   #toState(to: CircuitBreakerState): void {
     this.#state = to;
-    this.#options.onStateChange?.(to);
+    // `onStateChange` is user code (metrics / logging). The contract says
+    // it must not throw, but isolate it so a throwing callback cannot
+    // corrupt the transition or abort the acquire / record call that
+    // triggered it (which would surface the callback's error instead of
+    // the breaker's RC5025 / fallback).
+    try {
+      this.#options.onStateChange?.(to);
+    } catch (err) {
+      logger.warn(
+        { err },
+        "circuitBreaker onStateChange callback threw; ignoring",
+      );
+    }
   }
 
   #prune(now: number): void {
@@ -275,8 +288,11 @@ export class CircuitBreakerMachine {
     if (this.#state === "half-open") {
       this.#openedAt = now;
       this.#toState("open");
-      this.#prune(now);
-      hooks.onOpened(this.#failures.length);
+      // Exactly one failed probe re-opened the breaker. Report 1 rather
+      // than `#failures.length`, which still holds the original
+      // closed-state trip's timestamps (cleared only on close) and is
+      // therefore a stale, window-dependent number here.
+      hooks.onOpened(1);
       return;
     }
 

@@ -104,7 +104,7 @@ The handler decides what to recover:
   if (['RC5012', 'RC5015', 'RC5002', 'RC5016'].includes(err.rc)) throw err
 
   // Throttle / breaker: re-throw to surface backpressure to the caller.
-  if (['RC5013'].includes(err.rc)) throw err
+  if (['RC5013', 'RC5025'].includes(err.rc)) throw err
 
   // Operational failures: recover with a fallback.
   if (err.rc === 'RC5011') return { fallback: 'timeout' }
@@ -301,7 +301,7 @@ follow-up (see `.standards/resilience-wrappers.md` section 7).
 - #119 -- route-level `.error()` (filter 1 shipped here).
 - #140 -- dual-mode wrapper pattern (closed; the contract this
   chain inherits at the route-scope side).
-- #139 -- circuit breaker (filter 6 will land here).
+- #139 -- circuit breaker (filter 6, shipped here).
 - Spring Security `FilterChainProxy`: similar pattern at a
   different scale.
 - Resilience4J wrapper composition: the resilience-tier ordering
