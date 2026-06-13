@@ -333,11 +333,6 @@ export class CircuitBreakerController {
     return machine;
   }
 
-  /** Current state for `route` (diagnostics; e.g. MCP tool availability). */
-  stateFor(route: Route | undefined): CircuitBreakerState {
-    return this.#machineFor(route).state;
-  }
-
   acquire(
     route: Route | undefined,
     hooks: CircuitBreakerHooks,
@@ -447,6 +442,44 @@ export function circuitOpenOutcome(
 }
 
 /**
+ * Run `run` under the breaker `controller` for `route`, recording the
+ * outcome: a resolve (success, or a drop) records a success, a throw
+ * records a counted failure and re-throws. When the breaker rejects the
+ * call (open, or half-open at capacity) the protected work is skipped and
+ * `onOpen()` produces the substitute outcome (a `fallback` continue, or a
+ * thrown `RC5025`).
+ *
+ * Shared by the step-scope wrapper and the route-scope segment so the
+ * acquire / record protocol lives in one place, mirroring the retry
+ * operation's `executeWithRetry`.
+ *
+ * @internal
+ */
+export async function executeWithCircuitBreaker(
+  controller: CircuitBreakerController,
+  route: Route | undefined,
+  hooks: CircuitBreakerHooks,
+  onOpen: () => StepOutcome,
+  run: () => Promise<StepOutcome>,
+): Promise<StepOutcome> {
+  const decision = controller.acquire(route, hooks);
+  if (!decision.admitted) return onOpen();
+  try {
+    const outcome = await run();
+    controller.recordSuccess(route, decision.probe, hooks);
+    return outcome;
+  } catch (err) {
+    controller.recordFailure(
+      route,
+      err instanceof Error ? err : new Error(String(err)),
+      decision.probe,
+      hooks,
+    );
+    throw err;
+  }
+}
+
+/**
  * Step-scope `.circuitBreaker()` wrapper. Protects the immediately-next
  * step: counts its failures over a sliding window, trips after the
  * threshold, then fast-fails subsequent calls (fallback or `RC5025`)
@@ -496,27 +529,17 @@ export class CircuitBreakerWrapperStep<
       this.#controller.options,
     );
 
-    const decision = this.#controller.acquire(route, hooks);
-    if (!decision.admitted) {
-      return circuitOpenOutcome(
-        exchange,
-        this.#controller.options,
-        `for step "${stepLabel}"`,
-      );
-    }
-
-    try {
-      const outcome = await this.inner.execute(exchange, ctx);
-      this.#controller.recordSuccess(route, decision.probe, hooks);
-      return outcome;
-    } catch (err) {
-      this.#controller.recordFailure(
-        route,
-        err instanceof Error ? err : new Error(String(err)),
-        decision.probe,
-        hooks,
-      );
-      throw err;
-    }
+    return executeWithCircuitBreaker(
+      this.#controller,
+      route,
+      hooks,
+      () =>
+        circuitOpenOutcome(
+          exchange,
+          this.#controller.options,
+          `for step "${stepLabel}"`,
+        ),
+      () => this.inner.execute(exchange, ctx),
+    );
   }
 }

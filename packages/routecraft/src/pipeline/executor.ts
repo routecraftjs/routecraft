@@ -32,6 +32,7 @@ import {
   type CircuitBreakerEventScope,
   circuitBreakerEmitHooks,
   circuitOpenOutcome,
+  executeWithCircuitBreaker,
 } from "../operations/circuit-breaker-wrapper.ts";
 import type { ForwardFn, Route, RouteDefinition } from "../route.ts";
 
@@ -873,33 +874,27 @@ function buildCircuitBreakerSegmentStep(
         controller.options,
       );
 
-      const decision = controller.acquire(deps.route, hooks);
-      if (!decision.admitted) {
-        return circuitOpenOutcome(
-          exchange,
-          controller.options,
-          `for route "${deps.routeId}"`,
-        );
-      }
-
-      try {
-        const result = await runPipeline(
-          nestedSegmentDeps(deps, segment),
-          exchange,
-          Date.now(),
-        );
-        controller.recordSuccess(deps.route, decision.probe, hooks);
-        if (result.dropped) return { kind: "drop" } as const;
-        return { kind: "continue", exchange: result.exchange } as const;
-      } catch (err) {
-        controller.recordFailure(
-          deps.route,
-          err instanceof Error ? err : new Error(String(err)),
-          decision.probe,
-          hooks,
-        );
-        throw err;
-      }
+      return executeWithCircuitBreaker(
+        controller,
+        deps.route,
+        hooks,
+        () =>
+          circuitOpenOutcome(
+            exchange,
+            controller.options,
+            `for route "${deps.routeId}"`,
+          ),
+        async () => {
+          const result = await runPipeline(
+            nestedSegmentDeps(deps, segment),
+            exchange,
+            Date.now(),
+          );
+          return result.dropped
+            ? ({ kind: "drop" } as const)
+            : ({ kind: "continue", exchange: result.exchange } as const);
+        },
+      );
     },
   };
 }
