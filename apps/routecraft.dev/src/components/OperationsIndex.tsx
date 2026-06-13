@@ -86,7 +86,7 @@ const ops: Op[] = [
   {
     name: 'throttle',
     category: 'Wrapper',
-    signature: '.throttle({ requestsPerSecond })',
+    signature: '.throttle({ rate, per })',
     description: 'Rate-limit the next operation (or the whole pipeline).',
   },
   {

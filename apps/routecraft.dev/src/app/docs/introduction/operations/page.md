@@ -43,7 +43,7 @@ Flow control operations decide which exchanges continue and how they are split o
 
 Wrappers modify the behaviour of the **next operation only**. They do not stand alone -- they must be followed by the operation they wrap, placed immediately before it. Most are dual-mode: the same method called BEFORE `.from()` applies to the whole pipeline instead (see the [filter chain](/docs/advanced/filter-chain)).
 
-`.retry()` re-runs the next operation on failure, with optional exponential backoff. `.timeout()` throws `RC5011` when it takes too long (the abandoned work is not cancelled; the pipeline just stops waiting). `.delay()` adds a pause before it runs (step scope only). `.error()` catches any error and lets you provide a fallback body. `.cache()` skips re-running if the same input has been seen before. `.throttle()` rate-limits it to a maximum number of calls per second or minute, pacing exchanges that exceed the rate.
+`.retry()` re-runs the next operation on failure, with optional exponential backoff. `.timeout()` throws `RC5011` when it takes too long (the abandoned work is not cancelled; the pipeline just stops waiting). `.delay()` adds a pause before it runs (step scope only). `.error()` catches any error and lets you provide a fallback body. `.cache()` skips re-running if the same input has been seen before. `.throttle()` rate-limits it to a maximum number of calls per time window, pacing exchanges that exceed the rate (or rejecting them with `mode: 'reject'`).
 
 Multiple wrappers can be stacked. They apply in outside-in order, so the first listed is the outermost. This means the order changes the semantics:
 
