@@ -237,6 +237,37 @@ describe("Throttle wrapper (.throttle())", () => {
   });
 
   /**
+   * @case Reject mode works at route scope (before .from()) too, not just step scope
+   * @preconditions Route with .throttle({ rate: 1, mode: "reject" }) staged before .from() over three concurrent exchanges
+   * @expectedResult One exchange is admitted (scope "route"); the other two are rejected with RC5013 and emit route:throttle:rejected with scope "route"
+   */
+  test("route-scope .throttle() reject mode fails over-limit exchanges", async () => {
+    const s = spy();
+    const rejected: { scope: string }[] = [];
+
+    t = await testContext()
+      .on("route:throttle:rejected", (payload) => {
+        rejected.push(payload.details as { scope: string });
+      })
+      .routes(
+        craft()
+          .id("throttle-route-reject")
+          .throttle({ rate: 1, mode: "reject" })
+          .from(simple([0, 1, 2]))
+          .to(s),
+      )
+      .build();
+
+    await t.test();
+
+    expect(s.received).toHaveLength(1);
+    expect(t.errors).toHaveLength(2);
+    expect(t.errors.every((e) => e.rc === "RC5013")).toBe(true);
+    expect(rejected).toHaveLength(2);
+    expect(rejected.every((r) => r.scope === "route")).toBe(true);
+  });
+
+  /**
    * @case Route-scope throttle sits OUTSIDE route-scope retry, so a retried exchange is admitted only once
    * @preconditions Route with .throttle().retry() before .from() over one exchange whose step fails on its first attempt
    * @expectedResult The pipeline retries and succeeds, but the throttle gate admits the exchange exactly once (one passed event for two attempts)
