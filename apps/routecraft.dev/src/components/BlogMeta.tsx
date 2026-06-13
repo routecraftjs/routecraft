@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { formatBlogDate } from '@/lib/blog'
+import { formatBlogDate } from '@/lib/blog-date'
 
 export function BlogMeta({
   date,

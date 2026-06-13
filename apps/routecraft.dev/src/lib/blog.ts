@@ -2,6 +2,10 @@ import fs from 'fs'
 import path from 'path'
 
 import { parseFrontmatter } from '@/lib/frontmatter'
+import { formatBlogDate } from '@/lib/blog-date'
+
+// Re-exported so existing server-side importers of `@/lib/blog` keep working.
+export { formatBlogDate }
 
 export interface BlogPostMeta {
   slug: string
@@ -20,6 +24,8 @@ export interface BlogPostMeta {
   imageAlt?: string
   /** Override the auto-picked cover glyph. First character only. */
   coverGlyph?: string
+  /** Explicit follow-up posts (slugs); overrides the tag-based suggestions. */
+  related?: string[]
   readingTime: number
   href: string
 }
@@ -69,6 +75,7 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
     imageAlt: typeof data.imageAlt === 'string' ? data.imageAlt : undefined,
     coverGlyph:
       typeof data.coverGlyph === 'string' ? data.coverGlyph : undefined,
+    related: Array.isArray(data.related) ? data.related.map(String) : undefined,
     readingTime:
       typeof data.readingTime === 'number'
         ? data.readingTime
@@ -109,18 +116,47 @@ export function getFeaturedPost(
   )
 }
 
+/**
+ * Suggested follow-up posts for a given post. An explicit `related` list in the
+ * post's frontmatter wins (author's order, unknown slugs dropped); otherwise the
+ * posts sharing the most tags are returned, most recent breaking ties. Drafts
+ * and the post itself are never suggested.
+ */
+export function getRelatedPosts(
+  current: BlogPostMeta,
+  limit = 2,
+  posts: BlogPostMeta[] = getAllBlogPosts(),
+): BlogPostMeta[] {
+  const candidates = posts.filter((p) => !p.draft && p.slug !== current.slug)
+
+  if (current.related && current.related.length > 0) {
+    // Dedupe slugs first (Set preserves insertion order) so a repeated slug in
+    // frontmatter cannot render the same post twice.
+    return [...new Set(current.related)]
+      .map((slug) => candidates.find((p) => p.slug === slug))
+      .filter((p): p is BlogPostMeta => Boolean(p))
+      .slice(0, limit)
+  }
+
+  const tags = new Set(current.tags ?? [])
+  if (tags.size === 0) return []
+
+  return candidates
+    .map((post) => ({
+      post,
+      shared: (post.tags ?? []).filter((tag) => tags.has(tag)).length,
+    }))
+    .filter((entry) => entry.shared > 0)
+    .sort(
+      (a, b) =>
+        b.shared - a.shared ||
+        (b.post.date || '').localeCompare(a.post.date || ''),
+    )
+    .slice(0, limit)
+    .map((entry) => entry.post)
+}
+
 export function getBlogPostBySlug(slug: string): BlogPostMeta | undefined {
   const blogDir = path.join(process.cwd(), 'src', 'app', 'blog')
   return readPost(blogDir, slug)
-}
-
-export function formatBlogDate(value: string): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
 }
