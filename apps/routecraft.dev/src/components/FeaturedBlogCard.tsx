@@ -10,7 +10,7 @@ export function FeaturedBlogCard({ post }: { post: BlogPostMeta }) {
     <article className="group relative flex flex-col border border-ink/15 transition hover:border-cobalt-500/50">
       <Link
         href={post.href}
-        className="flex h-full flex-col p-8 focus:outline-none lg:p-10"
+        className="flex h-full flex-col p-8 focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cobalt-500 lg:p-10"
       >
         <div className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.22em] uppercase">
           <span className="flex items-center gap-2 text-cobalt-500">

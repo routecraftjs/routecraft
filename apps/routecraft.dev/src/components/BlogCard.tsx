@@ -21,7 +21,7 @@ export function BlogCard({
     >
       <Link
         href={post.href}
-        className="flex h-full flex-col focus:outline-none"
+        className="flex h-full flex-col focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cobalt-500"
       >
         <div
           className="relative w-full overflow-hidden border-b border-ink/15"

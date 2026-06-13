@@ -110,6 +110,7 @@ export function BlogIndex({ posts }: { posts: BlogPostMeta[] }) {
                 setSelectedTags([])
                 setVisible(BATCH)
               }}
+              aria-pressed={selectedTags.length === 0}
               className={chipClass(selectedTags.length === 0)}
             >
               All

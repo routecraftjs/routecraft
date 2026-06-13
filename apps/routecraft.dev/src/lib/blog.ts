@@ -130,7 +130,9 @@ export function getRelatedPosts(
   const candidates = posts.filter((p) => !p.draft && p.slug !== current.slug)
 
   if (current.related && current.related.length > 0) {
-    return current.related
+    // Dedupe slugs first (Set preserves insertion order) so a repeated slug in
+    // frontmatter cannot render the same post twice.
+    return [...new Set(current.related)]
       .map((slug) => candidates.find((p) => p.slug === slug))
       .filter((p): p is BlogPostMeta => Boolean(p))
       .slice(0, limit)

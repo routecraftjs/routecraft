@@ -82,9 +82,9 @@ export function LightboxImage({
               className="max-h-[82vh] w-auto max-w-full cursor-zoom-out border border-paper/15 object-contain"
             />
             {overlayCaption && (
-              <figcaption className="max-w-2xl text-center font-mono text-[0.65rem] tracking-[0.2em] text-paper/55 uppercase">
+              <p className="max-w-2xl text-center font-mono text-[0.65rem] tracking-[0.2em] text-paper/55 uppercase">
                 {overlayCaption}
-              </figcaption>
+              </p>
             )}
           </DialogPanel>
         </div>

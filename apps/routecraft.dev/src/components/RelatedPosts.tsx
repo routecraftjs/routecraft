@@ -21,7 +21,7 @@ export function RelatedPosts({ posts }: { posts: BlogPostMeta[] }) {
           >
             <Link
               href={post.href}
-              className="flex h-full flex-col p-6 focus:outline-none"
+              className="flex h-full flex-col p-6 focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cobalt-500"
             >
               {post.tags && post.tags.length > 0 && (
                 <div className="mb-4 flex flex-wrap items-center gap-2 font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
