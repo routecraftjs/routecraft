@@ -45,6 +45,8 @@ export enum OperationType {
   CHOICE = "choice",
   /** Rate limit an operation, pacing exchanges that exceed the rate */
   THROTTLE = "throttle",
+  /** Fast-fail an operation while a downstream is known to be failing */
+  CIRCUIT_BREAKER = "circuit-breaker",
   /** Short-circuit the pipeline: drop the exchange without further steps */
   HALT = "halt",
 }

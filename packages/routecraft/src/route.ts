@@ -22,6 +22,7 @@ import { logger, childBindings } from "./logger.ts";
 import { type Source, type Subscription } from "./operations/from.ts";
 import { type ResolvedRetryOptions } from "./operations/retry-wrapper.ts";
 import { type ResolvedTimeoutOptions } from "./operations/timeout-wrapper.ts";
+import { type CircuitBreakerController } from "./operations/circuit-breaker-wrapper.ts";
 import {
   type Adapter,
   type Step,
@@ -270,6 +271,23 @@ export type RouteDefinition<T = unknown> = {
    * @internal
    */
   readonly throttle?: Step<Adapter>[];
+
+  /**
+   * Route-scope `.circuitBreaker()` controller (pre-from filter chain
+   * position #6). Unlike retry / timeout (config objects re-built into a
+   * segment per run), the breaker holds persistent per-Route state (the
+   * failure window and the open/half-open machine), so the builder stores
+   * the live {@link CircuitBreakerController} here once at `.from()` time
+   * and the pipeline executor wraps the chain tail in a breaker segment
+   * around it. Sits OUTSIDE the retry (#7) / timeout (#8) segments and
+   * INSIDE the throttle (#5) gate: when open it fast-fails before retry /
+   * timeout run, so one tripped breaker call is recorded per fully
+   * exhausted attempt, not per retry. See
+   * `.standards/pre-from-filter-chain.md`.
+   *
+   * @internal
+   */
+  readonly circuitBreaker?: CircuitBreakerController;
 };
 
 /**

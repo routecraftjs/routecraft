@@ -2,7 +2,7 @@
 
 Authoring contract for "dual-mode wrapper" operations: a single builder
 method (`.error()`, `.cache()`, `.retry()`, `.timeout()`,
-`.throttle()`, future `.circuitBreaker()`) that applies at either route scope
+`.throttle()`, `.circuitBreaker()`) that applies at either route scope
 (when staged before `.from()`) or step scope (when chained after
 `.from()`). `.delay()` follows the step-scope half of this contract but
 is deliberately step-scope only: a route-scope delay is equivalent to a
@@ -21,7 +21,7 @@ Three categories cover every operation in the framework:
 | Category | Position | Examples |
 |----------|----------|----------|
 | Route-only | Before `.from()` only. Configures the route. | `.id()`, `.batch()`, `.title()`, `.description()`, `.input()`, `.output()` |
-| Dual-mode wrapper | Same method, position decides scope. | `.error()`, `.cache()`, `.retry()`, `.timeout()`, `.throttle()`, future `.circuitBreaker()` |
+| Dual-mode wrapper | Same method, position decides scope. | `.error()`, `.cache()`, `.retry()`, `.timeout()`, `.throttle()`, `.circuitBreaker()` |
 | Step-only wrapper | After `.from()` only; wraps the next step. | `.delay()` (no route-scope form by design) |
 | Pipeline | After `.from()` only. Already enforced by the builder type system. | `.transform()`, `.to()`, `.process()`, `.enrich()`, `.split()`, `.aggregate()`, `.tap()`, `.filter()`, `.validate()`, `.choice()`, `.header()` |
 
@@ -195,12 +195,19 @@ step wrapping cannot provide:
 | Route-level `.circuitBreaker()` | NOT well-served by a wrapper alone. | Pausing the source consumer (HTTP / queue / cron) during cooldown so backpressure flows back to the caller / queue. |
 | Route-level `.throttle()` (rate limit on the route) | Pacing exchanges through a shared token bucket so downstream calls stay within the rate (shipped as a flat gate at chain position #5). | Pausing the source consumer so it stops PULLING; the shipped gate paces in-flight exchanges instead, so under high concurrency they queue in memory. |
 
-The circuit-breaker rows still need a paired `Consumer` integration (a
-consumer that observes breaker state and pauses pulling). Throttle
-shipped its wrapper / gate half (#151); the consumer-pausing half (true
-source backpressure, plus the `maxQueueSize` bound on in-flight
-exchanges) is a tracked follow-up. Track this kind of constraint in the
-new operation's issue and scope its acceptance criteria accordingly.
+The circuit breaker (#139) shipped its fast-fail half at both scopes:
+the step-scope wrapper trips on counted failures and fast-fails the
+wrapped step (fallback or `RC5025`), and the route-scope segment does the
+same for the whole pipeline. What it does NOT yet do is pause the source
+consumer during cooldown, so an open route-scope breaker fast-fails each
+exchange (flowing backpressure to the caller) but the consumer keeps
+pulling. That paired `Consumer` integration (a consumer that observes
+breaker state and pauses pulling) is a tracked follow-up, the same shape
+as throttle's: throttle shipped its wrapper / gate half (#151) and its
+consumer-pausing half (true source backpressure, plus the `maxQueueSize`
+bound on in-flight exchanges) remains outstanding. Track this kind of
+constraint in the operation's issue and scope its acceptance criteria
+accordingly.
 
 ## 8. `.standards` checklist for a new wrapper
 

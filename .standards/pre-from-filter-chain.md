@@ -8,9 +8,8 @@ called on the builder. Builder order is for ergonomics; runtime
 order is the framework's call.
 
 This document is the single source of truth for that order. The
-resilience wrappers (`.throttle()`, `.retry()`, `.timeout()`) slot into
-the positions named below; the future `.circuitBreaker()` reserves
-position #6.
+resilience wrappers (`.throttle()`, `.circuitBreaker()`, `.retry()`,
+`.timeout()`) slot into the positions named below.
 
 Inspiration: Spring's `FilterChainProxy` / `WebSecurityConfigurerAdapter`
 and Resilience4J's wrapper composition. The framework picks the
@@ -30,7 +29,7 @@ below).
 | 3 | `parse` | shipped (source-attached) | yes (`RC5016`) | raw bytes → typed body; deterministic, not retried |
 | 4 | `input` | shipped | yes (`RC5002`) | schema validation; deterministic, not retried |
 | 5 | `throttle` | shipped (#151) | `mode: 'reject'` only (`RC5013`); default `'delay'` paces | rate limit valid requests (not pre-auth; that's source-layer DoS protection). Delay paces; reject fails fast with `RC5013` |
-| 6 | `circuitBreaker` | planned (#139) | yes (new RC code, fast-fail when open) | counts inner failures; trips after threshold |
+| 6 | `circuitBreaker` | shipped (#139) | yes (`RC5025`, fast-fail when open) | counts inner failures; trips after threshold, fast-fails (fallback or `RC5025`) until cooldown, then probes |
 | 7 | `retry` | shipped (#148) | yes (final attempt's throw) | re-runs everything below on failure |
 | 8 | `timeout` | shipped (#147) | yes (`RC5011`) | per-attempt deadline |
 | 9 | `cacheCheck` | shipped (#112) | yes (`RC5028` / `RC5029`) | hit → short-circuit pipeline |
@@ -208,18 +207,24 @@ write.
 
 Today (as of #112 / #395 / 0.6.0):
 
-- Filters 1-5 and 7-10 are implemented (only #6
-  `circuitBreaker` remains); the chain runs in the order documented
-  above.
+- All filters 1-10 are implemented; the chain runs in the order
+  documented above.
 - The chain is **first-class data** on `RouteDefinition`:
   - `preParseFilters: Step<Adapter>[]` -- authorize steps in
     declaration order (chain position #2).
   - `postParseFilters: Step<Adapter>[]` -- route-scope cache-check
-    filter (chain position #9). The future `circuitBreaker` (#6)
-    slots in here once it lands. Route-scope `throttle` (#5) is a
+    filter (chain position #9). Route-scope `throttle` (#5) is a
     one-shot gate but must sit OUTSIDE the retry / timeout segments,
     which wrap this array, so it rides on its own field (below)
     rather than here.
+  - `circuitBreaker?: CircuitBreakerController` -- route-scope
+    `.circuitBreaker()` (#6). Unlike the cache filters it is not a
+    flat step: it scopes OVER the tail (when open it skips the tail;
+    when closed it runs it and observes the outcome) and holds
+    persistent per-Route state (the failure window + open/half-open
+    machine), so the builder stores the live controller here once and
+    the executor wraps the tail in a breaker segment around it,
+    OUTSIDE the retry (#7) / timeout (#8) segments.
   - `postFromFilters: Step<Adapter>[]` -- route-scope cache-store
     filter (chain position #10).
   - `errorHandler?: ErrorHandler` -- the `.error()` route-scope
@@ -272,9 +277,18 @@ wrap). See `buildThrottleCheckStep` in
 `deps.definition.throttle` placement in
 `packages/routecraft/src/pipeline/executor.ts`.
 
-Filter 6 (`circuitBreaker`) will be added by its issue at the
-documented position, following the segment pattern where it needs
-scope over the tail.
+Filter 6 (`circuitBreaker` #139) is shipped. Like retry / timeout it
+scopes OVER the tail (it conditionally runs and observes it), so it is
+a segment, not a flat `postParseFilters` entry. Unlike them it also
+holds persistent per-Route state, so its live `CircuitBreakerController`
+rides on the `circuitBreaker` field of `RouteDefinition` (built once per
+route) and the executor wraps the tail in a breaker segment around it,
+OUTSIDE the retry (#7) / timeout (#8) segments and INSIDE the throttle
+(#5) gate. See `buildCircuitBreakerSegmentStep` in
+`packages/routecraft/src/pipeline/executor.ts`. The route-scope breaker
+fast-fails (fallback or `RC5025`) when open but does NOT yet pause the
+source consumer during cooldown; true source backpressure is a tracked
+follow-up (see `.standards/resilience-wrappers.md` section 7).
 
 ---
 

@@ -37,6 +37,10 @@ import {
   type ThrottleOptions,
 } from "./operations/throttle-wrapper.ts";
 import {
+  CircuitBreakerWrapperStep,
+  type CircuitBreakerOptions,
+} from "./operations/circuit-breaker-wrapper.ts";
+import {
   type Processor,
   type CallableProcessor,
   ProcessStep,
@@ -384,6 +388,45 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   throttle(options: ThrottleOptions): this {
     this.pendingStepWrappers.push(
       (inner) => new ThrottleWrapperStep(inner, options),
+    );
+    return this;
+  }
+
+  /**
+   * Protect the next step with a circuit breaker. Counts the step's
+   * failures over a sliding `windowMs`; once `failureThreshold` failures
+   * accumulate the breaker trips OPEN and subsequent calls fast-fail
+   * (returning `fallback(exchange)` when set, otherwise throwing
+   * `RC5025`) without running the step. After `cooldownMs` the breaker
+   * goes HALF-OPEN and admits up to `halfOpenMax` probe calls: one
+   * success closes it, one failure re-opens it.
+   *
+   * Deterministic errors do not count toward the threshold by default
+   * (any `RoutecraftError` flagged `retryable: false`, e.g. auth or
+   * validation), since they are not evidence the downstream is unhealthy;
+   * override with `isFailure`.
+   *
+   * Only the immediately-next step is protected; later steps run
+   * normally. The breaker state is shared per route (one circuit across
+   * every exchange on the route), not per exchange.
+   *
+   * On `RouteBuilder`, this method is dual-mode: called BEFORE `.from()`
+   * it protects the whole pipeline at pre-from filter chain position 6
+   * (outside `.retry()` / `.timeout()`, so it records one tripped call
+   * per fully exhausted attempt); called AFTER `.from()` it wraps the
+   * next step.
+   *
+   * Stacks with other wrappers in declaration order (first-declared
+   * outermost).
+   *
+   * @param options - `failureThreshold` (required), `windowMs` (default
+   *   60_000), `cooldownMs` (default 30_000), `halfOpenMax` (default 1),
+   *   optional `fallback`, `onStateChange`, `isFailure`, and `label`.
+   * @returns This builder (same subclass, same body type)
+   */
+  circuitBreaker(options: CircuitBreakerOptions): this {
+    this.pendingStepWrappers.push(
+      (inner) => new CircuitBreakerWrapperStep(inner, options),
     );
     return this;
   }

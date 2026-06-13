@@ -69,6 +69,12 @@ import {
   type ResolvedThrottleOptions,
   resolveThrottleOptions,
 } from "./operations/throttle-wrapper.ts";
+import {
+  type CircuitBreakerOptions,
+  type ResolvedCircuitBreakerOptions,
+  resolveCircuitBreakerOptions,
+  CircuitBreakerController,
+} from "./operations/circuit-breaker-wrapper.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -490,6 +496,12 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
    * the post-`.from()` builder. See {@link RouteBuilder.throttle}.
    */
   throttle(options: ThrottleOptions): this;
+  /**
+   * Configure a ROUTE-SCOPE circuit breaker for the next route (protect
+   * the whole pipeline, chain position 6). The step-scope variant lives
+   * on the post-`.from()` builder. See {@link RouteBuilder.circuitBreaker}.
+   */
+  circuitBreaker(options: CircuitBreakerOptions): this;
   /** Declare an authorization requirement on the next route. See {@link RouteBuilder.authorize}. */
   authorize(options?: AuthorizeOptions): this;
   /** Finalize and return the route definition(s). See {@link RouteBuilder.build}. */
@@ -578,6 +590,7 @@ export class RouteBuilder<
         retryConfig?: ResolvedRetryOptions;
         timeoutConfig?: ResolvedTimeoutOptions;
         throttleConfigs?: ResolvedThrottleOptions[];
+        circuitBreakerConfig?: ResolvedCircuitBreakerOptions;
         discovery?: RouteDiscovery;
         authorizers?: AuthorizeOptions[];
       }
@@ -975,6 +988,43 @@ export class RouteBuilder<
   }
 
   /**
+   * Circuit breaker. Dual-mode:
+   *
+   * - **Before `.from()` (route scope):** protects the whole pipeline at
+   *   pre-from filter chain position 6, OUTSIDE `.retry()` (#7) and
+   *   `.timeout()` (#8) and INSIDE `.throttle()` (#5). When the breaker
+   *   is open the pipeline is skipped entirely and the configured
+   *   `fallback` becomes the body (or `RC5025` is thrown when no fallback
+   *   is set, which a route-scope `.error()` handler can catch). Because
+   *   it sits outside retry, one fully exhausted attempt is recorded as a
+   *   single breaker failure rather than one per retry. State is per
+   *   Route, so a definition reused across contexts does not share a
+   *   circuit.
+   *
+   * - **After `.from()` (step scope):** wraps the immediately-next step;
+   *   see {@link StepBuilderBase.circuitBreaker} for the step-scope
+   *   contract.
+   *
+   * Unlike `.throttle()`, circuit breakers do not stack: a single breaker
+   * per route protects the pipeline. A second `.circuitBreaker()` before
+   * `.from()` overwrites the first.
+   */
+  override circuitBreaker(options: CircuitBreakerOptions): this {
+    if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
+      // Route scope: stage the resolved config (validates the options at
+      // staging time) so the next `.from()` builds one controller per
+      // RouteDefinition.
+      this.pendingOptions = {
+        ...(this.pendingOptions ?? {}),
+        circuitBreakerConfig: resolveCircuitBreakerOptions(options),
+      };
+      logger.trace("Staging route-scope circuit breaker config for next route");
+      return this;
+    }
+    return super.circuitBreaker(options);
+  }
+
+  /**
    * Declare an authorization requirement on the next route. **Route-only**:
    * stages the authorizer onto the next-route options and runs at route
    * entry, before any pipeline step. Same staging convention as `.id`,
@@ -1099,6 +1149,7 @@ export class RouteBuilder<
     const retryConfig = this.pendingOptions?.retryConfig;
     const timeoutConfig = this.pendingOptions?.timeoutConfig;
     const throttleConfigs = this.pendingOptions?.throttleConfigs;
+    const circuitBreakerConfig = this.pendingOptions?.circuitBreakerConfig;
     const discovery = this.pendingOptions?.discovery;
     const authorizers = this.pendingOptions?.authorizers ?? [];
 
@@ -1161,6 +1212,18 @@ export class RouteBuilder<
       buildThrottleCheckStep(cfg),
     );
 
+    // Route-scope circuit breaker (#6) holds persistent per-Route state
+    // (the failure window + the open/half-open machine), so unlike retry /
+    // timeout (re-built into a segment per run from a plain config object)
+    // its live controller is built ONCE here and stored on the definition.
+    // The pipeline executor wraps the chain tail in a breaker segment
+    // around this controller, OUTSIDE the retry / timeout segments. The
+    // controller keys its machines by Route, so a definition reused across
+    // contexts gives each Route its own circuit.
+    const circuitBreakerController = circuitBreakerConfig
+      ? new CircuitBreakerController(circuitBreakerConfig)
+      : undefined;
+
     const postFromFilters: Step<Adapter>[] = cacheConfig
       ? [buildCacheStoreStep(cacheConfig)]
       : [];
@@ -1190,6 +1253,11 @@ export class RouteBuilder<
       ...(timeoutConfig ? { timeout: timeoutConfig } : {}),
       ...(throttleGates && throttleGates.length > 0
         ? { throttle: throttleGates }
+        : {}),
+      // Route-scope circuit breaker (#6): segment-wrapped by the executor
+      // around the persistent controller (see above).
+      ...(circuitBreakerController
+        ? { circuitBreaker: circuitBreakerController }
         : {}),
     };
     setBrand(this.currentRoute, BRAND.RouteDefinition);

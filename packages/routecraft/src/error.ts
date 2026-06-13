@@ -72,6 +72,7 @@ export interface ErrorCodeRegistry {
   RC5022: RCMeta;
   RC5023: RCMeta;
   RC5024: RCMeta;
+  RC5025: RCMeta;
   RC5028: RCMeta;
   RC5029: RCMeta;
   RC5030: RCMeta;
@@ -288,6 +289,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "authenticate() (and the .authenticate() operation) require a non-empty `subject` naming the verified identity, e.g. authenticate({ subject: sender.address, roles: [...] }). This is a programming error at the mint call, distinct from RC5023 (a principal that reached authorize() without being established by a trusted origin).",
     docs: `${DOCS_BASE}#rc-5024`,
+    retryable: false,
+  },
+  RC5025: {
+    category: "Runtime",
+    message: "Circuit breaker is open",
+    suggestion:
+      "The route or step exceeded its failure threshold and is failing fast to prevent cascading failures against a downstream that is known to be unhealthy. Wait for the cooldown to elapse (the breaker then probes with a half-open call), configure a `fallback` to return a degraded result instead of throwing, or raise `failureThreshold` / `cooldownMs` if the breaker is too sensitive. Not retryable: an immediate retry would hit the same open breaker.",
+    docs: `${DOCS_BASE}#rc-5025`,
     retryable: false,
   },
   RC5028: {

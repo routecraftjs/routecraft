@@ -137,6 +137,17 @@ A failure of the wrapped operation *inside* the deadline does not emit a timeout
 
 `scope` is `"route"` for `.throttle()` declared BEFORE `.from()` (the whole pipeline is rate-limited) and `"step"` for the wrapper attached AFTER `.from()`. `stepLabel` is the wrapped step's label, or `"route"` at route scope. An exchange admitted from the burst (no wait) emits only `route:throttle:passed` with `waited: false`; a paced exchange emits `route:throttle:delayed` first, then `route:throttle:passed` with `waited: true`. In the default delay mode throttle only ever delays an exchange and never drops one; in `mode: 'reject'` an over-limit exchange instead emits `route:throttle:rejected` and is failed with `RC5013`. `label` is present when `.throttle({ label })` is set, so stacked gates can be told apart.
 
+### Circuit breaker wrapper operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:circuitBreaker:opened` | The breaker tripped to open (failures reached the threshold while closed, or a probe failed while half-open) | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", failureCount, threshold, cooldownMs, label? }` |
+| `route:circuitBreaker:halfOpen` | The cooldown elapsed and the breaker admitted a probe call to test recovery | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", label? }` |
+| `route:circuitBreaker:closed` | A probe succeeded and the breaker recovered to closed | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", label? }` |
+| `route:circuitBreaker:rejected` | A call was fast-failed because the breaker is open (or half-open at capacity); a `fallback` ran or `RC5025` followed | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", state: "open" \| "half-open", retryAfterMs, label? }` |
+
+`scope` is `"route"` for `.circuitBreaker()` declared BEFORE `.from()` (the whole pipeline is protected) and `"step"` for the wrapper attached AFTER `.from()`. `stepLabel` is the wrapped step's label, or `"route"` at route scope. `retryAfterMs` on a rejection is the time until the breaker would admit a probe (`0` when half-open is at capacity). `label` is present when `.circuitBreaker({ label })` is set. Breaker state is per route, not per exchange, so these events reflect the shared circuit.
+
 ### Choice operations
 
 | Event | When it fires | Details |

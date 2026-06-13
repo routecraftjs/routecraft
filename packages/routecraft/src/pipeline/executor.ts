@@ -27,6 +27,12 @@ import {
   executeWithRetry,
   type ResolvedRetryOptions,
 } from "../operations/retry-wrapper.ts";
+import {
+  type CircuitBreakerController,
+  type CircuitBreakerEventScope,
+  circuitBreakerEmitHooks,
+  circuitOpenOutcome,
+} from "../operations/circuit-breaker-wrapper.ts";
 import type { ForwardFn, Route, RouteDefinition } from "../route.ts";
 
 /**
@@ -50,6 +56,7 @@ export interface ExecutorDeps {
     | "retry"
     | "timeout"
     | "throttle"
+    | "circuitBreaker"
   >;
   buildForward(): ForwardFn;
   /**
@@ -157,6 +164,19 @@ export async function runPipeline(
   }
   if (deps.definition.retry) {
     tail = [buildRetrySegmentStep(deps, tail, deps.definition.retry)];
+  }
+  // Route-scope circuit breaker (#6) sits OUTSIDE retry / timeout: when
+  // open it fast-fails before they run, so the breaker records ONE failure
+  // per fully exhausted attempt rather than one per retry. Wrapping it
+  // after the retry segment makes it the outer of the two.
+  if (deps.definition.circuitBreaker) {
+    tail = [
+      buildCircuitBreakerSegmentStep(
+        deps,
+        tail,
+        deps.definition.circuitBreaker,
+      ),
+    ];
   }
   // Route-scope throttle (#5) is the outermost resilience filter: it
   // admits an exchange ONCE, then the retry / timeout segments (and the
@@ -623,6 +643,9 @@ export async function runPipeline(
  */
 const RETRY_SEGMENT_ADAPTER: Adapter = { adapterId: "routecraft.retry" };
 const TIMEOUT_SEGMENT_ADAPTER: Adapter = { adapterId: "routecraft.timeout" };
+const CIRCUIT_BREAKER_SEGMENT_ADAPTER: Adapter = {
+  adapterId: "routecraft.circuitBreaker",
+};
 
 /**
  * Executor deps for a nested segment run: same route identity and
@@ -791,6 +814,92 @@ function buildRetrySegmentStep(
       );
       if (result.dropped) return { kind: "drop" } as const;
       return { kind: "continue", exchange: result.exchange } as const;
+    },
+  };
+}
+
+/**
+ * Build the route-scope `.circuitBreaker()` segment step (pre-from chain
+ * position #6). Wraps the chain tail (the retry / timeout segments, the
+ * cache check, the user pipeline, and the cache store). On each exchange
+ * the breaker decides whether to admit the call:
+ *
+ * - OPEN (cooldown not elapsed) or HALF-OPEN at capacity: fast-fail
+ *   WITHOUT running the tail. With a `fallback` the configured value
+ *   becomes the body and the pipeline completes; without one it throws
+ *   `RC5025` to the route-scope `.error()` handler (or the default error
+ *   path).
+ * - CLOSED, or HALF-OPEN with a free probe slot: run the tail via a
+ *   nested executor invocation (`rethrowUnhandled`, so a failed attempt
+ *   surfaces here). A success closes a half-open breaker; a counted
+ *   failure trips a closed breaker or re-opens a half-open one.
+ *
+ * Because it sits OUTSIDE retry, one fully exhausted attempt (after retry
+ * gives up) is recorded as a single breaker failure, not one per retry.
+ *
+ * The breaker `controller` is built once per route definition (in
+ * `RouteBuilder.from`) and holds the persistent per-Route state, so it is
+ * passed in rather than constructed here. `skipStepEvents: true` keeps
+ * `runPipeline` from emitting generic lifecycle events for this internal
+ * step; the segment emits its own `route:circuitBreaker:*` family with
+ * `scope: "route"`.
+ */
+function buildCircuitBreakerSegmentStep(
+  deps: ExecutorDeps,
+  segment: Step<Adapter>[],
+  controller: CircuitBreakerController,
+): Step<Adapter> {
+  return {
+    operation: OperationType.CIRCUIT_BREAKER,
+    label: "circuitBreaker",
+    adapter: CIRCUIT_BREAKER_SEGMENT_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange) {
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      const scoped: CircuitBreakerEventScope = {
+        routeId: deps.routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel: "route",
+        scope: "route",
+        ...(controller.label !== undefined ? { label: controller.label } : {}),
+      };
+      const hooks = circuitBreakerEmitHooks(
+        deps.context,
+        scoped,
+        true,
+        controller.options,
+      );
+
+      const decision = controller.acquire(deps.route, hooks);
+      if (!decision.admitted) {
+        return circuitOpenOutcome(
+          exchange,
+          controller.options,
+          `for route "${deps.routeId}"`,
+        );
+      }
+
+      try {
+        const result = await runPipeline(
+          nestedSegmentDeps(deps, segment),
+          exchange,
+          Date.now(),
+        );
+        controller.recordSuccess(deps.route, decision.probe, hooks);
+        if (result.dropped) return { kind: "drop" } as const;
+        return { kind: "continue", exchange: result.exchange } as const;
+      } catch (err) {
+        controller.recordFailure(
+          deps.route,
+          err instanceof Error ? err : new Error(String(err)),
+          decision.probe,
+          hooks,
+        );
+        throw err;
+      }
     },
   };
 }

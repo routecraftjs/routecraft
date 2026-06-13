@@ -513,6 +513,44 @@ export interface EventDetailsMap {
     label?: string;
   };
 
+  // -- Circuit breaker (route- and step-scope wrapper) --
+  /** The breaker tripped to open: failures reached the threshold (from closed) or a probe failed (from half-open). */
+  "route:circuitBreaker:opened": ExchangeScoped & {
+    /** Label of the wrapped step, or `"route"` when `scope === "route"`. */
+    stepLabel: string;
+    scope: "route" | "step";
+    /** Counted failures in the window at the moment the breaker tripped. */
+    failureCount: number;
+    /** Configured failure threshold. */
+    threshold: number;
+    /** Cooldown before the breaker will admit a probe (half-open). */
+    cooldownMs: number;
+    /** Breaker label, when `.circuitBreaker({ label })` is set. */
+    label?: string;
+  };
+  /** Cooldown elapsed; the breaker admitted a probe call to test recovery. */
+  "route:circuitBreaker:halfOpen": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
+    label?: string;
+  };
+  /** A probe succeeded; the breaker recovered to closed. */
+  "route:circuitBreaker:closed": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
+    label?: string;
+  };
+  /** A call was rejected because the breaker is open (or half-open at capacity); a `fallback` ran or `RC5025` followed. */
+  "route:circuitBreaker:rejected": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
+    /** Breaker state at rejection time. */
+    state: "open" | "half-open";
+    /** Time until the breaker would admit a probe, for a Retry-After style hint (0 when half-open at capacity). */
+    retryAfterMs: number;
+    label?: string;
+  };
+
   // -- Error handler (route- and step-scope wrappers) --
   "route:error-handler:invoked": ExchangeScoped & {
     originalError: unknown;

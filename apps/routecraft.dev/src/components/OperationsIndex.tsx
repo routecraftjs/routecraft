@@ -108,6 +108,13 @@ const ops: Op[] = [
     signature: '.cache({ key, ttl })',
     description: 'Cache and reuse the result of the next operation.',
   },
+  {
+    name: 'circuitBreaker',
+    category: 'Wrapper',
+    signature: '.circuitBreaker({ failureThreshold })',
+    description:
+      'Trip after repeated failures and fast-fail until the target recovers.',
+  },
 
   // Transform
   {
