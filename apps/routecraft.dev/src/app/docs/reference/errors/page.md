@@ -393,7 +393,7 @@ The default `.cache()` key hashes `JSON.stringify(body)`, which fails on bodies 
 Supply an explicit `key` function that returns a stable string identifier:
 
 ```ts
-.cache({ key: (e) => String(e.body.id) })
+.cache({ key: (e) => String((e.body as { id: unknown }).id) })
 ```
 
 This error is not retryable: the same body fails key derivation the same way every time.
@@ -435,7 +435,7 @@ The default `.dedupe()` key hashes `JSON.stringify(body)`, which fails on bodies
 Supply an explicit `key` function that returns a stable string identifier:
 
 ```ts
-.dedupe({ key: (e) => String(e.body.id) })
+.dedupe({ key: (e) => String((e.body as { id: unknown }).id) })
 ```
 
 This error is not retryable: the same body fails key derivation the same way every time.

@@ -28,7 +28,7 @@ craft()
 ```
 
 **Options:**
-- `every` - Count-based: pass every Nth exchange. An internal counter increments per exchange and the exchange passes when `counter % every === 0`, so `{ every: 5 }` passes the 5th, 10th, 15th, ... exchange. Must be a finite integer >= 1.
+- `every` - Count-based: pass every Nth exchange. An internal counter increments on each exchange; when it reaches `every` the exchange passes and the counter resets to zero, so `{ every: 5 }` passes the 5th, 10th, 15th, ... exchange. Must be a finite integer >= 1.
 - `intervalMs` - Time-based: pass the first exchange seen in each window of `intervalMs` milliseconds and drop the rest until the window elapses. Must be a finite number > 0.
 
 **Events:**

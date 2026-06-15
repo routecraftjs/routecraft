@@ -61,11 +61,15 @@ export function resolveSampleOptions(
 ): ResolvedSampleOptions {
   const { every, intervalMs } = options;
 
+  // The XOR is already a compile-time error for typed callers (the union's
+  // `?: never` arms); these runtime checks defend JS callers and widened
+  // values that bypass the types. One shared message so the two sites cannot
+  // drift.
+  const exclusiveMessage =
+    "sample() requires exactly one of `every` or `intervalMs` (they are mutually exclusive).";
+
   if (every !== undefined && intervalMs !== undefined) {
-    throw rcError("RC5003", undefined, {
-      message:
-        "sample() requires exactly one of `every` or `intervalMs` (they are mutually exclusive).",
-    });
+    throw rcError("RC5003", undefined, { message: exclusiveMessage });
   }
 
   if (every !== undefined) {
@@ -86,10 +90,7 @@ export function resolveSampleOptions(
     return { mode: "interval", intervalMs };
   }
 
-  throw rcError("RC5003", undefined, {
-    message:
-      "sample() requires exactly one of `every` or `intervalMs` (they are mutually exclusive).",
-  });
+  throw rcError("RC5003", undefined, { message: exclusiveMessage });
 }
 
 /**

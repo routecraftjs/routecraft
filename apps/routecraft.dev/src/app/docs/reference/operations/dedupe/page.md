@@ -71,6 +71,10 @@ Use `dedupe` when duplicates should do nothing. Use `cache` when duplicates shou
 Dedupe state is in-memory and scoped to a single route instance. Across multiple instances of the same route (for example, several processes consuming the same queue), each instance dedupes independently. Cross-instance idempotency, via a shared store provider, is a planned addition.
 {% /callout %}
 
+{% callout type="warning" title="Place dedupe before a fan-out with care" %}
+The reserve/commit/release outcome is decided from the entering exchange's terminal event. When `.dedupe()` sits before a `.split()` (or another fan-out) and the resulting children fail, the parent exchange still completes, so the key is committed and a re-send is treated as a duplicate rather than reprocessed. Until lineage-aware settlement lands, place `.dedupe()` after a `split`/`aggregate`, or supply an explicit `key` and re-send through a path that does not fan out, when failed work must be retriable.
+{% /callout %}
+
 **Default key derivation:**
 
 When `dedupe` or `cache` is called without a `key` function, a key is derived automatically by SHA-256 hashing the JSON serialisation of the body:

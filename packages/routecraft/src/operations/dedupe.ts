@@ -18,17 +18,7 @@ import { isRoutecraftError } from "../brand.ts";
 import type { CraftContext } from "../context.ts";
 import type { Route } from "../route.ts";
 import { hashExchangeBody } from "./hash-body.ts";
-
-/** Default cap on committed keys retained per route. */
-const DEFAULT_MAX_KEYS = 10_000;
-
-/**
- * Hard ceiling on `maxKeys`. The committed-key LRU pre-allocates index
- * arrays sized to its `max`, so this bounds the eager allocation a single
- * `.dedupe()` can trigger and stops an absurd value from OOMing the process
- * at build time.
- */
-const MAX_KEYS_CEILING = 1_000_000;
+import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 
 /**
  * Options for the `.dedupe()` flow-control operation.
@@ -94,11 +84,7 @@ export function resolveDedupeOptions(
   // Upper-bound `maxKeys`: the committed-key LRU pre-allocates index arrays
   // sized to `max` at construction, so an "effectively unlimited" value
   // would OOM the process the moment the dedupe state is built.
-  if (!Number.isInteger(maxKeys) || maxKeys < 1 || maxKeys > MAX_KEYS_CEILING) {
-    throw rcError("RC5003", undefined, {
-      message: `dedupe({ maxKeys }) must be an integer between 1 and ${MAX_KEYS_CEILING}, got ${String(maxKeys)}.`,
-    });
-  }
+  validateMaxKeys("dedupe", maxKeys);
 
   return {
     key: options.key ?? defaultDedupeKey,
@@ -124,10 +110,10 @@ function defaultDedupeKey(exchange: Exchange<unknown>): string {
  * protocol. A key is reserved the moment an exchange enters dedupe and
  * stays reserved until that exchange reaches a terminal route event:
  *
- * - `route:exchange:completed` / `route:exchange:dropped` -> commit (the
- *   input was handled, so future occurrences are duplicates).
- * - `route:exchange:failed` -> release (the input errored, so a re-send
- *   should be allowed to try again).
+ * - `route:exchange:completed` -> commit (the input was handled cleanly,
+ *   so future occurrences are duplicates).
+ * - `route:exchange:dropped` / `route:exchange:failed` -> release (the input
+ *   was not successfully handled, so a re-send may try again).
  *
  * A key that is reserved OR committed is a duplicate. Reservation gives
  * single-flight behaviour: a second exchange with the same key that arrives
@@ -283,15 +269,23 @@ export interface DedupeAdapter extends Adapter {
  * (handled) is dropped silently, exactly like a `filter` returning false.
  *
  * Reservation semantics give single-flight behaviour and correct retries:
- * the key is committed only when the exchange finishes the route
- * (`route:exchange:completed` / `:dropped`) and released when it fails
- * (`route:exchange:failed`), so an errored input is not permanently
- * suppressed. State is in-memory and per-route (see {@link DedupeController});
- * a cross-instance provider is a future addition.
+ * the key is committed only when the exchange completes the route cleanly
+ * (`route:exchange:completed`) and released when it fails or is dropped
+ * (`route:exchange:failed` / `:dropped`), so an input that was not actually
+ * handled is not permanently suppressed. State is in-memory and per-route
+ * (see {@link DedupeController}); a cross-instance provider is a future
+ * addition.
  *
  * Emits `route:operation:dedupe:pass` when a key is reserved and
  * `route:operation:dedupe:duplicate` (plus `route:exchange:dropped`, reason
  * `"duplicate"`) when one is suppressed.
+ *
+ * Known limitation: the commit/release decision is keyed on the entering
+ * exchange's terminal event, so placing `.dedupe()` before a `split` (or
+ * other fan-out) whose children fail still commits the parent's key (the
+ * parent completes even when children fail), suppressing a retriable
+ * re-send. Place `.dedupe()` after a fan-out until lineage-aware settlement
+ * lands (tracked as a follow-up).
  */
 export class DedupeStep implements Step<DedupeAdapter> {
   operation: OperationType = OperationType.DEDUPE;
@@ -354,16 +348,16 @@ export class DedupeStep implements Step<DedupeAdapter> {
 
     const state = this.#controller.stateFor(route);
     // Wire commit/release to the route's terminal events the first time we
-    // run with a context bound; safe to call on every exchange (it no-ops
-    // after the first).
-    if (context) state.ensureSubscribed(context, routeId, route);
+    // run; safe to call on every exchange (it no-ops after the first).
+    if (route && context) state.ensureSubscribed(context, routeId, route);
 
-    // Reserve only when a context is bound: the reservation is released by a
-    // terminal exchange event, which cannot fire without a context, so
-    // reserving on the context-less path (synthetic/unit invocation) would
-    // leak the key forever. Without a context dedupe degrades to pass-through.
+    // Reserve only when bound to a route: the reservation is released by a
+    // terminal exchange event scoped to the route (and torn down on the
+    // route's abort signal), neither of which exists on the route-less
+    // synthetic/unit path, where reserving would leak the key and the
+    // listeners forever. Without a route dedupe degrades to pass-through.
     const duplicate = state.isDuplicate(key);
-    if (!duplicate && context) state.reserve(key, exchange.id);
+    if (!duplicate && route && context) state.reserve(key, exchange.id);
 
     if (context) {
       context.emit("route:step:completed", {
