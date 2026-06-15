@@ -8,6 +8,7 @@ import { WrapperStep } from "./wrapper.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { assertDurationMs } from "./cancellable-sleep.ts";
 import { defaultRetryOn } from "./retry-wrapper.ts";
+import { RouteScopedController } from "./route-scoped-controller.ts";
 
 /**
  * The three states of a circuit breaker.
@@ -326,12 +327,11 @@ export class CircuitBreakerMachine {
  *
  * @internal
  */
-export class CircuitBreakerController {
+export class CircuitBreakerController extends RouteScopedController<CircuitBreakerMachine> {
   readonly #options: ResolvedCircuitBreakerOptions;
-  readonly #byRoute = new WeakMap<Route, CircuitBreakerMachine>();
-  #routeless?: CircuitBreakerMachine;
 
   constructor(options: ResolvedCircuitBreakerOptions) {
+    super();
     this.#options = options;
   }
 
@@ -345,24 +345,15 @@ export class CircuitBreakerController {
     return this.#options.label;
   }
 
-  #machineFor(route: Route | undefined): CircuitBreakerMachine {
-    if (!route) {
-      this.#routeless ??= new CircuitBreakerMachine(this.#options);
-      return this.#routeless;
-    }
-    let machine = this.#byRoute.get(route);
-    if (!machine) {
-      machine = new CircuitBreakerMachine(this.#options);
-      this.#byRoute.set(route, machine);
-    }
-    return machine;
+  protected createState(): CircuitBreakerMachine {
+    return new CircuitBreakerMachine(this.#options);
   }
 
   acquire(
     route: Route | undefined,
     hooks: CircuitBreakerHooks,
   ): CircuitBreakerDecision {
-    return this.#machineFor(route).acquire(Date.now(), hooks);
+    return this.stateFor(route).acquire(Date.now(), hooks);
   }
 
   recordSuccess(
@@ -370,7 +361,7 @@ export class CircuitBreakerController {
     probe: boolean,
     hooks: CircuitBreakerHooks,
   ): void {
-    this.#machineFor(route).recordSuccess(probe, hooks);
+    this.stateFor(route).recordSuccess(probe, hooks);
   }
 
   recordFailure(
@@ -392,7 +383,7 @@ export class CircuitBreakerController {
         "circuitBreaker isFailure callback threw; counting the failure",
       );
     }
-    this.#machineFor(route).recordFailure(Date.now(), probe, counts, hooks);
+    this.stateFor(route).recordFailure(Date.now(), probe, counts, hooks);
   }
 }
 

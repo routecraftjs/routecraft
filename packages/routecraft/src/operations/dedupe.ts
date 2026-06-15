@@ -19,6 +19,7 @@ import type { CraftContext } from "../context.ts";
 import type { Route } from "../route.ts";
 import { hashExchangeBody } from "./hash-body.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
+import { RouteScopedController } from "./route-scoped-controller.ts";
 
 /**
  * Options for the `.dedupe()` flow-control operation.
@@ -227,33 +228,21 @@ class DedupeState {
 
 /**
  * Owns the dedupe state for one `.dedupe()` across every Route the step
- * runs in. Keyed by Route in a WeakMap, so a single step instance shared by
- * a `RouteDefinition` registered into multiple contexts gives each Route its
- * OWN seen-key set rather than one shared set (which would let the contexts
- * suppress each other's exchanges). Mirrors `ThrottleController`.
+ * runs in (see {@link RouteScopedController}): each Route gets its own
+ * seen-key set so contexts cannot suppress each other's exchanges.
  *
  * @internal
  */
-class DedupeController {
+class DedupeController extends RouteScopedController<DedupeState> {
   readonly #options: ResolvedDedupeOptions;
-  readonly #byRoute = new WeakMap<Route, DedupeState>();
-  #routeless?: DedupeState;
 
   constructor(options: ResolvedDedupeOptions) {
+    super();
     this.#options = options;
   }
 
-  stateFor(route: Route | undefined): DedupeState {
-    if (!route) {
-      this.#routeless ??= new DedupeState(this.#options);
-      return this.#routeless;
-    }
-    let state = this.#byRoute.get(route);
-    if (!state) {
-      state = new DedupeState(this.#options);
-      this.#byRoute.set(route, state);
-    }
-    return state;
+  protected createState(): DedupeState {
+    return new DedupeState(this.#options);
   }
 }
 

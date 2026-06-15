@@ -8,6 +8,7 @@ import { WrapperStep } from "./wrapper.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
+import { RouteScopedController } from "./route-scoped-controller.ts";
 
 /**
  * Time window a `.throttle()` rate is measured over.
@@ -418,12 +419,11 @@ export function throttleEmitHooks(
  *
  * @internal
  */
-export class ThrottleController {
+export class ThrottleController extends RouteScopedController<ThrottleLimiter> {
   readonly #options: ResolvedThrottleOptions;
-  readonly #byRoute = new WeakMap<Route, ThrottleLimiter>();
-  #routeless?: ThrottleLimiter;
 
   constructor(options: ResolvedThrottleOptions) {
+    super();
     this.#options = options;
   }
 
@@ -432,19 +432,8 @@ export class ThrottleController {
     return this.#options.label;
   }
 
-  #limiterFor(route: Route | undefined): ThrottleLimiter {
-    if (!route) {
-      // No attached route (e.g. a step run in isolation): fall back to a
-      // single process-local limiter so behaviour is still bounded.
-      this.#routeless ??= new ThrottleLimiter(this.#options);
-      return this.#routeless;
-    }
-    let limiter = this.#byRoute.get(route);
-    if (!limiter) {
-      limiter = new ThrottleLimiter(this.#options);
-      this.#byRoute.set(route, limiter);
-    }
-    return limiter;
+  protected createState(): ThrottleLimiter {
+    return new ThrottleLimiter(this.#options);
   }
 
   /**
@@ -460,7 +449,7 @@ export class ThrottleController {
     hooks: ThrottleHooks,
   ): Promise<void> {
     const start = Date.now();
-    const { bucket, key } = this.#limiterFor(route).bucketFor(exchange, start);
+    const { bucket, key } = this.stateFor(route).bucketFor(exchange, start);
 
     if (this.#options.mode === "reject") {
       const retryAfterMs = bucket.tryAcquire(start);

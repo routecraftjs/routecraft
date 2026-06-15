@@ -8,7 +8,7 @@ import {
   emitExchangeDropped,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import type { Route } from "../route.ts";
+import { RouteScopedController } from "./route-scoped-controller.ts";
 
 /**
  * Options for the `.sample()` flow-control operation. Exactly one of
@@ -107,28 +107,14 @@ class SampleState {
 
 /**
  * Owns the sampler state for one `.sample()` across every Route the step
- * runs in. Keyed by Route in a WeakMap, so a single step instance shared by
- * a `RouteDefinition` registered into multiple contexts gives each Route its
- * OWN counter / window rather than one shared sampler (which would let the
- * contexts cross-sample each other). Mirrors `ThrottleController`.
+ * runs in (see {@link RouteScopedController}): each Route gets its own
+ * counter / window so contexts cannot cross-sample each other.
  *
  * @internal
  */
-class SampleController {
-  readonly #byRoute = new WeakMap<Route, SampleState>();
-  #routeless?: SampleState;
-
-  stateFor(route: Route | undefined): SampleState {
-    if (!route) {
-      this.#routeless ??= new SampleState();
-      return this.#routeless;
-    }
-    let state = this.#byRoute.get(route);
-    if (!state) {
-      state = new SampleState();
-      this.#byRoute.set(route, state);
-    }
-    return state;
+class SampleController extends RouteScopedController<SampleState> {
+  protected createState(): SampleState {
+    return new SampleState();
   }
 }
 
