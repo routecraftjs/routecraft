@@ -289,4 +289,77 @@ describe("multicast operation", () => {
     // timeout (30ms) has aborted the path, so the post-wait .to() never runs.
     expect(afterSlow.received).toHaveLength(0);
   });
+
+  /**
+   * @case A zero-path multicast still emits a balanced started/stopped pair
+   * @preconditions Route with .multicast() and no paths
+   * @expectedResult started and stopped both fire, in order, with pathCount 0
+   */
+  test("a zero-path multicast emits a balanced started/stopped pair", async () => {
+    const order: string[] = [];
+    const counts: number[] = [];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("multicast-zero")
+          .from(items<Order>([{ id: "a", amount: 1 }]))
+          .multicast(),
+      )
+      .on("route:operation:multicast:started", ((payload: {
+        details: { pathCount: number };
+      }) => {
+        order.push("started");
+        counts.push(payload.details.pathCount);
+      }) as never)
+      .on("route:operation:multicast:stopped", ((payload: {
+        details: { pathCount: number };
+      }) => {
+        order.push("stopped");
+        counts.push(payload.details.pathCount);
+      }) as never)
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(order).toEqual(["started", "stopped"]);
+    expect(counts).toEqual([0, 0]);
+  });
+
+  /**
+   * @case A path-clone failure still emits a balanced started/stopped pair
+   * @preconditions Body carries a function, so structuredClone throws while cloning the path
+   * @expectedResult started and stopped both fire (try/finally), and the path never runs
+   */
+  test("a clone failure still emits a balanced started/stopped pair", async () => {
+    const order: string[] = [];
+    const sink = spy();
+
+    // A function-valued body field is not structured-cloneable, so
+    // cloneExchange throws DataCloneError while building the path runs.
+    type WithFn = { run: () => void };
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("multicast-clone-throws")
+          .from(items<WithFn>([{ run: () => undefined }]))
+          .multicast((b) => b.to(sink)),
+      )
+      .on("route:operation:multicast:started", (() => {
+        order.push("started");
+      }) as never)
+      .on("route:operation:multicast:stopped", (() => {
+        order.push("stopped");
+      }) as never)
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    // Balanced despite the clone failure; the path itself never ran.
+    expect(order).toEqual(["started", "stopped"]);
+    expect(sink.received).toHaveLength(0);
+  });
 });

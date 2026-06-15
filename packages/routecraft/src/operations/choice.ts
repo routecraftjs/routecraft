@@ -162,7 +162,10 @@ export function compileChoiceBranches(
       });
     } else {
       if (otherwiseBranch) {
-        throw rcError("RC5001", undefined, {
+        // RC2001 (DSL, build-time) rather than RC5001 (Adapter, runtime): a
+        // duplicate otherwise() is an authoring error caught while compiling
+        // the route, not a step-execution failure.
+        throw rcError("RC2001", undefined, {
           message:
             "choice() may have at most one otherwise() branch; received two",
         });

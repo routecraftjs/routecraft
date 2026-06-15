@@ -27,7 +27,7 @@ Fan the exchange out to multiple independent paths in parallel. Each path is eit
 - **Deep copy.** Each path mutates an independent `structuredClone` of the body, so a path-side mutation can never race the original or a sibling.
 - **No fire-and-forget.** Fire-and-forget is intentionally not offered here; use `tap` (already fire-and-forget) for that.
 
-A bare path must be an object destination (`{ send }`); a callable destination (a bare function with a `send` method) is indistinguishable from a sub-pipeline callback at runtime, so wrap it as `(b) => b.to(callableDest)`.
+A bare destination must be an object destination (`{ send }`); a callable destination (a bare function with a `send` method) is indistinguishable from a sub-pipeline callback at runtime, so wrap it as `(b) => b.to(callableDest)`.
 
 **Events:**
 

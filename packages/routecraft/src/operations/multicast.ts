@@ -68,24 +68,29 @@ export class MulticastStep<In = unknown> implements Step<MulticastAdapter> {
       return { kind: "continue", exchange };
     }
 
-    if (this.paths.length > 0) {
-      context.emit("route:operation:multicast:started", {
-        routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        pathCount: this.paths.length,
-      });
-
-      // Clone once per path so each path mutates an independent copy, binding
-      // the (already-derived) route so the clone is executor-ready, then run
-      // them all in parallel and wait for every one to settle.
-      await ctx.runPaths(
-        this.paths.map((steps) => ({
-          steps,
-          exchange: cloneExchange(exchange, context, route),
-        })),
-      );
-
+    // Emit started/stopped unconditionally and pair them with try/finally so
+    // a `started` is ALWAYS followed by a `stopped`, even if a path clone
+    // throws (a non-cloneable body) or the fan-out is empty. The cloning and
+    // fan-out only happen when there are paths to run.
+    context.emit("route:operation:multicast:started", {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId,
+      pathCount: this.paths.length,
+    });
+    try {
+      if (this.paths.length > 0) {
+        // Clone once per path so each path mutates an independent copy, binding
+        // the (already-derived) route so the clone is executor-ready, then run
+        // them all in parallel and wait for every one to settle.
+        await ctx.runPaths(
+          this.paths.map((steps) => ({
+            steps,
+            exchange: cloneExchange(exchange, context, route),
+          })),
+        );
+      }
+    } finally {
       context.emit("route:operation:multicast:stopped", {
         routeId,
         exchangeId: exchange.id,
