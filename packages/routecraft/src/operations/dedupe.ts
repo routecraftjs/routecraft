@@ -35,9 +35,12 @@ export interface DedupeOptions {
    */
   key?: (exchange: Exchange) => string;
   /**
-   * Time to live in milliseconds for a committed key. After expiry, the
-   * next exchange with that key is treated as new (passes again). When
-   * omitted, committed keys are retained until LRU eviction at `maxKeys`.
+   * Time to live in milliseconds for a committed key. The TTL is a sliding
+   * (inactivity) window, not a fixed lifetime from commit: each duplicate hit
+   * refreshes it, so an actively-arriving duplicate stream keeps being
+   * suppressed and a key only expires once it has been quiet for `ttl`. After
+   * expiry the next exchange with that key is treated as new (passes again).
+   * When omitted, committed keys are retained until LRU eviction at `maxKeys`.
    *
    * This is the memory bound for long-running routes: without a `ttl`, only
    * `maxKeys` caps the committed set, and an evicted key's next occurrence
@@ -46,9 +49,10 @@ export interface DedupeOptions {
   ttl?: number;
   /**
    * Maximum number of committed keys retained per route. The committed set
-   * is an LRU, so memory stays bounded even with an unbounded key space (the
-   * least-recently-committed key is evicted, and its next occurrence passes
-   * as new). Default `10_000`.
+   * is an LRU keyed by recency of use (a duplicate hit counts as a use, not
+   * just the original commit), so memory stays bounded even with an unbounded
+   * key space: the least-recently-seen key is evicted, and its next
+   * occurrence passes as new. Default `10_000`.
    */
   maxKeys?: number;
 }
@@ -313,7 +317,17 @@ export class DedupeStep implements Step<DedupeAdapter> {
 
     let key: string;
     try {
-      key = this.#options.key(exchange);
+      const derived = this.#options.key(exchange);
+      // Defend JS callers and widened types: `key` is typed to return a
+      // string, but a non-string return would corrupt the identity used as
+      // the committed-key and the `key: string` event contract. Treat it as a
+      // coded derivation failure, same as a throwing `key`.
+      if (typeof derived !== "string") {
+        throw rcError("RC5033", undefined, {
+          message: `dedupe({ key }) for "${stepLabel}" must return a string, got ${typeof derived}`,
+        });
+      }
+      key = derived;
     } catch (err) {
       if (context) {
         context.emit("route:step:failed", {

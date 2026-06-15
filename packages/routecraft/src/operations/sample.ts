@@ -59,8 +59,6 @@ export type ResolvedSampleOptions =
 export function resolveSampleOptions(
   options: SampleOptions,
 ): ResolvedSampleOptions {
-  const { every, intervalMs } = options;
-
   // The XOR is already a compile-time error for typed callers (the union's
   // `?: never` arms); these runtime checks defend JS callers and widened
   // values that bypass the types. One shared message so the two sites cannot
@@ -68,14 +66,25 @@ export function resolveSampleOptions(
   const exclusiveMessage =
     "sample() requires exactly one of `every` or `intervalMs` (they are mutually exclusive).";
 
+  // Guard before destructuring so a non-object (a JS caller passing nothing,
+  // null, or a primitive) yields the coded RC5003 rather than a bare TypeError.
+  if (typeof options !== "object" || options === null) {
+    throw rcError("RC5003", undefined, { message: exclusiveMessage });
+  }
+
+  const { every, intervalMs } = options;
+
   if (every !== undefined && intervalMs !== undefined) {
     throw rcError("RC5003", undefined, { message: exclusiveMessage });
   }
 
   if (every !== undefined) {
-    if (!Number.isInteger(every) || every < 1) {
+    // Safe integer, not just integer: above 2^53 the per-route counter loses
+    // precision and can never reach `every`, freezing the sampler into a
+    // permanent drop. Fail such a config at build time instead.
+    if (!Number.isSafeInteger(every) || every < 1) {
       throw rcError("RC5003", undefined, {
-        message: `sample({ every }) must be an integer >= 1, got ${String(every)}.`,
+        message: `sample({ every }) must be a safe integer >= 1, got ${String(every)}.`,
       });
     }
     return { mode: "count", every };

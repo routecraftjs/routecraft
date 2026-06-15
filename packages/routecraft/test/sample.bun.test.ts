@@ -168,6 +168,42 @@ describe("sample (.sample())", () => {
   });
 
   /**
+   * @case Sample emits passed/dropped operation events with the interval mode
+   * @preconditions Route with .sample({ intervalMs }) over two sends in one window; event subscribers registered
+   * @expectedResult One route:operation:sample:passed and one :dropped, both mode "interval"
+   */
+  test("emits route:operation:sample:passed and :dropped in interval mode", async () => {
+    const passed: { mode: string }[] = [];
+    const dropped: { mode: string }[] = [];
+    const s = spy();
+    t = await testContext()
+      .on("route:operation:sample:passed", (p) => {
+        passed.push(p.details as { mode: string });
+      })
+      .on("route:operation:sample:dropped", (p) => {
+        dropped.push(p.details as { mode: string });
+      })
+      .routes(
+        craft()
+          .id("sample-interval-events")
+          .from(direct())
+          .sample({ intervalMs: 1000 })
+          .to(s),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    // Two sends inside the same window: the first passes, the second drops.
+    await send(t, "sample-interval-events", "a");
+    await send(t, "sample-interval-events", "b");
+
+    expect(passed).toHaveLength(1);
+    expect(dropped).toHaveLength(1);
+    expect(passed[0]!.mode).toBe("interval");
+    expect(dropped[0]!.mode).toBe("interval");
+  });
+
+  /**
    * @case Mis-specified sampling is rejected at build time
    * @preconditions SampleStep constructed with neither, both, or out-of-range options
    * @expectedResult Each construction throws (RC5003), so the route never builds

@@ -42,9 +42,9 @@ craft()
 ```
 
 **Options:**
-- `key` (optional) - Function to derive the deduplication key from the exchange. If omitted, a key is derived by hashing the exchange body. See [default key derivation](#default-key-derivation).
-- `ttl` (optional) - Time to live in milliseconds for a committed key. After expiry, the next exchange with that key is treated as new and passes again. When omitted, committed keys are retained until LRU eviction at `maxKeys`. This is the memory bound for long-running routes.
-- `maxKeys` (optional) - Maximum number of committed keys retained per route (an LRU). Default `10_000`. Keeps memory bounded even without a `ttl`; the least-recently-committed key is evicted, and its next occurrence passes as new.
+- `key` (optional) - Function to derive the deduplication key from the exchange. If omitted, a key is derived by hashing the exchange body (see "Default key derivation" below).
+- `ttl` (optional) - Time to live in milliseconds for a committed key. The window is sliding (inactivity-based), not a fixed lifetime from commit: each duplicate hit refreshes it, so an actively-arriving duplicate stream stays suppressed and a key only expires once it has been quiet for `ttl`. After expiry the next exchange with that key is treated as new and passes again. When omitted, committed keys are retained until LRU eviction at `maxKeys`. This is the memory bound for long-running routes.
+- `maxKeys` (optional) - Maximum number of committed keys retained per route (an LRU keyed by recency of use). Default `10_000`. Keeps memory bounded even without a `ttl`; the least-recently-seen key is evicted (a duplicate hit counts as use, not just the original commit), and its next occurrence passes as new.
 
 **Semantics:**
 - Key is reserved immediately on entry (single-flight: a second exchange with the same key that arrives while the first is still in flight is dropped).
@@ -79,11 +79,11 @@ The reserve/commit/release outcome is decided from the entering exchange's termi
 
 When `dedupe` or `cache` is called without a `key` function, a key is derived automatically by SHA-256 hashing the JSON serialisation of the body:
 
-```
+```txt
 key = sha256(JSON.stringify(body))
 ```
 
-The key is computed from the body at the moment the operation executes. If the body changes at different points in the route, the derived key will differ. `JSON.stringify` does NOT canonicalise object key order, so two objects with the same entries serialised in a different order hash differently (and are treated as distinct); supply an explicit `key` when a stable identity must survive key reordering.
+The key is computed from the body at the moment the operation executes. If the body changes at different points in the route, the derived key will differ. `JSON.stringify` does NOT canonicalise object key order, so two objects with the same entries serialised in a different order hash differently (and are treated as distinct); supply an explicit `key` when a stable identity must survive key reordering. Nested non-serialisable values follow standard `JSON.stringify` semantics: a nested `undefined`, function, or symbol is dropped (in an object) or coerced to `null` (in an array), so two bodies that differ only in such values hash the same; supply an explicit `key` when those values are significant to identity.
 
 **Unsupported bodies (throw an error):**
 

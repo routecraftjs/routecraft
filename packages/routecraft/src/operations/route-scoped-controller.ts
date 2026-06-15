@@ -33,7 +33,7 @@ export abstract class RouteScopedController<S> {
   stateFor(route: Route | undefined): S {
     if (!route) return (this.#routeless ??= this.createState());
     let state = this.#byRoute.get(route);
-    if (!state) {
+    if (state === undefined) {
       state = this.createState();
       this.#byRoute.set(route, state);
     }

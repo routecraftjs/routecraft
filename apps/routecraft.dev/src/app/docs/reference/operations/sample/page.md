@@ -36,5 +36,5 @@ craft()
 - `route:operation:sample:dropped` - emitted for each dropped exchange. A `route:exchange:dropped` event (reason `"sampled"`) also fires so telemetry and the TUI count it.
 
 {% callout type="note" title="sample vs filter vs throttle" %}
-`filter` keeps or drops each exchange independently by a predicate. `sample` drops by position (count) or time, keeping a representative subset. `throttle` never drops: it paces exchanges that exceed a rate. Reach for `sample` to thin a firehose, `throttle` to smooth one.
+`filter` keeps or drops each exchange independently by a predicate. `sample` drops by position (count) or time, keeping a representative subset. `throttle` enforces a rate without sampling: by default (`mode: "delay"`) it paces over-limit exchanges, and in `mode: "reject"` it fails them fast rather than dropping them. Reach for `sample` to thin a firehose, `throttle` to smooth one.
 {% /callout %}
