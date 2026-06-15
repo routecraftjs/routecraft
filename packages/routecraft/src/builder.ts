@@ -46,8 +46,13 @@ import {
   AggregateStep,
   defaultAggregate,
 } from "./operations/aggregate.ts";
-import { COLLECT_STEPS } from "./dsl-symbol.ts";
-import { ChoiceStep, ChoiceSubBuilder } from "./operations/choice.ts";
+import {
+  buildChoiceStep,
+  compilePath,
+  type ChoiceDescriptor,
+  type Path,
+} from "./operations/choice.ts";
+import { MulticastStep } from "./operations/multicast.ts";
 import { ValidateStep } from "./operations/validate.ts";
 import { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
 import {
@@ -1423,12 +1428,12 @@ export class RouteBuilder<
   /**
    * Conditionally route the exchange through one of several branches.
    *
-   * Branches are defined in a callback sub-builder, so the `when` / `otherwise`
-   * surface is only reachable inside a choice block. Predicates are evaluated
-   * in registration order; the first match wins. An optional `otherwise`
-   * branch catches exchanges that no `when` matched. If no branch matches and
-   * no `otherwise` is registered, the exchange is dropped with
-   * `reason: "unmatched"`.
+   * Branches are passed variadically as {@link when} / {@link otherwise}
+   * descriptors built from the standalone helpers, the same path surface
+   * shared with `multicast`. Predicates are evaluated in registration order;
+   * the first match wins. An optional `otherwise` branch catches exchanges
+   * that no `when` matched. If no branch matches and no `otherwise` is
+   * registered, the exchange is dropped with `reason: "unmatched"`.
    *
    * By default, a matched branch's steps are inlined before the remaining
    * main-pipeline steps, so the exchange converges back into the main flow
@@ -1437,30 +1442,65 @@ export class RouteBuilder<
    * not resume for it.
    *
    * All branches must produce exchanges of the same type `Out` (defaults to
-   * the current body), which becomes the body type of the builder after the choice.
+   * the current body), which becomes the body type of the builder after the
+   * choice.
    *
    * @template Out - Body type produced by every branch (enforced by the
-   *   branch callback return types)
-   * @param fn - Callback that populates the choice sub-builder with `when`
-   *   and `otherwise` branches
+   *   branch path return types)
+   * @param descriptors - `when(...)` / `otherwise(...)` branch descriptors
    * @returns A RouteBuilder typed at `Out`
    *
    * @example
    * ```ts
-   * .choice(c => c
-   *   .when(ex => ex.body.priority === 'urgent', b => b.to(urgentQueue))
-   *   .when(ex => ex.body.amount > 1000,         b => b.to(reviewQueue))
-   *   .otherwise(                                b => b.to(errorSink).halt()))
+   * .choice(
+   *   when(ex => ex.body.priority === 'urgent', b => b.to(urgentQueue)),
+   *   when(ex => ex.body.amount > 1000,         b => b.to(reviewQueue)),
+   *   otherwise(                                b => b.to(errorSink).halt()),
+   * )
    * .to(finalDest)
    * ```
    */
   choice<Out = S["body"]>(
-    fn: (c: ChoiceSubBuilder<S, Out>) => ChoiceSubBuilder<S, Out>,
+    ...descriptors: ChoiceDescriptor<S["body"], Out>[]
   ): RouteBuilder<SetBody<S, Out>> {
-    const sub = new ChoiceSubBuilder<S, Out>();
-    fn(sub);
-    this.pushStep(new ChoiceStep<S["body"]>(sub[COLLECT_STEPS]()));
+    this.pushStep(
+      buildChoiceStep(descriptors as ChoiceDescriptor<unknown, unknown>[]),
+    );
     return this.retype<Out>();
+  }
+
+  /**
+   * Fan the exchange out to multiple independent paths in parallel.
+   *
+   * Each path is either a bare destination or a sub-pipeline callback (the
+   * same path surface as `choice`). Every path receives its own deep clone
+   * of the exchange (fresh id, preserved correlation id) and runs as an
+   * isolated nested pipeline; all paths run concurrently and the step waits
+   * for every one to settle (`Promise.allSettled` semantics). A path that
+   * throws fires its own clone's error events but does not fail the route or
+   * its sibling paths, and a path that `.halt()`s only stops itself. Once
+   * every path has settled, the ORIGINAL exchange continues downstream
+   * unchanged, so the body type is preserved.
+   *
+   * Fire-and-forget is intentionally not offered; use `tap` (already
+   * fire-and-forget) for that.
+   *
+   * @param paths - Bare destinations or sub-pipeline callbacks to fan out to
+   * @returns This RouteBuilder, body type unchanged
+   *
+   * @example
+   * ```ts
+   * .from(http('/orders'))
+   * .multicast(
+   *   queue('audit'),                                // bare destination
+   *   b => b.transform(toWarehouse).to(http('/wh')), // sub-pipeline path
+   * )
+   * .to(next); // runs on the original exchange after all paths settle
+   * ```
+   */
+  multicast(...paths: Path<S["body"]>[]): RouteBuilder<S> {
+    this.pushStep(new MulticastStep(paths.map((path) => compilePath(path))));
+    return this;
   }
 
   /**

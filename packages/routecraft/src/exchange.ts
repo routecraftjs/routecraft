@@ -43,6 +43,8 @@ export enum OperationType {
   HEADER = "header",
   /** Conditionally route the exchange through one of several branches */
   CHOICE = "choice",
+  /** Fan the exchange out to multiple independent paths in parallel */
+  MULTICAST = "multicast",
   /** Rate limit an operation, pacing exchanges that exceed the rate */
   THROTTLE = "throttle",
   /** Fast-fail an operation while a downstream is known to be failing */
@@ -370,6 +372,41 @@ export function getExchangeRoute(exchange: Exchange): Route | undefined {
       INTERNALS_KEY
     ] ?? EXCHANGE_INTERNALS.get(exchange);
   return internals?.route;
+}
+
+/**
+ * Deep-clone an exchange for fan-out operations (the `tap` snapshot and
+ * `multicast` paths). The body is `structuredClone`d so a clone-side
+ * mutation can never race the original; headers are spread (framework
+ * headers are shallow-frozen and safe to share by reference) with a fresh
+ * `routecraft.id` so logs and identity-aware tooling can distinguish the
+ * clone from the source. The correlation id is preserved by the spread so
+ * the clone stays traceable to the same logical request. The source
+ * exchange's route binding is carried onto the clone's internals so it can
+ * run through the pipeline executor (mirrors the split-child pattern).
+ *
+ * @internal
+ */
+export function cloneExchange<T>(
+  exchange: Exchange<T>,
+  context: CraftContext,
+): Exchange<T> {
+  const clone = new DefaultExchange<T>(context, {
+    body: structuredClone(exchange.body),
+    headers: {
+      ...exchange.headers,
+      [HeadersKeys.ID]: randomUUID(),
+    },
+  });
+  const route = getExchangeRoute(exchange);
+  if (route) {
+    const internals =
+      (clone as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
+        INTERNALS_KEY
+      ] ?? EXCHANGE_INTERNALS.get(clone);
+    if (internals) internals.route = route;
+  }
+  return clone;
 }
 
 /**

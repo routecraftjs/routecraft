@@ -146,10 +146,17 @@ export {
 export { hashExchangeBody } from "./operations/hash-body.ts";
 
 export {
-  BranchBuilder,
-  ChoiceSubBuilder,
+  PathBuilder,
+  when,
+  otherwise,
   type ChoicePredicate,
+  type Path,
+  type WhenDescriptor,
+  type OtherwiseDescriptor,
+  type ChoiceDescriptor,
 } from "./operations/choice.ts";
+
+export { MulticastStep } from "./operations/multicast.ts";
 
 export { type HeaderSetter } from "./operations/header.ts";
 

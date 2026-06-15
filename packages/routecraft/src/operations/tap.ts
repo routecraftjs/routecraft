@@ -1,50 +1,17 @@
-import { randomUUID } from "node:crypto";
 import { type Step, type StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
-  HeadersKeys,
-  DefaultExchange,
+  cloneExchange,
   getExchangeContext,
   getExchangeRoute,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { type Destination, type CallableDestination } from "./to.ts";
-import type { CraftContext } from "../context.ts";
 import {
   resolveAdapterOverride,
   invokeSendOverride,
 } from "../testing-hooks.ts";
-
-/**
- * Creates a snapshot of an exchange for async tap execution. Body is
- * deep-cloned so tap-side mutations (which the framework cannot prevent
- * for arbitrary user payloads) do not race with the main pipeline.
- * Headers are framework-immutable (shallow-frozen) and safe to share
- * between snapshot and main pipeline by reference; structured header
- * values like `Principal` are shallow-frozen by the constructor so direct
- * field rewrites are caught at runtime. Taps that mutate nested fields
- * (e.g. `principal.claims.foo`) are an anti-pattern; tap is for
- * observation, not mutation.
- *
- * The snapshot gets a fresh id (overriding the parent's
- * `routecraft.id`) so log lines and any downstream identity-aware
- * tooling can distinguish tap from main pipeline.
- *
- * @internal
- */
-function snapshotExchange<T>(
-  exchange: Exchange<T>,
-  context: CraftContext,
-): Exchange<T> {
-  return new DefaultExchange<T>(context, {
-    body: structuredClone(exchange.body),
-    headers: {
-      ...exchange.headers,
-      [HeadersKeys.ID]: randomUUID(),
-    },
-  });
-}
 
 /**
  * Step that runs a destination as a side effect without changing the main exchange.
@@ -70,7 +37,11 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
       throw new Error("Exchange has no context or route; cannot execute tap");
     }
 
-    const snapshot = snapshotExchange(exchange, context);
+    // Tap runs against a deep clone so a tap-side body mutation cannot
+    // race the main pipeline. The clone gets a fresh id (so logs can
+    // distinguish tap from the main flow) while preserving the
+    // correlation id; tap is for observation, not mutation.
+    const snapshot = cloneExchange(exchange, context);
 
     // Resolve a test-time override (if any) so `.tap(adapter)` is intercepted
     // the same way `.to()` and `.enrich()` are.

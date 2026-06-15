@@ -240,6 +240,23 @@ export async function runPipeline(
       }
       return taken;
     },
+    async runPaths(runs): Promise<void> {
+      // Each path is its own isolated nested pipeline run on a clone. They
+      // run concurrently and we wait for all of them to settle: a path
+      // failure surfaces as that clone's default error events (the nested
+      // deps carry no `rethrowUnhandled`) and never rejects this call, so
+      // one bad path cannot take the route down. The original exchange is
+      // untouched and continues once every path has settled.
+      await Promise.allSettled(
+        runs.map((run) =>
+          runPipeline(
+            nestedPathDeps(deps, run.steps),
+            run.exchange,
+            Date.now(),
+          ),
+        ),
+      );
+    },
   };
 
   while (queue.length > 0) {
@@ -686,6 +703,34 @@ function nestedSegmentDeps(
     buildForward: () => deps.buildForward(),
     rethrowUnhandled: true,
     ...(abortSignal ? { abortSignal } : {}),
+    definition: {
+      preParseFilters: [],
+      postParseFilters: [],
+      steps: segment,
+      postFromFilters: [],
+    },
+  };
+}
+
+/**
+ * Executor deps for a multicast path run. Same route identity and
+ * capabilities, but only the path's steps and no route-scope filters /
+ * error handler / resilience wrappers (the path is a self-contained
+ * sub-flow). Unlike {@link nestedSegmentDeps} it deliberately omits
+ * `rethrowUnhandled`: a path that throws resolves through the default error
+ * path for its own clone (firing that exchange's `route:error` /
+ * `context:error` / `route:exchange:failed`) rather than propagating, so
+ * one failing path neither rejects `runPaths` nor disturbs the others.
+ */
+function nestedPathDeps(
+  deps: ExecutorDeps,
+  segment: Step<Adapter>[],
+): ExecutorDeps {
+  return {
+    routeId: deps.routeId,
+    context: deps.context,
+    route: deps.route,
+    buildForward: () => deps.buildForward(),
     definition: {
       preParseFilters: [],
       postParseFilters: [],
