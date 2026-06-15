@@ -1,28 +1,40 @@
 ---
 title: sample
-titleBadges:
-  - text: planned
-    color: purple
 ---
 
 [← All operations](/docs/reference/operations) {% .lead %}
 
 ```ts
-sample(options: { every?: number; intervalMs?: number }): RouteBuilder<Current>
+sample(options: { every?: number } | { intervalMs?: number }): RouteBuilder<Current>
 ```
 
-Take every Nth exchange or sample at time intervals. Useful for reducing data volume while maintaining representativeness.
+Reduce data volume from a high-frequency source by passing a representative subset of exchanges and dropping the rest. A dropped exchange is discarded silently, exactly like a `filter` predicate returning `false`.
+
+Pass exactly one of `every` or `intervalMs`; they are mutually exclusive (a sampler is either count-based or time-based). Sampler state (the counter or the window timestamp) is per-route.
 
 ```ts
-// Take every 5th exchange
+// Count-based: take every 5th exchange
 .sample({ every: 5 })
 
-// Sample every 10 seconds (first exchange in each window)
+// Time-based: pass the first exchange in each 10-second window
 .sample({ intervalMs: 10000 })
 
-// Typical use: Reduce high-frequency data
-.id('high-frequency-metrics')
-.from(direct())
-.sample({ every: 100 }) // Only process 1% of metrics
-.to(database({ operation: 'save' }))
+// Typical use: reduce high-frequency data
+craft()
+  .id('high-frequency-metrics')
+  .from(direct())
+  .sample({ every: 100 }) // Process roughly 1% of metrics
+  .to(database({ operation: 'save' }))
 ```
+
+**Options:**
+- `every` - Count-based: pass every Nth exchange. An internal counter increments per exchange and the exchange passes when `counter % every === 0`, so `{ every: 5 }` passes the 5th, 10th, 15th, ... exchange. Must be a finite integer >= 1.
+- `intervalMs` - Time-based: pass the first exchange seen in each window of `intervalMs` milliseconds and drop the rest until the window elapses. Must be a finite number > 0.
+
+**Events:**
+- `route:operation:sample:passed` - emitted for each admitted exchange, with `mode` (`"count"` or `"interval"`).
+- `route:operation:sample:dropped` - emitted for each dropped exchange. A `route:exchange:dropped` event (reason `"sampled"`) also fires so telemetry and the TUI count it.
+
+{% callout type="note" title="sample vs filter vs throttle" %}
+`filter` keeps or drops each exchange independently by a predicate. `sample` drops by position (count) or time, keeping a representative subset. `throttle` never drops: it paces exchanges that exceed a rate. Reach for `sample` to thin a firehose, `throttle` to smooth one.
+{% /callout %}

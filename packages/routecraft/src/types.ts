@@ -620,6 +620,29 @@ export interface EventDetailsMap {
   };
   "route:operation:choice:unmatched": ExchangeScoped;
 
+  // -- Sample --
+  /** The sampler admitted this exchange. */
+  "route:operation:sample:passed": ExchangeScoped & {
+    /** `"count"` for `every`-based sampling, `"interval"` for `intervalMs`. */
+    mode: "count" | "interval";
+  };
+  /** The sampler dropped this exchange (between samples). */
+  "route:operation:sample:dropped": ExchangeScoped & {
+    mode: "count" | "interval";
+  };
+
+  // -- Dedupe --
+  /** The key was unseen; it is reserved and the exchange continues. */
+  "route:operation:dedupe:pass": ExchangeScoped & {
+    /** The derived key reserved for this exchange. */
+    key: string;
+  };
+  /** The key was already reserved or committed; the exchange is dropped. */
+  "route:operation:dedupe:duplicate": ExchangeScoped & {
+    /** The derived key that was already seen. */
+    key: string;
+  };
+
   // -- Agent (emitted by @routecraft/ai agent() destinations) --
   // Sensitive payloads (tool input/output, thrown errors that may echo
   // them) ride in the `_snapshot` envelope: the bus always carries them,

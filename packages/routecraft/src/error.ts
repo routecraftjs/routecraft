@@ -78,6 +78,7 @@ export interface ErrorCodeRegistry {
   RC5030: RCMeta;
   RC5031: RCMeta;
   RC5032: RCMeta;
+  RC5033: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -337,6 +338,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A step returned a StepOutcome kind the engine cannot schedule yet. The 'suspend' kind is reserved for the route-level suspend/resume feature and is not implemented; no built-in step produces it. If you wrote a custom step, return a supported outcome (continue, complete, drop, branch, fanOut). Retrying will not help.",
     docs: `${DOCS_BASE}#rc-5032`,
+    retryable: false,
+  },
+  RC5033: {
+    category: "Adapter",
+    message: "Dedupe key derivation failed",
+    suggestion:
+      "The default `.dedupe()` key hashes JSON.stringify(body); it fails on non-serialisable bodies (functions, symbols, circular refs, BigInt). Supply an explicit `key` function in dedupe({ key: ... }). Retrying will not help: the same body fails the same way.",
+    docs: `${DOCS_BASE}#rc-5033`,
     retryable: false,
   },
   RC9901: {

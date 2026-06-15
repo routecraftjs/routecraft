@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import {
   type Exchange,
   DefaultExchange,
@@ -7,8 +5,9 @@ import {
   markDropped,
 } from "../exchange.ts";
 import { wrapperEventScope } from "./event-scope.ts";
-import { rcError, RoutecraftError } from "../error.ts";
+import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
+import { hashExchangeBody } from "./hash-body.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import {
@@ -88,20 +87,11 @@ export function resolveCacheOptions<Current = unknown>(
 
 function defaultKey(exchange: Exchange<unknown>): string {
   try {
-    const stringified = JSON.stringify(exchange.body);
-    if (stringified === undefined) {
-      throw rcError("RC5029", undefined, {
-        message:
-          "Default cache key derivation failed: exchange body is not JSON-serialisable. " +
-          "Supply an explicit `key` function in cache({ key: ... }).",
-      });
-    }
-    return createHash("sha256").update(stringified).digest("hex");
+    return hashExchangeBody(exchange.body);
   } catch (err) {
-    if (err instanceof RoutecraftError) throw err;
     throw rcError("RC5029", err, {
       message:
-        "Default cache key derivation threw while hashing the exchange body. " +
+        "Default cache key derivation failed: the exchange body is not JSON-serialisable. " +
         "Supply an explicit `key` function in cache({ key: ... }).",
     });
   }
