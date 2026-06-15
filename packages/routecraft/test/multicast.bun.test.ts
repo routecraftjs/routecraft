@@ -4,6 +4,8 @@ import { craft, type Source } from "@routecraft/routecraft";
 
 type Order = { id: string; amount: number };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Emits each item in `items` as its own exchange, strictly typed. Mirrors the
  * helper used by the choice suite.
@@ -244,5 +246,47 @@ describe("multicast operation", () => {
 
     expect(order).toEqual(["started", "stopped"]);
     expect(counts).toEqual([2, 2]);
+  });
+
+  /**
+   * @case A route-scope timeout aborts in-flight multicast paths
+   * @preconditions Route with .timeout(30) wrapping a multicast whose slow path runs a step after an 80ms wait
+   * @expectedResult The fast path completes, but the slow path's post-wait step never runs because the fired timeout's abortSignal reaches the path run
+   */
+  test("a route timeout aborts in-flight multicast paths", async () => {
+    const fast = spy<Order>();
+    const afterSlow = spy<Order>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("multicast-timeout-abort")
+          // Route-scope timeout wraps the tail, including the multicast step.
+          .timeout(30)
+          .from(items<Order>([{ id: "a", amount: 1 }]))
+          .multicast(
+            (b) => b.to(fast), // completes immediately, before the deadline
+            (b) =>
+              b
+                .process(async (ex) => {
+                  // Still running when the 30ms deadline fires.
+                  await sleep(80);
+                  return ex;
+                })
+                .to(afterSlow), // the step AFTER the wait must be aborted
+          ),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+    // Let the slow path's process() resolve so the nested run reaches the
+    // post-wait step boundary, where the forwarded abortSignal stops it.
+    await sleep(150);
+
+    expect(fast.received).toHaveLength(1);
+    // afterSlow is scheduled only after the 80ms process; by then the route
+    // timeout (30ms) has aborted the path, so the post-wait .to() never runs.
+    expect(afterSlow.received).toHaveLength(0);
   });
 });

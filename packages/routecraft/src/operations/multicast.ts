@@ -69,12 +69,13 @@ export class MulticastStep<In = unknown> implements Step<MulticastAdapter> {
         pathCount: this.paths.length,
       });
 
-      // Clone once per path so each path mutates an independent copy, then
-      // run them all in parallel and wait for every one to settle.
+      // Clone once per path so each path mutates an independent copy, binding
+      // the (already-derived) route so the clone is executor-ready, then run
+      // them all in parallel and wait for every one to settle.
       await ctx.runPaths(
         this.paths.map((steps) => ({
           steps,
-          exchange: cloneExchange(exchange, context),
+          exchange: cloneExchange(exchange, context, route),
         })),
       );
 

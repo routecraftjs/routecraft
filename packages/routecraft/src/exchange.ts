@@ -375,21 +375,46 @@ export function getExchangeRoute(exchange: Exchange): Route | undefined {
 }
 
 /**
+ * Bind a route onto an exchange's internals. Symbol-key first (cross-instance
+ * safe), WeakMap fallback -- the symmetric write half of {@link
+ * getExchangeRoute}. Used wherever an exchange is constructed outside the
+ * normal source path and must be made executor-ready (split children,
+ * {@link cloneExchange}). The internals object is mutable post-construction
+ * (the wrapper is frozen, the internals are not), so this is safe after the
+ * exchange has been created.
+ *
+ * @internal
+ */
+export function setExchangeRoute(exchange: Exchange, route: Route): void {
+  const internals =
+    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
+      INTERNALS_KEY
+    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  if (internals) internals.route = route;
+}
+
+/**
  * Deep-clone an exchange for fan-out operations (the `tap` snapshot and
- * `multicast` paths). The body is `structuredClone`d so a clone-side
- * mutation can never race the original; headers are spread (framework
- * headers are shallow-frozen and safe to share by reference) with a fresh
- * `routecraft.id` so logs and identity-aware tooling can distinguish the
- * clone from the source. The correlation id is preserved by the spread so
- * the clone stays traceable to the same logical request. The source
- * exchange's route binding is carried onto the clone's internals so it can
- * run through the pipeline executor (mirrors the split-child pattern).
+ * `multicast` paths). ONLY the body is deep-copied (`structuredClone`), so a
+ * clone-side body mutation can never race the original. Headers are spread
+ * SHALLOWLY: framework headers are immutable and safe to share by reference,
+ * but object-valued user headers (e.g. `.header("x", { ... })`) remain shared
+ * between the clone and the source -- mutating a nested header field is an
+ * anti-pattern that is NOT isolated. The clone gets a fresh `routecraft.id`
+ * (so logs and identity-aware tooling distinguish it) and preserves the
+ * correlation id so it stays traceable to the same logical request.
+ *
+ * When `route` is supplied it is bound onto the clone's internals so the
+ * clone can run through the pipeline executor (multicast paths need this). It
+ * is left unset by default so a detached snapshot (tap) stays route-less and
+ * route-reading adapters see no binding, matching tap's isolation contract.
  *
  * @internal
  */
 export function cloneExchange<T>(
   exchange: Exchange<T>,
   context: CraftContext,
+  route?: Route,
 ): Exchange<T> {
   const clone = new DefaultExchange<T>(context, {
     body: structuredClone(exchange.body),
@@ -398,14 +423,7 @@ export function cloneExchange<T>(
       [HeadersKeys.ID]: randomUUID(),
     },
   });
-  const route = getExchangeRoute(exchange);
-  if (route) {
-    const internals =
-      (clone as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-        INTERNALS_KEY
-      ] ?? EXCHANGE_INTERNALS.get(clone);
-    if (internals) internals.route = route;
-  }
+  if (route) setExchangeRoute(clone, route);
   return clone;
 }
 

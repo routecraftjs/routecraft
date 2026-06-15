@@ -41,18 +41,6 @@ export type Path<In = unknown, Out = In> =
   | ((b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>);
 
 /**
- * Loose path shape used by the internal compilers, which operate on
- * type-erased descriptors. User-facing typing lives on {@link Path} and the
- * descriptor helpers; the casts to this shape are confined to the compile
- * boundary below.
- *
- * @internal
- */
-type AnyPath =
-  | Destination<unknown, unknown>
-  | ((b: PathBuilder) => PathBuilder);
-
-/**
  * Internal representation of one registered branch: a predicate plus the
  * compiled step array that runs when the predicate matches.
  *
@@ -100,19 +88,6 @@ export type ChoiceDescriptor<In = unknown, Out = In> =
   | OtherwiseDescriptor<In, Out>;
 
 /**
- * Erased descriptor the compiler walks. The public {@link ChoiceDescriptor}
- * carries the body generics for authoring; once handed to `.choice(...)`
- * those are erased and compilation works structurally.
- *
- * @internal
- */
-interface AnyDescriptor {
-  readonly kind: "when" | "otherwise";
-  readonly predicate?: ChoicePredicate<unknown>;
-  readonly path: AnyPath;
-}
-
-/**
  * Register a conditional branch for `.choice(...)`. The predicate receives
  * the exchange at the point of the choice; the path runs when it returns
  * true. Branches are evaluated in registration order and the first match
@@ -155,7 +130,7 @@ export function otherwise<In = unknown, Out = In>(
  *
  * @internal
  */
-export function compilePath(path: AnyPath): Step<Adapter>[] {
+export function compilePath(path: Path<unknown, unknown>): Step<Adapter>[] {
   const builder = new PathBuilder();
   if (typeof path === "function") {
     path(builder);
@@ -173,14 +148,14 @@ export function compilePath(path: AnyPath): Step<Adapter>[] {
  * @internal
  */
 export function compileChoiceBranches(
-  descriptors: readonly AnyDescriptor[],
+  descriptors: readonly ChoiceDescriptor<unknown, unknown>[],
 ): ChoiceBranch[] {
   const whenBranches: ChoiceBranch[] = [];
   let otherwiseBranch: ChoiceBranch | undefined;
   for (const descriptor of descriptors) {
     if (descriptor.kind === "when") {
       whenBranches.push({
-        predicate: descriptor.predicate ?? (() => false),
+        predicate: descriptor.predicate,
         steps: compilePath(descriptor.path),
         label: "when",
       });
@@ -204,17 +179,16 @@ export function compileChoiceBranches(
 }
 
 /**
- * Build the {@link ChoiceStep} for a variadic `.choice(...)` call. Casts the
- * authoring descriptors to their erased form at the single compile boundary.
+ * Build the {@link ChoiceStep} for a variadic `.choice(...)` call. Keeps the
+ * {@link ChoiceStep} value encapsulated in this module so the builder only
+ * depends on the helper.
  *
  * @internal
  */
 export function buildChoiceStep(
   descriptors: readonly ChoiceDescriptor<unknown, unknown>[],
 ): ChoiceStep {
-  return new ChoiceStep(
-    compileChoiceBranches(descriptors as readonly AnyDescriptor[]),
-  );
+  return new ChoiceStep(compileChoiceBranches(descriptors));
 }
 
 /**

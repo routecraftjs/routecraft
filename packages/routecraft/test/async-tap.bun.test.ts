@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple } from "@routecraft/routecraft";
+import { craft, simple, getExchangeRoute } from "@routecraft/routecraft";
 
 describe("Async Tap Execution", () => {
   let t: TestContext;
@@ -256,5 +256,34 @@ describe("Async Tap Execution", () => {
     // Taps should complete in order of their duration (shortest first)
     // since they run in parallel
     expect(tapOrder).toEqual([3, 2, 1]);
+  });
+
+  /**
+   * @case The tap snapshot is route-less (detached observation copy)
+   * @preconditions Route with a .tap() whose target reads getExchangeRoute(snapshot)
+   * @expectedResult getExchangeRoute returns undefined on the snapshot, so route-reading adapters (e.g. block resolvers) see no binding
+   */
+  test("tap snapshot carries no route binding", async () => {
+    let routeOnSnapshot: unknown = "unset";
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("tap-route-less")
+          .from(simple({ data: "x" }))
+          .tap((ex) => {
+            routeOnSnapshot = getExchangeRoute(ex);
+          })
+          .to(() => {}),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.stop();
+
+    // The detached snapshot must not be bound to the live route: the old
+    // snapshotExchange left it route-less and shared cloneExchange must
+    // preserve that for tap (multicast paths opt in to route binding).
+    expect(routeOnSnapshot).toBeUndefined();
   });
 });

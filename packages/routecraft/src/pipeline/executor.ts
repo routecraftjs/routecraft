@@ -250,7 +250,10 @@ export async function runPipeline(
       await Promise.allSettled(
         runs.map((run) =>
           runPipeline(
-            nestedPathDeps(deps, run.steps),
+            // Forward any outer abortSignal (a route-scope timeout) so an
+            // expired attempt stops scheduling in-flight paths; omit
+            // rethrowUnhandled so a failing path stays isolated.
+            nestedDeps(deps, run.steps, { abortSignal: deps.abortSignal }),
             run.exchange,
             Date.now(),
           ),
@@ -683,54 +686,39 @@ function segmentResultToOutcome(result: {
 }
 
 /**
- * Executor deps for a nested segment run: same route identity and
- * capabilities, but the step arrays carry only the wrapped segment and
- * no `errorHandler` / `retry` / `timeout` (the outer invocation owns
- * filter #1 and the segment wrappers themselves; omitting them here is
- * also what stops the nested run from re-wrapping recursively).
- * `rethrowUnhandled` makes a failed attempt throw out of the nested
- * `runPipeline` so the segment step can react.
+ * Executor deps for a nested `runPipeline` invocation: same route identity
+ * and capabilities, but the step array carries only the wrapped segment and
+ * no `errorHandler` / `retry` / `timeout` (the outer invocation owns filter
+ * #1 and the segment wrappers themselves; omitting them here is also what
+ * stops the nested run from re-wrapping recursively).
+ *
+ * Two callers, distinguished by `opts`:
+ * - Resilience segments (timeout / retry / circuit breaker) pass
+ *   `rethrowUnhandled: true` so a failed attempt throws out of the nested
+ *   run and the segment step can react, and the timeout segment additionally
+ *   passes its `abortSignal` so an expired attempt stops scheduling.
+ * - Multicast paths omit `rethrowUnhandled` so a path that throws resolves
+ *   through the default error path for its own clone (firing that exchange's
+ *   `route:error` / `context:error` / `route:exchange:failed`) rather than
+ *   propagating -- one failing path neither rejects `runPaths` nor disturbs
+ *   the others -- while still forwarding any outer `abortSignal` so a
+ *   route-scope timeout can stop in-flight paths.
  */
-function nestedSegmentDeps(
+function nestedDeps(
   deps: ExecutorDeps,
   segment: Step<Adapter>[],
-  abortSignal?: AbortSignal,
+  opts: {
+    rethrowUnhandled?: boolean;
+    abortSignal?: AbortSignal | undefined;
+  } = {},
 ): ExecutorDeps {
   return {
     routeId: deps.routeId,
     context: deps.context,
     route: deps.route,
     buildForward: () => deps.buildForward(),
-    rethrowUnhandled: true,
-    ...(abortSignal ? { abortSignal } : {}),
-    definition: {
-      preParseFilters: [],
-      postParseFilters: [],
-      steps: segment,
-      postFromFilters: [],
-    },
-  };
-}
-
-/**
- * Executor deps for a multicast path run. Same route identity and
- * capabilities, but only the path's steps and no route-scope filters /
- * error handler / resilience wrappers (the path is a self-contained
- * sub-flow). Unlike {@link nestedSegmentDeps} it deliberately omits
- * `rethrowUnhandled`: a path that throws resolves through the default error
- * path for its own clone (firing that exchange's `route:error` /
- * `context:error` / `route:exchange:failed`) rather than propagating, so
- * one failing path neither rejects `runPaths` nor disturbs the others.
- */
-function nestedPathDeps(
-  deps: ExecutorDeps,
-  segment: Step<Adapter>[],
-): ExecutorDeps {
-  return {
-    routeId: deps.routeId,
-    context: deps.context,
-    route: deps.route,
-    buildForward: () => deps.buildForward(),
+    ...(opts.rethrowUnhandled ? { rethrowUnhandled: true } : {}),
+    ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
     definition: {
       preParseFilters: [],
       postParseFilters: [],
@@ -781,7 +769,10 @@ function buildTimeoutSegmentStep(
       try {
         const result = await raceWithDeadline(
           runPipeline(
-            nestedSegmentDeps(deps, segment, abandon.signal),
+            nestedDeps(deps, segment, {
+              rethrowUnhandled: true,
+              abortSignal: abandon.signal,
+            }),
             exchange,
             Date.now(),
           ),
@@ -845,7 +836,11 @@ function buildRetrySegmentStep(
       };
       const result = await executeWithRetry(
         () =>
-          runPipeline(nestedSegmentDeps(deps, segment), exchange, Date.now()),
+          runPipeline(
+            nestedDeps(deps, segment, { rethrowUnhandled: true }),
+            exchange,
+            Date.now(),
+          ),
         options,
         {
           signal: deps.route.signal,
@@ -950,7 +945,7 @@ function buildCircuitBreakerSegmentStep(
         async () =>
           segmentResultToOutcome(
             await runPipeline(
-              nestedSegmentDeps(deps, segment),
+              nestedDeps(deps, segment, { rethrowUnhandled: true }),
               exchange,
               Date.now(),
             ),
