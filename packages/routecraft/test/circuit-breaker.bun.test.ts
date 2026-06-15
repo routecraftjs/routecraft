@@ -169,6 +169,36 @@ describe("CircuitBreakerMachine (state transitions)", () => {
     expect(m.state).toBe("closed");
     expect(events).toEqual([]);
   });
+
+  /**
+   * @case Stale non-probe results do not drive half-open transitions
+   * @preconditions failureThreshold 1, cooldownMs 100; trip, half-open at t=150 with one probe in flight, then a call admitted while closed resolves late
+   * @expectedResult A non-probe failure and a non-probe success while half-open are both ignored (state stays half-open); only the probe's outcome closes or re-opens it
+   */
+  test("half-open ignores stale non-probe failures and successes", () => {
+    const m = new CircuitBreakerMachine(
+      resolveCircuitBreakerOptions({ failureThreshold: 1, cooldownMs: 100 }),
+    );
+    const { events, hooks } = recorder();
+
+    // Trip, then half-open with a probe in flight.
+    m.acquire(0, hooks);
+    m.recordFailure(0, false, true, hooks);
+    const probe = m.acquire(150, hooks);
+    expect(probe).toEqual({ admitted: true, probe: true });
+
+    // A stale call admitted while closed resolves now (probe=false). Neither
+    // its failure nor a success may move the breaker out of half-open.
+    m.recordFailure(150, false, true, hooks);
+    expect(m.state).toBe("half-open");
+    m.recordSuccess(false, hooks);
+    expect(m.state).toBe("half-open");
+
+    // The genuine probe's success is what closes it.
+    m.recordSuccess(true, hooks);
+    expect(m.state).toBe("closed");
+    expect(events).toEqual(["opened:1", "halfOpen", "closed"]);
+  });
 });
 
 describe("Circuit breaker step scope (.circuitBreaker() after .from())", () => {

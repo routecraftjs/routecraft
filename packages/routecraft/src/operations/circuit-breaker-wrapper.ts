@@ -262,7 +262,11 @@ export class CircuitBreakerMachine {
   /** Record a successful call. A successful probe closes the breaker. */
   recordSuccess(probe: boolean, hooks: CircuitBreakerHooks): void {
     if (probe && this.#halfOpenInFlight > 0) this.#halfOpenInFlight -= 1;
-    if (this.#state === "half-open") {
+    // Only the probe's outcome decides a half-open breaker. A non-probe
+    // success here is stale work from a call admitted while the breaker
+    // was still closed (long enough to outlive the trip + cooldown); it
+    // must not close the breaker out from under the in-flight probe.
+    if (this.#state === "half-open" && probe) {
       this.#failures.length = 0;
       this.#toState("closed");
       hooks.onClosed();
@@ -286,6 +290,10 @@ export class CircuitBreakerMachine {
     if (!counts) return;
 
     if (this.#state === "half-open") {
+      // Symmetric with recordSuccess: only the probe re-opens a half-open
+      // breaker. A non-probe failure here is stale work from a call
+      // admitted before the trip and must not override the probe's verdict.
+      if (!probe) return;
       this.#openedAt = now;
       this.#toState("open");
       // Exactly one failed probe re-opened the breaker. Report 1 rather
@@ -370,7 +378,19 @@ export class CircuitBreakerController {
     probe: boolean,
     hooks: CircuitBreakerHooks,
   ): void {
-    const counts = this.#options.isFailure(error);
+    // `isFailure` is user code. Isolate it like `onStateChange`: a throwing
+    // predicate must not mask the original step error (re-thrown by the
+    // caller after this returns), skip breaker accounting, or leak the
+    // half-open probe slot. Default to counting the failure on a throw.
+    let counts = true;
+    try {
+      counts = this.#options.isFailure(error);
+    } catch (err) {
+      logger.warn(
+        { err },
+        "circuitBreaker isFailure callback threw; counting the failure",
+      );
+    }
     this.#machineFor(route).recordFailure(Date.now(), probe, counts, hooks);
   }
 }

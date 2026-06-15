@@ -1296,7 +1296,7 @@ export class RouteBuilder<
         message:
           `Route metadata staged but no .from() called: route-level configuration ` +
           `(.id / .title / .description / .input / .output / .batch / .error / .authorize / ` +
-          `.cache / .retry / .timeout) must be ` +
+          `.cache / .retry / .timeout / .circuitBreaker) must be ` +
           `followed by .from() before pipeline operations on the next route.`,
       });
     }
@@ -1509,7 +1509,7 @@ export class RouteBuilder<
     if (this.pendingStepWrappers.length > 0) {
       throw rcError("RC2001", undefined, {
         message:
-          `Wrapper(s) staged via .error() / .retry() / .timeout() / .cache() / .delay() but no step followed before .${method}(). ` +
+          `Wrapper(s) staged via .error() / .retry() / .timeout() / .circuitBreaker() / .cache() / .delay() but no step followed before .${method}(). ` +
           `A wrapper attaches to the immediately next pipeline step; orphaning one (or letting it leak into the next route) is almost always a mistake.`,
       });
     }
