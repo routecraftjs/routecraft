@@ -183,7 +183,7 @@ const ops: Op[] = [
   {
     name: 'choice',
     category: 'Flow Control',
-    signature: '.choice(when(...), otherwise(...))',
+    signature: '.choice(when(...), otherwise(...)?)',
     description: 'Branch the pipeline by predicate.',
   },
   {

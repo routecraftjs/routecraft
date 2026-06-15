@@ -103,28 +103,31 @@ describe("multicast operation", () => {
 
   /**
    * @case All paths execute concurrently rather than sequentially
-   * @preconditions Two paths each await a gate that only resolves once both have started
-   * @expectedResult The gate resolves (both paths were in flight at once), proving parallel fan-out
+   * @preconditions Two paths each record the in-flight count on entry; a gate releases them once both have entered
+   * @expectedResult The observed maximum in-flight count is 2, which is only reachable if both paths overlap
    */
   test("executes all paths concurrently", async () => {
-    let count = 0;
-    let gateResolved = false;
-    let resolveGate!: () => void;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let arrived = 0;
+    let releaseGate!: () => void;
     const gate = new Promise<void>((resolve) => {
-      resolveGate = () => {
-        gateResolved = true;
-        resolve();
-      };
+      releaseGate = resolve;
     });
 
     const gated = () => ({
       send: async () => {
-        count += 1;
-        if (count === 2) resolveGate();
-        // If the paths ran sequentially, the first send would block here
-        // forever (the second never starts); the timeout keeps the test
-        // from hanging on a regression.
-        await Promise.race([gate, new Promise((r) => setTimeout(r, 1000))]);
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        arrived += 1;
+        // Once both paths have entered, let them both finish.
+        if (arrived === 2) releaseGate();
+        // Bounded so a sequential regression cannot hang the test: the
+        // maxInFlight assertion below (not this wait) is what proves overlap.
+        // If the paths ran sequentially, the first would wait out the timeout
+        // before the second ever entered, so maxInFlight would stay 1.
+        await Promise.race([gate, sleep(500)]);
+        inFlight -= 1;
       },
     });
 
@@ -140,8 +143,8 @@ describe("multicast operation", () => {
     await t.ctx.start();
     await t.drain();
 
-    expect(gateResolved).toBe(true);
-    expect(count).toBe(2);
+    // Both paths were in flight at the same time: impossible if sequential.
+    expect(maxInFlight).toBe(2);
   });
 
   /**

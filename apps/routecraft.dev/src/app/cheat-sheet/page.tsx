@@ -153,7 +153,7 @@ await ctx.stop()`}</CheatCode>
   .tap(log())                      // side effect, non-blocking
   .split()                         // fan-out per array item
   .aggregate()                     // collect back into one
-  .choice(when(...), otherwise(...)) // conditional branching
+  .choice(when(...), otherwise(...)?) // otherwise is optional
   .to(destination)                 // destination adapter
   .error((e, ex, fwd) => ...)      // step-scope handler
   .build()`}</CheatCode>
