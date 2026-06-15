@@ -398,6 +398,82 @@ describe("choice operation", () => {
   });
 
   /**
+   * @case Branches may produce DIFFERENT output types; the choice Out is their union
+   * @preconditions Two branches transform to distinct shapes; `.choice<A | B>` names the union; downstream narrows on a discriminant
+   * @expectedResult Each input reaches the downstream with its branch-specific shape; the union narrows correctly
+   */
+  test("branches can produce different output types via a union Out", async () => {
+    type Report = { tag: "report"; n: number };
+    type Audit = { tag: "audit"; who: string };
+    const downstream = spy<{ result: number | string }>();
+
+    const inputs: Order[] = [
+      { priority: "urgent", amount: 10 },
+      { priority: "normal", amount: 5 },
+    ];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-union")
+          .from(items(inputs))
+          .choice<Report | Audit>(
+            when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.transform(
+                (o): Report => ({ tag: "report", n: o.amount }),
+              ),
+            ),
+            otherwise((b) => b.transform(
+              (o): Audit => ({ tag: "audit", who: o.priority }),
+            )),
+          )
+          // The downstream sees the union and must narrow it (the `tag` guard):
+          .transform((body) => ({
+            result: body.tag === "report" ? body.n : body.who,
+          }))
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(downstream.receivedBodies()).toEqual([
+      { result: 10 },
+      { result: "normal" },
+    ]);
+  });
+
+  /**
+   * @case Type-level: a bare-destination branch's output is checked against the choice Out (the #5 fix)
+   * @preconditions choice<Report> with a bare destination that produces a non-Report body, and a separate void sink under the default Out
+   * @expectedResult The mismatched destination fails to compile (@ts-expect-error); the void sink is accepted (output preserved)
+   */
+  test("type-level: a bare-destination branch output is checked against the choice Out", () => {
+    type Report = { tag: "report"; n: number };
+    // Returns the WRONG body type; choice<Report> must reject it.
+    const auditDest = { send: () => ({ tag: "audit" as const, who: "x" }) };
+    const wrong = craft()
+      .id("choice-bare-bad")
+      .from(items<Order>([]))
+      .choice<Report>(
+        // @ts-expect-error auditDest produces { tag: "audit"; ... }, not assignable to Report
+        when((ex) => ex.body.priority === "urgent", auditDest),
+      );
+    void wrong;
+
+    // A void-returning sink leaves the body unchanged, so it converges on the
+    // default Out (the input body) and is accepted.
+    const voidSink = { send: () => {} };
+    const ok = craft()
+      .id("choice-bare-sink")
+      .from(items<Order>([]))
+      .choice(when((ex) => ex.body.priority === "urgent", voidSink));
+    void ok;
+  });
+
+  /**
    * @case transform() inside a branch awaits async (Promise-returning) transformers
    * @preconditions Branch uses an async transformer that resolves after a tick
    * @expectedResult Downstream sink sees the resolved body, proving the await is honoured inside inlined branch steps

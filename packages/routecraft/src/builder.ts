@@ -1441,12 +1441,18 @@ export class RouteBuilder<
    * exchange is dropped with `reason: "halted"` and the main pipeline does
    * not resume for it.
    *
-   * All branches must produce exchanges of the same type `Out` (defaults to
-   * the current body), which becomes the body type of the builder after the
-   * choice.
+   * Every branch's output (a sub-pipeline's final body, or a bare
+   * destination's `.to()` result) is checked against `Out`, which becomes the
+   * builder's body type after the choice. `Out` defaults to the current body,
+   * so when all branches keep or converge on one type you write nothing
+   * extra. When branches produce DIFFERENT types, name `Out` as the union and
+   * narrow downstream:
+   * `.choice<Report | Audit>(when(p, b => b.transform(toReport)), otherwise(...))`.
+   * Each branch must produce a member of the union; the downstream sees the
+   * union and must narrow it. The compiler enforces both.
    *
-   * @template Out - Body type produced by every branch (enforced by the
-   *   branch path return types)
+   * @template Out - Body type the choice produces (union of the branch outputs;
+   *   defaults to the current body and is checked against every branch)
    * @param descriptors - `when(...)` / `otherwise(...)` branch descriptors
    * @returns A RouteBuilder typed at `Out`
    *

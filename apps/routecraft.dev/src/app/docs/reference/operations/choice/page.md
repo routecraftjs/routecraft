@@ -34,7 +34,25 @@ import { when, otherwise } from "@routecraft/routecraft";
 
 Each branch is a path: either a bare destination or a sub-pipeline callback `(b) => b...`. Sub-pipeline branches support the full set of pipeline operations available on the main route: `to()`, `transform()`, `enrich()`, `filter()`, `header()`, `tap()`, `process()`, `validate()`, plus the sugar methods `log()`, `debug()`, `map()`, and `schema()`. The only path-specific op is `halt()`, which short-circuits convergence. Route-level operations (`id`, `batch`, `error`, `from`, `split`, `aggregate`, `choice`, `build`) are deliberately not exposed inside branches because they either configure the route itself or fan out in ways that break the "branch converges" model.
 
-Branches that change body type via `transform()` / `process()` / `validate()` / `map()` / `schema()` / `enrich()` must converge on the same `Out` type; the descriptor return types enforce this at compile time.
+## Branch output types
+
+Every branch produces a body type that the choice's output `Out` is checked against, at compile time. A sub-pipeline branch produces the body its chain ends on (`transform()` / `process()` / `map()` / `schema()` / `enrich()` change it); a **bare destination** produces its `.to()` result (a void-returning sink leaves the body unchanged, a value-returning destination replaces it). Both forms are type-checked, so a destination that returns the wrong shape is a compile error.
+
+When all branches produce the same type (the common case), `Out` defaults to that type and you write nothing extra. When branches produce **different** types, name the choice output as the union and narrow it downstream:
+
+```ts
+type Report = { tag: "report"; n: number };
+type Audit = { tag: "audit"; who: string };
+
+.choice<Report | Audit>(
+  when((ex) => ex.body.priority === "urgent",
+       (b) => b.transform((o): Report => ({ tag: "report", n: o.amount }))),
+  otherwise((b) => b.transform((o): Audit => ({ tag: "audit", who: o.priority }))),
+)
+.transform((body) => (body.tag === "report" ? body.n : body.who)) // narrow the union
+```
+
+Each branch must produce a *member* of the union, and the downstream sees `Report | Audit` and must narrow it (the `tag` discriminant) before touching member-specific fields. The compiler enforces both.
 
 > When `when(...)` is passed directly to `.choice(...)`, the predicate body type is inferred from the route's current body, so `ex.body` is typed without an annotation. You only need to annotate the predicate or supply the type argument (`when<Order>(...)`) when building a descriptor outside the call (assigned to a variable first), where there is no context to infer from.
 

@@ -10,7 +10,7 @@ import {
 import { rcError } from "../error.ts";
 import { COLLECT_STEPS } from "../dsl-symbol.ts";
 import { StepBuilderBase, type BuilderState } from "../step-builder-base.ts";
-import { type Destination } from "./to.ts";
+import { type Destination, type ToResultBody } from "./to.ts";
 
 /**
  * Predicate that decides whether a choice branch matches an exchange.
@@ -93,6 +93,14 @@ export type ChoiceDescriptor<In = unknown, Out = In> =
  * true. Branches are evaluated in registration order and the first match
  * wins.
  *
+ * Two overloads, so the branch's OUTPUT type is checked against the choice's
+ * converged `Out` either way: a sub-pipeline callback `(b) => b...` produces
+ * the body type its chain ends on, and a bare destination produces its
+ * `.to()` result body ({@link ToResultBody}: a void-returning sink leaves the
+ * body unchanged, a value-returning destination replaces it). When the
+ * branches differ, set the choice output to the union and narrow downstream:
+ * `.choice<Report | Audit>(when(p, b => b.transform(toReport)), otherwise(...))`.
+ *
  * When `when(...)` is passed directly as a `.choice(...)` argument, the body
  * type flows in by contextual typing, so `ex.body` is typed without an
  * annotation. Only when a descriptor is built OUTSIDE the call (assigned to a
@@ -101,12 +109,20 @@ export type ChoiceDescriptor<In = unknown, Out = In> =
  * (`when<Order>((ex) => ex.body.priority === "urgent", ...)`) in that case.
  *
  * @param predicate - Receives the exchange; returns true if this branch handles it
- * @param path - Bare destination or sub-pipeline callback for the branch
+ * @param branch - Sub-pipeline callback (overload 1) or bare destination (overload 2)
  */
 export function when<In = unknown, Out = In>(
   predicate: ChoicePredicate<In>,
-  path: Path<In, Out>,
-): WhenDescriptor<In, Out> {
+  branch: (b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>,
+): WhenDescriptor<In, Out>;
+export function when<In = unknown, R = void>(
+  predicate: ChoicePredicate<In>,
+  destination: Destination<In, R>,
+): WhenDescriptor<In, ToResultBody<In, R>>;
+export function when(
+  predicate: ChoicePredicate<unknown>,
+  path: Path<unknown, unknown>,
+): WhenDescriptor<unknown, unknown> {
   return { kind: "when", predicate, path };
 }
 
@@ -116,11 +132,20 @@ export function when<In = unknown, Out = In>(
  * branch matches, the exchange is dropped with `reason: "unmatched"`. At most
  * one `otherwise` may be passed to a single `.choice(...)`.
  *
- * @param path - Bare destination or sub-pipeline callback for the default branch
+ * Like {@link when}, two overloads: a sub-pipeline callback or a bare
+ * destination, both with their output checked against the choice's `Out`.
+ *
+ * @param branch - Sub-pipeline callback (overload 1) or bare destination (overload 2)
  */
 export function otherwise<In = unknown, Out = In>(
-  path: Path<In, Out>,
-): OtherwiseDescriptor<In, Out> {
+  branch: (b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>,
+): OtherwiseDescriptor<In, Out>;
+export function otherwise<In = unknown, R = void>(
+  destination: Destination<In, R>,
+): OtherwiseDescriptor<In, ToResultBody<In, R>>;
+export function otherwise(
+  path: Path<unknown, unknown>,
+): OtherwiseDescriptor<unknown, unknown> {
   return { kind: "otherwise", path };
 }
 
