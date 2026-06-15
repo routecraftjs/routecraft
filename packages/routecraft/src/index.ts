@@ -202,6 +202,11 @@ export {
   type CircuitBreakerState,
   type ResolvedCircuitBreakerOptions,
 } from "./operations/circuit-breaker-wrapper.ts";
+export {
+  ConcurrencyWrapperStep,
+  type ConcurrencyOptions,
+  type ResolvedConcurrencyOptions,
+} from "./operations/concurrency-wrapper.ts";
 
 export {
   ContextBuilder,

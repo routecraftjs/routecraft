@@ -115,6 +115,13 @@ const ops: Op[] = [
     description:
       'Trip after repeated failures and fast-fail until the target recovers.',
   },
+  {
+    name: 'concurrency',
+    category: 'Wrapper',
+    signature: '.concurrency({ max })',
+    description:
+      'Bound how many exchanges run the next operation (or the whole pipeline) at once (bulkhead).',
+  },
 
   // Transform
   {

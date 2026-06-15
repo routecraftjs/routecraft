@@ -150,8 +150,21 @@ const errors: ErrorRow[] = [
     message: 'authenticate() called without a subject',
     retryable: false,
   },
-  // RC5025-RC5027 (agent blocks) moved to the AI namespace as
-  // AI1001-AI1003, listed at the end of this table.
+  // The original RC5025-RC5027 agent blocks moved to the AI namespace as
+  // AI1001-AI1003 (listed at the end of this table); RC5025 and RC5026 were
+  // then reused by core for the resilience operations below. RC5027 is free.
+  {
+    code: 'RC5025',
+    category: 'Runtime',
+    message: 'Circuit breaker is open',
+    retryable: false,
+  },
+  {
+    code: 'RC5026',
+    category: 'Runtime',
+    message: 'Concurrency limit exceeded',
+    retryable: true,
+  },
   {
     code: 'RC5028',
     category: 'Adapter',

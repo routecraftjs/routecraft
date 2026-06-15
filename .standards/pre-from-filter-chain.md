@@ -9,7 +9,7 @@ order is the framework's call.
 
 This document is the single source of truth for that order. The
 resilience wrappers (`.throttle()`, `.circuitBreaker()`, `.retry()`,
-`.timeout()`) slot into the positions named below.
+`.timeout()`, `.concurrency()`) slot into the positions named below.
 
 Inspiration: Spring's `FilterChainProxy` / `WebSecurityConfigurerAdapter`
 and Resilience4J's wrapper composition. The framework picks the
@@ -32,6 +32,7 @@ below).
 | 6 | `circuitBreaker` | shipped (#139) | yes (`RC5025`, fast-fail when open) | counts inner failures; trips after threshold, fast-fails (fallback or `RC5025`) until cooldown, then probes |
 | 7 | `retry` | shipped (#148) | yes (final attempt's throw) | re-runs everything below on failure |
 | 8 | `timeout` | shipped (#147) | yes (`RC5011`) | per-attempt deadline |
+| 8.5 | `concurrency` | shipped (#448) | `mode: 'reject'` or full `maxQueue` (`RC5026`); default `'queue'` paces | bulkhead; bounds simultaneous in-flight. Innermost resilience (INSIDE retry / timeout), so a slot is held per attempt and freed between backoffs |
 | 9 | `cacheCheck` | shipped (#112) | yes (`RC5028` / `RC5029`) | hit → short-circuit pipeline |
 | — | **user pipeline** | — | — | declaration order; everything after `.from()` |
 | 10 | `cacheStore` | shipped (#112) | swallows (`cache:failed phase:"set"`) | best-effort write; runs only on miss-success |
@@ -75,6 +76,15 @@ These DO retry / time out / fail fast. Standard outside-in.
   deadline. If `timeout` were outside `retry`, total time would be
   one deadline shared across attempts; per-attempt timeout is more
   useful for the common case.
+- **`concurrency` innermost (inside `timeout`).** The bulkhead holds a
+  scarce slot only for the duration of one attempt: a slot is acquired
+  per attempt and released when the attempt settles, so `retry`'s backoff
+  sleeps WITHOUT holding a slot (the opposite, an outermost bulkhead,
+  would pin a slot for the whole retry-with-backoff window). It also lets
+  an outer `retry` re-acquire a slot after a `reject`-mode `RC5026`
+  (`RC5026` is `retryable: true`), since `retry` sits outside it.
+  Contrast `throttle` (#5, outermost): a throttle rejection (`RC5013`)
+  is outside retry and so is only ever seen by `error`, never retried.
 
 ### Bottom (9-10): cache
 
@@ -275,6 +285,18 @@ shared token bucket), not in `postParseFilters` (which the segments
 wrap). See `buildThrottleCheckStep` in
 `packages/routecraft/src/pipeline/synthetic-steps.ts` and the
 `deps.definition.throttle` placement in
+`packages/routecraft/src/pipeline/executor.ts`.
+
+Filter 8.5 (`concurrency` #448) is shipped. Like the circuit breaker it
+scopes OVER the tail (acquires a slot, runs the tail, releases on settle)
+and holds persistent per-Route state (the slot pool / semaphores), so its
+live `ConcurrencyController`(s) ride on the `concurrency` field of
+`RouteDefinition` (built once per route; one controller per stacked
+`.concurrency()` call) and the executor wraps the tail in a bulkhead
+segment per controller. It is the INNERMOST resilience segment, wrapped
+BEFORE retry (#7) / timeout (#8) so each is outside it: a slot is held per
+attempt and freed between retry backoffs, and a `reject`-mode `RC5026` can
+be re-attempted by an outer retry. See `buildConcurrencySegmentStep` in
 `packages/routecraft/src/pipeline/executor.ts`.
 
 Filter 6 (`circuitBreaker` #139) is shipped. Like retry / timeout it

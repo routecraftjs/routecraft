@@ -565,6 +565,49 @@ export interface EventDetailsMap {
     label?: string;
   };
 
+  // -- Concurrency / bulkhead (route- and step-scope wrapper) --
+  /** All slots were busy; the exchange joined the wait queue (queue mode). */
+  "route:concurrency:queued": ExchangeScoped & {
+    /** Label of the wrapped step, or `"route"` when `scope === "route"`. */
+    stepLabel: string;
+    scope: "route" | "step";
+    /** The exchange's position in the wait queue (1 = next to be admitted). */
+    queueDepth: number;
+    /** Partition key the exchange was charged against, when `key` is set. */
+    key?: string;
+    /** Limiter label, when `.concurrency({ label })` is set. */
+    label?: string;
+  };
+  /** A slot was acquired and the wrapped work began. */
+  "route:concurrency:acquired": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
+    /** True when the exchange had to queue before a slot freed. */
+    waited: boolean;
+    /** Slots in use (including this one) at admission time. */
+    inUse: number;
+    key?: string;
+    label?: string;
+  };
+  /** The held slot was released (work settled: success, drop, or failure). */
+  "route:concurrency:released": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
+    /** How long the work held the slot, in milliseconds. */
+    heldMs: number;
+    key?: string;
+    label?: string;
+  };
+  /** The exchange was failed fast with `RC5026`; `RC5026` follows. */
+  "route:concurrency:rejected": ExchangeScoped & {
+    stepLabel: string;
+    scope: "route" | "step";
+    /** `"busy"`: reject mode, all slots in use. `"queue-full"`: queue mode, wait line at `maxQueue`. */
+    reason: "busy" | "queue-full";
+    key?: string;
+    label?: string;
+  };
+
   // -- Error handler (route- and step-scope wrappers) --
   "route:error-handler:invoked": ExchangeScoped & {
     originalError: unknown;

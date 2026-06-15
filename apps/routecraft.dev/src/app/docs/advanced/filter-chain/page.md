@@ -3,7 +3,7 @@ title: Pre-from Filter Chain
 ---
 
 How `.authorize()`, `.input()`, `.cache()`, `.error()`, `.throttle()`,
-`.retry()`, `.timeout()` (and the planned `.circuitBreaker()`)
+`.retry()`, `.timeout()`, `.circuitBreaker()`, and `.concurrency()`
 compose around your route. {% .lead %}
 
 Routecraft runs a **fixed ordered chain** of framework filters
@@ -25,9 +25,10 @@ Outside in (position 1 wraps everything below):
 | 3 | `parse` | shipped | source adapter (HTTP, mail, CSV, ...) | raw body bytes → typed body |
 | 4 | `input` | shipped (eager) | `.input(schema)` | typed body / headers |
 | 5 | `throttle` | shipped | `.throttle({ rate, per, mode })` | rate limit on the route (delay or reject) |
-| 6 | `circuitBreaker` | planned ([#139](https://github.com/routecraftjs/routecraft/issues/139)) | `.circuitBreaker({...})` | failure stats; fast-fails when open |
+| 6 | `circuitBreaker` | shipped | `.circuitBreaker({...})` | failure stats; fast-fails when open |
 | 7 | `retry` | shipped | `.retry({...})` | re-runs everything below on failure |
 | 8 | `timeout` | shipped | `.timeout(ms)` | per-attempt deadline |
+| 8.5 | `concurrency` | shipped | `.concurrency({ max })` | bulkhead; bounds simultaneous in-flight (innermost resilience, so a slot is held per attempt) |
 | 9 | `cacheCheck` | shipped | `.cache({...})` | validated body → cache key |
 | - | **your pipeline** | - | `.transform()`, `.to()`, `.process()`, ... | the work |
 | 10 | `cacheStore` | shipped | `.cache({...})` | terminal body, written best-effort |

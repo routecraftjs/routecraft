@@ -80,6 +80,12 @@ import {
   resolveCircuitBreakerOptions,
   CircuitBreakerController,
 } from "./operations/circuit-breaker-wrapper.ts";
+import {
+  type ConcurrencyOptions,
+  type ResolvedConcurrencyOptions,
+  resolveConcurrencyOptions,
+  ConcurrencyController,
+} from "./operations/concurrency-wrapper.ts";
 
 /**
  * Builder for creating a Routecraft context with routes and configuration.
@@ -507,6 +513,13 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
    * on the post-`.from()` builder. See {@link RouteBuilder.circuitBreaker}.
    */
   circuitBreaker(options: CircuitBreakerOptions): this;
+  /**
+   * Configure a ROUTE-SCOPE concurrency limiter (bulkhead) for the next
+   * route (bound how many exchanges run the whole pipeline at once,
+   * innermost resilience position). The step-scope variant lives on the
+   * post-`.from()` builder. See {@link RouteBuilder.concurrency}.
+   */
+  concurrency(options: ConcurrencyOptions): this;
   /** Declare an authorization requirement on the next route. See {@link RouteBuilder.authorize}. */
   authorize(options?: AuthorizeOptions): this;
   /** Finalize and return the route definition(s). See {@link RouteBuilder.build}. */
@@ -596,6 +609,7 @@ export class RouteBuilder<
         timeoutConfig?: ResolvedTimeoutOptions;
         throttleConfigs?: ResolvedThrottleOptions[];
         circuitBreakerConfig?: ResolvedCircuitBreakerOptions;
+        concurrencyConfigs?: ResolvedConcurrencyOptions[];
         discovery?: RouteDiscovery;
         authorizers?: AuthorizeOptions[];
       }
@@ -1030,6 +1044,41 @@ export class RouteBuilder<
   }
 
   /**
+   * Concurrency limiter (bulkhead). Dual-mode:
+   *
+   * - **Before `.from()` (route scope):** bounds the whole pipeline to
+   *   `max` simultaneous in-flight exchanges at the INNERMOST resilience
+   *   position, inside `.retry()` (#7) and `.timeout()` (#8) and inside
+   *   `.circuitBreaker()` (#6) / `.throttle()` (#5). Innermost means a slot
+   *   is acquired per attempt and released between retry backoffs, so a
+   *   scarce slot is never held while a retry sleeps; it also means an
+   *   outer `.retry()` can re-acquire a slot after a `reject`-mode
+   *   `RC5026`. State is per Route, so a definition reused across contexts
+   *   does not share a slot pool. Multiple `.concurrency()` calls stack and
+   *   nest (e.g. a global `max` plus a per-key `max`).
+   *
+   * - **After `.from()` (step scope):** wraps the immediately-next step;
+   *   see {@link StepBuilderBase.concurrency} for the step-scope contract.
+   */
+  override concurrency(options: ConcurrencyOptions): this {
+    if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
+      // Route scope: append the resolved config (validates at staging time)
+      // so the next `.from()` builds one controller per config. Stacking
+      // accumulates rather than overwriting, so independent limits compose.
+      this.pendingOptions = {
+        ...(this.pendingOptions ?? {}),
+        concurrencyConfigs: [
+          ...(this.pendingOptions?.concurrencyConfigs ?? []),
+          resolveConcurrencyOptions(options),
+        ],
+      };
+      logger.trace("Staging route-scope concurrency config for next route");
+      return this;
+    }
+    return super.concurrency(options);
+  }
+
+  /**
    * Declare an authorization requirement on the next route. **Route-only**:
    * stages the authorizer onto the next-route options and runs at route
    * entry, before any pipeline step. Same staging convention as `.id`,
@@ -1155,6 +1204,7 @@ export class RouteBuilder<
     const timeoutConfig = this.pendingOptions?.timeoutConfig;
     const throttleConfigs = this.pendingOptions?.throttleConfigs;
     const circuitBreakerConfig = this.pendingOptions?.circuitBreakerConfig;
+    const concurrencyConfigs = this.pendingOptions?.concurrencyConfigs;
     const discovery = this.pendingOptions?.discovery;
     const authorizers = this.pendingOptions?.authorizers ?? [];
 
@@ -1229,6 +1279,17 @@ export class RouteBuilder<
       ? new CircuitBreakerController(circuitBreakerConfig)
       : undefined;
 
+    // Route-scope concurrency (#bulkhead) also holds persistent per-Route
+    // state (the slot pool / semaphores), so its live controllers are built
+    // ONCE here and stored on the definition, like the circuit breaker. The
+    // executor wraps the chain tail in a bulkhead segment per controller at
+    // the INNERMOST resilience position (inside retry / timeout), so a slot
+    // is acquired per attempt and released between backoffs. One controller
+    // per `.concurrency()` call (they nest); each keys its pool by Route.
+    const concurrencyControllers = concurrencyConfigs?.map(
+      (cfg) => new ConcurrencyController(cfg),
+    );
+
     const postFromFilters: Step<Adapter>[] = cacheConfig
       ? [buildCacheStoreStep(cacheConfig)]
       : [];
@@ -1263,6 +1324,11 @@ export class RouteBuilder<
       // around the persistent controller (see above).
       ...(circuitBreakerController
         ? { circuitBreaker: circuitBreakerController }
+        : {}),
+      // Route-scope concurrency (bulkhead): segment-wrapped by the executor
+      // around the persistent controllers, innermost of the resilience tier.
+      ...(concurrencyControllers && concurrencyControllers.length > 0
+        ? { concurrency: concurrencyControllers }
         : {}),
     };
     setBrand(this.currentRoute, BRAND.RouteDefinition);
