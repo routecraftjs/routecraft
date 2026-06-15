@@ -157,6 +157,24 @@ A failure of the wrapped operation *inside* the deadline does not emit a timeout
 
 `branchLabel` is `"when"` or `"otherwise"`. `branchIndex` is the zero-based index of the matched branch.
 
+### Sample operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:operation:sample:passed` | The sampler admitted the exchange | `{ routeId, exchangeId, correlationId, mode }` |
+| `route:operation:sample:dropped` | The sampler dropped the exchange between samples | `{ routeId, exchangeId, correlationId, mode }` |
+
+`mode` is `"count"` (for `every`) or `"interval"` (for `intervalMs`). A dropped exchange also fires `route:exchange:dropped` with reason `"sampled"`.
+
+### Dedupe operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:operation:dedupe:pass` | An unseen key was reserved and the exchange continues | `{ routeId, exchangeId, correlationId, key }` |
+| `route:operation:dedupe:duplicate` | A duplicate key was suppressed | `{ routeId, exchangeId, correlationId, key }` |
+
+A suppressed duplicate also fires `route:exchange:dropped` with reason `"duplicate"`. `key` is the derived deduplication key.
+
 ### Error handler operations
 
 | Event | When it fires | Details |

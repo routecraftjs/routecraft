@@ -51,6 +51,8 @@ import {
   type Filter,
   FilterStep,
 } from "./operations/filter.ts";
+import { type SampleOptions, SampleStep } from "./operations/sample.ts";
+import { type DedupeOptions, DedupeStep } from "./operations/dedupe.ts";
 import {
   type Validator,
   type CallableValidator,
@@ -627,6 +629,38 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    */
   filter(filter: Filter<S["body"]> | CallableFilter<S["body"]>): this {
     this.pushStep(new FilterStep<S["body"]>(filter));
+    return this;
+  }
+
+  /**
+   * Sample exchanges by count or time interval, passing the admitted ones
+   * and dropping the rest (silently, like a `filter` returning false).
+   * Useful for reducing volume from a high-frequency source while staying
+   * representative. Pass exactly one of `every` (count-based: every Nth
+   * exchange) or `intervalMs` (time-based: the first exchange per window).
+   * Sampler state is per-route.
+   *
+   * @param options - `{ every }` for count-based or `{ intervalMs }` for time-based sampling
+   * @returns This builder (same subclass, same body type)
+   */
+  sample(options: SampleOptions): this {
+    this.pushStep(new SampleStep(options));
+    return this;
+  }
+
+  /**
+   * Suppress duplicate exchanges by a derived key, so the same input is not
+   * processed more than once. The key is derived from the body by default
+   * (SHA-256 of its JSON serialisation) or from an explicit `key` function.
+   * A key is reserved on entry and committed when the exchange completes
+   * (released on failure, so an errored input may retry); a duplicate is
+   * dropped silently. State is in-memory and per-route.
+   *
+   * @param options - Optional `key` deriver, `ttl` (ms), and `maxKeys` bound
+   * @returns This builder (same subclass, same body type)
+   */
+  dedupe(options?: DedupeOptions): this {
+    this.pushStep(new DedupeStep(options));
     return this;
   }
 

@@ -132,6 +132,20 @@ export {
 export { type Filter, type FilterDropResult } from "./operations/filter.ts";
 
 export {
+  SampleStep,
+  type SampleOptions,
+  type ResolvedSampleOptions,
+} from "./operations/sample.ts";
+
+export {
+  DedupeStep,
+  type DedupeOptions,
+  type ResolvedDedupeOptions,
+} from "./operations/dedupe.ts";
+
+export { hashExchangeBody } from "./operations/hash-body.ts";
+
+export {
   BranchBuilder,
   ChoiceSubBuilder,
   type ChoicePredicate,

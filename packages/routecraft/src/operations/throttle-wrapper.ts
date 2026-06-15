@@ -7,6 +7,8 @@ import type { Route } from "../route.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
+import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
+import { RouteScopedController } from "./route-scoped-controller.ts";
 
 /**
  * Time window a `.throttle()` rate is measured over.
@@ -33,17 +35,6 @@ const WINDOW_MS: Record<ThrottleTimeUnit, number> = {
  * break the rate guarantee precisely under heavy backpressure).
  */
 const MAX_TIMER_MS = 2_147_483_647;
-
-/** Default cap on distinct keys tracked when `key` is set. */
-const DEFAULT_MAX_KEYS = 10_000;
-
-/**
- * Hard ceiling on `maxKeys`. The per-key LRU pre-allocates index arrays
- * sized to its `max`, so this bounds the eager allocation a single
- * `.throttle({ key })` can trigger and stops an absurd value from OOMing
- * the process at build time.
- */
-const MAX_KEYS_CEILING = 1_000_000;
 
 /**
  * Options for the `.throttle()` wrapper (step scope and route scope).
@@ -170,11 +161,7 @@ export function resolveThrottleOptions(
   // Upper-bound `maxKeys`: the per-key LRU pre-allocates index arrays
   // sized to `max` at construction, so an "effectively unlimited" value
   // would OOM the process the moment the limiter is built, not gradually.
-  if (!Number.isInteger(maxKeys) || maxKeys < 1 || maxKeys > MAX_KEYS_CEILING) {
-    throw rcError("RC5003", undefined, {
-      message: `throttle({ maxKeys }) must be an integer between 1 and ${MAX_KEYS_CEILING}, got ${String(maxKeys)}.`,
-    });
-  }
+  validateMaxKeys("throttle", maxKeys);
 
   return {
     // Capacity floors at 1 so a sub-1 rate (or an accidental sub-1
@@ -432,12 +419,11 @@ export function throttleEmitHooks(
  *
  * @internal
  */
-export class ThrottleController {
+export class ThrottleController extends RouteScopedController<ThrottleLimiter> {
   readonly #options: ResolvedThrottleOptions;
-  readonly #byRoute = new WeakMap<Route, ThrottleLimiter>();
-  #routeless?: ThrottleLimiter;
 
   constructor(options: ResolvedThrottleOptions) {
+    super();
     this.#options = options;
   }
 
@@ -446,19 +432,8 @@ export class ThrottleController {
     return this.#options.label;
   }
 
-  #limiterFor(route: Route | undefined): ThrottleLimiter {
-    if (!route) {
-      // No attached route (e.g. a step run in isolation): fall back to a
-      // single process-local limiter so behaviour is still bounded.
-      this.#routeless ??= new ThrottleLimiter(this.#options);
-      return this.#routeless;
-    }
-    let limiter = this.#byRoute.get(route);
-    if (!limiter) {
-      limiter = new ThrottleLimiter(this.#options);
-      this.#byRoute.set(route, limiter);
-    }
-    return limiter;
+  protected createState(): ThrottleLimiter {
+    return new ThrottleLimiter(this.#options);
   }
 
   /**
@@ -474,7 +449,7 @@ export class ThrottleController {
     hooks: ThrottleHooks,
   ): Promise<void> {
     const start = Date.now();
-    const { bucket, key } = this.#limiterFor(route).bucketFor(exchange, start);
+    const { bucket, key } = this.stateFor(route).bucketFor(exchange, start);
 
     if (this.#options.mode === "reject") {
       const retryAfterMs = bucket.tryAcquire(start);

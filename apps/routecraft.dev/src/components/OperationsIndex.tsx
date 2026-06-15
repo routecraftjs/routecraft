@@ -178,8 +178,7 @@ const ops: Op[] = [
     name: 'dedupe',
     category: 'Flow Control',
     signature: '.dedupe({ key })',
-    description: 'Drop exchanges with a duplicate key within a window.',
-    planned: true,
+    description: 'Drop exchanges whose derived key has already been seen.',
   },
   {
     name: 'choice',
@@ -217,8 +216,7 @@ const ops: Op[] = [
     name: 'sample',
     category: 'Flow Control',
     signature: '.sample({ every })',
-    description: 'Pass through every Nth exchange.',
-    planned: true,
+    description: 'Pass every Nth exchange, or the first per time window.',
   },
   {
     name: 'debounce',

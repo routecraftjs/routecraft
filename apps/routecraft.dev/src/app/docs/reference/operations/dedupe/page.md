@@ -1,8 +1,5 @@
 ---
 title: dedupe
-titleBadges:
-  - text: planned
-    color: purple
 ---
 
 [← All operations](/docs/reference/operations) {% .lead %}
@@ -34,16 +31,30 @@ craft()
   // changed content should be reprocessed.
   .process(expensiveProcessing)
   .to(destination)
+
+// Bound memory on a long-running route with a TTL
+craft()
+  .id('idempotent-consumer')
+  .from(queue())
+  .dedupe({ key: e => (e.body as { eventId: string }).eventId, ttl: 3_600_000 }) // remember keys for 1h
+  .process(handleEvent)
+  .to(destination)
 ```
 
 **Options:**
-- `key` (optional) - Function to derive the deduplication key from the exchange. If omitted, a key is derived by hashing the exchange body. See [default key derivation](#default-key-derivation).
+- `key` (optional) - Function to derive the deduplication key from the exchange. If omitted, a key is derived by hashing the exchange body (see "Default key derivation" below).
+- `ttl` (optional) - Time to live in milliseconds for a committed key. The window is sliding (inactivity-based), not a fixed lifetime from commit: each duplicate hit refreshes it, so an actively-arriving duplicate stream stays suppressed and a key only expires once it has been quiet for `ttl`. After expiry the next exchange with that key is treated as new and passes again. When omitted, committed keys are retained until LRU eviction at `maxKeys`. This is the memory bound for long-running routes.
+- `maxKeys` (optional) - Maximum number of committed keys retained per route (an LRU keyed by recency of use). Default `10_000`. Keeps memory bounded even without a `ttl`; the least-recently-seen key is evicted (a duplicate hit counts as use, not just the original commit), and its next occurrence passes as new.
 
 **Semantics:**
-- Key is reserved immediately (single-flight behavior)
-- If the key is already reserved or committed, the exchange is dropped
-- Key is committed only after the full route completes successfully
-- On failure, the reservation is released or expires
+- Key is reserved immediately on entry (single-flight: a second exchange with the same key that arrives while the first is still in flight is dropped).
+- If the key is already reserved or committed, the exchange is dropped.
+- The reservation is committed only when the exchange completes the route cleanly (`route:exchange:completed`), so future occurrences are recognised as duplicates.
+- On failure (`route:exchange:failed`) or a downstream drop (`route:exchange:dropped`, e.g. a later `filter` rejects it), the reservation is released, so an input that was not actually handled is not permanently suppressed and a re-send may try again.
+
+**Events:**
+- `route:operation:dedupe:pass` - emitted when an unseen key is reserved, with the derived `key`.
+- `route:operation:dedupe:duplicate` - emitted when a duplicate is suppressed, with the `key`. A `route:exchange:dropped` event (reason `"duplicate"`) also fires.
 
 **Purpose:**
 - Skip unchanged files
@@ -56,35 +67,34 @@ craft()
 Use `dedupe` when duplicates should do nothing. Use `cache` when duplicates should return the same result.
 {% /callout %}
 
+{% callout type="note" title="Per-instance state in 0.6.0" %}
+Dedupe state is in-memory and scoped to a single route instance. Across multiple instances of the same route (for example, several processes consuming the same queue), each instance dedupes independently. Cross-instance idempotency, via a shared store provider, is a planned addition.
+{% /callout %}
+
+{% callout type="warning" title="Place dedupe before a fan-out with care" %}
+The reserve/commit/release outcome is decided from the entering exchange's terminal event. When `.dedupe()` sits before a `.split()` (or another fan-out) and the resulting children fail, the parent exchange still completes, so the key is committed and a re-send is treated as a duplicate rather than reprocessed. Until lineage-aware settlement lands, place `.dedupe()` after a `split`/`aggregate`, or supply an explicit `key` and re-send through a path that does not fan out, when failed work must be retriable.
+{% /callout %}
+
 **Default key derivation:**
 
-When `dedupe` or `cache` is called without a `keyFn`, a key is derived automatically by hashing the exchange body:
+When `dedupe` or `cache` is called without a `key` function, a key is derived automatically by SHA-256 hashing the JSON serialisation of the body:
 
+```txt
+key = sha256(JSON.stringify(body))
 ```
-key = sha256(encode(body))
-```
 
-The key is computed from the body at the moment the operation executes. If the body changes at different points in the route, the derived key will differ.
+The key is computed from the body at the moment the operation executes. If the body changes at different points in the route, the derived key will differ. `JSON.stringify` does NOT canonicalise object key order, so two objects with the same entries serialised in a different order hash differently (and are treated as distinct); supply an explicit `key` when a stable identity must survive key reordering. Nested non-serialisable values follow standard `JSON.stringify` semantics: a nested `undefined`, function, or symbol is dropped (in an object) or coerced to `null` (in an array), so two bodies that differ only in such values hash the same; supply an explicit `key` when those values are significant to identity.
 
-**Supported body types:**
+**Unsupported bodies (throw an error):**
 
-| Type | Encoding |
-|------|----------|
-| `Buffer`, `Uint8Array`, `ArrayBuffer` | Hash raw bytes directly |
-| `string` | UTF-8 encode, then hash |
-| Object or array | Canonicalize (sort keys lexicographically at every level), then hash as JSON |
-| Scalars (`string`, `boolean`, `null`, finite `number`) | Hash as JSON |
+The default key fails on bodies that are not JSON-serialisable:
 
-**Unsupported types (will throw an error):**
-
-- `NaN`, `Infinity`, `-Infinity`
-- Functions, symbols, `BigInt`
-- `Date` or class instances (unless pre-converted to JSON-safe primitives)
+- Functions, symbols, or a top-level `undefined`
+- `BigInt`
 - Circular references
-- Streams (must be materialized to bytes/string/JSON first, or provide a `keyFn`)
 
-When the body contains an unsupported type, a `RoutecraftError` is thrown indicating that a `keyFn` is required.
+When the body is not serialisable, a `RoutecraftError` (`RC5033` for `dedupe`, `RC5029` for `cache`) is thrown, indicating that a `key` function is required.
 
-{% callout type="note" title="When to provide a keyFn" %}
-Use an explicit `keyFn` when you need stable identity across body changes. For example, if the body is enriched or transformed before `dedupe`/`cache`, but identity should be based on a header set earlier by an adapter.
+{% callout type="note" title="When to provide a key function" %}
+Use an explicit `key` when you need stable identity across body changes. For example, if the body is enriched or transformed before `dedupe` / `cache`, but identity should be based on a header set earlier by an adapter. A `key` that returns an identifier already to hand (an id field, a content hash in a header) also avoids re-serialising and re-hashing the body on every exchange.
 {% /callout %}

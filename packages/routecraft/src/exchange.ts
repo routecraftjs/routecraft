@@ -47,6 +47,10 @@ export enum OperationType {
   THROTTLE = "throttle",
   /** Fast-fail an operation while a downstream is known to be failing */
   CIRCUIT_BREAKER = "circuit-breaker",
+  /** Pass every Nth exchange (or the first per time window), dropping the rest */
+  SAMPLE = "sample",
+  /** Drop exchanges whose derived key has already been seen */
+  DEDUPE = "dedupe",
   /** Short-circuit the pipeline: drop the exchange without further steps */
   HALT = "halt",
 }

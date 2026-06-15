@@ -393,7 +393,7 @@ The default `.cache()` key hashes `JSON.stringify(body)`, which fails on bodies 
 Supply an explicit `key` function that returns a stable string identifier:
 
 ```ts
-.cache({ key: (e) => String(e.body.id) })
+.cache({ key: (e) => String((e.body as { id: unknown }).id) })
 ```
 
 This error is not retryable: the same body fails key derivation the same way every time.
@@ -424,6 +424,21 @@ A step returned a `StepOutcome` whose `kind` the engine cannot schedule. In prac
 
 **Suggestion**  
 Return one of the supported outcomes from your step: `continue`, `complete`, `drop`, `branch`, or `fanOut`. Suspend/resume is not available yet; follow the tracking issue for when `suspend` becomes producible.
+
+## RC5033
+Dedupe key derivation failed
+
+**Why it happens**  
+The default `.dedupe()` key hashes `JSON.stringify(body)`, which fails on bodies containing functions, symbols, circular references, or `BigInt`. Also raised when a custom `key` function throws.
+
+**Suggestion**  
+Supply an explicit `key` function that returns a stable string identifier:
+
+```ts
+.dedupe({ key: (e) => String((e.body as { id: unknown }).id) })
+```
+
+This error is not retryable: the same body fails key derivation the same way every time.
 
 ## RC9901
 Unknown error
