@@ -152,6 +152,66 @@ describe("dedupe (.dedupe())", () => {
   });
 
   /**
+   * @case An exchange dropped by a downstream step releases its reservation (not committed)
+   * @preconditions Route with .dedupe() then a filter; the same body is sent while the filter drops, then again once it passes
+   * @expectedResult The re-send is reprocessed (the downstream drop did not permanently commit the key)
+   */
+  test("releases the reservation on a downstream drop", async () => {
+    let filterPasses = false;
+    const s = spy();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("dedupe-drop-release")
+          .from(direct())
+          .dedupe()
+          .filter(() => filterPasses)
+          .to(s),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    // First send: dedupe reserves, the filter drops it -> reservation released.
+    await send(t, "dedupe-drop-release", { event: "a" });
+    expect(s.received).toHaveLength(0);
+
+    // Re-send the identical body once the filter admits it: because the drop
+    // released the key (rather than committing it), this is not suppressed.
+    filterPasses = true;
+    await send(t, "dedupe-drop-release", { event: "a" });
+
+    expect(s.received).toHaveLength(1);
+  });
+
+  /**
+   * @case A throwing custom key function surfaces RC5033, not a bare error
+   * @preconditions Route with .dedupe({ key }) whose key function throws
+   * @expectedResult The send rejects with RC5033, matching the default-key contract
+   */
+  test("wraps a throwing custom key in RC5033", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("dedupe-key-throws")
+          .from(direct())
+          .dedupe({
+            key: () => {
+              throw new Error("key boom");
+            },
+          })
+          .to(spy()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    const err = await t.client
+      .sendDirect("dedupe-key-throws", { event: "a" })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RoutecraftError);
+    expect((err as RoutecraftError).rc).toBe("RC5033");
+  });
+
+  /**
    * @case A committed key expires after its ttl and the next occurrence passes
    * @preconditions Route with .dedupe({ ttl: 40 }); send a, send a (dropped), sleep 60ms, send a
    * @expectedResult The first and the post-expiry send pass; the in-ttl duplicate is dropped

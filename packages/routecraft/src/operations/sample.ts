@@ -12,35 +12,41 @@ import type { Route } from "../route.ts";
 
 /**
  * Options for the `.sample()` flow-control operation. Exactly one of
- * `every` or `intervalMs` must be set; they are mutually exclusive (a
- * sampler is either count-based or time-based, not both).
+ * `every` (count-based) or `intervalMs` (time-based) must be set; the union
+ * makes them mutually exclusive at compile time (passing both, or neither,
+ * is a type error), and {@link resolveSampleOptions} re-checks at runtime
+ * for JS callers.
  */
-export interface SampleOptions {
-  /**
-   * Count-based: pass every Nth exchange and drop the rest. The internal
-   * counter increments per exchange and the exchange passes when
-   * `counter % every === 0`, so `{ every: 5 }` passes the 5th, 10th, 15th,
-   * ... exchange. Must be a finite integer >= 1.
-   */
-  every?: number;
-  /**
-   * Time-based: pass the first exchange seen in each window of `intervalMs`
-   * milliseconds and drop the rest until the window elapses. Must be a
-   * finite number > 0.
-   */
-  intervalMs?: number;
-}
+export type SampleOptions =
+  | {
+      /**
+       * Count-based: pass every Nth exchange and drop the rest, so
+       * `{ every: 5 }` passes the 5th, 10th, 15th, ... exchange. Must be a
+       * finite integer >= 1.
+       */
+      every: number;
+      intervalMs?: never;
+    }
+  | {
+      /**
+       * Time-based: pass the first exchange seen in each window of
+       * `intervalMs` milliseconds and drop the rest until the window
+       * elapses. Must be a finite number > 0.
+       */
+      intervalMs: number;
+      every?: never;
+    };
 
 /**
- * {@link SampleOptions} with the sampling mode resolved and validated.
+ * {@link SampleOptions} with the sampling mode resolved and validated. A
+ * discriminated union, so narrowing on `mode` proves which numeric field is
+ * present (no non-null assertions at the use site).
  *
  * @internal
  */
-export interface ResolvedSampleOptions {
-  mode: "count" | "interval";
-  every?: number;
-  intervalMs?: number;
-}
+export type ResolvedSampleOptions =
+  | { mode: "count"; every: number }
+  | { mode: "interval"; intervalMs: number };
 
 /**
  * Validate user-supplied {@link SampleOptions} into a
@@ -53,18 +59,16 @@ export interface ResolvedSampleOptions {
 export function resolveSampleOptions(
   options: SampleOptions,
 ): ResolvedSampleOptions {
-  const hasEvery = options.every !== undefined;
-  const hasInterval = options.intervalMs !== undefined;
+  const { every, intervalMs } = options;
 
-  if (hasEvery === hasInterval) {
+  if (every !== undefined && intervalMs !== undefined) {
     throw rcError("RC5003", undefined, {
       message:
         "sample() requires exactly one of `every` or `intervalMs` (they are mutually exclusive).",
     });
   }
 
-  if (hasEvery) {
-    const every = options.every!;
+  if (every !== undefined) {
     if (!Number.isInteger(every) || every < 1) {
       throw rcError("RC5003", undefined, {
         message: `sample({ every }) must be an integer >= 1, got ${String(every)}.`,
@@ -73,13 +77,19 @@ export function resolveSampleOptions(
     return { mode: "count", every };
   }
 
-  const intervalMs = options.intervalMs!;
-  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
-    throw rcError("RC5003", undefined, {
-      message: `sample({ intervalMs }) must be a finite number > 0, got ${String(intervalMs)}.`,
-    });
+  if (intervalMs !== undefined) {
+    if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+      throw rcError("RC5003", undefined, {
+        message: `sample({ intervalMs }) must be a finite number > 0, got ${String(intervalMs)}.`,
+      });
+    }
+    return { mode: "interval", intervalMs };
   }
-  return { mode: "interval", intervalMs };
+
+  throw rcError("RC5003", undefined, {
+    message:
+      "sample() requires exactly one of `every` or `intervalMs` (they are mutually exclusive).",
+  });
 }
 
 /**
@@ -212,14 +222,23 @@ export class SampleStep implements Step<SampleAdapter> {
 
   /** Advance the sampler state and decide whether this exchange passes. */
   #shouldPass(state: SampleState): boolean {
-    if (this.#options.mode === "count") {
+    const options = this.#options;
+    if (options.mode === "count") {
+      // Count up to `every`, then reset and pass. Resetting (rather than an
+      // ever-growing counter with a modulo) keeps the count bounded, so a
+      // long-lived high-frequency route never drifts past Number.MAX_SAFE_INTEGER
+      // where `count + 1 === count` would freeze the sampler.
       state.count += 1;
-      return state.count % this.#options.every! === 0;
+      if (state.count >= options.every) {
+        state.count = 0;
+        return true;
+      }
+      return false;
     }
     const now = Date.now();
     if (
       state.lastPassedAt === undefined ||
-      now - state.lastPassedAt >= this.#options.intervalMs!
+      now - state.lastPassedAt >= options.intervalMs
     ) {
       state.lastPassedAt = now;
       return true;

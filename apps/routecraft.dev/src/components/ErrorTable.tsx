@@ -177,6 +177,18 @@ const errors: ErrorRow[] = [
     retryable: false,
   },
   {
+    code: 'RC5032',
+    category: 'Runtime',
+    message: 'Unsupported step outcome',
+    retryable: false,
+  },
+  {
+    code: 'RC5033',
+    category: 'Adapter',
+    message: 'Dedupe key derivation failed',
+    retryable: false,
+  },
+  {
     code: 'RC9901',
     category: 'Runtime',
     message: 'Unknown error',

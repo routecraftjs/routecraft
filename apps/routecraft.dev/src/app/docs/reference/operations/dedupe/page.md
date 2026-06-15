@@ -36,7 +36,7 @@ craft()
 craft()
   .id('idempotent-consumer')
   .from(queue())
-  .dedupe({ key: e => e.body.eventId, ttl: 3_600_000 }) // remember keys for 1h
+  .dedupe({ key: e => (e.body as { eventId: string }).eventId, ttl: 3_600_000 }) // remember keys for 1h
   .process(handleEvent)
   .to(destination)
 ```
@@ -49,8 +49,8 @@ craft()
 **Semantics:**
 - Key is reserved immediately on entry (single-flight: a second exchange with the same key that arrives while the first is still in flight is dropped).
 - If the key is already reserved or committed, the exchange is dropped.
-- The reservation is committed when the exchange finishes the route (`route:exchange:completed` or `:dropped`), so future occurrences are recognised as duplicates.
-- On failure (`route:exchange:failed`), the reservation is released, so an errored input is not permanently suppressed and a re-send may try again.
+- The reservation is committed only when the exchange completes the route cleanly (`route:exchange:completed`), so future occurrences are recognised as duplicates.
+- On failure (`route:exchange:failed`) or a downstream drop (`route:exchange:dropped`, e.g. a later `filter` rejects it), the reservation is released, so an input that was not actually handled is not permanently suppressed and a re-send may try again.
 
 **Events:**
 - `route:operation:dedupe:pass` - emitted when an unseen key is reserved, with the derived `key`.
@@ -79,7 +79,7 @@ When `dedupe` or `cache` is called without a `key` function, a key is derived au
 key = sha256(JSON.stringify(body))
 ```
 
-The key is computed from the body at the moment the operation executes. If the body changes at different points in the route, the derived key will differ. Object key order is preserved by `JSON.stringify`, so two objects with the same entries in a different order hash differently; supply an explicit `key` when a stable identity must survive key reordering.
+The key is computed from the body at the moment the operation executes. If the body changes at different points in the route, the derived key will differ. `JSON.stringify` does NOT canonicalise object key order, so two objects with the same entries serialised in a different order hash differently (and are treated as distinct); supply an explicit `key` when a stable identity must survive key reordering.
 
 **Unsupported bodies (throw an error):**
 

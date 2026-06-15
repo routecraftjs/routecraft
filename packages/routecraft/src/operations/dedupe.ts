@@ -14,6 +14,7 @@ import {
   emitExchangeDropped,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
+import { isRoutecraftError } from "../brand.ts";
 import type { CraftContext } from "../context.ts";
 import type { Route } from "../route.ts";
 import { hashExchangeBody } from "./hash-body.ts";
@@ -148,6 +149,11 @@ class DedupeState {
     this.#committed = new LRUCache<string, true>({
       max: options.maxKeys,
       ...(options.ttl !== undefined ? { ttl: options.ttl } : {}),
+      // Duplicate detection reads via `has()`; refresh recency (and TTL) on
+      // a hit so a frequently-seen key is not LRU-evicted ahead of colder
+      // keys and a sliding TTL keeps suppressing an actively-arriving
+      // duplicate stream.
+      updateAgeOnHas: true,
     });
   }
 
@@ -162,7 +168,7 @@ class DedupeState {
     this.#pending.set(exchangeId, key);
   }
 
-  /** Terminal success/drop: promote the reservation to a committed key. */
+  /** Terminal success: promote the reservation to a committed key. */
   commit(exchangeId: string): void {
     const key = this.#pending.get(exchangeId);
     if (key === undefined) return;
@@ -171,7 +177,14 @@ class DedupeState {
     this.#committed.set(key, true);
   }
 
-  /** Terminal failure: drop the reservation so a re-send may try again. */
+  /**
+   * Terminal failure or drop: drop the reservation without committing, so a
+   * re-send may try again. A drop is treated like a failure here on purpose:
+   * an exchange that dedupe let through but a later step discarded (a filter
+   * rejection, a halt) was not actually handled, so committing its key would
+   * permanently suppress a legitimate re-send. Only a clean completion
+   * commits.
+   */
   release(exchangeId: string): void {
     const key = this.#pending.get(exchangeId);
     if (key === undefined) return;
@@ -183,9 +196,10 @@ class DedupeState {
    * Subscribe the commit / release hooks to the route's terminal exchange
    * events exactly once. The reservation pattern needs to know when an
    * exchange finished the whole pipeline, which the exchange-lifecycle
-   * events report; `forRoute` scopes them to this route. Subscriptions are
-   * torn down when the route aborts so they do not accumulate across route
-   * restarts on a shared context.
+   * events report; `forRoute` scopes them to this route. A clean completion
+   * commits; a failure or a drop releases. Subscriptions are torn down when
+   * the route aborts (and the state is re-armed) so they do not accumulate
+   * across route restarts on a shared context.
    */
   ensureSubscribed(
     context: CraftContext,
@@ -202,7 +216,7 @@ class DedupeState {
       ),
       context.on(
         "route:exchange:dropped",
-        forRoute(routeId, ({ details }) => this.commit(details.exchangeId)),
+        forRoute(routeId, ({ details }) => this.release(details.exchangeId)),
       ),
       context.on(
         "route:exchange:failed",
@@ -213,6 +227,11 @@ class DedupeState {
     if (route) {
       const cleanup = (): void => {
         for (const off of offs) off();
+        // Re-arm: a fresh run of this route (after a restart on a shared
+        // context) re-subscribes rather than running with dead listeners.
+        this.#subscribed = false;
+        this.#reserved.clear();
+        this.#pending.clear();
       };
       if (route.signal.aborted) cleanup();
       else route.signal.addEventListener("abort", cleanup, { once: true });
@@ -323,7 +342,14 @@ export class DedupeStep implements Step<DedupeAdapter> {
           error: err instanceof Error ? err.message : String(err),
         });
       }
-      throw err;
+      // Surface a coded error for a throwing user `key`, mirroring the
+      // default-key path (RC5033) and cache's RC5029, rather than leaking a
+      // bare throw. The default-key deriver already throws RC5033.
+      throw isRoutecraftError(err)
+        ? err
+        : rcError("RC5033", err, {
+            message: `dedupe({ key }) for "${stepLabel}" threw while deriving the key`,
+          });
     }
 
     const state = this.#controller.stateFor(route);
@@ -332,8 +358,12 @@ export class DedupeStep implements Step<DedupeAdapter> {
     // after the first).
     if (context) state.ensureSubscribed(context, routeId, route);
 
+    // Reserve only when a context is bound: the reservation is released by a
+    // terminal exchange event, which cannot fire without a context, so
+    // reserving on the context-less path (synthetic/unit invocation) would
+    // leak the key forever. Without a context dedupe degrades to pass-through.
     const duplicate = state.isDuplicate(key);
-    if (!duplicate) state.reserve(key, exchange.id);
+    if (!duplicate && context) state.reserve(key, exchange.id);
 
     if (context) {
       context.emit("route:step:completed", {

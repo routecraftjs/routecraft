@@ -5,7 +5,7 @@ title: sample
 [← All operations](/docs/reference/operations) {% .lead %}
 
 ```ts
-sample(options: { every?: number } | { intervalMs?: number }): RouteBuilder<Current>
+sample(options: { every: number } | { intervalMs: number }): RouteBuilder<Current>
 ```
 
 Reduce data volume from a high-frequency source by passing a representative subset of exchanges and dropping the rest. A dropped exchange is discarded silently, exactly like a `filter` predicate returning `false`.

@@ -6,6 +6,7 @@ import {
   simple,
   SampleStep,
   RoutecraftError,
+  type SampleOptions,
 } from "@routecraft/routecraft";
 
 /** Sleep for `ms` milliseconds. */
@@ -172,10 +173,14 @@ describe("sample (.sample())", () => {
    * @expectedResult Each construction throws (RC5003), so the route never builds
    */
   test("rejects invalid options at build time", () => {
-    expect(() => new SampleStep({})).toThrow(/mutually exclusive/);
-    expect(() => new SampleStep({ every: 2, intervalMs: 5 })).toThrow(
+    // The XOR union rejects neither/both at compile time; cast to exercise the
+    // runtime guard that protects JS callers who bypass the types.
+    expect(() => new SampleStep({} as SampleOptions)).toThrow(
       /mutually exclusive/,
     );
+    expect(
+      () => new SampleStep({ every: 2, intervalMs: 5 } as SampleOptions),
+    ).toThrow(/mutually exclusive/);
     expect(() => new SampleStep({ every: 0 })).toThrow(/every/);
     expect(() => new SampleStep({ every: 1.5 })).toThrow(/every/);
     expect(() => new SampleStep({ intervalMs: 0 })).toThrow(/intervalMs/);
