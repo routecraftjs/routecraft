@@ -162,7 +162,8 @@ export interface StepContext {
    * parallel, resolving once every path has settled (`Promise.allSettled`
    * semantics: one path throwing does not reject the call). Each path runs
    * as an isolated nested pipeline whose failure fires that exchange's
-   * default error events but does not affect the caller or sibling paths.
+   * default error events (the caller's route-scope `.error()` handler does
+   * NOT run for a path) but does not affect the caller or sibling paths.
    * The queue itself stays private, so a fan-out step (e.g. `multicast`)
    * cannot reorder or corrupt the parent's scheduling.
    */

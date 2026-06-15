@@ -36,12 +36,12 @@ Each branch is a path: either a bare destination or a sub-pipeline callback `(b)
 
 Branches that change body type via `transform()` / `process()` / `validate()` / `map()` / `schema()` / `enrich()` must converge on the same `Out` type; the descriptor return types enforce this at compile time.
 
-> The variadic surface cannot infer the body type into a standalone `when` call the way a callback would, so annotate the predicate parameter or supply the type argument (`when<Order>((ex) => ex.body.priority === "urgent", ...)`) when the body is not `unknown`.
+> When `when(...)` is passed directly to `.choice(...)`, the predicate body type is inferred from the route's current body, so `ex.body` is typed without an annotation. You only need to annotate the predicate or supply the type argument (`when<Order>(...)`) when building a descriptor outside the call (assigned to a variable first), where there is no context to infer from.
 
 **Events:**
 
-- `route:<id>:operation:choice:matched` -- `{ branchIndex, branchLabel: "when" | "otherwise" }`
-- `route:<id>:operation:choice:unmatched` -- fires when no branch matched and the exchange is dropped.
+- `route:operation:choice:matched` -- `{ routeId, exchangeId, correlationId, branchIndex, branchLabel: "when" | "otherwise" }`
+- `route:operation:choice:unmatched` -- `{ routeId, exchangeId, correlationId }`, fires when no branch matched and the exchange is dropped.
 
 **Known limitations:**
 

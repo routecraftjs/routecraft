@@ -32,6 +32,13 @@ export interface MulticastAdapter extends Adapter {
  * that `.halt()`s only stops itself. Once every path has settled the ORIGINAL
  * exchange continues downstream unchanged.
  *
+ * Path failures do NOT reach the route-scope `.error()` handler: each path is
+ * a self-contained sub-flow whose failure resolves through its own clone's
+ * default error events. Only the body is deep-copied; object-valued user
+ * headers are shared by reference across clones (mutating a nested header
+ * field from a path is not isolated). The body must be structured-cloneable;
+ * a non-cloneable body fails this step.
+ *
  * Fire-and-forget is intentionally not offered here; use `tap` (already
  * fire-and-forget) for that.
  */

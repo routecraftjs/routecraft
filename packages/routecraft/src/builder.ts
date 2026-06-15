@@ -1485,6 +1485,24 @@ export class RouteBuilder<
    * Fire-and-forget is intentionally not offered; use `tap` (already
    * fire-and-forget) for that.
    *
+   * A path output type is unconstrained (`Path<S["body"], unknown>`): a path
+   * may reshape the body however it likes because its result is discarded;
+   * only the original exchange continues. This differs from `choice`, where
+   * branches must converge on one `Out`.
+   *
+   * Notes and limitations:
+   * - The route-scope `.error()` handler does NOT fire for a path failure: a
+   *   path that throws resolves through its own clone's default error events
+   *   (`route:error` / `context:error` / `route:exchange:failed`). Wrap
+   *   per-path recovery inside the path (`b => b.error(...).to(...)`) if you
+   *   need it.
+   * - Only the body is deep-copied. Object-valued user headers are shared by
+   *   reference across the clones and the original; mutating a nested header
+   *   field from a path is not isolated (an anti-pattern, as for `tap`).
+   * - The body must be structured-cloneable (`structuredClone`); a body that
+   *   cannot be cloned (class instances with methods, streams, functions)
+   *   fails the multicast step.
+   *
    * @param paths - Bare destinations or sub-pipeline callbacks to fan out to
    * @returns This RouteBuilder, body type unchanged
    *
@@ -1498,7 +1516,7 @@ export class RouteBuilder<
    * .to(next); // runs on the original exchange after all paths settle
    * ```
    */
-  multicast(...paths: Path<S["body"]>[]): RouteBuilder<S> {
+  multicast(...paths: Path<S["body"], unknown>[]): RouteBuilder<S> {
     this.pushStep(new MulticastStep(paths.map((path) => compilePath(path))));
     return this;
   }

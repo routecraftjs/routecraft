@@ -274,7 +274,9 @@ await ctx.stop()`}</CheatCode>
               First matching <code>when</code> wins. <code>halt()</code>{' '}
               short-circuits the branch.
             </p>
-            <CheatCode>{`craft()
+            <CheatCode>{`import { when, otherwise } from '@routecraft/routecraft'
+
+craft()
   .from(source)
   .choice(
     when(ex => ex.body.priority === 'urgent',

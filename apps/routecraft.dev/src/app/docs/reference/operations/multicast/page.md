@@ -31,5 +31,5 @@ A bare path must be an object destination (`{ send }`); a callable destination (
 
 **Events:**
 
-- `route:<id>:operation:multicast:started` -- `{ pathCount }`, fired before the exchange is cloned to each path.
-- `route:<id>:operation:multicast:stopped` -- `{ pathCount }`, fired once every path has settled and the original continues.
+- `route:operation:multicast:started` -- `{ routeId, exchangeId, correlationId, pathCount }`, fired before the exchange is cloned to each path.
+- `route:operation:multicast:stopped` -- `{ routeId, exchangeId, correlationId, pathCount }`, fired once every path has settled and the original continues.

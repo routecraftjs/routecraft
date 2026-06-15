@@ -93,11 +93,12 @@ export type ChoiceDescriptor<In = unknown, Out = In> =
  * true. Branches are evaluated in registration order and the first match
  * wins.
  *
- * The variadic surface cannot infer the body type into a standalone `when`
- * call the way the old callback form could, so annotate the predicate
+ * When `when(...)` is passed directly as a `.choice(...)` argument, the body
+ * type flows in by contextual typing, so `ex.body` is typed without an
+ * annotation. Only when a descriptor is built OUTSIDE the call (assigned to a
+ * variable first) is there no context to infer from; annotate the predicate
  * parameter or supply the `In` type argument
- * (`when<Order>((ex) => ex.body.priority === "urgent", ...)`) when the body
- * is not `unknown`.
+ * (`when<Order>((ex) => ex.body.priority === "urgent", ...)`) in that case.
  *
  * @param predicate - Receives the exchange; returns true if this branch handles it
  * @param path - Bare destination or sub-pipeline callback for the branch
