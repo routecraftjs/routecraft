@@ -356,8 +356,10 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * its own 5s deadline.
    *
    * @param options - `maxAttempts` (default 3), `backoffMs` (default
-   *   1000), `exponential` (default false), `retryOn` (default: skip
-   *   non-retryable RoutecraftErrors)
+   *   1000), `factor` (growth multiplier, default 1 = fixed),
+   *   `maxBackoffMs` (wait ceiling), `jitter` (`"none"` | `"full"` |
+   *   `0..1`, default `"none"`), `retryOn` (default: skip non-retryable
+   *   RoutecraftErrors)
    * @returns This builder (same subclass, same body type)
    */
   retry(options: RetryOptions = {}): this {

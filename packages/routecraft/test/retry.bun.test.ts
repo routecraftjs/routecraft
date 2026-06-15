@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, rcError } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  rcError,
+  type RetryOptions,
+} from "@routecraft/routecraft";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -212,11 +217,11 @@ describe("Retry wrapper (.retry())", () => {
   });
 
   /**
-   * @case Exponential backoff doubles the wait per attempt
-   * @preconditions Route with .retry({ maxAttempts: 3, backoffMs: 10, exponential: true }) wrapping an always-failing transform
-   * @expectedResult The attempt events report backoffMs 10 then 20
+   * @case A growth `factor` multiplies the wait per attempt
+   * @preconditions Route with .retry({ maxAttempts: 3, backoffMs: 10, factor: 2 }) wrapping an always-failing transform
+   * @expectedResult The attempt events report backoffMs 10 then 20 (factor: 2 replaces the old exponential: true)
    */
-  test("exponential backoff doubles per attempt", async () => {
+  test("factor multiplies the backoff per attempt", async () => {
     const waits: number[] = [];
 
     t = await testContext()
@@ -225,9 +230,9 @@ describe("Retry wrapper (.retry())", () => {
       })
       .routes(
         craft()
-          .id("retry-exponential")
+          .id("retry-factor")
           .from(simple("in"))
-          .retry({ maxAttempts: 3, backoffMs: 10, exponential: true })
+          .retry({ maxAttempts: 3, backoffMs: 10, factor: 2 })
           .transform(() => {
             throw new Error("always fails");
           })
@@ -238,6 +243,83 @@ describe("Retry wrapper (.retry())", () => {
     await t.test();
 
     expect(waits).toEqual([10, 20]);
+  });
+
+  /**
+   * @case maxBackoffMs caps the computed wait so a steep factor cannot grow unbounded
+   * @preconditions .retry({ maxAttempts: 4, backoffMs: 10, factor: 10, maxBackoffMs: 50 }) wrapping an always-failing transform
+   * @expectedResult The attempt waits are 10, 100->50 (clamped), 1000->50 (clamped), never exceeding maxBackoffMs
+   */
+  test("maxBackoffMs clamps the computed wait", async () => {
+    const waits: number[] = [];
+
+    t = await testContext()
+      .on("route:retry:attempt", (payload) => {
+        waits.push((payload.details as { backoffMs: number }).backoffMs);
+      })
+      .routes(
+        craft()
+          .id("retry-maxbackoff")
+          .from(simple("in"))
+          .retry({
+            maxAttempts: 4,
+            backoffMs: 10,
+            factor: 10,
+            maxBackoffMs: 50,
+          })
+          .transform(() => {
+            throw new Error("always fails");
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.test();
+
+    expect(waits).toEqual([10, 50, 50]);
+  });
+
+  /**
+   * @case Jitter keeps every wait within [computed * (1 - jitter), computed]
+   * @preconditions .retry({ maxAttempts: 5, backoffMs: 100, jitter: 0.5 }) (fixed factor) wrapping an always-failing transform
+   * @expectedResult Each reported wait is in [50, 100] and at least one differs from the others (randomised)
+   */
+  test("jitter randomises the wait within bounds", async () => {
+    const waits: number[] = [];
+
+    t = await testContext()
+      .on("route:retry:attempt", (payload) => {
+        waits.push((payload.details as { backoffMs: number }).backoffMs);
+      })
+      .routes(
+        craft()
+          .id("retry-jitter")
+          .from(simple("in"))
+          .retry({ maxAttempts: 5, backoffMs: 100, jitter: 0.5 })
+          .transform(() => {
+            throw new Error("always fails");
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.test();
+
+    expect(waits.length).toBeGreaterThanOrEqual(2);
+    expect(waits.every((w) => w >= 50 && w <= 100)).toBe(true);
+    // With jitter the waits should not all be identical.
+    expect(new Set(waits).size).toBeGreaterThan(1);
+  });
+
+  /**
+   * @case The removed `exponential` option fails loudly rather than being silently ignored
+   * @preconditions .retry({ exponential: true }) passed via a runtime cast (bypassing the compile-time error)
+   * @expectedResult Building the route throws RC5003 with a migration hint pointing at `factor`
+   */
+  test("rejects the removed `exponential` option (RC5003)", () => {
+    expect(() =>
+      craft().retry({ exponential: true } as unknown as RetryOptions),
+    ).toThrow(/RC5003|exponential|factor/);
   });
 
   /**

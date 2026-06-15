@@ -25,10 +25,32 @@ export interface RetryOptions {
    */
   backoffMs?: number;
   /**
-   * When `true`, the wait doubles per attempt:
-   * `backoffMs * 2^(attempt - 1)`. Default: `false` (fixed backoff).
+   * Growth multiplier applied to `backoffMs` each attempt: the wait
+   * before attempt `n` is `backoffMs * factor^(n - 1)`. `1` (the default)
+   * is fixed backoff; `2` doubles each time (`100, 200, 400, ...`); any
+   * value `>= 1` is allowed for gentler or steeper curves. Replaces the
+   * old `exponential` boolean (`exponential: true` is now `factor: 2`).
    */
-  exponential?: boolean;
+  factor?: number;
+  /**
+   * Upper bound (ms) on a single wait, so an exponential `factor` cannot
+   * grow the backoff without limit at higher `maxAttempts`. The computed
+   * wait is clamped to this BEFORE jitter is applied. Default: the
+   * platform timer ceiling (`2_147_483_647`), i.e. effectively unbounded.
+   */
+  maxBackoffMs?: number;
+  /**
+   * Randomise each wait to avoid synchronized retry storms across many
+   * exchanges hitting the same downstream:
+   * - `"none"` (default): use the computed wait exactly.
+   * - `"full"`: pick uniformly in `[0, computed]` (AWS "full jitter").
+   * - a number in `[0, 1]`: subtract up to that fraction, i.e. pick in
+   *   `[computed * (1 - jitter), computed]` (`0.2` keeps 80-100% of the
+   *   wait). `"full"` is `1`; `"none"` is `0`.
+   *
+   * Jitter only ever reduces a wait, so it never exceeds `maxBackoffMs`.
+   */
+  jitter?: "none" | "full" | number;
   /**
    * Decide whether a failed attempt is re-attempted. Default: skip
    * `RoutecraftError`s with `retryable: false` (validation, auth,
@@ -48,7 +70,12 @@ export interface RetryOptions {
 export interface ResolvedRetryOptions {
   maxAttempts: number;
   backoffMs: number;
-  exponential: boolean;
+  /** Growth multiplier per attempt; `1` is fixed backoff. */
+  factor: number;
+  /** Hard cap on a single computed wait (before jitter). */
+  maxBackoffMs: number;
+  /** Jitter fraction in `[0, 1]`: `0` none, `1` full. */
+  jitter: number;
   retryOn: (error: Error) => boolean;
 }
 
@@ -76,6 +103,16 @@ export function defaultRetryOn(error: Error): boolean {
 export function resolveRetryOptions(
   options: RetryOptions = {},
 ): ResolvedRetryOptions {
+  // Loud failure for the removed `exponential` boolean (a clean pre-1.0
+  // break). TypeScript rejects it at compile time on object literals; this
+  // catches plain-JS / `as any` callers so they fail at build, not silently.
+  if ("exponential" in options) {
+    throw rcError("RC5003", undefined, {
+      message:
+        "retry({ exponential }) was removed; use factor (exponential: true -> factor: 2, exponential: false -> factor: 1).",
+    });
+  }
+
   const maxAttempts = options.maxAttempts ?? 3;
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
     throw rcError("RC5003", undefined, {
@@ -84,12 +121,52 @@ export function resolveRetryOptions(
   }
   const backoffMs = options.backoffMs ?? 1000;
   assertDurationMs("retry({ backoffMs })", backoffMs, 0);
+
+  const factor = options.factor ?? 1;
+  if (!Number.isFinite(factor) || factor < 1) {
+    throw rcError("RC5003", undefined, {
+      message: `retry({ factor }) must be a finite number >= 1, got ${String(factor)}.`,
+    });
+  }
+  // Default the ceiling to the platform timer max: past it, setTimeout
+  // coerces the delay (Node clamps to ~1ms, so a huge backoff would fire
+  // instantly), which also bounds the `factor ** n` growth from overflowing.
+  const maxBackoffMs = options.maxBackoffMs ?? RETRY_TIMER_CEILING_MS;
+  assertDurationMs("retry({ maxBackoffMs })", maxBackoffMs, 1);
+
   return {
     maxAttempts,
     backoffMs,
-    exponential: options.exponential ?? false,
+    factor,
+    maxBackoffMs,
+    jitter: resolveJitter(options.jitter),
     retryOn: options.retryOn ?? defaultRetryOn,
   };
+}
+
+/**
+ * The platform `setTimeout` ceiling (2^31 - 1 ms). Used as the default
+ * `maxBackoffMs` so an unbounded exponential growth still clamps to a
+ * value the timer can represent rather than firing instantly.
+ *
+ * @internal
+ */
+const RETRY_TIMER_CEILING_MS = 2_147_483_647;
+
+/**
+ * Normalise the {@link RetryOptions.jitter} option to a fraction in
+ * `[0, 1]`: `"none"` -> `0`, `"full"` -> `1`, a number passes through after
+ * a range check. Rejects anything else at build time (RC5003).
+ *
+ * @internal
+ */
+function resolveJitter(jitter: RetryOptions["jitter"]): number {
+  if (jitter === undefined || jitter === "none") return 0;
+  if (jitter === "full") return 1;
+  if (Number.isFinite(jitter) && jitter >= 0 && jitter <= 1) return jitter;
+  throw rcError("RC5003", undefined, {
+    message: `retry({ jitter }) must be "none", "full", or a number in [0, 1], got ${String(jitter)}.`,
+  });
 }
 
 /**
@@ -116,7 +193,8 @@ export interface RetryHooks {
 /**
  * The retry loop shared by the step-scope wrapper and the route-scope
  * segment step. Runs `attempt` up to `options.maxAttempts` times,
- * waiting the (optionally exponential) backoff between attempts.
+ * waiting `backoffMs * factor^(n-1)` (clamped to `maxBackoffMs`, then
+ * optionally jittered) between attempts.
  *
  * - A non-retryable error (per `retryOn`) propagates immediately.
  * - When the route shuts down during a backoff wait, the loop gives up
@@ -148,13 +226,15 @@ export async function executeWithRetry<R>(
         hooks.onStopped(attemptNumber, false, err);
         throw err;
       }
-      // Clamp to the platform timer ceiling (2^31 - 1 ms): past it,
-      // setTimeout coerces the delay (Node clamps to 1ms, so a huge
-      // exponential wait would fire instantly) and 2 ** n overflows to
-      // Infinity around attempt 1024. Unreachable for sane configs.
-      const waitMs = options.exponential
-        ? Math.min(options.backoffMs * 2 ** (attemptNumber - 1), 2_147_483_647)
-        : options.backoffMs;
+      // Computed backoff: base * factor^(n-1), clamped to maxBackoffMs
+      // (which defaults to the platform timer ceiling, so a steep factor
+      // cannot overflow or fire instantly). Jitter then only ever SHORTENS
+      // the wait (`jitter` is in [0, 1]), so the clamp still holds.
+      const computed = Math.min(
+        options.backoffMs * options.factor ** (attemptNumber - 1),
+        options.maxBackoffMs,
+      );
+      const waitMs = computed * (1 - options.jitter * Math.random());
       hooks.onAttempt(attemptNumber, waitMs, err);
       try {
         await cancellableSleep(waitMs, hooks.signal);

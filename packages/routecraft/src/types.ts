@@ -435,7 +435,7 @@ export interface EventDetailsMap {
     scope: "route" | "step";
     attemptNumber: number;
     maxAttempts: number;
-    /** Actual wait before the next attempt (exponential backoff applied). */
+    /** Actual wait before the next attempt (factor growth + jitter applied). */
     backoffMs: number;
     lastError?: unknown;
   };
