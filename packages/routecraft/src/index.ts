@@ -175,6 +175,12 @@ export {
   type ThrottleTimeUnit,
   type ResolvedThrottleOptions,
 } from "./operations/throttle-wrapper.ts";
+export {
+  CircuitBreakerWrapperStep,
+  type CircuitBreakerOptions,
+  type CircuitBreakerState,
+  type ResolvedCircuitBreakerOptions,
+} from "./operations/circuit-breaker-wrapper.ts";
 
 export {
   ContextBuilder,
