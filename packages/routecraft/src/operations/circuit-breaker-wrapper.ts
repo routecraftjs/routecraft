@@ -2,7 +2,7 @@ import { type Exchange, DefaultExchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { logger } from "../logger.ts";
 import type { CraftContext } from "../context.ts";
-import type { Route } from "../route.ts";
+import type { ForwardFn, Route } from "../route.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { wrapperEventScope } from "./event-scope.ts";
@@ -53,19 +53,34 @@ export interface CircuitBreakerOptions {
    */
   halfOpenMax?: number;
   /**
-   * Value to return when the breaker rejects a call (open, or half-open
-   * at capacity). When set, the rejected exchange's body becomes
-   * `fallback(exchange)` and the pipeline continues; when omitted, the
-   * breaker throws `RC5025` so a `.error()` handler (or the default
-   * error path) can react.
+   * Produce the value to use when the breaker rejects a call (open, or
+   * half-open at capacity). When set, the rejected exchange's body becomes
+   * the result of `fallback` and the pipeline continues; when omitted, the
+   * breaker throws `RC5025` so a `.error()` handler (or the default error
+   * path) can react.
+   *
+   * The second argument is `forward`, the same direct-route caller the
+   * `.error()` handler receives: `forward(endpoint, payload)` sends to a
+   * direct route and resolves with that route's result, so a fallback can
+   * be dynamic (serve from a cache route, a secondary provider, etc.)
+   * rather than a static value. May be async.
+   *
+   * @example Static fallback
+   * ```ts
+   * .circuitBreaker({ failureThreshold: 5, fallback: () => ({ degraded: true }) })
+   * ```
+   * @example Dynamic fallback via a direct route
+   * ```ts
+   * .circuitBreaker({
+   *   failureThreshold: 5,
+   *   fallback: (exchange, forward) => forward("recs-fallback", exchange.body),
+   * })
+   * ```
    */
-  fallback?: (exchange: Exchange) => unknown;
-  /**
-   * Callback fired on every state transition (`opened` / `halfOpen` /
-   * `closed`). Side-effect hook for logging or metrics; it must not
-   * throw.
-   */
-  onStateChange?: (state: CircuitBreakerState) => void;
+  fallback?: (
+    exchange: Exchange,
+    forward: ForwardFn,
+  ) => unknown | Promise<unknown>;
   /**
    * Decide whether a failed call counts toward the failure threshold.
    * Default: count everything except `RoutecraftError`s flagged
@@ -77,7 +92,10 @@ export interface CircuitBreakerOptions {
   /**
    * Optional label carried on this breaker's `route:circuitBreaker:*`
    * events, so stacked or sibling breakers can be told apart in logs and
-   * metrics. Has no effect on behaviour.
+   * metrics. Has no effect on behaviour. Observe transitions by
+   * subscribing to those events (`route:circuitBreaker:opened` /
+   * `:halfOpen` / `:closed` / `:rejected`); the breaker exposes no
+   * notification callback, consistent with the other operations.
    */
   label?: string;
 }
@@ -94,8 +112,10 @@ export interface ResolvedCircuitBreakerOptions {
   windowMs: number;
   cooldownMs: number;
   halfOpenMax: number;
-  fallback?: (exchange: Exchange) => unknown;
-  onStateChange?: (state: CircuitBreakerState) => void;
+  fallback?: (
+    exchange: Exchange,
+    forward: ForwardFn,
+  ) => unknown | Promise<unknown>;
   isFailure: (error: Error) => boolean;
   label?: string;
 }
@@ -116,7 +136,6 @@ export function resolveCircuitBreakerOptions(
     cooldownMs = 30_000,
     halfOpenMax = 1,
     fallback,
-    onStateChange,
     isFailure = defaultRetryOn,
     label,
   } = options;
@@ -141,7 +160,6 @@ export function resolveCircuitBreakerOptions(
     halfOpenMax,
     isFailure,
     ...(fallback ? { fallback } : {}),
-    ...(onStateChange ? { onStateChange } : {}),
     ...(label !== undefined ? { label } : {}),
   };
 }
@@ -203,23 +221,6 @@ export class CircuitBreakerMachine {
     return this.#state;
   }
 
-  #toState(to: CircuitBreakerState): void {
-    this.#state = to;
-    // `onStateChange` is user code (metrics / logging). The contract says
-    // it must not throw, but isolate it so a throwing callback cannot
-    // corrupt the transition or abort the acquire / record call that
-    // triggered it (which would surface the callback's error instead of
-    // the breaker's RC5025 / fallback).
-    try {
-      this.#options.onStateChange?.(to);
-    } catch (err) {
-      logger.warn(
-        { err },
-        "circuitBreaker onStateChange callback threw; ignoring",
-      );
-    }
-  }
-
   #prune(now: number): void {
     const cutoff = now - this.#options.windowMs;
     while (this.#failures.length > 0 && this.#failures[0]! < cutoff) {
@@ -237,7 +238,7 @@ export class CircuitBreakerMachine {
       const elapsed = now - this.#openedAt;
       if (elapsed >= this.#options.cooldownMs) {
         this.#halfOpenInFlight = 0;
-        this.#toState("half-open");
+        this.#state = "half-open";
         hooks.onHalfOpen();
       } else {
         const retryAfterMs = this.#options.cooldownMs - elapsed;
@@ -268,7 +269,7 @@ export class CircuitBreakerMachine {
     // must not close the breaker out from under the in-flight probe.
     if (this.#state === "half-open" && probe) {
       this.#failures.length = 0;
-      this.#toState("closed");
+      this.#state = "closed";
       hooks.onClosed();
     }
     // In `closed`, a success does not retract windowed failures; the
@@ -295,7 +296,7 @@ export class CircuitBreakerMachine {
       // admitted before the trip and must not override the probe's verdict.
       if (!probe) return;
       this.#openedAt = now;
-      this.#toState("open");
+      this.#state = "open";
       // Exactly one failed probe re-opened the breaker. Report 1 rather
       // than `#failures.length`, which still holds the original
       // closed-state trip's timestamps (cleared only on close) and is
@@ -309,7 +310,7 @@ export class CircuitBreakerMachine {
       this.#prune(now);
       if (this.#failures.length >= this.#options.failureThreshold) {
         this.#openedAt = now;
-        this.#toState("open");
+        this.#state = "open";
         hooks.onOpened(this.#failures.length);
       }
     }
@@ -451,25 +452,46 @@ export function circuitBreakerEmitHooks(
 }
 
 /**
- * Outcome for a rejected call (breaker open, or half-open at capacity):
- * substitute the configured `fallback` body and continue, or throw
- * `RC5025` so the route's `.error()` handler (or the default error path)
- * decides what to do. Shared by the step-scope wrapper and the
- * route-scope segment.
+ * Build the `forward` passed to a `fallback`: the route's direct-route
+ * caller, or (when the step ran without a route binding, e.g. a unit test)
+ * a stub that fails loudly only if the fallback actually calls it, so a
+ * static fallback that ignores `forward` still works. Mirrors the
+ * step-scope `.error()` handler's forward handling.
  *
  * @internal
  */
-export function circuitOpenOutcome(
+export function circuitBreakerForward(route: Route | undefined): ForwardFn {
+  if (route) return route.getForward();
+  return () =>
+    Promise.reject(
+      rcError("RC5001", undefined, {
+        message:
+          "circuitBreaker fallback called forward() but the step ran without a route binding; forward() requires a route.",
+      }),
+    );
+}
+
+/**
+ * Outcome for a rejected call (breaker open, or half-open at capacity):
+ * substitute the configured `fallback` body and continue, or throw
+ * `RC5025` so the route's `.error()` handler (or the default error path)
+ * decides what to do. The `fallback` receives `forward` so it can produce
+ * a dynamic body from a direct route, and may be async. Shared by the
+ * step-scope wrapper and the route-scope segment.
+ *
+ * @internal
+ */
+export async function circuitOpenOutcome(
   exchange: Exchange,
   options: ResolvedCircuitBreakerOptions,
+  forward: ForwardFn,
   scopeDescription: string,
-): StepOutcome {
+): Promise<StepOutcome> {
   if (options.fallback) {
+    const body = await options.fallback(exchange, forward);
     return {
       kind: "continue",
-      exchange: DefaultExchange.rewrap(exchange, {
-        body: options.fallback(exchange),
-      }),
+      exchange: DefaultExchange.rewrap(exchange, { body }),
     };
   }
   throw rcError("RC5025", undefined, {
@@ -495,7 +517,7 @@ export async function executeWithCircuitBreaker(
   controller: CircuitBreakerController,
   route: Route | undefined,
   hooks: CircuitBreakerHooks,
-  onOpen: () => StepOutcome,
+  onOpen: () => Promise<StepOutcome>,
   run: () => Promise<StepOutcome>,
 ): Promise<StepOutcome> {
   const decision = controller.acquire(route, hooks);
@@ -565,6 +587,8 @@ export class CircuitBreakerWrapperStep<
       this.#controller.options,
     );
 
+    const forward = circuitBreakerForward(route);
+
     return executeWithCircuitBreaker(
       this.#controller,
       route,
@@ -573,6 +597,7 @@ export class CircuitBreakerWrapperStep<
         circuitOpenOutcome(
           exchange,
           this.#controller.options,
+          forward,
           `for step "${stepLabel}"`,
         ),
       () => this.inner.execute(exchange, ctx),

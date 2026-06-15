@@ -460,4 +460,46 @@ describe("Circuit breaker route scope (.circuitBreaker() before .from())", () =>
     expect(opened).toHaveLength(1);
     expect(opened[0]).toMatchObject({ scope: "route", threshold: 1 });
   });
+
+  /**
+   * @case A fallback can forward to a direct route to build a dynamic response
+   * @preconditions Breaker with a fallback that calls forward('cb-fallback', body); a second route serves that endpoint
+   * @expectedResult Once open, the rejected call resolves with the fallback route's result (proving forward is wired and the async fallback is awaited)
+   */
+  test("fallback forwards to a direct route for a dynamic response", async () => {
+    const fallbackSink = spy();
+    let primaryCalls = 0;
+
+    t = await testContext()
+      .routes([
+        craft()
+          .id("cb-primary")
+          .circuitBreaker({
+            failureThreshold: 1,
+            cooldownMs: 10_000,
+            fallback: (exchange, forward) =>
+              forward("cb-fallback", exchange.body),
+          })
+          .from(direct())
+          .transform(() => {
+            primaryCalls++;
+            throw new Error("primary down");
+          })
+          .to(spy()),
+        craft()
+          .id("cb-fallback")
+          .from<string>(direct())
+          .transform((body: string) => `fallback:${body}`)
+          .to(fallbackSink),
+      ])
+      .build();
+
+    await t.startAndWaitReady();
+    await expect(t.client.sendDirect("cb-primary", "a")).rejects.toThrow(); // trips
+    const result = await t.client.sendDirect("cb-primary", "b"); // open -> fallback forwards
+
+    expect(primaryCalls).toBe(1); // primary not run while open
+    expect(result).toBe("fallback:b");
+    expect(fallbackSink.received.map((e) => e.body)).toEqual(["fallback:b"]);
+  });
 });

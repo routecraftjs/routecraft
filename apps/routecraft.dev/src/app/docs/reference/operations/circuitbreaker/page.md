@@ -10,8 +10,7 @@ circuitBreaker(options: {
   windowMs?: number
   cooldownMs?: number
   halfOpenMax?: number
-  fallback?: (exchange: Exchange) => unknown
-  onStateChange?: (state: 'closed' | 'open' | 'half-open') => void
+  fallback?: (exchange: Exchange, forward: ForwardFn) => unknown | Promise<unknown>
   isFailure?: (error: Error) => boolean
   label?: string
 }): RouteBuilder<Current>
@@ -43,8 +42,7 @@ HALF-OPEN --[probe fails]------------------>    OPEN
 - `windowMs` - sliding window over which failures are counted. Failures older than this stop counting. Default `60_000`.
 - `cooldownMs` - how long the breaker stays open before admitting a probe. Default `30_000`.
 - `halfOpenMax` - maximum concurrent probe calls in the half-open state. Default `1`. Values above 1 are best-effort: the first probe to succeed closes the breaker.
-- `fallback` - value returned when a call is rejected (open, or half-open at capacity). When set, the rejected exchange's body becomes `fallback(exchange)` and the pipeline continues; when omitted, the breaker throws `RC5025`.
-- `onStateChange` - side-effect callback fired on every transition (`closed` / `open` / `half-open`). For logging or metrics; it must not throw.
+- `fallback` - produces the body to use when a call is rejected (open, or half-open at capacity). When set, the rejected exchange's body becomes the result of `fallback` and the pipeline continues; when omitted, the breaker throws `RC5025`. The second argument is `forward` (the same direct-route caller `.error()` receives), so the fallback can be dynamic, for example `fallback: (exchange, forward) => forward('recs-fallback', exchange.body)`; it may be async. To observe transitions, subscribe to the events below rather than passing a callback.
 - `isFailure` - decide whether a failed call counts toward the threshold. Default: count everything except `RoutecraftError`s flagged `retryable: false` (auth `RC5012`, validation `RC5002`, ...), which are deterministic and not evidence the downstream is unhealthy.
 - `label` - tag carried on this breaker's events so sibling breakers can be told apart.
 

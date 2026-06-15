@@ -889,6 +889,8 @@ function buildCircuitBreakerSegmentStep(
         controller.options,
       );
 
+      const forward = deps.buildForward();
+
       return executeWithCircuitBreaker(
         controller,
         deps.route,
@@ -897,6 +899,7 @@ function buildCircuitBreakerSegmentStep(
           circuitOpenOutcome(
             exchange,
             controller.options,
+            forward,
             `for route "${deps.routeId}"`,
           ),
         async () =>
