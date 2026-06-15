@@ -324,7 +324,10 @@ describe(".error() step scope: dual-mode wrapper", () => {
     const wrapper = new ErrorWrapperStep(innerStep, () => "unused");
 
     const N = 10;
-    const stepContext: StepContext = { takePending: () => [] };
+    const stepContext: StepContext = {
+      takePending: () => [],
+      runPaths: async () => {},
+    };
 
     // Build N synthetic exchanges, identifiable by body.
     const exchanges: Exchange[] = Array.from({ length: N }, (_, i) => ({

@@ -183,7 +183,7 @@ const ops: Op[] = [
   {
     name: 'choice',
     category: 'Flow Control',
-    signature: '.choice([...branches])',
+    signature: '.choice(when(...), otherwise(...)?)',
     description: 'Branch the pipeline by predicate.',
   },
   {
@@ -201,9 +201,8 @@ const ops: Op[] = [
   {
     name: 'multicast',
     category: 'Flow Control',
-    signature: '.multicast([routes])',
-    description: 'Send the exchange to multiple routes in parallel.',
-    planned: true,
+    signature: '.multicast(...paths)',
+    description: 'Fan the exchange out to multiple paths in parallel.',
   },
   {
     name: 'loop',

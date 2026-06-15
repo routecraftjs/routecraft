@@ -9,11 +9,8 @@ import {
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { COLLECT_STEPS } from "../dsl-symbol.ts";
-import {
-  StepBuilderBase,
-  type BuilderState,
-  type SetBody,
-} from "../step-builder-base.ts";
+import { StepBuilderBase, type BuilderState } from "../step-builder-base.ts";
+import { type Destination, type ToResultBody } from "./to.ts";
 
 /**
  * Predicate that decides whether a choice branch matches an exchange.
@@ -25,6 +22,23 @@ import {
  * @template T - Body type of the exchange at the point of the choice
  */
 export type ChoicePredicate<T = unknown> = (exchange: Exchange<T>) => boolean;
+
+/**
+ * A single fan-out path: either a bare destination (the exchange is sent to
+ * it) or a callback that builds a sub-pipeline on a {@link PathBuilder}. This
+ * is the one shared path shape used by `choice` (`when` / `otherwise`),
+ * `multicast`, and future branch operations.
+ *
+ * A callable destination (a bare function with a `send` method) is NOT a
+ * valid bare path here, because it is indistinguishable at runtime from a
+ * builder callback; wrap it as `(b) => b.to(callableDest)` instead.
+ *
+ * @template In  - Body type entering the path
+ * @template Out - Body type the path produces (defaults to `In`)
+ */
+export type Path<In = unknown, Out = In> =
+  | Destination<In, unknown>
+  | ((b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>);
 
 /**
  * Internal representation of one registered branch: a predicate plus the
@@ -39,6 +53,174 @@ interface ChoiceBranch {
 }
 
 /**
+ * Descriptor produced by {@link when}: a predicate plus the path that runs
+ * when it matches. Opaque to callers; consumed by `.choice(...)`.
+ *
+ * @template In  - Body type entering the branch
+ * @template Out - Body type the branch produces
+ */
+export interface WhenDescriptor<In = unknown, Out = In> {
+  readonly kind: "when";
+  readonly predicate: ChoicePredicate<In>;
+  readonly path: Path<In, Out>;
+}
+
+/**
+ * Descriptor produced by {@link otherwise}: the default path taken when no
+ * `when` predicate matches. Opaque to callers; consumed by `.choice(...)`.
+ *
+ * @template In  - Body type entering the branch
+ * @template Out - Body type the branch produces
+ */
+export interface OtherwiseDescriptor<In = unknown, Out = In> {
+  readonly kind: "otherwise";
+  readonly path: Path<In, Out>;
+}
+
+/**
+ * Either kind of branch descriptor accepted by `.choice(...)`.
+ *
+ * @template In  - Body type entering the branches
+ * @template Out - Body type every branch must converge on
+ */
+export type ChoiceDescriptor<In = unknown, Out = In> =
+  | WhenDescriptor<In, Out>
+  | OtherwiseDescriptor<In, Out>;
+
+/**
+ * Register a conditional branch for `.choice(...)`. The predicate receives
+ * the exchange at the point of the choice; the path runs when it returns
+ * true. Branches are evaluated in registration order and the first match
+ * wins.
+ *
+ * Two overloads, so the branch's OUTPUT type is checked against the choice's
+ * converged `Out` either way: a sub-pipeline callback `(b) => b...` produces
+ * the body type its chain ends on, and a bare destination produces its
+ * `.to()` result body ({@link ToResultBody}: a void-returning sink leaves the
+ * body unchanged, a value-returning destination replaces it). When the
+ * branches differ, set the choice output to the union and narrow downstream:
+ * `.choice<Report | Audit>(when(p, b => b.transform(toReport)), otherwise(...))`.
+ *
+ * When `when(...)` is passed directly as a `.choice(...)` argument, the body
+ * type flows in by contextual typing, so `ex.body` is typed without an
+ * annotation. Only when a descriptor is built OUTSIDE the call (assigned to a
+ * variable first) is there no context to infer from; annotate the predicate
+ * parameter or supply the `In` type argument
+ * (`when<Order>((ex) => ex.body.priority === "urgent", ...)`) in that case.
+ *
+ * @param predicate - Receives the exchange; returns true if this branch handles it
+ * @param branch - Sub-pipeline callback (overload 1) or bare destination (overload 2)
+ */
+export function when<In = unknown, Out = In>(
+  predicate: ChoicePredicate<In>,
+  branch: (b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>,
+): WhenDescriptor<In, Out>;
+export function when<In = unknown, R = void>(
+  predicate: ChoicePredicate<In>,
+  destination: Destination<In, R>,
+): WhenDescriptor<In, ToResultBody<In, R>>;
+export function when(
+  predicate: ChoicePredicate<unknown>,
+  path: Path<unknown, unknown>,
+): WhenDescriptor<unknown, unknown> {
+  return { kind: "when", predicate, path };
+}
+
+/**
+ * Register the default branch for `.choice(...)`, taken when no `when`
+ * predicate matches. Equivalent to Camel's `.otherwise()`. If omitted and no
+ * branch matches, the exchange is dropped with `reason: "unmatched"`. At most
+ * one `otherwise` may be passed to a single `.choice(...)`.
+ *
+ * Like {@link when}, two overloads: a sub-pipeline callback or a bare
+ * destination, both with their output checked against the choice's `Out`.
+ *
+ * @param branch - Sub-pipeline callback (overload 1) or bare destination (overload 2)
+ */
+export function otherwise<In = unknown, Out = In>(
+  branch: (b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>,
+): OtherwiseDescriptor<In, Out>;
+export function otherwise<In = unknown, R = void>(
+  destination: Destination<In, R>,
+): OtherwiseDescriptor<In, ToResultBody<In, R>>;
+export function otherwise(
+  path: Path<unknown, unknown>,
+): OtherwiseDescriptor<unknown, unknown> {
+  return { kind: "otherwise", path };
+}
+
+/**
+ * Compile one {@link Path} into the step array the executor inlines. A bare
+ * destination becomes a single `.to()` step; a callback is run against a
+ * fresh {@link PathBuilder} and its collected steps are returned.
+ *
+ * @internal
+ */
+export function compilePath(path: Path<unknown, unknown>): Step<Adapter>[] {
+  const builder = new PathBuilder();
+  if (typeof path === "function") {
+    path(builder);
+  } else {
+    builder.to(path);
+  }
+  return builder[COLLECT_STEPS]();
+}
+
+/**
+ * Compile the variadic `.choice(...)` descriptors into the evaluation-ordered
+ * branch list: registered `when` branches first, then the optional
+ * `otherwise`. Throws (RC5001) if more than one `otherwise` is supplied.
+ *
+ * @internal
+ */
+export function compileChoiceBranches(
+  descriptors: readonly ChoiceDescriptor<unknown, unknown>[],
+): ChoiceBranch[] {
+  const whenBranches: ChoiceBranch[] = [];
+  let otherwiseBranch: ChoiceBranch | undefined;
+  for (const descriptor of descriptors) {
+    if (descriptor.kind === "when") {
+      whenBranches.push({
+        predicate: descriptor.predicate,
+        steps: compilePath(descriptor.path),
+        label: "when",
+      });
+    } else {
+      if (otherwiseBranch) {
+        // RC2001 (DSL, build-time) rather than RC5001 (Adapter, runtime): a
+        // duplicate otherwise() is an authoring error caught while compiling
+        // the route, not a step-execution failure.
+        throw rcError("RC2001", undefined, {
+          message:
+            "choice() may have at most one otherwise() branch; received two",
+        });
+      }
+      otherwiseBranch = {
+        predicate: () => true,
+        steps: compilePath(descriptor.path),
+        label: "otherwise",
+      };
+    }
+  }
+  return otherwiseBranch
+    ? [...whenBranches, otherwiseBranch]
+    : [...whenBranches];
+}
+
+/**
+ * Build the {@link ChoiceStep} for a variadic `.choice(...)` call. Keeps the
+ * {@link ChoiceStep} value encapsulated in this module so the builder only
+ * depends on the helper.
+ *
+ * @internal
+ */
+export function buildChoiceStep(
+  descriptors: readonly ChoiceDescriptor<unknown, unknown>[],
+): ChoiceStep {
+  return new ChoiceStep(compileChoiceBranches(descriptors));
+}
+
+/**
  * Marker adapter for the HaltStep. Halt has no configuration; the adapter is
  * a zero-field marker so the Step interface shape stays uniform and telemetry
  * can surface the adapter label.
@@ -49,8 +231,8 @@ export interface HaltAdapter extends Adapter {
 
 /**
  * Step that short-circuits the pipeline for the current exchange. Used by
- * `b.halt()` inside a choice branch to signal "this branch should not
- * continue past the choice." Emits `exchange:dropped` with reason `"halted"`.
+ * `b.halt()` inside a path to signal "this path should not continue past the
+ * choice / multicast." Emits `exchange:dropped` with reason `"halted"`.
  *
  * Halt is an explicit stop. It is distinct from filter (predicate rejection)
  * and from choice-unmatched (no branch matched); callers can distinguish the
@@ -82,22 +264,22 @@ export class HaltStep implements Step<HaltAdapter> {
 }
 
 /**
- * Sub-builder that defines the step pipeline for a single choice branch.
+ * Sub-builder that defines the step pipeline for a single fan-out path.
  *
- * Exposed to the user as the `b` parameter inside `when(pred, b => ...)` and
- * `otherwise(b => ...)` callbacks. Pipeline operations (`to`, `transform`,
- * `enrich`) are inherited from {@link StepBuilderBase} and behave identically
- * to their counterparts on `RouteBuilder`; the polymorphic return types
- * ensure a chained call re-types this builder as `BranchBuilder<NewT>`.
+ * Exposed to the user as the `b` parameter inside `when(pred, b => ...)`,
+ * `otherwise(b => ...)`, and `multicast(b => ...)`. Pipeline operations
+ * (`to`, `transform`, `enrich`, ...) are inherited from
+ * {@link StepBuilderBase} and behave identically to their counterparts on
+ * `RouteBuilder`; the polymorphic return types ensure a chained call re-types
+ * this builder as `PathBuilder<NewT>`.
  *
- * BranchBuilder adds `.halt()` for explicit short-circuit of the enclosing
- * choice. Branch-unsafe ops like `.split()` / `.aggregate()` / `.from()` are
- * deliberately absent because they have no coherent meaning inside a
- * converging branch.
+ * PathBuilder adds `.halt()` for explicit short-circuit of the enclosing
+ * path. Path-unsafe ops like `.split()` / `.aggregate()` / `.from()` are
+ * deliberately absent because they have no coherent meaning inside a path.
  *
- * @template S - The {@link BuilderState} bag entering this branch
+ * @template S - The {@link BuilderState} bag entering this path
  */
-export class BranchBuilder<
+export class PathBuilder<
   S extends BuilderState = BuilderState,
 > extends StepBuilderBase<S> {
   private readonly steps: Step<Adapter>[] = [];
@@ -108,9 +290,9 @@ export class BranchBuilder<
 
   /**
    * Short-circuit the pipeline for this exchange. Once `halt()` executes, no
-   * further steps run -- neither the remaining branch steps nor the steps
-   * after the enclosing `.choice()` on the main pipeline. The exchange emits
-   * `exchange:dropped` with `reason: "halted"`.
+   * further steps run -- neither the remaining path steps nor (for a choice
+   * branch) the steps after the enclosing `.choice()` on the main pipeline.
+   * The exchange emits `exchange:dropped` with `reason: "halted"`.
    *
    * Useful for branches that handle error cases and do not want the rest of
    * the main pipeline to run, e.g.
@@ -118,103 +300,19 @@ export class BranchBuilder<
    *
    * @returns This builder (for chaining, though no further steps will execute)
    */
-  halt(): BranchBuilder<S> {
+  halt(): PathBuilder<S> {
     this.pushStep(new HaltStep());
     return this;
   }
 
   /**
-   * Hand the compiled step array to the enclosing ChoiceStep. Symbol-keyed so
-   * it does not pollute the public autocomplete surface on the branch
-   * builder.
+   * Hand the compiled step array to the enclosing step. Symbol-keyed so it
+   * does not pollute the public autocomplete surface on the builder.
    *
    * @internal
    */
   [COLLECT_STEPS](): Step<Adapter>[] {
     return this.steps;
-  }
-}
-
-/**
- * Sub-builder exposed to the user inside `.choice(c => ...)`.
- *
- * Holds the list of registered branches. `when` branches are evaluated in
- * registration order; `otherwise` (if present) is always evaluated last.
- * Calling `otherwise` more than once on the same choice is an authoring
- * mistake and throws at configuration time (RC5001).
- *
- * @template S   - The {@link BuilderState} bag entering the choice (from the
- *   main pipeline); predicates and branches see `S["body"]`
- * @template Out - Body type leaving the choice (all branches must converge)
- */
-export class ChoiceSubBuilder<
-  S extends BuilderState = BuilderState,
-  Out = S["body"],
-> {
-  private readonly whenBranches: ChoiceBranch[] = [];
-  private otherwiseBranch?: ChoiceBranch;
-
-  /**
-   * Register a conditional branch. The predicate receives the exchange at the
-   * point of the choice; the branch callback defines the sub-pipeline that
-   * runs when the predicate returns true. Branches are evaluated in the
-   * order they are registered and the first match wins.
-   *
-   * @param predicate - Receives the exchange; returns true if this branch should handle it
-   * @param branchFn - Callback that defines the sub-pipeline for the branch
-   * @returns This builder (for chaining)
-   */
-  when(
-    predicate: ChoicePredicate<S["body"]>,
-    branchFn: (b: BranchBuilder<S>) => BranchBuilder<SetBody<S, Out>>,
-  ): this {
-    const branch = new BranchBuilder<S>();
-    branchFn(branch);
-    this.whenBranches.push({
-      predicate: predicate as ChoicePredicate<unknown>,
-      steps: branch[COLLECT_STEPS](),
-      label: "when",
-    });
-    return this;
-  }
-
-  /**
-   * Register the default branch that runs when no `when` predicate matches.
-   * Equivalent to Camel's `.otherwise()`. If omitted and no branch matches,
-   * the exchange is dropped with `reason: "unmatched"`.
-   *
-   * @param branchFn - Callback that defines the sub-pipeline for the default branch
-   * @returns This builder (for chaining)
-   */
-  otherwise(
-    branchFn: (b: BranchBuilder<S>) => BranchBuilder<SetBody<S, Out>>,
-  ): this {
-    if (this.otherwiseBranch) {
-      throw rcError("RC5001", undefined, {
-        message:
-          "choice() may have at most one otherwise() branch; called twice",
-      });
-    }
-    const branch = new BranchBuilder<S>();
-    branchFn(branch);
-    this.otherwiseBranch = {
-      predicate: () => true,
-      steps: branch[COLLECT_STEPS](),
-      label: "otherwise",
-    };
-    return this;
-  }
-
-  /**
-   * Return the list of branches in evaluation order: registered `when`
-   * branches first, then the optional `otherwise` branch.
-   *
-   * @internal
-   */
-  [COLLECT_STEPS](): ChoiceBranch[] {
-    return this.otherwiseBranch
-      ? [...this.whenBranches, this.otherwiseBranch]
-      : [...this.whenBranches];
   }
 }
 

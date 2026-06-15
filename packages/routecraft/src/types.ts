@@ -156,6 +156,20 @@ export type StepOutcome =
  */
 export interface StepContext {
   takePending(predicate: (exchange: Exchange) => boolean): Exchange[];
+
+  /**
+   * Run each provided sub-pipeline against its own exchange, all in
+   * parallel, resolving once every path has settled (`Promise.allSettled`
+   * semantics: one path throwing does not reject the call). Each path runs
+   * as an isolated nested pipeline whose failure fires that exchange's
+   * default error events (the caller's route-scope `.error()` handler does
+   * NOT run for a path) but does not affect the caller or sibling paths.
+   * The queue itself stays private, so a fan-out step (e.g. `multicast`)
+   * cannot reorder or corrupt the parent's scheduling.
+   */
+  runPaths(
+    runs: ReadonlyArray<{ steps: Step<Adapter>[]; exchange: Exchange }>,
+  ): Promise<void>;
 }
 
 // MessageChannel lives with channel adapter now
@@ -619,6 +633,17 @@ export interface EventDetailsMap {
     branchLabel: "when" | "otherwise";
   };
   "route:operation:choice:unmatched": ExchangeScoped;
+
+  // -- Multicast --
+  /** Fan-out started: the exchange is about to be cloned to each path. */
+  "route:operation:multicast:started": ExchangeScoped & {
+    /** Number of paths the exchange is fanned out to. */
+    pathCount: number;
+  };
+  /** Fan-out finished: every path has settled and the original continues. */
+  "route:operation:multicast:stopped": ExchangeScoped & {
+    pathCount: number;
+  };
 
   // -- Sample --
   /** The sampler admitted this exchange. */

@@ -6,13 +6,15 @@ Keep Routecraft DSL chains compact with the Prettier plugin. {% .lead %}
 
 Routecraft recommends formatting projects with
 `@routecraft/prettier-plugin-routecraft`. It overrides Prettier's layout for
-fluent builder closures so nested `.choice()`, `.when()`, and `.otherwise()`
-chains stay shallow instead of indenting a level for every closure:
+fluent builder closures so sub-pipeline path builders inside `.choice()` and
+`.multicast()` keep their parameter on the arrow line instead of indenting a
+level for every closure:
 
 ```ts
-.choice((c) => c
-  .when(isUrgent, (b) => b.to(urgent))
-  .otherwise((b) => b))
+.choice(
+  when(isUrgent, (b) => b.to(urgent)),
+  otherwise((b) => b),
+)
 ```
 
 ## Installation

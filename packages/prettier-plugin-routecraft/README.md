@@ -2,32 +2,32 @@
 
 Prettier plugin that keeps Routecraft DSL chains compact and readable.
 
-Prettier's defaults push fluent sub-route closures onto their own line and add
-an extra level of indentation for every nested `.choice()`, `.when()`, and
-`.otherwise()`. This plugin overrides Prettier's printer for those closures so
-the threaded parameter stays on the arrow line and the chain keeps a single
-indent level.
+Prettier's defaults push fluent sub-pipeline path closures onto their own line
+and add an extra level of indentation for every `(b) => b...` branch builder
+inside `.choice()` and `.multicast()`. This plugin overrides Prettier's printer
+for those closures so the threaded parameter stays on the arrow line and the
+chain keeps a single indent level.
 
 ## Before and after
 
 ```ts
 // Prettier default
-.choice((c) =>
-  c
-    .when(senderInAllowlist(env.MAIL_ALLOWED_INBOUND), (b) =>
-      b
-        .enrich(agent("zoe"), only((r) => r, "agent"))
-        .to(mail({ action: "move" })),
-    )
-    .otherwise((b) => b),
+.choice(
+  when(senderInAllowlist(env.MAIL_ALLOWED_INBOUND), (b) =>
+    b
+      .enrich(agent("zoe"), only((r) => r, "agent"))
+      .to(mail({ action: "move" })),
+  ),
+  otherwise((b) => b),
 )
 
 // With @routecraft/prettier-plugin-routecraft
-.choice((c) => c
-  .when(senderInAllowlist(env.MAIL_ALLOWED_INBOUND), (b) => b
+.choice(
+  when(senderInAllowlist(env.MAIL_ALLOWED_INBOUND), (b) => b
     .enrich(agent("zoe"), only((r) => r, "agent"))
-    .to(mail({ action: "move" })))
-  .otherwise((b) => b))
+    .to(mail({ action: "move" }))),
+  otherwise((b) => b),
+)
 ```
 
 ## Installation
@@ -76,8 +76,9 @@ bunx prettier --write .
 The plugin only changes parameter-threaded builders: single-parameter arrow
 closures whose body is a fluent chain rooted in that parameter, passed directly
 as a call argument inside a `craft()` chain. Arrows such as
-`(c) => c.when(...).otherwise(...)` and `(b) => b.enrich(...).to(...)` keep the
-parameter on the arrow line instead of breaking the body onto its own line.
+`(b) => b.enrich(...).to(...)` (a branch builder inside `when(...)` /
+`otherwise(...)` / `multicast(...)`) keep the parameter on the arrow line
+instead of breaking the body onto its own line.
 
 Everything else is left to Prettier's defaults, including factory-rooted
 callbacks such as `(ex) => direct(...).send(...)` (whose chain is rooted in a

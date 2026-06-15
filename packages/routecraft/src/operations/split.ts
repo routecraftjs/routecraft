@@ -5,7 +5,7 @@ import {
   getAdapterLabel,
   type StepOutcome,
 } from "../types.ts";
-import { BRAND, INTERNALS_KEY, isBranded, isExchange } from "../brand.ts";
+import { BRAND, isBranded, isExchange } from "../brand.ts";
 import { rcError } from "../error.ts";
 import {
   type Exchange,
@@ -15,7 +15,7 @@ import {
   DefaultExchange,
   getExchangeContext,
   getExchangeRoute,
-  EXCHANGE_INTERNALS,
+  setExchangeRoute,
 } from "../exchange.ts";
 import type { Route } from "../route.ts";
 
@@ -229,15 +229,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
 
       // Set route in internals if it exists (symbol-key for cross-instance)
       if (route) {
-        const internals =
-          (
-            postProcessedExchange as unknown as Exchange & {
-              [key: symbol]: { context: unknown; route?: Route };
-            }
-          )[INTERNALS_KEY] ?? EXCHANGE_INTERNALS.get(postProcessedExchange);
-        if (internals) {
-          internals.route = route as Route;
-        }
+        setExchangeRoute(postProcessedExchange, route as Route);
       }
 
       const adapterLabel = getAdapterLabel(this.adapter);

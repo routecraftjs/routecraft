@@ -146,10 +146,17 @@ export {
 export { hashExchangeBody } from "./operations/hash-body.ts";
 
 export {
-  BranchBuilder,
-  ChoiceSubBuilder,
+  PathBuilder,
+  when,
+  otherwise,
   type ChoicePredicate,
+  type Path,
+  type WhenDescriptor,
+  type OtherwiseDescriptor,
+  type ChoiceDescriptor,
 } from "./operations/choice.ts";
+
+export { MulticastStep } from "./operations/multicast.ts";
 
 export { type HeaderSetter } from "./operations/header.ts";
 
@@ -211,7 +218,7 @@ export {
  * Type-only re-exports of the shared builder base and its type-state
  * machinery. Exposed so that `registerDsl` can augment a single interface
  * (`StepBuilderBase<S extends BuilderState>`) and have both `RouteBuilder`
- * and `BranchBuilder` inherit the augmentation via class-interface
+ * and `PathBuilder` inherit the augmentation via class-interface
  * inheritance; `SetBody` and `Retyped` are the helpers type-changing sugar
  * uses to advance the bag. The class value is deliberately not re-exported --
  * the base is not a public extension point and the closed-world `Retyped`

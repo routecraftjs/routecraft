@@ -711,11 +711,41 @@ The carddav option types also adopt the two-sided Server/Client naming (matching
 
 The jsonl adapter folds its file options into one type, matching `JsonFileOptions` / `CsvFileOptions`: `JsonlSourceOptions`, `JsonlDestinationOptions`, and `JsonlCombinedOptions` become `JsonlFileOptions` (discriminated by `mode`, plus `chunked`). Call sites are unchanged; only type annotations need the new name.
 
-## 15. What is new in 0.6.0
+## 15. `choice()` variadic `when` / `otherwise` {% #choice-variadic-when-otherwise %}
+
+`.choice()` moves from a fluent callback sub-builder to a variadic surface built from standalone `when` / `otherwise` helpers, so `choice`, the new `multicast`, and future branch operations share one path shape. `BranchBuilder` is renamed `PathBuilder` and `ChoiceSubBuilder` is removed.
+
+```ts
+// before (0.5.x): fluent callback sub-builder
+import { craft } from "@routecraft/routecraft";
+
+.choice((c) =>
+  c
+    .when((ex) => ex.body.priority === "urgent", (b) => b.to(urgentQueue))
+    .when((ex) => ex.body.amount > 1000, (b) => b.to(reviewQueue))
+    .otherwise((b) => b.to(errorSink).halt()),
+)
+
+// after (0.6.0): variadic, standalone helpers
+import { craft, when, otherwise } from "@routecraft/routecraft";
+
+.choice(
+  when((ex) => ex.body.priority === "urgent", (b) => b.to(urgentQueue)),
+  when((ex) => ex.body.amount > 1000, (b) => b.to(reviewQueue)),
+  otherwise((b) => b.to(errorSink).halt()),
+)
+```
+
+Each branch is a path: a bare destination or a sub-pipeline callback `(b) => b...`. Predicate ordering, `otherwise`-last evaluation, `halt()`, and the unmatched-drop behaviour are unchanged. When a `when(...)` is passed directly to `.choice(...)`, the predicate body type is still inferred from the route's current body; you only need to annotate (`when<Order>(...)`) when building a descriptor outside the call.
+
+Replace any `import { BranchBuilder } from "@routecraft/routecraft"` with `PathBuilder`. `ChoiceSubBuilder` has no replacement; the standalone `when` / `otherwise` helpers take its place.
+
+## 16. What is new in 0.6.0
 
 For context, no migration required:
 
 - **HTTP source adapter.** `http({ path, method? })` exposes a route over HTTP, configured via `defineConfig({ http: { port, host, auth } })`. Bun runtimes bind via `Bun.serve`; Node 22+ uses a `node:http` shim. Global auth (`jwt()` / `jwks()` bearer or `apiKey({...})`), per-route `.authorize()`, built-in `/health`, `/ready`, and `/openapi.json` endpoints. See the [`httpPlugin`](/docs/reference/plugins/httpplugin) reference.
+- **`multicast` operation.** `.multicast(...paths)` fans the exchange out to multiple independent paths in parallel (each on a deep clone), waits for all to settle, then continues the original unchanged. See the [`multicast`](/docs/reference/operations/multicast) reference.
 - `skills({ source, mode?, lifetime? })` and `fromFile(path)` builders alongside the new `Blocks` shape.
 - Nested block groups: a `blocks` value may be a `BlockBody` leaf or a nested `Blocks` group, flattened by `__` (see [1.2b](#1-2b-grouping-skills-under-one-key)).
 - `agent:block:loaded` / `agent:block:error` context events.

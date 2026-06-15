@@ -10,8 +10,8 @@ export const PUSH_STEP: unique symbol = Symbol.for(
 );
 
 /**
- * Symbol used by sub-pipeline builders (BranchBuilder for choice, PathBuilder
- * for multicast) to hand their compiled step array back to their parent Step
+ * Symbol used by sub-pipeline builders (the shared PathBuilder for choice and
+ * multicast paths) to hand their compiled step array back to their parent Step
  * without exposing a public `.steps()` API. Keeps the "no headless builder"
  * constraint on RouteBuilder intact.
  *

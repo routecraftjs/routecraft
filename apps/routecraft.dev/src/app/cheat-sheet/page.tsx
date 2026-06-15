@@ -153,7 +153,7 @@ await ctx.stop()`}</CheatCode>
   .tap(log())                      // side effect, non-blocking
   .split()                         // fan-out per array item
   .aggregate()                     // collect back into one
-  .choice(c => c.when(...))        // conditional branching
+  .choice(when(...), otherwise(...)?) // otherwise is optional
   .to(destination)                 // destination adapter
   .error((e, ex, fwd) => ...)      // step-scope handler
   .build()`}</CheatCode>
@@ -274,15 +274,18 @@ await ctx.stop()`}</CheatCode>
               First matching <code>when</code> wins. <code>halt()</code>{' '}
               short-circuits the branch.
             </p>
-            <CheatCode>{`craft()
+            <CheatCode>{`import { when, otherwise } from '@routecraft/routecraft'
+
+craft()
   .from(source)
-  .choice(c => c
-    .when(ex => ex.body.priority === 'urgent',
-      b => b.to(urgentQueue))
-    .when(ex => ex.body.amount > 1000,
-      b => b.to(reviewQueue))
-    .otherwise(
-      b => b.to(errorSink).halt()))
+  .choice(
+    when(ex => ex.body.priority === 'urgent',
+      b => b.to(urgentQueue)),
+    when(ex => ex.body.amount > 1000,
+      b => b.to(reviewQueue)),
+    otherwise(
+      b => b.to(errorSink).halt()),
+  )
   .to(defaultDestination)`}</CheatCode>
           </CheatSection>
 

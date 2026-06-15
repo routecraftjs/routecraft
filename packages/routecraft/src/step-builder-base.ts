@@ -82,12 +82,12 @@ export type StepWrapperFactory = <T extends Adapter>(inner: Step<T>) => Step<T>;
 // value side of each subclass is defined in its own module and imports
 // StepBuilderBase, not the other way around.
 import type { RouteBuilder } from "./builder.ts";
-import type { BranchBuilder } from "./operations/choice.ts";
+import type { PathBuilder } from "./operations/choice.ts";
 
 /**
  * The type-state bag threaded through the builder chain.
  *
- * Every builder generic (`RouteBuilder<S>`, `BranchBuilder<S>`,
+ * Every builder generic (`RouteBuilder<S>`, `PathBuilder<S>`,
  * `StepBuilderBase<S>`) is parameterised by ONE bag rather than by loose
  * type arguments, because declaration merging freezes generic arity: the
  * moment an ecosystem package augments `interface StepBuilderBase<S>`, the
@@ -119,14 +119,14 @@ export type SetBody<S extends BuilderState, B> = {
 /**
  * Maps the polymorphic `this` type of a `StepBuilderBase` call to the same
  * concrete subclass re-typed at the new state bag `S2`. Enables methods on
- * the shared base class to return `RouteBuilder<S2>` or `BranchBuilder<S2>`
+ * the shared base class to return `RouteBuilder<S2>` or `PathBuilder<S2>`
  * automatically based on the receiver at the call site, without each subclass
  * overriding every method to narrow its return.
  *
  * Closed-world on purpose: only the framework-owned subclasses participate.
  * External subclasses fall through to `never`, which is intentional -- the
  * shared base class is not a public extension point today. Any future
- * framework-owned subclass (for example, a `PathBuilder` for multicast) must
+ * framework-owned subclass (for example, a `dispatch` target builder) must
  * be added to the union below.
  *
  * @template This - The polymorphic `this` type inside a method on StepBuilderBase
@@ -139,8 +139,8 @@ export type SetBody<S extends BuilderState, B> = {
 export type Retyped<This, S2 extends BuilderState> =
   This extends RouteBuilder<infer _RS extends BuilderState>
     ? RouteBuilder<S2>
-    : This extends BranchBuilder<infer _BS extends BuilderState>
-      ? BranchBuilder<S2>
+    : This extends PathBuilder<infer _BS extends BuilderState>
+      ? PathBuilder<S2>
       : never;
 /* eslint-enable @typescript-eslint/no-unused-vars */
 
@@ -148,16 +148,16 @@ export type Retyped<This, S2 extends BuilderState> =
  * Shared abstract base for builders that accumulate pipeline steps.
  *
  * Implements the pipeline operations that are identical across
- * `RouteBuilder` and `BranchBuilder` (`to`, `transform`, `enrich`). Each
+ * `RouteBuilder` and `PathBuilder` (`to`, `transform`, `enrich`). Each
  * subclass provides its own `pushStep` hook describing where steps go --
  * `RouteBuilder` pushes into the current route definition (and enforces
  * that `.from()` has been called via `requireSource`), while
- * `BranchBuilder` pushes into its internal step array.
+ * `PathBuilder` pushes into its internal step array.
  *
  * Return types are threaded through the polymorphic `this` via
  * {@link Retyped}, so a `.transform()` call on a `RouteBuilder<{ body: A }>`
  * returns `RouteBuilder<{ body: B }>` and the same call on
- * `BranchBuilder<{ body: A }>` returns `BranchBuilder<{ body: B }>`.
+ * `PathBuilder<{ body: A }>` returns `PathBuilder<{ body: B }>`.
  *
  * The class value is framework-internal and must not be subclassed outside
  * the framework (the {@link Retyped} conditional is closed-world and external
@@ -221,7 +221,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * On `RouteBuilder`, this method is dual-mode: when called BEFORE
    * `.from()` it stages a route-level catch-all (existing behaviour);
    * when called AFTER `.from()` it wraps the next step. On
-   * `BranchBuilder`, it is always step-scope.
+   * `PathBuilder`, it is always step-scope.
    *
    * If the handler itself throws, the wrapper rethrows so the
    * route-level handler (when set) catches it; otherwise the route's
@@ -258,7 +258,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * On `RouteBuilder`, this method is dual-mode. The route-scope
    * variant (called BEFORE `.from()`) is not yet implemented and
    * throws RC2001; for now use the step-scope form chained after
-   * `.from()`. On `BranchBuilder`, it is always step-scope.
+   * `.from()`. On `PathBuilder`, it is always step-scope.
    *
    * Stacks left-to-right with other wrappers: `.error(h).cache().to(d)`
    * produces `error(cache(d))` -- the cache runs inside the error
@@ -438,7 +438,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * `body` replaced by `B` (other bag fields preserved).
    *
    * The single cast point used by every pipeline method that changes the
-   * body type. Centralising it means `RouteBuilder` and `BranchBuilder`
+   * body type. Centralising it means `RouteBuilder` and `PathBuilder`
    * do not each need their own `withType<T>()` helper, and the closed-world
    * {@link Retyped} conditional resolves the return type to the caller's
    * concrete subclass.
@@ -685,7 +685,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   /**
    * Symbol-keyed append used by `registerDsl` to add sugar methods
    * without exposing `pushStep` as public API. Lives on the base so
-   * both `RouteBuilder` and `BranchBuilder` inherit it and registered
+   * both `RouteBuilder` and `PathBuilder` inherit it and registered
    * sugar works on both.
    *
    * @internal

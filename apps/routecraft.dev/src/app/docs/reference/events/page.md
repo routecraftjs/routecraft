@@ -157,6 +157,15 @@ A failure of the wrapped operation *inside* the deadline does not emit a timeout
 
 `branchLabel` is `"when"` or `"otherwise"`. `branchIndex` is the zero-based index of the matched branch.
 
+### Multicast operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:operation:multicast:started` | Fan-out begins, before the exchange is cloned to each path | `{ routeId, exchangeId, correlationId, pathCount }` |
+| `route:operation:multicast:stopped` | Every path has settled and the original exchange continues | `{ routeId, exchangeId, correlationId, pathCount }` |
+
+`pathCount` is the number of paths the exchange was fanned out to. `started` and `stopped` always pair: every `started` is followed by a `stopped` (via `try`/`finally`), even when a path fails or the multicast has zero paths (`pathCount: 0`).
+
 ### Sample operations
 
 | Event | When it fires | Details |

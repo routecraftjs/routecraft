@@ -53,7 +53,7 @@ export interface DslRegistration {
 /**
  * Register a sugar method on `StepBuilderBase` that delegates to a core
  * primitive step type. The method is added to the shared base prototype
- * so it is available on both `RouteBuilder` and `BranchBuilder` (and any
+ * so it is available on both `RouteBuilder` and `PathBuilder` (and any
  * future framework-owned subclass).
  *
  * TypeScript types for the new method must be provided separately via
@@ -157,7 +157,7 @@ registerDsl("schema", {
 // targets the package specifier and not a relative path.
 //
 // Sugar methods are declared on the shared `StepBuilderBase` interface so
-// both `RouteBuilder` and `BranchBuilder` inherit them via class-interface
+// both `RouteBuilder` and `PathBuilder` inherit them via class-interface
 // inheritance. Type-preserving sugars return `this` (polymorphic -- resolves
 // to the concrete subclass at the call site); type-changing sugars use
 // `Retyped<this, NewT>` (same closed-world conditional the base already uses

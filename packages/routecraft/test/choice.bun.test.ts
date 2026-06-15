@@ -1,7 +1,13 @@
 import { type } from "arktype";
 import { afterEach, describe, expect, expectTypeOf, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, BranchBuilder, type Source } from "@routecraft/routecraft";
+import {
+  craft,
+  PathBuilder,
+  when,
+  otherwise,
+  type Source,
+} from "@routecraft/routecraft";
 
 type Order = { priority: "urgent" | "normal"; amount: number };
 
@@ -50,16 +56,17 @@ describe("choice operation", () => {
         craft()
           .id("choice-basic")
           .from(items(inputs))
-          .choice((c) => c
-            .when(
+          .choice(
+            when(
               (ex) => ex.body.priority === "urgent",
               (b) => b.to(urgent),
-            )
-            .when(
+            ),
+            when(
               (ex) => ex.body.amount > 1000,
               (b) => b.to(big),
-            )
-            .otherwise((b) => b.to(fallback)))
+            ),
+            otherwise((b) => b.to(fallback)),
+          )
           .to(shared),
       )
       .build();
@@ -92,10 +99,12 @@ describe("choice operation", () => {
         craft()
           .id("choice-unmatched")
           .from(items<Order>([{ priority: "normal", amount: 10 }]))
-          .choice((c) => c.when(
-            (ex) => ex.body.priority === "urgent",
-            (b) => b.to(matched),
-          ))
+          .choice(
+            when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.to(matched),
+            ),
+          )
           .to(shared),
       )
       .build();
@@ -127,12 +136,13 @@ describe("choice operation", () => {
         craft()
           .id("choice-halt")
           .from(items(inputs))
-          .choice((c) => c
-            .when(
+          .choice(
+            when(
               (ex) => ex.body.priority === "urgent",
               (b) => b.to(urgent),
-            )
-            .otherwise((b) => b.to(errorSink).halt()))
+            ),
+            otherwise((b) => b.to(errorSink).halt()),
+          )
           .to(shared),
       )
       .build();
@@ -167,10 +177,12 @@ describe("choice operation", () => {
         craft()
           .id("choice-events-match")
           .from(items<Order>([{ priority: "urgent", amount: 10 }]))
-          .choice((c) => c.when(
-            (ex) => ex.body.priority === "urgent",
-            (b) => b.to(sink),
-          )),
+          .choice(
+            when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.to(sink),
+            ),
+          ),
       )
       .on(
         "route:operation:choice:matched",
@@ -208,10 +220,12 @@ describe("choice operation", () => {
         craft()
           .id("choice-events-unmatch")
           .from(items<Order>([{ priority: "normal", amount: 10 }]))
-          .choice((c) => c.when(
-            (ex) => ex.body.priority === "urgent",
-            (b) => b.to(sink),
-          )),
+          .choice(
+            when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.to(sink),
+            ),
+          ),
       )
       .on(
         "route:operation:choice:unmatched",
@@ -230,18 +244,19 @@ describe("choice operation", () => {
   });
 
   /**
-   * @case Calling otherwise() twice on the same choice throws an authoring error
-   * @preconditions Builder chain that registers two otherwise branches
-   * @expectedResult The second otherwise() call throws a RoutecraftError
+   * @case Passing two otherwise() branches to one choice throws an authoring error
+   * @preconditions Builder chain with two otherwise descriptors in a single choice
+   * @expectedResult The choice() call throws a RoutecraftError mentioning otherwise
    */
-  test("otherwise() called twice throws at build time", () => {
+  test("two otherwise() branches throw at build time", () => {
     expect(() =>
       craft()
         .id("choice-dup-otherwise")
         .from(items<Order>([]))
-        .choice((c) => c
-          .otherwise((b) => b.to(spy()))
-          .otherwise((b) => b.to(spy())))
+        .choice(
+          otherwise((b) => b.to(spy())),
+          otherwise((b) => b.to(spy())),
+        )
         .build(),
     ).toThrow(/otherwise/);
   });
@@ -260,12 +275,13 @@ describe("choice operation", () => {
         craft()
           .id("choice-otherwise-order")
           .from(items<Order>([{ priority: "urgent", amount: 1 }]))
-          .choice((c) => c
-            .otherwise((b) => b.to(otherwiseSink))
-            .when(
+          .choice(
+            otherwise((b) => b.to(otherwiseSink)),
+            when(
               (ex) => ex.body.priority === "urgent",
               (b) => b.to(whenSink),
-            )),
+            ),
+          ),
       )
       .build();
 
@@ -294,12 +310,13 @@ describe("choice operation", () => {
         craft()
           .id("choice-transform-converge")
           .from(items(inputs))
-          .choice((c) => c
-            .when(
+          .choice(
+            when(
               (ex) => ex.body.priority === "urgent",
               (b) => b.transform((body) => ({ ...body, amount: 999 })),
-            )
-            .otherwise((b) => b.transform((body) => ({ ...body, amount: 0 }))))
+            ),
+            otherwise((b) => b.transform((body) => ({ ...body, amount: 0 }))),
+          )
           .to(shared),
       )
       .build();
@@ -327,10 +344,12 @@ describe("choice operation", () => {
         craft()
           .id("choice-transform-chain")
           .from(items<Order>([{ priority: "normal", amount: 1 }]))
-          .choice((c) => c.otherwise((b) => b
-            .transform((body) => ({ ...body, amount: body.amount + 100 }))
-            .to(sink)
-            .halt()))
+          .choice(
+            otherwise((b) => b
+              .transform((body) => ({ ...body, amount: body.amount + 100 }))
+              .to(sink)
+              .halt()),
+          )
           .to(downstream),
       )
       .build();
@@ -361,12 +380,13 @@ describe("choice operation", () => {
         craft()
           .id("choice-transform-type-change")
           .from(items(inputs))
-          .choice<string>((c) => c
-            .when(
+          .choice<string>(
+            when(
               (ex) => ex.body.priority === "urgent",
               (b) => b.transform((body) => `URGENT:${body.amount}`),
-            )
-            .otherwise((b) => b.transform((body) => `normal:${body.amount}`)))
+            ),
+            otherwise((b) => b.transform((body) => `normal:${body.amount}`)),
+          )
           .to(downstream),
       )
       .build();
@@ -375,6 +395,82 @@ describe("choice operation", () => {
     await t.drain();
 
     expect(downstream.receivedBodies()).toEqual(["URGENT:3", "normal:4"]);
+  });
+
+  /**
+   * @case Branches may produce DIFFERENT output types; the choice Out is their union
+   * @preconditions Two branches transform to distinct shapes; `.choice<A | B>` names the union; downstream narrows on a discriminant
+   * @expectedResult Each input reaches the downstream with its branch-specific shape; the union narrows correctly
+   */
+  test("branches can produce different output types via a union Out", async () => {
+    type Report = { tag: "report"; n: number };
+    type Audit = { tag: "audit"; who: string };
+    const downstream = spy<{ result: number | string }>();
+
+    const inputs: Order[] = [
+      { priority: "urgent", amount: 10 },
+      { priority: "normal", amount: 5 },
+    ];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("choice-union")
+          .from(items(inputs))
+          .choice<Report | Audit>(
+            when(
+              (ex) => ex.body.priority === "urgent",
+              (b) => b.transform(
+                (o): Report => ({ tag: "report", n: o.amount }),
+              ),
+            ),
+            otherwise((b) => b.transform(
+              (o): Audit => ({ tag: "audit", who: o.priority }),
+            )),
+          )
+          // The downstream sees the union and must narrow it (the `tag` guard):
+          .transform((body) => ({
+            result: body.tag === "report" ? body.n : body.who,
+          }))
+          .to(downstream),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(downstream.receivedBodies()).toEqual([
+      { result: 10 },
+      { result: "normal" },
+    ]);
+  });
+
+  /**
+   * @case Type-level: a bare-destination branch's output is checked against the choice Out (the #5 fix)
+   * @preconditions choice<Report> with a bare destination that produces a non-Report body, and a separate void sink under the default Out
+   * @expectedResult The mismatched destination fails to compile (@ts-expect-error); the void sink is accepted (output preserved)
+   */
+  test("type-level: a bare-destination branch output is checked against the choice Out", () => {
+    type Report = { tag: "report"; n: number };
+    // Returns the WRONG body type; choice<Report> must reject it.
+    const auditDest = { send: () => ({ tag: "audit" as const, who: "x" }) };
+    const wrong = craft()
+      .id("choice-bare-bad")
+      .from(items<Order>([]))
+      .choice<Report>(
+        // @ts-expect-error auditDest produces { tag: "audit"; ... }, not assignable to Report
+        when((ex) => ex.body.priority === "urgent", auditDest),
+      );
+    void wrong;
+
+    // A void-returning sink leaves the body unchanged, so it converges on the
+    // default Out (the input body) and is accepted.
+    const voidSink = { send: () => {} };
+    const ok = craft()
+      .id("choice-bare-sink")
+      .from(items<Order>([]))
+      .choice(when((ex) => ex.body.priority === "urgent", voidSink));
+    void ok;
   });
 
   /**
@@ -390,12 +486,14 @@ describe("choice operation", () => {
         craft()
           .id("choice-transform-async")
           .from(items<Order>([{ priority: "normal", amount: 1 }]))
-          .choice((c) => c.otherwise((b) => b
-            .transform(async (body) => {
-              await new Promise((r) => setTimeout(r, 1));
-              return { ...body, amount: body.amount + 1 };
-            })
-            .to(sink))),
+          .choice(
+            otherwise((b) => b
+              .transform(async (body) => {
+                await new Promise((r) => setTimeout(r, 1));
+                return { ...body, amount: body.amount + 1 };
+              })
+              .to(sink)),
+          ),
       )
       .build();
 
@@ -432,9 +530,11 @@ describe("choice operation", () => {
         craft()
           .id("choice-transform-throws")
           .from(items<Order>([{ priority: "normal", amount: 1 }]))
-          .choice((c) => c.otherwise((b) => b.transform(() => {
-            throw new Error("branch transform blew up");
-          })))
+          .choice(
+            otherwise((b) => b.transform(() => {
+              throw new Error("branch transform blew up");
+            })),
+          )
           .to(downstream),
       )
       .build();
@@ -450,14 +550,14 @@ describe("choice operation", () => {
   });
 
   /**
-   * @case Type-level: BranchBuilder.transform propagates the Return generic to the next builder stage
-   * @preconditions A BranchBuilder<{ body: number }> transforms numbers into strings
-   * @expectedResult The resulting builder is exactly BranchBuilder<{ body: string }>; subsequent .to() narrows the exchange body
+   * @case Type-level: PathBuilder.transform propagates the Return generic to the next builder stage
+   * @preconditions A PathBuilder<{ body: number }> transforms numbers into strings
+   * @expectedResult The resulting builder is exactly PathBuilder<{ body: string }>; subsequent .to() narrows the exchange body
    */
-  test("type-level: BranchBuilder.transform propagates body type", () => {
-    const b = new BranchBuilder<{ body: number }>();
+  test("type-level: PathBuilder.transform propagates body type", () => {
+    const b = new PathBuilder<{ body: number }>();
     const b2 = b.transform((n) => n.toString());
-    expectTypeOf(b2).toEqualTypeOf<BranchBuilder<{ body: string }>>();
+    expectTypeOf(b2).toEqualTypeOf<PathBuilder<{ body: string }>>();
   });
 
   /**
@@ -473,9 +573,11 @@ describe("choice operation", () => {
         craft()
           .id("choice-enrich-merge")
           .from(items<Order>([{ priority: "normal", amount: 5000 }]))
-          .choice((c) => c.otherwise((b) => b.enrich(() => ({
-            reviewReason: "high-value",
-          }))))
+          .choice(
+            otherwise((b) => b.enrich(() => ({
+              reviewReason: "high-value",
+            }))),
+          )
           .to(shared),
       )
       .build();
@@ -504,12 +606,14 @@ describe("choice operation", () => {
         craft()
           .id("choice-enrich-async")
           .from(items<Order>([{ priority: "urgent", amount: 1 }]))
-          .choice((c) => c.otherwise((b) => b
-            .enrich(async () => {
-              await new Promise((r) => setTimeout(r, 1));
-              return { fetched: 42 };
-            })
-            .to(sink))),
+          .choice(
+            otherwise((b) => b
+              .enrich(async () => {
+                await new Promise((r) => setTimeout(r, 1));
+                return { fetched: 42 };
+              })
+              .to(sink)),
+          ),
       )
       .build();
 
@@ -550,9 +654,11 @@ describe("choice operation", () => {
         craft()
           .id("choice-enrich-throws")
           .from(items<Order>([{ priority: "normal", amount: 1 }]))
-          .choice((c) => c.otherwise((b) => b.enrich(() => {
-            throw new Error("enrich fetch blew up");
-          })))
+          .choice(
+            otherwise((b) => b.enrich(() => {
+              throw new Error("enrich fetch blew up");
+            })),
+          )
           .to(downstream),
       )
       .build();
@@ -568,15 +674,15 @@ describe("choice operation", () => {
   });
 
   /**
-   * @case Type-level: BranchBuilder.enrich propagates merged body type (Current & R) to the next builder stage
-   * @preconditions A BranchBuilder<{ body: { a: number } }> enriches with a destination returning { b: string }
-   * @expectedResult The resulting builder is BranchBuilder<{ body: { a: number } & { b: string } }>
+   * @case Type-level: PathBuilder.enrich propagates merged body type (Current & R) to the next builder stage
+   * @preconditions A PathBuilder<{ body: { a: number } }> enriches with a destination returning { b: string }
+   * @expectedResult The resulting builder is PathBuilder<{ body: { a: number } & { b: string } }>
    */
-  test("type-level: BranchBuilder.enrich propagates merged body type", () => {
-    const b = new BranchBuilder<{ body: { a: number } }>();
+  test("type-level: PathBuilder.enrich propagates merged body type", () => {
+    const b = new PathBuilder<{ body: { a: number } }>();
     const b2 = b.enrich(() => ({ b: "x" }));
     expectTypeOf(b2).toEqualTypeOf<
-      BranchBuilder<{ body: { a: number } & { b: string } }>
+      PathBuilder<{ body: { a: number } & { b: string } }>
     >();
   });
 
@@ -597,9 +703,7 @@ describe("choice operation", () => {
         craft()
           .id("choice-filter-branch")
           .from(items(inputs))
-          .choice((c) => c.otherwise((b) => b.filter(
-            (ex) => ex.body.amount >= 100,
-          )))
+          .choice(otherwise((b) => b.filter((ex) => ex.body.amount >= 100)))
           .to(downstream),
       )
       .build();
@@ -624,7 +728,7 @@ describe("choice operation", () => {
         craft()
           .id("choice-header-branch")
           .from(items<Order>([{ priority: "urgent", amount: 1 }]))
-          .choice((c) => c.otherwise((b) => b.header("x-branch", "otherwise")))
+          .choice(otherwise((b) => b.header("x-branch", "otherwise")))
           .to(downstream),
       )
       .build();
@@ -650,7 +754,7 @@ describe("choice operation", () => {
         craft()
           .id("choice-tap-branch")
           .from(items<Order>([{ priority: "normal", amount: 42 }]))
-          .choice((c) => c.otherwise((b) => b.tap(tapped)))
+          .choice(otherwise((b) => b.tap(tapped)))
           .to(downstream),
       )
       .build();
@@ -679,12 +783,14 @@ describe("choice operation", () => {
         craft()
           .id("choice-process-branch")
           .from(items<Order>([{ priority: "urgent", amount: 1 }]))
-          .choice<{ tag: string }>((c) => c.otherwise((b) => b.process<{
-            tag: string;
-          }>((ex) => ({
-            ...ex,
-            body: { tag: `${ex.body.priority}:${ex.body.amount}` },
-          }))))
+          .choice<{ tag: string }>(
+            otherwise((b) => b.process<{
+              tag: string;
+            }>((ex) => ({
+              ...ex,
+              body: { tag: `${ex.body.priority}:${ex.body.amount}` },
+            }))),
+          )
           .to(downstream),
       )
       .build();
@@ -716,9 +822,11 @@ describe("choice operation", () => {
         craft()
           .id("choice-validate-branch")
           .from(items<Order>([{ priority: "urgent", amount: 1 }]))
-          .choice((c) => c.otherwise((b) => b.validate(() => {
-            throw new Error("validation failed");
-          })))
+          .choice(
+            otherwise((b) => b.validate(() => {
+              throw new Error("validation failed");
+            })),
+          )
           .to(downstream),
       )
       .build();
@@ -744,11 +852,11 @@ describe("choice operation", () => {
         craft()
           .id("choice-sugar-branch")
           .from(items<Order>([{ priority: "normal", amount: 99 }]))
-          .choice<{ label: string }>((c) => c.otherwise((b) => b
-            .log()
-            .map<{ label: string }>({
+          .choice<{ label: string }>(
+            otherwise((b) => b.log().map<{ label: string }>({
               label: (src) => `${src.priority}-${src.amount}`,
-            })))
+            })),
+          )
           .to(downstream),
       )
       .build();
@@ -761,18 +869,18 @@ describe("choice operation", () => {
   });
 
   /**
-   * @case Type-level: BranchBuilder inherits the type-preserving ops correctly
-   * @preconditions A BranchBuilder<{ body: T }> calls filter / header / tap
-   * @expectedResult Each returns BranchBuilder<{ body: T }> (same subclass, same body type)
+   * @case Type-level: PathBuilder inherits the type-preserving ops correctly
+   * @preconditions A PathBuilder<{ body: T }> calls filter / header / tap
+   * @expectedResult Each returns PathBuilder<{ body: T }> (same subclass, same body type)
    */
-  test("type-level: type-preserving ops on BranchBuilder return BranchBuilder<{ body: T }>", () => {
-    const b = new BranchBuilder<{ body: Order }>();
+  test("type-level: type-preserving ops on PathBuilder return PathBuilder<{ body: T }>", () => {
+    const b = new PathBuilder<{ body: Order }>();
     const afterFilter = b.filter(() => true);
     const afterHeader = b.header("k", "v");
     const afterTap = b.tap(() => undefined);
-    expectTypeOf(afterFilter).toEqualTypeOf<BranchBuilder<{ body: Order }>>();
-    expectTypeOf(afterHeader).toEqualTypeOf<BranchBuilder<{ body: Order }>>();
-    expectTypeOf(afterTap).toEqualTypeOf<BranchBuilder<{ body: Order }>>();
+    expectTypeOf(afterFilter).toEqualTypeOf<PathBuilder<{ body: Order }>>();
+    expectTypeOf(afterHeader).toEqualTypeOf<PathBuilder<{ body: Order }>>();
+    expectTypeOf(afterTap).toEqualTypeOf<PathBuilder<{ body: Order }>>();
   });
 
   /**
@@ -788,7 +896,7 @@ describe("choice operation", () => {
         craft()
           .id("choice-sugar-debug-branch")
           .from(items<Order>([{ priority: "urgent", amount: 7 }]))
-          .choice((c) => c.otherwise((b) => b.debug().to(downstream))),
+          .choice(otherwise((b) => b.debug().to(downstream))),
       )
       .build();
 
@@ -816,9 +924,9 @@ describe("choice operation", () => {
         craft()
           .id("choice-sugar-schema-branch")
           .from(items<Order>([{ priority: "normal", amount: 5 }]))
-          .choice<{ priority: string; amount: number }>((c) => c.otherwise(
-            (b) => b.schema(orderSchema),
-          ))
+          .choice<{ priority: string; amount: number }>(
+            otherwise((b) => b.schema(orderSchema)),
+          )
           .to(downstream),
       )
       .build();

@@ -52,8 +52,10 @@ export interface Destination<T = unknown, R = void> extends Adapter {
  * branch contributes the original `T`, the `string` branch contributes
  * the new body), instead of letting the `void` leak through into a
  * downstream `Exchange<string | void>`.
+ *
+ * @internal
  */
-type ToResultBody<T, R> = [Extract<R, void>] extends [never]
+export type ToResultBody<T, R> = [Extract<R, void>] extends [never]
   ? R
   : T | Exclude<R, void>;
 

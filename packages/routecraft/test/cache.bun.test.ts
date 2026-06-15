@@ -683,7 +683,10 @@ describe(".cache() step scope: dual-mode wrapper", () => {
 
     const ex1 = new DefaultExchange(ctx, { body: "a" });
     const ex2 = new DefaultExchange(ctx, { body: "b" });
-    const stepContext: StepContext = { takePending: () => [] };
+    const stepContext: StepContext = {
+      takePending: () => [],
+      runPaths: async () => {},
+    };
 
     const [o1, o2] = await Promise.all([
       wrapper.execute(ex1, stepContext),
@@ -728,7 +731,10 @@ describe(".cache() step scope: dual-mode wrapper", () => {
 
     const ex1 = new DefaultExchange(ctx, { body: "a" });
     const ex2 = new DefaultExchange(ctx, { body: "b" });
-    const stepContext: StepContext = { takePending: () => [] };
+    const stepContext: StepContext = {
+      takePending: () => [],
+      runPaths: async () => {},
+    };
 
     const [o1, o2] = await Promise.all([
       wrapper.execute(ex1, stepContext),
