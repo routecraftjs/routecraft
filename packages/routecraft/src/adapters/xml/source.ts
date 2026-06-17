@@ -1,7 +1,7 @@
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { XmlData, XmlFileOptions } from "./types.ts";
 import { file } from "../file/index.ts";
-import { parseXml } from "./shared.ts";
+import { getFastXmlParser, parseXml } from "./shared.ts";
 import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
 
 /**
@@ -25,6 +25,14 @@ export class XmlSourceAdapter implements Source<XmlData> {
 
   subscribe: CallableSource<XmlData> = async (sub) => {
     const onParseError = this.options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
+
+    // Resolve the optional peer up front so a missing install fails as RC5017
+    // (with an install hint) rather than being deferred into the per-item
+    // parse callback, where the synthetic parse step would rewrap it as an
+    // RC5016 parse failure and `onParseError: 'drop'` would swallow it
+    // silently. Mirrors csv's eager ensurePapaparse(). The promise is
+    // memoised, so the later parse re-await is free.
+    await getFastXmlParser();
 
     const filePath = this.options.path;
     if (typeof filePath !== "string") {

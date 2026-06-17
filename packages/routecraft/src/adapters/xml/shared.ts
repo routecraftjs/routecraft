@@ -13,9 +13,14 @@ let fxpPromise: Promise<typeof import("fast-xml-parser")> | null = null;
  * Load fast-xml-parser as an optional peer dependency. Missing-package
  * failures surface as RC5017 with an install hint.
  *
+ * Source mode calls this eagerly (before the first emit) so a missing peer
+ * surfaces as an honest RC5017 up front, rather than being deferred into the
+ * per-item parse callback where it would be rewrapped as an RC5016 parse
+ * failure (and silently swallowed under `onParseError: 'drop'`).
+ *
  * @internal Not exported from the package public API.
  */
-function getFastXmlParser(): Promise<typeof import("fast-xml-parser")> {
+export function getFastXmlParser(): Promise<typeof import("fast-xml-parser")> {
   fxpPromise ??= loadOptionalPeer(() => import("fast-xml-parser"), {
     adapterName: "xml",
     packageName: "fast-xml-parser",

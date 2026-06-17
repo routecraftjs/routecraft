@@ -284,6 +284,36 @@ describe("XML Adapter", () => {
         parsed: { x: { y: 1 } },
       });
     });
+
+    /**
+     * @case Malformed XML in transformer mode surfaces as a route failure
+     * @preconditions Body is a structurally invalid XML string
+     * @expectedResult The route's .error() handler is invoked; spy receives nothing
+     */
+    test("fails on malformed XML in transformer mode", async () => {
+      const errors: unknown[] = [];
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("xml-transform-error")
+            .error((err) => {
+              errors.push(err);
+              return undefined;
+            })
+            .from(simple("<bad><unclosed></bad>"))
+            .transform(xml())
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(errors.length).toBeGreaterThan(0);
+      expect(s.received).toHaveLength(0);
+    });
   });
 
   describe("parse error handling", () => {
@@ -349,6 +379,47 @@ describe("XML Adapter", () => {
       await new Promise((r) => setTimeout(r, 0));
 
       expect(errors).toHaveLength(0);
+      expect(s.received).toHaveLength(0);
+    });
+
+    /**
+     * @case Malformed XML aborts the source when onParseError is 'abort'
+     * @preconditions XML file content is structurally invalid; mode 'abort'
+     * @expectedResult exchange:failed fires with RC5016, then context:error fires
+     */
+    test("aborts the source on malformed XML when onParseError is 'abort'", async () => {
+      const filePath = path.join(tmpDir, "broken-abort.xml");
+      await fsp.writeFile(filePath, "<note><to>Alice</from></note>", "utf-8");
+
+      const s = spy();
+      const failed: { error: unknown }[] = [];
+      const ctxErrs: { error: unknown }[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("xml-parse-abort")
+            .from(xml({ path: filePath, onParseError: "abort" }))
+            .to(s),
+        )
+        .build();
+
+      t.ctx.on(
+        "route:exchange:failed" as never,
+        ((payload: { details: { error: unknown } }) => {
+          failed.push({ error: payload.details.error });
+        }) as never,
+      );
+      t.ctx.on("context:error", (payload) => {
+        ctxErrs.push({ error: payload.details.error });
+      });
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(failed.length).toBe(1);
+      expect((failed[0].error as { rc?: string }).rc).toBe("RC5016");
+      expect(ctxErrs.length).toBeGreaterThanOrEqual(1);
       expect(s.received).toHaveLength(0);
     });
   });
