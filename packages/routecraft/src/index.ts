@@ -328,6 +328,7 @@ export { file } from "./adapters/file/index.ts";
 export { html } from "./adapters/html/index.ts";
 export { json } from "./adapters/json/index.ts";
 export { csv } from "./adapters/csv/index.ts";
+export { xml } from "./adapters/xml/index.ts";
 export { jsonl } from "./adapters/jsonl/index.ts";
 export { group } from "./adapters/group/index.ts";
 export { event } from "./adapters/sources/event/index.ts";
@@ -394,6 +395,16 @@ export {
   type CsvReadAdapter,
   CsvHeaders,
 } from "./adapters/csv/index.ts";
+export {
+  type XmlOptions,
+  type XmlTransformerOptions,
+  type XmlFileOptions,
+  type XmlParseOptions,
+  type XmlBuildOptions,
+  type XmlData,
+  type XmlAdapter,
+  type XmlReadAdapter,
+} from "./adapters/xml/index.ts";
 export {
   type JsonlOptions,
   type JsonlFileOptions,

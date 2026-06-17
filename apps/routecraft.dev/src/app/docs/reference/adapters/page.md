@@ -8,7 +8,7 @@ Every source, destination, transformer, and processor in Routecraft. Each card o
 
 ## Parse error handling
 
-Source adapters that convert raw bytes into a structured body (`json`, `html`, `csv`, `jsonl`, `mail`) accept a uniform `onParseError` option that controls what happens when parsing fails (malformed JSON, structurally-invalid CSV row, broken MIME, etc.). The default is `'fail'`.
+Source adapters that convert raw bytes into a structured body (`json`, `html`, `csv`, `jsonl`, `xml`, `mail`) accept a uniform `onParseError` option that controls what happens when parsing fails (malformed JSON, structurally-invalid CSV row, broken MIME, etc.). The default is `'fail'`.
 
 All three modes are observable on the events bus, parse failures are never silent.
 
