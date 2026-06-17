@@ -42,10 +42,17 @@ export class XmlDestinationAdapter implements Destination<unknown, unknown> {
       return deleteAdapter.send(exchange);
     }
 
-    // Write mode: the body must be an object describing the XML document.
-    if (exchange.body === null || typeof exchange.body !== "object") {
+    // Write mode: the body must be a single object describing the XML
+    // document. Arrays are rejected: they have no single root element, so the
+    // builder would emit numerically-named sibling tags (e.g. <0>...</0>) and
+    // an invalid document rather than failing.
+    if (
+      exchange.body === null ||
+      typeof exchange.body !== "object" ||
+      Array.isArray(exchange.body)
+    ) {
       throw new Error(
-        "xml adapter: write mode requires the exchange body to be an object representing the XML document",
+        "xml adapter: write mode requires the exchange body to be a single object representing the XML document (a single root element); arrays produce multiple root elements and an invalid document",
       );
     }
 
