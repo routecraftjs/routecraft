@@ -115,6 +115,12 @@ const adapters: Adapter[] = [
     roles: ['Source', 'Destination', 'Transformer'],
     description: 'Parse or write HTML, with DOM-style selection helpers.',
   },
+  {
+    name: 'xml',
+    category: 'File',
+    roles: ['Source', 'Destination', 'Transformer'],
+    description: 'Parse, write, or transform XML as a plain object.',
+  },
 
   // Messaging
   {
