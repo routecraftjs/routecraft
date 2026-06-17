@@ -96,7 +96,7 @@ const adapters: Adapter[] = [
     category: 'File',
     roles: ['Source'],
     description:
-      'Scan a directory and emit one exchange per file, with metadata to filter on.',
+      'Scan a directory for files, with metadata to filter on; list or per-file.',
   },
   {
     name: 'json',

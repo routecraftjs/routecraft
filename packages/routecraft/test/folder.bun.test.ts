@@ -31,11 +31,11 @@ describe("Folder Adapter - Source", () => {
   });
 
   /**
-   * @case Emits one exchange per file in a flat directory
+   * @case Default (non-chunked) emits the whole listing as one exchange
    * @preconditions Directory with three files exists
-   * @expectedResult Three exchanges, one per file, sorted by relative path
+   * @expectedResult One exchange whose body is a sorted FolderEntry[]
    */
-  test("emits one exchange per file", async () => {
+  test("non-chunked emits the listing as a single array exchange", async () => {
     await fsp.writeFile(path.join(tmpDir, "a.txt"), "aaa", "utf-8");
     await fsp.writeFile(path.join(tmpDir, "b.txt"), "bbb", "utf-8");
     await fsp.writeFile(path.join(tmpDir, "c.txt"), "ccc", "utf-8");
@@ -45,8 +45,36 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-flat")
+          .id("folder-array")
           .from(folder({ path: tmpDir }))
+          .to(s),
+      )
+      .build();
+
+    await t.ctx.start();
+
+    expect(s.received).toHaveLength(1);
+    const entries = s.received[0].body as FolderEntry[];
+    expect(entries.map((e) => e.name)).toEqual(["a.txt", "b.txt", "c.txt"]);
+  });
+
+  /**
+   * @case Chunked mode emits one exchange per file
+   * @preconditions Directory with three files exists
+   * @expectedResult Three exchanges, one per file, sorted by relative path
+   */
+  test("chunked emits one exchange per file", async () => {
+    await fsp.writeFile(path.join(tmpDir, "a.txt"), "aaa", "utf-8");
+    await fsp.writeFile(path.join(tmpDir, "b.txt"), "bbb", "utf-8");
+    await fsp.writeFile(path.join(tmpDir, "c.txt"), "ccc", "utf-8");
+
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("folder-chunked")
+          .from(folder({ path: tmpDir, chunked: true }))
           .to(s),
       )
       .build();
@@ -61,11 +89,11 @@ describe("Folder Adapter - Source", () => {
   });
 
   /**
-   * @case Each entry body carries file metadata
+   * @case Each entry carries file metadata
    * @preconditions Directory with a single known file exists
    * @expectedResult Body has path, name, ext, size, relativePath, and dates
    */
-  test("entry body carries metadata", async () => {
+  test("entry carries metadata", async () => {
     const filePath = path.join(tmpDir, "report.JSON");
     await fsp.writeFile(filePath, "12345", "utf-8");
 
@@ -75,7 +103,7 @@ describe("Folder Adapter - Source", () => {
       .routes(
         craft()
           .id("folder-meta")
-          .from(folder({ path: tmpDir }))
+          .from(folder({ path: tmpDir, chunked: true }))
           .to(s),
       )
       .build();
@@ -99,7 +127,7 @@ describe("Folder Adapter - Source", () => {
   /**
    * @case Directories are skipped by default
    * @preconditions Directory contains one file and one subdirectory
-   * @expectedResult Only the file is emitted
+   * @expectedResult Only the file is listed
    */
   test("skips directories by default", async () => {
     await fsp.writeFile(path.join(tmpDir, "file.txt"), "x", "utf-8");
@@ -111,7 +139,7 @@ describe("Folder Adapter - Source", () => {
       .routes(
         craft()
           .id("folder-skip-dirs")
-          .from(folder({ path: tmpDir }))
+          .from(folder({ path: tmpDir, chunked: true }))
           .to(s),
       )
       .build();
@@ -125,7 +153,7 @@ describe("Folder Adapter - Source", () => {
   /**
    * @case includeDirs emits directory entries too
    * @preconditions Directory contains one file and one subdirectory
-   * @expectedResult Both the file and the directory are emitted
+   * @expectedResult Both the file and the directory are listed
    */
   test("includeDirs emits directory entries", async () => {
     await fsp.writeFile(path.join(tmpDir, "file.txt"), "x", "utf-8");
@@ -137,7 +165,7 @@ describe("Folder Adapter - Source", () => {
       .routes(
         craft()
           .id("folder-include-dirs")
-          .from(folder({ path: tmpDir, includeDirs: true }))
+          .from(folder({ path: tmpDir, includeDirs: true, chunked: true }))
           .to(s),
       )
       .build();
@@ -153,7 +181,7 @@ describe("Folder Adapter - Source", () => {
   /**
    * @case Recursive scan descends into subdirectories
    * @preconditions Nested directories each contain a file
-   * @expectedResult Files at every depth are emitted with correct relativePath
+   * @expectedResult Files at every depth are listed with correct relativePath
    */
   test("recursive scan descends into subdirectories", async () => {
     await fsp.writeFile(path.join(tmpDir, "top.txt"), "1", "utf-8");
@@ -166,7 +194,7 @@ describe("Folder Adapter - Source", () => {
       .routes(
         craft()
           .id("folder-recursive")
-          .from(folder({ path: tmpDir, recursive: true }))
+          .from(folder({ path: tmpDir, recursive: true, chunked: true }))
           .to(s),
       )
       .build();
@@ -182,7 +210,7 @@ describe("Folder Adapter - Source", () => {
   /**
    * @case Non-recursive scan ignores nested files
    * @preconditions A nested directory contains a file
-   * @expectedResult Only the top-level entries are emitted (nested file absent)
+   * @expectedResult Only the top-level entries are listed (nested file absent)
    */
   test("non-recursive scan ignores nested files", async () => {
     await fsp.writeFile(path.join(tmpDir, "top.txt"), "1", "utf-8");
@@ -195,7 +223,7 @@ describe("Folder Adapter - Source", () => {
       .routes(
         craft()
           .id("folder-flat-only")
-          .from(folder({ path: tmpDir }))
+          .from(folder({ path: tmpDir, chunked: true }))
           .to(s),
       )
       .build();
@@ -209,18 +237,41 @@ describe("Folder Adapter - Source", () => {
   });
 
   /**
-   * @case Empty directory emits nothing
+   * @case Empty directory: non-chunked emits one empty-array exchange
    * @preconditions An empty directory exists
-   * @expectedResult No exchanges are emitted
+   * @expectedResult One exchange whose body is an empty array
    */
-  test("empty directory emits nothing", async () => {
+  test("empty directory emits one empty-array exchange (non-chunked)", async () => {
     const s = spy();
 
     t = await testContext()
       .routes(
         craft()
-          .id("folder-empty")
+          .id("folder-empty-array")
           .from(folder({ path: tmpDir }))
+          .to(s),
+      )
+      .build();
+
+    await t.ctx.start();
+
+    expect(s.received).toHaveLength(1);
+    expect(s.received[0].body).toEqual([]);
+  });
+
+  /**
+   * @case Empty directory: chunked emits nothing
+   * @preconditions An empty directory exists
+   * @expectedResult No exchanges are emitted
+   */
+  test("empty directory emits nothing (chunked)", async () => {
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("folder-empty-chunked")
+          .from(folder({ path: tmpDir, chunked: true }))
           .to(s),
       )
       .build();
@@ -231,11 +282,11 @@ describe("Folder Adapter - Source", () => {
   });
 
   /**
-   * @case Filter by extension then read content with the file adapter
+   * @case Chunked: filter by extension then read content with the file adapter
    * @preconditions Directory has a .json file and a .txt file
    * @expectedResult Only the .json file's content is read and reaches the spy
    */
-  test("filter then enrich with file content", async () => {
+  test("chunked filter then enrich with file content", async () => {
     await fsp.writeFile(path.join(tmpDir, "keep.json"), '{"ok":true}', "utf-8");
     await fsp.writeFile(path.join(tmpDir, "skip.txt"), "ignored", "utf-8");
 
@@ -245,7 +296,7 @@ describe("Folder Adapter - Source", () => {
       .routes(
         craft()
           .id("folder-filter-read")
-          .from(folder({ path: tmpDir }))
+          .from(folder({ path: tmpDir, chunked: true }))
           .filter((ex) => ex.body.ext === ".json")
           .enrich(
             file({
@@ -267,11 +318,48 @@ describe("Folder Adapter - Source", () => {
   });
 
   /**
-   * @case Aborting mid-stream stops emission
+   * @case Non-chunked: transform + split the listing, then read each file
+   * @preconditions Directory has a .json file and a .txt file
+   * @expectedResult Only the .json file is split out and its content read
+   */
+  test("non-chunked transform then split then read", async () => {
+    await fsp.writeFile(path.join(tmpDir, "keep.json"), '{"ok":true}', "utf-8");
+    await fsp.writeFile(path.join(tmpDir, "skip.txt"), "ignored", "utf-8");
+
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("folder-split-read")
+          .from(folder({ path: tmpDir }))
+          .transform((entries) => entries.filter((e) => e.ext === ".json"))
+          .split((ex) => ex.body)
+          .enrich(
+            file({
+              path: (ex) => (ex.body as FolderEntry).path,
+              mode: "read",
+            }),
+            only((content: string) => content, "content"),
+          )
+          .to(s),
+      )
+      .build();
+
+    await t.ctx.start();
+
+    expect(s.received).toHaveLength(1);
+    const body = s.received[0].body as FolderEntry & { content: string };
+    expect(body.name).toBe("keep.json");
+    expect(body.content).toBe('{"ok":true}');
+  });
+
+  /**
+   * @case Aborting mid-stream stops chunked emission
    * @preconditions Directory with many files; route aborts after a few
    * @expectedResult Fewer exchanges than total files are received
    */
-  test("abort mid-stream stops emitting", async () => {
+  test("abort mid-stream stops chunked emitting", async () => {
     for (let i = 0; i < 50; i++) {
       await fsp.writeFile(
         path.join(tmpDir, `f${String(i).padStart(3, "0")}.txt`),
@@ -286,7 +374,7 @@ describe("Folder Adapter - Source", () => {
       .routes(
         craft()
           .id("folder-abort")
-          .from(folder({ path: tmpDir }))
+          .from(folder({ path: tmpDir, chunked: true }))
           .process(async (exchange) => {
             if (s.received.length >= 2) {
               t!.ctx.stop();
