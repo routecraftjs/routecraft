@@ -62,4 +62,14 @@ export interface FolderOptions {
    * emitted as exchanges.
    */
   includeDirs?: boolean;
+  /**
+   * Emission shape, matching the `csv` / `jsonl` convention:
+   * - `false` (default): emit a single exchange whose body is the full
+   *   `FolderEntry[]` listing. Good for acting on the collection as a whole,
+   *   counting, or deciding before you `.split()`.
+   * - `true`: emit one exchange per entry (body is a single `FolderEntry`).
+   *   Good for filtering by metadata or name with `.filter()` and reading each
+   *   file's content with the file adapter.
+   */
+  chunked?: boolean;
 }

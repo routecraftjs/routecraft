@@ -3,43 +3,70 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type { FolderEntry, FolderOptions } from "./types.ts";
 import { FolderSourceAdapter } from "./source.ts";
 
-/** Folder adapter type: a source that emits one {@link FolderEntry} per file. */
-export type FolderAdapter = Source<FolderEntry> & {
+/**
+ * Folder adapter type: a source that emits the directory listing as a single
+ * `FolderEntry[]` exchange (the default, non-chunked shape).
+ */
+export type FolderAdapter = Source<FolderEntry[]> & {
   readonly adapterId: string;
 };
 
 /**
- * Creates a folder source that scans a directory and emits one exchange per
- * entry. Each exchange body is a {@link FolderEntry} carrying the entry's
- * path and metadata (name, ext, size, modifiedAt, ...).
+ * Creates a folder source in chunked mode: one exchange per entry, each body a
+ * {@link FolderEntry}. Filter by metadata or name with `.filter()`, then read
+ * content with the file adapter.
  *
- * Filtering is not built in by design: emit every entry, then narrow with the
- * normal `.filter()` operation, and read content with the file adapter. This
- * keeps "find the files" and "decide which ones" composable.
- *
- * @param options - Directory path plus `recursive` and `includeDirs` flags
- * @returns A Source usable with `.from(folder(...))`
+ * @param options - Folder options with `chunked: true`
+ * @returns A Source emitting one {@link FolderEntry} per entry
  *
  * @example
  * ```typescript
  * // Read the content of every .json file in a folder
  * craft()
- *   .from(folder({ path: "./inbox" }))
+ *   .from(folder({ path: "./inbox", chunked: true }))
  *   .filter((ex) => ex.body.ext === ".json")
  *   .enrich(
  *     file({ path: (ex) => ex.body.path, mode: "read" }),
  *     only((content: string) => content, "content"),
  *   )
  *   .to(log());
+ * ```
+ */
+export function folder(
+  options: FolderOptions & { chunked: true },
+): Source<FolderEntry> & { readonly adapterId: string };
+/**
+ * Creates a folder source that scans a directory and emits a single exchange
+ * whose body is the full {@link FolderEntry}`[]` listing (sorted by relative
+ * path). This is the default shape, mirroring the non-chunked `csv` / `jsonl`
+ * adapters; pass `chunked: true` to emit one exchange per entry instead.
  *
- * // Recurse and skip anything modified more than a day ago
+ * Filtering is not built in by design: list the entries, then narrow with the
+ * normal operations (`.filter()` per-entry in chunked mode, or `.split()` /
+ * `.transform()` on the array), and read content with the file adapter. This
+ * keeps "find the files" and "decide which ones" composable.
+ *
+ * @param options - Directory path plus `recursive`, `includeDirs`, `chunked`
+ * @returns A Source usable with `.from(folder(...))`
+ *
+ * @example
+ * ```typescript
+ * // Get the whole listing as one body, then act on the collection
  * craft()
- *   .from(folder({ path: "./data", recursive: true }))
- *   .filter((ex) => Date.now() - ex.body.modifiedAt.getTime() < 86_400_000)
+ *   .from(folder({ path: "./inbox" }))
+ *   .transform((ex) => ex.body.filter((e) => e.ext === ".json"))
+ *   .split((ex) => ex.body)
+ *   .enrich(
+ *     file({ path: (ex) => ex.body.path, mode: "read" }),
+ *     only((content: string) => content, "content"),
+ *   )
  *   .to(log());
  * ```
  */
-export function folder(options: FolderOptions): FolderAdapter {
+export function folder(options: FolderOptions): FolderAdapter;
+export function folder(
+  options: FolderOptions,
+): Source<FolderEntry | FolderEntry[]> & { readonly adapterId: string } {
   return tagAdapter(
     {
       adapterId: "routecraft.adapter.folder",
