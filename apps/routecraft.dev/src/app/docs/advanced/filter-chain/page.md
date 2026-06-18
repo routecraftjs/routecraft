@@ -123,7 +123,7 @@ once per request. Retrying them is pointless.
 - **`input` before resilience wrappers.** A request that fails
   schema is never going to succeed on retry. Reject early.
 
-### Middle (5-8): resilience wrappers
+### Middle (5-8.5): resilience wrappers
 
 These DO retry / time out / fail fast. Standard outside-in
 following Resilience4J conventions.
@@ -135,6 +135,13 @@ following Resilience4J conventions.
   fast-fail. Retries happen *within* one breaker call.
 - **`retry` outside `timeout`.** Each retry attempt gets its own
   deadline; per-attempt timeout is more useful than a shared budget.
+- **`concurrency` innermost (inside `timeout`).** A bulkhead slot is
+  held only for the duration of one attempt: it is acquired at the
+  start of each attempt and released the moment the attempt settles,
+  so a `retry` backoff sleep holds no slot. An outer `.retry()` can
+  also re-acquire a slot after a `reject`-mode `RC5026` ejection.
+  Contrast `.throttle()` (#5, outermost): a throttle rejection is
+  outside retry and can only be caught by `.error()`, never retried.
 
 ### Bottom (9-10): cache
 

@@ -158,24 +158,20 @@ export class ConcurrencyLimiter {
   constructor(options: ResolvedConcurrencyOptions) {
     this.#options = options;
     if (options.key) {
-      // Only IDLE semaphores (no in-flight holders) are safe to evict: a
-      // returning key rebuilds an empty pool, identical to a fresh one. An
-      // in-use semaphore is by definition recently used, so LRU keeps it;
-      // `dispose` is a belt-and-braces guard that refuses to drop one that
-      // still holds slots, trading a brief over-`maxKeys` for never
-      // double-counting a live pool. `max` bounds a flood of distinct keys.
-      this.#keyed = new LRUCache<string, Semaphore>({
-        max: options.maxKeys,
-        noDisposeOnSet: true,
-        dispose: (semaphore, key, reason) => {
-          if (reason === "evict" && semaphore.inUse > 0) {
-            // Re-admit the live pool: it is still bounding real in-flight
-            // work, so dropping it would let the next caller for this key
-            // over-admit. Bounded by the rarity of evicting a hot key.
-            this.#keyed!.set(key, semaphore);
-          }
-        },
-      });
+      // Per-key semaphores live in an LRU so memory stays bounded under an
+      // unbounded key space. We do NOT try to protect an in-use pool from
+      // eviction: re-admitting it inside lru-cache's `dispose` is unsafe
+      // (a re-entrant `set` during eviction is swallowed and corrupts the
+      // cache, per lru-cache's own docs). If a key with in-flight work is
+      // evicted (only possible when more than `maxKeys` distinct keys are
+      // live at once), its existing holders keep their slots via the
+      // release closures and drain correctly; the next call for that key
+      // builds a fresh pool. The transient effect is a bounded over-admit
+      // for that one key at the eviction boundary (at most `max` extra
+      // in-flight until the orphaned pool drains), the same self-correcting
+      // trade-off `.throttle()` accepts for its keyed buckets. Raise
+      // `maxKeys` if a hard per-key cap must hold under extreme cardinality.
+      this.#keyed = new LRUCache<string, Semaphore>({ max: options.maxKeys });
     }
   }
 
@@ -341,8 +337,14 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
     exchange: Exchange,
     route: Route | undefined,
     hooks: ConcurrencyHooks,
-  ): Promise<{ release: () => void; key?: string }> {
+  ): Promise<{ release: () => void; key?: string; phantom?: true }> {
     const { semaphore, key } = this.stateFor(route).semaphoreFor(exchange);
+    // "all N slots busy" reads as a global cap; when keyed, N is the
+    // PER-KEY limit, so phrase it that way to avoid misdiagnosis.
+    const limitPhrase =
+      key !== undefined
+        ? `the per-key concurrency limit of ${this.#options.max} is full for key "${key}"`
+        : `all ${this.#options.max} concurrency slots are busy`;
 
     if (this.#options.mode === "reject") {
       const release = semaphore.tryAcquire();
@@ -352,9 +354,7 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
       }
       hooks.onRejected("busy", key);
       throw rcError("RC5026", undefined, {
-        message: `concurrency rejected the exchange: all ${this.#options.max} slots busy${
-          key !== undefined ? ` for key "${key}"` : ""
-        }.`,
+        message: `concurrency rejected the exchange: ${limitPhrase}.`,
       });
     }
 
@@ -369,9 +369,7 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
     if (semaphore.waiting >= this.#options.maxQueue) {
       hooks.onRejected("queue-full", key);
       throw rcError("RC5026", undefined, {
-        message: `concurrency rejected the exchange: all ${this.#options.max} slots busy and the wait queue is full (maxQueue ${this.#options.maxQueue})${
-          key !== undefined ? ` for key "${key}"` : ""
-        }.`,
+        message: `concurrency rejected the exchange: ${limitPhrase} and the wait queue is full (maxQueue ${this.#options.maxQueue}).`,
       });
     }
 
@@ -382,11 +380,16 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
       return { release, ...(key !== undefined ? { key } : {}) };
     } catch (err) {
       if (!(err instanceof SleepAbortedError)) throw err;
-      // Route shutdown while queued: admit the exchange with a no-op
-      // release so teardown processes it rather than dropping it. The cap
-      // is moot on a stopping route, and no real slot was taken.
-      hooks.onAcquired(true, semaphore.inUse, key);
-      return { release: () => {}, ...(key !== undefined ? { key } : {}) };
+      // Route shutdown while queued: admit the exchange with a no-op release
+      // so teardown processes it rather than dropping it. No real slot was
+      // taken (the waiter was spliced out and rejected), so flag this as a
+      // `phantom` admit: the caller skips the acquired/released events that
+      // would otherwise record a slot this exchange never held.
+      return {
+        release: () => {},
+        phantom: true,
+        ...(key !== undefined ? { key } : {}),
+      };
     }
   }
 }
@@ -408,13 +411,19 @@ export async function executeWithConcurrency(
   hooks: ConcurrencyHooks,
   run: () => Promise<StepOutcome>,
 ): Promise<StepOutcome> {
-  const { release, key } = await controller.acquire(exchange, route, hooks);
+  const { release, key, phantom } = await controller.acquire(
+    exchange,
+    route,
+    hooks,
+  );
   const heldStart = Date.now();
   try {
     return await run();
   } finally {
     release();
-    hooks.onReleased(Date.now() - heldStart, key);
+    // A phantom admit (route shutdown while queued) never held a slot, so
+    // emitting `released` for it would imply a hold that did not happen.
+    if (!phantom) hooks.onReleased(Date.now() - heldStart, key);
   }
 }
 

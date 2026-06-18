@@ -390,4 +390,213 @@ describe("Concurrency wrapper (.concurrency())", () => {
       /RC5003|maxQueue/,
     );
   });
+
+  /**
+   * @case The slot is released when the wrapped step throws, so a later exchange can acquire it
+   * @preconditions .concurrency({ max: 1 }) over a step that throws on the first exchange and succeeds on the second (sent sequentially)
+   * @expectedResult The first exchange fails (error propagates); the second acquires the freed slot and succeeds
+   */
+  test("releases the slot when the inner step throws", async () => {
+    let calls = 0;
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("cc-release-on-throw")
+          .from(direct())
+          .concurrency({ max: 1 })
+          .process(async (ex) => {
+            calls++;
+            if (calls === 1) {
+              await sleep(10);
+              throw new Error("boom");
+            }
+            return ex;
+          })
+          .to(s),
+      )
+      .build();
+
+    await t.startAndWaitReady();
+    const first = await t.client
+      .sendDirect("cc-release-on-throw", "a")
+      .then(() => "ok")
+      .catch(() => "err");
+    const second = await t.client
+      .sendDirect("cc-release-on-throw", "b")
+      .then(() => "ok")
+      .catch(() => "err");
+
+    expect(first).toBe("err");
+    // If the slot had leaked on the throw, the second exchange would block
+    // forever (max: 1, no free slot). It succeeding proves the finally released.
+    expect(second).toBe("ok");
+    expect(s.received).toHaveLength(1);
+  });
+
+  /**
+   * @case Two stacked .concurrency() wrappers nest and the tighter (inner) limit dominates
+   * @preconditions .concurrency({ max: 3 }).concurrency({ max: 1 }) over a slow step with three concurrent exchanges
+   * @expectedResult All three delivered and observed peak simultaneity is 1 (the inner max wins)
+   */
+  test("stacked .concurrency() wrappers nest; the tighter limit wins", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("cc-stacked")
+          .from(direct())
+          .concurrency({ max: 3 })
+          .concurrency({ max: 1 })
+          .process(async (ex) => {
+            inFlight++;
+            peak = Math.max(peak, inFlight);
+            await sleep(30);
+            inFlight--;
+            return ex;
+          })
+          .to(s),
+      )
+      .build();
+
+    await t.startAndWaitReady();
+    await Promise.all(
+      [0, 1, 2].map((i) => t.client.sendDirect("cc-stacked", i)),
+    );
+
+    expect(t.errors).toHaveLength(0);
+    expect(s.received).toHaveLength(3);
+    expect(peak).toBe(1);
+  });
+
+  /**
+   * @case A wrapped-step failure cascades to the route-level .error() handler with the original error (not RC5026)
+   * @preconditions .concurrency({ max: 1 }) over a step that throws; a route-scope .error() handler staged before .from()
+   * @expectedResult The handler is invoked with the inner step's error message
+   */
+  test("inner step failure cascades to the route-level .error() handler", async () => {
+    const seen: string[] = [];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("cc-cascade")
+          .error((err) => {
+            seen.push((err as Error).message);
+            throw err;
+          })
+          .from(direct())
+          .concurrency({ max: 1 })
+          .process(() => {
+            throw new Error("inner boom");
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.startAndWaitReady();
+    await t.client.sendDirect("cc-cascade", "x").catch(() => {});
+
+    expect(seen).toEqual(["inner boom"]);
+  });
+
+  /**
+   * @case With no .error() handler, a wrapped-step failure uses the default error path and the route keeps processing
+   * @preconditions .concurrency({ max: 1 }) over a step that throws on the first exchange only; no route .error()
+   * @expectedResult The first exchange fails via the default error path (t.errors records it); a later exchange still succeeds
+   */
+  test("no route handler: inner step failure uses the default error path", async () => {
+    let calls = 0;
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("cc-default-err")
+          .from(direct())
+          .concurrency({ max: 1 })
+          .process((ex) => {
+            calls++;
+            if (calls === 1) throw new Error("first fails");
+            return ex;
+          })
+          .to(s),
+      )
+      .build();
+
+    await t.startAndWaitReady();
+    await t.client.sendDirect("cc-default-err", "a").catch(() => {});
+    await t.client.sendDirect("cc-default-err", "b");
+
+    expect(t.errors.length).toBeGreaterThanOrEqual(1);
+    expect(t.errors[0].message).toContain("first fails");
+    expect(s.received).toHaveLength(1);
+  });
+
+  /**
+   * @case .concurrency() preserves the downstream body type (compile-time)
+   * @preconditions A typed body flows through .concurrency() into a following .transform() with no cast
+   * @expectedResult The route type-checks (the wrapper does not widen the body) and the transform runs on the typed body
+   */
+  test("preserves the downstream body type across the wrapper", async () => {
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("cc-bodytype")
+          .from(direct())
+          .transform(() => ({ n: 41 }))
+          .concurrency({ max: 2 })
+          // `body` is inferred as { n: number }; if .concurrency() widened the
+          // body type this line would not type-check.
+          .transform((body) => body.n + 1)
+          .to(s),
+      )
+      .build();
+
+    await t.startAndWaitReady();
+    await t.client.sendDirect("cc-bodytype", "ignored");
+
+    expect(s.received[0].body).toBe(42);
+  });
+
+  /**
+   * @case Keyed pools survive LRU eviction of in-use keys without corrupting the cache or losing exchanges
+   * @preconditions .concurrency({ max: 1, key, maxKeys: 2 }) over a slow step with six distinct keys held concurrently (far above maxKeys)
+   * @expectedResult All six exchanges complete with no errors (evicting an in-use pool must not corrupt the LRU or drop work)
+   */
+  test("keyed eviction above maxKeys does not corrupt the pool cache", async () => {
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("cc-evict")
+          .from(direct())
+          .concurrency({
+            max: 1,
+            key: (ex) => String((ex.body as { k: number }).k),
+            maxKeys: 2,
+          })
+          .process(async (ex) => {
+            await sleep(10);
+            return ex;
+          })
+          .to(s),
+      )
+      .build();
+
+    await t.startAndWaitReady();
+    await Promise.all(
+      [0, 1, 2, 3, 4, 5].map((k) => t.client.sendDirect("cc-evict", { k })),
+    );
+
+    expect(t.errors).toHaveLength(0);
+    expect(s.received).toHaveLength(6);
+  });
 });

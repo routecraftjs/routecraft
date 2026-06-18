@@ -228,10 +228,14 @@ export async function executeWithRetry<R>(
       }
       // Computed backoff: base * factor^(n-1), clamped to maxBackoffMs
       // (which defaults to the platform timer ceiling, so a steep factor
-      // cannot overflow or fire instantly). Jitter then only ever SHORTENS
-      // the wait (`jitter` is in [0, 1]), so the clamp still holds.
+      // cannot overflow or fire instantly). `factor^(n-1)` can overflow to
+      // Infinity, and `backoffMs: 0 * Infinity` is NaN, which setTimeout
+      // would coerce to 0 (a tight retry storm); pin a non-finite growth to
+      // the ceiling so the clamp still holds. Jitter then only ever SHORTENS
+      // the wait (`jitter` is in [0, 1]), so it stays within the clamp.
+      const grown = options.backoffMs * options.factor ** (attemptNumber - 1);
       const computed = Math.min(
-        options.backoffMs * options.factor ** (attemptNumber - 1),
+        Number.isFinite(grown) ? grown : options.maxBackoffMs,
         options.maxBackoffMs,
       );
       const waitMs = computed * (1 - options.jitter * Math.random());

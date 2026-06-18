@@ -205,7 +205,6 @@ export {
 export {
   ConcurrencyWrapperStep,
   type ConcurrencyOptions,
-  type ResolvedConcurrencyOptions,
 } from "./operations/concurrency-wrapper.ts";
 
 export {

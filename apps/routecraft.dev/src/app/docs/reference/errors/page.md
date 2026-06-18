@@ -333,6 +333,30 @@ This is a programming error at the mint call site, distinct from `RC5023`, which
 - Pass a non-empty `subject`: `authenticate({ subject: sender.address, roles: [...] })`.
 - If the source cannot identify the caller, return `undefined` from the `.authenticate()` resolver to leave the exchange anonymous instead of minting an empty identity.
 
+## RC5025
+Circuit breaker is open
+
+**Why it happens**  
+A route-scope or step-scope `.circuitBreaker()` exceeded its failure threshold and tripped open, so it is fast-failing subsequent calls without running the protected work until the cooldown elapses (then it admits a probe). Also raised when a half-open breaker is already at its probe capacity.
+
+**Suggestion**  
+- Wait for `cooldownMs` to elapse; the breaker then probes with a half-open call and closes on success.
+- Configure a `fallback` to return a degraded result instead of throwing.
+- Raise `failureThreshold` or `cooldownMs` if the breaker is too sensitive.
+- Not retryable: an immediate retry would hit the same open breaker.
+
+## RC5026
+Concurrency limit exceeded
+
+**Why it happens**  
+A route-scope or step-scope `.concurrency()` bulkhead is at capacity and is failing the exchange fast rather than admitting more simultaneous work. In `reject` mode this fires the moment all `max` slots are busy; in the default `queue` mode it fires only when the wait line has also reached `maxQueue`.
+
+**Suggestion**  
+- Raise `max`, or switch to the default `queue` mode to apply backpressure instead of dropping.
+- Cap the wait line with `maxQueue` for a middle ground between waiting forever and rejecting immediately.
+- Handle it in `.error()` to shed load deliberately (for example, respond `503`).
+- Retryable: a slot frees as soon as in-flight work completes, so an enclosing `.retry()` (which sits outside the bulkhead) can back off and re-acquire one.
+
 ## AI1001
 Agent block resolver failed
 
