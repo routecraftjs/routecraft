@@ -1027,7 +1027,14 @@ function buildConcurrencySegmentStep(
         exchange,
         deps.route,
         {
-          signal: deps.route.signal,
+          // Cancel a queued slot wait on route shutdown OR when an outer
+          // segment abandons this attempt (e.g. a route-scope timeout firing
+          // while this exchange is still parked in the bulkhead queue);
+          // otherwise the abandoned attempt would keep holding a queue
+          // position and briefly take a slot it can no longer use.
+          signal: deps.abortSignal
+            ? AbortSignal.any([deps.route.signal, deps.abortSignal])
+            : deps.route.signal,
           ...concurrencyEmitHooks(deps.context, scoped, true),
         },
         async () =>
