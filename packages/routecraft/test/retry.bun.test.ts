@@ -246,6 +246,35 @@ describe("Retry wrapper (.retry())", () => {
   });
 
   /**
+   * @case A zero base backoff stays zero regardless of factor (no NaN-to-ceiling inversion)
+   * @preconditions .retry({ maxAttempts: 3, backoffMs: 0, factor: 2 }) wrapping an always-failing transform
+   * @expectedResult Every reported wait is exactly 0 (a zero base must not be turned into a large wait by the overflow guard)
+   */
+  test("backoffMs 0 yields zero waits regardless of factor", async () => {
+    const waits: number[] = [];
+
+    t = await testContext()
+      .on("route:retry:attempt", (payload) => {
+        waits.push((payload.details as { backoffMs: number }).backoffMs);
+      })
+      .routes(
+        craft()
+          .id("retry-zero-backoff")
+          .from(simple("in"))
+          .retry({ maxAttempts: 3, backoffMs: 0, factor: 2 })
+          .transform(() => {
+            throw new Error("always fails");
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.test();
+
+    expect(waits).toEqual([0, 0]);
+  });
+
+  /**
    * @case maxBackoffMs caps the computed wait so a steep factor cannot grow unbounded
    * @preconditions .retry({ maxAttempts: 4, backoffMs: 10, factor: 10, maxBackoffMs: 50 }) wrapping an always-failing transform
    * @expectedResult The attempt waits are 10, 100->50 (clamped), 1000->50 (clamped), never exceeding maxBackoffMs

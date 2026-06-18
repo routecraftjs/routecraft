@@ -350,8 +350,16 @@ describe("Concurrency wrapper (.concurrency())", () => {
    */
   test("an outer retry re-attempts a reject-mode RC5026", async () => {
     const s = spy();
+    const rejected: { reason: string }[] = [];
+    const attempts: unknown[] = [];
 
     t = await testContext()
+      .on("route:concurrency:rejected", (p) => {
+        rejected.push(p.details as { reason: string });
+      })
+      .on("route:retry:attempt", (p) => {
+        attempts.push(p.details);
+      })
       .routes(
         craft()
           .id("cc-retry-compose")
@@ -374,6 +382,11 @@ describe("Concurrency wrapper (.concurrency())", () => {
     expect(results.every((r) => r.status === "fulfilled")).toBe(true);
     expect(s.received).toHaveLength(2);
     expect(t.errors).toHaveLength(0);
+    // The point of the test: a reject-mode RC5026 actually fired and was
+    // re-attempted by the outer retry (not silently admitted on attempt 1).
+    expect(rejected.length).toBeGreaterThanOrEqual(1);
+    expect(rejected.every((r) => r.reason === "busy")).toBe(true);
+    expect(attempts.length).toBeGreaterThanOrEqual(1);
   });
 
   /**
@@ -572,8 +585,13 @@ describe("Concurrency wrapper (.concurrency())", () => {
    */
   test("keyed eviction above maxKeys does not corrupt the pool cache", async () => {
     const s = spy();
+    const acquiredKeys = new Set<string>();
 
     t = await testContext()
+      .on("route:concurrency:acquired", (p) => {
+        const { key } = p.details as { key?: string };
+        if (key !== undefined) acquiredKeys.add(key);
+      })
       .routes(
         craft()
           .id("cc-evict")
@@ -598,5 +616,10 @@ describe("Concurrency wrapper (.concurrency())", () => {
 
     expect(t.errors).toHaveLength(0);
     expect(s.received).toHaveLength(6);
+    // Six distinct keys were admitted against a maxKeys of 2, so far more
+    // than maxKeys pools existed at once: in-use pools were genuinely
+    // evicted and rebuilt. The old re-entrant-`set`-in-`dispose` code would
+    // have corrupted the LRU here and lost or mis-routed exchanges.
+    expect(acquiredKeys.size).toBe(6);
   });
 });

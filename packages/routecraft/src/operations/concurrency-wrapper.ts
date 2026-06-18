@@ -326,6 +326,23 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
   }
 
   /**
+   * Build the `RC5026` rejection message. A private method (not a per-call
+   * closure or an eagerly-built string) so the hot admit path allocates
+   * nothing: it runs only on the cold reject path. When keyed, `max` is the
+   * PER-KEY limit, so the message says so rather than reading as a global cap.
+   */
+  #rejectionMessage(key: string | undefined, queueFull: boolean): string {
+    const limit =
+      key !== undefined
+        ? `the per-key concurrency limit of ${this.#options.max} is full for key "${key}"`
+        : `all ${this.#options.max} concurrency slots are busy`;
+    const tail = queueFull
+      ? ` and the wait queue is full (maxQueue ${this.#options.maxQueue})`
+      : "";
+    return `concurrency rejected the exchange: ${limit}${tail}.`;
+  }
+
+  /**
    * Acquire a slot for `exchange`. In `queue` mode (default) the caller
    * waits FIFO when the pool is full (bounded by `maxQueue`); the wait is
    * cancellable, so on route shutdown the exchange is admitted rather than
@@ -337,14 +354,8 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
     exchange: Exchange,
     route: Route | undefined,
     hooks: ConcurrencyHooks,
-  ): Promise<{ release: () => void; key?: string; phantom?: true }> {
+  ): Promise<{ release: () => void; key?: string }> {
     const { semaphore, key } = this.stateFor(route).semaphoreFor(exchange);
-    // "all N slots busy" reads as a global cap; when keyed, N is the
-    // PER-KEY limit, so phrase it that way to avoid misdiagnosis.
-    const limitPhrase =
-      key !== undefined
-        ? `the per-key concurrency limit of ${this.#options.max} is full for key "${key}"`
-        : `all ${this.#options.max} concurrency slots are busy`;
 
     if (this.#options.mode === "reject") {
       const release = semaphore.tryAcquire();
@@ -354,7 +365,7 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
       }
       hooks.onRejected("busy", key);
       throw rcError("RC5026", undefined, {
-        message: `concurrency rejected the exchange: ${limitPhrase}.`,
+        message: this.#rejectionMessage(key, false),
       });
     }
 
@@ -369,7 +380,7 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
     if (semaphore.waiting >= this.#options.maxQueue) {
       hooks.onRejected("queue-full", key);
       throw rcError("RC5026", undefined, {
-        message: `concurrency rejected the exchange: ${limitPhrase} and the wait queue is full (maxQueue ${this.#options.maxQueue}).`,
+        message: this.#rejectionMessage(key, true),
       });
     }
 
@@ -380,16 +391,14 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
       return { release, ...(key !== undefined ? { key } : {}) };
     } catch (err) {
       if (!(err instanceof SleepAbortedError)) throw err;
-      // Route shutdown while queued: admit the exchange with a no-op release
-      // so teardown processes it rather than dropping it. No real slot was
-      // taken (the waiter was spliced out and rejected), so flag this as a
-      // `phantom` admit: the caller skips the acquired/released events that
-      // would otherwise record a slot this exchange never held.
-      return {
-        release: () => {},
-        phantom: true,
-        ...(key !== undefined ? { key } : {}),
-      };
+      // Route shutdown while queued: admit the exchange (with a no-op
+      // release) so teardown processes it rather than dropping it. No slot
+      // is charged (`inUse` excludes this exchange), but we still emit the
+      // balanced `acquired` -> `released` pair so the `queued` event already
+      // fired above has a matching terminal; suppressing them would leave an
+      // orphaned `queued` and unbalance queue-depth accounting at teardown.
+      hooks.onAcquired(true, semaphore.inUse, key);
+      return { release: () => {}, ...(key !== undefined ? { key } : {}) };
     }
   }
 }
@@ -411,19 +420,13 @@ export async function executeWithConcurrency(
   hooks: ConcurrencyHooks,
   run: () => Promise<StepOutcome>,
 ): Promise<StepOutcome> {
-  const { release, key, phantom } = await controller.acquire(
-    exchange,
-    route,
-    hooks,
-  );
+  const { release, key } = await controller.acquire(exchange, route, hooks);
   const heldStart = Date.now();
   try {
     return await run();
   } finally {
     release();
-    // A phantom admit (route shutdown while queued) never held a slot, so
-    // emitting `released` for it would imply a hold that did not happen.
-    if (!phantom) hooks.onReleased(Date.now() - heldStart, key);
+    hooks.onReleased(Date.now() - heldStart, key);
   }
 }
 
