@@ -2,7 +2,7 @@
 
 Authoring contract for "dual-mode wrapper" operations: a single builder
 method (`.error()`, `.cache()`, `.retry()`, `.timeout()`,
-`.throttle()`, `.circuitBreaker()`) that applies at either route scope
+`.throttle()`, `.circuitBreaker()`, `.concurrency()`) that applies at either route scope
 (when staged before `.from()`) or step scope (when chained after
 `.from()`). `.delay()` follows the step-scope half of this contract but
 is deliberately step-scope only: a route-scope delay is equivalent to a
@@ -21,7 +21,7 @@ Three categories cover every operation in the framework:
 | Category | Position | Examples |
 |----------|----------|----------|
 | Route-only | Before `.from()` only. Configures the route. | `.id()`, `.batch()`, `.title()`, `.description()`, `.input()`, `.output()` |
-| Dual-mode wrapper | Same method, position decides scope. | `.error()`, `.cache()`, `.retry()`, `.timeout()`, `.throttle()`, `.circuitBreaker()` |
+| Dual-mode wrapper | Same method, position decides scope. | `.error()`, `.cache()`, `.retry()`, `.timeout()`, `.throttle()`, `.circuitBreaker()`, `.concurrency()` |
 | Step-only wrapper | After `.from()` only; wraps the next step. | `.delay()` (no route-scope form by design) |
 | Pipeline | After `.from()` only. Already enforced by the builder type system. | `.transform()`, `.to()`, `.process()`, `.enrich()`, `.split()`, `.aggregate()`, `.tap()`, `.filter()`, `.validate()`, `.choice()`, `.header()` |
 

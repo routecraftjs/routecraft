@@ -73,6 +73,7 @@ export interface ErrorCodeRegistry {
   RC5023: RCMeta;
   RC5024: RCMeta;
   RC5025: RCMeta;
+  RC5026: RCMeta;
   RC5028: RCMeta;
   RC5029: RCMeta;
   RC5030: RCMeta;
@@ -299,6 +300,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
       "The route or step exceeded its failure threshold and is failing fast to prevent cascading failures against a downstream that is known to be unhealthy. Wait for the cooldown to elapse (the breaker then probes with a half-open call), configure a `fallback` to return a degraded result instead of throwing, or raise `failureThreshold` / `cooldownMs` if the breaker is too sensitive. Not retryable: an immediate retry would hit the same open breaker.",
     docs: `${DOCS_BASE}#rc-5025`,
     retryable: false,
+  },
+  RC5026: {
+    category: "Runtime",
+    message: "Concurrency limit exceeded",
+    suggestion:
+      "The route or step is at its `.concurrency({ max })` bulkhead limit and is failing fast (reject mode, or a full `maxQueue`) instead of admitting more simultaneous work. Retryable: a slot frees as soon as in-flight work completes, so an outer `.retry()` (which sits outside the bulkhead) can back off and re-acquire one. Raise `max`, switch to the default queue mode to apply backpressure instead, or shed load (e.g. return 503) in `.error()`.",
+    docs: `${DOCS_BASE}#rc-5026`,
+    retryable: true,
   },
   RC5028: {
     category: "Adapter",

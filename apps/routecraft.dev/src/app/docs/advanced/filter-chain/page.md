@@ -3,7 +3,7 @@ title: Pre-from Filter Chain
 ---
 
 How `.authorize()`, `.input()`, `.cache()`, `.error()`, `.throttle()`,
-`.retry()`, `.timeout()` (and the planned `.circuitBreaker()`)
+`.retry()`, `.timeout()`, `.circuitBreaker()`, and `.concurrency()`
 compose around your route. {% .lead %}
 
 Routecraft runs a **fixed ordered chain** of framework filters
@@ -25,9 +25,10 @@ Outside in (position 1 wraps everything below):
 | 3 | `parse` | shipped | source adapter (HTTP, mail, CSV, ...) | raw body bytes → typed body |
 | 4 | `input` | shipped (eager) | `.input(schema)` | typed body / headers |
 | 5 | `throttle` | shipped | `.throttle({ rate, per, mode })` | rate limit on the route (delay or reject) |
-| 6 | `circuitBreaker` | planned ([#139](https://github.com/routecraftjs/routecraft/issues/139)) | `.circuitBreaker({...})` | failure stats; fast-fails when open |
+| 6 | `circuitBreaker` | shipped | `.circuitBreaker({...})` | failure stats; fast-fails when open |
 | 7 | `retry` | shipped | `.retry({...})` | re-runs everything below on failure |
 | 8 | `timeout` | shipped | `.timeout(ms)` | per-attempt deadline |
+| 8.5 | `concurrency` | shipped | `.concurrency({ max })` | bulkhead; bounds simultaneous in-flight (innermost resilience, so a slot is held per attempt) |
 | 9 | `cacheCheck` | shipped | `.cache({...})` | validated body → cache key |
 | - | **your pipeline** | - | `.transform()`, `.to()`, `.process()`, ... | the work |
 | 10 | `cacheStore` | shipped | `.cache({...})` | terminal body, written best-effort |
@@ -122,7 +123,7 @@ once per request. Retrying them is pointless.
 - **`input` before resilience wrappers.** A request that fails
   schema is never going to succeed on retry. Reject early.
 
-### Middle (5-8): resilience wrappers
+### Middle (5-8.5): resilience wrappers
 
 These DO retry / time out / fail fast. Standard outside-in
 following Resilience4J conventions.
@@ -134,6 +135,13 @@ following Resilience4J conventions.
   fast-fail. Retries happen *within* one breaker call.
 - **`retry` outside `timeout`.** Each retry attempt gets its own
   deadline; per-attempt timeout is more useful than a shared budget.
+- **`concurrency` innermost (inside `timeout`).** A bulkhead slot is
+  held only for the duration of one attempt: it is acquired at the
+  start of each attempt and released the moment the attempt settles,
+  so a `retry` backoff sleep holds no slot. An outer `.retry()` can
+  also re-acquire a slot after a `reject`-mode `RC5026` ejection.
+  Contrast `.throttle()` (#5, outermost): a throttle rejection is
+  outside retry and can only be caught by `.error()`, never retried.
 
 ### Bottom (9-10): cache
 

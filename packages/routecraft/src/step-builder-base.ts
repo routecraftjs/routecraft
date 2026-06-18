@@ -41,6 +41,10 @@ import {
   type CircuitBreakerOptions,
 } from "./operations/circuit-breaker-wrapper.ts";
 import {
+  ConcurrencyWrapperStep,
+  type ConcurrencyOptions,
+} from "./operations/concurrency-wrapper.ts";
+import {
   type Processor,
   type CallableProcessor,
   ProcessStep,
@@ -352,8 +356,10 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * its own 5s deadline.
    *
    * @param options - `maxAttempts` (default 3), `backoffMs` (default
-   *   1000), `exponential` (default false), `retryOn` (default: skip
-   *   non-retryable RoutecraftErrors)
+   *   1000), `factor` (growth multiplier, default 1 = fixed),
+   *   `maxBackoffMs` (wait ceiling), `jitter` (`"none"` | `"full"` |
+   *   `0..1`, default `"none"`), `retryOn` (default: skip non-retryable
+   *   RoutecraftErrors)
    * @returns This builder (same subclass, same body type)
    */
   retry(options: RetryOptions = {}): this {
@@ -429,6 +435,39 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   circuitBreaker(options: CircuitBreakerOptions): this {
     this.pendingStepWrappers.push(
       (inner) => new CircuitBreakerWrapperStep(inner, options),
+    );
+    return this;
+  }
+
+  /**
+   * Bound the next step to `max` simultaneous in-flight exchanges
+   * (a bulkhead). Where `.throttle()` caps a RATE (calls per window),
+   * `.concurrency()` caps SIMULTANEITY (how many run at once) -- protect a
+   * connection pool, a memory-bound step, or a downstream with a hard
+   * concurrency cap. The two compose but are not substitutes.
+   *
+   * When all slots are busy the default `queue` mode makes the exchange
+   * wait FIFO for a slot (backpressure), bounded by `maxQueue`; `reject`
+   * mode fails fast with `RC5026` instead. Pass a `key` selector to give
+   * each user / tenant / pool its own independent slots, bounded by
+   * `maxKeys`. The queue wait is cancellable: on route shutdown a waiting
+   * exchange is admitted rather than dropped.
+   *
+   * On `RouteBuilder`, this method is dual-mode: called BEFORE `.from()` it
+   * bounds the whole pipeline at the innermost resilience position (inside
+   * `.retry()` / `.timeout()`, so a slot is acquired per attempt and
+   * released between retry backoffs, never held while sleeping); called
+   * AFTER `.from()` it wraps the next step.
+   *
+   * Stacks with other wrappers in declaration order (first-declared
+   * outermost).
+   *
+   * @param options - `{ max, mode?, maxQueue?, key?, maxKeys?, label? }`
+   * @returns This builder (same subclass, same body type)
+   */
+  concurrency(options: ConcurrencyOptions): this {
+    this.pendingStepWrappers.push(
+      (inner) => new ConcurrencyWrapperStep(inner, options),
     );
     return this;
   }

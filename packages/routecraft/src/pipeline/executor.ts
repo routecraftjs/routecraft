@@ -35,6 +35,12 @@ import {
   circuitOpenOutcome,
   executeWithCircuitBreaker,
 } from "../operations/circuit-breaker-wrapper.ts";
+import {
+  type ConcurrencyController,
+  type ConcurrencyEventScope,
+  concurrencyEmitHooks,
+  executeWithConcurrency,
+} from "../operations/concurrency-wrapper.ts";
 import type { ForwardFn, Route, RouteDefinition } from "../route.ts";
 
 /**
@@ -59,6 +65,7 @@ export interface ExecutorDeps {
     | "timeout"
     | "throttle"
     | "circuitBreaker"
+    | "concurrency"
   >;
   buildForward(): ForwardFn;
   /**
@@ -132,6 +139,9 @@ export async function runPipeline(
   //   (parse if present) -> source-attached
   //   retry segment      -> route-scope .retry() (#7, wraps the tail)
   //   timeout segment    -> route-scope .timeout() (#8, wraps the tail)
+  //   concurrency segment-> route-scope .concurrency() (bulkhead, innermost
+  //                         resilience layer: wraps the tail INSIDE retry /
+  //                         timeout so a slot is held per attempt only)
   //   throttle gate      -> route-scope .throttle() (#5, admits once,
   //                         OUTSIDE the retry / timeout segments)
   //   postParseFilters   -> .cache() check (#9), future .circuitBreaker() (#6)
@@ -159,6 +169,24 @@ export async function runPipeline(
     ...deps.definition.steps,
     ...deps.definition.postFromFilters,
   ];
+  // Route-scope concurrency (bulkhead) is the INNERMOST resilience layer:
+  // it wraps the chain tail BEFORE timeout / retry / breaker so a slot is
+  // acquired per attempt and released between retry backoffs (a scarce slot
+  // is never held while a retry sleeps), and an outer retry can re-acquire
+  // one after a reject-mode RC5026. Multiple controllers (stacked
+  // `.concurrency()` calls) nest; the first declared ends up outermost
+  // among them because each successive wrap goes around the previous.
+  if (deps.definition.concurrency) {
+    for (let i = deps.definition.concurrency.length - 1; i >= 0; i--) {
+      tail = [
+        buildConcurrencySegmentStep(
+          deps,
+          tail,
+          deps.definition.concurrency[i]!,
+        ),
+      ];
+    }
+  }
   if (deps.definition.timeout) {
     tail = [
       buildTimeoutSegmentStep(deps, tail, deps.definition.timeout.timeoutMs),
@@ -668,6 +696,9 @@ const TIMEOUT_SEGMENT_ADAPTER: Adapter = { adapterId: "routecraft.timeout" };
 const CIRCUIT_BREAKER_SEGMENT_ADAPTER: Adapter = {
   adapterId: "routecraft.circuitBreaker",
 };
+const CONCURRENCY_SEGMENT_ADAPTER: Adapter = {
+  adapterId: "routecraft.concurrency",
+};
 
 /**
  * Convert a nested segment run's result into the {@link StepOutcome} the
@@ -946,6 +977,73 @@ function buildCircuitBreakerSegmentStep(
           segmentResultToOutcome(
             await runPipeline(
               nestedDeps(deps, segment, { rethrowUnhandled: true }),
+              exchange,
+              Date.now(),
+            ),
+          ),
+      );
+    },
+  };
+}
+
+/**
+ * Build a route-scope `.concurrency()` bulkhead segment step, the
+ * INNERMOST resilience layer (inside retry / timeout). Acquires a slot
+ * (queueing or fast-failing per mode), runs the chain tail via a nested
+ * executor invocation, and releases the slot when that run settles, so a
+ * slot is held only for the actual attempt and freed between retry
+ * backoffs. A `reject`-mode or queue-full rejection throws `RC5026`, which
+ * an outer `.retry()` (sitting outside this segment) can re-attempt.
+ *
+ * `skipStepEvents: true` keeps `runPipeline` from emitting generic
+ * lifecycle events; the segment emits its own `route:concurrency:*` family
+ * with `scope: "route"`.
+ */
+function buildConcurrencySegmentStep(
+  deps: ExecutorDeps,
+  segment: Step<Adapter>[],
+  controller: ConcurrencyController,
+): Step<Adapter> {
+  return {
+    operation: OperationType.CONCURRENCY,
+    label: "concurrency",
+    adapter: CONCURRENCY_SEGMENT_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange) {
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      const scoped: ConcurrencyEventScope = {
+        routeId: deps.routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        stepLabel: "route",
+        scope: "route",
+        ...(controller.label !== undefined ? { label: controller.label } : {}),
+      };
+
+      return executeWithConcurrency(
+        controller,
+        exchange,
+        deps.route,
+        {
+          // Cancel a queued slot wait on route shutdown OR when an outer
+          // segment abandons this attempt (e.g. a route-scope timeout firing
+          // while this exchange is still parked in the bulkhead queue);
+          // otherwise the abandoned attempt would keep holding a queue
+          // position and briefly take a slot it can no longer use.
+          signal: deps.abortSignal
+            ? AbortSignal.any([deps.route.signal, deps.abortSignal])
+            : deps.route.signal,
+          ...concurrencyEmitHooks(deps.context, scoped, true),
+        },
+        async () =>
+          segmentResultToOutcome(
+            await runPipeline(
+              nestedDeps(deps, segment, {
+                rethrowUnhandled: true,
+                abortSignal: deps.abortSignal,
+              }),
               exchange,
               Date.now(),
             ),

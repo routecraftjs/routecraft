@@ -49,6 +49,8 @@ export enum OperationType {
   THROTTLE = "throttle",
   /** Fast-fail an operation while a downstream is known to be failing */
   CIRCUIT_BREAKER = "circuit-breaker",
+  /** Bound how many exchanges run an operation simultaneously (bulkhead) */
+  CONCURRENCY = "concurrency",
   /** Pass every Nth exchange (or the first per time window), dropping the rest */
   SAMPLE = "sample",
   /** Drop exchanges whose derived key has already been seen */

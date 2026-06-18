@@ -103,7 +103,7 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 | Event | When it fires | Details |
 | --- | --- | --- |
 | `route:retry:started` | Guarded execution began | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", maxAttempts }` |
-| `route:retry:attempt` | A failed attempt will be re-attempted after `backoffMs` | Same plus `attemptNumber`, `backoffMs` (the actual wait, exponential applied), `lastError?` |
+| `route:retry:attempt` | A failed attempt will be re-attempted after `backoffMs` | Same plus `attemptNumber`, `backoffMs` (the actual wait, `factor` growth and `jitter` applied), `lastError?` |
 | `route:retry:stopped` | Final success or failure | Same plus `attemptNumber`, `success`, and `error?` (the final raw error when `success` is false) |
 
 `scope` is `"route"` for `.retry()` declared BEFORE `.from()` (the whole pipeline is re-run) and `"step"` for the wrapper attached AFTER `.from()`. `stepLabel` is the wrapped step's label, or `"route"` at route scope. `route:retry:attempt` fires once per re-attempt, so a first-attempt success emits only `started` and `stopped`.
@@ -147,6 +147,17 @@ A failure of the wrapped operation *inside* the deadline does not emit a timeout
 | `route:circuitBreaker:rejected` | A call was fast-failed because the breaker is open (or half-open at capacity); a `fallback` ran or `RC5025` followed | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", state: "open" \| "half-open", retryAfterMs, label? }` |
 
 `scope` is `"route"` for `.circuitBreaker()` declared BEFORE `.from()` (the whole pipeline is protected) and `"step"` for the wrapper attached AFTER `.from()`. `stepLabel` is the wrapped step's label, or `"route"` at route scope. `retryAfterMs` on a rejection is the time until the breaker would admit a probe (`0` when half-open is at capacity). `label` is present when `.circuitBreaker({ label })` is set. Breaker state is per route, not per exchange, so these events reflect the shared circuit.
+
+### Concurrency wrapper operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:concurrency:queued` | All slots were busy, so the exchange joined the wait queue (queue mode) | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", queueDepth, key?, label? }` |
+| `route:concurrency:acquired` | A slot was acquired and the wrapped work began | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", waited, inUse, key?, label? }` |
+| `route:concurrency:released` | The held slot was released (work settled: success, drop, or failure) | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", heldMs, key?, label? }` |
+| `route:concurrency:rejected` | The exchange was fast-failed with `RC5026` | `{ routeId, exchangeId, correlationId, stepLabel, scope: "route" \| "step", reason: "busy" \| "queue-full", key?, label? }` |
+
+`scope` is `"route"` for `.concurrency()` declared BEFORE `.from()` (the whole pipeline is bounded) and `"step"` for the wrapper attached AFTER `.from()`. `stepLabel` is the wrapped step's label, or `"route"` at route scope. An exchange that gets a slot immediately emits only `route:concurrency:acquired` with `waited: false`; one that has to wait emits `route:concurrency:queued` first, then `acquired` with `waited: true`. `reason` on a rejection is `"busy"` (reject mode, all slots in use) or `"queue-full"` (queue mode, the wait line reached `maxQueue`). `key` is present when `.concurrency({ key })` partitions the pool; `label` is present when `.concurrency({ label })` is set. Slot state is per route, not per exchange, so these events reflect the shared bulkhead.
 
 ### Choice operations
 

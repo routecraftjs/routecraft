@@ -23,6 +23,7 @@ import { type Source, type Subscription } from "./operations/from.ts";
 import { type ResolvedRetryOptions } from "./operations/retry-wrapper.ts";
 import { type ResolvedTimeoutOptions } from "./operations/timeout-wrapper.ts";
 import { type CircuitBreakerController } from "./operations/circuit-breaker-wrapper.ts";
+import { type ConcurrencyController } from "./operations/concurrency-wrapper.ts";
 import {
   type Adapter,
   type Step,
@@ -288,6 +289,21 @@ export type RouteDefinition<T = unknown> = {
    * @internal
    */
   readonly circuitBreaker?: CircuitBreakerController;
+
+  /**
+   * Route-scope `.concurrency()` bulkhead controllers (one per
+   * `.concurrency()` call; they nest). Like the circuit breaker they hold
+   * persistent per-Route state (the slot pool / semaphores), so the builder
+   * stores the live {@link ConcurrencyController}s here once at `.from()`
+   * time and the pipeline executor wraps the chain tail in a bulkhead
+   * segment per controller. Sits at the INNERMOST resilience position,
+   * INSIDE the retry (#7) / timeout (#8) segments, so a slot is acquired
+   * per attempt and released between retry backoffs (never held while a
+   * retry sleeps). See `.standards/pre-from-filter-chain.md`.
+   *
+   * @internal
+   */
+  readonly concurrency?: ConcurrencyController[];
 };
 
 /**

@@ -8,7 +8,9 @@ title: retry
 retry(options?: {
   maxAttempts?: number;
   backoffMs?: number;
-  exponential?: boolean;
+  factor?: number;
+  maxBackoffMs?: number;
+  jitter?: 'none' | 'full' | number;
   retryOn?: (error: Error) => boolean;
 }): RouteBuilder<Current>
 ```
@@ -21,7 +23,7 @@ Re-attempt a failing operation with configurable backoff, so transient failures 
 craft()
   .id('resilient-processor')
   .from(source)
-  .retry({ maxAttempts: 3, backoffMs: 1000, exponential: true })
+  .retry({ maxAttempts: 3, backoffMs: 1000, factor: 2, jitter: 'full' })
   .to(http({ url: 'https://flaky-api.example.com' })) // retried
   .transform(format)                                   // not retried
 ```
@@ -29,7 +31,9 @@ craft()
 **Parameters:**
 - `maxAttempts` - Maximum total attempts, including the first (default: 3)
 - `backoffMs` - Base wait between attempts (default: 1000ms)
-- `exponential` - Double the wait per attempt: `backoffMs * 2^(attempt - 1)` (default: false)
+- `factor` - Growth multiplier per attempt: the wait before attempt `n` is `backoffMs * factor^(n - 1)`. `1` (default) is fixed backoff; `2` doubles each time (`1000, 2000, 4000, ...`); any value `>= 1` is allowed. (Replaces the old `exponential` boolean: `exponential: true` is now `factor: 2`.)
+- `maxBackoffMs` - Upper bound on a single wait so an exponential `factor` cannot grow without limit; the computed wait is clamped to this before jitter (default: the platform timer ceiling, effectively unbounded)
+- `jitter` - Randomise each wait to de-sync retry storms: `'none'` (default), `'full'` (uniform in `[0, computed]`), or a number in `[0, 1]` (keep `1 - jitter` to `1` of the wait). Jitter only ever shortens a wait, so it never exceeds `maxBackoffMs`.
 - `retryOn` - Predicate deciding whether a failed attempt is re-attempted (see default behavior below)
 
 **Attempt semantics:** Every attempt receives the same (frozen) exchange, so a re-attempt always starts from the input that failed, never from partial output. The attempt counter is internal loop state, not an exchange header; observers track attempts via the `route:retry:attempt` events. After the final attempt fails, the original error propagates unchanged to outer wrappers, the route-level `.error()` handler, or the default error path.
@@ -87,7 +91,7 @@ Place `.retry()` BEFORE `.from()` to re-run the entire pipeline on failure:
 ```ts
 craft()
   .id('resilient-pipeline')
-  .retry({ maxAttempts: 3, backoffMs: 2000, exponential: true })
+  .retry({ maxAttempts: 3, backoffMs: 2000, factor: 2, maxBackoffMs: 10_000 })
   .timeout(10_000)
   .from(direct())
   .enrich(flakyUpstream)
