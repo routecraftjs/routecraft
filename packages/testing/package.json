@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/testing",
-  "version": "0.5.0",
+  "version": "1.0.0",
   "description": "Test utilities for Routecraft capabilities",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -28,7 +28,7 @@
     "@routecraft/routecraft": "workspace:*"
   },
   "peerDependencies": {
-    "@routecraft/routecraft": ">=0.5.0 <1.0.0"
+    "@routecraft/routecraft": ">=1.0.0"
   },
   "keywords": [
     "routecraft",

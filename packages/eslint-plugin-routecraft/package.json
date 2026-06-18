@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/eslint-plugin-routecraft",
-  "version": "0.5.0",
+  "version": "1.0.0",
   "description": "ESLint rules for authoring Routecraft capabilities",
   "type": "module",
   "main": "dist/index.js",
