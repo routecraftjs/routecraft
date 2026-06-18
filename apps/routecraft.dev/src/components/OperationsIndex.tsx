@@ -212,6 +212,12 @@ const ops: Op[] = [
     description: 'Fan the exchange out to multiple paths in parallel.',
   },
   {
+    name: 'dispatch',
+    category: 'Flow Control',
+    signature: '.dispatch(strategy, ...targets)',
+    description: 'Run exactly one target, chosen by load-balancing strategy.',
+  },
+  {
     name: 'loop',
     category: 'Flow Control',
     signature: '.loop(condition)',

@@ -45,6 +45,8 @@ export enum OperationType {
   CHOICE = "choice",
   /** Fan the exchange out to multiple independent paths in parallel */
   MULTICAST = "multicast",
+  /** Run exactly one of several targets, chosen by load-balancing strategy */
+  DISPATCH = "dispatch",
   /** Rate limit an operation, pacing exchanges that exceed the rate */
   THROTTLE = "throttle",
   /** Fast-fail an operation while a downstream is known to be failing */

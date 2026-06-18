@@ -158,6 +158,15 @@ export {
 
 export { MulticastStep } from "./operations/multicast.ts";
 
+export {
+  DispatchStep,
+  weighted,
+  type DispatchStrategy,
+  type DispatchStrategyName,
+  type DispatchTarget,
+  type WeightedTarget,
+} from "./operations/dispatch.ts";
+
 export { type HeaderSetter } from "./operations/header.ts";
 
 export { type CallableAuthenticator } from "./operations/authenticate.ts";

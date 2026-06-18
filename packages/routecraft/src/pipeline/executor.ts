@@ -288,6 +288,28 @@ export async function runPipeline(
         ),
       );
     },
+    async runPath(run): Promise<{
+      failed: boolean;
+      dropped: boolean;
+      error?: unknown;
+    }> {
+      // Single isolated nested run that reports its outcome back. Same
+      // isolation as a runPaths entry (no rethrowUnhandled, so a failure
+      // fires the clone's own error events rather than propagating), but the
+      // result is returned so a caller can react (dispatch failover advances
+      // to the next target on `failed`). The outer abortSignal is forwarded
+      // so a route-scope timeout can stop an in-flight target.
+      const result = await runPipeline(
+        nestedDeps(deps, run.steps, { abortSignal: deps.abortSignal }),
+        run.exchange,
+        Date.now(),
+      );
+      return {
+        failed: result.failed,
+        dropped: result.dropped,
+        ...(result.error !== undefined ? { error: result.error } : {}),
+      };
+    },
   };
 
   while (queue.length > 0) {

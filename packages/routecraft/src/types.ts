@@ -170,6 +170,20 @@ export interface StepContext {
   runPaths(
     runs: ReadonlyArray<{ steps: Step<Adapter>[]; exchange: Exchange }>,
   ): Promise<void>;
+
+  /**
+   * Run ONE sub-pipeline against its own exchange as an isolated nested run,
+   * resolving with the run's outcome. Like a single {@link runPaths} entry,
+   * but the result is reported back rather than swallowed, so a caller (e.g.
+   * `dispatch`'s `failover` strategy) can decide what to do next based on
+   * whether the run failed or was deliberately dropped. A failing path still
+   * fires that exchange's default error events (the caller's route-scope
+   * `.error()` handler does NOT run for it) and never rejects this call.
+   */
+  runPath(run: {
+    steps: Step<Adapter>[];
+    exchange: Exchange;
+  }): Promise<{ failed: boolean; dropped: boolean; error?: unknown }>;
 }
 
 // MessageChannel lives with channel adapter now
@@ -686,6 +700,21 @@ export interface EventDetailsMap {
   /** Fan-out finished: every path has settled and the original continues. */
   "route:operation:multicast:stopped": ExchangeScoped & {
     pathCount: number;
+  };
+
+  // -- Dispatch --
+  /** A target was selected to run. For `failover`, fired once per attempt. */
+  "route:operation:dispatch:selected": ExchangeScoped & {
+    /** The strategy that made the pick. */
+    strategy: "failover" | "round-robin" | "weighted" | "sticky";
+    /** Index of the selected target in the `.dispatch()` target list. */
+    targetIndex: number;
+  };
+  /** `failover` ran out of targets: every one failed and none handled the exchange. */
+  "route:operation:dispatch:exhausted": ExchangeScoped & {
+    strategy: "failover";
+    /** How many targets were tried before giving up. */
+    targetCount: number;
   };
 
   // -- Sample --
