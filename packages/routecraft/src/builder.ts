@@ -53,6 +53,11 @@ import {
   type Path,
 } from "./operations/choice.ts";
 import { MulticastStep } from "./operations/multicast.ts";
+import {
+  buildDispatchStep,
+  type DispatchStrategy,
+  type DispatchTarget,
+} from "./operations/dispatch.ts";
 import { ValidateStep } from "./operations/validate.ts";
 import { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
 import {
@@ -1590,6 +1595,58 @@ export class RouteBuilder<
    */
   multicast(...paths: Path<S["body"], unknown>[]): RouteBuilder<S> {
     this.pushStep(new MulticastStep(paths.map((path) => compilePath(path))));
+    return this;
+  }
+
+  /**
+   * Run EXACTLY ONE of several targets, chosen by a load-balancing strategy.
+   * The sibling of `multicast` (all targets) and `choice` (one target by
+   * predicate); dispatch is one target by strategy.
+   *
+   * The required leading argument is the strategy; the rest are the targets.
+   * A target is a bare destination, a sub-pipeline callback `(b) => b...` (the
+   * same path surface as `multicast`), or either wrapped in {@link weighted}
+   * to co-locate a relative weight. There is no safe default strategy, so it
+   * is required:
+   *
+   * - `"failover"` -- try targets in order until one succeeds; pairs with
+   *   per-target `.retry()` / `.circuitBreaker()`.
+   * - `"round-robin"` -- cycle through targets in order.
+   * - `"weighted"` -- distribute by the `weighted()` weights (smooth weighted
+   *   round-robin, deterministic).
+   * - `{ strategy: "sticky", key }` -- exchanges sharing a `key` stick to one
+   *   target. Object form only, because `key` is required.
+   *
+   * Side-effect-only, like `multicast`: the selected target runs on its own
+   * deep clone, and the ORIGINAL exchange continues downstream unchanged, so
+   * the body type is preserved and a target's output is unconstrained. A
+   * target that throws fires its own clone's error events but does not fail
+   * the route or the dispatch step (for `failover`, a failure advances to the
+   * next target instead; if all fail, `route:operation:dispatch:exhausted`
+   * fires and the original still continues).
+   *
+   * @param strategy - The selection strategy (string or object form)
+   * @param targets - Destinations, sub-pipeline callbacks, or `weighted(...)`
+   * @returns This RouteBuilder, body type unchanged
+   *
+   * @example
+   * ```ts
+   * .dispatch("failover", primary, secondary)
+   * .dispatch("round-robin", workerA, workerB, workerC)
+   * .dispatch("weighted", weighted(stable, 95), weighted(canary, 5))
+   * .dispatch({ strategy: "sticky", key: (ex) => ex.body.userId }, a, b)
+   * ```
+   */
+  dispatch(
+    strategy: DispatchStrategy<S["body"]>,
+    ...targets: DispatchTarget<S["body"], unknown>[]
+  ): RouteBuilder<S> {
+    this.pushStep(
+      buildDispatchStep(
+        strategy as DispatchStrategy<unknown>,
+        targets as DispatchTarget<unknown, unknown>[],
+      ),
+    );
     return this;
   }
 

@@ -177,6 +177,15 @@ A failure of the wrapped operation *inside* the deadline does not emit a timeout
 
 `pathCount` is the number of paths the exchange was fanned out to. `started` and `stopped` always pair: every `started` is followed by a `stopped` (via `try`/`finally`), even when a path fails or the multicast has zero paths (`pathCount: 0`).
 
+### Dispatch operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:operation:dispatch:selected` | A target was chosen to run (for `failover`, once per attempt) | `{ routeId, exchangeId, correlationId, strategy, targetIndex }` |
+| `route:operation:dispatch:exhausted` | `failover` ran out of targets and none handled the exchange | `{ routeId, exchangeId, correlationId, strategy: "failover", targetCount }` |
+
+`strategy` is the strategy that made the pick (`"failover"`, `"round-robin"`, `"weighted"`, or `"sticky"`) and `targetIndex` is the position of the selected target in the `.dispatch()` list. A target failure stays isolated to its own clone's error events; `dispatch:exhausted` is the signal that a `failover` chain found no healthy target.
+
 ### Sample operations
 
 | Event | When it fires | Details |

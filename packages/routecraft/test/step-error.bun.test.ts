@@ -327,6 +327,7 @@ describe(".error() step scope: dual-mode wrapper", () => {
     const stepContext: StepContext = {
       takePending: () => [],
       runPaths: async () => {},
+      runPath: async () => ({ failed: false, dropped: false }),
     };
 
     // Build N synthetic exchanges, identifiable by body.
