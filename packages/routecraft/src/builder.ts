@@ -1367,7 +1367,7 @@ export class RouteBuilder<
         message:
           `Route metadata staged but no .from() called: route-level configuration ` +
           `(.id / .title / .description / .input / .output / .batch / .error / .authorize / ` +
-          `.cache / .retry / .timeout / .circuitBreaker) must be ` +
+          `.cache / .retry / .timeout / .circuitBreaker / .concurrency) must be ` +
           `followed by .from() before pipeline operations on the next route.`,
       });
     }
@@ -1625,8 +1625,9 @@ export class RouteBuilder<
   }
 
   /**
-   * Throw when a step-scope wrapper (`.error()`, `.retry()`,
-   * `.timeout()`, `.cache()`, `.delay()`) was staged but the user is starting a
+   * Throw when a step-scope wrapper (`.error()`, `.retry()`, `.timeout()`,
+   * `.circuitBreaker()`, `.concurrency()`, `.cache()`, `.delay()`) was staged
+   * but the user is starting a
    * new route or finalising the build without consuming it. A wrapper
    * attaches to the immediately next pipeline step; if no step
    * follows on the current route, the wrapper would silently leak
@@ -1639,7 +1640,7 @@ export class RouteBuilder<
     if (this.pendingStepWrappers.length > 0) {
       throw rcError("RC2001", undefined, {
         message:
-          `Wrapper(s) staged via .error() / .retry() / .timeout() / .circuitBreaker() / .cache() / .delay() but no step followed before .${method}(). ` +
+          `Wrapper(s) staged via .error() / .retry() / .timeout() / .circuitBreaker() / .cache() / .delay() / .concurrency() but no step followed before .${method}(). ` +
           `A wrapper attaches to the immediately next pipeline step; orphaning one (or letting it leak into the next route) is almost always a mistake.`,
       });
     }

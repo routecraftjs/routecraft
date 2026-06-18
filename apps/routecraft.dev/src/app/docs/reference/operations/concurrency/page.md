@@ -28,7 +28,7 @@ craft()
 
 **Mental model:** A pool of `max` slots. An exchange takes a slot before the wrapped work and frees it the moment the work settles (success, drop, or failure). When every slot is busy:
 
-```
+```text
 queue mode (default):  wait FIFO for a slot (backpressure), bounded by maxQueue
 reject mode:           fail fast with RC5026 (no slot, no wait)
 ```
