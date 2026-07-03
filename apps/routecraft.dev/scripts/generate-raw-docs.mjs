@@ -74,6 +74,13 @@ for (const file of files) {
   pages.set(url, { title, cleaned })
 }
 
+// Clean the output directory before regenerating. This script owns public/raw
+// entirely and rewrites it from scratch each run, so removing it first is what
+// keeps the mirror in sync with the source tree: a page that became a draft, or
+// was deleted or renamed, leaves no stale .md behind for the sitemap (which
+// enumerates whatever files exist under public/raw) to keep advertising.
+fs.rmSync(OUT_DIR, { recursive: true, force: true })
+
 // Write individual page files
 for (const [url, { cleaned }] of pages) {
   const relPath = url === '/' ? 'index.md' : `${url.replace(/^\//, '')}.md`
