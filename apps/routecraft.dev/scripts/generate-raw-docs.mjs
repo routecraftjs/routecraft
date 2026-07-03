@@ -45,6 +45,20 @@ function extractTitle(md) {
     : undefined
 }
 
+// Drafts and unpublished posts must not be mirrored to public/raw: those files
+// are publicly fetchable and get listed in the sitemap, so emitting one would
+// leak a draft's full content and make it discoverable. The blog index, RSS
+// feed, and per-post robots meta already hide drafts; this keeps the raw mirror
+// consistent with them.
+function isUnpublished(md) {
+  const match = md.match(/^---[\s\S]*?---/)
+  if (!match) return false
+  return (
+    /^draft:\s*true\s*$/m.test(match[0]) ||
+    /^published:\s*false\s*$/m.test(match[0])
+  )
+}
+
 // Build a map of url -> { title, cleaned markdown }
 const pages = new Map()
 
@@ -55,6 +69,7 @@ const files = glob
 for (const file of files) {
   const url = file === 'page.md' ? '/' : `/${file.replace(/\/page\.md$/, '')}`
   const md = fs.readFileSync(path.join(APP_DIR, file), 'utf8')
+  if (isUnpublished(md)) continue
   const title = extractTitle(md)
   const cleaned = cleanMarkdoc(md, title)
   pages.set(url, { title, cleaned })

@@ -25,6 +25,20 @@ export function blogPostMetadata(slug: string): Metadata {
     title: post.title,
     description: post.description,
     alternates: { canonical: url },
+    // Drafts stay reachable by direct link (for preview and sharing) but must
+    // not be discoverable: keep them out of search indexes, and tell crawlers
+    // not to follow their links or cache them. The sitemap, RSS feed, and blog
+    // index already omit drafts; this covers the page itself.
+    ...(post.draft
+      ? {
+          robots: {
+            index: false,
+            follow: false,
+            nocache: true,
+            googleBot: { index: false, follow: false },
+          },
+        }
+      : {}),
     authors: post.author ? [{ name: post.author }] : undefined,
     openGraph: {
       type: 'article',
@@ -48,6 +62,10 @@ export function blogPostMetadata(slug: string): Metadata {
 export function BlogPostJsonLd({ slug }: { slug: string }) {
   const post = getBlogPostBySlug(slug)
   if (!post) return null
+  // A draft is noindex, so emitting BlogPosting/BreadcrumbList structured data
+  // for it would be contradictory (and could still surface the post in rich
+  // results). Drafts get no JSON-LD until they are published.
+  if (post.draft) return null
   const url = absoluteUrl(canonicalPath(`/blog/${slug}`))
   const published = isoDate(post.date)
 
