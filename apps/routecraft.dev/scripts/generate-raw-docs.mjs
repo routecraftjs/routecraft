@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url'
 import glob from 'fast-glob'
 import { cleanMarkdoc } from '../src/lib/clean-markdoc.mjs'
 import { navigation } from '../src/lib/navigation.ts'
+import { parseFrontmatter } from '../src/lib/frontmatter.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -49,14 +50,12 @@ function extractTitle(md) {
 // are publicly fetchable and get listed in the sitemap, so emitting one would
 // leak a draft's full content and make it discoverable. The blog index, RSS
 // feed, and per-post robots meta already hide drafts; this keeps the raw mirror
-// consistent with them.
+// consistent with them. Detection goes through the same `parseFrontmatter`
+// (js-yaml) and the same rule as `src/lib/blog.ts`, so the two can't drift on
+// YAML boolean spellings (`draft: True`, `draft: yes`, `draft: true # note`).
 function isUnpublished(md) {
-  const match = md.match(/^---[\s\S]*?---/)
-  if (!match) return false
-  return (
-    /^draft:\s*true\s*$/m.test(match[0]) ||
-    /^published:\s*false\s*$/m.test(match[0])
-  )
+  const { data } = parseFrontmatter(md)
+  return Boolean(data.draft) || data.published === false
 }
 
 // Build a map of url -> { title, cleaned markdown }

@@ -8,7 +8,12 @@ import { BlogCoverInline } from '@/components/BlogCover'
 import { LightboxImage } from '@/components/Lightbox'
 import { RelatedPosts } from '@/components/RelatedPosts'
 import { collectSections } from '@/lib/sections'
-import { formatBlogDate, getAllBlogPosts, getRelatedPosts } from '@/lib/blog'
+import {
+  formatBlogDate,
+  getAllBlogPosts,
+  getPublishedPosts,
+  getRelatedPosts,
+} from '@/lib/blog'
 
 interface BlogPostFrontmatter {
   title?: string
@@ -32,9 +37,9 @@ function resolveSlugAndFigure(frontmatter: BlogPostFrontmatter): {
   slug: string
   figureNumber: number
 } {
-  const all = getAllBlogPosts()
-    .filter((post) => !post.draft)
-    .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+  const all = getPublishedPosts().sort((a, b) =>
+    (a.date || '').localeCompare(b.date || ''),
+  )
   const explicit = frontmatter.slug
   const match = explicit
     ? all.find((post) => post.slug === explicit)

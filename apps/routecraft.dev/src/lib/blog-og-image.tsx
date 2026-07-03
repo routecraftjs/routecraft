@@ -4,7 +4,7 @@ import path from 'path'
 import { ImageResponse } from 'next/og'
 
 import { BlogCover, COVER_HEIGHT, COVER_WIDTH } from '@/components/BlogCover'
-import { getAllBlogPosts, getBlogPostBySlug } from '@/lib/blog'
+import { getBlogPostBySlug, getPublishedPosts } from '@/lib/blog'
 
 export const OG_SIZE = { width: COVER_WIDTH, height: COVER_HEIGHT }
 export const OG_CONTENT_TYPE = 'image/png'
@@ -80,9 +80,9 @@ export async function ogFonts() {
 }
 
 function figureNumberFor(slug: string): number {
-  const posts = getAllBlogPosts()
-    .filter((post) => !post.draft)
-    .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+  const posts = getPublishedPosts().sort((a, b) =>
+    (a.date || '').localeCompare(b.date || ''),
+  )
   const index = posts.findIndex((post) => post.slug === slug)
   return index >= 0 ? index + 1 : posts.length + 1
 }

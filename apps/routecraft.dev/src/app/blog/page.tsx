@@ -4,7 +4,7 @@ import type { Metadata } from 'next'
 import { BlogIndex } from '@/components/BlogIndex'
 import { FeaturedBlogCard } from '@/components/FeaturedBlogCard'
 import { SectionLabel } from '@/components/SectionLabel'
-import { getAllBlogPosts } from '@/lib/blog'
+import { getPublishedPosts } from '@/lib/blog'
 
 export const metadata: Metadata = {
   title: 'Blog',
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 
 export default function BlogIndexPage() {
   // Drafts never appear on the public index, matching the sitemap and RSS feed.
-  const posts = getAllBlogPosts().filter((p) => !p.draft)
+  const posts = getPublishedPosts()
   // Lead with up to two posts (featured first, then most recent), then show the
   // remaining posts in the grid below.
   const featured = [

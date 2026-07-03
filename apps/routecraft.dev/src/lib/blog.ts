@@ -49,19 +49,22 @@ function estimateReadingTime(body: string): number {
   return Math.max(1, Math.round(words / WORDS_PER_MINUTE))
 }
 
+// Coerce a frontmatter date value (js-yaml gives us a Date for bare `2026-01-02`
+// and a string for a quoted one) to a `YYYY-MM-DD` string.
+function toDateString(value: unknown): string | undefined {
+  return value instanceof Date
+    ? value.toISOString().slice(0, 10)
+    : typeof value === 'string'
+      ? value
+      : undefined
+}
+
 function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
   const file = path.join(blogDir, slug, 'page.md')
   if (!fs.existsSync(file)) return undefined
   const md = fs.readFileSync(file, 'utf8')
   const { data, body } = parseFrontmatter(md)
   if (data.published === false) return undefined
-
-  const toDateString = (value: unknown): string | undefined =>
-    value instanceof Date
-      ? value.toISOString().slice(0, 10)
-      : typeof value === 'string'
-        ? value
-        : undefined
 
   const date = toDateString(data.date) ?? ''
   const updated = toDateString(data.updated)
@@ -115,6 +118,27 @@ export function getAllBlogPosts(): BlogPostMeta[] {
   posts.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
   cachedPosts = posts
   return posts
+}
+
+/**
+ * Posts safe to expose publicly (drafts excluded). The single definition of
+ * "publicly visible" shared by the sitemap, RSS feed, blog index, and OG image
+ * numbering, so those surfaces cannot drift on which posts are discoverable.
+ */
+export function getPublishedPosts(
+  posts: BlogPostMeta[] = getAllBlogPosts(),
+): BlogPostMeta[] {
+  return posts.filter((p) => !p.draft)
+}
+
+/**
+ * A post's effective last-modified date (`YYYY-MM-DD`): `updated` when the
+ * author set it, otherwise the publish `date`. One definition of the freshness
+ * policy so `dateModified`, `article:modified_time`, and the sitemap's `lastmod`
+ * cannot disagree for the same post.
+ */
+export function lastModifiedDate(post: BlogPostMeta): string {
+  return post.updated ?? post.date
 }
 
 export function getFeaturedPost(
