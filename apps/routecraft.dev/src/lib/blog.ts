@@ -12,6 +12,14 @@ export interface BlogPostMeta {
   title: string
   description?: string
   date: string
+  /**
+   * Optional last-updated date (YYYY-MM-DD). Drives `dateModified`,
+   * `article:modified_time`, and the sitemap's `lastmod`. Bump it only when a
+   * post's content materially changes; it falls back to `date` when absent.
+   * Kept explicit rather than derived from file mtime so a fresh CI checkout
+   * (which resets every file's mtime to build time) can't fake freshness.
+   */
+  updated?: string
   author?: string
   authorRole?: string
   authorAvatar?: string
@@ -48,13 +56,15 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
   const { data, body } = parseFrontmatter(md)
   if (data.published === false) return undefined
 
-  const rawDate = data.date
-  const date =
-    rawDate instanceof Date
-      ? rawDate.toISOString().slice(0, 10)
-      : typeof rawDate === 'string'
-        ? rawDate
-        : ''
+  const toDateString = (value: unknown): string | undefined =>
+    value instanceof Date
+      ? value.toISOString().slice(0, 10)
+      : typeof value === 'string'
+        ? value
+        : undefined
+
+  const date = toDateString(data.date) ?? ''
+  const updated = toDateString(data.updated)
 
   return {
     slug,
@@ -62,6 +72,7 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
     description:
       typeof data.description === 'string' ? data.description : undefined,
     date,
+    updated,
     author: typeof data.author === 'string' ? data.author : undefined,
     authorRole:
       typeof data.authorRole === 'string' ? data.authorRole : undefined,

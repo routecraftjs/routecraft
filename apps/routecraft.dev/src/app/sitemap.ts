@@ -106,14 +106,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.9,
     })
 
+    // lastmod comes from the post's `updated` (falling back to `date`), not the
+    // file mtime: a fresh CI checkout resets every file's mtime to build time,
+    // which would tell crawlers every post changed on every deploy.
     for (const post of getAllBlogPosts().filter((p) => !p.draft)) {
-      const pagePath = path.join(blogBaseDir, post.slug, 'page.md')
-      const lastModified = fs.existsSync(pagePath)
-        ? fs.statSync(pagePath).mtime
-        : new Date(post.date)
       routes.push({
         url: `${baseUrl}/blog/${post.slug}/`,
-        lastModified,
+        lastModified: new Date(post.updated ?? post.date),
         changeFrequency: 'monthly',
         priority: 0.7,
       })

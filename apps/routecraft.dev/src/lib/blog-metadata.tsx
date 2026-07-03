@@ -20,6 +20,7 @@ export function blogPostMetadata(slug: string): Metadata {
   if (!post) return {}
   const url = canonicalPath(`/blog/${slug}`)
   const published = isoDate(post.date)
+  const modified = isoDate(post.updated ?? post.date)
 
   return {
     title: post.title,
@@ -46,7 +47,7 @@ export function blogPostMetadata(slug: string): Metadata {
       description: post.description,
       url,
       publishedTime: published,
-      modifiedTime: published,
+      modifiedTime: modified,
       authors: post.author ? [post.author] : undefined,
       tags: post.tags,
     },
@@ -68,6 +69,7 @@ export function BlogPostJsonLd({ slug }: { slug: string }) {
   if (post.draft) return null
   const url = absoluteUrl(canonicalPath(`/blog/${slug}`))
   const published = isoDate(post.date)
+  const modified = isoDate(post.updated ?? post.date)
 
   const blogPosting = {
     '@context': 'https://schema.org',
@@ -77,7 +79,8 @@ export function BlogPostJsonLd({ slug }: { slug: string }) {
     url,
     mainEntityOfPage: url,
     datePublished: published,
-    dateModified: published,
+    dateModified: modified,
+    inLanguage: 'en-US',
     image: absoluteUrl(`/blog/${slug}/opengraph-image`),
     author: post.author ? { '@type': 'Person', name: post.author } : undefined,
     publisher: {
