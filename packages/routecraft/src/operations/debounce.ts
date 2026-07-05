@@ -214,14 +214,12 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
       return { kind: "continue", exchange };
     }
 
-    if (context) {
-      context.emit("route:step:started", {
-        routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        operation: stepLabel,
-      });
-    }
+    context.emit("route:step:started", {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId,
+      operation: stepLabel,
+    });
 
     const state = this.#controller.stateFor(route);
     // Capture the downstream continuation once: debounce sits at a fixed
@@ -293,15 +291,13 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
       ...keyField,
     });
 
-    if (context) {
-      context.emit("route:step:completed", {
-        routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        operation: stepLabel,
-        duration: Date.now() - stepStart,
-      });
-    }
+    context.emit("route:step:completed", {
+      routeId,
+      exchangeId: exchange.id,
+      correlationId,
+      operation: stepLabel,
+      duration: Date.now() - stepStart,
+    });
 
     // The arrival never continues in-line; it is released later (or dropped
     // when superseded).
@@ -346,6 +342,21 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
     const routeId =
       route?.definition.id ?? (held.headers[HeadersKeys.ROUTE_ID] as string);
     const correlationId = held.headers[HeadersKeys.CORRELATION_ID] as string;
+
+    // Balance the absorbed arrival's lifecycle: it emitted `exchange:started`
+    // on entry and was only MARKED dropped at hold time, so without this
+    // emission its id would have a `started` with no terminal event, reading
+    // as permanently in-flight to observers that pair them, and leaking any
+    // upstream reservation keyed to the arrival id (e.g. a `.dedupe()`
+    // before the debounce commits/releases on terminal events). Emitted at
+    // release time, not hold time, so a superseded arrival's drop stays
+    // attributable to its superseder in the supersede branch above.
+    emitExchangeDropped(context, {
+      routeId,
+      correlationId,
+      reason: "debounced",
+      exchange: held,
+    });
 
     // Rebuild a clean exchange to run downstream: the held one was marked
     // dropped to suppress its arrival-pass completion, so it cannot carry the

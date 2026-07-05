@@ -721,7 +721,11 @@ export interface EventDetailsMap {
   // -- Dispatch --
   /** A target was selected to run. For `failover`, fired once per attempt. */
   "route:operation:dispatch:selected": ExchangeScoped & {
-    /** The strategy that made the pick. */
+    /**
+     * The strategy that made the pick. Inlines `DispatchStrategyName`
+     * (operations/dispatch.ts): this file is the dependency root and never
+     * imports from operations, so keep the two unions in sync.
+     */
     strategy: "failover" | "round-robin" | "weighted" | "sticky";
     /** Index of the selected target in the `.dispatch()` target list. */
     targetIndex: number;

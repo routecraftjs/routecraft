@@ -955,7 +955,28 @@ export class DefaultRoute implements Route {
   async drain(): Promise<void> {
     // Flush any deferred holds (e.g. debounce) FIRST so their releases become
     // tracked in-flight work before we wait, rather than waiting out a timer.
-    // Idempotent by contract, so re-entrant drains stay safe.
+    this.runDrainCallbacks();
+    this.logger.debug(
+      { inFlight: this.inFlight.size },
+      "Draining route: waiting for in-flight handlers and tasks",
+    );
+    while (this.inFlight.size > 0) {
+      const current = [...this.inFlight];
+      await Promise.allSettled(current);
+      // Re-flush after each settle round: a flushed release can create a NEW
+      // hold further down the pipeline (e.g. chained debounce steps), which
+      // would otherwise sit out its full timer before the loop could finish.
+      this.runDrainCallbacks();
+    }
+    this.logger.debug({}, "Route drained");
+  }
+
+  /**
+   * Run the registered drain-flush callbacks (see {@link Route.onDrain}).
+   * Callbacks are idempotent by contract, so calling this repeatedly (once
+   * up front and once per drain settle round) is safe.
+   */
+  private runDrainCallbacks(): void {
     for (const callback of this.drainCallbacks) {
       try {
         callback();
@@ -966,15 +987,6 @@ export class DefaultRoute implements Route {
         );
       }
     }
-    this.logger.debug(
-      { inFlight: this.inFlight.size },
-      "Draining route: waiting for in-flight handlers and tasks",
-    );
-    while (this.inFlight.size > 0) {
-      const current = [...this.inFlight];
-      await Promise.allSettled(current);
-    }
-    this.logger.debug({}, "Route drained");
   }
 
   /**

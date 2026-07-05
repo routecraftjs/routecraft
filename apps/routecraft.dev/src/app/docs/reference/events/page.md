@@ -212,7 +212,7 @@ A suppressed duplicate also fires `route:exchange:dropped` with reason `"duplica
 | `route:operation:debounce:dropped` | A held exchange is superseded by a newer arrival in the same burst | `{ routeId, exchangeId, correlationId, key? }` |
 | `route:operation:debounce:released` | The trailing exchange is released downstream | `{ routeId, exchangeId, correlationId, key?, reason }` |
 
-`key` is present only when a `key` selector is configured. `reason` on release is `"quiet"` (the `waitMs` window closed), `"maxWait"` (the `maxWaitMs` cap fired during continuous activity), or `"flush"` (a drain / shutdown released it early). A released exchange runs the steps after `.debounce()` as a fresh exchange (new id, preserved correlation id) with its own `route:exchange:started` / `:completed` pair.
+`key` is present only when a `key` selector is configured. `reason` on release is `"quiet"` (the `waitMs` window closed), `"maxWait"` (the `maxWaitMs` cap fired during continuous activity), or `"flush"` (a drain / shutdown released it early). A released exchange runs the steps after `.debounce()` as a fresh exchange (new id, preserved correlation id) with its own `route:exchange:started` / `:completed` pair. Every arrival's own id terminates in `route:exchange:dropped` with reason `"debounced"`: superseded arrivals when replaced, the absorbed trailing arrival at release time.
 
 ### Error handler operations
 

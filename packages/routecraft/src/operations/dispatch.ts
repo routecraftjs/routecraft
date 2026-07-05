@@ -21,7 +21,9 @@ import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 /**
  * Name of a dispatch selection strategy. Surfaced on the
  * `route:operation:dispatch:selected` event so observers can attribute a
- * pick to the strategy that made it.
+ * pick to the strategy that made it. The event payloads in `types.ts`
+ * inline this union (types.ts is the dependency root and never imports
+ * from operations); keep the two in sync when adding a strategy.
  */
 export type DispatchStrategyName =
   | "failover"
@@ -39,6 +41,12 @@ export type DispatchStrategyName =
  * - Object form when the strategy needs config. `sticky` REQUIRES a `key`
  *   selector (it has nothing to partition on otherwise) and so has no string
  *   form, and accepts an optional `maxKeys` bound on the affinity map.
+ *
+ * The config-less object arm (`{ strategy: "failover" | ... }`) is kept
+ * deliberately for forward-compat symmetry: a strategy can gain options
+ * later without a shape change at call sites, and the issue-spec examples
+ * use it (`.dispatch({ strategy: "weighted" }, ...)`). Prefer the string
+ * form when there is no config.
  *
  * @template In - Body type of the exchange at the point of the dispatch
  */

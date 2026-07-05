@@ -313,6 +313,61 @@ describe("debounce operation", () => {
   });
 
   /**
+   * @case Every arrival's exchange id gets a terminal event (balanced lifecycle)
+   * @preconditions A burst of three arrivals held under a long window, then drained
+   * @expectedResult Three route:exchange:dropped events fire with reason "debounced" (two superseded + the absorbed trailing arrival at release), so no arrival is left permanently in-flight
+   */
+  test("balances every arrival's lifecycle with a terminal dropped event", async () => {
+    const downstream = spy<Change>();
+    const held: string[] = [];
+    const droppedReasons: string[] = [];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("debounce-lifecycle-balance")
+          .from(items<Change>([change("a", 1), change("a", 2), change("a", 3)]))
+          .debounce({ waitMs: 10_000 })
+          .to(downstream),
+      )
+      .on("route:operation:debounce:held", (() => {
+        held.push("h");
+      }) as never)
+      .on("route:exchange:dropped", ((payload: {
+        details: { reason: string };
+      }) => {
+        droppedReasons.push(payload.details.reason);
+      }) as never)
+      .build();
+
+    await t.ctx.start();
+    await waitUntil(() => held.length === 3);
+    await t.drain();
+
+    // All three arrivals terminate: two superseded plus the absorbed trailing
+    // arrival, dropped at release time. The released clone (a fresh id)
+    // completes separately, carried by the downstream delivery.
+    expect(droppedReasons).toEqual(["debounced", "debounced", "debounced"]);
+    expect(downstream.received).toHaveLength(1);
+  });
+
+  /**
+   * @case Step-scope wrappers refuse to wrap debounce at build time
+   * @preconditions A route staging .retry() immediately before .debounce()
+   * @expectedResult Building throws (RC5003): debounce holds exchanges outside the queue, so per-execution wrapper recovery cannot apply
+   */
+  test("rejects a step-scope wrapper around debounce at build time", () => {
+    expect(() =>
+      craft()
+        .id("debounce-not-wrappable")
+        .from(items<Change>([change("a", 1)]))
+        .retry()
+        .debounce({ waitMs: 100 })
+        .build(),
+    ).toThrow();
+  });
+
+  /**
    * @case debounce rejects a non-positive waitMs at build time
    * @preconditions A route built with .debounce({ waitMs: 0 })
    * @expectedResult Building throws (RC5003)
