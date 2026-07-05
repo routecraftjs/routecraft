@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 
-import { getBlogPostBySlug } from '@/lib/blog'
+import { getBlogPostBySlug, lastModifiedDate } from '@/lib/blog'
 import { absoluteUrl, canonicalPath, siteName, siteUrl } from '@/lib/site'
 import { StructuredData } from '@/components/StructuredData'
 
@@ -10,6 +10,17 @@ function isoDate(date: string): string | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d.toISOString()
 }
 
+// Robots directives for a post that must not be discoverable: kept out of
+// search indexes, with crawlers told not to follow its links or cache it.
+// Applied both to drafts and to a slug that has a route but no published post
+// behind it (e.g. `published: false`), so neither is left silently indexable.
+const NOINDEX_ROBOTS: Metadata['robots'] = {
+  index: false,
+  follow: false,
+  nocache: true,
+  googleBot: { index: false, follow: false },
+}
+
 /**
  * Per-post metadata, sourced from the post's frontmatter. Markdoc `.md` pages
  * can't export metadata, so each post folder has a thin `layout.tsx` that calls
@@ -17,14 +28,22 @@ function isoDate(date: string): string | undefined {
  */
 export function blogPostMetadata(slug: string): Metadata {
   const post = getBlogPostBySlug(slug)
-  if (!post) return {}
+  // No published post behind this route (unknown slug, or `published: false`).
+  // The `page.md` still builds a route, so return noindex rather than empty
+  // metadata to keep an unpublished page out of search results.
+  if (!post) return { robots: NOINDEX_ROBOTS }
   const url = canonicalPath(`/blog/${slug}`)
   const published = isoDate(post.date)
+  const modified = isoDate(lastModifiedDate(post))
 
   return {
     title: post.title,
     description: post.description,
     alternates: { canonical: url },
+    // Drafts stay reachable by direct link (for preview and sharing) but must
+    // not be discoverable. The sitemap, RSS feed, and blog index already omit
+    // drafts; this covers the page itself.
+    ...(post.draft ? { robots: NOINDEX_ROBOTS } : {}),
     authors: post.author ? [{ name: post.author }] : undefined,
     openGraph: {
       type: 'article',
@@ -32,7 +51,7 @@ export function blogPostMetadata(slug: string): Metadata {
       description: post.description,
       url,
       publishedTime: published,
-      modifiedTime: published,
+      modifiedTime: modified,
       authors: post.author ? [post.author] : undefined,
       tags: post.tags,
     },
@@ -48,8 +67,13 @@ export function blogPostMetadata(slug: string): Metadata {
 export function BlogPostJsonLd({ slug }: { slug: string }) {
   const post = getBlogPostBySlug(slug)
   if (!post) return null
+  // A draft is noindex, so emitting BlogPosting/BreadcrumbList structured data
+  // for it would be contradictory (and could still surface the post in rich
+  // results). Drafts get no JSON-LD until they are published.
+  if (post.draft) return null
   const url = absoluteUrl(canonicalPath(`/blog/${slug}`))
   const published = isoDate(post.date)
+  const modified = isoDate(lastModifiedDate(post))
 
   const blogPosting = {
     '@context': 'https://schema.org',
@@ -59,7 +83,8 @@ export function BlogPostJsonLd({ slug }: { slug: string }) {
     url,
     mainEntityOfPage: url,
     datePublished: published,
-    dateModified: published,
+    dateModified: modified,
+    inLanguage: 'en-US',
     image: absoluteUrl(`/blog/${slug}/opengraph-image`),
     author: post.author ? { '@type': 'Person', name: post.author } : undefined,
     publisher: {

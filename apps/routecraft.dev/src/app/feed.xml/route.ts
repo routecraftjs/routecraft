@@ -1,4 +1,4 @@
-import { getAllBlogPosts } from '@/lib/blog'
+import { getPublishedPosts } from '@/lib/blog'
 import { absoluteUrl, siteDescription, siteName, siteUrl } from '@/lib/site'
 
 export const dynamic = 'force-static'
@@ -14,7 +14,7 @@ function escapeXml(value: string): string {
 
 // RSS 2.0 feed of published blog posts. Static-exported at /feed.xml.
 export function GET() {
-  const posts = getAllBlogPosts().filter((post) => !post.draft)
+  const posts = getPublishedPosts()
 
   const items = posts
     .map((post) => {

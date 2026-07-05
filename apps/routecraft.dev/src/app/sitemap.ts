@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import type { MetadataRoute } from 'next'
 
-import { getAllBlogPosts } from '@/lib/blog'
+import { getPublishedPosts, lastModifiedDate } from '@/lib/blog'
 import { siteUrl } from '@/lib/site'
 
 export const dynamic = 'force-static'
@@ -106,14 +106,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.9,
     })
 
-    for (const post of getAllBlogPosts().filter((p) => !p.draft)) {
-      const pagePath = path.join(blogBaseDir, post.slug, 'page.md')
-      const lastModified = fs.existsSync(pagePath)
-        ? fs.statSync(pagePath).mtime
-        : new Date(post.date)
+    // lastmod comes from the post's `updated` (falling back to `date`), not the
+    // file mtime: a fresh CI checkout resets every file's mtime to build time,
+    // which would tell crawlers every post changed on every deploy. A malformed
+    // date is omitted rather than passed on as an Invalid Date, which would make
+    // Next throw while serialising lastmod and fail the whole sitemap build.
+    for (const post of getPublishedPosts()) {
+      const lastModified = new Date(lastModifiedDate(post))
       routes.push({
         url: `${baseUrl}/blog/${post.slug}/`,
-        lastModified,
+        ...(Number.isNaN(lastModified.getTime()) ? {} : { lastModified }),
         changeFrequency: 'monthly',
         priority: 0.7,
       })

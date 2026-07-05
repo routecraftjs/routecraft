@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url'
 import glob from 'fast-glob'
 import { cleanMarkdoc } from '../src/lib/clean-markdoc.mjs'
 import { navigation } from '../src/lib/navigation.ts'
+import { parseFrontmatter } from '../src/lib/frontmatter.ts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -45,6 +46,18 @@ function extractTitle(md) {
     : undefined
 }
 
+// Drafts and unpublished posts must not be mirrored to public/raw: those files
+// are publicly fetchable and get listed in the sitemap, so emitting one would
+// leak a draft's full content and make it discoverable. The blog index, RSS
+// feed, and per-post robots meta already hide drafts; this keeps the raw mirror
+// consistent with them. Detection goes through the same `parseFrontmatter`
+// (js-yaml) and the same rule as `src/lib/blog.ts`, so the two can't drift on
+// YAML boolean spellings (`draft: True`, `draft: yes`, `draft: true # note`).
+function isUnpublished(md) {
+  const { data } = parseFrontmatter(md)
+  return Boolean(data.draft) || data.published === false
+}
+
 // Build a map of url -> { title, cleaned markdown }
 const pages = new Map()
 
@@ -55,10 +68,18 @@ const files = glob
 for (const file of files) {
   const url = file === 'page.md' ? '/' : `/${file.replace(/\/page\.md$/, '')}`
   const md = fs.readFileSync(path.join(APP_DIR, file), 'utf8')
+  if (isUnpublished(md)) continue
   const title = extractTitle(md)
   const cleaned = cleanMarkdoc(md, title)
   pages.set(url, { title, cleaned })
 }
+
+// Clean the output directory before regenerating. This script owns public/raw
+// entirely and rewrites it from scratch each run, so removing it first is what
+// keeps the mirror in sync with the source tree: a page that became a draft, or
+// was deleted or renamed, leaves no stale .md behind for the sitemap (which
+// enumerates whatever files exist under public/raw) to keep advertising.
+fs.rmSync(OUT_DIR, { recursive: true, force: true })
 
 // Write individual page files
 for (const [url, { cleaned }] of pages) {
