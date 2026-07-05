@@ -354,6 +354,17 @@ export interface Route<T = unknown> {
   trackTask(promise: Promise<unknown>): void;
 
   /**
+   * Register a callback run at the START of every `drain()` (which shutdown
+   * also calls), before the in-flight wait loop. Lets a step holding an
+   * exchange outside the queue (debounce) flush it into in-flight work so
+   * drain releases it promptly instead of waiting out a timer. Callbacks
+   * must be idempotent: `drain()` can be called more than once.
+   *
+   * @internal
+   */
+  onDrain(callback: () => void): void;
+
+  /**
    * Build a forward function the route uses to delegate from an
    * error / fallback handler to another route via the direct adapter.
    * Exposed so step-scope `WrapperStep` subclasses can hand the same
@@ -387,6 +398,9 @@ export class DefaultRoute implements Route {
 
   /** All in-flight work (handler and task promises) for drain */
   private inFlight = new Set<Promise<unknown>>();
+
+  /** Callbacks run at the start of drain() to flush deferred holds (debounce). */
+  private drainCallbacks = new Set<() => void>();
 
   /**
    * Create a new route instance.
@@ -547,6 +561,14 @@ export class DefaultRoute implements Route {
     });
     this.inFlight.add(handledPromise);
     handledPromise.finally(() => this.inFlight.delete(handledPromise));
+  }
+
+  /**
+   * Register a flush callback run at the start of drain(). See {@link Route.onDrain}.
+   * @internal
+   */
+  onDrain(callback: () => void): void {
+    this.drainCallbacks.add(callback);
   }
 
   /**
@@ -931,6 +953,19 @@ export class DefaultRoute implements Route {
    * Loops until no new work is added (drains consumer queue).
    */
   async drain(): Promise<void> {
+    // Flush any deferred holds (e.g. debounce) FIRST so their releases become
+    // tracked in-flight work before we wait, rather than waiting out a timer.
+    // Idempotent by contract, so re-entrant drains stay safe.
+    for (const callback of this.drainCallbacks) {
+      try {
+        callback();
+      } catch (err) {
+        this.logger.error(
+          { err, route: this.definition.id },
+          "drain flush callback failed",
+        );
+      }
+    }
     this.logger.debug(
       { inFlight: this.inFlight.size },
       "Draining route: waiting for in-flight handlers and tasks",

@@ -251,6 +251,11 @@ export async function runPipeline(
     ? new Set(parentMap.keys())
     : new Set<string>();
 
+  // Tracks the steps that follow the currently-executing step, refreshed each
+  // loop iteration. `captureDownstream` snapshots it so a step (debounce) can
+  // release a held exchange through its downstream continuation later.
+  let currentRemaining: Step<Adapter>[] = [];
+
   // Narrow capability handed to steps. takePending implements the same
   // splice scan aggregate used to run against the raw queue, so join
   // semantics (including filter-dropped children: only survivors are
@@ -308,6 +313,45 @@ export async function runPipeline(
         failed: result.failed,
         dropped: result.dropped,
         ...(result.error !== undefined ? { error: result.error } : {}),
+      };
+    },
+    captureDownstream(): (
+      exchange: Exchange,
+    ) => Promise<{ failed: boolean; dropped: boolean }> {
+      // Snapshot the downstream steps for the CURRENT step now; the returned
+      // runner stays valid after execute() resolves because the route's
+      // executor deps are stable for the route's lifetime. Used by debounce
+      // to release a held exchange through the steps that follow it, as a
+      // detached run tracked for drain. The released exchange gets its own
+      // exchange:started / :completed pair so its lifecycle stays balanced.
+      const downstream = currentRemaining;
+      return async (releaseExchange) => {
+        const start = Date.now();
+        const correlationId = releaseExchange.headers[
+          HeadersKeys.CORRELATION_ID
+        ] as string;
+        deps.context.emit("route:exchange:started", {
+          routeId: deps.routeId,
+          exchangeId: releaseExchange.id,
+          correlationId,
+        });
+        const run = runPipeline(
+          nestedDeps(deps, downstream, { abortSignal: deps.abortSignal }),
+          releaseExchange,
+          start,
+        );
+        deps.route.trackTask(run);
+        const result = await run;
+        if (!result.failed && !result.dropped) {
+          deps.context.emit("route:exchange:completed", {
+            routeId: deps.routeId,
+            exchangeId: releaseExchange.id,
+            correlationId,
+            duration: Date.now() - start,
+            exchange: result.exchange,
+          });
+        }
+        return { failed: result.failed, dropped: result.dropped };
       };
     },
   };
@@ -372,6 +416,9 @@ export async function runPipeline(
     }
 
     const [step, ...remainingSteps] = steps;
+    // Expose the downstream continuation for a step that wants to capture it
+    // (debounce releasing a held exchange later); refreshed every iteration.
+    currentRemaining = remainingSteps;
 
     // Prefer the DSL label (e.g., "log") over the raw OperationType (e.g., "tap")
     const stepLabel = step.label ?? step.operation;

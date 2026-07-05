@@ -184,6 +184,22 @@ export interface StepContext {
     steps: Step<Adapter>[];
     exchange: Exchange;
   }): Promise<{ failed: boolean; dropped: boolean; error?: unknown }>;
+
+  /**
+   * Capture the downstream continuation for the currently-executing step:
+   * returns a runner that, when later invoked with an exchange, runs it
+   * through the steps that FOLLOW this one as a detached, route-tracked
+   * pipeline (with its own `exchange:started` / `:completed` lifecycle).
+   *
+   * Snapshot it synchronously inside `execute`; the runner stays valid after
+   * `execute` resolves. Used by `debounce` to release a held exchange after
+   * its quiet window closes without re-running the steps before it. The
+   * detached run does not re-enter the route-scope `.error()` handler, matching
+   * a fan-out path's isolation.
+   */
+  captureDownstream(): (
+    exchange: Exchange,
+  ) => Promise<{ failed: boolean; dropped: boolean }>;
 }
 
 // MessageChannel lives with channel adapter now
@@ -738,6 +754,27 @@ export interface EventDetailsMap {
   "route:operation:dedupe:duplicate": ExchangeScoped & {
     /** The derived key that was already seen. */
     key: string;
+  };
+
+  // -- Debounce --
+  /** An exchange entered the debounce window and is being held (timer armed/reset). */
+  "route:operation:debounce:held": ExchangeScoped & {
+    /** The partition key the exchange was held under, when `key` is set. */
+    key?: string;
+  };
+  /** A held exchange was superseded by a newer arrival in the same burst and dropped. */
+  "route:operation:debounce:dropped": ExchangeScoped & {
+    key?: string;
+  };
+  /** The quiet window (or `maxWaitMs` cap) elapsed; the last held exchange is released downstream. */
+  "route:operation:debounce:released": ExchangeScoped & {
+    key?: string;
+    /**
+     * Why the exchange was released: `"quiet"` when the `waitMs` window
+     * closed, `"maxWait"` when the `maxWaitMs` cap fired during continuous
+     * activity, or `"flush"` when a drain / shutdown released it early.
+     */
+    reason: "quiet" | "maxWait" | "flush";
   };
 
   // -- Agent (emitted by @routecraft/ai agent() destinations) --

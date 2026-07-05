@@ -687,6 +687,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       takePending: () => [],
       runPaths: async () => {},
       runPath: async () => ({ failed: false, dropped: false }),
+      captureDownstream: () => async () => ({ failed: false, dropped: false }),
     };
 
     const [o1, o2] = await Promise.all([
@@ -736,6 +737,7 @@ describe(".cache() step scope: dual-mode wrapper", () => {
       takePending: () => [],
       runPaths: async () => {},
       runPath: async () => ({ failed: false, dropped: false }),
+      captureDownstream: () => async () => ({ failed: false, dropped: false }),
     };
 
     const [o1, o2] = await Promise.all([

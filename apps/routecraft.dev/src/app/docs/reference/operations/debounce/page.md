@@ -1,25 +1,45 @@
 ---
 title: debounce
-titleBadges:
-  - text: planned
-    color: purple
 ---
 
 [← All operations](/docs/reference/operations) {% .lead %}
 
 ```ts
-debounce(options: { quietMs: number }): RouteBuilder<Current>
+debounce(options: { waitMs: number; key?; maxWaitMs? }): RouteBuilder<Current>
 ```
 
-Only pass exchanges after a specified quiet period with no new exchanges. Useful for handling bursts of similar events.
+Suppress bursts of exchanges, releasing only the **last** one in a burst after a quiet period. Useful when only the final state matters: file-system change batching, search-as-you-type, or collapsing a flurry of webhook retries.
 
 ```ts
-// Wait for 1 second of quiet before processing
-.debounce({ quietMs: 1000 })
-
-// Typical use: Batch file system changes
 .id('file-watcher')
 .from(file({ path: './config', watch: true }))
-.debounce({ quietMs: 500 }) // Wait for editing to finish
+.debounce({ waitMs: 500 }) // wait for editing to finish
 .process(reloadConfig)
+.to(log())
 ```
+
+Each arrival is held (not passed downstream) and resets a `waitMs` quiet timer; a newer arrival supersedes and drops the one being held. When the timer finally fires, the held exchange is released through the steps that follow `.debounce()`.
+
+## Options
+
+- **`waitMs`** (required) -- the quiet window in milliseconds. An exchange is released only after `waitMs` elapses with no newer arrival in its group.
+- **`key`** -- a selector that debounces independently per group, e.g. one window per file path: `key: (ex) => ex.body.filePath`. When omitted, the whole route shares a single window.
+- **`maxWaitMs`** -- an upper bound on how long an exchange may be held, measured from the START of its burst and never reset. It guarantees eventual release under continuous activity (otherwise a steady stream of arrivals could reset `waitMs` forever and starve the trailing edge). Must be `>= waitMs`.
+
+```ts
+// Per-path debounce with a 5s ceiling on continuous edits.
+.debounce({ waitMs: 500, key: (ex) => ex.body.filePath, maxWaitMs: 5000 })
+```
+
+## Semantics
+
+- **Trailing edge.** Only the last exchange in a burst is released; earlier ones are dropped. State is per-route (and per `key` group).
+- **Held outside the queue.** Debounce is the one operation that breaks the "process each exchange immediately" model: it holds an exchange outside the pipeline queue and re-runs it later. A released exchange runs the steps after `.debounce()` as a fresh exchange (new id, preserved correlation id) with its own `exchange:started` / `:completed` lifecycle. The detached release does not re-enter the route-scope `.error()` handler.
+- **Flush on drain / shutdown.** A pending exchange is released promptly when the route drains or shuts down (release reason `"flush"`), rather than being lost or waiting out its timer.
+- **Route scope only.** Debounce is a route-scope operation and is deliberately not available inside a fan-out path (a held exchange has no meaning inside a transient path clone).
+
+## Events
+
+- `route:operation:debounce:held` -- `{ routeId, exchangeId, correlationId, key? }`, fired when an arrival is held and the quiet timer is armed or reset.
+- `route:operation:debounce:dropped` -- `{ routeId, exchangeId, correlationId, key? }`, fired when a held exchange is superseded by a newer arrival in the same burst.
+- `route:operation:debounce:released` -- `{ routeId, exchangeId, correlationId, key?, reason }`, fired when the trailing exchange is released. `reason` is `"quiet"` (the window closed), `"maxWait"` (the cap fired during continuous activity), or `"flush"` (a drain / shutdown released it early).

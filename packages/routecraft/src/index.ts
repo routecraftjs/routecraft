@@ -143,6 +143,12 @@ export {
   type ResolvedDedupeOptions,
 } from "./operations/dedupe.ts";
 
+export {
+  DebounceStep,
+  type DebounceOptions,
+  type ResolvedDebounceOptions,
+} from "./operations/debounce.ts";
+
 export { hashExchangeBody } from "./operations/hash-body.ts";
 
 export {

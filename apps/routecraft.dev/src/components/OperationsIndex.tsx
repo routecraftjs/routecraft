@@ -233,9 +233,9 @@ const ops: Op[] = [
   {
     name: 'debounce',
     category: 'Flow Control',
-    signature: '.debounce(ms)',
-    description: 'Only pass exchanges after a quiet period.',
-    planned: true,
+    signature: '.debounce({ waitMs })',
+    description:
+      'Release only the last exchange in a burst after a quiet period.',
   },
 
   // Side Effects

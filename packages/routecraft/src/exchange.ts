@@ -57,6 +57,8 @@ export enum OperationType {
   SAMPLE = "sample",
   /** Drop exchanges whose derived key has already been seen */
   DEDUPE = "dedupe",
+  /** Hold a burst of exchanges and release only the last after a quiet period */
+  DEBOUNCE = "debounce",
   /** Short-circuit the pipeline: drop the exchange without further steps */
   HALT = "halt",
 }

@@ -204,6 +204,16 @@ A failure of the wrapped operation *inside* the deadline does not emit a timeout
 
 A suppressed duplicate also fires `route:exchange:dropped` with reason `"duplicate"`. `key` is the derived deduplication key.
 
+### Debounce operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:operation:debounce:held` | An arrival is held and the quiet timer is armed or reset | `{ routeId, exchangeId, correlationId, key? }` |
+| `route:operation:debounce:dropped` | A held exchange is superseded by a newer arrival in the same burst | `{ routeId, exchangeId, correlationId, key? }` |
+| `route:operation:debounce:released` | The trailing exchange is released downstream | `{ routeId, exchangeId, correlationId, key?, reason }` |
+
+`key` is present only when a `key` selector is configured. `reason` on release is `"quiet"` (the `waitMs` window closed), `"maxWait"` (the `maxWaitMs` cap fired during continuous activity), or `"flush"` (a drain / shutdown released it early). A released exchange runs the steps after `.debounce()` as a fresh exchange (new id, preserved correlation id) with its own `route:exchange:started` / `:completed` pair.
+
 ### Error handler operations
 
 | Event | When it fires | Details |
