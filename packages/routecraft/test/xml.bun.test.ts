@@ -160,6 +160,97 @@ describe("XML Adapter", () => {
 
       expect(errors.length).toBeGreaterThan(0);
     });
+
+    /**
+     * @case Rejects an array body in write mode
+     * @preconditions Route body is an array (no single root element)
+     * @expectedResult The exchange fails; no file is written
+     */
+    test("fails when the body is an array", async () => {
+      const filePath = path.join(tmpDir, "array.xml");
+      const errors: unknown[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("xml-write-array")
+            .error((err) => {
+              errors.push(err);
+              return undefined;
+            })
+            // A scalar source + transform so the body is genuinely an array;
+            // simple([...]) would iterate and emit each element separately.
+            .from(simple({ trigger: true }))
+            .transform(() => [{ item: 1 }, { item: 2 }])
+            .to(xml({ path: filePath })),
+        )
+        .build();
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(errors.length).toBeGreaterThan(0);
+      await expect(fsp.access(filePath)).rejects.toThrow();
+    });
+
+    /**
+     * @case Rejects a multi-root object body in write mode
+     * @preconditions Body object has two top-level element keys
+     * @expectedResult The exchange fails; no file is written
+     */
+    test("fails when the body has multiple root elements", async () => {
+      const filePath = path.join(tmpDir, "multiroot.xml");
+      const errors: unknown[] = [];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("xml-write-multiroot")
+            .error((err) => {
+              errors.push(err);
+              return undefined;
+            })
+            .from(simple({ a: { x: 1 }, b: { y: 2 } }))
+            .to(xml({ path: filePath })),
+        )
+        .build();
+
+      await t.ctx.start();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(errors.length).toBeGreaterThan(0);
+      await expect(fsp.access(filePath)).rejects.toThrow();
+    });
+
+    /**
+     * @case Allows an XML declaration alongside the single root element
+     * @preconditions Body has a "?xml" declaration key plus one element key
+     * @expectedResult File is written with the declaration and single root
+     */
+    test("allows an xml declaration with a single root", async () => {
+      const filePath = path.join(tmpDir, "declared.xml");
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("xml-write-declaration")
+            .from(
+              simple({
+                "?xml": { "@_version": "1.0", "@_encoding": "UTF-8" },
+                note: { to: "Alice" },
+              }),
+            )
+            .to(xml({ path: filePath })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fsp.readFile(filePath, "utf-8");
+      expect(written).toBe(
+        '<?xml version="1.0" encoding="UTF-8"?><note><to>Alice</to></note>',
+      );
+    });
   });
 
   describe("read mode - mid-route enrichment", () => {
@@ -283,6 +374,29 @@ describe("XML Adapter", () => {
         other: true,
         parsed: { x: { y: 1 } },
       });
+    });
+
+    /**
+     * @case isArray forces a stable array shape for a single occurrence
+     * @preconditions XML has one <item>; isArray returns true for 'item'
+     * @expectedResult The single item parses as a one-element array
+     */
+    test("isArray forces repeatable elements to arrays", async () => {
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("xml-transform-isarray")
+            .from(simple("<list><item>only</item></list>"))
+            .transform(xml({ isArray: (tag) => tag === "item" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      expect(s.received[0].body).toEqual({ list: { item: ["only"] } });
     });
 
     /**

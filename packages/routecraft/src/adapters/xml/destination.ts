@@ -56,6 +56,21 @@ export class XmlDestinationAdapter implements Destination<unknown, unknown> {
       );
     }
 
+    // An XML document has exactly one root element. The builder emits a
+    // top-level tag for every object key, so a multi-key body like
+    // { a: {...}, b: {...} } would serialise to sibling roots (<a/><b/>) and
+    // an invalid document. Keys starting with "?" are the XML declaration and
+    // processing instructions (e.g. "?xml"), which the builder emits before
+    // the root, so they are not counted as roots.
+    const rootKeys = Object.keys(exchange.body).filter(
+      (key) => !key.startsWith("?"),
+    );
+    if (rootKeys.length !== 1) {
+      throw new Error(
+        `xml adapter: write mode requires the exchange body to have exactly one root element, but found ${rootKeys.length} (${rootKeys.join(", ") || "none"}); wrap your data in a single root object`,
+      );
+    }
+
     let xmlString: string;
     try {
       xmlString = await buildXml(exchange.body, this.options);

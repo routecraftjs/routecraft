@@ -56,6 +56,23 @@ export interface XmlParseOptions {
    * `tag`). Default: false
    */
   removeNSPrefix?: boolean;
+
+  /**
+   * Force specific tags to always parse as arrays, regardless of how many
+   * times they occur. Without this, a tag that appears once parses as an
+   * object while repeated occurrences parse as an array, a well-known
+   * fast-xml-parser footgun for consumers that expect a stable shape for
+   * repeatable elements (e.g. `<items><item/></items>`). Return true for the
+   * tags you want to always be arrays.
+   *
+   * Default: undefined (fast-xml-parser's own occurrence-based heuristic)
+   */
+  isArray?: (
+    tagName: string,
+    jPath: string,
+    isLeafNode: boolean,
+    isAttribute: boolean,
+  ) => boolean;
 }
 
 /**

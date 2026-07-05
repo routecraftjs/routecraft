@@ -63,6 +63,21 @@ export async function parseXml(
     ...(options.cdataPropName !== undefined
       ? { cdataPropName: options.cdataPropName }
       : {}),
+    // Our public `isArray` types the jPath argument as a plain string (the
+    // documented common value) for DX. fast-xml-parser's own type widens that
+    // argument to a jPath-or-matcher union, so widen the param to `unknown` at
+    // the boundary to bridge the two without leaking the peer's types into our
+    // public API (which must resolve even when the peer is not installed).
+    ...(options.isArray !== undefined
+      ? {
+          isArray: options.isArray as (
+            tagName: string,
+            jPath: unknown,
+            isLeafNode: boolean,
+            isAttribute: boolean,
+          ) => boolean,
+        }
+      : {}),
   });
 
   return parser.parse(content) as XmlData;

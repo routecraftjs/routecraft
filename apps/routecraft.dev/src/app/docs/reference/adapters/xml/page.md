@@ -92,6 +92,7 @@ There is no `append` mode: appending a serialized fragment to an XML file produc
 | `parseTagValue` | `boolean` | `true` | No | Coerce tag text to number / boolean |
 | `trimValues` | `boolean` | `true` | No | Trim whitespace around values |
 | `removeNSPrefix` | `boolean` | `false` | No | Strip namespace prefixes from names |
+| `isArray` | `(tagName, jPath, isLeafNode, isAttribute) => boolean` | (occurrence-based) | No | Force matching tags to always parse as arrays. Without it a tag that appears once parses as an object and repeated occurrences parse as an array; return `true` to pin a repeatable element to a stable array shape |
 
 **File Options** (when `path` is provided): all parse options above (except `from` / `to`), plus:
 
@@ -108,7 +109,7 @@ There is no `append` mode: appending a serialized fragment to an XML file produc
 
 **Behavior:**
 - **Source**: Reads the file and emits the parsed object. Malformed XML is routed through the route's `.error()` handler by default (`onParseError: 'fail'`); `'abort'` fails the source; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
-- **Destination** (`write`, default): Builds the object body into an XML document and writes it. The body must be a plain object.
+- **Destination** (`write`, default): Builds the object body into an XML document and writes it. The body must be a plain object with exactly one root element (an optional `?xml` declaration key is allowed alongside it); arrays and multi-root objects are rejected because they would serialise to an invalid multiple-root document.
 - **Destination** (`read`): Reads, parses, and returns the object for `.enrich()` / `.to()`.
 - **Destination** (`delete`): Deletes the file (idempotent) and passes the body through unchanged.
 
