@@ -71,3 +71,36 @@ export function throwFileError(
   }
   throw new Error(`${adapter} adapter: failed to read file: ${message}`);
 }
+
+/**
+ * Throws a standardized directory-related error for an adapter.
+ * Handles ENOENT, ENOTDIR, EACCES, and generic errors. The directory
+ * sibling of {@link throwFileError}: same shape and adapter-name threading,
+ * with directory-noun wording and an extra ENOTDIR case.
+ *
+ * @internal Not exported from the package public API.
+ *
+ * @param adapter - Adapter name for the error prefix (e.g. 'directory')
+ * @param dir - The directory path that caused the error
+ * @param err - The original error
+ */
+export function throwDirectoryError(
+  adapter: string,
+  dir: string,
+  err: unknown,
+): never {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === "ENOENT") {
+    throw new Error(`${adapter} adapter: directory not found: ${dir}`);
+  }
+  if (code === "ENOTDIR") {
+    throw new Error(`${adapter} adapter: not a directory: ${dir}`);
+  }
+  if (code === "EACCES") {
+    throw new Error(
+      `${adapter} adapter: permission denied reading directory: ${dir}`,
+    );
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  throw new Error(`${adapter} adapter: failed to read directory: ${message}`);
+}

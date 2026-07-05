@@ -1,7 +1,16 @@
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
+import type { Dirent, Stats } from "node:fs";
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { DirectoryEntry, DirectoryOptions } from "./types.ts";
+import { throwDirectoryError } from "../shared/line-reader.ts";
+
+/**
+ * Max concurrent `stat` calls while resolving directory entries. Bounds the
+ * open-handle count so a huge recursive tree cannot exhaust file descriptors
+ * (EMFILE), while still overlapping the syscall latency that dominates a scan.
+ */
+const STAT_CONCURRENCY = 32;
 
 /**
  * DirectorySourceAdapter implements the Source interface for scanning a
@@ -17,7 +26,7 @@ import type { DirectoryEntry, DirectoryOptions } from "./types.ts";
  *
  * Entries are sorted by their relative path, so emission order (chunked) and
  * array order (non-chunked) are deterministic across platforms (raw `readdir`
- * order is not).
+ * order, and the concurrent stat phase below, are not).
  */
 export class DirectorySourceAdapter implements Source<
   DirectoryEntry | DirectoryEntry[]
@@ -53,50 +62,70 @@ export class DirectorySourceAdapter implements Source<
     // rather than after every entry has been emitted.
     sub.ready();
 
-    let dirents: import("node:fs").Dirent[];
+    let dirents: Dirent[];
     try {
       dirents = await fsp.readdir(dir, { withFileTypes: true, recursive });
     } catch (err) {
-      throwDirectoryError(dir, err);
+      throwDirectoryError("directory", dir, err);
     }
 
+    // Resolve each entry's stats with bounded concurrency. The results feed an
+    // in-memory array that is not emitted until the whole scan completes, so
+    // (unlike the emit() calls below) there is no backpressure reason to
+    // serialise these syscalls, and a large recursive scan is dominated by
+    // stat latency. Directory-ness is decided from the followed stats, not the
+    // Dirent, so a symlink to a directory is treated consistently for both the
+    // includeDirs filter and the emitted isDirectory field.
     const entries: DirectoryEntry[] = [];
-    for (const dirent of dirents) {
-      if (sub.signal.aborted) return;
+    let cursor = 0;
+    const resolveEntries = async (): Promise<void> => {
+      while (!sub.signal.aborted) {
+        // `cursor++` is a single synchronous step (no await between read and
+        // increment), so workers never claim the same index.
+        const index = cursor++;
+        if (index >= dirents.length) return;
+        const dirent = dirents[index];
 
-      const isDir = dirent.isDirectory();
-      if (isDir && !includeDirs) continue;
+        // Node always sets parentPath on Dirents (>= 22); fall back to the
+        // scanned dir for the non-recursive case to be safe.
+        const parent = dirent.parentPath ?? dir;
+        const fullPath = path.join(parent, dirent.name);
 
-      // Node always sets parentPath on Dirents (>= 22); fall back to the
-      // scanned dir for the non-recursive case to be safe.
-      const parent = dirent.parentPath ?? dir;
-      const fullPath = path.join(parent, dirent.name);
+        let stats: Stats;
+        try {
+          stats = await fsp.stat(fullPath);
+        } catch (err) {
+          // The entry vanished between listing and statting, or is a broken
+          // symlink. Skip it rather than failing the whole scan.
+          sub.context.logger.debug(
+            { err, path: fullPath, adapter: "directory" },
+            "directory adapter: could not stat entry; skipping",
+          );
+          continue;
+        }
 
-      let stats;
-      try {
-        stats = await fsp.stat(fullPath);
-      } catch (err) {
-        // The entry vanished between listing and statting, or is a broken
-        // symlink. Skip it rather than failing the whole scan.
-        sub.context.logger.debug(
-          { err, path: fullPath, adapter: "directory" },
-          "directory adapter: could not stat entry; skipping",
-        );
-        continue;
+        const isDirectory = stats.isDirectory();
+        if (isDirectory && !includeDirs) continue;
+
+        entries.push({
+          path: fullPath,
+          name: dirent.name,
+          dir: parent,
+          ext: path.extname(dirent.name).toLowerCase(),
+          relativePath: path.relative(dir, fullPath),
+          size: stats.size,
+          modifiedAt: stats.mtime,
+          createdAt: stats.birthtime,
+          isDirectory,
+        });
       }
-
-      entries.push({
-        path: fullPath,
-        name: dirent.name,
-        dir: parent,
-        ext: path.extname(dirent.name).toLowerCase(),
-        relativePath: path.relative(dir, fullPath),
-        size: stats.size,
-        modifiedAt: stats.mtime,
-        createdAt: stats.birthtime,
-        isDirectory: stats.isDirectory(),
-      });
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(STAT_CONCURRENCY, dirents.length) }, () =>
+        resolveEntries(),
+      ),
+    );
+    if (sub.signal.aborted) return;
 
     entries.sort((a, b) =>
       a.relativePath < b.relativePath
@@ -136,26 +165,4 @@ export class DirectorySourceAdapter implements Source<
     // Finite source: signal completion so a single-source route can finish.
     sub.complete();
   };
-}
-
-/**
- * Throws a standardized directory-related error. Maps ENOENT and ENOTDIR to
- * clearer messages and EACCES to a permission error, mirroring the file
- * adapter's `throwFileError` for filesystem boundaries.
- */
-function throwDirectoryError(dir: string, err: unknown): never {
-  const code = (err as NodeJS.ErrnoException).code;
-  if (code === "ENOENT") {
-    throw new Error(`directory adapter: directory not found: ${dir}`);
-  }
-  if (code === "ENOTDIR") {
-    throw new Error(`directory adapter: not a directory: ${dir}`);
-  }
-  if (code === "EACCES") {
-    throw new Error(
-      `directory adapter: permission denied reading directory: ${dir}`,
-    );
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  throw new Error(`directory adapter: failed to read directory: ${message}`);
 }

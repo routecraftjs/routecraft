@@ -54,7 +54,7 @@ export function directory(
  * // Get the whole listing as one body, then act on the collection
  * craft()
  *   .from(directory({ path: "./inbox" }))
- *   .transform((ex) => ex.body.filter((e) => e.ext === ".json"))
+ *   .transform((entries) => entries.filter((e) => e.ext === ".json"))
  *   .split((ex) => ex.body)
  *   .enrich(
  *     file({ path: (ex) => ex.body.path, mode: "read" }),
@@ -79,6 +79,3 @@ export function directory(
 
 // Re-export types for the public API.
 export type { DirectoryEntry, DirectoryOptions } from "./types.ts";
-
-// Re-export the class for internal use (mirrors the file/csv adapters).
-export { DirectorySourceAdapter } from "./source.ts";

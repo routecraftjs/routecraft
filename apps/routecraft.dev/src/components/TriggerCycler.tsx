@@ -13,7 +13,7 @@ const sources: Node[] = [
   { key: 'mcp', label: 'mcp', call: 'mcp()' },
   { key: 'http', label: 'http', call: "http({ path: '/brief' })" },
   { key: 'mail', label: 'mail', call: "mail('INBOX')" },
-  { key: 'file', label: 'file', call: "file('./inbox/**/*.csv')" },
+  { key: 'file', label: 'file', call: "file('./inbox/report.csv')" },
   { key: 'timer', label: 'timer', call: 'timer({ every: 60_000 })' },
 ]
 

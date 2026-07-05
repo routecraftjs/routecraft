@@ -27,7 +27,7 @@ craft()
 // Default: the whole listing as one body, act on the collection then split
 craft()
   .from(directory({ path: './inbox' }))
-  .transform((ex) => ex.body.filter((e) => e.ext === '.json'))
+  .transform((entries) => entries.filter((e) => e.ext === '.json'))
   .split((ex) => ex.body)
   .enrich(
     file({ path: (ex) => ex.body.path, mode: 'read' }),

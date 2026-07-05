@@ -359,6 +359,40 @@ describe("Directory Adapter - Source", () => {
   });
 
   /**
+   * @case A symlink pointing at a directory is skipped by default (regression)
+   * @preconditions A real subdirectory, a symlink to it, and a plain file exist
+   * @expectedResult Only the plain file is emitted; the symlinked directory,
+   *   whose type is resolved by following the link, is treated as a directory
+   *   and skipped when includeDirs is false
+   */
+  test("symlink to a directory is skipped by default", async () => {
+    await fsp.mkdir(path.join(tmpDir, "realdir"));
+    await fsp.writeFile(path.join(tmpDir, "keep.txt"), "x", "utf-8");
+    await fsp.symlink(
+      path.join(tmpDir, "realdir"),
+      path.join(tmpDir, "linkdir"),
+    );
+
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("directory-symlink-skip")
+          .from(directory({ path: tmpDir, chunked: true }))
+          .to(s),
+      )
+      .build();
+
+    await t.ctx.start();
+
+    const names = (s.received as { body: DirectoryEntry }[]).map(
+      (e) => e.body.name,
+    );
+    expect(names).toEqual(["keep.txt"]);
+  });
+
+  /**
    * @case Aborting mid-stream stops chunked emission
    * @preconditions Directory with many files; route aborts after a few
    * @expectedResult Fewer exchanges than total files are received
