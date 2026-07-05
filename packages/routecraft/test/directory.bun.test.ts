@@ -2,22 +2,22 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   craft,
-  folder,
+  directory,
   file,
   only,
-  type FolderEntry,
+  type DirectoryEntry,
 } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 
-describe("Folder Adapter - Source", () => {
+describe("Directory Adapter - Source", () => {
   let t: TestContext | undefined;
   let tmpDir: string;
 
   beforeEach(async () => {
     t = undefined;
-    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "folder-test-"));
+    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "directory-test-"));
   });
 
   afterEach(async () => {
@@ -33,7 +33,7 @@ describe("Folder Adapter - Source", () => {
   /**
    * @case Default (non-chunked) emits the whole listing as one exchange
    * @preconditions Directory with three files exists
-   * @expectedResult One exchange whose body is a sorted FolderEntry[]
+   * @expectedResult One exchange whose body is a sorted DirectoryEntry[]
    */
   test("non-chunked emits the listing as a single array exchange", async () => {
     await fsp.writeFile(path.join(tmpDir, "a.txt"), "aaa", "utf-8");
@@ -45,8 +45,8 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-array")
-          .from(folder({ path: tmpDir }))
+          .id("directory-array")
+          .from(directory({ path: tmpDir }))
           .to(s),
       )
       .build();
@@ -54,7 +54,7 @@ describe("Folder Adapter - Source", () => {
     await t.ctx.start();
 
     expect(s.received).toHaveLength(1);
-    const entries = s.received[0].body as FolderEntry[];
+    const entries = s.received[0].body as DirectoryEntry[];
     expect(entries.map((e) => e.name)).toEqual(["a.txt", "b.txt", "c.txt"]);
   });
 
@@ -73,8 +73,8 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-chunked")
-          .from(folder({ path: tmpDir, chunked: true }))
+          .id("directory-chunked")
+          .from(directory({ path: tmpDir, chunked: true }))
           .to(s),
       )
       .build();
@@ -82,7 +82,7 @@ describe("Folder Adapter - Source", () => {
     await t.ctx.start();
 
     expect(s.received).toHaveLength(3);
-    const names = (s.received as { body: FolderEntry }[]).map(
+    const names = (s.received as { body: DirectoryEntry }[]).map(
       (e) => e.body.name,
     );
     expect(names).toEqual(["a.txt", "b.txt", "c.txt"]);
@@ -102,8 +102,8 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-meta")
-          .from(folder({ path: tmpDir, chunked: true }))
+          .id("directory-meta")
+          .from(directory({ path: tmpDir, chunked: true }))
           .to(s),
       )
       .build();
@@ -111,7 +111,7 @@ describe("Folder Adapter - Source", () => {
     await t.ctx.start();
 
     expect(s.received).toHaveLength(1);
-    const entry = (s.received[0] as { body: FolderEntry }).body;
+    const entry = (s.received[0] as { body: DirectoryEntry }).body;
     expect(entry.path).toBe(filePath);
     expect(entry.name).toBe("report.JSON");
     // Extension is lowercased for predictable filtering.
@@ -138,8 +138,8 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-skip-dirs")
-          .from(folder({ path: tmpDir, chunked: true }))
+          .id("directory-skip-dirs")
+          .from(directory({ path: tmpDir, chunked: true }))
           .to(s),
       )
       .build();
@@ -147,7 +147,9 @@ describe("Folder Adapter - Source", () => {
     await t.ctx.start();
 
     expect(s.received).toHaveLength(1);
-    expect((s.received[0] as { body: FolderEntry }).body.name).toBe("file.txt");
+    expect((s.received[0] as { body: DirectoryEntry }).body.name).toBe(
+      "file.txt",
+    );
   });
 
   /**
@@ -164,8 +166,8 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-include-dirs")
-          .from(folder({ path: tmpDir, includeDirs: true, chunked: true }))
+          .id("directory-include-dirs")
+          .from(directory({ path: tmpDir, includeDirs: true, chunked: true }))
           .to(s),
       )
       .build();
@@ -173,7 +175,9 @@ describe("Folder Adapter - Source", () => {
     await t.ctx.start();
 
     expect(s.received).toHaveLength(2);
-    const entries = (s.received as { body: FolderEntry }[]).map((e) => e.body);
+    const entries = (s.received as { body: DirectoryEntry }[]).map(
+      (e) => e.body,
+    );
     const dir = entries.find((e) => e.name === "subdir");
     expect(dir?.isDirectory).toBe(true);
   });
@@ -193,15 +197,15 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-recursive")
-          .from(folder({ path: tmpDir, recursive: true, chunked: true }))
+          .id("directory-recursive")
+          .from(directory({ path: tmpDir, recursive: true, chunked: true }))
           .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    const relPaths = (s.received as { body: FolderEntry }[])
+    const relPaths = (s.received as { body: DirectoryEntry }[])
       .map((e) => e.body.relativePath)
       .sort();
     expect(relPaths).toEqual([path.join("nested", "deep.txt"), "top.txt"]);
@@ -222,15 +226,15 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-flat-only")
-          .from(folder({ path: tmpDir, chunked: true }))
+          .id("directory-flat-only")
+          .from(directory({ path: tmpDir, chunked: true }))
           .to(s),
       )
       .build();
 
     await t.ctx.start();
 
-    const names = (s.received as { body: FolderEntry }[]).map(
+    const names = (s.received as { body: DirectoryEntry }[]).map(
       (e) => e.body.name,
     );
     expect(names).toEqual(["top.txt"]);
@@ -247,8 +251,8 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-empty-array")
-          .from(folder({ path: tmpDir }))
+          .id("directory-empty-array")
+          .from(directory({ path: tmpDir }))
           .to(s),
       )
       .build();
@@ -270,8 +274,8 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-empty-chunked")
-          .from(folder({ path: tmpDir, chunked: true }))
+          .id("directory-empty-chunked")
+          .from(directory({ path: tmpDir, chunked: true }))
           .to(s),
       )
       .build();
@@ -295,12 +299,12 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-filter-read")
-          .from(folder({ path: tmpDir, chunked: true }))
+          .id("directory-filter-read")
+          .from(directory({ path: tmpDir, chunked: true }))
           .filter((ex) => ex.body.ext === ".json")
           .enrich(
             file({
-              path: (ex) => (ex.body as FolderEntry).path,
+              path: (ex) => (ex.body as DirectoryEntry).path,
               mode: "read",
             }),
             only((content: string) => content, "content"),
@@ -312,7 +316,7 @@ describe("Folder Adapter - Source", () => {
     await t.ctx.start();
 
     expect(s.received).toHaveLength(1);
-    const body = s.received[0].body as FolderEntry & { content: string };
+    const body = s.received[0].body as DirectoryEntry & { content: string };
     expect(body.name).toBe("keep.json");
     expect(body.content).toBe('{"ok":true}');
   });
@@ -331,13 +335,13 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-split-read")
-          .from(folder({ path: tmpDir }))
+          .id("directory-split-read")
+          .from(directory({ path: tmpDir }))
           .transform((entries) => entries.filter((e) => e.ext === ".json"))
           .split((ex) => ex.body)
           .enrich(
             file({
-              path: (ex) => (ex.body as FolderEntry).path,
+              path: (ex) => (ex.body as DirectoryEntry).path,
               mode: "read",
             }),
             only((content: string) => content, "content"),
@@ -349,7 +353,7 @@ describe("Folder Adapter - Source", () => {
     await t.ctx.start();
 
     expect(s.received).toHaveLength(1);
-    const body = s.received[0].body as FolderEntry & { content: string };
+    const body = s.received[0].body as DirectoryEntry & { content: string };
     expect(body.name).toBe("keep.json");
     expect(body.content).toBe('{"ok":true}');
   });
@@ -373,8 +377,8 @@ describe("Folder Adapter - Source", () => {
     t = await testContext()
       .routes(
         craft()
-          .id("folder-abort")
-          .from(folder({ path: tmpDir, chunked: true }))
+          .id("directory-abort")
+          .from(directory({ path: tmpDir, chunked: true }))
           .process(async (exchange) => {
             if (s.received.length >= 2) {
               t!.ctx.stop();
@@ -398,7 +402,7 @@ describe("Folder Adapter - Source", () => {
    */
   test("throws for non-existent directory", async () => {
     const missing = path.join(tmpDir, "does-not-exist");
-    const adapter = folder({ path: missing });
+    const adapter = directory({ path: missing });
 
     await expect(
       adapter.subscribe({

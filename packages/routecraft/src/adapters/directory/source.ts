@@ -1,12 +1,12 @@
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import type { Source, CallableSource } from "../../operations/from.ts";
-import type { FolderEntry, FolderOptions } from "./types.ts";
+import type { DirectoryEntry, DirectoryOptions } from "./types.ts";
 
 /**
- * FolderSourceAdapter implements the Source interface for scanning a
+ * DirectorySourceAdapter implements the Source interface for scanning a
  * directory. It lists the directory once and emits the result either as a
- * single exchange carrying the full {@link FolderEntry}`[]` listing (default)
+ * single exchange carrying the full {@link DirectoryEntry}`[]` listing (default)
  * or, when `chunked`, one exchange per entry.
  *
  * Filtering is intentionally not built in: list the entries and let the route
@@ -19,19 +19,21 @@ import type { FolderEntry, FolderOptions } from "./types.ts";
  * array order (non-chunked) are deterministic across platforms (raw `readdir`
  * order is not).
  */
-export class FolderSourceAdapter implements Source<
-  FolderEntry | FolderEntry[]
+export class DirectorySourceAdapter implements Source<
+  DirectoryEntry | DirectoryEntry[]
 > {
-  readonly adapterId = "routecraft.adapter.folder";
+  readonly adapterId = "routecraft.adapter.directory";
 
-  constructor(private readonly options: FolderOptions) {}
+  constructor(private readonly options: DirectoryOptions) {}
 
   /**
    * Source implementation: scan the directory and emit the listing. Reads the
    * directory once (this is a finite source). When `chunked`, emits one
-   * exchange per entry; otherwise a single exchange with the `FolderEntry[]`.
+   * exchange per entry; otherwise a single exchange with the `DirectoryEntry[]`.
    */
-  subscribe: CallableSource<FolderEntry | FolderEntry[]> = async (sub) => {
+  subscribe: CallableSource<DirectoryEntry | DirectoryEntry[]> = async (
+    sub,
+  ) => {
     if (sub.signal.aborted) return;
 
     const {
@@ -43,7 +45,7 @@ export class FolderSourceAdapter implements Source<
 
     if (typeof dir !== "string") {
       throw new Error(
-        "folder adapter: path must be a string (the folder source scans one directory)",
+        "directory adapter: path must be a string (the directory source scans one directory)",
       );
     }
 
@@ -55,10 +57,10 @@ export class FolderSourceAdapter implements Source<
     try {
       dirents = await fsp.readdir(dir, { withFileTypes: true, recursive });
     } catch (err) {
-      throwFolderError(dir, err);
+      throwDirectoryError(dir, err);
     }
 
-    const entries: FolderEntry[] = [];
+    const entries: DirectoryEntry[] = [];
     for (const dirent of dirents) {
       if (sub.signal.aborted) return;
 
@@ -77,8 +79,8 @@ export class FolderSourceAdapter implements Source<
         // The entry vanished between listing and statting, or is a broken
         // symlink. Skip it rather than failing the whole scan.
         sub.context.logger.debug(
-          { err, path: fullPath, adapter: "folder" },
-          "folder adapter: could not stat entry; skipping",
+          { err, path: fullPath, adapter: "directory" },
+          "directory adapter: could not stat entry; skipping",
         );
         continue;
       }
@@ -115,8 +117,8 @@ export class FolderSourceAdapter implements Source<
           // (matching the file/csv/jsonl chunked semantics).
           if (sub.signal.aborted) return;
           sub.context.logger.debug(
-            { path: entry.path, adapter: "folder" },
-            "folder adapter: pipeline failed for entry; continuing",
+            { path: entry.path, adapter: "directory" },
+            "directory adapter: pipeline failed for entry; continuing",
           );
         }
       }
@@ -137,23 +139,23 @@ export class FolderSourceAdapter implements Source<
 }
 
 /**
- * Throws a standardized folder-related error. Maps ENOENT and ENOTDIR to
+ * Throws a standardized directory-related error. Maps ENOENT and ENOTDIR to
  * clearer messages and EACCES to a permission error, mirroring the file
  * adapter's `throwFileError` for filesystem boundaries.
  */
-function throwFolderError(dir: string, err: unknown): never {
+function throwDirectoryError(dir: string, err: unknown): never {
   const code = (err as NodeJS.ErrnoException).code;
   if (code === "ENOENT") {
-    throw new Error(`folder adapter: directory not found: ${dir}`);
+    throw new Error(`directory adapter: directory not found: ${dir}`);
   }
   if (code === "ENOTDIR") {
-    throw new Error(`folder adapter: not a directory: ${dir}`);
+    throw new Error(`directory adapter: not a directory: ${dir}`);
   }
   if (code === "EACCES") {
     throw new Error(
-      `folder adapter: permission denied reading directory: ${dir}`,
+      `directory adapter: permission denied reading directory: ${dir}`,
     );
   }
   const message = err instanceof Error ? err.message : String(err);
-  throw new Error(`folder adapter: failed to read directory: ${message}`);
+  throw new Error(`directory adapter: failed to read directory: ${message}`);
 }

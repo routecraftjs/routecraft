@@ -1,16 +1,16 @@
 /**
- * One file (or directory) discovered while scanning a folder. This is the
- * body shape the folder source emits, one exchange per entry.
+ * One file (or directory) discovered while scanning a directory. This is the
+ * body shape the directory source emits, one exchange per entry.
  *
  * All metadata lives on the body rather than on headers: the entry is a
- * structured object, so duplicating its fields into `routecraft.folder.*`
+ * structured object, so duplicating its fields into `routecraft.directory.*`
  * headers would just be two copies of the same state. Filter and route on
  * the body directly (`.filter((ex) => ex.body.ext === ".json")`), then read
  * the content with the file adapter (`file({ path: (ex) => ex.body.path })`).
  */
-export interface FolderEntry {
+export interface DirectoryEntry {
   /**
-   * Path to the entry, resolved against the scanned folder, suitable for
+   * Path to the entry, resolved against the scanned directory, suitable for
    * handing straight to `file({ path })`. Relative when the scanned path is
    * relative, absolute when it is absolute.
    */
@@ -26,7 +26,7 @@ export interface FolderEntry {
    */
   ext: string;
   /**
-   * Path relative to the scanned folder root. Useful with `recursive: true`
+   * Path relative to the scanned directory root. Useful with `recursive: true`
    * to see where in the tree the entry lives (e.g. "sub/report.json").
    */
   relativePath: string;
@@ -44,10 +44,10 @@ export interface FolderEntry {
 }
 
 /**
- * Options for the folder source. The folder adapter is source-only: it scans
+ * Options for the directory source. The directory adapter is source-only: it scans
  * a directory and emits one exchange per entry.
  */
-export interface FolderOptions {
+export interface DirectoryOptions {
   /** Directory to scan. Must be a string (a source is not per-exchange). */
   path: string;
   /**
@@ -65,9 +65,9 @@ export interface FolderOptions {
   /**
    * Emission shape, matching the `csv` / `jsonl` convention:
    * - `false` (default): emit a single exchange whose body is the full
-   *   `FolderEntry[]` listing. Good for acting on the collection as a whole,
+   *   `DirectoryEntry[]` listing. Good for acting on the collection as a whole,
    *   counting, or deciding before you `.split()`.
-   * - `true`: emit one exchange per entry (body is a single `FolderEntry`).
+   * - `true`: emit one exchange per entry (body is a single `DirectoryEntry`).
    *   Good for filtering by metadata or name with `.filter()` and reading each
    *   file's content with the file adapter.
    */

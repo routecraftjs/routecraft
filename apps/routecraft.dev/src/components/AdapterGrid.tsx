@@ -92,7 +92,7 @@ const adapters: Adapter[] = [
     description: 'Read or write a single text file (per-line chunked reads).',
   },
   {
-    name: 'folder',
+    name: 'directory',
     category: 'File',
     roles: ['Source'],
     description:
