@@ -16,12 +16,8 @@
   "files": [
     "dist"
   ],
-  "sideEffects": [
-    "./dist/index.js",
-    "./dist/index.cjs"
-  ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && bun scripts/verify-dist.mjs esm && bun scripts/verify-dist.mjs cjs",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "prepublishOnly": "bun run build"
