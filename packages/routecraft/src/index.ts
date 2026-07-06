@@ -343,6 +343,7 @@ export { timer } from "./adapters/timer/index.ts";
 export { cron } from "./adapters/cron/index.ts";
 export { http } from "./adapters/http/index.ts";
 export { file } from "./adapters/file/index.ts";
+export { directory } from "./adapters/directory/index.ts";
 export { html } from "./adapters/html/index.ts";
 export { json } from "./adapters/json/index.ts";
 export { csv } from "./adapters/csv/index.ts";
@@ -390,6 +391,11 @@ export {
   type FileReadAdapter,
   FileHeaders,
 } from "./adapters/file/index.ts";
+export {
+  type DirectoryOptions,
+  type DirectoryAdapter,
+  type DirectoryEntry,
+} from "./adapters/directory/index.ts";
 export {
   type HtmlOptions,
   type HtmlResult,

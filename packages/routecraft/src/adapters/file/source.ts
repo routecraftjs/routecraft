@@ -3,7 +3,8 @@ import type { Source, CallableSource } from "../../operations/from.ts";
 import type { FileOptions } from "./types.ts";
 import { type ExchangeHeaders } from "../../exchange.ts";
 import { FileHeaders } from "./types.ts";
-import { forEachLine, throwFileError } from "../shared/line-reader.ts";
+import { forEachLine } from "../shared/line-reader.ts";
+import { throwFileError } from "../shared/fs-errors.ts";
 
 /**
  * FileSourceAdapter implements the Source interface for reading files.

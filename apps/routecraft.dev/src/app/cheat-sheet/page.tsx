@@ -184,6 +184,7 @@ await ctx.stop()`}</CheatCode>
 
 // File and file-format sources
 .from(file({ path: './data.txt' }))
+.from(directory({ path: './inbox' }))
 .from(json({ file: './data.json' }))
 .from(jsonl({ file: './events.jsonl' }))
 .from(csv({ file: './rows.csv' }))

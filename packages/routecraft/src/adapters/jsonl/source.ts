@@ -3,7 +3,8 @@ import type { Source, CallableSource } from "../../operations/from.ts";
 import type { JsonlFileOptions } from "./types.ts";
 import { type ExchangeHeaders } from "../../exchange.ts";
 import { JsonlHeaders } from "./types.ts";
-import { forEachLine, throwFileError } from "../shared/line-reader.ts";
+import { forEachLine } from "../shared/line-reader.ts";
+import { throwFileError } from "../shared/fs-errors.ts";
 import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
 
 /**

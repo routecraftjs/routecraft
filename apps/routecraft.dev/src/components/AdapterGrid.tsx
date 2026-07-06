@@ -89,7 +89,14 @@ const adapters: Adapter[] = [
     name: 'file',
     category: 'File',
     roles: ['Source', 'Destination'],
-    description: 'Read or write text files, with glob support.',
+    description: 'Read or write a single text file (per-line chunked reads).',
+  },
+  {
+    name: 'directory',
+    category: 'File',
+    roles: ['Source'],
+    description:
+      'Scan a directory for files, with metadata to filter on; list or per-file.',
   },
   {
     name: 'json',

@@ -13,7 +13,7 @@ const sources: Node[] = [
   { key: 'mcp', label: 'mcp', call: 'mcp()' },
   { key: 'http', label: 'http', call: "http({ path: '/brief' })" },
   { key: 'mail', label: 'mail', call: "mail('INBOX')" },
-  { key: 'file', label: 'file', call: "file('./inbox/**/*.csv')" },
+  { key: 'file', label: 'file', call: "file({ path: 'inbox.csv' })" },
   { key: 'timer', label: 'timer', call: 'timer({ every: 60_000 })' },
 ]
 
@@ -26,7 +26,7 @@ const sources: Node[] = [
 //   file   → http    (row 4 → row 5, ↘ 1)
 //   timer  → mail    (row 5 → row 2, ↗ 3)
 const destinations: Node[] = [
-  { key: 'file', label: 'file', call: "file('./brief.md')" },
+  { key: 'file', label: 'file', call: "file({ path: 'brief.md' })" },
   { key: 'log', label: 'log', call: 'log()' },
   { key: 'mail', label: 'mail', call: 'mail()' },
   { key: 'direct', label: 'direct', call: "direct('publish-brief')" },
