@@ -72,6 +72,14 @@ export function resolveDebounceOptions(
     });
   }
   const { waitMs, maxWaitMs, key } = options;
+  // Defend JS callers and widened values: a non-function `key` would pass
+  // the build and then throw a raw TypeError on every exchange. Mirrors the
+  // sticky-key validation in dispatch.
+  if (key !== undefined && typeof key !== "function") {
+    throw rcError("RC5003", undefined, {
+      message: `debounce({ key }) must be a function deriving the partition key, got ${typeof key}.`,
+    });
+  }
   if (!Number.isFinite(waitMs) || waitMs <= 0) {
     throw rcError("RC5003", undefined, {
       message: `debounce({ waitMs }) must be a finite number > 0 (milliseconds), got ${String(waitMs)}.`,

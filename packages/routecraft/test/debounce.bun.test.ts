@@ -491,6 +491,21 @@ describe("debounce operation", () => {
   });
 
   /**
+   * @case debounce rejects a non-function key at build time
+   * @preconditions A route built with .debounce({ waitMs: 100, key: "path" }) from a JS caller
+   * @expectedResult Building throws (RC5003) instead of a per-exchange TypeError at runtime
+   */
+  test("rejects a non-function key at build time", () => {
+    expect(() =>
+      craft()
+        .id("debounce-bad-key")
+        .from(items<Change>([change("a", 1)]))
+        .debounce({ waitMs: 100, key: "path" as never })
+        .build(),
+    ).toThrow(/must be a function/);
+  });
+
+  /**
    * @case debounce rejects a maxWaitMs smaller than waitMs
    * @preconditions A route built with .debounce({ waitMs: 500, maxWaitMs: 100 })
    * @expectedResult Building throws (RC5003): the cap must not fire before the window
