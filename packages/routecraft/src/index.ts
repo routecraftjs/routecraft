@@ -143,6 +143,11 @@ export {
   type ResolvedDedupeOptions,
 } from "./operations/dedupe.ts";
 
+// ResolvedDebounceOptions is @internal and deliberately NOT re-exported here
+// (DEFINITION_OF_DONE.md: no new @internal symbols on the public entry
+// point; the Resolved* exports above it are grandfathered).
+export { DebounceStep, type DebounceOptions } from "./operations/debounce.ts";
+
 export { hashExchangeBody } from "./operations/hash-body.ts";
 
 export {
@@ -157,6 +162,15 @@ export {
 } from "./operations/choice.ts";
 
 export { MulticastStep } from "./operations/multicast.ts";
+
+export {
+  DispatchStep,
+  weighted,
+  type DispatchStrategy,
+  type DispatchStrategyName,
+  type DispatchTarget,
+  type WeightedTarget,
+} from "./operations/dispatch.ts";
 
 export { type HeaderSetter } from "./operations/header.ts";
 

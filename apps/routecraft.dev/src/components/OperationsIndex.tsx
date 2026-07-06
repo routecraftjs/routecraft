@@ -212,6 +212,12 @@ const ops: Op[] = [
     description: 'Fan the exchange out to multiple paths in parallel.',
   },
   {
+    name: 'dispatch',
+    category: 'Flow Control',
+    signature: '.dispatch(strategy, ...targets)',
+    description: 'Run exactly one target, chosen by load-balancing strategy.',
+  },
+  {
     name: 'loop',
     category: 'Flow Control',
     signature: '.loop(condition)',
@@ -227,9 +233,9 @@ const ops: Op[] = [
   {
     name: 'debounce',
     category: 'Flow Control',
-    signature: '.debounce(ms)',
-    description: 'Only pass exchanges after a quiet period.',
-    planned: true,
+    signature: '.debounce({ waitMs })',
+    description:
+      'Release only the last exchange in a burst after a quiet period.',
   },
 
   // Side Effects

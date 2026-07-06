@@ -23,12 +23,20 @@ import { rcError } from "../error.ts";
  *   wrapper would have to convert a fan-out failure into a single
  *   recovered exchange, silently changing the pipeline's cardinality.
  *   Wrap the steps DOWNSTREAM of `.split()` instead.
+ * - `debounce`: holds exchanges OUTSIDE the pipeline queue across
+ *   arrivals (N in, 1 released later via a detached run), the same
+ *   shared-state / cardinality profile as aggregate. Its execute never
+ *   fails per-exchange, so a wrapper could never trigger, while a
+ *   step-scope `.error()` would falsely suggest it covers failures of
+ *   the RELEASED exchange (those run detached, bypassing wrappers).
+ *   Wrap the steps DOWNSTREAM of `.debounce()` instead.
  *
  * @internal
  */
 const NON_WRAPPABLE_OPERATIONS: ReadonlySet<OperationType> = new Set([
   OperationType.AGGREGATE,
   OperationType.SPLIT,
+  OperationType.DEBOUNCE,
 ]);
 
 /**
@@ -79,8 +87,9 @@ export abstract class WrapperStep<
       throw rcError("RC5003", undefined, {
         message:
           `Wrapper operations (.error() / .retry() / .timeout() / .cache() / .delay()) cannot wrap "${inner.operation}" steps. ` +
-          `Aggregate consumes pending siblings (shared join state) and split fans out children; both have semantics ` +
-          `that conflict with per-execution wrapper recovery. Wrap the steps downstream of split / upstream of aggregate instead.`,
+          `Aggregate consumes pending siblings (shared join state), split fans out children, and debounce holds exchanges ` +
+          `outside the queue for a later detached release; all have semantics that conflict with per-execution wrapper ` +
+          `recovery. Wrap the steps downstream of split/debounce or upstream of aggregate instead.`,
       });
     }
     this.operation = inner.operation;

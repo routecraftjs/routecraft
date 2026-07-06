@@ -53,6 +53,15 @@ import {
   type Path,
 } from "./operations/choice.ts";
 import { MulticastStep } from "./operations/multicast.ts";
+import {
+  buildDispatchStep,
+  type DispatchStrategy,
+  type DispatchTarget,
+} from "./operations/dispatch.ts";
+import {
+  buildDebounceStep,
+  type DebounceOptions,
+} from "./operations/debounce.ts";
 import { ValidateStep } from "./operations/validate.ts";
 import { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
 import {
@@ -1590,6 +1599,92 @@ export class RouteBuilder<
    */
   multicast(...paths: Path<S["body"], unknown>[]): RouteBuilder<S> {
     this.pushStep(new MulticastStep(paths.map((path) => compilePath(path))));
+    return this;
+  }
+
+  /**
+   * Run EXACTLY ONE of several targets, chosen by a load-balancing strategy.
+   * The sibling of `multicast` (all targets) and `choice` (one target by
+   * predicate); dispatch is one target by strategy.
+   *
+   * The required leading argument is the strategy; the rest are the targets.
+   * A target is a bare destination, a sub-pipeline callback `(b) => b...` (the
+   * same path surface as `multicast`), or either wrapped in {@link weighted}
+   * to co-locate a relative weight. There is no safe default strategy, so it
+   * is required:
+   *
+   * - `"failover"` -- try targets in order until one succeeds; pairs with
+   *   per-target `.retry()` / `.circuitBreaker()`.
+   * - `"round-robin"` -- cycle through targets in order.
+   * - `"weighted"` -- distribute by the `weighted()` weights (smooth weighted
+   *   round-robin, deterministic).
+   * - `{ strategy: "sticky", key }` -- exchanges sharing a `key` stick to one
+   *   target. Object form only, because `key` is required.
+   *
+   * Side-effect-only, like `multicast`: the selected target runs on its own
+   * deep clone, and the ORIGINAL exchange continues downstream unchanged, so
+   * the body type is preserved and a target's output is unconstrained. A
+   * target that throws fires its own clone's error events but does not fail
+   * the route or the dispatch step (for `failover`, a failure advances to the
+   * next target instead; if all fail, `route:operation:dispatch:exhausted`
+   * fires and the original still continues).
+   *
+   * @param strategy - The selection strategy (string or object form)
+   * @param targets - Destinations, sub-pipeline callbacks, or `weighted(...)`
+   * @returns This RouteBuilder, body type unchanged
+   *
+   * @example
+   * ```ts
+   * .dispatch("failover", primary, secondary)
+   * .dispatch("round-robin", workerA, workerB, workerC)
+   * .dispatch("weighted", weighted(stable, 95), weighted(canary, 5))
+   * .dispatch({ strategy: "sticky", key: (ex) => ex.body.userId }, a, b)
+   * ```
+   */
+  dispatch(
+    strategy: DispatchStrategy<S["body"]>,
+    ...targets: DispatchTarget<S["body"], unknown>[]
+  ): RouteBuilder<S> {
+    this.pushStep(
+      buildDispatchStep(
+        strategy as DispatchStrategy<unknown>,
+        targets as DispatchTarget<unknown, unknown>[],
+      ),
+    );
+    return this;
+  }
+
+  /**
+   * Suppress bursts of exchanges, releasing only the LAST one in a burst
+   * after a quiet period. The archetypal use is collapsing a flurry of
+   * file-change or search-as-you-type events down to their final state.
+   *
+   * Each arrival is held (not passed downstream) and resets a `waitMs` quiet
+   * timer; a newer arrival supersedes and drops the one being held. When the
+   * timer fires (or the optional `maxWaitMs` cap elapses from the burst's
+   * start, guaranteeing progress under continuous activity), the held
+   * exchange is released through the steps after `.debounce()`. An optional
+   * `key` selector debounces independently per group.
+   *
+   * Unlike the other flow-control operations, debounce holds an exchange
+   * OUTSIDE the pipeline queue and re-runs it later, so a released exchange
+   * runs the downstream steps as a fresh exchange (new id, preserved
+   * correlation id). A pending exchange is flushed on `drain()` / shutdown
+   * rather than being lost. State is per-route; it is a route-scope operation
+   * and is deliberately not available inside a fan-out path.
+   *
+   * @param options - `{ waitMs }`, plus optional `key` selector and `maxWaitMs` cap
+   * @returns This RouteBuilder, body type unchanged
+   *
+   * @example
+   * ```ts
+   * .from(file({ path: "./config", watch: true }))
+   * .debounce({ waitMs: 500 }) // wait for editing to finish
+   * .process(reloadConfig)
+   * ```
+   */
+  debounce(options: DebounceOptions<S["body"]>): RouteBuilder<S> {
+    this.pushStep(buildDebounceStep(options));
     return this;
   }
 

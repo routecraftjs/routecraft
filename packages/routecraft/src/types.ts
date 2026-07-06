@@ -170,6 +170,46 @@ export interface StepContext {
   runPaths(
     runs: ReadonlyArray<{ steps: Step<Adapter>[]; exchange: Exchange }>,
   ): Promise<void>;
+
+  /**
+   * Run ONE sub-pipeline against its own exchange as an isolated nested run,
+   * resolving with the run's outcome. Like a single {@link runPaths} entry,
+   * but the result is reported back rather than swallowed, so a caller (e.g.
+   * `dispatch`'s `failover` strategy) can decide what to do next based on
+   * whether the run failed or was deliberately dropped. A failing path still
+   * fires that exchange's default error events (the caller's route-scope
+   * `.error()` handler does NOT run for it) and never rejects this call.
+   */
+  runPath(run: { steps: Step<Adapter>[]; exchange: Exchange }): Promise<{
+    failed: boolean;
+    dropped: boolean;
+    error?: unknown;
+    /**
+     * True when an outer abort signal (a route-scope timeout abandoning the
+     * attempt) truncated the run before or while it was scheduling steps.
+     * An aborted run is neither a success nor a target failure; callers
+     * (dispatch failover) must not treat it as a handled exchange.
+     */
+    aborted?: boolean;
+  }>;
+
+  /**
+   * Capture the downstream continuation for the currently-executing step:
+   * returns a runner that, when later invoked with an exchange, runs it
+   * through the steps that FOLLOW this one as a detached, route-tracked
+   * pipeline (with its own `exchange:started` / `:completed` lifecycle).
+   *
+   * Snapshot it synchronously inside `execute`; the runner stays valid after
+   * `execute` resolves. Used by `debounce` to release a held exchange after
+   * its quiet window closes without re-running the steps before it. Because
+   * the released exchange is the route's PRIMARY flow (not a side-effect
+   * clone), the detached run honors the route-scope `.error()` handler and
+   * enforces the route's `.output()` schemas before completing, and it
+   * inherits no abort signal from the capturing attempt.
+   */
+  captureDownstream(): (
+    exchange: Exchange,
+  ) => Promise<{ failed: boolean; dropped: boolean }>;
 }
 
 // MessageChannel lives with channel adapter now
@@ -688,6 +728,25 @@ export interface EventDetailsMap {
     pathCount: number;
   };
 
+  // -- Dispatch --
+  /** A target was selected to run. For `failover`, fired once per attempt. */
+  "route:operation:dispatch:selected": ExchangeScoped & {
+    /**
+     * The strategy that made the pick. Inlines `DispatchStrategyName`
+     * (operations/dispatch.ts): this file is the dependency root and never
+     * imports from operations, so keep the two unions in sync.
+     */
+    strategy: "failover" | "round-robin" | "weighted" | "sticky";
+    /** Index of the selected target in the `.dispatch()` target list. */
+    targetIndex: number;
+  };
+  /** `failover` ran out of targets: every one failed and none handled the exchange. */
+  "route:operation:dispatch:exhausted": ExchangeScoped & {
+    strategy: "failover";
+    /** How many targets were tried before giving up. */
+    targetCount: number;
+  };
+
   // -- Sample --
   /** The sampler admitted this exchange. */
   "route:operation:sample:passed": ExchangeScoped & {
@@ -709,6 +768,27 @@ export interface EventDetailsMap {
   "route:operation:dedupe:duplicate": ExchangeScoped & {
     /** The derived key that was already seen. */
     key: string;
+  };
+
+  // -- Debounce --
+  /** An exchange entered the debounce window and is being held (timer armed/reset). */
+  "route:operation:debounce:held": ExchangeScoped & {
+    /** The partition key the exchange was held under, when `key` is set. */
+    key?: string;
+  };
+  /** A held exchange was superseded by a newer arrival in the same burst and dropped. */
+  "route:operation:debounce:dropped": ExchangeScoped & {
+    key?: string;
+  };
+  /** The quiet window (or `maxWaitMs` cap) elapsed; the last held exchange is released downstream. */
+  "route:operation:debounce:released": ExchangeScoped & {
+    key?: string;
+    /**
+     * Why the exchange was released: `"quiet"` when the `waitMs` window
+     * closed, `"maxWait"` when the `maxWaitMs` cap fired during continuous
+     * activity, or `"flush"` when a drain / shutdown released it early.
+     */
+    reason: "quiet" | "maxWait" | "flush";
   };
 
   // -- Agent (emitted by @routecraft/ai agent() destinations) --

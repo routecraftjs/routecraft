@@ -177,6 +177,15 @@ A failure of the wrapped operation *inside* the deadline does not emit a timeout
 
 `pathCount` is the number of paths the exchange was fanned out to. `started` and `stopped` always pair: every `started` is followed by a `stopped` (via `try`/`finally`), even when a path fails or the multicast has zero paths (`pathCount: 0`).
 
+### Dispatch operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:operation:dispatch:selected` | A target was chosen to run (for `failover`, once per attempt) | `{ routeId, exchangeId, correlationId, strategy, targetIndex }` |
+| `route:operation:dispatch:exhausted` | `failover` ran out of targets and none handled the exchange | `{ routeId, exchangeId, correlationId, strategy: "failover", targetCount }` |
+
+`strategy` is the strategy that made the pick (`"failover"`, `"round-robin"`, `"weighted"`, or `"sticky"`) and `targetIndex` is the position of the selected target in the `.dispatch()` list. A target failure stays isolated to its own clone's error events; `dispatch:exhausted` is the signal that a `failover` chain found no healthy target.
+
 ### Sample operations
 
 | Event | When it fires | Details |
@@ -194,6 +203,16 @@ A failure of the wrapped operation *inside* the deadline does not emit a timeout
 | `route:operation:dedupe:duplicate` | A duplicate key was suppressed | `{ routeId, exchangeId, correlationId, key }` |
 
 A suppressed duplicate also fires `route:exchange:dropped` with reason `"duplicate"`. `key` is the derived deduplication key.
+
+### Debounce operations
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `route:operation:debounce:held` | An arrival is held and the quiet timer is armed or reset | `{ routeId, exchangeId, correlationId, key? }` |
+| `route:operation:debounce:dropped` | A held exchange is superseded by a newer arrival in the same burst | `{ routeId, exchangeId, correlationId, key? }` |
+| `route:operation:debounce:released` | The trailing exchange is released downstream | `{ routeId, exchangeId, correlationId, key?, reason }` |
+
+`key` is present only when a `key` selector is configured. `reason` on release is `"quiet"` (the `waitMs` window closed), `"maxWait"` (the `maxWaitMs` cap fired during continuous activity), or `"flush"` (a drain / shutdown released it early). A released exchange runs the steps after `.debounce()` as a fresh exchange (new id, preserved correlation id) with its own `route:exchange:started` / `:completed` pair. Every arrival's own id terminates in `route:exchange:dropped` with reason `"debounced"`: superseded arrivals when replaced, the absorbed trailing arrival at release time.
 
 ### Error handler operations
 

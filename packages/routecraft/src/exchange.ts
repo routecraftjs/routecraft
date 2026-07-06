@@ -45,6 +45,8 @@ export enum OperationType {
   CHOICE = "choice",
   /** Fan the exchange out to multiple independent paths in parallel */
   MULTICAST = "multicast",
+  /** Run exactly one of several targets, chosen by load-balancing strategy */
+  DISPATCH = "dispatch",
   /** Rate limit an operation, pacing exchanges that exceed the rate */
   THROTTLE = "throttle",
   /** Fast-fail an operation while a downstream is known to be failing */
@@ -55,6 +57,8 @@ export enum OperationType {
   SAMPLE = "sample",
   /** Drop exchanges whose derived key has already been seen */
   DEDUPE = "dedupe",
+  /** Hold a burst of exchanges and release only the last after a quiet period */
+  DEBOUNCE = "debounce",
   /** Short-circuit the pipeline: drop the exchange without further steps */
   HALT = "halt",
 }
