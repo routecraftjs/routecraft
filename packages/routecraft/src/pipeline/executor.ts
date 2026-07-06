@@ -838,82 +838,93 @@ function makeDownstreamRunner(
   deps: ExecutorDeps,
   downstream: Step<Adapter>[],
 ): (exchange: Exchange) => Promise<{ failed: boolean; dropped: boolean }> {
-  return async (releaseExchange) => {
-    const start = Date.now();
-    const correlationId = releaseExchange.headers[
-      HeadersKeys.CORRELATION_ID
-    ] as string;
-    deps.context.emit("route:exchange:started", {
-      routeId: deps.routeId,
-      exchangeId: releaseExchange.id,
-      correlationId,
-    });
-    const routeDefinition = deps.route.definition;
-    const nested: ExecutorDeps = {
-      routeId: deps.routeId,
-      context: deps.context,
-      route: deps.route,
-      buildForward: () => deps.buildForward(),
-      definition: {
-        preParseFilters: [],
-        postParseFilters: [],
-        steps: downstream,
-        postFromFilters: [],
-        ...(routeDefinition.errorHandler
-          ? { errorHandler: routeDefinition.errorHandler }
-          : {}),
-      },
-    };
-    const run = runPipeline(nested, releaseExchange, start);
-    deps.route.trackTask(run);
-    let result = await run;
-
-    // Mirror DefaultRoute.handler: the released exchange carries the route's
-    // final output, so enforce `.output()` schemas before declaring
-    // completion. A validation failure takes the same
-    // error-handler-or-failed path as a thrown step.
-    if (!result.failed && !result.dropped) {
-      const outputSchemas = routeDefinition.discovery?.output;
-      if (outputSchemas?.body || outputSchemas?.headers) {
-        const validationDeps: ValidationDeps = {
-          routeId: deps.routeId,
-          context: deps.context,
-          logger: deps.route.logger,
-          route: deps.route,
-          buildForward: () => deps.buildForward(),
-          ...(routeDefinition.errorHandler
-            ? { errorHandler: routeDefinition.errorHandler }
-            : {}),
-        };
-        try {
-          const validated = await applyOutputValidation(
-            validationDeps,
-            result.exchange,
-            outputSchemas,
-          );
-          result = { ...result, exchange: validated };
-        } catch (err) {
-          result = await handleOutputValidationFailure(
-            validationDeps,
-            result.exchange,
-            err,
-            start,
-            outputSchemas,
-          );
-        }
-      }
-    }
-
-    if (!result.failed && !result.dropped) {
-      deps.context.emit("route:exchange:completed", {
+  return (releaseExchange) => {
+    const release = (async (): Promise<{
+      failed: boolean;
+      dropped: boolean;
+    }> => {
+      const start = Date.now();
+      const correlationId = releaseExchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      deps.context.emit("route:exchange:started", {
         routeId: deps.routeId,
         exchangeId: releaseExchange.id,
         correlationId,
-        duration: Date.now() - start,
-        exchange: result.exchange,
       });
-    }
-    return { failed: result.failed, dropped: result.dropped };
+      const routeDefinition = deps.route.definition;
+      const nested: ExecutorDeps = {
+        routeId: deps.routeId,
+        context: deps.context,
+        route: deps.route,
+        buildForward: () => deps.buildForward(),
+        definition: {
+          preParseFilters: [],
+          postParseFilters: [],
+          steps: downstream,
+          postFromFilters: [],
+          ...(routeDefinition.errorHandler
+            ? { errorHandler: routeDefinition.errorHandler }
+            : {}),
+        },
+      };
+      let result = await runPipeline(nested, releaseExchange, start);
+
+      // Mirror DefaultRoute.handler: the released exchange carries the route's
+      // final output, so enforce `.output()` schemas before declaring
+      // completion. A validation failure takes the same
+      // error-handler-or-failed path as a thrown step.
+      if (!result.failed && !result.dropped) {
+        const outputSchemas = routeDefinition.discovery?.output;
+        if (outputSchemas?.body || outputSchemas?.headers) {
+          const validationDeps: ValidationDeps = {
+            routeId: deps.routeId,
+            context: deps.context,
+            logger: deps.route.logger,
+            route: deps.route,
+            buildForward: () => deps.buildForward(),
+            ...(routeDefinition.errorHandler
+              ? { errorHandler: routeDefinition.errorHandler }
+              : {}),
+          };
+          try {
+            const validated = await applyOutputValidation(
+              validationDeps,
+              result.exchange,
+              outputSchemas,
+            );
+            result = { ...result, exchange: validated };
+          } catch (err) {
+            result = await handleOutputValidationFailure(
+              validationDeps,
+              result.exchange,
+              err,
+              start,
+              outputSchemas,
+            );
+          }
+        }
+      }
+
+      if (!result.failed && !result.dropped) {
+        deps.context.emit("route:exchange:completed", {
+          routeId: deps.routeId,
+          exchangeId: releaseExchange.id,
+          correlationId,
+          duration: Date.now() - start,
+          exchange: result.exchange,
+        });
+      }
+      return { failed: result.failed, dropped: result.dropped };
+    })();
+    // Track the ENTIRE release flow (pipeline, output validation, and the
+    // completion emit), not just the pipeline promise: a caller that does not
+    // itself await the runner to completion (debounce's settle latch does,
+    // but the contract must not depend on the caller) would otherwise let
+    // drain() return between the pipeline settling and the validation /
+    // completed emit finishing.
+    deps.route.trackTask(release);
+    return release;
   };
 }
 
