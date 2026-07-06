@@ -1,4 +1,4 @@
-import { type Adapter, type Step, type StepOutcome } from "../types.ts";
+import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,

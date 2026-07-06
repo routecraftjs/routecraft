@@ -13,11 +13,7 @@ import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
 import { EventBus } from "./event-bus.ts";
 
-import {
-  type EventHandler,
-  type EventName,
-  type EventPayload,
-} from "./types.ts";
+import type { EventHandler, EventName, EventPayload } from "./types.ts";
 
 /**
  * Store key for runner-provided argv tokens.

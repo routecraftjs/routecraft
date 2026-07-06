@@ -14,7 +14,7 @@ import {
   type OnParseError,
   PARSE_DROPPED_REASON,
 } from "../adapters/shared/parse.ts";
-import { type Adapter, type Step } from "../types.ts";
+import type { Adapter, Step } from "../types.ts";
 import {
   ThrottleController,
   throttleEmitHooks,

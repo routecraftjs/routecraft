@@ -1,4 +1,4 @@
-import { type CraftPlugin } from "../../context";
+import type { CraftPlugin } from "../../context";
 import { rcError } from "../../error";
 import type { Source, Subscription } from "../../operations/from";
 import {

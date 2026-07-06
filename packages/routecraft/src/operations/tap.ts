@@ -1,4 +1,4 @@
-import { type Step, type StepOutcome } from "../types.ts";
+import type { Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -7,7 +7,7 @@ import {
   getExchangeRoute,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import { type Destination, type CallableDestination } from "./to.ts";
+import type { Destination, CallableDestination } from "./to.ts";
 import {
   resolveAdapterOverride,
   invokeSendOverride,

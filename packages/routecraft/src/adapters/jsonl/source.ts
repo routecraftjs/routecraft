@@ -1,7 +1,7 @@
 import * as fsp from "node:fs/promises";
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { JsonlFileOptions } from "./types.ts";
-import { type ExchangeHeaders } from "../../exchange.ts";
+import type { ExchangeHeaders } from "../../exchange.ts";
 import { JsonlHeaders } from "./types.ts";
 import { forEachLine } from "../shared/line-reader.ts";
 import { throwFileError } from "../shared/fs-errors.ts";

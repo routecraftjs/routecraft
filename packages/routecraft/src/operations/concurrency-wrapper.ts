@@ -1,5 +1,5 @@
 import { LRUCache } from "lru-cache";
-import { type Exchange } from "../exchange.ts";
+import type { Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { CraftContext } from "../context.ts";

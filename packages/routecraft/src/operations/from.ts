@@ -1,7 +1,7 @@
-import { type CraftContext } from "../context.ts";
-import { type Exchange } from "../exchange.ts";
-import { type RouteDiscovery } from "../route.ts";
-import { type Adapter, type Message } from "../types.ts";
+import type { CraftContext } from "../context.ts";
+import type { Exchange } from "../exchange.ts";
+import type { RouteDiscovery } from "../route.ts";
+import type { Adapter, Message } from "../types.ts";
 
 /**
  * Metadata the engine passes to a source adapter at subscribe time.

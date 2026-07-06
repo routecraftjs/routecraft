@@ -1,5 +1,5 @@
-import { type Destination } from "../../operations/to";
-import { type Exchange } from "../../exchange";
+import type { Destination } from "../../operations/to";
+import type { Exchange } from "../../exchange";
 import type { StepSignalContext } from "../../types.ts";
 import type { HttpClientOptions, HttpResult, QueryParams } from "./types";
 

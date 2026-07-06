@@ -1,5 +1,5 @@
-import { type Destination } from "../../operations/to";
-import { type Exchange } from "../../exchange";
+import type { Destination } from "../../operations/to";
+import type { Exchange } from "../../exchange";
 import type { LogLevel, LogOptions } from "./types";
 
 const DEFAULT_LEVEL: LogLevel = "info";

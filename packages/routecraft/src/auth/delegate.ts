@@ -1,11 +1,7 @@
 import { rcError } from "../error.ts";
 import { authenticate, type PrincipalClaims } from "./authenticate.ts";
 import { isAuthentic, markAuthentic } from "./authentic.ts";
-import {
-  type ActorMatcher,
-  type Principal,
-  type PrincipalProfile,
-} from "./types.ts";
+import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
 
 /**
  * Options accepted by {@link delegate}.

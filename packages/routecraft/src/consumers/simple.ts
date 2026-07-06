@@ -1,12 +1,12 @@
 import { CraftContext } from "../context.ts";
-import { type RouteDefinition } from "../route.ts";
-import {
-  type ProcessingQueue,
-  type Message,
-  type Consumer,
-  type ConsumerDeps,
+import type { RouteDefinition } from "../route.ts";
+import type {
+  ProcessingQueue,
+  Message,
+  Consumer,
+  ConsumerDeps,
 } from "../types.ts";
-import { type Exchange } from "../exchange.ts";
+import type { Exchange } from "../exchange.ts";
 
 export class SimpleConsumer implements Consumer<undefined> {
   public readonly context: CraftContext;

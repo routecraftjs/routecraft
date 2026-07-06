@@ -1,13 +1,9 @@
-import { type Exchange } from "../exchange.ts";
+import type { Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import { type CallableValidator } from "../operations/validate.ts";
+import type { CallableValidator } from "../operations/validate.ts";
 import { isAuthentic } from "./authentic.ts";
 import { actorMatches } from "./delegate.ts";
-import {
-  type ActorMatcher,
-  type Principal,
-  type PrincipalProfile,
-} from "./types.ts";
+import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
 
 /**
  * Machine-readable detail attached to an `RC5038` error's cause, naming

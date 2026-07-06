@@ -1,11 +1,11 @@
-import { type Adapter, type Step, type StepOutcome } from "../types.ts";
+import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
   DefaultExchange,
   HeadersKeys,
 } from "../exchange.ts";
-import { type PrincipalClaims } from "../auth/authenticate.ts";
+import type { PrincipalClaims } from "../auth/authenticate.ts";
 import { delegate, type DelegateOptions } from "../auth/delegate.ts";
 import { rcError } from "../error.ts";
 

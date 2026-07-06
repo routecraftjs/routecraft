@@ -1,4 +1,4 @@
-import { type CraftContext, type CraftPlugin } from "../../context";
+import type { CraftContext, CraftPlugin } from "../../context";
 import { rcError } from "../../error";
 import type { HttpPluginOptions } from "../../adapters/http/types";
 import {

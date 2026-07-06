@@ -12,7 +12,7 @@ import {
   getExchangeContext,
   DefaultExchange,
 } from "../exchange.ts";
-import { type Destination, type CallableDestination } from "./to.ts";
+import type { Destination, CallableDestination } from "./to.ts";
 import {
   resolveAdapterOverride,
   invokeSendOverride,

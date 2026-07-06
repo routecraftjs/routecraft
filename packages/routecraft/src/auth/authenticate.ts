@@ -1,6 +1,6 @@
 import { rcError } from "../error.ts";
 import { markAuthentic } from "./authentic.ts";
-import { type Principal } from "./types.ts";
+import type { Principal } from "./types.ts";
 
 /**
  * Identity claims accepted by {@link authenticate}. Derived from

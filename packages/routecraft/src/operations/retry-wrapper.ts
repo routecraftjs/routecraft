@@ -1,4 +1,4 @@
-import { type Exchange } from "../exchange.ts";
+import type { Exchange } from "../exchange.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";

@@ -1,4 +1,4 @@
-import { type Source, type Subscription } from "../../operations/from";
+import type { Source, Subscription } from "../../operations/from";
 
 export class SimpleSourceAdapter<T = unknown> implements Source<T> {
   readonly adapterId = "routecraft.adapter.simple";

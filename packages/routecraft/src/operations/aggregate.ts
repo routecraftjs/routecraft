@@ -1,9 +1,4 @@
-import {
-  type Adapter,
-  type Step,
-  type StepContext,
-  type StepOutcome,
-} from "../types.ts";
+import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import {
   type Exchange,
   type ExchangeHeaders,
