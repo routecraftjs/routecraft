@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { testContext, spy, type TestContext } from "@routecraft/testing";
+import {
+  testContext,
+  testSubscription,
+  spy,
+  type TestContext,
+} from "@routecraft/testing";
 import {
   craft,
   directory,
@@ -438,15 +443,12 @@ describe("Directory Adapter - Source", () => {
     const missing = path.join(tmpDir, "does-not-exist");
     const adapter = directory({ path: missing });
 
+    t = await testContext().build();
+
     await expect(
-      adapter.subscribe({
-        context: {} as never,
-        signal: new AbortController().signal,
-        meta: { routeId: "test" },
-        ready: () => {},
-        complete: () => {},
-        emit: async () => ({}) as never,
-      }),
+      adapter.subscribe(
+        testSubscription({ context: t.ctx, handler: () => undefined }),
+      ),
     ).rejects.toThrow(/directory not found/);
   });
 });

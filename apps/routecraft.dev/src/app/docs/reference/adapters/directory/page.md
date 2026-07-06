@@ -61,10 +61,12 @@ craft()
 
 **Metadata lives on the body, not headers:** the entry is already a structured object, so its fields are not duplicated into `routecraft.directory.*` headers. Filter and route on the body directly. This differs from the file adapter's chunked mode, whose body is a bare line string and so carries its line number and path on headers.
 
-**Deterministic order:** entries are sorted by `relativePath`, so emission order (chunked) and array order (non-chunked) are stable across platforms (raw directory listing order is not). An empty directory emits one exchange with an empty array in the default shape, and nothing in chunked mode.
+**Deterministic order:** entries are sorted by `relativePath` with separators normalized to `/`, so emission order (chunked) and array order (non-chunked) are stable and identical across platforms (raw directory listing order is not). An empty directory emits one exchange with an empty array in the default shape, and nothing in chunked mode.
 
 **Files only by default:** directories are skipped unless `includeDirs: true`. With `recursive: true` the scan still descends into subdirectories regardless of `includeDirs`; that flag only controls whether the directories themselves are emitted as exchanges.
 
-**Robust scanning:** an entry that vanishes between listing and reading its metadata (or a broken symlink) is skipped with a debug log rather than failing the whole scan. A missing or unreadable directory throws (`directory not found`, `not a directory`, or `permission denied`).
+**Symlinks are followed:** entry types and metadata come from the target, not the link. A symlink to a directory is treated as a directory (skipped unless `includeDirs`), a symlink to a file is emitted with the target's `size` and `modifiedAt`, and a broken symlink is skipped.
+
+**Robust scanning:** an entry that vanishes between listing and reading its metadata (or a broken symlink) is skipped with a debug log rather than failing the whole scan; any other per-entry failure (for example an unreadable entry) is also skipped but logged as a warning, since the listing is incomplete. A missing or unreadable directory throws (`directory not found`, `not a directory`, or `permission denied`).
 
 **Exported symbols:** `directory`; types `DirectoryAdapter`, `DirectoryOptions`, `DirectoryEntry`

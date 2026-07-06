@@ -13,13 +13,14 @@ function ref(name: string) {
 const columns: Column[] = [
   {
     label: 'Sources',
-    count: 8,
+    count: 9,
     items: [
       ref('cron'),
       ref('http'),
       ref('mcp'),
       ref('mail'),
       ref('file'),
+      ref('directory'),
       ref('direct'),
       ref('simple'),
       ref('timer'),

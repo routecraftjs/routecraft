@@ -9,7 +9,7 @@ import { type ExchangeHeaders } from "../../exchange.ts";
 import { CsvHeaders } from "./types.ts";
 import { file } from "../file/index.ts";
 import { ensurePapaparse, parseCsv } from "./shared.ts";
-import { throwFileError } from "../shared/line-reader.ts";
+import { throwFileError } from "../shared/fs-errors.ts";
 import {
   DEFAULT_ON_PARSE_ERROR,
   isParseError,

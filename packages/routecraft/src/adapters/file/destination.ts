@@ -2,7 +2,7 @@ import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import type { Destination, CallableDestination } from "../../operations/to.ts";
 import type { FileOptions } from "./types.ts";
-import { throwFileError } from "../shared/line-reader.ts";
+import { throwFileError } from "../shared/fs-errors.ts";
 
 /**
  * FileDestinationAdapter implements the Destination interface for file I/O.

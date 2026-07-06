@@ -31,7 +31,7 @@ const pairs: Pair[] = [
     triggerLabel: 'webhook',
     destLabel: 'file',
     from: "http({ path: '/brief' })",
-    to: "file('./brief.md')",
+    to: "file({ path: './brief.md' })",
   },
   {
     key: 'mail',

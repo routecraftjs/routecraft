@@ -3,7 +3,7 @@ import * as path from "node:path";
 import type { Dirent, Stats } from "node:fs";
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { DirectoryEntry, DirectoryOptions } from "./types.ts";
-import { throwDirectoryError } from "../shared/line-reader.ts";
+import { throwDirectoryError } from "../shared/fs-errors.ts";
 
 /**
  * Max concurrent `stat` calls while resolving directory entries. Bounds the
@@ -24,9 +24,14 @@ const STAT_CONCURRENCY = 32;
  * => ex.body.path })`). This keeps "find files" and "decide which ones" as
  * separate, composable steps.
  *
- * Entries are sorted by their relative path, so emission order (chunked) and
- * array order (non-chunked) are deterministic across platforms (raw `readdir`
- * order, and the concurrent stat phase below, are not).
+ * Entries are sorted by their relative path with separators normalized to
+ * `/`, so emission order (chunked) and array order (non-chunked) are
+ * deterministic and identical across platforms (raw `readdir` order, the
+ * concurrent stat phase below, and a raw sort on OS-separator paths are not).
+ *
+ * Symlinks are followed (`stat`): a symlink to a directory is treated as a
+ * directory (skipped unless `includeDirs`), a symlink to a file is emitted
+ * with the target's metadata, and a broken symlink is skipped.
  */
 export class DirectorySourceAdapter implements Source<
   DirectoryEntry | DirectoryEntry[]
@@ -86,6 +91,12 @@ export class DirectorySourceAdapter implements Source<
         if (index >= dirents.length) return;
         const dirent = dirents[index];
 
+        // Skip plain directories before paying for a stat. Dirent type
+        // checks reflect lstat semantics, so isDirectory() is false for a
+        // symlink pointing at a directory; those fall through to the
+        // followed stat below and are filtered by the post-stat check.
+        if (!includeDirs && dirent.isDirectory()) continue;
+
         // Node always sets parentPath on Dirents (>= 22); fall back to the
         // scanned dir for the non-recursive case to be safe.
         const parent = dirent.parentPath ?? dir;
@@ -95,12 +106,23 @@ export class DirectorySourceAdapter implements Source<
         try {
           stats = await fsp.stat(fullPath);
         } catch (err) {
-          // The entry vanished between listing and statting, or is a broken
-          // symlink. Skip it rather than failing the whole scan.
-          sub.context.logger.debug(
-            { err, path: fullPath, adapter: "directory" },
-            "directory adapter: could not stat entry; skipping",
-          );
+          // ENOENT means the entry vanished between listing and statting,
+          // or is a broken symlink: expected churn, skip at debug. Any
+          // other failure (EACCES, EMFILE, ELOOP) also skips the entry so
+          // one bad node cannot fail the whole scan, but warns, because
+          // the listing is now silently incomplete otherwise.
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === "ENOENT") {
+            sub.context.logger.debug(
+              { err, path: fullPath, adapter: "directory" },
+              "directory adapter: entry vanished or broken symlink; skipping",
+            );
+          } else {
+            sub.context.logger.warn(
+              { err, path: fullPath, adapter: "directory" },
+              "directory adapter: could not stat entry; listing is incomplete",
+            );
+          }
           continue;
         }
 
@@ -127,13 +149,19 @@ export class DirectorySourceAdapter implements Source<
     );
     if (sub.signal.aborted) return;
 
-    entries.sort((a, b) =>
-      a.relativePath < b.relativePath
-        ? -1
-        : a.relativePath > b.relativePath
-          ? 1
-          : 0,
-    );
+    // Sort on a separator-normalized key so the order is identical across
+    // platforms: a raw sort on relativePath would diverge on Windows, where
+    // the backslash separator (0x5C) sorts after characters that `/` (0x2F)
+    // sorts before (digits, uppercase letters).
+    const sortKey = (e: DirectoryEntry): string =>
+      path.sep === "/"
+        ? e.relativePath
+        : e.relativePath.split(path.sep).join("/");
+    entries.sort((a, b) => {
+      const ka = sortKey(a);
+      const kb = sortKey(b);
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
 
     if (chunked) {
       for (const entry of entries) {
@@ -158,7 +186,13 @@ export class DirectorySourceAdapter implements Source<
       try {
         await sub.emit({ message: entries });
       } catch {
-        // Exchange error already logged by the route pipeline.
+        // Exchange error already logged by the route pipeline; mirror the
+        // chunked branch's debug line so the adapter is not silent when
+        // its only exchange fails.
+        sub.context.logger.debug(
+          { path: dir, adapter: "directory" },
+          "directory adapter: pipeline failed for listing exchange",
+        );
       }
     }
 
