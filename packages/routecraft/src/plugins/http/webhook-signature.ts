@@ -1,4 +1,11 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
+import { timingSafeStringEqual } from "../../auth/timing-safe";
+
+const SCHEMES = [
+  "hmac-sha256-hex",
+  "hmac-sha1-hex",
+  "stripe-timestamped",
+] as const;
 
 /**
  * Signature schemes supported by the built-in webhook verifier.
@@ -13,10 +20,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  *   timestamp must be within `toleranceSec` of the server clock, which
  *   bounds replay of captured deliveries.
  */
-export type HttpWebhookSignatureScheme =
-  | "hmac-sha256-hex"
-  | "hmac-sha1-hex"
-  | "stripe-timestamped";
+export type HttpWebhookSignatureScheme = (typeof SCHEMES)[number];
 
 /**
  * Declarative webhook-signature verification for `http({...})` sources.
@@ -66,13 +70,20 @@ export type HttpWebhookSignatureResult =
   | { ok: true }
   | { ok: false; reason: HttpWebhookSignatureRejection };
 
-const SCHEMES: ReadonlySet<string> = new Set([
-  "hmac-sha256-hex",
-  "hmac-sha1-hex",
-  "stripe-timestamped",
-] satisfies HttpWebhookSignatureScheme[]);
-
 const DEFAULT_TOLERANCE_SEC = 300;
+
+/**
+ * RFC 7230 header-name token. `Headers.get()` throws a TypeError on names
+ * outside this set, so an invalid name must be rejected at construction
+ * rather than exploding at the first delivery.
+ */
+const HEADER_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+/** Fixed hex-digest lengths per scheme, used to reject malformed candidates before hashing. */
+const HEX_DIGEST_LENGTH = {
+  "hmac-sha256-hex": 64,
+  "hmac-sha1-hex": 40,
+} as const;
 
 /**
  * Validate a signature options object at construction time. Returns an
@@ -86,14 +97,17 @@ export function invalidSignatureOptionsReason(
   if (typeof options !== "object" || options === null) {
     return `invalid signature options ${JSON.stringify(options)}. Pass { header, secret, scheme }.`;
   }
-  if (typeof options.header !== "string" || options.header.trim() === "") {
-    return `invalid signature.header ${JSON.stringify(options.header)}. Pass the request header name carrying the signature.`;
+  if (
+    typeof options.header !== "string" ||
+    !HEADER_TOKEN.test(options.header)
+  ) {
+    return `invalid signature.header ${JSON.stringify(options.header)}. Pass a legal HTTP header name (RFC 7230 token, e.g. "x-hub-signature-256").`;
   }
   if (typeof options.secret !== "string" || options.secret === "") {
     return "invalid signature.secret. Pass the provider's non-empty signing secret.";
   }
-  if (!SCHEMES.has(options.scheme)) {
-    return `invalid signature.scheme ${JSON.stringify(options.scheme)}. Allowed: "hmac-sha256-hex", "hmac-sha1-hex", "stripe-timestamped".`;
+  if (!SCHEMES.includes(options.scheme)) {
+    return `invalid signature.scheme ${JSON.stringify(options.scheme)}. Allowed: ${SCHEMES.map((s) => `"${s}"`).join(", ")}.`;
   }
   if (options.prefix !== undefined && typeof options.prefix !== "string") {
     return `invalid signature.prefix ${JSON.stringify(options.prefix)}. Pass a string (e.g. "sha256=").`;
@@ -112,11 +126,14 @@ export function invalidSignatureOptionsReason(
 /**
  * Verify a webhook signature against the raw request bytes.
  *
- * All comparisons are timing-safe: candidate and expected digests are
- * compared via `timingSafeEqual` behind an explicit length guard (a length
- * mismatch is an ordinary rejection, not an exception), mirroring the JWT
- * HMAC validator. The verifier never throws for untrusted input; every
- * failure mode maps to a bounded {@link HttpWebhookSignatureRejection}.
+ * All comparisons are timing-safe via the shared {@link timingSafeStringEqual}
+ * (length-guarded `timingSafeEqual`, also used by the JWT HMAC validator).
+ * Hex comparison is case-insensitive: providers disagree on digest casing
+ * and hex case carries no information. Candidates whose length cannot match
+ * the scheme's digest are rejected before any HMAC is computed, so floods of
+ * malformed signatures do not pay a full-body hash. The verifier never
+ * throws for untrusted input; every failure mode maps to a bounded
+ * {@link HttpWebhookSignatureRejection}.
  */
 export function verifyWebhookSignature(
   rawBody: Uint8Array,
@@ -138,12 +155,15 @@ export function verifyWebhookSignature(
     }
     candidate = candidate.slice(options.prefix.length);
   }
+  if (candidate.length !== HEX_DIGEST_LENGTH[options.scheme]) {
+    return { ok: false, reason: "invalid signature" };
+  }
 
   const digest = options.scheme === "hmac-sha256-hex" ? "sha256" : "sha1";
   const expected = createHmac(digest, options.secret)
     .update(rawBody)
     .digest("hex");
-  return hexEqualsTimingSafe(expected, candidate)
+  return timingSafeStringEqual(expected, candidate.toLowerCase())
     ? { ok: true }
     : { ok: false, reason: "invalid signature" };
 }
@@ -152,13 +172,19 @@ export function verifyWebhookSignature(
  * Verify Stripe's `t=<unix>,v1=<hex>` format. Multiple `v1` fields are
  * accepted (Stripe sends more than one during secret rotation); any match
  * admits. Unknown fields (`v0`, future versions) are ignored.
+ *
+ * The signed payload uses the raw `t` field text, not a re-serialised
+ * parse of it: the provider signs the exact characters it sent, so
+ * rebuilding from `parseInt` would reject non-canonical encodings. The
+ * field must be digits-only; anything else is an invalid signature rather
+ * than a silently truncated timestamp.
  */
 function verifyStripeTimestamped(
   rawBody: Uint8Array,
   headerValue: string,
   options: HttpWebhookSignatureOptions,
 ): HttpWebhookSignatureResult {
-  let timestamp: number | undefined;
+  let rawTimestamp: string | undefined;
   const candidates: string[] = [];
   for (const field of headerValue.split(",")) {
     const eq = field.indexOf("=");
@@ -166,50 +192,38 @@ function verifyStripeTimestamped(
     const key = field.slice(0, eq).trim();
     const value = field.slice(eq + 1).trim();
     if (key === "t") {
-      const parsed = parseInt(value, 10);
-      if (!isNaN(parsed)) timestamp = parsed;
+      rawTimestamp = value;
     } else if (key === "v1") {
       candidates.push(value);
     }
   }
 
-  if (timestamp === undefined || candidates.length === 0) {
+  if (
+    rawTimestamp === undefined ||
+    !/^\d+$/.test(rawTimestamp) ||
+    candidates.length === 0
+  ) {
     return { ok: false, reason: "invalid signature" };
   }
 
   const toleranceSec = options.toleranceSec ?? DEFAULT_TOLERANCE_SEC;
   const nowSec = Math.floor(Date.now() / 1000);
-  if (Math.abs(nowSec - timestamp) > toleranceSec) {
+  if (Math.abs(nowSec - parseInt(rawTimestamp, 10)) > toleranceSec) {
     return { ok: false, reason: "signature expired" };
   }
 
-  // The signed payload is `<t>.<raw body>`, concatenated at the byte level
-  // so a body that is not UTF-8-clean is never mangled by a string round-trip.
-  const signedPayload = Buffer.concat([
-    Buffer.from(`${timestamp}.`),
-    Buffer.from(rawBody),
-  ]);
+  // Chained update() streams `<raw t>.<raw body>` into the HMAC without
+  // building an intermediate concatenated buffer (and without a string
+  // round-trip that could mangle a non-UTF-8-clean body).
   const expected = createHmac("sha256", options.secret)
-    .update(signedPayload)
+    .update(`${rawTimestamp}.`)
+    .update(rawBody)
     .digest("hex");
-  return candidates.some((candidate) =>
-    hexEqualsTimingSafe(expected, candidate),
+  return candidates.some(
+    (candidate) =>
+      candidate.length === HEX_DIGEST_LENGTH["hmac-sha256-hex"] &&
+      timingSafeStringEqual(expected, candidate.toLowerCase()),
   )
     ? { ok: true }
     : { ok: false, reason: "invalid signature" };
-}
-
-/**
- * Timing-safe string comparison with the explicit length guard
- * `timingSafeEqual` requires. Length itself is not secret here: hex digest
- * lengths are fixed per algorithm, so a length mismatch only reveals that
- * the client sent something malformed.
- */
-function hexEqualsTimingSafe(expected: string, candidate: string): boolean {
-  const expectedBuf = Buffer.from(expected);
-  const candidateBuf = Buffer.from(candidate);
-  return (
-    expectedBuf.length === candidateBuf.length &&
-    timingSafeEqual(expectedBuf, candidateBuf)
-  );
 }

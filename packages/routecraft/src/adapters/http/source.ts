@@ -9,8 +9,19 @@ import {
   type HttpRouteRegistry,
 } from "../../plugins/http/registry";
 import { compilePathMatcher } from "../../plugins/http/path-matcher";
+import { METHODS_WITHOUT_BODY } from "../../plugins/http/body-parser";
 import { invalidSignatureOptionsReason } from "../../plugins/http/webhook-signature";
 import type { HttpMethod, HttpRequestBody, HttpServerOptions } from "./types";
+
+/**
+ * Resolve the route's method, defaulting to GET and upper-casing so an
+ * untyped JS caller passing `method: "post"` matches the dispatcher's
+ * uppercase comparison instead of silently registering a route that can
+ * never match a request.
+ */
+function normalizeMethod(options: HttpServerOptions): HttpMethod {
+  return (options.method ?? "GET").toUpperCase() as HttpMethod;
+}
 
 // Surface CraftPlugin in the public types of this module so consumers that
 // only import the source adapter still see the symbol (without re-exporting
@@ -50,17 +61,14 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     }
 
     if (options.signature !== undefined) {
-      // The body parser skips bodyless methods entirely, which would
+      // The body parser skips METHODS_WITHOUT_BODY entirely, which would
       // silently skip verification too. A signature gate on a route that
       // never has a body to sign is a configuration error; fail at the
-      // http({...}) call site, not at the first delivery.
-      const method = options.method ?? "GET";
-      if (
-        method === "GET" ||
-        method === "HEAD" ||
-        method === "DELETE" ||
-        method === "OPTIONS"
-      ) {
+      // http({...}) call site, not at the first delivery. Checking the
+      // shared set (not a local copy) keeps this guard in lockstep with
+      // the parser's skip.
+      const method = normalizeMethod(this.options);
+      if (METHODS_WITHOUT_BODY.has(method)) {
         throw rcError("RC5003", undefined, {
           message: `http() source: signature verification requires a body-bearing method, got "${method}". Webhook providers sign the request body; use POST, PUT, or PATCH.`,
         });
@@ -92,7 +100,7 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
       });
     }
 
-    const method: HttpMethod = this.options.method ?? "GET";
+    const method = normalizeMethod(this.options);
     const matcher = compilePathMatcher(this.options.path);
     const routeId = meta?.routeId ?? `http:${method}:${matcher.pattern}`;
     // `auth` was validated in the constructor; here we just normalise the

@@ -2477,4 +2477,174 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
       source: "http",
     });
   });
+
+  /**
+   * @case Illegal header name in signature options fails at construction
+   * @preconditions signature.header contains a space (invalid RFC 7230 token)
+   * @expectedResult RC5003 from the http({...}) call site, not a request-time TypeError
+   */
+  test("invalid signature.header token throws RC5003 at construction time", () => {
+    expect(() =>
+      http({
+        path: "/hooks/bad-header",
+        method: "POST",
+        signature: {
+          header: "x hub signature",
+          secret: WEBHOOK_SECRET,
+          scheme: "hmac-sha256-hex",
+        },
+      }),
+    ).toThrow(/signature\.header/);
+  });
+
+  /**
+   * @case Uppercase hex signatures verify (hex casing carries no information)
+   * @preconditions Provider emits the HMAC digest in uppercase hex
+   * @expectedResult Correctly signed request is admitted with 200
+   */
+  test("uppercase hex signature is accepted", async () => {
+    const body = '{"a":1}';
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-upper")
+        .from(
+          http({
+            path: "/hooks/upper",
+            method: "POST",
+            signature: {
+              header: "x-hub-signature-256",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha256-hex",
+              prefix: "sha256=",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/upper`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature-256": `sha256=${signSha256Hex(body).toUpperCase()}`,
+      },
+      body,
+    });
+    expect(res.status).toBe(200);
+  });
+
+  /**
+   * @case Stripe scheme signs over the raw t field text, not a re-serialised parse of it
+   * @preconditions t carries a leading zero; the sender signed over the exact raw field
+   * @expectedResult Delivery verifies (200); a t with a junk suffix rejects as invalid signature
+   */
+  test("stripe scheme uses the raw t text and rejects malformed t", async () => {
+    const body = '{"type":"x"}';
+    const bound = await bootHttp({
+      routes: craft()
+        .id("stripe-rawt")
+        .from(
+          http({
+            path: "/hooks/stripe-rawt",
+            method: "POST",
+            signature: {
+              header: "stripe-signature",
+              secret: WEBHOOK_SECRET,
+              scheme: "stripe-timestamped",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const url = `http://127.0.0.1:${bound.port}/hooks/stripe-rawt`;
+    const headers = { "content-type": "application/json" };
+
+    // Leading-zero t: same numeric instant (within tolerance), different text.
+    const rawT = `0${Math.floor(Date.now() / 1000)}`;
+    const v1 = createHmac("sha256", WEBHOOK_SECRET)
+      .update(`${rawT}.${body}`)
+      .digest("hex");
+    const leadingZero = await fetch(url, {
+      method: "POST",
+      headers: { ...headers, "stripe-signature": `t=${rawT},v1=${v1}` },
+      body,
+    });
+    expect(leadingZero.status).toBe(200);
+
+    // Non-digit t must reject as invalid signature, not silently truncate.
+    const junk = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "stripe-signature": stripeHeader(body).replace(",v1=", "junk,v1="),
+      },
+      body,
+    });
+    expect(junk.status).toBe(401);
+    expect(((await junk.json()) as { reason: string }).reason).toBe(
+      "invalid signature",
+    );
+  });
+
+  /**
+   * @case rawBody does not alias a mutable exchange body
+   * @preconditions Unknown content-type (body IS the raw bytes) with rawBody: true; a step mutates the body in place
+   * @expectedResult routecraft.http.rawBody still carries the original wire bytes
+   */
+  test("rawBody stays byte-faithful when the octet-stream body is mutated in place", async () => {
+    let rawAfterMutation: Uint8Array | undefined;
+    const wire = new Uint8Array([1, 2, 3, 4]);
+    const bound = await bootHttp({
+      routes: craft()
+        .id("raw-alias")
+        .from(http({ path: "/raw-alias", method: "POST", rawBody: true }))
+        .process(async (ex) => {
+          (ex.body as Uint8Array)[0] = 99;
+          rawAfterMutation = ex.headers["routecraft.http.rawBody"];
+          return DefaultExchange.rewrap(ex, { body: { ok: true } });
+        })
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/raw-alias`, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: wire,
+    });
+    expect(res.status).toBe(200);
+    expect(Array.from(rawAfterMutation!)).toEqual([1, 2, 3, 4]);
+  });
+
+  /**
+   * @case Lowercase method from an untyped caller is normalised at registration
+   * @preconditions http({ method: "post" }) via a JS-style cast
+   * @expectedResult The route matches POST requests instead of silently 404ing
+   */
+  test("lowercase method is normalised so the route still matches", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("lower-method")
+        .from(http({ path: "/lower", method: "post" as unknown as "POST" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/lower`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"a":1}',
+    });
+    expect(res.status).toBe(200);
+  });
 });

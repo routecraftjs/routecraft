@@ -1,4 +1,5 @@
-import { createHmac, createVerify, timingSafeEqual } from "node:crypto";
+import { createHmac, createVerify } from "node:crypto";
+import { timingSafeStringEqual } from "./timing-safe";
 import type {
   ClaimMappers,
   JwtAudience,
@@ -238,12 +239,7 @@ function createHmacValidator(
     hmac.update(`${headerB64}.${payloadB64}`);
     const expectedSig = hmac.digest("base64url");
 
-    const expectedBuf = Buffer.from(expectedSig);
-    const actualBuf = Buffer.from(signatureB64);
-    if (
-      expectedBuf.length !== actualBuf.length ||
-      !timingSafeEqual(expectedBuf, actualBuf)
-    ) {
+    if (!timingSafeStringEqual(expectedSig, signatureB64)) {
       throw new Error("jwt: invalid signature");
     }
 

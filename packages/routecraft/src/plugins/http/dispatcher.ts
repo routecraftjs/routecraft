@@ -1,10 +1,16 @@
 import { logger as defaultLogger } from "../../logger";
 import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
+import { isRoutecraftError } from "../../brand";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
 import { missingCredentialReason, type HttpAuthMiddleware } from "./auth";
 import type { HttpRouteEntry, HttpRouteRegistry } from "./registry";
-import { parseRequestBody } from "./body-parser";
+import {
+  isSignatureRejection,
+  parseRequestBody,
+  type HttpBodyError,
+} from "./body-parser";
+import type { HttpWebhookSignatureRejection } from "./webhook-signature";
 
 /** Function called once per completed dispatch when per-request events are enabled. */
 export type RequestCompletedHandler = (event: {
@@ -73,7 +79,7 @@ export interface DispatcherOptions {
    * with `scheme: "signature"`, keeping signature failures on the same
    * observability surface as credential failures.
    */
-  onSignatureRejected?: (reason: string) => void;
+  onSignatureRejected?: (reason: HttpWebhookSignatureRejection) => void;
   /** Optional logger; defaults to the framework logger. */
   logger?: typeof defaultLogger;
 }
@@ -247,24 +253,41 @@ export function createDispatcher(
         ...(entry.signature !== undefined
           ? { signature: entry.signature }
           : {}),
+        ...(entry.rawBody ? { rawBody: true } : {}),
       });
       parsedBody = parsed.body;
-      rawBytes = parsed.rawBytes;
+      // Only retain the wire buffer when the route asked for it; holding it
+      // unconditionally would pin up to maxBodySize per in-flight request on
+      // routes that never opted in.
+      rawBytes = entry.rawBody ? parsed.rawBytes : undefined;
     } catch (err) {
-      const status = (err as { httpStatus?: number }).httpStatus ?? 400;
+      if (isSignatureRejection(err)) {
+        // Signature rejections use the same wire shape as the other 401s
+        // (missing/invalid credential). No WWW-Authenticate: the mechanism
+        // is not an RFC 7235 challenge scheme, matching the apiKey
+        // precedent. The bounded reason rides the typed field on the error,
+        // never err.message (see .standards/security.md section 10).
+        opts.onSignatureRejected?.(err.signatureRejection);
+        const response = jsonResponse(
+          { error: "unauthorized", reason: err.signatureRejection },
+          { status: err.httpStatus },
+        );
+        emitCompleted(opts, {
+          method,
+          path: entry.matcher.pattern,
+          status: err.httpStatus,
+          durationMs: ms(started),
+          routeId: entry.routeId,
+        });
+        return response;
+      }
+      const status = isRoutecraftError(err)
+        ? ((err as HttpBodyError).httpStatus ?? 400)
+        : 400;
       const message =
         err instanceof Error ? err.message : "request body could not be parsed";
-      const isSignatureRejection = (err as { rc?: string }).rc === "RC5039";
-      if (isSignatureRejection) {
-        opts.onSignatureRejected?.(message);
-      }
-      // Signature rejections use the same wire shape as the other 401s
-      // (missing/invalid credential). No WWW-Authenticate: the mechanism is
-      // not an RFC 7235 challenge scheme, matching the apiKey precedent.
       const response = jsonResponse(
-        isSignatureRejection
-          ? { error: "unauthorized", reason: message }
-          : { error: "bad request", message },
+        { error: "bad request", message },
         { status },
       );
       emitCompleted(opts, {
