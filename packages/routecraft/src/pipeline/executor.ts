@@ -21,6 +21,11 @@ import {
 } from "../types.ts";
 import { buildParseStep } from "./synthetic-steps.ts";
 import {
+  applyOutputValidation,
+  handleOutputValidationFailure,
+  type ValidationDeps,
+} from "./validation.ts";
+import {
   DeadlineExceededError,
   raceWithDeadline,
 } from "../operations/timeout-wrapper.ts";
@@ -297,6 +302,7 @@ export async function runPipeline(
       failed: boolean;
       dropped: boolean;
       error?: unknown;
+      aborted?: boolean;
     }> {
       // Single isolated nested run that reports its outcome back. Same
       // isolation as a runPaths entry (no rethrowUnhandled, so a failure
@@ -312,47 +318,22 @@ export async function runPipeline(
       return {
         failed: result.failed,
         dropped: result.dropped,
+        // The nested run stops scheduling once the outer abortSignal fires;
+        // report the truncation so a caller (dispatch failover) does not
+        // mistake an abandoned attempt for a handled exchange.
+        aborted: deps.abortSignal?.aborted === true,
         ...(result.error !== undefined ? { error: result.error } : {}),
       };
     },
     captureDownstream(): (
       exchange: Exchange,
     ) => Promise<{ failed: boolean; dropped: boolean }> {
-      // Snapshot the downstream steps for the CURRENT step now; the returned
-      // runner stays valid after execute() resolves because the route's
-      // executor deps are stable for the route's lifetime. Used by debounce
-      // to release a held exchange through the steps that follow it, as a
-      // detached run tracked for drain. The released exchange gets its own
-      // exchange:started / :completed pair so its lifecycle stays balanced.
-      const downstream = currentRemaining;
-      return async (releaseExchange) => {
-        const start = Date.now();
-        const correlationId = releaseExchange.headers[
-          HeadersKeys.CORRELATION_ID
-        ] as string;
-        deps.context.emit("route:exchange:started", {
-          routeId: deps.routeId,
-          exchangeId: releaseExchange.id,
-          correlationId,
-        });
-        const run = runPipeline(
-          nestedDeps(deps, downstream, { abortSignal: deps.abortSignal }),
-          releaseExchange,
-          start,
-        );
-        deps.route.trackTask(run);
-        const result = await run;
-        if (!result.failed && !result.dropped) {
-          deps.context.emit("route:exchange:completed", {
-            routeId: deps.routeId,
-            exchangeId: releaseExchange.id,
-            correlationId,
-            duration: Date.now() - start,
-            exchange: result.exchange,
-          });
-        }
-        return { failed: result.failed, dropped: result.dropped };
-      };
+      // Snapshot the downstream steps for the CURRENT step now; the runner
+      // itself is built by a module-level factory so it captures only
+      // route-stable state. See makeDownstreamRunner for the full contract
+      // (no inherited abort signal, route-scope error handler honored,
+      // output validation applied).
+      return makeDownstreamRunner(deps, currentRemaining);
     },
   };
 
@@ -825,6 +806,114 @@ function nestedDeps(
       steps: segment,
       postFromFilters: [],
     },
+  };
+}
+
+/**
+ * Build the detached-release runner handed out by `captureDownstream`.
+ *
+ * Module-level on purpose, for two verified reasons:
+ *
+ * - The returned closure must capture ONLY route-stable state (`deps` and
+ *   the downstream step array). Building it inside `runPipeline` would chain
+ *   it to that invocation's activation context (pinning the capturing
+ *   arrival's queue for as long as the runner is retained) and, worse, to
+ *   `deps.abortSignal`: when the capturing arrival ran inside a route-scope
+ *   timeout / concurrency attempt, that per-attempt signal can abort later
+ *   and would permanently poison every future release into scheduling zero
+ *   steps. A released exchange is a fresh detached flow, so it inherits NO
+ *   abort signal.
+ * - For a holding operation (debounce) the released exchange IS the route's
+ *   primary flow, not a side effect, so unlike fan-out paths the detached
+ *   run honors the route-scope `.error()` handler and enforces the route's
+ *   `.output()` schemas before completion. Both are read from
+ *   `deps.route.definition` (the full definition) because the capturing
+ *   invocation may be a nested segment whose own `deps.definition` has them
+ *   stripped.
+ *
+ * The released exchange gets its own `exchange:started` / `:completed`
+ * lifecycle pair, and the run is `trackTask`ed so `drain()` waits for it.
+ */
+function makeDownstreamRunner(
+  deps: ExecutorDeps,
+  downstream: Step<Adapter>[],
+): (exchange: Exchange) => Promise<{ failed: boolean; dropped: boolean }> {
+  return async (releaseExchange) => {
+    const start = Date.now();
+    const correlationId = releaseExchange.headers[
+      HeadersKeys.CORRELATION_ID
+    ] as string;
+    deps.context.emit("route:exchange:started", {
+      routeId: deps.routeId,
+      exchangeId: releaseExchange.id,
+      correlationId,
+    });
+    const routeDefinition = deps.route.definition;
+    const nested: ExecutorDeps = {
+      routeId: deps.routeId,
+      context: deps.context,
+      route: deps.route,
+      buildForward: () => deps.buildForward(),
+      definition: {
+        preParseFilters: [],
+        postParseFilters: [],
+        steps: downstream,
+        postFromFilters: [],
+        ...(routeDefinition.errorHandler
+          ? { errorHandler: routeDefinition.errorHandler }
+          : {}),
+      },
+    };
+    const run = runPipeline(nested, releaseExchange, start);
+    deps.route.trackTask(run);
+    let result = await run;
+
+    // Mirror DefaultRoute.handler: the released exchange carries the route's
+    // final output, so enforce `.output()` schemas before declaring
+    // completion. A validation failure takes the same
+    // error-handler-or-failed path as a thrown step.
+    if (!result.failed && !result.dropped) {
+      const outputSchemas = routeDefinition.discovery?.output;
+      if (outputSchemas?.body || outputSchemas?.headers) {
+        const validationDeps: ValidationDeps = {
+          routeId: deps.routeId,
+          context: deps.context,
+          logger: deps.route.logger,
+          route: deps.route,
+          buildForward: () => deps.buildForward(),
+          ...(routeDefinition.errorHandler
+            ? { errorHandler: routeDefinition.errorHandler }
+            : {}),
+        };
+        try {
+          const validated = await applyOutputValidation(
+            validationDeps,
+            result.exchange,
+            outputSchemas,
+          );
+          result = { ...result, exchange: validated };
+        } catch (err) {
+          result = await handleOutputValidationFailure(
+            validationDeps,
+            result.exchange,
+            err,
+            start,
+            outputSchemas,
+          );
+        }
+      }
+    }
+
+    if (!result.failed && !result.dropped) {
+      deps.context.emit("route:exchange:completed", {
+        routeId: deps.routeId,
+        exchangeId: releaseExchange.id,
+        correlationId,
+        duration: Date.now() - start,
+        exchange: result.exchange,
+      });
+    }
+    return { failed: result.failed, dropped: result.dropped };
   };
 }
 

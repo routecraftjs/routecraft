@@ -5,14 +5,8 @@ import {
   type StepContext,
   type StepOutcome,
 } from "../types.ts";
-import {
-  type Exchange,
-  OperationType,
-  HeadersKeys,
-  cloneExchange,
-  getExchangeContext,
-  getExchangeRoute,
-} from "../exchange.ts";
+import { type Exchange, OperationType, cloneExchange } from "../exchange.ts";
+import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
 import { type Path, compilePath } from "./choice.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
@@ -207,6 +201,12 @@ export function resolveDispatchStrategy(
       : unknownStrategy(strategy);
   }
 
+  // Defend JS callers passing null/undefined (or another non-object): fail
+  // with the coded RC5003 rather than a raw TypeError on `.strategy` below.
+  if (typeof strategy !== "object" || strategy === null) {
+    return unknownStrategy(strategy);
+  }
+
   if (strategy.strategy === "sticky") {
     if (typeof strategy.key !== "function") return requireStickyKey();
     const maxKeys = strategy.maxKeys ?? DEFAULT_MAX_KEYS;
@@ -368,14 +368,10 @@ export class DispatchStep<In = unknown> implements Step<DispatchAdapter> {
     exchange: Exchange<In>,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const context = getExchangeContext(exchange);
-    const route = getExchangeRoute(exchange);
-    const routeId =
-      route?.definition.id ??
-      (exchange.headers[HeadersKeys.ROUTE_ID] as string);
-    const correlationId = exchange.headers[
-      HeadersKeys.CORRELATION_ID
-    ] as string;
+    const { route, context, routeId, correlationId } = wrapperEventScope(
+      exchange,
+      this,
+    );
 
     // With no context there is nothing to run a target against; pass the
     // exchange through unchanged. In practice the executor always supplies a
@@ -401,6 +397,13 @@ export class DispatchStep<In = unknown> implements Step<DispatchAdapter> {
           steps: this.#targets[targetIndex].steps,
           exchange: cloneExchange(exchange, context, route),
         });
+        // An abort-truncated run (a route-scope timeout abandoned this
+        // attempt; the nested pipeline scheduled nothing) is neither success
+        // nor target failure: stop probing without promoting the cursor or
+        // declaring exhaustion, since the attempt's outcome is discarded.
+        if (result.aborted) {
+          return { kind: "continue", exchange };
+        }
         // A drop is a deliberate resolution (the target handled it and chose
         // to discard), not a failure: only a genuine failure fails over.
         if (!result.failed) {

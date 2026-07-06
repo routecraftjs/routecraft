@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, type Source } from "@routecraft/routecraft";
 
@@ -349,6 +350,113 @@ describe("debounce operation", () => {
     // completes separately, carried by the downstream delivery.
     expect(droppedReasons).toEqual(["debounced", "debounced", "debounced"]);
     expect(downstream.received).toHaveLength(1);
+  });
+
+  /**
+   * @case The route-scope .error() handler covers a released exchange's downstream failure
+   * @preconditions A route-scope .error() before .from(); the step after .debounce() throws; the hold is flushed by drain
+   * @expectedResult The handler is invoked exactly once for the released run (the release is the route's primary flow, unlike a fan-out clone)
+   */
+  test("route-scope error handler covers the released exchange", async () => {
+    let handled = 0;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("debounce-error-handler")
+          .error(() => {
+            handled += 1;
+            return "recovered";
+          })
+          .from(items<Change>([change("a", 1)]))
+          .debounce({ waitMs: 10_000 })
+          .to({
+            send: async () => {
+              throw new Error("downstream boom");
+            },
+          }),
+      )
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    expect(handled).toBe(1);
+  });
+
+  /**
+   * @case .output() schemas are enforced on the released exchange
+   * @preconditions Route declares .output({ body }); the post-debounce transform produces an invalid body; the hold is flushed by drain
+   * @expectedResult The released exchange fails output validation (route:exchange:failed) instead of completing with an invalid body
+   */
+  test("output validation is enforced on the released exchange", async () => {
+    const downstream = spy<{ ok: unknown }>();
+    let failedCount = 0;
+    let completedCount = 0;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("debounce-output-validation")
+          .output({ body: z.object({ ok: z.boolean() }) })
+          .from(items<{ ok: boolean }>([{ ok: true }]))
+          .debounce({ waitMs: 10_000 })
+          .transform(() => ({ ok: "not-a-boolean" }))
+          .to(downstream),
+      )
+      .on("route:exchange:failed", (() => {
+        failedCount += 1;
+      }) as never)
+      .on("route:exchange:completed", (() => {
+        completedCount += 1;
+      }) as never)
+      .build();
+
+    await t.ctx.start();
+    await t.drain();
+
+    // The pipeline ran (the destination saw the invalid body), but the
+    // released exchange failed output validation instead of completing.
+    expect(downstream.received).toHaveLength(1);
+    expect(failedCount).toBe(1);
+    expect(completedCount).toBe(0);
+  });
+
+  /**
+   * @case A non-cloneable held body fails the release cleanly instead of crashing
+   * @preconditions The held body carries a function (not structured-cloneable); the hold is flushed by drain
+   * @expectedResult route:exchange:failed fires for the held arrival, drain completes (no hang), and nothing reaches downstream
+   */
+  test("a non-cloneable body fails the release cleanly", async () => {
+    type WithFn = { run: () => void };
+    const downstream = spy<WithFn>();
+    let failedCount = 0;
+    const held: string[] = [];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("debounce-nonclonable")
+          .from(items<WithFn>([{ run: () => undefined }]))
+          .debounce({ waitMs: 10_000 })
+          .to(downstream),
+      )
+      .on("route:operation:debounce:held", (() => {
+        held.push("h");
+      }) as never)
+      .on("route:exchange:failed", (() => {
+        failedCount += 1;
+      }) as never)
+      .build();
+
+    await t.ctx.start();
+    await waitUntil(() => held.length === 1);
+    // Must complete (settle is guaranteed) rather than hang on the tracked
+    // promise; the clone failure surfaces as a failed exchange, not a crash.
+    await t.drain();
+
+    expect(failedCount).toBe(1);
+    expect(downstream.received).toHaveLength(0);
   });
 
   /**

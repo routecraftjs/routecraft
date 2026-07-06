@@ -361,4 +361,76 @@ describe("dispatch operation", () => {
         .build(),
     ).toThrow();
   });
+
+  /**
+   * @case A null strategy is rejected with a coded error, not a raw TypeError
+   * @preconditions .dispatch(null as never, target) from a JS caller
+   * @expectedResult Building throws the RC5003 unknown-strategy error instead of a TypeError on `.strategy`
+   */
+  test("a null strategy is rejected with a coded RC5003", () => {
+    const a = spy<Job>();
+    expect(() =>
+      craft()
+        .id("dispatch-null-strategy")
+        .from(items<Job>([job("1")]))
+        .dispatch(null as never, a)
+        .build(),
+    ).toThrow(/unknown strategy/);
+  });
+
+  /**
+   * @case failover does not treat an abort-truncated run as success
+   * @preconditions A DispatchStep executed with a StepContext stub whose runPath reports aborted:true on the first exchange and a real failure sequence on the second
+   * @expectedResult The aborted attempt neither promotes the failover cursor nor emits exhausted; the next exchange starts probing from target 0 again
+   */
+  test("failover ignores an abort-truncated attempt (cursor not promoted)", async () => {
+    const { DispatchStep, DefaultExchange } =
+      await import("@routecraft/routecraft");
+    const sinkA = spy<Job>();
+    const sinkB = spy<Job>();
+
+    // Host context so exchanges carry a context binding for events/cloning.
+    t = await testContext()
+      .routes(
+        craft()
+          .id("dispatch-abort-host")
+          .from(items<Job>([job("host")]))
+          .to(spy<Job>()),
+      )
+      .build();
+    await t.ctx.start();
+    await t.drain();
+
+    const selected: number[] = [];
+    t.ctx.on("route:operation:dispatch:selected", ((payload: {
+      details: { targetIndex: number };
+    }) => {
+      selected.push(payload.details.targetIndex);
+    }) as never);
+
+    const step = new DispatchStep<Job>("failover", [sinkA, sinkB]);
+    type Ctx = Parameters<(typeof step)["execute"]>[1];
+    let calls = 0;
+    const makeCtx = (aborted: boolean): Ctx => ({
+      takePending: () => [],
+      runPaths: async () => {},
+      runPath: async () => {
+        calls += 1;
+        return { failed: false, dropped: false, aborted };
+      },
+      captureDownstream: () => async () => ({ failed: false, dropped: false }),
+    });
+
+    const ex = new DefaultExchange(t.ctx, { body: job("1") });
+
+    // First exchange: the attempt is abort-truncated. Exactly one probe, no
+    // cursor promotion.
+    await step.execute(ex, makeCtx(true));
+    expect(calls).toBe(1);
+
+    // Second exchange: a clean run. The cursor must still be at target 0
+    // (the aborted attempt did not promote it to a never-probed target).
+    await step.execute(ex, makeCtx(false));
+    expect(selected).toEqual([0, 0]);
+  });
 });

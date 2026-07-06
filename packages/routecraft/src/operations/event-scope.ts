@@ -26,10 +26,12 @@ import type { Route } from "../route.ts";
  * @param exchange Live exchange whose internals carry the route / context.
  * @param step The wrapper step; `label` and `operation` form the display
  *   label.
- * @returns The scope bindings. `route` / `context` / `routeId` are
- *   `undefined` when the exchange has no attached route (e.g. a step run
- *   in isolation), so the caller's `shouldEmit` is falsy and no events
- *   fire.
+ * @returns The scope bindings. `route` / `context` are `undefined` when the
+ *   exchange has no attached route (e.g. a step run in isolation), so the
+ *   caller's `shouldEmit` is falsy and no events fire. `routeId` falls back
+ *   to the `routecraft.route` header (always populated by the
+ *   `DefaultExchange` constructor) so flow-control operations that emit
+ *   with only a context binding still carry a stable id.
  * @internal
  */
 export function wrapperEventScope(
@@ -38,7 +40,7 @@ export function wrapperEventScope(
 ): {
   route: Route | undefined;
   context: CraftContext | undefined;
-  routeId: string | undefined;
+  routeId: string;
   stepLabel: string;
   correlationId: string;
 } {
@@ -46,7 +48,9 @@ export function wrapperEventScope(
   return {
     route,
     context: getExchangeContext(exchange),
-    routeId: route?.definition.id,
+    routeId:
+      route?.definition.id ??
+      (exchange.headers[HeadersKeys.ROUTE_ID] as string),
     stepLabel: step.label ?? String(step.operation),
     correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
   };

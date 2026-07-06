@@ -180,10 +180,18 @@ export interface StepContext {
    * fires that exchange's default error events (the caller's route-scope
    * `.error()` handler does NOT run for it) and never rejects this call.
    */
-  runPath(run: {
-    steps: Step<Adapter>[];
-    exchange: Exchange;
-  }): Promise<{ failed: boolean; dropped: boolean; error?: unknown }>;
+  runPath(run: { steps: Step<Adapter>[]; exchange: Exchange }): Promise<{
+    failed: boolean;
+    dropped: boolean;
+    error?: unknown;
+    /**
+     * True when an outer abort signal (a route-scope timeout abandoning the
+     * attempt) truncated the run before or while it was scheduling steps.
+     * An aborted run is neither a success nor a target failure; callers
+     * (dispatch failover) must not treat it as a handled exchange.
+     */
+    aborted?: boolean;
+  }>;
 
   /**
    * Capture the downstream continuation for the currently-executing step:
@@ -193,9 +201,11 @@ export interface StepContext {
    *
    * Snapshot it synchronously inside `execute`; the runner stays valid after
    * `execute` resolves. Used by `debounce` to release a held exchange after
-   * its quiet window closes without re-running the steps before it. The
-   * detached run does not re-enter the route-scope `.error()` handler, matching
-   * a fan-out path's isolation.
+   * its quiet window closes without re-running the steps before it. Because
+   * the released exchange is the route's PRIMARY flow (not a side-effect
+   * clone), the detached run honors the route-scope `.error()` handler and
+   * enforces the route's `.output()` schemas before completing, and it
+   * inherits no abort signal from the capturing attempt.
    */
   captureDownstream(): (
     exchange: Exchange,

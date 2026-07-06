@@ -9,11 +9,11 @@ import {
   OperationType,
   HeadersKeys,
   cloneExchange,
-  getExchangeContext,
   getExchangeRoute,
   markDropped,
   emitExchangeDropped,
 } from "../exchange.ts";
+import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 
@@ -197,15 +197,8 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
     exchange: Exchange<In>,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const context = getExchangeContext(exchange);
-    const route = getExchangeRoute(exchange);
-    const routeId =
-      route?.definition.id ??
-      (exchange.headers[HeadersKeys.ROUTE_ID] as string);
-    const correlationId = exchange.headers[
-      HeadersKeys.CORRELATION_ID
-    ] as string;
-    const stepLabel = this.label ?? this.operation;
+    const { route, context, routeId, correlationId, stepLabel } =
+      wrapperEventScope(exchange, this);
     const stepStart = Date.now();
 
     // Without a context there is nowhere to emit or run downstream; pass the
@@ -299,6 +292,14 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
       duration: Date.now() - stepStart,
     });
 
+    // An arrival delivered after the route's signal aborted would never be
+    // abort-flushed (the abort listener fired, or was never installed
+    // because the signal was already aborted when the hooks were wired):
+    // flush its hold immediately so shutdown does not wait out the timer.
+    if (route?.signal.aborted) {
+      this.#release(state, key, "flush");
+    }
+
     // The arrival never continues in-line; it is released later (or dropped
     // when superseded).
     return { kind: "drop" };
@@ -316,9 +317,15 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
     if (state.flushRegistered || !route) return;
     state.flushRegistered = true;
     route.onDrain(() => this.#flushAll(state));
-    const onAbort = (): void => this.#flushAll(state);
-    if (route.signal.aborted) onAbort();
-    else route.signal.addEventListener("abort", onAbort, { once: true });
+    // No listener when the signal is already aborted: it would never fire,
+    // and flushing here would hit an empty map (the hold is created after
+    // this call). Post-abort arrivals are flushed per-arrival in execute()
+    // instead, which covers both this first arrival and later ones.
+    if (!route.signal.aborted) {
+      route.signal.addEventListener("abort", () => this.#flushAll(state), {
+        once: true,
+      });
+    }
   }
 
   /** Release every pending hold immediately (drain / shutdown). Idempotent. */
@@ -328,7 +335,17 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
     }
   }
 
-  /** Release the held exchange for `key` through the downstream continuation. */
+  /**
+   * Release the held exchange for `key` through the downstream continuation.
+   *
+   * Infallible by design: this runs from bare timer callbacks, the route's
+   * abort listener, and drain flush callbacks, none of which sit inside the
+   * executor's per-step try/catch. A synchronous throw here (most likely
+   * `cloneExchange` on a non-structured-cloneable body) would otherwise
+   * crash the process or shutdown, and, because the hold is already removed
+   * from `pending`, leave the tracked promise unsettled and hang `drain()`
+   * forever. Every path, success or failure, settles the hold.
+   */
   #release(state: DebounceState, key: string, reason: ReleaseReason): void {
     const hold = state.pending.get(key);
     if (!hold) return;
@@ -337,11 +354,36 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
     if (hold.maxTimer) clearTimeout(hold.maxTimer);
 
     const held = hold.exchange;
-    const context = getExchangeContext(held);
-    const route = getExchangeRoute(held);
-    const routeId =
-      route?.definition.id ?? (held.headers[HeadersKeys.ROUTE_ID] as string);
-    const correlationId = held.headers[HeadersKeys.CORRELATION_ID] as string;
+    const { route, context, routeId, correlationId } = wrapperEventScope(
+      held,
+      this,
+    );
+
+    // Clone FIRST, before any terminal event for the held arrival, so a
+    // clone failure produces a single coherent terminal (`exchange:failed`)
+    // instead of a drop followed by a crash. cloneExchange gives fresh
+    // internals (a new id, preserved correlation id) and binds the route so
+    // the released exchange is executor-ready; the held one was marked
+    // dropped at hold time and cannot carry the release itself.
+    let released: Exchange;
+    try {
+      released = context ? cloneExchange(held, context, route) : held;
+    } catch (err) {
+      held.logger.error(
+        { err, reason },
+        "debounce release failed: the held body is not structured-cloneable",
+      );
+      context?.emit("route:exchange:failed", {
+        routeId,
+        exchangeId: held.id,
+        correlationId,
+        duration: 0,
+        error: err,
+        exchange: held,
+      });
+      hold.settle();
+      return;
+    }
 
     // Balance the absorbed arrival's lifecycle: it emitted `exchange:started`
     // on entry and was only MARKED dropped at hold time, so without this
@@ -358,12 +400,6 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
       exchange: held,
     });
 
-    // Rebuild a clean exchange to run downstream: the held one was marked
-    // dropped to suppress its arrival-pass completion, so it cannot carry the
-    // release. cloneExchange gives fresh internals (a new id, preserved
-    // correlation id) and binds the route so it is executor-ready.
-    const released = context ? cloneExchange(held, context, route) : held;
-
     context?.emit("route:operation:debounce:released", {
       routeId,
       exchangeId: released.id,
@@ -375,8 +411,16 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
     const runner = state.runner;
     const run = runner ? runner(released) : Promise.resolve();
     // Settle the tracked promise once the downstream run finishes, so drain()
-    // waits for the released exchange to complete, not merely to be scheduled.
-    void Promise.resolve(run).finally(() => hold.settle());
+    // waits for the released exchange to complete, not merely to be
+    // scheduled. The runner is engineered never to reject (runPipeline
+    // without rethrowUnhandled contains step errors), but that invariant
+    // lives across a module boundary: catch defensively so a future change
+    // cannot turn a release into a fatal unhandledRejection.
+    void Promise.resolve(run)
+      .catch((err: unknown) => {
+        held.logger.error({ err }, "debounce release runner rejected");
+      })
+      .finally(() => hold.settle());
   }
 }
 
