@@ -161,6 +161,84 @@ export function buildParseStep(
 }
 
 /**
+ * Synthetic adapter used as the carrier for the standalone input-validation
+ * step. Has no behaviour; the step's `execute` does the work.
+ */
+const INPUT_STEP_ADAPTER: Adapter = { adapterId: "routecraft.input" };
+
+/**
+ * Build the synthetic `input` chain step (pre-from chain position #4).
+ * Inserted by `runPipeline` when the route has `.input()` schemas and the
+ * source did NOT attach a parser; with a parser the validator runs inside
+ * the parse step instead (position #3 and #4 collapse into one step, since
+ * input must validate the parsed body). Either way the validation failure
+ * throws `RC5002` into the step loop's catch path, so it is routable
+ * through the route-scope `.error()` handler (chain position #1) exactly
+ * like `RC5012` / `RC5015` / `RC5016` from the other deterministic gates.
+ * See #447 for the fold that replaced the old eager consumer-handler path.
+ *
+ * The step manages its own lifecycle events (`skipStepEvents: true`),
+ * mirroring the parse step, so subscribers see `operation: "input"` with
+ * the `routecraft.input` adapter id.
+ */
+export function buildInputValidationStep(
+  applyValidation: (exchange: Exchange) => Promise<Exchange>,
+): Step<Adapter> {
+  return {
+    operation: OperationType.VALIDATE,
+    label: "input",
+    adapter: INPUT_STEP_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange) {
+      const internals = EXCHANGE_INTERNALS.get(exchange);
+      const context = internals?.context;
+      const route = internals?.route;
+      const routeId =
+        route?.definition.id ??
+        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
+      const correlationId = exchange.headers[
+        HeadersKeys.CORRELATION_ID
+      ] as string;
+      const stepStart = Date.now();
+
+      context?.emit("route:step:started", {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        operation: "input",
+        adapter: "input",
+      });
+
+      let validated: Exchange;
+      try {
+        validated = await applyValidation(exchange);
+      } catch (cause) {
+        context?.emit("route:step:failed", {
+          routeId,
+          exchangeId: exchange.id,
+          correlationId,
+          operation: "input",
+          adapter: "input",
+          duration: Date.now() - stepStart,
+          error: cause instanceof Error ? cause.message : String(cause),
+        });
+        throw cause;
+      }
+
+      context?.emit("route:step:completed", {
+        routeId,
+        exchangeId: exchange.id,
+        correlationId,
+        operation: "input",
+        adapter: "input",
+        duration: Date.now() - stepStart,
+      });
+      return { kind: "continue", exchange: validated } as const;
+    },
+  };
+}
+
+/**
  * Synthetic adapter carriers for the route-scope cache filter steps.
  * Distinct adapter ids per filter so telemetry / event subscribers
  * correlating by `adapter` can tell read failures (`cache.check`) from

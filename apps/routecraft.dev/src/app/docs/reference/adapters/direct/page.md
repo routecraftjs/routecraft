@@ -105,7 +105,7 @@ Route-level metadata lives on the builder: `.title('...')`, `.description('...')
 - **Synchronous**: Calling route waits for response from the consuming route
 - **Endpoint = route id**: The direct source uses the route's `.id()` as its endpoint name. Destinations reference the consumer by that id.
 - **Agent-only capabilities**: Omit `.id()` to register under a UUID the builder generates; agents can still discover the route via the registry, but it cannot be addressed as a string from code.
-- **Framework-enforced validation**: `.input()` and `.output()` schemas are validated by the engine, not the adapter. Validation failure emits `exchange:dropped` (input) or routes to the error handler (output) with `RC5002`.
+- **Framework-enforced validation**: `.input()` and `.output()` schemas are validated by the engine, not the adapter. A validation failure throws `RC5002` and routes to the consumer route's error handler (both directions); unrecovered, it fails the exchange and rejects the sender.
 - **Automatic endpoint name sanitization**: URL-unsafe characters in the route id are URL-encoded for collision-free registry keys.
 - **Dynamic destinations**: Destination endpoints can be computed from the exchange; sources always use the route id.
 

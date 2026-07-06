@@ -19,7 +19,7 @@ import {
   type StepOutcome,
   getAdapterLabel,
 } from "../types.ts";
-import { buildParseStep } from "./synthetic-steps.ts";
+import { buildInputValidationStep, buildParseStep } from "./synthetic-steps.ts";
 import {
   applyOutputValidation,
   handleOutputValidationFailure,
@@ -122,13 +122,21 @@ export async function runPipeline(
   // throws an `RC5016` error on parse failure, which then flows through
   // the same error-handler path as any other step error: the route's
   // `.error()` handler is invoked, or `exchange:failed` fires.
+  //
+  // `.input()` validation (chain position #4) rides the same internals
+  // slot: with a parser it runs inside the parse step (input validates
+  // the parsed body, so #3 and #4 collapse into one step); without one it
+  // becomes a standalone synthetic input step in the same position. Both
+  // paths throw `RC5002` into this run's catch boundary, so a validation
+  // failure is routable through `.error()` regardless of the source
+  // shape (#447).
   const internals = EXCHANGE_INTERNALS.get(exchange);
   const sourceParse = internals?.parse;
   const sourceValidate = internals?.applyValidation;
   const sourceFailureMode = internals?.parseFailureMode ?? "fail";
-  if (internals && sourceParse) {
-    // Clear so parse never runs twice on the same exchange (e.g. if the
-    // exchange is forwarded back through the queue).
+  if (internals && (sourceParse || sourceValidate)) {
+    // Clear so parse / validation never run twice on the same exchange
+    // (e.g. if the exchange is forwarded back through the queue).
     delete internals.parse;
     delete internals.parseFailureMode;
     delete internals.applyValidation;
@@ -141,7 +149,8 @@ export async function runPipeline(
   // pre-from arrays:
   //
   //   preParseFilters    -> .authorize()
-  //   (parse if present) -> source-attached
+  //   (parse if present) -> source-attached; runs .input() after parse
+  //   (input if present) -> .input() as a standalone step when no parser
   //   retry segment      -> route-scope .retry() (#7, wraps the tail)
   //   timeout segment    -> route-scope .timeout() (#8, wraps the tail)
   //   concurrency segment-> route-scope .concurrency() (bulkhead, innermost
@@ -228,7 +237,9 @@ export async function runPipeline(
     ...deps.definition.preParseFilters,
     ...(sourceParse
       ? [buildParseStep(sourceParse, sourceFailureMode, sourceValidate)]
-      : []),
+      : sourceValidate
+        ? [buildInputValidationStep(sourceValidate)]
+        : []),
     ...tail,
   ];
 
@@ -887,7 +898,6 @@ function makeDownstreamRunner(
           const validationDeps: ValidationDeps = {
             routeId: deps.routeId,
             context: deps.context,
-            logger: deps.route.logger,
             route: deps.route,
             buildForward: () => deps.buildForward(),
             ...(routeDefinition.errorHandler
