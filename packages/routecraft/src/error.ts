@@ -81,6 +81,7 @@ export interface ErrorCodeRegistry {
   RC5036: RCMeta;
   RC5037: RCMeta;
   RC5038: RCMeta;
+  RC5039: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -400,6 +401,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     // add the scope), not the request. Retrying the same call with the same
     // credential fails identically, so the retry wrapper must not treat this
     // as transient.
+    retryable: false,
+  },
+  RC5039: {
+    category: "Adapter",
+    message: "HTTP webhook signature verification failed",
+    suggestion:
+      "A route with http({ signature: {...} }) rejected a request whose signature header was missing, invalid, or expired. Check that the secret matches the provider's signing secret, the header name matches what the provider sends (e.g. x-hub-signature-256), and the prefix matches the provider's format (e.g. \"sha256=\" for GitHub). If the provider's deliveries pass through a proxy that re-encodes the body, the signed bytes no longer match; verification must see the exact wire bytes.",
+    docs: `${DOCS_BASE}#rc-5039`,
     retryable: false,
   },
   RC9901: {

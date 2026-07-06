@@ -96,6 +96,8 @@ export const home = craft()
 | `path` | `string` | -- | Yes | Path pattern with `:param` segments (e.g. `/orders/:id`). |
 | `method` | `HttpMethod` | `GET` | No | HTTP method this route handles. |
 | `auth` | `"required" \| "optional" \| "skip"` | `"required"` | No | Per-route handling of the plugin's global `auth` middleware. See [Auth modes](#auth-modes) below. No effect when no global `auth` is configured. |
+| `rawBody` | `boolean` | `false` | No | Attach the exact wire bytes of the request body to the exchange as `routecraft.http.rawBody` (a `Uint8Array`). See [Signed webhooks](#signed-webhooks). |
+| `signature` | `HttpWebhookSignatureOptions` | -- | No | Verify a webhook signature against the raw body and reject 401 before the route runs. Body-bearing methods only. See [Signed webhooks](#signed-webhooks). |
 
 ### Request metadata on the exchange
 
@@ -105,6 +107,7 @@ export const home = craft()
 - `routecraft.http.params` -- `Record<string, string>` of URL-decoded path params.
 - `routecraft.http.query` -- `Record<string, string>` of query params.
 - `routecraft.http.rawHeaders` -- `Record<string, string>` of the raw request headers, lower-cased. This is the open-ended pass-through wire-header remainder (the parsed envelope above is promoted to its own keys); it mirrors `routecraft.mail.rawHeaders`.
+- `routecraft.http.rawBody` -- `Uint8Array` of the exact wire bytes of the request body. Only present when the route opted in via `http({ rawBody: true })`; empty-body requests carry an empty array. Opt-in because of retention and exposure, not cost: the bytes already exist in memory during parsing, but attaching them pins a buffer of up to `maxBodySize` for the exchange lifetime and surfaces raw payload bytes to anything that logs the exchange headers.
 - `routecraft.auth.principal` -- the authenticated `Principal` (when auth is configured). `ex.principal` is sugar over this header.
 
 ### Request body parsing (driven by `Content-Type`)
@@ -224,6 +227,64 @@ Rules of thumb:
 - **`"skip"`** is for truly identity-free endpoints: health probes, RSS feeds, OG image generation, redirect handlers. No middleware runs at all, so no verification cost and no `auth:*` event noise.
 
 Combining `auth: "skip"` with `.authorize({...})` is rejected at request time: a `"skip"` route never attaches a principal, so the authorization check has nothing to evaluate. That is intentional. If you need role/scope checks, use `"required"` (or `"optional"`) plus `.authorize({...})`.
+
+### Signed webhooks
+
+Webhook providers (GitHub, Stripe, and others) HMAC-sign the exact bytes they POST. Re-serialising the parsed body is not byte-faithful (key order, whitespace, and unicode escaping all differ), so verification needs the raw wire bytes. The source covers this two ways.
+
+**Built-in verification (preferred).** Declare the check on the source and the plugin verifies the raw bytes before any route step runs. A missing, invalid, or expired signature returns `401 { error: "unauthorized", reason }` and emits `auth:rejected` with `scheme: "signature"`. Comparison is timing-safe.
+
+```typescript
+// GitHub: X-Hub-Signature-256 = "sha256=<hmac-sha256-hex>"
+export const githubHook = craft()
+  .id('github-hook')
+  .from(http({
+    path: '/hooks/github',
+    method: 'POST',
+    auth: 'skip', // the signature IS the credential
+    signature: {
+      header: 'x-hub-signature-256',
+      secret: process.env.GITHUB_WEBHOOK_SECRET!,
+      scheme: 'hmac-sha256-hex',
+      prefix: 'sha256=',
+    },
+  }))
+  .transform((event) => handlePush(event))
+  .to(noop())
+
+// Stripe: Stripe-Signature = "t=<unix>,v1=<hmac-sha256-hex over `t.body`>"
+export const stripeHook = craft()
+  .id('stripe-hook')
+  .from(http({
+    path: '/hooks/stripe',
+    method: 'POST',
+    auth: 'skip',
+    signature: {
+      header: 'stripe-signature',
+      secret: process.env.STRIPE_WEBHOOK_SECRET!,
+      scheme: 'stripe-timestamped',
+      // toleranceSec: 300 (default) bounds replay of captured deliveries
+    },
+  }))
+  .transform((event) => handlePaymentEvent(event))
+  .to(noop())
+```
+
+Schemes: `"hmac-sha256-hex"` (hex HMAC-SHA256, optional `prefix` such as GitHub's `sha256=`), `"hmac-sha1-hex"` (legacy providers; prefer sha256 when offered), and `"stripe-timestamped"` (`t=<unix>,v1=<hex>` with freshness checking; expired timestamps reject with reason `signature expired`). The rejection reasons are a bounded vocabulary: `missing signature header`, `invalid signature`, `signature expired`.
+
+Rules enforced at construction (`RC5003` from the `http({...})` call site): `signature` requires a body-bearing method (`POST`, `PUT`, `PATCH`), a non-empty `secret`, and a known `scheme`. At request time, oversized bodies still return 413 before any signature computation, and an empty body on a signature-gated route is verified rather than waved through. The gate is independent of the global `auth` middleware; webhook endpoints typically pair it with `auth: "skip"` since the signature is the credential.
+
+**Manual verification (escape hatch).** For providers whose scheme is not built in, opt in to the raw bytes and verify in a route step:
+
+```typescript
+.from(http({ path: '/hooks/custom', method: 'POST', auth: 'skip', rawBody: true }))
+.filter((ex) => verifyMySignature(
+  ex.headers['routecraft.http.rawBody']!,
+  ex.headers['routecraft.http.rawHeaders']!['x-custom-signature'],
+))
+```
+
+Failure of a signature check (RC5039) is documented on the [errors reference](/docs/reference/errors#rc-5039).
 
 ### Route matching and information disclosure
 

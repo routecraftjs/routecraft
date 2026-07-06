@@ -1,0 +1,5 @@
+---
+"@routecraft/routecraft": minor
+---
+
+Add signed-webhook support to the `http()` source. `http({ rawBody: true })` attaches the exact wire bytes of the request body to the exchange as `routecraft.http.rawBody` (a `Uint8Array`), so any signature scheme can be verified in a route step. `http({ signature: { header, secret, scheme, prefix?, toleranceSec? } })` verifies the raw bytes before the route runs, covering `hmac-sha256-hex` (GitHub-style, optional prefix), `hmac-sha1-hex` (legacy), and `stripe-timestamped` (`t=...,v1=...` with freshness checking); failing requests return `401` with a bounded reason, raise `RC5039`, and emit `auth:rejected` with `scheme: "signature"`. Comparison is timing-safe, `signature` on a bodyless method fails at construction with `RC5003`, oversized bodies still 413 before any HMAC runs, and the gate is independent of the global `auth` middleware. Also fixes a latent module cycle (`exchange -> context -> route -> wrapper -> exchange`) surfaced by the new cross-runtime tests: type-only braced imports are now `import type`, which `verbatimModuleSyntax` fully elides instead of keeping as side-effect imports.

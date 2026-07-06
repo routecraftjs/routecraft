@@ -9,6 +9,7 @@ import {
   type HttpRouteRegistry,
 } from "../../plugins/http/registry";
 import { compilePathMatcher } from "../../plugins/http/path-matcher";
+import { invalidSignatureOptionsReason } from "../../plugins/http/webhook-signature";
 import type { HttpMethod, HttpRequestBody, HttpServerOptions } from "./types";
 
 // Surface CraftPlugin in the public types of this module so consumers that
@@ -47,6 +48,30 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
         )}. Allowed: "required", "optional", "skip".`,
       });
     }
+
+    if (options.signature !== undefined) {
+      // The body parser skips bodyless methods entirely, which would
+      // silently skip verification too. A signature gate on a route that
+      // never has a body to sign is a configuration error; fail at the
+      // http({...}) call site, not at the first delivery.
+      const method = options.method ?? "GET";
+      if (
+        method === "GET" ||
+        method === "HEAD" ||
+        method === "DELETE" ||
+        method === "OPTIONS"
+      ) {
+        throw rcError("RC5003", undefined, {
+          message: `http() source: signature verification requires a body-bearing method, got "${method}". Webhook providers sign the request body; use POST, PUT, or PATCH.`,
+        });
+      }
+      const invalid = invalidSignatureOptionsReason(options.signature);
+      if (invalid !== null) {
+        throw rcError("RC5003", undefined, {
+          message: `http() source: ${invalid}`,
+        });
+      }
+    }
   }
 
   async subscribe(sub: Subscription<HttpRequestBody>): Promise<void> {
@@ -78,6 +103,8 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
       method,
       matcher,
       authMode,
+      rawBody: this.options.rawBody ?? false,
+      signature: this.options.signature,
       discovery: meta?.discovery,
       handler: (body, headers) =>
         sub.emit({

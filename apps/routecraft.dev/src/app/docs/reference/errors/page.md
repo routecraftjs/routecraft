@@ -524,6 +524,18 @@ The principal is authentic and admitted, but lacks one or more scopes the route 
 **Suggestion**  
 The cause error carries a machine-readable `missing.scopes` array listing exactly what is absent. Feed it to your consent flow (request a grant for those scopes), or grant them at the IdP, then retry.
 
+## RC5039
+HTTP webhook signature verification failed
+
+**Why it happens**  
+A route configured with `http({ signature: {...} })` received a request whose signature header was missing, did not match the raw body, or (for the `stripe-timestamped` scheme) carried a timestamp outside the tolerance window. The request was rejected with 401 before any route step ran.
+
+**Suggestion**  
+Check that the `secret` matches the provider's signing secret, the `header` name matches what the provider sends (e.g. `x-hub-signature-256`), and the `prefix` matches the provider's format (e.g. `"sha256="` for GitHub). If deliveries pass through a proxy or middleware that re-encodes the body, the signed bytes no longer match; verification must see the exact wire bytes.
+
+This error is not retryable: the same delivery fails verification the same way every time.
+
+
 ## RC9901
 Unknown error
 

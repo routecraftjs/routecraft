@@ -67,6 +67,13 @@ export interface DispatcherOptions {
    * wrapper installed in `plugin.ts`.
    */
   onAuthAbsent?: (scheme: string) => void;
+  /**
+   * Called when a route's webhook-signature gate rejects a request (RC5039
+   * out of the body parser). The plugin uses this to emit `auth:rejected`
+   * with `scheme: "signature"`, keeping signature failures on the same
+   * observability surface as credential failures.
+   */
+  onSignatureRejected?: (reason: string) => void;
   /** Optional logger; defaults to the framework logger. */
   logger?: typeof defaultLogger;
 }
@@ -229,19 +236,35 @@ export function createDispatcher(
     }
 
     // 4. Parse the body. Failures here are user-input errors (malformed JSON,
-    //    body too large) -> 4xx; never 5xx.
+    //    body too large, failed signature) -> 4xx; never 5xx. The signature
+    //    gate runs inside parseRequestBody, after the maxBodySize checks and
+    //    before content-type parsing.
     let parsedBody: unknown;
+    let rawBytes: Uint8Array | undefined;
     try {
       const parsed = await parseRequestBody(req, {
         maxBodySize: opts.maxBodySize,
+        ...(entry.signature !== undefined
+          ? { signature: entry.signature }
+          : {}),
       });
       parsedBody = parsed.body;
+      rawBytes = parsed.rawBytes;
     } catch (err) {
       const status = (err as { httpStatus?: number }).httpStatus ?? 400;
       const message =
         err instanceof Error ? err.message : "request body could not be parsed";
+      const isSignatureRejection = (err as { rc?: string }).rc === "RC5039";
+      if (isSignatureRejection) {
+        opts.onSignatureRejected?.(message);
+      }
+      // Signature rejections use the same wire shape as the other 401s
+      // (missing/invalid credential). No WWW-Authenticate: the mechanism is
+      // not an RFC 7235 challenge scheme, matching the apiKey precedent.
       const response = jsonResponse(
-        { error: "bad request", message },
+        isSignatureRejection
+          ? { error: "unauthorized", reason: message }
+          : { error: "bad request", message },
         { status },
       );
       emitCompleted(opts, {
@@ -272,6 +295,9 @@ export function createDispatcher(
       "routecraft.http.params": params,
       "routecraft.http.query": Object.freeze(queryObject),
       "routecraft.http.rawHeaders": Object.freeze(reqHeaders),
+      ...(entry.rawBody && rawBytes !== undefined
+        ? { "routecraft.http.rawBody": rawBytes }
+        : {}),
       ...(principal !== undefined
         ? { [HeadersKeys.AUTH_PRINCIPAL]: principal }
         : {}),

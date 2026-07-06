@@ -1,32 +1,51 @@
-import { rcError, type RoutecraftError } from "../../error";
+import { rcError, type RCCode, type RoutecraftError } from "../../error";
+import {
+  verifyWebhookSignature,
+  type HttpWebhookSignatureOptions,
+} from "./webhook-signature";
 
 export interface ParsedRequestBody {
   /** The parsed body in its post-parse shape. `undefined` for methods without a body. */
   body: unknown;
   /** Raw byte length read off the wire. Useful for telemetry and quota tracking. */
   bytes: number;
+  /**
+   * The exact wire bytes of the request body (empty for bodyless methods).
+   * Always populated: this is the same buffer the content-type parsers read
+   * from, so returning it costs nothing. The dispatcher only attaches it to
+   * the exchange when the route opted in via `http({ rawBody: true })`.
+   */
+  rawBytes: Uint8Array;
 }
 
-/** RC5018 carrying the HTTP status the dispatcher should return. */
+/** Body-stage error carrying the HTTP status the dispatcher should return. */
 export type HttpBodyError = RoutecraftError & { httpStatus: number };
 
 /**
- * Build an RC5018 error tagged with the response status the dispatcher should
- * use. Carrying the status explicitly avoids the dispatcher having to infer
- * 413-vs-400 from the message text.
+ * Build a body-stage error tagged with the response status the dispatcher
+ * should use. Carrying the status explicitly avoids the dispatcher having to
+ * infer 413-vs-400 from the message text. Defaults to RC5018 (malformed or
+ * oversized body); the signature gate passes RC5039 so the dispatcher can
+ * shape its 401 and emit `auth:rejected`.
  */
 function bodyError(
   httpStatus: number,
   message: string,
   cause?: unknown,
+  rc: RCCode = "RC5018",
 ): HttpBodyError {
-  const err = rcError("RC5018", cause, { message }) as HttpBodyError;
+  const err = rcError(rc, cause, { message }) as HttpBodyError;
   err.httpStatus = httpStatus;
   return err;
 }
 
 interface ParseOptions {
   maxBodySize: number;
+  /**
+   * When set, verify the raw body against the signature header before any
+   * content-type parsing. Failures throw RC5039 tagged 401.
+   */
+  signature?: HttpWebhookSignatureOptions;
 }
 
 const METHODS_WITHOUT_BODY = new Set(["GET", "HEAD", "DELETE", "OPTIONS"]);
@@ -50,7 +69,9 @@ export async function parseRequestBody(
 ): Promise<ParsedRequestBody> {
   const method = req.method.toUpperCase();
   if (METHODS_WITHOUT_BODY.has(method)) {
-    return { body: undefined, bytes: 0 };
+    // `signature` on a bodyless method is rejected at http({...}) construction
+    // time, so skipping verification here cannot silently disable a gate.
+    return { body: undefined, bytes: 0, rawBytes: new Uint8Array(0) };
   }
 
   // Guard against oversized requests before buffering when the client
@@ -74,17 +95,36 @@ export async function parseRequestBody(
     );
   }
 
+  const bytes = new Uint8Array(buffer);
+
+  // Verify the signature before the zero-length shortcut and before any
+  // content-type parsing: a signature-gated route must reject an empty or
+  // malformed body that is not correctly signed, not admit it by accident.
+  if (opts.signature) {
+    const result = verifyWebhookSignature(
+      bytes,
+      req.headers.get(opts.signature.header),
+      opts.signature,
+    );
+    if (!result.ok) {
+      throw bodyError(401, result.reason, undefined, "RC5039");
+    }
+  }
+
   if (buffer.byteLength === 0) {
-    return { body: undefined, bytes: 0 };
+    return { body: undefined, bytes: 0, rawBytes: bytes };
   }
 
   const contentType = (req.headers.get("content-type") ?? "").toLowerCase();
-  const bytes = new Uint8Array(buffer);
 
   if (contentType.includes("application/json")) {
     const text = new TextDecoder().decode(bytes);
     try {
-      return { body: JSON.parse(text), bytes: buffer.byteLength };
+      return {
+        body: JSON.parse(text),
+        bytes: buffer.byteLength,
+        rawBytes: bytes,
+      };
     } catch (err) {
       throw bodyError(400, "request body is not valid JSON", err);
     }
@@ -95,7 +135,7 @@ export async function parseRequestBody(
     const params = new URLSearchParams(text);
     const obj: Record<string, string> = {};
     for (const [k, v] of params) obj[k] = v;
-    return { body: obj, bytes: buffer.byteLength };
+    return { body: obj, bytes: buffer.byteLength, rawBytes: bytes };
   }
 
   if (contentType.includes("multipart/form-data")) {
@@ -109,15 +149,19 @@ export async function parseRequestBody(
     });
     try {
       const formData = await replay.formData();
-      return { body: formData, bytes: buffer.byteLength };
+      return { body: formData, bytes: buffer.byteLength, rawBytes: bytes };
     } catch (err) {
       throw bodyError(400, "multipart/form-data body could not be parsed", err);
     }
   }
 
   if (contentType.startsWith("text/")) {
-    return { body: new TextDecoder().decode(bytes), bytes: buffer.byteLength };
+    return {
+      body: new TextDecoder().decode(bytes),
+      bytes: buffer.byteLength,
+      rawBytes: bytes,
+    };
   }
 
-  return { body: bytes, bytes: buffer.byteLength };
+  return { body: bytes, bytes: buffer.byteLength, rawBytes: bytes };
 }
