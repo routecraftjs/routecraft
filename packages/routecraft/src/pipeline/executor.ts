@@ -266,6 +266,13 @@ export async function runPipeline(
   // semantics (including filter-dropped children: only survivors are
   // collected, nothing waits) are byte-identical to the pre-outcome engine.
   const stepContext: StepContext = {
+    // Surface the abandon signal (route-scope timeout) to the steps
+    // themselves, not just the scheduling loop below: a step doing
+    // cancellation-aware IO forwards it into fetch / DB drivers so an
+    // expired attempt stops working, instead of merely having its
+    // outcome discarded. Step-scope `.timeout()` composes on top by
+    // deriving a linked signal per wrapped step.
+    ...(deps.abortSignal ? { signal: deps.abortSignal } : {}),
     takePending(predicate: (candidate: Exchange) => boolean): Exchange[] {
       const taken: Exchange[] = [];
       for (let i = 0; i < queue.length; ) {
@@ -932,10 +939,11 @@ function makeDownstreamRunner(
  * Build the route-scope `.timeout()` segment step (pre-from chain
  * position #8). Runs the chain tail via a nested executor invocation
  * raced against the deadline. On expiry, emits `route:timeout:expired`,
- * throws `RC5011`, and aborts the nested run: the in-flight step
- * settles (promises cannot be cancelled) with its outcome discarded,
- * and no further steps are scheduled, so an expired attempt cannot
- * keep producing downstream side effects.
+ * throws `RC5011`, and aborts the nested run: no further steps are
+ * scheduled, the in-flight step's outcome is discarded, and the abort
+ * (reason: the RC5011 error) reaches that step through its StepContext
+ * `signal` so cancellation-aware IO stops instead of running to
+ * completion in the background.
  *
  * `skipStepEvents: true` keeps `runPipeline` from emitting generic
  * lifecycle events for this internal step; the segment emits its own
@@ -985,17 +993,21 @@ function buildTimeoutSegmentStep(
         return segmentResultToOutcome(result);
       } catch (err) {
         if (!(err instanceof DeadlineExceededError)) throw err;
-        // Stop the abandoned run from scheduling further steps: its
-        // result is discarded, so any remaining steps would only run
-        // side effects after the exchange has already failed.
-        abandon.abort();
+        const timeoutError = rcError("RC5011", undefined, {
+          message: `Route "${deps.routeId}" pipeline exceeded its ${timeoutMs}ms timeout`,
+        });
+        // Stop the abandoned run: the scheduling loop stops queueing
+        // further steps, and the in-flight step sees the abort via its
+        // StepContext signal (exposed by the nested run's stepContext)
+        // so cancellation-aware IO stops instead of running to
+        // completion with a discarded outcome. The RC5011 error rides
+        // as the abort reason.
+        abandon.abort(timeoutError);
         deps.context.emit("route:timeout:expired", {
           ...scoped,
           elapsed: Date.now() - start,
         });
-        throw rcError("RC5011", undefined, {
-          message: `Route "${deps.routeId}" pipeline exceeded its ${timeoutMs}ms timeout`,
-        });
+        throw timeoutError;
       }
     },
   };

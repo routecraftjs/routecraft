@@ -92,10 +92,16 @@ export async function raceWithDeadline<R>(
  * re-attempts it by default and `.error()` handlers can branch on the
  * code.
  *
- * The wrapped step is not cancelled on expiry (promises cannot be
- * cancelled); it keeps running in the background and its eventual
- * settlement is discarded. Side effects of the abandoned attempt may
- * still happen.
+ * The wrapped step's promise is not cancelled on expiry (promises
+ * cannot be cancelled): its eventual settlement is discarded. What the
+ * step DOES get is an `AbortSignal` on its `StepContext` that fires
+ * when the deadline expires, with the `RC5011` error as the abort
+ * reason. A step that forwards `ctx.signal` into cancellation-aware IO
+ * (`fetch`, DB drivers) therefore aborts its abandoned work instead of
+ * running it to completion in the background. The signal is linked to
+ * any enclosing signal (a route-scope timeout's abandon signal, an
+ * outer step-scope timeout), so whichever deadline fires first aborts
+ * the innermost work.
  *
  * Emits scope-aware lifecycle events:
  * - `route:timeout:started` when the guarded execution begins.
@@ -131,10 +137,24 @@ export class TimeoutWrapperStep<
       });
     }
 
+    // Per-execution controller: aborts when THIS deadline expires so the
+    // inner step can cancel in-flight IO. Linked to any enclosing signal
+    // (route-scope abandon, outer step-scope timeout) via AbortSignal.any
+    // so the earliest deadline wins; the composed signal replaces
+    // `ctx.signal` for the inner step only, every other StepContext
+    // capability passes through untouched.
+    const controller = new AbortController();
+    const innerCtx: StepContext = {
+      ...ctx,
+      signal: ctx.signal
+        ? AbortSignal.any([ctx.signal, controller.signal])
+        : controller.signal,
+    };
+
     const start = Date.now();
     try {
       const outcome = await raceWithDeadline(
-        this.inner.execute(exchange, ctx),
+        this.inner.execute(exchange, innerCtx),
         this.#timeoutMs,
       );
       if (shouldEmit) {
@@ -151,6 +171,13 @@ export class TimeoutWrapperStep<
       return outcome;
     } catch (err) {
       if (!(err instanceof DeadlineExceededError)) throw err;
+      const timeoutError = rcError("RC5011", undefined, {
+        message: `Step "${stepLabel}" exceeded its ${this.#timeoutMs}ms timeout`,
+      });
+      // Abort BEFORE emitting so cancellation-aware IO in the abandoned
+      // run stops as early as possible; the reason surfaces as the
+      // rejection of any fetch()/driver call holding the signal.
+      controller.abort(timeoutError);
       if (shouldEmit) {
         context.emit("route:timeout:expired", {
           routeId,
@@ -162,9 +189,7 @@ export class TimeoutWrapperStep<
           elapsed: Date.now() - start,
         });
       }
-      throw rcError("RC5011", undefined, {
-        message: `Step "${stepLabel}" exceeded its ${this.#timeoutMs}ms timeout`,
-      });
+      throw timeoutError;
     }
   }
 }

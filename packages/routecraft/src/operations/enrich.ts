@@ -1,6 +1,7 @@
 import { ENRICH_MERGE_TYPE } from "../brand.ts";
 import {
   type Step,
+  type StepContext,
   type StepOutcome,
   extractOutcomeMetadata,
 } from "../types.ts";
@@ -206,7 +207,10 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     this.aggregator = aggregator;
   }
 
-  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
+  async execute(
+    exchange: Exchange<T>,
+    ctx?: StepContext,
+  ): Promise<StepOutcome> {
     // Resolve a test-time override (if any) registered on the context.
     const override = resolveAdapterOverride(
       this.adapter,
@@ -223,7 +227,13 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
         override,
       )) as R;
     } else {
-      enrichmentData = await Promise.resolve(this.adapter.send(exchange));
+      // Narrow context on purpose: only the abort surface reaches the
+      // destination, never the executor's scheduling capabilities.
+      enrichmentData = await Promise.resolve(
+        this.adapter.send(exchange, {
+          ...(ctx?.signal ? { signal: ctx.signal } : {}),
+        }),
+      );
     }
 
     // The metadata rides the OUTCOME, not the step: Step instances are

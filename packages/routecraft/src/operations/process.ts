@@ -1,4 +1,10 @@
-import { type Adapter, type Step, type StepOutcome } from "../types.ts";
+import {
+  type Adapter,
+  type Step,
+  type StepContext,
+  type StepOutcome,
+  type StepSignalContext,
+} from "../types.ts";
 import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
 
 /**
@@ -21,11 +27,17 @@ import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
  * The framework re-wraps a plain spread back into a proper exchange instance
  * via {@link DefaultExchange.rewrap}, preserving the internal context binding.
  *
+ * The second argument carries the step's {@link StepSignalContext}: when an
+ * enclosing `.timeout()` expires, `ctx.signal` aborts, so a processor doing
+ * cancellation-aware IO can forward it (`fetch(url, { signal })`). Declaring
+ * only the first parameter remains valid.
+ *
  * @template T - Current body type
  * @template R - Result body type (default T)
  */
 export type CallableProcessor<T = unknown, R = T> = (
   exchange: Exchange<T>,
+  ctx?: StepSignalContext,
 ) => Promise<Exchange<R>> | Exchange<R>;
 
 /**
@@ -53,8 +65,18 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
       typeof adapter === "function" ? { process: adapter } : adapter;
   }
 
-  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
-    const returned = await Promise.resolve(this.adapter.process(exchange));
+  async execute(
+    exchange: Exchange<T>,
+    ctx?: StepContext,
+  ): Promise<StepOutcome> {
+    // Hand the processor a NARROW context (just the abort surface), not
+    // the executor's StepContext: scheduling capabilities like
+    // takePending stay framework-internal.
+    const returned = await Promise.resolve(
+      this.adapter.process(exchange, {
+        ...(ctx?.signal ? { signal: ctx.signal } : {}),
+      }),
+    );
     // The fast path is identity equality (the user returned the same `ex`
     // they were given). For anything else -- a plain spread, a freshly
     // constructed `DefaultExchange`, or even an exchange built against a

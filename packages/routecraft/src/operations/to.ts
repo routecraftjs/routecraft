@@ -1,7 +1,9 @@
 import {
   type Adapter,
   type Step,
+  type StepContext,
   type StepOutcome,
+  type StepSignalContext,
   extractOutcomeMetadata,
 } from "../types.ts";
 import {
@@ -22,11 +24,19 @@ import {
  * - Return `undefined` (or void) to leave the exchange body unchanged.
  * - Return a value to replace `exchange.body` with that value (e.g. API response).
  *
+ * The second argument carries the step's {@link StepSignalContext}: when an
+ * enclosing `.timeout()` expires, `ctx.signal` aborts, so a destination doing
+ * cancellation-aware IO can forward it (`fetch(url, { signal })`). Declaring
+ * only the first parameter remains valid. `.tap()` deliberately does NOT
+ * forward a signal: taps run detached from the main flow, so an abandoned
+ * attempt must not cancel an observation already in flight.
+ *
  * @template T - Current body type
  * @template R - Result body type (default void = no body change)
  */
 export type CallableDestination<T = unknown, R = void> = (
   exchange: Exchange<T>,
+  ctx?: StepSignalContext,
 ) => Promise<R> | R;
 
 /**
@@ -70,7 +80,10 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
     this.adapter = typeof adapter === "function" ? { send: adapter } : adapter;
   }
 
-  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
+  async execute(
+    exchange: Exchange<T>,
+    ctx?: StepContext,
+  ): Promise<StepOutcome> {
     // Resolve a test-time override (if any) registered on the context.
     // When present, the mock handler stands in for adapter.send; if the mock
     // has no handler, the call is silently swallowed (a noop destination).
@@ -87,7 +100,13 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
         override,
       );
     } else {
-      result = await Promise.resolve(this.adapter.send(exchange));
+      // Narrow context on purpose: only the abort surface reaches the
+      // destination, never the executor's scheduling capabilities.
+      result = await Promise.resolve(
+        this.adapter.send(exchange, {
+          ...(ctx?.signal ? { signal: ctx.signal } : {}),
+        }),
+      );
     }
 
     // The metadata rides the OUTCOME, not the step: Step instances are

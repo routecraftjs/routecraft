@@ -117,7 +117,7 @@ export class TimeoutWrapperStep<T extends Adapter = Adapter>
 Key contract points:
 
 - The inner step never sees the engine's work queue: it returns a `StepOutcome` (`continue` / `complete` / `drop` / `branch` / `fanOut`) and the pipeline executor owns all scheduling. A failed inner step has, by construction, scheduled nothing, so recovery simply substitutes an outcome (typically `{ kind: "continue", exchange: recovered }`). There is no buffer to capture, relay, or clear.
-- Pass `ctx` (the `StepContext`) through to `this.inner.execute(exchange, ctx)` unchanged; it carries the narrow executor capabilities (e.g. `takePending` for join steps) and the wrapper must not intercept them.
+- Pass `ctx` (the `StepContext`) through to `this.inner.execute(exchange, ctx)` unchanged; it carries the narrow executor capabilities (e.g. `takePending` for join steps) and the wrapper must not intercept them. One sanctioned exception: a wrapper that owns a cancellation boundary (`.timeout()`) derives a new context whose `signal` links its own `AbortController` with any enclosing `ctx.signal` via `AbortSignal.any`, leaving every other capability untouched, so the inner step can abort cancellation-aware IO when the earliest enclosing deadline fires.
 - Throwing from `runInner` propagates out so the executor's catch in `pipeline/executor.ts` cascades to the route-level handler (or default error path). Wrappers do not need to re-emit `step:failed` themselves; the template emits it via try/catch.
 
 Then add the dual-mode method on the builder:
