@@ -265,6 +265,33 @@ describe("MCP tool proxying", () => {
   });
 
   /**
+   * @case Non-object arguments are coerced to the safe fallback before proxied dispatch
+   * @preconditions handleToolCall invoked with an actual array and with a JSON primitive string; proxy is ["docs:get_document"]
+   * @expectedResult The remote receives {} for the array and { input } for a primitive string, never a raw array or primitive
+   */
+  test("non-object arguments normalize to a safe object on the proxied path", async () => {
+    t = await testContext()
+      .store(REGISTRY_KEY, buildRegistry())
+      .store(MANAGERS_KEY, buildManagers())
+      .build();
+    server = new McpServer(t.ctx, { proxy: ["docs:get_document"] });
+
+    const call = (args: unknown) =>
+      (
+        server as unknown as {
+          handleToolCall(name: string, args: unknown): Promise<unknown>;
+        }
+      ).handleToolCall("get_document", args);
+
+    await call([1, 2, 3]); // a non-string, non-object value
+    await call("42"); // valid JSON primitive string
+    expect(dispatches.map((d) => d.args)).toEqual([
+      {}, // array is not a plain object -> {}
+      { input: "42" }, // primitive JSON string kept as raw input
+    ]);
+  });
+
+  /**
    * @case Remote isError results pass through instead of being swallowed
    * @preconditions Fake stdio manager returns { isError: true, content: [error text] }
    * @expectedResult handleToolCall returns isError true with the remote error content
@@ -385,11 +412,11 @@ describe("MCP tool proxying", () => {
   });
 
   /**
-   * @case Dispatch failures surface as isError text results, not thrown errors
-   * @preconditions No stdio manager and no HTTP config for "docs" (dispatch throws RC5003)
-   * @expectedResult handleToolCall returns isError true with an error message
+   * @case Dispatch failures surface as isError with a generic message, not the framework error detail
+   * @preconditions No stdio manager and no HTTP config for "docs" (dispatch throws RC5003 whose message names the server)
+   * @expectedResult handleToolCall returns isError true; the client text is the generic proxied-failure message and does not leak the RC5003 dispatch detail
    */
-  test("dispatch failure returns an isError result", async () => {
+  test("dispatch failure returns a generic isError result without leaking detail", async () => {
     t = await testContext().store(REGISTRY_KEY, buildRegistry()).build();
     server = new McpServer(t.ctx, { proxy: ["docs:get_document"] });
 
@@ -398,7 +425,13 @@ describe("MCP tool proxying", () => {
       { id: "42" },
     );
     expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain("Error");
+    expect(result.content[0]?.text).toContain(
+      'Proxied tool "get_document" could not be called',
+    );
+    // The RC5003 dispatch message ("... server \"docs\" is not registered ...")
+    // must not reach the caller.
+    expect(result.content[0]?.text).not.toContain("not registered");
+    expect(result.content[0]?.text).not.toContain("mcp dispatch");
   });
 
   /**
@@ -962,6 +995,34 @@ describe("mcpPlugin proxy option validation", () => {
         proxy: [{ ref: "docs:a:b", name: "a_b" }],
       }),
     ).not.toThrow();
+  });
+
+  /**
+   * @case A ref naming an inherited Object property is rejected as an unknown client
+   * @preconditions proxy ref "constructor:tool"; clients only registers "docs"
+   * @expectedResult mcpPlugin throws unknown-client (own-property check, not `in`)
+   */
+  test("inherited property names are not accepted as clients", () => {
+    expect(() =>
+      mcpPlugin({
+        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
+        proxy: ["constructor:tool"],
+      }),
+    ).toThrow('unknown client "constructor"');
+  });
+
+  /**
+   * @case A non-string name override is rejected before the pattern test
+   * @preconditions proxy entry with name set to a number (untyped-JS caller)
+   * @expectedResult mcpPlugin throws instead of coercing the number to a string that passes the pattern
+   */
+  test("non-string name override throws", () => {
+    expect(() =>
+      mcpPlugin({
+        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
+        proxy: [{ ref: "docs:tool", name: 42 as unknown as string }],
+      }),
+    ).toThrow("must be a string");
   });
 
   /**

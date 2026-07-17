@@ -69,6 +69,30 @@ const principalStore = new AsyncLocalStorage<Principal | undefined>();
  */
 const NEVER_ABORTED = new AbortController().signal;
 
+/** True for a plain, non-array, non-null object. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Normalize `tools/call` arguments to a plain object. The MCP SDK may deliver
+ * a parsed object or a raw JSON string; MCP tool arguments are always a JSON
+ * object, so a primitive, array, or null is coerced to the safe fallback
+ * shape (`{ input: <string> }` for a raw non-object string, `{}` otherwise)
+ * before any guard or remote dispatch consumes it.
+ */
+function normalizeToolArgs(args: unknown): Record<string, unknown> {
+  if (typeof args === "string") {
+    try {
+      const parsed: unknown = JSON.parse(args);
+      return isPlainObject(parsed) ? parsed : { input: args };
+    } catch {
+      return { input: args };
+    }
+  }
+  return isPlainObject(args) ? args : {};
+}
+
 /** Wire shape returned by `tools/call` handlers (local and proxied). */
 type McpToolCallResult = {
   content: Array<{ type: string; [key: string]: unknown }>;
@@ -1519,7 +1543,13 @@ export class McpServer {
     if (registry && version === this.proxyResolvedVersion) {
       return this.proxyResolved;
     }
-    this.proxyWarnings.clear();
+    // Open a new warning epoch only when a registry is actually present and
+    // its version advanced. Clearing unconditionally would re-warn on every
+    // request while the registry is still missing (proxyResolvedVersion never
+    // advances to -1), flooding the log with the same "no registry" message.
+    if (registry) {
+      this.proxyWarnings.clear();
+    }
     const resolved = resolveProxiedTools(
       this.context,
       this.options.proxy,
@@ -1622,19 +1652,11 @@ export class McpServer {
   ): Promise<McpToolCallResult> {
     try {
       // Normalize args once for both the local and proxied paths (the SDK
-      // may pass a parsed object or a raw JSON string).
-      const body =
-        typeof args === "string"
-          ? (() => {
-              try {
-                return (JSON.parse(args) as Record<string, unknown>) || {};
-              } catch {
-                return { input: args };
-              }
-            })()
-          : args && typeof args === "object"
-            ? args
-            : {};
+      // may pass a parsed object or a raw JSON string). MCP tool arguments
+      // are always a JSON object; a primitive, array, or null (however it
+      // arrives) is coerced to the safe fallback shape before any guard or
+      // remote dispatch consumes it, so downstream code can trust a record.
+      const body = normalizeToolArgs(args);
 
       const entry = this.lookupLocalEntry(toolName);
       if (!entry) {
@@ -1684,9 +1706,9 @@ export class McpServer {
 
       this.context.emit(`plugin:mcp:tool:called`, {
         tool: toolName,
-        // Snapshot: the live body is handed to the route handler next and
-        // may be mutated after emission.
-        args: { ...body },
+        // Deep snapshot: the live body is handed to the route handler next
+        // and may be mutated (including nested values) after emission.
+        args: structuredClone(body),
       });
 
       const resultExchange = await entry.handler(exchange);
@@ -1768,15 +1790,15 @@ export class McpServer {
   ): Promise<McpToolCallResult> {
     const detail = {
       tool: proxied.exposedName,
-      proxied: true,
+      proxied: true as const,
       serverId: proxied.serverId,
       remoteTool: proxied.toolName,
     };
-    // Snapshot: the live args object is handed to the guard and remote
-    // dispatch next and may be mutated after emission.
+    // Deep snapshot: the live args object is handed to the guard and remote
+    // dispatch next and may be mutated (including nested values) after emission.
     this.context.emit(`plugin:mcp:tool:called`, {
       ...detail,
-      args: { ...args },
+      args: structuredClone(args),
     });
 
     try {
@@ -1817,13 +1839,18 @@ export class McpServer {
       this.context.logger.error({ ...detail, err: error }, logMsg);
       this.context.emit(`plugin:mcp:tool:failed`, { ...detail, error: logMsg });
 
+      // A framework error here is a dispatch/transport failure (RC5003),
+      // whose message and cause can carry the configured upstream URL,
+      // host:port, or a subprocess path. Those go to the log and the failed
+      // event (operator-facing) but never to the MCP caller; the client gets
+      // a generic message. A non-framework throw is the guard's own rejection
+      // (the author wrote it for the caller), so its message passes through.
+      const clientText = isRoutecraftError(error)
+        ? `Proxied tool "${proxied.exposedName}" could not be called.`
+        : logMsg;
+
       return {
-        content: [
-          {
-            type: "text",
-            text: `Error: ${toolErrorUserMessage(error, logMsg)}`,
-          },
-        ],
+        content: [{ type: "text", text: `Error: ${clientText}` }],
         isError: true,
       };
     }

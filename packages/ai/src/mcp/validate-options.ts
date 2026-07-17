@@ -120,7 +120,11 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       }
       const entry = isString ? { ref: raw } : raw;
       const { serverId, toolName } = parseProxyRef(entry.ref);
-      if (!options.clients || !(serverId in options.clients)) {
+      // Own-property check: `serverId in options.clients` would accept
+      // inherited keys (constructor, toString, ...) that client setup, which
+      // iterates `Object.entries`, never registers, leaving the ref
+      // permanently unresolved at runtime.
+      if (!options.clients || !Object.hasOwn(options.clients, serverId)) {
         throw new TypeError(
           `mcpPlugin: proxy ref "${entry.ref}" references unknown client "${serverId}". Register it under clients.`,
         );
@@ -134,9 +138,16 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
           `mcpPlugin: proxy ref "${entry.ref}" is a wildcard and cannot set name or description overrides`,
         );
       }
-      if (entry.name !== undefined && !MCP_TOOL_NAME_PATTERN.test(entry.name)) {
+      // Guard the type at runtime too: RegExp.test coerces a non-string
+      // (e.g. a number from untyped JS) to a string, which would pass the
+      // pattern and then surface as a non-string tool name on tools/list.
+      if (
+        entry.name !== undefined &&
+        (typeof entry.name !== "string" ||
+          !MCP_TOOL_NAME_PATTERN.test(entry.name))
+      ) {
         throw new TypeError(
-          `mcpPlugin: proxy name override "${entry.name}" must match [A-Za-z0-9_-]{1,64}`,
+          `mcpPlugin: proxy name override "${String(entry.name)}" must be a string matching [A-Za-z0-9_-]{1,64}`,
         );
       }
       if (entry.guard !== undefined && typeof entry.guard !== "function") {

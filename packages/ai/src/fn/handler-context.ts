@@ -71,6 +71,12 @@ export function freezePrincipal(principal: Principal): Principal {
   if (snapshot.scopes) snapshot.scopes = [...snapshot.scopes];
   if (snapshot.roles) snapshot.roles = [...snapshot.roles];
   if (snapshot.claims) snapshot.claims = structuredClone(snapshot.claims);
+  // Clone userinfoClaims for the same reason as claims: without it, the
+  // shallow spread shares the live principal's object and deepFreeze would
+  // freeze the caller's (and the userinfo enrichment cache's) copy in place.
+  if (snapshot.userinfoClaims) {
+    snapshot.userinfoClaims = structuredClone(snapshot.userinfoClaims);
+  }
   deepFreeze(snapshot);
   // Preserve authenticity across the snapshot: a snapshot of an authentic
   // principal is exactly as authentic as its source, and a snapshot of a

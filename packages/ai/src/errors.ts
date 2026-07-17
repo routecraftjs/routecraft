@@ -11,6 +11,16 @@ import { registerErrorCodes, type RCMeta } from "@routecraft/routecraft";
  * Numbering: AI1xxx = agent block subsystem. Formerly core RC5025-RC5027,
  * renumbered when the codes moved into this package.
  */
+/**
+ * Provenance of an MCP tool-lifecycle event. Modeled as a discriminated
+ * union so `proxied: true` guarantees the `serverId` / `remoteTool` of the
+ * registered client the call was forwarded to; a local `.from(mcp())` route
+ * call omits `proxied` (or sets it false) and carries neither identifier.
+ */
+type McpToolProvenance =
+  | { proxied?: false; serverId?: undefined; remoteTool?: undefined }
+  | { proxied: true; serverId: string; remoteTool: string };
+
 declare module "@routecraft/routecraft" {
   interface EventDetailsMap {
     /** MCP HTTP transport opened a session. */
@@ -29,25 +39,14 @@ declare module "@routecraft/routecraft" {
     "plugin:mcp:tool:called": {
       tool: string;
       args: unknown;
-      proxied?: boolean;
-      serverId?: string;
-      remoteTool?: string;
-    };
+    } & McpToolProvenance;
     /** MCP tool call completed successfully. */
-    "plugin:mcp:tool:completed": {
-      tool: string;
-      proxied?: boolean;
-      serverId?: string;
-      remoteTool?: string;
-    };
+    "plugin:mcp:tool:completed": { tool: string } & McpToolProvenance;
     /** MCP tool call failed. */
     "plugin:mcp:tool:failed": {
       tool: string;
       error: string;
-      proxied?: boolean;
-      serverId?: string;
-      remoteTool?: string;
-    };
+    } & McpToolProvenance;
   }
   interface ErrorCodeRegistry {
     /** Agent block resolution failed (formerly RC5025) */
