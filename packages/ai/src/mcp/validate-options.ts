@@ -143,6 +143,11 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
           `mcpPlugin: proxy name override "${entry.name}" must match [A-Za-z0-9_-]{1,64}`,
         );
       }
+      if (entry.guard !== undefined && typeof entry.guard !== "function") {
+        throw new TypeError(
+          `mcpPlugin: proxy guard for "${entry.ref}" must be a function (throw inside it to reject a call)`,
+        );
+      }
       const refKey = `${serverId}:${toolName}`;
       if (seenRefs.has(refKey)) {
         throw new TypeError(

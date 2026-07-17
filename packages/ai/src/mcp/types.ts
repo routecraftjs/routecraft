@@ -4,6 +4,7 @@ import type {
   Principal,
   ValidatorAuthOptions,
 } from "@routecraft/routecraft";
+import type { ToolGuard } from "../fn/types.ts";
 import type { McpCorsOptions } from "./cors.ts";
 import type { McpToolRegistry } from "./tool-registry.ts";
 import type { UserinfoOption } from "./userinfo.ts";
@@ -498,9 +499,11 @@ export interface McpPluginOptions {
    * Trust boundary: the caller's authenticated principal is NOT forwarded to
    * the remote server; the Routecraft -> MCP hop authenticates with the
    * client's registered `auth`. Route-scope guardrails (`authorize()`, input
-   * validation, throttling) do not run for proxied calls. Proxy simple,
-   * read-only tools; put anything needing guardrails behind a `.from(mcp())`
-   * route instead.
+   * validation, throttling) do not run for proxied calls, but a per-entry
+   * `guard` can reject a call by caller identity before it dispatches (same
+   * contract as the agent's `tools([{ name, guard }])`). Proxy simple,
+   * read-only tools, guard the ones that need an identity check, and put
+   * anything needing stateful guardrails behind a `.from(mcp())` route.
    */
   proxy?: Array<string | McpProxyToolConfig>;
 
@@ -555,6 +558,16 @@ export interface McpProxyToolConfig {
    * (per-key; an override key wins over the remote value).
    */
   annotations?: McpToolAnnotations;
+  /**
+   * Guard run before the call is dispatched to the remote server. Same
+   * contract as the agent's `tools([{ name, guard }])`: receives the raw
+   * tool arguments and a handler context carrying the MCP caller's
+   * read-only `principal` (when the HTTP transport authenticated one);
+   * throw to reject the call, which surfaces to the client as an
+   * `isError` result. On a wildcard ref the guard is attached to every
+   * expanded tool.
+   */
+  guard?: ToolGuard;
 }
 
 /**

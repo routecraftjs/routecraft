@@ -81,6 +81,20 @@ export interface FnHandlerContext {
 }
 
 /**
+ * Synchronous or async guard run after schema validation, before the
+ * underlying handler. Throwing rejects the call: for agent tools the
+ * error surfaces back to the LLM as a tool error so the model can
+ * self-correct; for proxied MCP tools it becomes an `isError` result
+ * for the calling client. The context carries the caller's read-only
+ * `principal` (when authenticated) so guards can authorise by
+ * identity, role, or scope.
+ */
+export type ToolGuard = (
+  input: unknown,
+  ctx: FnHandlerContext,
+) => void | Promise<void>;
+
+/**
  * Shape of a fn registered via `agentPlugin({ functions: { id: {...} } })`.
  *
  * The fn id is the record key in the plugin config; this shape only

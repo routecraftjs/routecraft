@@ -229,7 +229,26 @@ Proxied tools appear in `tools/list` under their original name (or the `name` ov
 
 Name collisions resolve deterministically: a local `.from(mcp())` route always wins over a proxied tool, and earlier `proxy` entries win over later ones (both log a warning). Use the `name` override to expose two same-named tools side by side.
 
-**When to proxy and when to write a route.** A proxied call runs no route pipeline: no `authorize()`, no input validation, no caching, throttling, or timeouts. The caller's authenticated principal is also not forwarded to the remote server; the Routecraft-to-client hop authenticates with the client's registered `auth`. Proxy simple, read-only tools (a document fetch, a search). The moment a tool needs guardrails, put a `.from(mcp())` route in front of it instead -- see [Calling an MCP -> Guardrails](/docs/advanced/call-an-mcp#guardrails-raw-guarded-or-wrapped) for the same tiering applied to agent tools.
+### Guarding proxied tools
+
+A proxy entry can carry a `guard`, the same per-tool check the agent's `tools([{ name, guard }])` supports. It runs before the call dispatches, receives the raw tool arguments and a handler context carrying the MCP caller's read-only `principal` (populated by the HTTP transport's `auth`), and rejects the call by throwing (the client sees an `isError` result):
+
+```ts
+proxy: [
+  {
+    ref: 'billing:search',
+    guard: (_input, ctx) => {
+      if (!ctx.principal?.roles?.includes('finance')) {
+        throw new Error('finance role required')
+      }
+    },
+  },
+  // On a wildcard ref the guard attaches to every expanded tool:
+  { ref: 'docs:*', guard: (input, ctx) => { /* ... */ } },
+]
+```
+
+**When to proxy and when to write a route.** A proxied call runs no route pipeline: no `authorize()`, no input validation, no caching, throttling, or timeouts. The caller's authenticated principal is also not forwarded to the remote server; the Routecraft-to-client hop authenticates with the client's registered `auth`. Proxy simple, read-only tools (a document fetch, a search) raw, add a `guard` when a tool needs an identity or role check, and the moment a tool needs anything stateful or time-based (caching, throttling, retries, audit), put a `.from(mcp())` route in front of it instead -- see [Calling an MCP -> Guardrails](/docs/advanced/call-an-mcp#guardrails-raw-guarded-or-wrapped) for the same tiering applied to agent tools.
 
 ## Production
 

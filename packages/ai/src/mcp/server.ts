@@ -30,6 +30,7 @@ import type {
   OAuthAuthOptions,
 } from "./types.ts";
 import { dispatchMcpCallRaw } from "./dispatch.ts";
+import { makeFnHandlerContext } from "../fn/handler-context.ts";
 import {
   proxiedToolToMcpTool,
   resolveProxiedTools,
@@ -1685,11 +1686,13 @@ export class McpServer {
    * Trust boundary: the caller's authenticated principal is NOT forwarded;
    * the Routecraft -> MCP hop authenticates with the client's registered
    * `auth` (same posture as the agent's MCP tool dispatch). Route-scope
-   * guardrails do not run here; tools that need them belong behind a
+   * guardrails do not run here; a per-entry `guard` (run before dispatch,
+   * with the caller's read-only principal on its context) covers identity
+   * checks, and tools needing stateful guardrails belong behind a
    * `.from(mcp())` route.
    *
-   * Dispatch failures propagate to `handleToolCall`'s catch block, which
-   * converts them to an `isError` text result.
+   * Guard rejections and dispatch failures propagate to `handleToolCall`'s
+   * catch block, which converts them to an `isError` text result.
    */
   private async handleProxiedToolCall(
     proxied: McpProxiedTool,
@@ -1706,6 +1709,19 @@ export class McpServer {
       remoteTool: proxied.toolName,
     };
     this.context.emit(`plugin:mcp:tool:called`, { ...detail, args });
+
+    const guard = proxied.config.guard;
+    if (guard) {
+      // No per-request abort signal exists on this path; hand the guard a
+      // fresh never-aborted signal, matching the agent runtime's fallback
+      // when no route signal is available.
+      const guardCtx = makeFnHandlerContext(
+        proxied.exposedName,
+        new AbortController().signal,
+        principalStore.getStore(),
+      );
+      await guard(args, guardCtx);
+    }
 
     const raw: McpRawToolResult = await dispatchMcpCallRaw(
       this.context,

@@ -109,7 +109,7 @@ export default craft()
   .to(mcp('github:create_issue'))
 ```
 
-Hand the agent the governed route instead of the raw tool. The same underlying tool can be exposed both ways: wrap the ones that need policy (one route per tool), leave harmless read-only tools raw. The same tiering applies when re-exposing client tools through your own MCP server: [`mcpPlugin({ proxy })`](/docs/advanced/expose-as-mcp#proxying-tools-from-configured-clients) is the raw tier, a `.from(mcp())` route is the governed tier.
+Hand the agent the governed route instead of the raw tool. The same underlying tool can be exposed both ways: wrap the ones that need policy (one route per tool), leave harmless read-only tools raw. The same tiering applies when re-exposing client tools through your own MCP server: a plain [`mcpPlugin({ proxy })`](/docs/advanced/expose-as-mcp#proxying-tools-from-configured-clients) entry is the raw tier, a proxy entry with a `guard` is the guarded tier, and a `.from(mcp())` route is the governed tier.
 
 ```ts
 agent({

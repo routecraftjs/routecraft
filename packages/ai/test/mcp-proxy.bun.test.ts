@@ -10,6 +10,8 @@ import {
   MCP_TOOL_REGISTRY,
 } from "../src/mcp/types.ts";
 import type { McpRawToolResult, McpTool } from "../src/mcp/types.ts";
+import type { FnHandlerContext } from "../src/fn/types.ts";
+import http from "node:http";
 
 type StoreKey = keyof import("@routecraft/routecraft").StoreRegistry;
 
@@ -265,6 +267,102 @@ describe("MCP tool proxying", () => {
   });
 
   /**
+   * @case A passing guard runs before dispatch and receives the raw args and a handler context
+   * @preconditions Proxy entry with a guard that records its input and context; fake manager dispatches normally
+   * @expectedResult Guard sees the call args, a logger, and an abort signal; the call dispatches and succeeds
+   */
+  test("guard runs before dispatch with args and handler context", async () => {
+    const seen: Array<{ input: unknown; ctx: FnHandlerContext }> = [];
+    t = await testContext()
+      .store(REGISTRY_KEY, buildRegistry())
+      .store(MANAGERS_KEY, buildManagers())
+      .build();
+    server = new McpServer(t.ctx, {
+      proxy: [
+        {
+          ref: "docs:get_document",
+          guard: (input, ctx) => {
+            seen.push({ input, ctx });
+          },
+        },
+      ],
+    });
+
+    const result = await (server as unknown as TestableServer).handleToolCall(
+      "get_document",
+      { id: "42" },
+    );
+    expect(result.isError).toBeUndefined();
+    expect(seen).toHaveLength(1);
+    expect(seen[0].input).toEqual({ id: "42" });
+    expect(seen[0].ctx.logger).toBeDefined();
+    expect(seen[0].ctx.abortSignal).toBeInstanceOf(AbortSignal);
+    expect(dispatches).toHaveLength(1);
+  });
+
+  /**
+   * @case A throwing guard rejects the call before any dispatch happens
+   * @preconditions Proxy entry whose guard always throws; fake manager would dispatch normally
+   * @expectedResult handleToolCall returns isError with the guard's message and the manager is never called
+   */
+  test("guard rejection blocks dispatch and surfaces as isError", async () => {
+    t = await testContext()
+      .store(REGISTRY_KEY, buildRegistry())
+      .store(MANAGERS_KEY, buildManagers())
+      .build();
+    server = new McpServer(t.ctx, {
+      proxy: [
+        {
+          ref: "docs:get_document",
+          guard: () => {
+            throw new Error("admins only");
+          },
+        },
+      ],
+    });
+
+    const result = await (server as unknown as TestableServer).handleToolCall(
+      "get_document",
+      { id: "42" },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("admins only");
+    expect(dispatches).toHaveLength(0);
+  });
+
+  /**
+   * @case A wildcard ref's guard is attached to every expanded tool
+   * @preconditions Proxy entry { ref: "docs:*", guard } rejecting every call; docs advertises two tools
+   * @expectedResult Both expanded tools reject with the guard's message and nothing dispatches
+   */
+  test("wildcard guard applies to every expanded tool", async () => {
+    t = await testContext()
+      .store(REGISTRY_KEY, buildRegistry())
+      .store(MANAGERS_KEY, buildManagers())
+      .build();
+    server = new McpServer(t.ctx, {
+      proxy: [
+        {
+          ref: "docs:*",
+          guard: () => {
+            throw new Error("blocked by wildcard guard");
+          },
+        },
+      ],
+    });
+
+    for (const tool of ["get_document", "search"]) {
+      const result = await (server as unknown as TestableServer).handleToolCall(
+        tool,
+        {},
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toContain("blocked by wildcard guard");
+    }
+    expect(dispatches).toHaveLength(0);
+  });
+
+  /**
    * @case Dispatch failures surface as isError text results, not thrown errors
    * @preconditions No stdio manager and no HTTP config for "docs" (dispatch throws RC5003)
    * @expectedResult handleToolCall returns isError true with an error message
@@ -450,6 +548,154 @@ describe("MCP tool proxying", () => {
   });
 });
 
+describe("MCP tool proxying over HTTP with auth", () => {
+  let t: TestContext;
+  let server: McpServer;
+
+  afterEach(async () => {
+    dispatches = [];
+    if (server) {
+      try {
+        await server.stop();
+      } catch {
+        // ignore
+      }
+    }
+    if (t) {
+      await t.stop();
+    }
+  });
+
+  /** POST a JSON-RPC body to /mcp on the given port. */
+  function post(
+    port: number,
+    body: string,
+    headers: Record<string, string>,
+  ): Promise<{ statusCode: number; body: string; sessionId?: string }> {
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          host: "127.0.0.1",
+          port,
+          path: "/mcp",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+            Connection: "close",
+            ...headers,
+          },
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (chunk) => (data += chunk));
+          res.on("end", () => {
+            const sid = res.headers["mcp-session-id"];
+            resolve({
+              statusCode: res.statusCode ?? 0,
+              body: data,
+              ...(sid ? { sessionId: Array.isArray(sid) ? sid[0] : sid } : {}),
+            });
+          });
+        },
+      );
+      req.on("error", reject);
+      req.write(body);
+      req.end();
+    });
+  }
+
+  /** Extract the JSON-RPC result payload from a JSON or SSE response body. */
+  function parseRpcResult(body: string): Record<string, unknown> {
+    const jsonLine = body.startsWith("event:")
+      ? (body
+          .split("\n")
+          .find((line) => line.startsWith("data:"))
+          ?.slice(5) ?? "{}")
+      : body;
+    return (JSON.parse(jsonLine) as { result: Record<string, unknown> }).result;
+  }
+
+  /**
+   * @case Guard sees the authenticated MCP caller's principal and can authorise by role
+   * @preconditions HTTP server with a token validator mapping admin-token to an admin-role principal; proxied tool guarded on the admin role
+   * @expectedResult The admin token's call dispatches and succeeds; the user token's call returns an isError result without dispatching
+   */
+  test("guard authorises proxied calls by caller principal over HTTP", async () => {
+    t = await testContext()
+      .store(REGISTRY_KEY, buildRegistry())
+      .store(MANAGERS_KEY, buildManagers())
+      .build();
+    server = new McpServer(t.ctx, {
+      transport: "http",
+      port: 0,
+      host: "127.0.0.1",
+      auth: {
+        validator: (token: string) => ({
+          kind: "custom" as const,
+          subject: token === "admin-token" ? "admin-1" : "user-1",
+          scheme: "bearer" as const,
+          roles: token === "admin-token" ? ["admin"] : ["user"],
+        }),
+      },
+      proxy: [
+        {
+          ref: "docs:get_document",
+          guard: (_input, ctx) => {
+            if (!ctx.principal?.roles?.includes("admin")) {
+              throw new Error("admin role required");
+            }
+          },
+        },
+      ],
+    });
+    await server.start();
+    const port = server.getHttpPort()!;
+
+    async function callTool(token: string): Promise<Record<string, unknown>> {
+      const auth = { Authorization: `Bearer ${token}` };
+      const init = await post(
+        port,
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2024-11-05",
+            capabilities: {},
+            clientInfo: { name: "test", version: "1.0.0" },
+          },
+        }),
+        auth,
+      );
+      expect(init.statusCode).toBe(200);
+      const call = await post(
+        port,
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "get_document", arguments: { id: "42" } },
+        }),
+        { ...auth, "mcp-session-id": init.sessionId! },
+      );
+      expect(call.statusCode).toBe(200);
+      return parseRpcResult(call.body);
+    }
+
+    const adminResult = await callTool("admin-token");
+    expect(adminResult["isError"]).toBeUndefined();
+    expect(dispatches).toHaveLength(1);
+
+    const userResult = await callTool("user-token");
+    expect(userResult["isError"]).toBe(true);
+    expect(JSON.stringify(userResult["content"])).toContain(
+      "admin role required",
+    );
+    expect(dispatches).toHaveLength(1);
+  });
+});
+
 describe("mcpPlugin proxy option validation", () => {
   /**
    * @case Proxy refs referencing unregistered clients fail at plugin creation
@@ -552,6 +798,25 @@ describe("mcpPlugin proxy option validation", () => {
     expect(() => mcpPlugin({ clients, proxy: [""] })).toThrow(
       "non-empty string",
     );
+  });
+
+  /**
+   * @case Non-function guard values fail at plugin creation
+   * @preconditions proxy entry with guard set to a string
+   * @expectedResult mcpPlugin throws a TypeError about the guard
+   */
+  test("non-function guard throws", () => {
+    expect(() =>
+      mcpPlugin({
+        clients: { docs: { transport: "stdio", command: "docs-mcp" } },
+        proxy: [
+          {
+            ref: "docs:tool",
+            guard: "nope" as unknown as () => void,
+          },
+        ],
+      }),
+    ).toThrow("guard");
   });
 
   /**

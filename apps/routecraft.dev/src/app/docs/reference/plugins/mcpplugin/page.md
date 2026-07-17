@@ -296,11 +296,12 @@ The `proxy` option re-exposes tools from registered `clients` through this MCP s
 | `name` | `string` | No | Exposed tool name override (`[A-Za-z0-9_-]{1,64}`); invalid on wildcard refs |
 | `description` | `string` | No | Description override for `tools/list`; invalid on wildcard refs |
 | `annotations` | `McpToolAnnotations` | No | Merged over the remote tool's annotations (per key) |
+| `guard` | `ToolGuard` | No | Runs before dispatch with `(args, ctx)`; throw to reject the call as an `isError` result. `ctx.principal` carries the MCP caller's identity (HTTP `auth`). On wildcard refs the guard attaches to every expanded tool. Same contract as the agent's `tools([{ name, guard }])`. |
 
 Refs are validated when the plugin is created: unknown clients, malformed refs, wildcard renames, and statically duplicate exposed names all throw. Resolution against the tool registry is live, so wildcard entries follow tool refresh and stdio restarts, and a client whose initial listing failed starts serving as soon as its tools appear.
 
 On a name collision, a local `.from(mcp())` route wins over a proxied tool, and earlier `proxy` entries win over later ones; both log a warning once.
 
-Proxied calls dispatch over the client's registered transport and auth, and the remote result (`content`, `structuredContent`, `isError`) passes through verbatim. The caller's authenticated principal is not forwarded, and no route pipeline runs (no `authorize()`, validation, or resilience wrappers). Reserve `proxy` for simple, read-only tools; put anything needing guardrails behind a `.from(mcp())` route. See [Running an MCP server -> Proxying tools from configured clients](/docs/advanced/expose-as-mcp#proxying-tools-from-configured-clients).
+Proxied calls dispatch over the client's registered transport and auth, and the remote result (`content`, `structuredContent`, `isError`) passes through verbatim. The caller's authenticated principal is not forwarded, and no route pipeline runs (no `authorize()`, validation, or resilience wrappers); a per-entry `guard` covers identity and role checks. Reserve raw `proxy` entries for simple, read-only tools; put anything needing stateful guardrails behind a `.from(mcp())` route. See [Running an MCP server -> Proxying tools from configured clients](/docs/advanced/expose-as-mcp#proxying-tools-from-configured-clients).
 
 See [Running an MCP server](/docs/advanced/expose-as-mcp), [Calling an MCP](/docs/advanced/call-an-mcp), and [Securing capabilities](/docs/advanced/securing-capabilities) for usage guides.
