@@ -243,6 +243,28 @@ describe("MCP tool proxying", () => {
   });
 
   /**
+   * @case A raw JSON-string arguments payload is normalized before reaching the proxied dispatch
+   * @preconditions handleToolCall invoked with args as a JSON string (as the SDK may deliver); proxy is ["docs:get_document"]
+   * @expectedResult The remote receives the parsed object, matching the normalization the local path applies
+   */
+  test("string arguments are normalized on the proxied path", async () => {
+    t = await testContext()
+      .store(REGISTRY_KEY, buildRegistry())
+      .store(MANAGERS_KEY, buildManagers())
+      .build();
+    server = new McpServer(t.ctx, { proxy: ["docs:get_document"] });
+
+    await (
+      server as unknown as {
+        handleToolCall(name: string, args: unknown): Promise<unknown>;
+      }
+    ).handleToolCall("get_document", '{"id":"42"}');
+    expect(dispatches).toEqual([
+      { serverId: "docs", toolName: "get_document", args: { id: "42" } },
+    ]);
+  });
+
+  /**
    * @case Remote isError results pass through instead of being swallowed
    * @preconditions Fake stdio manager returns { isError: true, content: [error text] }
    * @expectedResult handleToolCall returns isError true with the remote error content
@@ -521,6 +543,143 @@ describe("MCP tool proxying", () => {
   });
 
   /**
+   * @case An exact entry's guard and overrides survive an overlapping wildcard in either order
+   * @preconditions Guarded exact ref for docs:search plus docs:* wildcard, in both config orders
+   * @expectedResult The guard runs (rejecting the call) and the exact description is listed, regardless of order
+   */
+  test("exact entry wins over overlapping wildcard in both orders", async () => {
+    const orders: Array<
+      Array<string | import("../src/mcp/types.ts").McpProxyToolConfig>
+    > = [
+      ["docs:*", { ref: "docs:search", description: "exact", guard: deny }],
+      [{ ref: "docs:search", description: "exact", guard: deny }, "docs:*"],
+    ];
+    function deny(): void {
+      throw new Error("guard ran");
+    }
+    for (const proxy of orders) {
+      t = await testContext()
+        .store(REGISTRY_KEY, buildRegistry())
+        .store(MANAGERS_KEY, buildManagers())
+        .build();
+      server = new McpServer(t.ctx, { proxy });
+
+      const listed = server
+        .getAvailableTools()
+        .find((tool) => tool.name === "search");
+      expect(listed?.description).toBe("exact");
+
+      const result = await (server as unknown as TestableServer).handleToolCall(
+        "search",
+        {},
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toContain("guard ran");
+      expect(dispatches).toHaveLength(0);
+
+      await server.stop();
+      await t.stop();
+      dispatches = [];
+    }
+  });
+
+  /**
+   * @case A remote tool advertising icons: [] is listed without icons instead of inheriting the server icon
+   * @preconditions Registry entry for docs:search carries icons: []; proxy exposes it
+   * @expectedResult The listed tool has no icons field (empty array is the documented "no icon" opt-out)
+   */
+  test("remote icons opt-out ([]) is honored on proxied tools", async () => {
+    const registry = new McpToolRegistry();
+    registry.setToolsForSource("docs", "stdio", [
+      {
+        name: "search",
+        description: "Search documents",
+        inputSchema: { type: "object" },
+        icons: [],
+      },
+    ]);
+    t = await testContext().store(REGISTRY_KEY, registry).build();
+    server = new McpServer(t.ctx, { proxy: ["docs:search"] });
+
+    const tools = server.getAvailableTools();
+    expect(tools).toHaveLength(1);
+    expect(tools[0].icons).toBeUndefined();
+  });
+
+  /**
+   * @case Guard rejections emit plugin:mcp:tool:failed with the proxied metadata fields
+   * @preconditions Proxy entry whose guard throws; listener captures tool events
+   * @expectedResult The failed event carries proxied: true, serverId, and remoteTool alongside tool and error
+   */
+  test("guard rejection failed event carries proxied metadata", async () => {
+    const failures: Array<Record<string, unknown>> = [];
+    t = await testContext()
+      .store(REGISTRY_KEY, buildRegistry())
+      .store(MANAGERS_KEY, buildManagers())
+      .build();
+    t.ctx.on("plugin:mcp:tool:failed", (event) => {
+      failures.push((event as { details: Record<string, unknown> }).details);
+    });
+    server = new McpServer(t.ctx, {
+      proxy: [
+        {
+          ref: "docs:get_document",
+          guard: () => {
+            throw new Error("denied");
+          },
+        },
+      ],
+    });
+
+    await (server as unknown as TestableServer).handleToolCall("get_document", {
+      id: "42",
+    });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      tool: "get_document",
+      proxied: true,
+      serverId: "docs",
+      remoteTool: "get_document",
+    });
+    expect(String(failures[0]["error"])).toContain("denied");
+  });
+
+  /**
+   * @case Remote tool names that violate the MCP name pattern are skipped unless renamed
+   * @preconditions Registry has a tool named "bad.name"; proxied via wildcard, then via exact ref with a name override
+   * @expectedResult The wildcard skips it; the renamed exact entry exposes and dispatches it
+   */
+  test("non-conforming remote names are skipped unless renamed", async () => {
+    const registry = new McpToolRegistry();
+    registry.setToolsForSource("docs", "stdio", [
+      {
+        name: "bad.name",
+        description: "Dotted name",
+        inputSchema: { type: "object" },
+      },
+    ]);
+    t = await testContext()
+      .store(REGISTRY_KEY, registry)
+      .store(MANAGERS_KEY, buildManagers())
+      .build();
+
+    server = new McpServer(t.ctx, { proxy: ["docs:*"] });
+    expect(server.getAvailableTools()).toHaveLength(0);
+    await server.stop();
+
+    server = new McpServer(t.ctx, {
+      proxy: [{ ref: "docs:bad.name", name: "bad_name" }],
+    });
+    expect(server.getAvailableTools().map((tool) => tool.name)).toEqual([
+      "bad_name",
+    ]);
+    await (server as unknown as TestableServer).handleToolCall("bad_name", {});
+    expect(dispatches).toEqual([
+      { serverId: "docs", toolName: "bad.name", args: {} },
+    ]);
+  });
+
+  /**
    * @case tools filter hides local tools from tools/call as well as tools/list
    * @preconditions Two mcp() routes; tools filter allows only tool1
    * @expectedResult Calling tool2 returns a tool-not-found error result
@@ -782,22 +941,27 @@ describe("mcpPlugin proxy option validation", () => {
   });
 
   /**
-   * @case Malformed refs fail at plugin creation
-   * @preconditions Refs with empty parts or extra colons
-   * @expectedResult mcpPlugin throws a TypeError for each malformed form
+   * @case Malformed refs fail at plugin creation; extra colons stay in the tool segment
+   * @preconditions Refs with empty parts; a ref with a colon-containing tool name
+   * @expectedResult Empty segments throw a TypeError; "docs:a:b" is accepted (tool "a:b", matching the agent ref grammar)
    */
-  test("malformed refs throw", () => {
+  test("malformed refs throw; colons in the tool segment parse", () => {
     const clients = {
       docs: { transport: "stdio", command: "docs-mcp" },
     } as const;
     expect(() => mcpPlugin({ clients, proxy: [":tool"] })).toThrow("malformed");
     expect(() => mcpPlugin({ clients, proxy: ["docs:"] })).toThrow("malformed");
-    expect(() => mcpPlugin({ clients, proxy: ["docs:a:b"] })).toThrow(
-      "malformed",
-    );
     expect(() => mcpPlugin({ clients, proxy: [""] })).toThrow(
       "non-empty string",
     );
+    // Colons beyond the first split are part of the remote tool name,
+    // matching parseMcpRef's grammar for agent tool refs.
+    expect(() =>
+      mcpPlugin({
+        clients,
+        proxy: [{ ref: "docs:a:b", name: "a_b" }],
+      }),
+    ).not.toThrow();
   });
 
   /**

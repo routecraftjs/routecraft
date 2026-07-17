@@ -81,13 +81,19 @@ export interface FnHandlerContext {
 }
 
 /**
- * Synchronous or async guard run after schema validation, before the
- * underlying handler. Throwing rejects the call: for agent tools the
- * error surfaces back to the LLM as a tool error so the model can
- * self-correct; for proxied MCP tools it becomes an `isError` result
- * for the calling client. The context carries the caller's read-only
- * `principal` (when authenticated) so guards can authorise by
- * identity, role, or scope.
+ * Synchronous or async guard run before the underlying handler. Throwing
+ * rejects the call: for agent tools the error surfaces back to the LLM as
+ * a tool error so the model can self-correct; for proxied MCP tools
+ * (`mcpPlugin({ proxy })`) it becomes an `isError` result for the calling
+ * client. The context carries the caller's read-only `principal` (when
+ * authenticated) so guards can authorise by identity, role, or scope.
+ *
+ * Input validation differs per surface, so treat `input` as untrusted:
+ * agent tools validate the input against the tool's schema BEFORE the
+ * guard runs, but MCP proxy guards receive the caller's raw arguments
+ * verbatim (the remote server is the validator and runs AFTER the guard).
+ * A guard shared across both surfaces must not assume a validated shape;
+ * check structure before dereferencing.
  */
 export type ToolGuard = (
   input: unknown,

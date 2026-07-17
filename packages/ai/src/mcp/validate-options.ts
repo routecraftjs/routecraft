@@ -1,10 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { formatSchemaIssues } from "@routecraft/routecraft";
-import {
-  MCP_TOOL_NAME_PATTERN,
-  normalizeProxyEntries,
-  parseProxyRef,
-} from "./proxy.ts";
+import { exposedNameFor, parseProxyRef } from "./proxy.ts";
+import { MCP_TOOL_NAME_PATTERN } from "./types.ts";
 import type { McpPluginOptions } from "./types.ts";
 
 /** Standard Schema validate result: success has value, failure has issues. */
@@ -110,6 +107,8 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
         "mcpPlugin: proxy must be an array of ref strings or { ref, ... } configs",
       );
     }
+    const seenRefs = new Set<string>();
+    const seenNames = new Set<string>();
     for (const raw of options.proxy) {
       const isString = typeof raw === "string";
       const isObject =
@@ -119,10 +118,7 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
           "mcpPlugin: each proxy entry must be a ref string or a { ref, ... } config object",
         );
       }
-    }
-    const seenRefs = new Set<string>();
-    const seenNames = new Set<string>();
-    for (const entry of normalizeProxyEntries(options.proxy)) {
+      const entry = isString ? { ref: raw } : raw;
       const { serverId, toolName } = parseProxyRef(entry.ref);
       if (!options.clients || !(serverId in options.clients)) {
         throw new TypeError(
@@ -156,7 +152,7 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       }
       seenRefs.add(refKey);
       if (!isWildcard) {
-        const exposed = entry.name ?? toolName;
+        const exposed = exposedNameFor(entry, toolName);
         if (seenNames.has(exposed)) {
           throw new TypeError(
             `mcpPlugin: proxy entries expose the tool name "${exposed}" more than once. Use name overrides to disambiguate.`,

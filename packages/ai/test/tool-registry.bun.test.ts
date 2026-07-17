@@ -304,4 +304,58 @@ describe("McpToolRegistry", () => {
     ]);
     expect(registry.getTool("plain")?.tags).toBeUndefined();
   });
+
+  /**
+   * @case version bumps when a source's tools change and on source removal
+   * @preconditions Empty registry; add a source, then change its tools, then remove it
+   * @expectedResult version strictly increases at each real change
+   */
+  test("version increases on real tool changes and removal", () => {
+    const v0 = registry.version;
+    registry.setToolsForSource("server-a", "stdio", [
+      { name: "tool1", inputSchema: { type: "object" } },
+    ]);
+    const v1 = registry.version;
+    expect(v1).toBeGreaterThan(v0);
+
+    registry.setToolsForSource("server-a", "stdio", [
+      { name: "tool1", inputSchema: { type: "object" } },
+      { name: "tool2", inputSchema: { type: "object" } },
+    ]);
+    const v2 = registry.version;
+    expect(v2).toBeGreaterThan(v1);
+
+    registry.removeSource("server-a");
+    expect(registry.version).toBeGreaterThan(v2);
+  });
+
+  /**
+   * @case Re-listing an unchanged tool set does not bump the version
+   * @preconditions A source listed, then re-listed with an identical tool set (periodic HTTP refresh)
+   * @expectedResult version is unchanged, so memoized consumers are not invalidated by no-op refreshes
+   */
+  test("version is stable across an identical re-listing", () => {
+    const tools = [
+      {
+        name: "tool1",
+        description: "Tool 1",
+        inputSchema: { type: "object" as const },
+      },
+    ];
+    registry.setToolsForSource("server-a", "http", tools);
+    const v1 = registry.version;
+    registry.setToolsForSource("server-a", "http", tools);
+    expect(registry.version).toBe(v1);
+  });
+
+  /**
+   * @case Removing an absent source does not bump the version
+   * @preconditions Empty registry; remove a source that was never added
+   * @expectedResult version is unchanged
+   */
+  test("version is stable when removing an unknown source", () => {
+    const v0 = registry.version;
+    registry.removeSource("never-added");
+    expect(registry.version).toBe(v0);
+  });
 });

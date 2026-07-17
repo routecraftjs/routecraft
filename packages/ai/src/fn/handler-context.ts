@@ -53,9 +53,11 @@ export function makeFnHandlerContext(
  * snapshot is recursively frozen so any runtime mutation attempt
  * (top-level field, array entry, nested claim object) throws.
  *
- * Runs once per agent dispatch in `buildVercelTools` (the same frozen
- * reference is reused for every tool invocation in that dispatch) and
- * once per guarded proxied MCP tool call.
+ * Runs once per resolved tool at `buildVercelTools` time (each tool's
+ * handler context holds its own frozen snapshot, reused across that
+ * tool's invocations in the dispatch) and once per guarded proxied MCP
+ * tool call. Do not rely on reference equality of `ctx.principal` across
+ * different tools of one dispatch.
  *
  * @internal
  */

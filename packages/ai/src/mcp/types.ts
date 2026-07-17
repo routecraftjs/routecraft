@@ -10,6 +10,30 @@ import type { McpToolRegistry } from "./tool-registry.ts";
 import type { UserinfoOption } from "./userinfo.ts";
 
 /**
+ * Characters allowed in an MCP tool name. Matches OpenAI's function-calling
+ * constraint (the strictest mainstream LLM client), which all major MCP
+ * client implementations respect: ASCII letters, digits, underscore, and
+ * hyphen, with a 1-64 length bound. Keeping tool names in this set ensures
+ * the `tool.name` field survives `tools/list` -> LLM function-calling
+ * without further mangling. Enforced on route ids by the `mcp()` source and
+ * on exposed proxied-tool names by the proxy resolver.
+ */
+export const MCP_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The tool-calling surface of a managed stdio client, as stored under
+ * {@link MCP_STDIO_MANAGERS}. `callTool` returns extracted content;
+ * `callToolRaw` returns the raw MCP result for verbatim passthrough.
+ */
+export interface McpStdioToolCaller {
+  callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+  callToolRaw(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<McpRawToolResult>;
+}
+
+/**
  * Store key set by mcpPlugin() when applied; routes using .from(mcp(...)) require it.
  * @internal
  */
@@ -97,16 +121,7 @@ declare module "@routecraft/routecraft" {
     >;
     [MCP_TOOL_REGISTRY]: McpToolRegistry;
     [MCP_LOCAL_TOOL_REGISTRY]: Map<string, McpLocalToolEntry>;
-    [MCP_STDIO_MANAGERS]: Map<
-      string,
-      {
-        callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
-        callToolRaw(
-          name: string,
-          args: Record<string, unknown>,
-        ): Promise<McpRawToolResult>;
-      }
-    >;
+    [MCP_STDIO_MANAGERS]: Map<string, McpStdioToolCaller>;
   }
 
   interface RoutecraftHeaders {
@@ -491,10 +506,15 @@ export interface McpPluginOptions {
    * isError) is returned verbatim.
    *
    * Selection resolves against the live tool registry, so wildcard entries
-   * follow tool refresh and stdio restarts. Name collisions are deterministic:
-   * a local `.from(mcp())` route always wins over a proxied tool, and earlier
-   * `proxy` entries win over later ones (a warning is logged either way; use
-   * the `name` override to disambiguate).
+   * follow tool refresh and stdio restarts. An exact ref and a wildcard
+   * covering the same remote tool compose: the exact entry's overrides and
+   * guard win regardless of config order. Collisions between different
+   * remote tools on one exposed name are deterministic: a local
+   * `.from(mcp())` route always wins over a proxied tool, and earlier
+   * `proxy` entries win over later ones (a warning is logged either way;
+   * use the `name` override to disambiguate). Exposed names must match
+   * `[A-Za-z0-9_-]{1,64}`; a remote tool whose own name does not conform
+   * is skipped with a warning unless renamed via an exact entry's `name`.
    *
    * Trust boundary: the caller's authenticated principal is NOT forwarded to
    * the remote server; the Routecraft -> MCP hop authenticates with the

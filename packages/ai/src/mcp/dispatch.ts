@@ -16,12 +16,13 @@ import {
 
 /**
  * Dispatch an MCP tool call against a server registered via
- * `mcpPlugin({ clients })`. Used by both the `mcp(...)` destination
- * adapter and the agent `tools([...])` resolver so the same transport
- * logic backs both call sites.
+ * `mcpPlugin({ clients })` and extract the result content. Used by both
+ * the `mcp(...)` destination adapter and the agent `tools([...])`
+ * resolver. Thin wrapper over {@link dispatchMcpCallRaw} so the two
+ * dispatch flavours (raw for the proxy, extracted here) can never drift.
  *
  * - For stdio clients (`MCP_STDIO_MANAGERS.get(serverId)`), delegates
- *   to the long-lived `StdioClientManager.callTool`.
+ *   to the long-lived `StdioClientManager.callToolRaw`.
  * - For HTTP clients (`ADAPTER_MCP_CLIENT_SERVERS.get(serverId).url`),
  *   opens a single MCP SDK client connection per call, dispatches,
  *   and closes. The agent path is per-tool-call so latency dominates
@@ -41,21 +42,9 @@ export async function dispatchMcpCall(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
-  const stdioManagers = ctx.getStore(MCP_STDIO_MANAGERS);
-  const manager = stdioManagers?.get(serverId);
-  if (manager) {
-    try {
-      return await manager.callTool(toolName, args);
-    } catch (cause) {
-      if (isRoutecraftError(cause)) throw cause;
-      throw rcError("RC5003", cause, {
-        message: `mcp dispatch: stdio call to "${serverId}:${toolName}" failed.`,
-      });
-    }
-  }
-
-  const http = resolveHttpConfig(ctx, serverId);
-  return callRemoteTool(http.url, toolName, args, http.auth);
+  return extractContent(
+    await dispatchMcpCallRaw(ctx, serverId, toolName, args),
+  );
 }
 
 /**

@@ -227,11 +227,11 @@ export default {
 
 Proxied tools appear in `tools/list` under their original name (or the `name` override) with the remote input/output schema, description, title, annotations, and icons passed through. Calls dispatch over the client's registered transport and auth, and the remote result (content, `structuredContent`, `isError`) is returned verbatim. Selection is live: wildcard entries follow tool refresh and stdio restarts.
 
-Name collisions resolve deterministically: a local `.from(mcp())` route always wins over a proxied tool, and earlier `proxy` entries win over later ones (both log a warning). Use the `name` override to expose two same-named tools side by side.
+An exact ref and a wildcard covering the same remote tool compose: the exact entry's overrides and guard apply regardless of config order, so `['docs:*', { ref: 'docs:search', guard }]` proxies everything from `docs` with the guard on `search`. Collisions between different remote tools on one exposed name resolve deterministically: a local `.from(mcp())` route always wins over a proxied tool, and earlier `proxy` entries win over later ones (both log a warning). Use the `name` override to expose two same-named tools side by side. Exposed names must match `[A-Za-z0-9_-]{1,64}` (the same contract route ids follow); a remote tool whose own name does not conform is skipped with a warning unless you proxy it with an exact ref and a `name` override.
 
 ### Guarding proxied tools
 
-A proxy entry can carry a `guard`, the same per-tool check the agent's `tools([{ name, guard }])` supports. It runs before the call dispatches, receives the raw tool arguments and a handler context carrying the MCP caller's read-only `principal` (populated by the HTTP transport's `auth`), and rejects the call by throwing (the client sees an `isError` result):
+A proxy entry can carry a `guard`, the same per-tool check the agent's `tools([{ name, guard }])` supports. It runs before the call dispatches, receives the raw tool arguments and a handler context carrying the MCP caller's read-only `principal` (populated by the HTTP transport's `auth`), and rejects the call by throwing (the client sees an `isError` result). Unlike agent tools, no schema validation runs before a proxy guard (the remote server validates after it), so treat the input as untrusted and check structure before dereferencing:
 
 ```ts
 proxy: [
