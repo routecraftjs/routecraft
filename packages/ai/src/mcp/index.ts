@@ -26,6 +26,8 @@ export {
   type McpLocalToolEntry,
   type McpOptions,
   type McpPluginOptions,
+  type McpProxyToolConfig,
+  type McpRawToolResult,
   type McpResourceOptions,
   type McpServerOptions,
   type McpTool,

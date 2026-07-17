@@ -60,8 +60,9 @@ export default config
 | `host` | `string` | `'localhost'` | HTTP host (http transport only) |
 | `auth` | `McpHttpAuthOptions` | -- | Auth for the HTTP endpoint (http transport only; see below) |
 | `cors` | `false \| McpCorsOptions` | loopback-only | CORS for the HTTP transport. Default reflects loopback `Origin` headers; set to `false` to disable or `{ origin }` to allowlist production browser clients. See [Securing capabilities -> CORS](/docs/advanced/securing-capabilities#cors). |
-| `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of tool names to expose, or a filter function |
+| `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of local route tool names to expose, or a filter function. Applies to both `tools/list` and `tools/call`. |
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
+| `proxy` | `Array<string \| McpProxyToolConfig>` | -- | Tools from registered `clients` to re-expose through this server (see below) |
 | `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
 | `restartDelayMs` | `number` | `1000` | Initial delay before first restart attempt (ms) |
 | `restartBackoffMultiplier` | `number` | `2` | Multiplier applied to delay on each successive restart |
@@ -276,5 +277,30 @@ The `client` supplier (when you pass a function rather than a static object) is 
 | `cwd` | `string` | No | Working directory for the child process |
 
 Stdio clients are spawned when the context starts and stopped on teardown. If the subprocess exits unexpectedly, the plugin automatically restarts it with exponential backoff (`restartDelayMs * restartBackoffMultiplier ^ attempt`). The restart counter resets after a successful reconnection.
+
+## Proxying client tools
+
+The `proxy` option re-exposes tools from registered `clients` through this MCP server without a route per tool. Each entry is a ref string or a config object:
+
+| Ref form | Meaning |
+|----------|---------|
+| `'server:tool'` | Proxy one tool from a registered client |
+| `'server:*'` or `'server'` | Proxy every tool the client advertises |
+| `{ ref, name?, description?, annotations? }` | Proxy one tool with overrides |
+
+**`McpProxyToolConfig`:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ref` | `string` | Yes | Tool ref; the server id must be a key of `clients` |
+| `name` | `string` | No | Exposed tool name override (`[A-Za-z0-9_-]{1,64}`); invalid on wildcard refs |
+| `description` | `string` | No | Description override for `tools/list`; invalid on wildcard refs |
+| `annotations` | `McpToolAnnotations` | No | Merged over the remote tool's annotations (per key) |
+
+Refs are validated when the plugin is created: unknown clients, malformed refs, wildcard renames, and statically duplicate exposed names all throw. Resolution against the tool registry is live, so wildcard entries follow tool refresh and stdio restarts, and a client whose initial listing failed starts serving as soon as its tools appear.
+
+On a name collision, a local `.from(mcp())` route wins over a proxied tool, and earlier `proxy` entries win over later ones; both log a warning once.
+
+Proxied calls dispatch over the client's registered transport and auth, and the remote result (`content`, `structuredContent`, `isError`) passes through verbatim. The caller's authenticated principal is not forwarded, and no route pipeline runs (no `authorize()`, validation, or resilience wrappers). Reserve `proxy` for simple, read-only tools; put anything needing guardrails behind a `.from(mcp())` route. See [Running an MCP server -> Proxying tools from configured clients](/docs/advanced/expose-as-mcp#proxying-tools-from-configured-clients).
 
 See [Running an MCP server](/docs/advanced/expose-as-mcp), [Calling an MCP](/docs/advanced/call-an-mcp), and [Securing capabilities](/docs/advanced/securing-capabilities) for usage guides.

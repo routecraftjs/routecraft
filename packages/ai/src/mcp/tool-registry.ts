@@ -41,8 +41,17 @@ export class McpToolRegistry {
         source,
         transport,
       };
+      if (tool.title !== undefined) {
+        entry.title = tool.title;
+      }
       if (tool.description !== undefined) {
         entry.description = tool.description;
+      }
+      if (tool.outputSchema !== undefined) {
+        entry.outputSchema = tool.outputSchema as Record<string, unknown>;
+      }
+      if (tool.icons !== undefined) {
+        entry.icons = tool.icons;
       }
       if (tool.annotations !== undefined) {
         entry.annotations = tool.annotations;

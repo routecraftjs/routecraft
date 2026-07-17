@@ -11,6 +11,7 @@ import {
   MCP_STDIO_MANAGERS,
   type McpClientAuthOptions,
   type McpClientHttpConfig,
+  type McpRawToolResult,
 } from "./types.ts";
 
 /**
@@ -53,6 +54,52 @@ export async function dispatchMcpCall(
     }
   }
 
+  const http = resolveHttpConfig(ctx, serverId);
+  return callRemoteTool(http.url, toolName, args, http.auth);
+}
+
+/**
+ * Dispatch an MCP tool call like {@link dispatchMcpCall} but return the raw
+ * MCP `tools/call` result (content array, structuredContent, isError) without
+ * content extraction. Used by the MCP server's proxy path so remote results
+ * pass through to the calling client verbatim.
+ *
+ * Throws `RC5003` under the same conditions as {@link dispatchMcpCall}.
+ *
+ * @internal
+ */
+export async function dispatchMcpCallRaw(
+  ctx: CraftContext,
+  serverId: string,
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<McpRawToolResult> {
+  const stdioManagers = ctx.getStore(MCP_STDIO_MANAGERS);
+  const manager = stdioManagers?.get(serverId);
+  if (manager) {
+    try {
+      return await manager.callToolRaw(toolName, args);
+    } catch (cause) {
+      if (isRoutecraftError(cause)) throw cause;
+      throw rcError("RC5003", cause, {
+        message: `mcp dispatch: stdio call to "${serverId}:${toolName}" failed.`,
+      });
+    }
+  }
+
+  const http = resolveHttpConfig(ctx, serverId);
+  return callRemoteToolRaw(http.url, toolName, args, http.auth);
+}
+
+/**
+ * Resolve the HTTP config for a registered server id, throwing `RC5003` when
+ * the server is unknown, is a string shorthand, is a stdio server whose
+ * manager is absent, or has no url.
+ */
+function resolveHttpConfig(
+  ctx: CraftContext,
+  serverId: string,
+): McpClientHttpConfig {
   const servers = ctx.getStore(ADAPTER_MCP_CLIENT_SERVERS);
   const config = servers?.get(serverId);
   if (!config) {
@@ -79,7 +126,7 @@ export async function dispatchMcpCall(
       message: `mcp dispatch: server "${serverId}" has no url. Cannot dispatch over HTTP.`,
     });
   }
-  return callRemoteTool(http.url, toolName, args, http.auth);
+  return http;
 }
 
 /**
@@ -97,6 +144,23 @@ export async function callRemoteTool(
   args: Record<string, unknown>,
   auth?: McpClientAuthOptions,
 ): Promise<unknown> {
+  return extractContent(
+    await callRemoteToolRaw(serverUrl, toolName, args, auth),
+  );
+}
+
+/**
+ * Like {@link callRemoteTool} but returns the raw MCP `tools/call` result
+ * without content extraction. Used by the MCP server's proxy path.
+ *
+ * @internal
+ */
+export async function callRemoteToolRaw(
+  serverUrl: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  auth?: McpClientAuthOptions,
+): Promise<McpRawToolResult> {
   const clientModule = (await loadOptionalPeer(
     () => import("@modelcontextprotocol/sdk/client/index.js"),
     {
@@ -147,14 +211,13 @@ export async function callRemoteTool(
         callTool(params: {
           name: string;
           arguments?: Record<string, unknown>;
-        }): Promise<{ content?: Array<{ type: string; text?: string }> }>;
+        }): Promise<McpRawToolResult>;
       }
     ).callTool;
-    const response = await callTool.call(client, {
+    return await callTool.call(client, {
       name: toolName,
       arguments: args,
     });
-    return extractContent(response);
   } catch (cause) {
     // Wrap SDK / transport / network errors as RC5003 with the original
     // attached as `cause`, matching the Error and Logging Policy

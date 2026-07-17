@@ -357,9 +357,11 @@ Events emitted by the MCP plugin during server and tool lifecycle. Subscribe to 
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:mcp:tool:called` | Tool invocation started | `{ tool, args }` |
-| `plugin:mcp:tool:completed` | Tool invocation succeeded | `{ tool }` |
-| `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error }` |
+| `plugin:mcp:tool:called` | Tool invocation started | `{ tool, args, proxied?, serverId?, remoteTool? }` |
+| `plugin:mcp:tool:completed` | Tool invocation succeeded | `{ tool, proxied?, serverId?, remoteTool? }` |
+| `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error, proxied?, serverId?, remoteTool? }` |
+
+For tools proxied from registered clients via [`mcpPlugin({ proxy })`](/docs/reference/plugins/mcpplugin#proxying-client-tools), the same three events fire with `proxied: true`, the registered client id as `serverId`, and the tool's name on the remote server as `remoteTool` (`tool` is the exposed, possibly renamed, name). A proxied call whose remote result carries `isError: true` fires `plugin:mcp:tool:failed`.
 
 ## HTTP plugin events
 

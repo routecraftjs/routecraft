@@ -65,6 +65,10 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
               name: string,
               args: Record<string, unknown>,
             ): Promise<unknown>;
+            callToolRaw(
+              name: string,
+              args: Record<string, unknown>,
+            ): Promise<import("./types.ts").McpRawToolResult>;
           }
         >,
       );

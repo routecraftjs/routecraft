@@ -25,9 +25,16 @@ import type {
   McpIcon,
   McpLocalToolEntry,
   McpPluginOptions,
+  McpRawToolResult,
   McpTool,
   OAuthAuthOptions,
 } from "./types.ts";
+import { dispatchMcpCallRaw } from "./dispatch.ts";
+import {
+  proxiedToolToMcpTool,
+  resolveProxiedTools,
+  type McpProxiedTool,
+} from "./proxy.ts";
 import {
   applyCorsHeaders,
   buildMcpOwnedPaths,
@@ -59,6 +66,7 @@ type McpServerResolvedOptions = Required<
   Pick<
     McpPluginOptions,
     | "tools"
+    | "proxy"
     | "auth"
     | "title"
     | "resource"
@@ -132,6 +140,12 @@ export class McpServer {
   >();
   private running = false;
   private toolsListLogged = false;
+  /**
+   * Deduplication keys for proxy-resolution warnings. Proxied tools resolve
+   * on every `tools/list` / `tools/call`, so each distinct condition
+   * (unresolved ref, name collision) logs once instead of per request.
+   */
+  private proxyWarnings = new Set<string>();
   /**
    * Validator-mode token verifier, optionally wrapped with `userinfo`
    * enrichment. Built eagerly in `startHttpWithValidator` so a misconfigured
@@ -1362,11 +1376,45 @@ export class McpServer {
   }
 
   /**
-   * Get list of tools that should be exposed via MCP.
-   * Reads the MCP local tool registry lazily so routes have time to subscribe
-   * before the first `tools/list` request.
+   * Get list of tools that should be exposed via MCP: local `.from(mcp())`
+   * route tools (after the `tools` filter) plus tools proxied from
+   * registered clients via `proxy`. Reads the MCP local tool registry lazily
+   * so routes have time to subscribe before the first `tools/list` request.
+   *
+   * On a name collision the local route tool wins and the proxied tool is
+   * skipped with a once-per-name warning.
    */
   getAvailableTools(): McpTool[] {
+    const entries = this.getExposedLocalEntries();
+    const tools = entries.map((entry) => this.entryToMcpTool(entry));
+
+    const localNames = new Set(entries.map((e) => e.endpoint));
+    for (const proxied of this.resolveProxied().values()) {
+      if (localNames.has(proxied.exposedName)) {
+        this.warnProxyOnce(
+          `proxy:local-conflict:${proxied.exposedName}`,
+          `mcpPlugin proxy: tool name "${proxied.exposedName}" from "${proxied.serverId}:${proxied.toolName}" collides with a local mcp() route; the route wins. Use a name override to expose both.`,
+        );
+        continue;
+      }
+      const tool = proxiedToolToMcpTool(proxied);
+      if (tool.icons === undefined) {
+        const icons = this.resolveServerIcons();
+        if (icons.length > 0) {
+          tool.icons = icons;
+        }
+      }
+      tools.push(tool);
+    }
+    return tools;
+  }
+
+  /**
+   * Local route tool entries after the `tools` filter. Used by both
+   * `tools/list` and `tools/call` so a filtered-out tool is consistently
+   * invisible: it neither lists nor resolves for calls.
+   */
+  private getExposedLocalEntries(): McpLocalToolEntry[] {
     const registry = this.context.getStore(MCP_LOCAL_TOOL_REGISTRY) as
       | Map<string, McpLocalToolEntry>
       | undefined;
@@ -1387,7 +1435,29 @@ export class McpServer {
       }
     }
 
-    return entries.map((entry) => this.entryToMcpTool(entry));
+    return entries;
+  }
+
+  /**
+   * Resolve the `proxy` selection against the live client tool registry.
+   * Dynamic on purpose: wildcard entries follow tool refresh and stdio
+   * restarts, and a client whose initial listing failed starts serving as
+   * soon as its tools appear.
+   */
+  private resolveProxied(): Map<string, McpProxiedTool> {
+    if (!this.options.proxy || this.options.proxy.length === 0) {
+      return new Map();
+    }
+    return resolveProxiedTools(this.context, this.options.proxy, (key, msg) =>
+      this.warnProxyOnce(key, msg),
+    );
+  }
+
+  /** Log a proxy-resolution warning once per dedup key. */
+  private warnProxyOnce(key: string, message: string): void {
+    if (this.proxyWarnings.has(key)) return;
+    this.proxyWarnings.add(key);
+    this.context.logger.warn({}, message);
   }
 
   /**
@@ -1463,23 +1533,27 @@ export class McpServer {
   }
 
   /**
-   * Handle a tool call from MCP client
+   * Handle a tool call from MCP client. Resolves local route tools first
+   * (after the `tools` filter, so a filtered-out tool is not callable),
+   * then tools proxied from registered clients.
    */
   private async handleToolCall(
     toolName: string,
     args: Record<string, unknown>,
   ): Promise<{
-    content: Array<{ type: "text"; text: string }>;
+    content: Array<{ type: string; [key: string]: unknown }>;
     structuredContent?: Record<string, unknown>;
     isError?: boolean;
   }> {
     try {
-      const registry = this.context.getStore(MCP_LOCAL_TOOL_REGISTRY) as
-        | Map<string, McpLocalToolEntry>
-        | undefined;
-
-      const entry = registry?.get(toolName);
+      const entry = this.getExposedLocalEntries().find(
+        (e) => e.endpoint === toolName,
+      );
       if (!entry) {
+        const proxied = this.resolveProxied().get(toolName);
+        if (proxied) {
+          return await this.handleProxiedToolCall(proxied, args);
+        }
         const err = new Error(`Tool not found: ${toolName}`);
         this.context.emit(`plugin:mcp:tool:failed`, {
           tool: toolName,
@@ -1602,5 +1676,58 @@ export class McpServer {
         isError: true,
       };
     }
+  }
+
+  /**
+   * Dispatch a proxied tool call to its registered client and pass the raw
+   * MCP result (content, structuredContent, isError) through verbatim.
+   *
+   * Trust boundary: the caller's authenticated principal is NOT forwarded;
+   * the Routecraft -> MCP hop authenticates with the client's registered
+   * `auth` (same posture as the agent's MCP tool dispatch). Route-scope
+   * guardrails do not run here; tools that need them belong behind a
+   * `.from(mcp())` route.
+   *
+   * Dispatch failures propagate to `handleToolCall`'s catch block, which
+   * converts them to an `isError` text result.
+   */
+  private async handleProxiedToolCall(
+    proxied: McpProxiedTool,
+    args: Record<string, unknown>,
+  ): Promise<{
+    content: Array<{ type: string; [key: string]: unknown }>;
+    structuredContent?: Record<string, unknown>;
+    isError?: boolean;
+  }> {
+    const detail = {
+      tool: proxied.exposedName,
+      proxied: true,
+      serverId: proxied.serverId,
+      remoteTool: proxied.toolName,
+    };
+    this.context.emit(`plugin:mcp:tool:called`, { ...detail, args });
+
+    const raw: McpRawToolResult = await dispatchMcpCallRaw(
+      this.context,
+      proxied.serverId,
+      proxied.toolName,
+      args,
+    );
+
+    if (raw.isError) {
+      this.context.emit(`plugin:mcp:tool:failed`, {
+        ...detail,
+        error: "Remote tool returned an error result",
+      });
+    } else {
+      this.context.emit(`plugin:mcp:tool:completed`, detail);
+    }
+
+    return {
+      ...raw,
+      content: Array.isArray(raw.content)
+        ? (raw.content as Array<{ type: string; [key: string]: unknown }>)
+        : [],
+    };
   }
 }

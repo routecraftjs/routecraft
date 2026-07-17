@@ -69,6 +69,10 @@ async function buildCtxWithMcp(
                   name: string,
                   args: Record<string, unknown>,
                 ): Promise<unknown>;
+                callToolRaw(
+                  name: string,
+                  args: Record<string, unknown>,
+                ): Promise<import("../src/mcp/types.ts").McpRawToolResult>;
               }
             >();
             for (const e of entries) {
@@ -77,6 +81,21 @@ async function buildCtxWithMcp(
                 async callTool(name, args) {
                   recordedDispatches.push({ serverId, toolName: name, args });
                   return { ok: true, serverId, toolName: name };
+                },
+                async callToolRaw(name, args) {
+                  recordedDispatches.push({ serverId, toolName: name, args });
+                  return {
+                    content: [
+                      {
+                        type: "text",
+                        text: JSON.stringify({
+                          ok: true,
+                          serverId,
+                          toolName: name,
+                        }),
+                      },
+                    ],
+                  };
                 },
               });
             }

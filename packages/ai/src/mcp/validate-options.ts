@@ -1,5 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { formatSchemaIssues } from "@routecraft/routecraft";
+import {
+  MCP_TOOL_NAME_PATTERN,
+  normalizeProxyEntries,
+  parseProxyRef,
+} from "./proxy.ts";
 import type { McpPluginOptions } from "./types.ts";
 
 /** Standard Schema validate result: success has value, failure has issues. */
@@ -92,6 +97,67 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
             `mcpPlugin: stdio client "${name}" must have a non-empty command string`,
           );
         }
+      }
+    }
+  }
+
+  // Validate proxy selection. Refs must parse, reference a registered client,
+  // and produce statically unique exposed names; wildcard refs cannot carry
+  // name/description overrides (they fan out to many tools).
+  if (options.proxy !== undefined) {
+    if (!Array.isArray(options.proxy)) {
+      throw new TypeError(
+        "mcpPlugin: proxy must be an array of ref strings or { ref, ... } configs",
+      );
+    }
+    for (const raw of options.proxy) {
+      const isString = typeof raw === "string";
+      const isObject =
+        typeof raw === "object" && raw !== null && !Array.isArray(raw);
+      if (!isString && !isObject) {
+        throw new TypeError(
+          "mcpPlugin: each proxy entry must be a ref string or a { ref, ... } config object",
+        );
+      }
+    }
+    const seenRefs = new Set<string>();
+    const seenNames = new Set<string>();
+    for (const entry of normalizeProxyEntries(options.proxy)) {
+      const { serverId, toolName } = parseProxyRef(entry.ref);
+      if (!options.clients || !(serverId in options.clients)) {
+        throw new TypeError(
+          `mcpPlugin: proxy ref "${entry.ref}" references unknown client "${serverId}". Register it under clients.`,
+        );
+      }
+      const isWildcard = toolName === "*";
+      if (
+        isWildcard &&
+        (entry.name !== undefined || entry.description !== undefined)
+      ) {
+        throw new TypeError(
+          `mcpPlugin: proxy ref "${entry.ref}" is a wildcard and cannot set name or description overrides`,
+        );
+      }
+      if (entry.name !== undefined && !MCP_TOOL_NAME_PATTERN.test(entry.name)) {
+        throw new TypeError(
+          `mcpPlugin: proxy name override "${entry.name}" must match [A-Za-z0-9_-]{1,64}`,
+        );
+      }
+      const refKey = `${serverId}:${toolName}`;
+      if (seenRefs.has(refKey)) {
+        throw new TypeError(
+          `mcpPlugin: duplicate proxy ref "${entry.ref}" (resolves to "${refKey}")`,
+        );
+      }
+      seenRefs.add(refKey);
+      if (!isWildcard) {
+        const exposed = entry.name ?? toolName;
+        if (seenNames.has(exposed)) {
+          throw new TypeError(
+            `mcpPlugin: proxy entries expose the tool name "${exposed}" more than once. Use name overrides to disambiguate.`,
+          );
+        }
+        seenNames.add(exposed);
       }
     }
   }

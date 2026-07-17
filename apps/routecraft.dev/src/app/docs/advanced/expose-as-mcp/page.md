@@ -200,6 +200,37 @@ craft()
 
 Icons resolve with the same rule at both levels: omit `icons` to inherit (a tool with no icon of its own shows the server's icon, including the Routecraft default), set `icons: [...]` for a custom icon, or set `icons: []` to show none.
 
+## Proxying tools from configured clients
+
+Any MCP client registered under `mcpPlugin({ clients })` can have tools re-exposed through your Routecraft MCP server without writing a route per tool. Use the `proxy` option to select them:
+
+```ts
+// craft.config.ts
+import { mcpPlugin } from '@routecraft/ai'
+
+export default {
+  plugins: [
+    mcpPlugin({
+      clients: {
+        docs: { transport: 'stdio', command: 'docs-mcp' },
+        billing: { url: 'https://billing.example.com/mcp', auth: { token: process.env.BILLING_TOKEN! } },
+      },
+      proxy: [
+        'docs:get_document',                          // one tool
+        'docs:*',                                     // every docs tool ("docs" works too)
+        { ref: 'billing:search', name: 'billing_search', description: 'Search invoices (read-only)' },
+      ],
+    }),
+  ],
+}
+```
+
+Proxied tools appear in `tools/list` under their original name (or the `name` override) with the remote input/output schema, description, title, annotations, and icons passed through. Calls dispatch over the client's registered transport and auth, and the remote result (content, `structuredContent`, `isError`) is returned verbatim. Selection is live: wildcard entries follow tool refresh and stdio restarts.
+
+Name collisions resolve deterministically: a local `.from(mcp())` route always wins over a proxied tool, and earlier `proxy` entries win over later ones (both log a warning). Use the `name` override to expose two same-named tools side by side.
+
+**When to proxy and when to write a route.** A proxied call runs no route pipeline: no `authorize()`, no input validation, no caching, throttling, or timeouts. The caller's authenticated principal is also not forwarded to the remote server; the Routecraft-to-client hop authenticates with the client's registered `auth`. Proxy simple, read-only tools (a document fetch, a search). The moment a tool needs guardrails, put a `.from(mcp())` route in front of it instead -- see [Calling an MCP -> Guardrails](/docs/advanced/call-an-mcp#guardrails-raw-guarded-or-wrapped) for the same tiering applied to agent tools.
+
 ## Production
 
 Pin the CLI version so your capabilities do not break on package updates:

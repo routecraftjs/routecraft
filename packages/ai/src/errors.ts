@@ -21,12 +21,33 @@ declare module "@routecraft/routecraft" {
     "plugin:mcp:server:listening": { host: string; port: number; path: string };
     /** Tool list assembled and exposed to clients. */
     "plugin:mcp:server:tools:exposed": { tools: string[]; count: number };
-    /** Inbound MCP tool call dispatched to a route. */
-    "plugin:mcp:tool:called": { tool: string; args: unknown };
+    /**
+     * Inbound MCP tool call dispatched to a route, or (when `proxied` is
+     * true) forwarded to a registered client identified by `serverId` /
+     * `remoteTool`.
+     */
+    "plugin:mcp:tool:called": {
+      tool: string;
+      args: unknown;
+      proxied?: boolean;
+      serverId?: string;
+      remoteTool?: string;
+    };
     /** MCP tool call completed successfully. */
-    "plugin:mcp:tool:completed": { tool: string };
+    "plugin:mcp:tool:completed": {
+      tool: string;
+      proxied?: boolean;
+      serverId?: string;
+      remoteTool?: string;
+    };
     /** MCP tool call failed. */
-    "plugin:mcp:tool:failed": { tool: string; error: string };
+    "plugin:mcp:tool:failed": {
+      tool: string;
+      error: string;
+      proxied?: boolean;
+      serverId?: string;
+      remoteTool?: string;
+    };
   }
   interface ErrorCodeRegistry {
     /** Agent block resolution failed (formerly RC5025) */
