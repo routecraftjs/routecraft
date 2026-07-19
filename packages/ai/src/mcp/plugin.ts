@@ -15,6 +15,7 @@ import type {
   McpClientHttpConfig,
   McpClientStdioConfig,
   McpPluginOptions,
+  McpStdioToolCaller,
   McpTool,
 } from "./types.ts";
 import { validateMcpPluginOptions } from "./validate-options.ts";
@@ -58,15 +59,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
       // Store stdio managers map so destination adapter can call tools on stdio clients
       ctx.setStore(
         MCP_STDIO_MANAGERS,
-        stdioManagers as unknown as Map<
-          string,
-          {
-            callTool(
-              name: string,
-              args: Record<string, unknown>,
-            ): Promise<unknown>;
-          }
-        >,
+        stdioManagers as Map<string, McpStdioToolCaller>,
       );
 
       if (options.clients && Object.keys(options.clients).length > 0) {

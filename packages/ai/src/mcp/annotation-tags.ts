@@ -2,6 +2,24 @@ import type { KnownTag, Tag } from "@routecraft/routecraft";
 import type { McpToolAnnotations } from "./types.ts";
 
 /**
+ * Merge a base set of annotation hints with per-key overrides. Override
+ * values win per-key. Returns `undefined` when neither source contributes
+ * anything, so callers omit `annotations` entirely rather than carrying an
+ * empty object onto the `tools/list` wire. Shared by the `mcp()` source
+ * adapter (tag-derived + explicit) and the proxy path (remote + config
+ * overrides) so the merge policy lives once.
+ *
+ * @internal
+ */
+export function mergeAnnotations(
+  base: McpToolAnnotations | undefined,
+  overrides: McpToolAnnotations | undefined,
+): McpToolAnnotations | undefined {
+  const merged: McpToolAnnotations = { ...base, ...overrides };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/**
  * The canonical correspondence between the well-known route tags and the MCP
  * tool annotation hints they describe. Both directions derive from this single
  * table, so the four pairs are declared once: `deriveAnnotationsFromTags`

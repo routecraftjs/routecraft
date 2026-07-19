@@ -1,5 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { formatSchemaIssues } from "@routecraft/routecraft";
+import { exposedNameFor, parseProxyRef } from "./proxy.ts";
+import { MCP_TOOL_NAME_PATTERN } from "./types.ts";
 import type { McpPluginOptions } from "./types.ts";
 
 /** Standard Schema validate result: success has value, failure has issues. */
@@ -92,6 +94,82 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
             `mcpPlugin: stdio client "${name}" must have a non-empty command string`,
           );
         }
+      }
+    }
+  }
+
+  // Validate proxy selection. Refs must parse, reference a registered client,
+  // and produce statically unique exposed names; wildcard refs cannot carry
+  // name/description overrides (they fan out to many tools).
+  if (options.proxy !== undefined) {
+    if (!Array.isArray(options.proxy)) {
+      throw new TypeError(
+        "mcpPlugin: proxy must be an array of ref strings or { ref, ... } configs",
+      );
+    }
+    const seenRefs = new Set<string>();
+    const seenNames = new Set<string>();
+    for (const raw of options.proxy) {
+      const isString = typeof raw === "string";
+      const isObject =
+        typeof raw === "object" && raw !== null && !Array.isArray(raw);
+      if (!isString && !isObject) {
+        throw new TypeError(
+          "mcpPlugin: each proxy entry must be a ref string or a { ref, ... } config object",
+        );
+      }
+      const entry = isString ? { ref: raw } : raw;
+      const { serverId, toolName } = parseProxyRef(entry.ref);
+      // Own-property check: `serverId in options.clients` would accept
+      // inherited keys (constructor, toString, ...) that client setup, which
+      // iterates `Object.entries`, never registers, leaving the ref
+      // permanently unresolved at runtime.
+      if (!options.clients || !Object.hasOwn(options.clients, serverId)) {
+        throw new TypeError(
+          `mcpPlugin: proxy ref "${entry.ref}" references unknown client "${serverId}". Register it under clients.`,
+        );
+      }
+      const isWildcard = toolName === "*";
+      if (
+        isWildcard &&
+        (entry.name !== undefined || entry.description !== undefined)
+      ) {
+        throw new TypeError(
+          `mcpPlugin: proxy ref "${entry.ref}" is a wildcard and cannot set name or description overrides`,
+        );
+      }
+      // Guard the type at runtime too: RegExp.test coerces a non-string
+      // (e.g. a number from untyped JS) to a string, which would pass the
+      // pattern and then surface as a non-string tool name on tools/list.
+      if (
+        entry.name !== undefined &&
+        (typeof entry.name !== "string" ||
+          !MCP_TOOL_NAME_PATTERN.test(entry.name))
+      ) {
+        throw new TypeError(
+          `mcpPlugin: proxy name override "${String(entry.name)}" must be a string matching [A-Za-z0-9_-]{1,64}`,
+        );
+      }
+      if (entry.guard !== undefined && typeof entry.guard !== "function") {
+        throw new TypeError(
+          `mcpPlugin: proxy guard for "${entry.ref}" must be a function (throw inside it to reject a call)`,
+        );
+      }
+      const refKey = `${serverId}:${toolName}`;
+      if (seenRefs.has(refKey)) {
+        throw new TypeError(
+          `mcpPlugin: duplicate proxy ref "${entry.ref}" (resolves to "${refKey}")`,
+        );
+      }
+      seenRefs.add(refKey);
+      if (!isWildcard) {
+        const exposed = exposedNameFor(entry, toolName);
+        if (seenNames.has(exposed)) {
+          throw new TypeError(
+            `mcpPlugin: proxy entries expose the tool name "${exposed}" more than once. Use name overrides to disambiguate.`,
+          );
+        }
+        seenNames.add(exposed);
       }
     }
   }

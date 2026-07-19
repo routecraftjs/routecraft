@@ -1,5 +1,5 @@
 import { loadOptionalPeer } from "@routecraft/routecraft";
-import type { McpTool } from "./types.ts";
+import type { McpRawToolResult, McpTool } from "./types.ts";
 import { extractContent } from "./extract-content.ts";
 
 export interface StdioClientManagerOptions {
@@ -29,9 +29,7 @@ interface McpSdkClient {
   callTool(params: {
     name: string;
     arguments?: Record<string, unknown>;
-  }): Promise<{
-    content?: Array<{ type: string; text?: string; data?: string }>;
-  }>;
+  }): Promise<McpRawToolResult>;
 }
 
 /**
@@ -248,18 +246,32 @@ export class StdioClientManager {
     name: string,
     args: Record<string, unknown>,
   ): Promise<unknown> {
+    return extractContent(await this.callToolRaw(name, args));
+  }
+
+  /**
+   * Call a tool on the remote MCP server and return the raw MCP result
+   * (content array, structuredContent, isError) without content extraction.
+   * Used by the proxy path so remote results pass through verbatim.
+   *
+   * @param name - Tool name to invoke
+   * @param args - Arguments passed to the tool
+   * @returns The raw MCP `tools/call` result
+   */
+  async callToolRaw(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<McpRawToolResult> {
     if (!this.running || !this.client) {
       throw new Error(
         `Stdio client "${this.options.serverId}" is not running. Cannot call tool "${name}".`,
       );
     }
 
-    const response = await this.client.callTool({
+    return await this.client.callTool({
       name,
       arguments: args,
     });
-
-    return extractContent(response);
   }
 
   /** @returns The current list of tools advertised by this server. */
