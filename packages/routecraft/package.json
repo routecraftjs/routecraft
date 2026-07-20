@@ -18,7 +18,8 @@
   ],
   "sideEffects": [
     "./dist/index.js",
-    "./dist/index.cjs"
+    "./dist/index.cjs",
+    "./src/**/config.ts"
   ],
   "scripts": {
     "build": "tsup",
