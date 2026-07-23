@@ -4,7 +4,7 @@ description: The validator-mode companion to the Clerk walkthrough. WorkOS AuthK
 date: 2026-06-10
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.6.0+'
+version: '0.5.0+'
 draft: true
 tags:
   - mcp
@@ -13,17 +13,19 @@ tags:
   - routecraft
   - typescript
 related:
+  - securing-mcp-with-clerk
+  - your-first-mcp-server-in-typescript
   - routecraft-vs-fastmcp
 layout: blog-post
 ---
 
-This is the second post in a series on putting real authentication in front of an MCP server. In [the Clerk walkthrough](/blog/securing-mcp-with-clerk) we wired Routecraft up as a thin OAuth proxy: Routecraft exposed `/authorize`, `/token`, and `/register` endpoints and forwarded them to Clerk, because the MCP client needed somewhere to register itself dynamically.
+This is the second post in a series on putting real authentication in front of an MCP server. In the Clerk walkthrough we wired Routecraft up as a thin OAuth proxy: Routecraft exposed `/authorize`, `/token`, and `/register` endpoints and forwarded them to Clerk, because the MCP client needed somewhere to register itself dynamically.
 
 WorkOS AuthKit changes the shape of the integration. AuthKit is a full OAuth 2.1 authorization server with Dynamic Client Registration built in, which means MCP clients like Claude Desktop can register with WorkOS **directly**. Routecraft does not need to proxy anything. Its whole job shrinks to two things: tell clients where the authorization server is, and verify the tokens that come back.
 
-In Routecraft terms that is called **validator mode**, and it is the simplest authenticated MCP setup the framework supports: one `jwks()` call instead of an `oauth()` block. The [securing capabilities guide](/docs/advanced/securing-capabilities) covers the vendor-neutral theory; this post is the WorkOS-specific walkthrough.
+In Routecraft terms that is called **validator mode**, and it is the simplest authenticated MCP setup the framework supports: one `jwks()` call instead of an `oauth()` block. The [securing capabilities guide](/docs/advanced/securing-capabilities) covers the vendor-neutral theory; this post is the WorkOS-specific walkthrough. Usual disclosure: I build Routecraft, so calibrate accordingly. The WorkOS behaviour is reproducible with or without the framework.
 
-We will reuse the same notebook server from the previous posts: `notes_list` and `notes_create`, with notes scoped per user. If you have not built it, [your first MCP server in TypeScript](/blog/your-first-mcp-server-in-typescript) gets you there in ten minutes, and the [Clerk post](/blog/securing-mcp-with-clerk#a-capability-without-auth) shows the unauthenticated starting point we are securing here.
+We will reuse the same notebook server from the previous posts: `notes_list` and `notes_create`, with notes scoped per user. If you have not built it, [your first MCP server in TypeScript](/blog/your-first-mcp-server-in-typescript) gets you there in ten minutes, and the Clerk walkthrough shows the unauthenticated starting point we are securing here.
 
 ## Proxy mode vs validator mode, in one minute
 
@@ -83,6 +85,14 @@ export const env = schema.parse(process.env)
 
 ## The whole auth config
 
+One dependency first. `jwks()` verifies tokens through `jose`, which Routecraft treats as an optional peer so the core stays lean:
+
+```bash
+bun add jose
+```
+
+Forget this and the server tells you at the first verification attempt: `RC5017` with that exact install command in the hint.
+
 Here is `craft.config.ts`, complete. Compare it with the Clerk version and you can see the proxy disappear:
 
 ```ts
@@ -136,10 +146,12 @@ The OIDC-textbook answer is the userinfo endpoint: take the bearer token, call t
 
 With audience-locked MCP tokens, that answer fails against WorkOS: the userinfo endpoint rejects the access token with a **401**, because the token was minted for your MCP resource, not for WorkOS's own API. You will stare at a valid, signature-checked token being refused by its own issuer. This cost me an afternoon in production, so it gets its own heading.
 
-The correct approach is to skip userinfo entirely and resolve the user server-side through the WorkOS **organization memberships API**, authenticated with your API key rather than the user's token. The token's claims carry the `org_id`; the membership record carries the role. Routecraft's `userinfo` option accepts a custom function for exactly this kind of non-OIDC backend:
+The correct approach is to skip userinfo entirely and resolve the user server-side through the WorkOS **Organization Memberships API**, authenticated with your API key rather than the user's token. The token's claims carry the `org_id`; the membership record carries the role. Routecraft's `userinfo` option accepts a custom function for exactly this kind of non-OIDC backend:
 
 ```ts
 // craft.config.ts (add to mcpPlugin options)
+import { rcError } from '@routecraft/routecraft'
+
 userinfo: async (principal) => {
   const url = new URL(
     'https://api.workos.com/user_management/organization_memberships',
@@ -154,7 +166,9 @@ userinfo: async (principal) => {
     headers: { Authorization: `Bearer ${env.WORKOS_API_KEY}` },
   })
   if (!res.ok) {
-    throw new Error(`WorkOS membership lookup failed: ${res.status}`)
+    throw rcError('RC5021', new Error(`WorkOS returned ${res.status}`), {
+      message: 'WorkOS membership lookup failed',
+    })
   }
 
   const { data } = (await res.json()) as {
@@ -166,11 +180,11 @@ userinfo: async (principal) => {
 
 Three things Routecraft does around this callback that you would otherwise hand-roll:
 
-- **It runs after verification, never instead of it.** The principal you receive has already passed signature, issuer, and expiry checks. Protected fields (`subject`, `issuer`, `audience`, `expiresAt`) cannot be overwritten by enrichment; your `roles` are merged on top.
+- **It runs after verification, never instead of it.** The principal you receive has already passed signature, issuer, and expiry checks. Protected fields (`subject`, `issuer`, `audience`, `expiresAt`, `claims`) cannot be overwritten by enrichment; your `roles` are merged on top.
 - **It is cached per token.** The enrichment result is cached against a hash of the token and evicted when the token expires, and concurrent requests for the same token share one in-flight lookup. Your WorkOS API quota sees one call per token lifetime, not one per tool call.
-- **It fails closed.** If the lookup throws, the request is rejected. An agent never executes a tool as a half-resolved user.
+- **It fails closed.** If the lookup throws, the request is rejected. An agent never executes a tool as a half-resolved user. Throwing the framework's `RC5021` code (via `rcError`) instead of a plain `Error` is deliberate: Routecraft classifies it as an infrastructure failure rather than an invalid token in its logs and `auth:rejected` events, which pays off in the production checklist below.
 
-## Authorizing per tool
+## Authorising per tool
 
 With roles on the principal, the capability-side code is identical to the Clerk version, which is the point of the whole design: the IdP is configuration, the capability is portable.
 
@@ -187,11 +201,11 @@ export default craft()
   })
 ```
 
-`.authorize()` sits before `.from()` because it stages onto the route and runs at route entry, before any pipeline step. `member` is the default role slug WorkOS assigns to organization members; define stricter roles in the dashboard and they arrive as their slugs.
+`.authorize()` sits before `.from()` because it stages onto the route and runs at route entry, before any pipeline step. `member` is the default role slug WorkOS assigns to organisation members; define stricter roles in the dashboard and they arrive as their slugs.
 
 ## Connecting from Claude Desktop
 
-Same as the Clerk post:
+Same configuration as in the Clerk walkthrough:
 
 ```json
 {
@@ -203,7 +217,7 @@ Same as the Clerk post:
 }
 ```
 
-Restart Claude Desktop, trigger a notebook tool, and the browser opens on your AuthKit sign-in page. Behind that first connection, Claude fetched your protected-resource metadata, registered itself with WorkOS via DCR, and exchanged the sign-in for a token, with your server doing nothing but serving one JSON document. The end state looks the same as in [the Clerk post](/blog/securing-mcp-with-clerk#connecting-from-claude-desktop): the notebook tools listed, the token riding along on every call.
+Restart Claude Desktop, trigger a notebook tool, and the browser opens on your AuthKit sign-in page. Behind that first connection, Claude fetched your protected-resource metadata, registered itself with WorkOS via DCR, and exchanged the sign-in for a token, with your server doing nothing but serving one JSON document. The end state looks the same as in the Clerk post: the notebook tools listed, the token riding along on every call.
 
 ## Clerk or WorkOS?
 
@@ -215,7 +229,7 @@ Having now built the same server against both, an honest comparison:
 | Dynamic Client Registration | Proxied through your server, plus a client lookup callback | Native at the AuthKit domain |
 | OAuth endpoints on your server | `/authorize`, `/token`, `/register` | None |
 | Secrets in the request path | Clerk secret key (client lookups) | None (API key only in `userinfo`) |
-| Identity enrichment | JWT template claims or userinfo | Organization memberships API (userinfo endpoint rejects MCP tokens) |
+| Identity enrichment | JWT template claims or userinfo | Organization Memberships API (userinfo endpoint rejects MCP tokens) |
 | Best fit | Already on Clerk; want one dashboard for app and MCP auth | B2B and multi-tenant apps; want the thinnest possible MCP auth surface |
 
 Both are production-fit. If you are starting fresh and the MCP server is the product, the validator-mode setup is fewer moving parts to operate and to audit. If your application already lives on one of these providers, stay there; the capability code does not care.
@@ -225,13 +239,13 @@ Both are production-fit. If you are starting fresh and the MCP server is the pro
 - **Set `MCP_ISSUER_URL` to your public HTTPS URL** and keep `resource.url` aligned with what clients actually connect to. RFC 9728 metadata with the wrong resource URL fails in ways that look like client bugs.
 - **Watch the `aud` on real tokens once.** The sample pins `audience` to your resource URL because AuthKit mints `aud` from the client's requested resource; confirm your clients send resource indicators, and reach for `'*'` only as an explicit, documented exception.
 - **Use a production WorkOS environment.** Staging environments and `sk_test_` keys are for development.
-- **Lock CORS down** once you know your callers. The MCP plugin's default is loopback-only, which is already production-safe; widen it deliberately, not preemptively.
+- **Lock CORS down** once you know your callers. The MCP plugin's default is loopback-only, which is already production-safe; widen it deliberately, not pre-emptively.
 - **Watch the membership lookup's failure mode.** It fails closed, which is correct, and it also means a WorkOS API outage degrades your server to 401s for new tokens. Alert on `RC5021` in your logs so you can tell that story apart from a real auth attack.
-- **Log rejections with reasons.** Routecraft's structured logs carry the principal on success and the rejection reason on failure; ship them somewhere queryable before you need them.
+- **Log rejections with reasons.** Routecraft's structured logs carry the principal's subject on success and a bounded rejection reason on failure; ship them somewhere queryable before you need them.
 
 ## What's next
 
-Between this post and [the Clerk walkthrough](/blog/securing-mcp-with-clerk) you have the two shapes that cover practically every IdP: proxy mode when the provider needs help with Dynamic Client Registration, validator mode when it speaks the full flow itself. The vendor-neutral concepts behind both live in [securing capabilities](/docs/advanced/securing-capabilities).
+Between this post and the Clerk walkthrough you have the two shapes that cover practically every IdP: proxy mode when the provider needs help with Dynamic Client Registration, validator mode when it speaks the full flow itself. The vendor-neutral concepts behind both live in [securing capabilities](/docs/advanced/securing-capabilities).
 
 The fastest way to try this without installing anything is the [Routecraft playground in GitHub Codespaces](https://codespaces.new/routecraftjs/craft-playground). Or scaffold locally:
 
