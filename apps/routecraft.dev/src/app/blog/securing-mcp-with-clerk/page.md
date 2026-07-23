@@ -4,7 +4,7 @@ description: A step-by-step guide to writing TypeScript capabilities, exposing t
 date: 2026-05-26
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.6.0+'
+version: '0.5.0+'
 draft: true
 tags:
   - mcp
@@ -21,7 +21,7 @@ layout: blog-post
 
 If you have Googled how to put Clerk in front of an MCP server, you have probably hit the same wall I did: the MCP spec wants OAuth 2.1 with Dynamic Client Registration, Clerk speaks both, but wiring the two together is more than a copy-paste from either set of docs. There is a discovery document to expose, a token verifier to set up, a Dynamic Client Registration lookup to handle, and a question about where the proxy endpoints live.
 
-This post shows the working integration in about sixty lines of TypeScript using [Routecraft](/docs/introduction), a code-first automation framework that handles the MCP transport, the JWKS verification, and the auth plumbing for you. The same code is in production on DevOptix's internal MCP server, simplified here to a generic notes example you can copy and modify.
+This post shows the working integration in about sixty lines of TypeScript using [Routecraft](/docs/introduction), a code-first automation framework that handles the MCP transport, the JWKS verification, and the auth plumbing for you. Disclosure up front: I build Routecraft, so calibrate accordingly. The same code is in production on DevOptix's internal MCP server, simplified here to a generic notes example you can copy and modify.
 
 If you already have an MCP server and just need the Clerk auth bit, you can skip to [Wiring Clerk into the MCP plugin](#wiring-clerk-into-the-mcp-plugin). If MCP is new to you, [Build your first MCP server](/blog/your-first-mcp-server-in-typescript) is the prequel.
 
@@ -60,7 +60,7 @@ The point is the auth wiring, not the notes. The same pattern works for any tool
 The flow we want at the end:
 
 1. Claude Desktop connects to `https://notebook.example.com/mcp`.
-2. The server returns an OAuth 2.0 Protected Resource metadata document pointing at Clerk.
+2. The server advertises OAuth 2.0 discovery metadata, and Claude registers itself as a client.
 3. Claude opens a browser, the user signs in to Clerk, Clerk issues a token.
 4. Claude calls `notes_list` with the bearer token attached.
 5. Routecraft verifies the token against Clerk's JWKS, hydrates a `principal` from the claims, then runs the capability.
@@ -75,13 +75,15 @@ cd notebook
 bun install
 ```
 
-Add the MCP and validation packages:
+The scaffolder asks a couple of questions; pick **None - empty project** when it asks for an example, and Bun as the package manager. That drops you in a clean project with a `craft.config.ts` and an `index.ts` at the root, exactly where the [prequel](/blog/your-first-mcp-server-in-typescript) left off.
+
+Add the MCP and validation packages, plus the two optional peers the OAuth proxy needs later (`express` serves the OAuth endpoints, `jose` verifies JWKS signatures):
 
 ```bash
-bun add @routecraft/ai zod
+bun add @routecraft/ai zod express jose
 ```
 
-Open the project. You will see a `craft.config.ts` at the root and a `capabilities/` directory. We will write our two tools in `capabilities/notes/` and configure auth in `craft.config.ts`.
+We will write our two tools in a `capabilities/notes/` directory of our own and configure auth in `craft.config.ts`.
 
 ## A capability without auth
 
@@ -194,6 +196,7 @@ import { mcpPlugin } from '@routecraft/ai'
 import { defineConfig } from '@routecraft/routecraft'
 
 export const craftConfig = defineConfig({
+  name: 'notebook',
   plugins: [
     mcpPlugin({
       name: 'notebook',
@@ -229,7 +232,7 @@ Three reasons in increasing order of seriousness:
 
 1. Every tool we add gets the access of the process. Database creds, OAuth tokens, GitHub PATs, anything the server holds is a tool away.
 2. MCP tools are not just queries. `notes_create` writes. Future tools will send emails, hit production APIs, move money.
-3. We want **per-user** behavior. `notes_list` should return the calling user's notes, not a shared bag.
+3. We want **per-user** behaviour. `notes_list` should return the calling user's notes, not a shared bag.
 
 The MCP spec settles on OAuth 2.1 bearer tokens. The client asks an authorization server (Clerk, in our case) for a token, then attaches it to every JSON-RPC call with an `Authorization: Bearer ...` header. The server's only job is to:
 
@@ -261,10 +264,10 @@ Drop them into a `.env` file in the project root:
 CLERK_PUBLISHABLE_KEY=pk_test_...
 CLERK_SECRET_KEY=sk_test_...
 MCP_HOST=localhost
-MCP_ISSUER_URL=http://localhost:3001
+MCP_PUBLIC_URL=http://localhost:3001
 ```
 
-`MCP_ISSUER_URL` is the public URL of the MCP server itself. For local development that is `http://localhost:3001`. In production it is whatever URL Claude or Cursor will be hitting.
+`MCP_PUBLIC_URL` is the public URL of the MCP server itself: the protected resource, in OAuth terms (Clerk stays the token issuer). For local development that is `http://localhost:3001`. In production it is whatever URL Claude or Cursor will be hitting.
 
 ### Enable OAuth applications
 
@@ -280,7 +283,7 @@ That is all the dashboard work. The rest is code.
 
 Routecraft splits the server-side OAuth work in two:
 
-1. The MCP plugin advertises a public OAuth 2.0 Protected Resource metadata document at `/.well-known/oauth-protected-resource` (driven by the `resource` option), pointing clients at the authorization server.
+1. The MCP plugin advertises a public OAuth 2.0 Protected Resource metadata document at `/.well-known/oauth-protected-resource` (driven by the `resource` option), identifying your server as a protected resource.
 2. The `oauth()` helper mounts the authorization-server discovery document and proxy endpoints (`/authorize`, `/token`, `/register`) that forward to Clerk, so MCP clients can rely on a single URL without worrying about cross-origin issues.
 
 It pairs with `jwks()`, which verifies incoming bearer tokens against Clerk's JSON Web Key Set.
@@ -309,7 +312,7 @@ export const craftConfig = defineConfig({
       version: '0.1.0',
       transport: 'http',
       host: env.MCP_HOST,
-      resource: { url: `${env.MCP_ISSUER_URL}/mcp` },
+      resource: { url: `${env.MCP_PUBLIC_URL}/mcp` },
       auth: oauth({
         endpoints: {
           authorizationUrl: `${CLERK_BASE}/oauth/authorize`,
@@ -337,7 +340,7 @@ export const craftConfig = defineConfig({
               redirect_uris?: string[]
             }>
           }
-          const app = list.data[0]
+          const app = list.data.find((a) => a.client_id === clientId)
           if (!app) return undefined
           return {
             client_id: app.client_id,
@@ -362,7 +365,7 @@ const schema = z.object({
   CLERK_PUBLISHABLE_KEY: z.string().startsWith('pk_'),
   CLERK_SECRET_KEY: z.string().startsWith('sk_'),
   MCP_HOST: z.string().default('localhost'),
-  MCP_ISSUER_URL: z.url().default('http://localhost:3001'),
+  MCP_PUBLIC_URL: z.url().default('http://localhost:3001'),
 })
 
 export const env = schema.parse(process.env)
@@ -372,7 +375,7 @@ A few things worth calling out:
 
 - **`CLERK_BASE` is derived from the publishable key.** Clerk encodes the frontend API host inside the key, so you do not have to set it separately. This is the same trick the Clerk SDK uses internally.
 - **`audience: '*'`** is permissive on purpose. Clerk tokens are issued for a specific Clerk instance, not our MCP server, so we accept any audience as long as the issuer and signature match. If you want stricter checks, set `audience` to a value you mint into a Clerk JWT template.
-- **`client` is the bridge to Dynamic Client Registration.** When Claude registers itself, Routecraft needs to validate the resulting `client_id`. We look it up via Clerk's REST API. This is the one spot where Clerk's OAuth applications feature does the heavy lifting for us.
+- **`client` is the bridge to Dynamic Client Registration.** When Claude registers itself, Routecraft needs to validate the resulting `client_id`, and it does so on every authorize and token call. We look it up via Clerk's REST API, matching on `client_id` so an unknown client is rejected rather than silently accepted. This is the one spot where Clerk's OAuth applications feature does the heavy lifting for us.
 
 ### What Routecraft just did for you
 
@@ -383,7 +386,7 @@ It is worth pausing here, because that config is short for a reason. Under the h
 - Verifying every bearer token against Clerk's JWKS and attaching the resolved principal to the exchange.
 - Running the MCP JSON-RPC handler: envelope parsing, tool dispatch, input validation, MCP-shaped error frames, and session management.
 
-Hand-rolled with Express and `jose`, that is roughly 80 lines of boilerplate before your first tool, and it still does not include the structured logging, per-tool authorization gate, and Dynamic Client Registration validation you get here. The cost was never the lines; it is keeping all of it correct as the MCP spec and your tool surface evolve.
+Hand-rolled with Express and `jose`, that is roughly eighty lines of boilerplate before your first tool, and it still does not include the structured logging, per-tool authorisation gate, and Dynamic Client Registration validation you get here. The cost was never the lines; it is keeping all of it correct as the MCP spec and your tool surface evolve.
 
 The Routecraft version is what you write. Everything else is what you do not.
 
@@ -393,11 +396,11 @@ Restart the server. Then hit the discovery endpoint:
 curl http://localhost:3001/.well-known/oauth-protected-resource
 ```
 
-You should see a JSON document with `authorization_servers` pointing back at your own server, which proxies the actual OAuth flow through to Clerk. That document is how MCP clients learn where to send the user.
+You should see a JSON document identifying `http://localhost:3001/mcp` as an OAuth 2.0 protected resource. The authorization-server discovery document sits next to it at `/.well-known/oauth-authorization-server`, advertising the `/authorize`, `/token`, and `/register` endpoints that proxy through to Clerk. Those two documents are how MCP clients learn where to send the user.
 
 ## Connecting from Claude Desktop
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (or the Windows equivalent):
+Claude Desktop treats an HTTP MCP server as a custom connector: open **Settings -> Connectors -> Add custom connector**, name it `notebook`, and paste `http://localhost:3001/mcp`. In Cursor the same server is an entry in `mcp.json`:
 
 ```json
 {
@@ -409,11 +412,9 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (or the W
 }
 ```
 
-Restart Claude Desktop. The first time you trigger a notebook tool, Claude opens your browser to Clerk's hosted sign-in page. Sign in, approve the connection, and Claude swaps the resulting authorization code for an access token. From that point on, the token rides along with every tool invocation.
+The first time you trigger a notebook tool, Claude opens your browser to Clerk's hosted sign-in page. Sign in, approve the connection, and Claude swaps the resulting authorization code for an access token. From that point on, the token rides along with every tool invocation.
 
 ![Claude Desktop showing the notebook MCP tools after the Clerk sign-in flow completes](/images/blog/securing-mcp-with-clerk/claude-desktop-connected.png)
-
-The Cursor flow is identical, just configured under **Settings -> Features -> MCP**.
 
 ## Hydrating a principal from the token
 
@@ -448,9 +449,9 @@ export default craft()
 
 `principal.subject` is the Clerk user ID (the `sub` claim on the JWT). Clerk also gives us `claims.email`, `claims.org_id`, and any custom claims you bake into a JWT template.
 
-## Authorizing per tool with roles
+## Authorising per tool with roles
 
-Authentication says "this token is valid". Authorization says "this user is allowed to call this tool". For that, Routecraft has `.authorize()`:
+Authentication says "this token is valid". Authorisation says "this user is allowed to call this tool". For that, Routecraft has `.authorize()`:
 
 ```ts
 const CreateNoteInput = z.object({
@@ -477,10 +478,10 @@ If the principal does not carry a `member` role, the capability throws before an
 
 Where do those roles come from? Two options with Clerk:
 
-1. **Organization roles**: Clerk's organizations feature attaches roles to users. They land in the token as `claims.org_role` (a single string) or, with a JWT template, as a custom roles array.
-2. **Public metadata**: You can stash `roles: ["member"]` in a user's public metadata and surface it via a JWT template.
+1. **Organisation roles**: Clerk's Organizations feature attaches roles to users. They land in the token as `claims.org_role`, a single string.
+2. **Public metadata**: stash `roles: ["member"]` in a user's public metadata and mint it into the token as a `roles` array via a JWT template.
 
-Either way, you teach Routecraft how to read them by passing a `userinfo` callback to the plugin:
+A `roles` array claim is lifted onto `principal.roles` automatically. Clerk's single-string `org_role` is not, so teach Routecraft how to read it with a `userinfo` callback on the plugin:
 
 ```ts
 mcpPlugin({
