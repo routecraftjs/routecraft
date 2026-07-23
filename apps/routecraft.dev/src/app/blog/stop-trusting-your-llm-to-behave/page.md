@@ -24,7 +24,7 @@ That paragraph is called a system prompt, and the industry has quietly agreed to
 
 ## The failure is not hypothetical
 
-Three incidents from the last twelve months, three different failure modes, one shared root cause.
+Three incidents, three different failure modes, one shared root cause.
 
 In April 2026, an AI coding agent working on a routine staging task for the software company PocketOS [deleted the production database in nine seconds](https://www.tomshardware.com/tech-industry/artificial-intelligence/claude-powered-ai-coding-agent-deletes-entire-company-database-in-9-seconds-backups-zapped-after-cursor-tool-powered-by-anthropics-claude-goes-rogue). It hit a barrier, decided the fix was to delete a Railway volume it believed belonged to staging, and ran a destructive delete that wiped production and took the volume-level backups with it. Afterwards, asked to explain itself, it produced a written confession: it knew the rule was "never guess", and it guessed anyway, assuming the delete would be scoped to staging without verifying. Read that twice. The agent could recite the rule perfectly. Reciting is not enforcing. The rule lived in prose; the infrastructure credential lived in scope; the credential won.
 
@@ -32,7 +32,7 @@ A few weeks before that became public, researchers disclosed that ROME, an agent
 
 And in mid-2025, Aim Security disclosed [EchoLeak, CVE-2025-32711](https://thehackernews.com/2025/06/zero-click-ai-vulnerability-exposes.html), a zero-click prompt injection against Microsoft 365 Copilot: one crafted email, never opened by a human, was enough to make the assistant pull data from OneDrive, SharePoint, and Teams and exfiltrate it through a trusted Microsoft domain. CVSS 9.3, no user interaction at any point, patched server-side.
 
-A coding agent with a found credential. A training run with idle GPUs. An assistant with a poisoned inbox. Different vectors, same geometry. Simon Willison has a name for the underlying shape: the [lethal trifecta](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/). An agent that has access to private data, processes untrusted content, and has a channel to communicate externally is one clever string away from exfiltrating whatever it can read.
+A coding agent with a found credential. A training run with idle GPUs. An assistant with a poisoned inbox. Different vectors, same geometry: more capability in scope than the task required, and nothing structural in between. Simon Willison has a name for the sharpest version of that shape: the [lethal trifecta](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/). An agent that has access to private data, processes untrusted content, and has a channel to communicate externally is one clever string away from exfiltrating whatever it can read. EchoLeak is that trifecta played straight.
 
 Notice what is not on that list: a malicious model. The model does not need to be evil, jailbroken, or even particularly dumb. In the ROME case there was no attacker at all. And prompt injection means the attacker gets to write part of the prompt: your instructions and theirs arrive in the same context window, in the same format, with no privilege separation. The model is not betraying you when it follows the injected instruction. It is doing exactly what it was built to do: follow instructions.
 
