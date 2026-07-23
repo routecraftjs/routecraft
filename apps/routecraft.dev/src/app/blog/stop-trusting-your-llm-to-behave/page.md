@@ -4,7 +4,7 @@ description: System prompts are requests, not rules. If an agent can touch email
 date: 2026-07-25
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.6.0+'
+version: '0.5.0+'
 draft: false
 featured: true
 tags:
@@ -64,7 +64,7 @@ Concretely, a bounded capability stacks deterministic layers, each of which runs
 
 ```ts
 const SendEmailInput = z.object({
-  to: z.string().email(),
+  to: z.email(),
   subject: z.string().min(1).max(120),
   text: z.string().min(1).max(5_000),
 })
@@ -95,7 +95,7 @@ import { craft, mail } from '@routecraft/routecraft'
 import { z } from 'zod'
 
 const SendEmailInput = z.object({
-  to: z.string().email(),
+  to: z.email(),
   subject: z.string().min(1).max(120),
   text: z.string().min(1).max(5_000),
 })

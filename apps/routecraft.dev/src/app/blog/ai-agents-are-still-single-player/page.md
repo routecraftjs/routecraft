@@ -4,7 +4,7 @@ description: The personal-harness wave gave every developer an agent with their 
 date: 2026-07-27
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.6.0+'
+version: '0.5.0+'
 draft: false
 featured: true
 home: true

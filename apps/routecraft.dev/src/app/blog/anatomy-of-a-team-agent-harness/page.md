@@ -4,7 +4,7 @@ description: A chat loop with tools is not a harness. An agent that works for a 
 date: 2026-07-24
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.6.0+'
+version: '0.5.0+'
 draft: false
 tags:
   - ai-agents
