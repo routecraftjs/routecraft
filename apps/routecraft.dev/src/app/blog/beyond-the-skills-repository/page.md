@@ -55,7 +55,7 @@ What rung 4 buys, concretely:
 
 A worked example of what lives on rung 4 is the bank's read-only incident-triage suite described in [AI agents are still single-player](/blog/ai-agents-are-still-single-player), used simultaneously by juniors learning the runbook, seniors skipping six browser tabs, and an agent that chains the lot. The skills repo explains triage; the capabilities perform it; the same access rules govern both.
 
-## How to climb without a big-bang program
+## How to climb without a big-bang programme
 
 The good news for whoever owns the skills repo: nothing is wasted. Skills remain the knowledge layer at every rung; they just gain hands. The climb can be incremental and honestly quite cheap:
 
