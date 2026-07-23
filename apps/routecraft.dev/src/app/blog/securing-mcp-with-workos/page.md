@@ -5,7 +5,7 @@ date: 2026-06-10
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.5.0+'
-draft: true
+draft: false
 tags:
   - mcp
   - workos
@@ -217,7 +217,7 @@ Same configuration as in the Clerk walkthrough:
 }
 ```
 
-Restart Claude Desktop, trigger a notebook tool, and the browser opens on your AuthKit sign-in page. Behind that first connection, Claude fetched your protected-resource metadata, registered itself with WorkOS via DCR, and exchanged the sign-in for a token, with your server doing nothing but serving one JSON document. The end state looks the same as in the Clerk post: the notebook tools listed, the token riding along on every call.
+Restart Claude Desktop, trigger a notebook tool, and the browser opens on your AuthKit sign-in page. Behind that first connection, Claude fetched your protected-resource metadata, registered itself with WorkOS via DCR, and exchanged the sign-in for a token, with your server doing nothing but serving one JSON document. The end state looks the same as in [the Clerk post](/blog/securing-mcp-with-clerk#connecting-from-claude-desktop): the notebook tools listed, the token riding along on every call.
 
 ## Clerk or WorkOS?
 
@@ -245,7 +245,7 @@ Both are production-fit. If you are starting fresh and the MCP server is the pro
 
 ## What's next
 
-Between this post and the Clerk walkthrough you have the two shapes that cover practically every IdP: proxy mode when the provider needs help with Dynamic Client Registration, validator mode when it speaks the full flow itself. The vendor-neutral concepts behind both live in [securing capabilities](/docs/advanced/securing-capabilities).
+Between this post and [the Clerk walkthrough](/blog/securing-mcp-with-clerk) you have the two shapes that cover practically every IdP: proxy mode when the provider needs help with Dynamic Client Registration, validator mode when it speaks the full flow itself. The vendor-neutral concepts behind both live in [securing capabilities](/docs/advanced/securing-capabilities).
 
 The fastest way to try this without installing anything is the [Routecraft playground in GitHub Codespaces](https://codespaces.new/routecraftjs/craft-playground). Or scaffold locally:
 

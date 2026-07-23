@@ -5,7 +5,7 @@ date: 2026-06-05
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.5.0+'
-draft: true
+draft: false
 tags:
   - mcp
   - fastmcp
@@ -119,7 +119,7 @@ export default craft()
 
 `.authorize()` checks the authenticated principal's roles at route entry. `.input()` rejects malformed payloads with structured errors. `.filter()` is a deterministic predicate that halts the pipeline when it returns false. `.tag('destructive')` becomes the MCP `destructiveHint` annotation automatically, so the calling side can require confirmation for it. For HTTP transports, JWT and JWKS verification, an OAuth 2.1 proxy mode, RFC 9728 protected-resource metadata, and principal enrichment are configuration on the plugin rather than code in your tools. The [securing capabilities guide](/docs/advanced/securing-capabilities) shows the full flow.
 
-FastMCP covers most of these layers natively too: schema validation on parameters, identity through `canAccess`, declared intent through annotations. The layer it leaves to you is the deterministic predicate, the business rule that says this id must start with `note_` or this recipient must stay inside the company domain. In FastMCP that is code you write, and remember to keep writing, inside each `execute`. In Routecraft it is a named step in the same ordered chain as everything else, and the whole chain travels with the capability when it stops being an MCP tool and becomes a cron job. The agent tool guardrails deep dive on this blog builds the same guarded tool in both frameworks and shows exactly where the line between framework and discipline falls.
+FastMCP covers most of these layers natively too: schema validation on parameters, identity through `canAccess`, declared intent through annotations. The layer it leaves to you is the deterministic predicate, the business rule that says this id must start with `note_` or this recipient must stay inside the company domain. In FastMCP that is code you write, and remember to keep writing, inside each `execute`. In Routecraft it is a named step in the same ordered chain as everything else, and the whole chain travels with the capability when it stops being an MCP tool and becomes a cron job. The [agent tool guardrails deep dive](/blog/agent-tool-guardrails) builds the same guarded tool in both frameworks and shows exactly where the line between framework and discipline falls.
 
 ## Difference 3: both directions
 

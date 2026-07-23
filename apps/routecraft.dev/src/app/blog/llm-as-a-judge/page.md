@@ -5,7 +5,7 @@ date: 2026-07-08
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.5.0+'
-draft: true
+draft: false
 tags:
   - llm-as-a-judge
   - ai-sdk
@@ -23,7 +23,7 @@ The pattern itself: one model evaluates another model's output before that outpu
 
 It shows up in two places. In **evals**, judges grade outputs offline to track quality across prompt and model changes. In **production gates**, the judge runs inline, in front of the side effect, deciding right now whether this customer reply is good enough to send. This post is about the second kind, because that is where the pattern stops being a notebook trick and starts being plumbing.
 
-This post is part of a pattern series; a sibling on guardrails for MCP tools is coming, with more patterns after that. And a disclosure before the comparison starts: I build Routecraft, so calibrate accordingly. The AI SDK version below is the code I would ship if I did not.
+This post is part of a pattern series; its sibling covers [guardrails for MCP tools](/blog/agent-tool-guardrails), with more patterns coming. And a disclosure before the comparison starts: I build Routecraft, so calibrate accordingly. The AI SDK version below is the code I would ship if I did not.
 
 ## The pattern, tool-agnostic
 

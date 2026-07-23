@@ -5,7 +5,7 @@ date: 2026-07-01
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.5.0+'
-draft: true
+draft: false
 tags:
   - n8n
   - automation
@@ -128,8 +128,8 @@ Feature lists only get you so far; what decides the choice is how each tool hand
 | Pattern | In n8n | In Routecraft | Deep dive |
 | --- | --- | --- | --- |
 | Human in the loop | Wait node, send-and-wait approval buttons | Composed from capabilities, any channel | coming soon |
-| LLM as a judge | AI nodes wired on the canvas | One `.enrich(llm())` stage plus a `.filter()` gate | coming soon |
-| Agent tool guardrails | Node options plus Code nodes, by convention | Enforced pre-pipeline chain | coming soon |
+| LLM as a judge | AI nodes wired on the canvas | One `.enrich(llm())` stage plus a `.filter()` gate | [LLM as a judge](/blog/llm-as-a-judge) |
+| Agent tool guardrails | Node options plus Code nodes, by convention | Enforced pre-pipeline chain | [Guardrails for MCP tools](/blog/agent-tool-guardrails) |
 | Webhook to notification | Webhook, IF, and email nodes | The invoice capability earlier in this post | this post |
 | Scheduled jobs | Schedule trigger node | `.from(cron('0 9 * * *'))` | [docs](/docs/reference/adapters/cron) |
 | Fan-out over a list | Loop and split nodes | `.split()` and `.aggregate()` | [docs](/docs/reference/operations/split) |

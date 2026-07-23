@@ -5,7 +5,7 @@ date: 2026-06-24
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.5.0+'
-draft: true
+draft: false
 tags:
   - ai-agents
   - capabilities

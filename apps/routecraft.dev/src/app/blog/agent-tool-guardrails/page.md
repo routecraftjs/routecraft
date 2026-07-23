@@ -5,7 +5,7 @@ date: 2026-06-08
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.5.0+'
-draft: true
+draft: false
 tags:
   - guardrails
   - mcp
