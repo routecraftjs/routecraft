@@ -4,7 +4,7 @@ description: A second model scores the first model's output and a gate decides w
 date: 2026-07-08
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.6.0+'
+version: '0.5.0+'
 draft: true
 tags:
   - llm-as-a-judge
@@ -13,6 +13,7 @@ tags:
   - typescript
 related:
   - stop-trusting-your-llm-to-behave
+  - agent-tool-guardrails
 layout: blog-post
 ---
 
@@ -22,7 +23,7 @@ The pattern itself: one model evaluates another model's output before that outpu
 
 It shows up in two places. In **evals**, judges grade outputs offline to track quality across prompt and model changes. In **production gates**, the judge runs inline, in front of the side effect, deciding right now whether this customer reply is good enough to send. This post is about the second kind, because that is where the pattern stops being a notebook trick and starts being plumbing.
 
-This post is part of a pattern series; its sibling covers [guardrails for MCP tools](/blog/agent-tool-guardrails), with more patterns coming.
+This post is part of a pattern series; a sibling on guardrails for MCP tools is coming, with more patterns after that. And a disclosure before the comparison starts: I build Routecraft, so calibrate accordingly. The AI SDK version below is the code I would ship if I did not.
 
 ## The pattern, tool-agnostic
 
@@ -75,7 +76,7 @@ if (verdict.score >= 8) {
 
 This is good code, and if your judge lives inside an existing application, you should write exactly this and stop reading.
 
-What the SDK deliberately does not give you, because it is an SDK and not a runtime: the logging that records every verdict with the input that produced it, the retry behaviour when the judge call itself fails, the test seam that lets CI assert "a draft promising a refund never passes", and a place where the threshold and model live as reviewable configuration rather than constants scattered through application code. You will write all of that, and it is two hundred lines nobody budgets for.
+What the SDK deliberately does not give you, because it is an SDK and not a runtime: the logging that records every verdict with the input that produced it, the decision about what the flow does once the judge call exhausts the SDK's built-in retries, the test seam that lets CI assert "a draft promising a refund never passes", and a place where the threshold and model live as reviewable configuration rather than constants scattered through application code. You will write all of that, and it is two hundred lines nobody budgets for.
 
 ## As a Routecraft pipeline
 
@@ -88,11 +89,10 @@ import { z } from 'zod'
 
 const DraftReply = z.object({
   ticketId: z.string(),
-  customerEmail: z.string().email(),
+  customerEmail: z.email(),
   customerMessage: z.string(),
   reply: z.string().min(1),
 })
-type DraftReply = z.infer<typeof DraftReply>
 
 const Verdict = z.object({
   score: z.number().min(1).max(10),
@@ -103,7 +103,7 @@ export default craft()
   .id('send-judged-reply')
   .description('Judge a drafted support reply and send it only if it passes.')
   .input({ body: DraftReply })
-  .from<DraftReply>(direct())
+  .from(direct())
   .enrich(
     llm('anthropic:claude-haiku-4-5', {
       system: [
@@ -117,9 +117,10 @@ export default craft()
     }),
   )
   .filter((ex) => {
-    const { score, reasons } = ex.body.output
-    if (score < 8) {
-      return { reason: `judge scored ${score}: ${reasons.join('; ')}` }
+    const verdict = ex.body.output
+    if (!verdict) return { reason: 'judge returned no parseable verdict' }
+    if (verdict.score < 8) {
+      return { reason: `judge scored ${verdict.score}: ${verdict.reasons.join('; ')}` }
     }
     return true
   })
@@ -134,8 +135,8 @@ export default craft()
 Reading it against the four parts:
 
 - `.enrich(llm(..., { output: Verdict }))` runs the judge and merges a **typed** verdict into the body; downstream code sees `body.output.score` with autocomplete, because the schema flows through the chain.
-- `.filter()` is the deterministic gate. Below threshold, the exchange halts with a recorded reason; the reply physically cannot reach `.to(mail())`. The judge advises, the filter decides, and that separation is enforced by pipeline order rather than discipline.
-- Every stage emits structured events (`exchange:dropped` carries the judge's reasons), so "what did the judge say and what did we do about it" is your log stream, not a print statement you remembered to add.
+- `.filter()` is the deterministic gate, and it fails closed: no verdict means no send, below threshold means no send, and either way the exchange halts with a recorded reason; the reply physically cannot reach `.to(mail())`. The judge advises, the filter decides, and that separation is enforced by pipeline order rather than discipline.
+- Every stage emits structured events (`route:exchange:dropped` carries the judge's reasons), so "what did the judge say and what did we do about it" is your log stream, not a print statement you remembered to add.
 - The whole route is a value you can test: feed it fixture drafts with `@routecraft/testing`, assert that the refund-promising one drops. The judge prompt is in the diff, the threshold is in the diff, the model id is in the diff.
 
 Swapping the judge model is editing one string (`anthropic:...`, `openai:...`, `ollama:...` for a local judge), because providers are registered once in `llmPlugin` and referenced by id. Cost control is a pipeline concern too: `.cache({ ttl })` keeps identical drafts from being judged twice.
@@ -166,4 +167,4 @@ And in either tool: never let the judge be the only gate in front of an irrevers
 bunx create-routecraft judged-replies
 ```
 
-The [llm() adapter reference](/docs/reference/adapters/llm) covers structured output, and the [Routecraft vs n8n](/blog/routecraft-vs-n8n) hub has the wider pattern table. Full docs at [routecraft.dev/docs](/docs/introduction).
+The [llm() adapter reference](/docs/reference/adapters/llm) covers structured output, providers, and `llmPlugin` registration. Full docs at [routecraft.dev/docs](/docs/introduction).

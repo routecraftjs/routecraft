@@ -4,7 +4,7 @@ description: n8n made automation visual and self-hostable, and for a lot of team
 date: 2026-07-01
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.6.0+'
+version: '0.5.0+'
 draft: true
 tags:
   - n8n
@@ -29,7 +29,7 @@ I build Routecraft, so weigh my bias accordingly. The trade-offs below are real 
 
 | Feature | n8n | Routecraft |
 | --- | --- | --- |
-| Open source | ✓ Fair-code (Sustainable Use License) | ✓ Apache-2.0 |
+| Licence | Fair-code (Sustainable Use License) | Apache-2.0 |
 | Self-hostable | ✓ | ✓ |
 | Hosted cloud offering | ✓ n8n Cloud | ✗ |
 | Visual editor | ✓ | ✗ |
@@ -67,7 +67,7 @@ const Invoice = z.object({
   vendor: z.string().min(1),
   amountCents: z.number().int().positive(),
   currency: z.string().length(3),
-  pdfUrl: z.string().url(),
+  pdfUrl: z.url(),
 })
 type Invoice = z.infer<typeof Invoice>
 
@@ -97,9 +97,9 @@ Both versions work. The differences are in everything around them.
 
 **Refactoring.** When three workflows share logic in n8n, you copy nodes between canvases or extract a subworkflow and manage its interface by convention. In Routecraft, shared logic is a function, or a capability invoked by other capabilities through `direct()` with its input and output types exported. The boring, load-bearing tools of software (extract function, rename symbol, find usages) all work, because it is just TypeScript.
 
-**Production-grade operations as one-liners.** The unglamorous things that separate a demo workflow from a production one are single operations in the pipeline. `.cache({ ttl })` makes any capability's result reusable today (one line, and an expensive lookup stops being called twice), and the wider resilience family lands through the 0.6 line in the same declared style: `.timeout()`, `.circuitBreaker()`, `.throttle()`, `.debounce()`, `.dedup()`, `.sample()`, `.delay()`. On a canvas, a few of these exist as nodes (per-node retry, a deduplication node); the rest are patterns you assemble from Wait, IF, and Code nodes and maintain per workflow. In the pipeline, each is a declared property of the capability, visible in the diff like everything else.
+**Production-grade operations as one-liners.** The unglamorous things that separate a demo workflow from a production one are single operations in the pipeline: `.cache({ ttl })`, `.retry()`, `.timeout()`, `.circuitBreaker()`, `.throttle()`, `.dedupe()`, `.sample()`, `.delay()`. One line, and an expensive lookup stops being called twice, or a flaky upstream stops taking the whole route down with it. (`.debounce()` is planned, in the same declared style.) On a canvas, a few of these exist as nodes (per-node retry, a deduplication node); the rest are patterns you assemble from Wait, IF, and Code nodes and maintain per workflow. In the pipeline, each is a declared property of the capability, visible in the diff like everything else.
 
-**An ordinary deployment.** A Routecraft project is a process: `craft run`, a Dockerfile on Bun or Node 22+, the same CI/CD pipeline as the rest of your code, env vars for config. There is no workflow database to back up, no editor server to upgrade, no separate promotion process to move a workflow from staging to prod. Promotion is a git merge.
+**An ordinary deployment.** A Routecraft project is a process: `craft run` under Bun, or the core library embedded in any Node 22+ service, a Dockerfile, the same CI/CD pipeline as the rest of your code, env vars for config. There is no workflow database to back up, no editor server to upgrade, no separate promotion process to move a workflow from staging to prod. Promotion is a git merge.
 
 ## What the canvas buys you (and what you give up)
 
@@ -108,7 +108,7 @@ Fairness requires the other column, because it is substantial:
 - **Integration breadth.** n8n ships hundreds of prebuilt nodes. Routecraft's adapter set today is small and honest: HTTP, cron and timers, files, CSV, JSON, IMAP/SMTP mail, CardDAV, MCP, LLM and agent destinations, browser automation. Anything else is you writing a `fetch` call in a `.transform()`, which is easy but is not a node catalogue. If your automation is mostly "connect SaaS A to SaaS B", n8n's catalogue will beat a code framework on day one, every time.
 - **Prebuilt approval buttons.** For human-in-the-loop flows, n8n's Wait node and send-and-wait operations ship ready-made approval messages for Slack, Gmail, and Teams. In Routecraft you compose the approval flow from capabilities, which carries any channel you wire but leaves the message UX to you.
 - **Non-developers can build.** An ops person can ship an n8n workflow without learning TypeScript. Routecraft's entire premise assumes a developer is in the loop.
-- **Visual runtime inspection.** Watching an execution light up node by node is a genuinely good debugging experience. Routecraft gives you structured logs, lifecycle events, and optional OpenTelemetry tracing, which is more powerful and less immediate.
+- **Visual runtime inspection.** Watching an execution light up node by node is a genuinely good debugging experience. Routecraft gives you structured logs, lifecycle events, and optional OpenTelemetry tracing, which goes deeper but is not as immediate.
 - **A hosted option.** n8n Cloud exists; Routecraft is self-hosted only.
 
 There is also a licensing difference worth knowing about: n8n is fair-code under the Sustainable Use License, which restricts some commercial uses. Routecraft is Apache-2.0.
@@ -123,16 +123,16 @@ Routecraft treats agents as a first-class shape on both sides of a capability. `
 
 ## The same patterns, side by side
 
-Feature lists only get you so far; what decides the choice is how each tool handles the patterns you will actually build. Each deep dive below builds the pattern in both tools, with working code, and calls the winner honestly. More patterns and more framework pairings are coming; this table grows.
+Feature lists only get you so far; what decides the choice is how each tool handles the patterns you will actually build. A deep-dive post per pattern is on the way, each building the pattern in both tools with working code and calling the winner honestly; this table grows as they land.
 
 | Pattern | In n8n | In Routecraft | Deep dive |
 | --- | --- | --- | --- |
 | Human in the loop | Wait node, send-and-wait approval buttons | Composed from capabilities, any channel | coming soon |
 | LLM as a judge | AI nodes wired on the canvas | One `.enrich(llm())` stage plus a `.filter()` gate | coming soon |
-| Agent tool guardrails | Node options plus Code nodes, by convention | Enforced pre-pipeline chain | [Guardrails for MCP tools](/blog/agent-tool-guardrails) |
+| Agent tool guardrails | Node options plus Code nodes, by convention | Enforced pre-pipeline chain | coming soon |
 | Webhook to notification | Webhook, IF, and email nodes | The invoice capability earlier in this post | this post |
-| Scheduled jobs | Schedule trigger node | `.from(cron('0 9 * * *'))` | [docs](/docs/introduction) |
-| Fan-out over a list | Loop and split nodes | `.split()` and `.aggregate()` | [docs](/docs/introduction) |
+| Scheduled jobs | Schedule trigger node | `.from(cron('0 9 * * *'))` | [docs](/docs/reference/adapters/cron) |
+| Fan-out over a list | Loop and split nodes | `.split()` and `.aggregate()` | [docs](/docs/reference/operations/split) |
 
 ## The heuristic
 
