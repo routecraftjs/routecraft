@@ -27,7 +27,14 @@ export function getFigure(
   id: string | undefined,
 ): FigureDefinition | undefined {
   if (!id) return undefined
-  return BY_ID.get(id)
+  const figure = BY_ID.get(id)
+  if (!figure && process.env.NODE_ENV !== 'production') {
+    // A named-but-unknown id is an author error (a typo or a renamed figure),
+    // not the legitimate no-id glyph fallback. Surface it instead of silently
+    // dropping the diagram from the post and its cover.
+    console.warn(`[figures] unknown figure id: ${id}`)
+  }
+  return figure
 }
 
 export type { FigureDefinition } from '@/components/figures/types'
