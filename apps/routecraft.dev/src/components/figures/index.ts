@@ -23,6 +23,17 @@ const FIGURES: FigureDefinition[] = [
 
 const BY_ID = new Map(FIGURES.map((figure) => [figure.id, figure]))
 
+if (process.env.NODE_ENV !== 'production' && BY_ID.size !== FIGURES.length) {
+  // A duplicate id silently shadows the earlier figure (Map keeps the last
+  // writer), so surface it the same way an unknown id is surfaced below.
+  const seen = new Set<string>()
+  for (const figure of FIGURES) {
+    if (seen.has(figure.id))
+      console.warn(`[figures] duplicate figure id: ${figure.id}`)
+    seen.add(figure.id)
+  }
+}
+
 export function getFigure(
   id: string | undefined,
 ): FigureDefinition | undefined {

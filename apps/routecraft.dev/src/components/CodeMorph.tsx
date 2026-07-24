@@ -67,7 +67,7 @@ export function CodeMorph() {
       style={{ animationDelay: '420ms' }}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
-      aria-label="Routecraft capability where the source and destination cycle"
+      aria-label="Routecraft capability where the source changes with each trigger"
     >
       {/* Backing card: same footprint as the block, offset down-right.
           One shade off the bg, reads like layered paper. */}
