@@ -1,7 +1,7 @@
 ---
 title: Anatomy of a team agent harness
 description: "A chat loop with tools is not a harness. An agent that works for a team needs four primitives most personal harnesses skip entirely: delegation, a learning loop, self-aware capability gaps, and multi-channel presence, plus three platform rules that keep the whole thing governable."
-date: 2026-07-24
+date: 2026-07-21
 author: Jaco Botha
 authorRole: Founder, DevOptix
 draft: false
@@ -36,7 +36,7 @@ This is the difference between an agent that is *used* and an agent that *accumu
 
 The most underrated thing an agent can know is what it cannot do. A team harness makes that knowledge productive: when the agent is blocked mid-task because a capability is missing (no read access to the table that would confirm the diagnosis, no connector to the system that holds the answer), it does not shrug into the chat. It **files a ticket**: what it was trying to accomplish, which capability it lacked, why that capability would have changed the outcome, and what it would have concluded with it.
 
-That ticket is written at the moment of failure with the full context loaded, which makes it better than most tickets humans write, and it turns the platform's backlog into an evidence-ranked queue instead of a brainstorm ([the selection mechanics are here](/blog/which-capabilities-first)). The agent identifies its own gaps; humans review, approve, and grant access; and increasingly the capability itself is drafted by an agent from that very ticket. The boundary that keeps this safe is one sentence: the agent **requests** capabilities, it never grants them.
+That ticket is written at the moment of failure with the full context loaded, which makes it better than most tickets humans write, and it turns the platform's backlog into an evidence-ranked queue instead of a brainstorm (the selection mechanics get their own post in this series). The agent identifies its own gaps; humans review, approve, and grant access; and increasingly the capability itself is drafted by an agent from that very ticket. The boundary that keeps this safe is one sentence: the agent **requests** capabilities, it never grants them.
 
 ## Primitive 4: multi-channel presence
 
@@ -64,4 +64,4 @@ What runs on [Routecraft](/docs/introduction) today is the foundation: capabilit
 
 The rest is where this is heading: delegation that survives a wait measured in days, and the packaged version, a harness you stand up for your team the way the personal harnesses set themselves up for an individual. That is the direction we are building in, and the four primitives and three rules above are its shape.
 
-I build Routecraft, so calibrate this section accordingly. The four primitives stand on their own whatever you build them on, and the order of operations from the [capability selection guide](/blog/which-capabilities-first) applies directly: memory and the gap logger first, read-only capabilities next, and let the agent help write its own roadmap.
+I build Routecraft, so calibrate this section accordingly. The four primitives stand on their own whatever you build them on, and the order of operations from capability selection applies directly: memory and the gap logger first, read-only capabilities next, and let the agent help write its own roadmap.

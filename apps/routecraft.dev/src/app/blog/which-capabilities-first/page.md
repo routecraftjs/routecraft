@@ -4,7 +4,7 @@ description: Every team that gives agents real tools faces the same empty backlo
 date: 2026-06-24
 author: Jaco Botha
 authorRole: Founder, DevOptix
-draft: false
+draft: true
 tags:
   - ai-agents
   - capabilities

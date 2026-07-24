@@ -1,7 +1,7 @@
 ---
 title: AI agents are still single-player. Your organisation isn't.
 description: The personal-harness wave gave every developer an agent with their own access, their own memory, and their own terminal. That model cannot serve a team. The unit of organisational AI leverage is the governed capability, not the personal agent.
-date: 2026-07-27
+date: 2026-07-24
 author: Jaco Botha
 authorRole: Founder, DevOptix
 draft: false
@@ -66,4 +66,4 @@ Single-player agents are a local maximum. They demo brilliantly, they genuinely 
 
 The organisations that get leverage from agents in the next few years will be the ones that treat capabilities as shared, governed infrastructure and let every human and every agent in the building stand on them. The ones that hand out personal harnesses will get forty demos and a security review that never ends.
 
-I build [Routecraft](/docs/introduction), a framework for exactly this capability layer, so discount my bias accordingly; the argument above stands regardless of whose tools you use. If you want the companion piece: [a skills repository is not an automation platform](/blog/beyond-the-skills-repository) covers the maturity path most organisations are actually on. The practical guide to choosing your first capabilities is [the backlog that writes itself](/blog/which-capabilities-first).
+I build [Routecraft](/docs/introduction), a framework for exactly this capability layer, so discount my bias accordingly; the argument above stands regardless of whose tools you use. If you want the companion piece: [a skills repository is not an automation platform](/blog/beyond-the-skills-repository) covers the maturity path most organisations are actually on. The practical guide to choosing your first capabilities is next in this series.

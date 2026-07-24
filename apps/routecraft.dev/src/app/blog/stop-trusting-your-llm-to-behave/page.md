@@ -1,7 +1,7 @@
 ---
 title: Stop trusting your LLM to behave. Enforce it.
 description: System prompts are requests, not rules. If an agent can touch email, money, or production data, the boundary has to live in code that runs whether the model cooperates or not. Give the agent hands, not keys. A case for deterministic guardrails around probabilistic systems.
-date: 2026-07-25
+date: 2026-07-22
 author: Jaco Botha
 authorRole: Founder, DevOptix
 draft: false
@@ -138,4 +138,4 @@ Stop trusting your LLM to behave. It was never the model's job to be your securi
 
 ---
 
-If you want to see the bounded-capability pattern end to end, [your first MCP server in TypeScript](/blog/your-first-mcp-server-in-typescript) builds one from scratch, [Guardrails for MCP tools](/blog/agent-tool-guardrails) implements all four layers twice (in FastMCP and in Routecraft), and the [securing capabilities guide](/docs/advanced/securing-capabilities) covers the identity layer in depth.
+If you want to see the bounded-capability pattern end to end, [your first MCP server in TypeScript](/blog/your-first-mcp-server-in-typescript) builds one from scratch, and the [securing capabilities guide](/docs/advanced/securing-capabilities) covers the identity layer in depth.

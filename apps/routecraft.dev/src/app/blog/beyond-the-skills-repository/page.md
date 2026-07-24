@@ -1,7 +1,7 @@
 ---
 title: A skills repository is not an automation platform
 description: Every large organisation is building a central repo of AI skills, prompts, and agent definitions right now. It is the right first step, and it has a ceiling nobody talks about. Skills describe how. They cannot do. A maturity ladder for what comes next.
-date: 2026-07-26
+date: 2026-07-23
 author: Jaco Botha
 authorRole: Founder, DevOptix
 draft: false
@@ -58,7 +58,7 @@ A worked example of what lives on rung 4 is the bank's read-only incident-triage
 
 The good news for whoever owns the skills repo: nothing is wasted. Skills remain the knowledge layer at every rung; they just gain hands. The climb can be incremental and honestly quite cheap:
 
-1. Pick one runbook whose steps are all reads (triage and diagnostics are ideal; [how to choose is its own post](/blog/which-capabilities-first)).
+1. Pick one runbook whose steps are all reads (triage and diagnostics are ideal; how to choose is its own post, coming next in this series).
 2. Turn its manual steps into deployed capabilities behind your SSO, with one scoped service account each.
 3. Point the existing skill at them, so the instructions and the execution finally meet.
 4. Let one team use it from chat for a month, then read the audit log together with security. That log is the artefact that unlocks every conversation after it.

@@ -5,7 +5,7 @@ date: 2026-07-08
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.5.0+'
-draft: false
+draft: true
 tags:
   - llm-as-a-judge
   - ai-sdk
