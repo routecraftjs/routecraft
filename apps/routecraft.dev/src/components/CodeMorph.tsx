@@ -6,51 +6,43 @@ import { Highlight } from 'prism-react-renderer'
 interface Pair {
   key: string
   triggerLabel: string
-  destLabel: string
   from: string
-  to: string
 }
 
 const pairs: Pair[] = [
   {
     key: 'cron',
     triggerLabel: 'cron',
-    destLabel: 'agent',
     from: "cron('0 9 * * 1-5')",
-    to: "agent('eywa')",
   },
   {
     key: 'mcp',
     triggerLabel: 'mcp',
-    destLabel: 'mail',
     from: 'mcp()',
-    to: 'mail()',
   },
   {
     key: 'webhook',
     triggerLabel: 'webhook',
-    destLabel: 'file',
     from: "http({ path: '/brief' })",
-    to: "file({ path: './brief.md' })",
   },
   {
     key: 'mail',
     triggerLabel: 'mail',
-    destLabel: 'direct',
     from: "mail('INBOX', { unseen: true })",
-    to: "direct('publish-brief')",
   },
 ]
 
 const CYCLE_MS = 3400
 
-// The static skeleton. The {from} / {to} placeholders are replaced at
-// render time and wrapped in an animated span so the swap is visible.
+// The static skeleton. The {from} placeholder is replaced at render time and
+// wrapped in an animated span so the swap is visible. Only the source moves:
+// the picker offers triggers and the caption promises a one-line change, so
+// the body and the destination have to hold still for either to be true.
 const SKELETON = `craft()
   .id('morning-brief')
   .from({from})
   .transform(summarise)
-  .to({to})`
+  .to(mail())`
 
 export function CodeMorph() {
   const [index, setIndex] = useState(0)
@@ -136,15 +128,11 @@ export function CodeMorph() {
 }
 
 function CodeView({ pair, index }: { pair: Pair; index: number }) {
-  // We expand the skeleton with sentinel placeholders so prism still
-  // tokenises the structure correctly. The placeholders become real
-  // strings that we identify on render and replace with animated spans.
+  // We expand the skeleton with a sentinel placeholder so prism still
+  // tokenises the structure correctly. The placeholder becomes a real
+  // string that we identify on render and replace with an animated span.
   const FROM_SENTINEL = '__FROM__'
-  const TO_SENTINEL = '__TO__'
-  const code = SKELETON.replace('{from}', FROM_SENTINEL).replace(
-    '{to}',
-    TO_SENTINEL,
-  )
+  const code = SKELETON.replace('{from}', FROM_SENTINEL)
 
   return (
     <Highlight code={code} language="tsx" theme={{ plain: {}, styles: [] }}>
@@ -171,11 +159,6 @@ function CodeView({ pair, index }: { pair: Pair; index: number }) {
                     if (token.content === FROM_SENTINEL) {
                       return (
                         <AnimatedToken key={`${index}-from`} text={pair.from} />
-                      )
-                    }
-                    if (token.content === TO_SENTINEL) {
-                      return (
-                        <AnimatedToken key={`${index}-to`} text={pair.to} />
                       )
                     }
                     return (
