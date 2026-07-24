@@ -36,7 +36,7 @@ const GATES: Gate[] = [
     body: 'business rules as code',
     rejects: 'recipient outside\ncompany domain',
   },
-  { n: 3, title: 'Identity', body: 'who is asking, and may they' },
+  { n: 3, title: 'Identity', body: 'who is asking, and may they act' },
   {
     n: 4,
     title: 'Declared intent',
