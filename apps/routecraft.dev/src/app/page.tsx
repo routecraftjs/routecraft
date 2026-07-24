@@ -562,7 +562,12 @@ function Reading({ post }: { post: BlogPostMeta }) {
                   className="h-full w-full object-cover grayscale transition duration-700 group-hover:grayscale-0"
                 />
               ) : (
-                <BlogMark slug={post.slug} tags={post.tags} />
+                <BlogMark
+                  slug={post.slug}
+                  tags={post.tags}
+                  glyph={post.coverGlyph}
+                  diagram={post.diagram}
+                />
               )}
             </figure>
           </Link>

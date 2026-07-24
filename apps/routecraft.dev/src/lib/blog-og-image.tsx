@@ -179,6 +179,7 @@ export async function createBlogOgImage({
       tags={post.tags}
       subtitle={post.description}
       glyph={post.coverGlyph}
+      diagram={post.diagram}
       figureNumber={figureNumber}
     />,
     {

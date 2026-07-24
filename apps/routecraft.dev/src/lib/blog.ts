@@ -34,6 +34,12 @@ export interface BlogPostMeta {
   imageAlt?: string
   /** Override the auto-picked cover glyph. First character only. */
   coverGlyph?: string
+  /**
+   * Id of the post's lead figure (see `@/components/figures`). Its motif
+   * becomes the cover artwork on the post hero, the index card, the home
+   * teaser, and the OG image.
+   */
+  diagram?: string
   /** Explicit follow-up posts (slugs); overrides the tag-based suggestions. */
   related?: string[]
   readingTime: number
@@ -92,6 +98,7 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
     imageAlt: typeof data.imageAlt === 'string' ? data.imageAlt : undefined,
     coverGlyph:
       typeof data.coverGlyph === 'string' ? data.coverGlyph : undefined,
+    diagram: typeof data.diagram === 'string' ? data.diagram : undefined,
     related: Array.isArray(data.related) ? data.related.map(String) : undefined,
     readingTime:
       typeof data.readingTime === 'number'

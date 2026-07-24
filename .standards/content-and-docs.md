@@ -46,6 +46,40 @@ split. Both are concept-led; advanced just goes deeper and may also carry guides
   demos, and the throwaway capabilities under the repo's `examples/src` are not showcase
   examples and do not get an examples page just because they exist.
 
+## Blog figures
+
+Blog diagrams are React components, not images. Each one lives in
+`apps/routecraft.dev/src/components/figures/` and is registered by id in that folder's
+`index.ts`. A figure is drawn on a fixed canvas and scaled by `<ScaledFrame>`, so the
+composition never reflows: the same drawing at every width, just smaller.
+
+Every figure ships in two resolutions, because it renders on surfaces with very different
+size budgets:
+
+- **`Figure`** is the full drawing. It renders in the browser only, so it may use grid and
+  `color-mix`. Type and colour come from the `primitives.tsx` vocabulary and the `palette`
+  prop, not from Tailwind classes, so the drawing stays self-contained and a subtree of it
+  can be lifted into a motif. Place it with `{% diagram id="..." /%}` at the point in the
+  prose where the argument needs it.
+- **`Motif`** is the same idea reduced to shapes that survive a 368px index card and a social
+  preview. It replaces the cover glyph when a post sets `diagram: <id>` in frontmatter, which
+  puts the same mark on the post hero, the index card, the home teaser, and the OG image.
+
+Two constraints follow from that split:
+
+- **Motifs render through Satori.** Inline styles only, flexbox only, no CSS variables, no
+  pseudo-elements, no `color-mix`. A motif that uses an unsupported feature does not fail the
+  build; it renders wrong in the social image, where nobody is looking. Keep text out of a
+  motif entirely: if it needs words, it has not been reduced far enough.
+- **Colours are always passed in, never read from CSS.** Motifs take a `CoverPalette`, so
+  `COVER_PALETTE_LIGHT` in `BlogCover.tsx` is what Satori resolves and `COVER_PALETTE_THEMED`
+  is what the browser follows. Figures take a `FigurePalette`, of which only
+  `FIGURE_PALETTE_THEMED` exists, because a figure never renders through Satori. All three
+  mirror the tokens in `tailwind.css`, so when the brand palette moves, all of them move.
+
+Write a real `alt` on every figure: it is the accessible name, and a DOM drawing gives a
+screen reader nothing on its own.
+
 ## Capability project structure (public-surface file)
 
 Recommended project layout is one folder per capability under `capabilities/<domain>/<id>/`,
