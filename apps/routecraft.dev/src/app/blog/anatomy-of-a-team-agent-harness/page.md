@@ -1,6 +1,6 @@
 ---
 title: Anatomy of a team agent harness
-description: A chat loop with tools is not a harness. An agent that works for a team needs four primitives most personal harnesses skip entirely: delegation, a learning loop, self-aware capability gaps, and multi-channel presence, plus three platform rules that keep the whole thing governable.
+description: "A chat loop with tools is not a harness. An agent that works for a team needs four primitives most personal harnesses skip entirely: delegation, a learning loop, self-aware capability gaps, and multi-channel presence, plus three platform rules that keep the whole thing governable."
 date: 2026-07-24
 author: Jaco Botha
 authorRole: Founder, DevOptix

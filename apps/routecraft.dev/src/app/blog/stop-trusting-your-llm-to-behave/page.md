@@ -55,6 +55,8 @@ Handing an agent hands looks like this: a small set of named functions, each wit
 
 The difference is where the boundary lives. With keys, the boundary is in the model's behaviour. With hands, the boundary is in your code, and code does not get sweet-talked.
 
+The honest trade-off: keys are quicker. One credential, one afternoon, a working demo. Bounded hands cost more up front, and they pay it back with interest, because broad access is the more expensive thing to undo and to debug. After an incident, "what could the agent have done?" has to be answerable, and with keys the answer is "anything the credential could". Bounded access keeps that answer short, every day after the first.
+
 ## What enforcement actually looks like
 
 Concretely, a bounded capability stacks deterministic layers, each of which runs whether the model cooperates or not:
@@ -123,6 +125,8 @@ I am using Routecraft here because I build it and the example is real, but the a
 ## "But the models are getting better"
 
 They are, and it does not change the conclusion. Alignment improves the base rate; it does not produce a guarantee, and prompt injection sidesteps it entirely because the attack does not require a misaligned model in the first place. Model vendors say this themselves: every major provider's agent documentation tells you to scope tools narrowly and treat external content as untrusted. The deterministic layer is not a workaround for today's models. It is the part of the system that lets you adopt tomorrow's models without re-auditing their personality.
+
+There is a simpler version of that argument. However good the model gets, you cannot hold it accountable; accountability stays with whoever deployed it. So take the accountability deliberately, and give the system only the access it needs, because you can only stand behind behaviour you can bound.
 
 There is also a quieter benefit. Teams that wrap agents in enforced capabilities ship agents to production. Teams that hand over keys either get burned or, more commonly, get stuck: security review says no, the pilot never graduates, and the project dies in compliance purgatory. A bounded agent is an approvable agent. Constraints are not the tax on the demo. They are the price of leaving the demo.
 
