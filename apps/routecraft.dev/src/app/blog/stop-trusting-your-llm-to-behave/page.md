@@ -4,7 +4,6 @@ description: System prompts are requests, not rules. If an agent can touch email
 date: 2026-07-25
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.5.0+'
 draft: false
 featured: true
 tags:

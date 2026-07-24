@@ -4,7 +4,6 @@ description: Every large organisation is building a central repo of AI skills, p
 date: 2026-07-26
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.5.0+'
 draft: false
 tags:
   - ai-agents

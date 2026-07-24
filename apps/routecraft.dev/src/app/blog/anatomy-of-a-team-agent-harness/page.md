@@ -4,7 +4,6 @@ description: A chat loop with tools is not a harness. An agent that works for a 
 date: 2026-07-24
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.5.0+'
 draft: false
 tags:
   - ai-agents
@@ -63,6 +62,6 @@ Notice what the four primitives have in common: none of them is about intelligen
 
 What runs on [Routecraft](/docs/introduction) today is the foundation: capabilities deployed once with per-principal authorisation for the access layer, an agent destination that hands the model a bounded tool selection rather than everything the platform can do, and mail and HTTP adapters that make channels ordinary entry points instead of exotic integrations. Shared memory and gap tickets are patterns you assemble on that foundation, a store the agent writes back to and a tool that files the ticket, not switches you flip.
 
-Two pieces are roadmap, and I would rather tell you that than sell them. Delegation that survives a wait measured in days needs durable suspend and resume in the runtime; that is a tracked epic, not a shipped feature, so today the pattern holds only for short waits, where a tool blocks until the answer arrives. And the packaged version, a harness you can scaffold for your team the way the personal harnesses scaffold for an individual, is where the framework is heading; when it ships, this post gets a sequel with the build.
+The rest is where this is heading: delegation that survives a wait measured in days, and the packaged version, a harness you stand up for your team the way the personal harnesses set themselves up for an individual. That is the direction we are building in, and the four primitives and three rules above are its shape.
 
 I build Routecraft, so calibrate this section accordingly. The four primitives stand on their own whatever you build them on, and the order of operations from the [capability selection guide](/blog/which-capabilities-first) applies directly: memory and the gap logger first, read-only capabilities next, and let the agent help write its own roadmap.
