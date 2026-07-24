@@ -13,12 +13,15 @@ tags:
 related:
   - ai-agents-are-still-single-player
   - human-in-the-loop
+diagram: team-agent-harness
 layout: blog-post
 ---
 
 In [AI agents are still single-player](/blog/ai-agents-are-still-single-player) I argued that the unit of organisational AI leverage is the governed capability, not the personal agent. This post is about the layer that sits on top: when you do host agents for a team or a business, what does the harness itself need to provide?
 
 The popular answer is "a chat loop with tools", because that is what the personal-harness generation ships and it demos wonderfully. But run an agent for a team for a few months (we run one for our own company's back office) and you discover the loop is the easy part. What makes the agent *organisational* is four primitives that most harnesses skip entirely, plus three platform rules around them. None of this requires new model capabilities; all of it is architecture.
+
+{% diagram id="team-agent-harness" /%}
 
 ## Primitive 1: delegation that survives the wait
 

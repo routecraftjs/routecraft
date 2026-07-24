@@ -14,6 +14,7 @@ tags:
 related:
   - agent-tool-guardrails
   - your-first-mcp-server-in-typescript
+diagram: hands-not-keys
 layout: blog-post
 ---
 
@@ -53,11 +54,15 @@ Handing an agent hands looks like this: a small set of named functions, each wit
 
 The difference is where the boundary lives. With keys, the boundary is in the model's behaviour. With hands, the boundary is in your code, and code does not get sweet-talked.
 
+{% diagram id="hands-not-keys" /%}
+
 The honest trade-off: keys are quicker. One credential, one afternoon, a working demo. Bounded hands cost more up front, and they pay it back with interest, because broad access is the more expensive thing to undo and to debug. After an incident, "what could the agent have done?" has to be answerable, and with keys the answer is "anything the credential could". Bounded access keeps that answer short, every day after the first.
 
 ## What enforcement actually looks like
 
 Concretely, a bounded capability stacks deterministic layers, each of which runs whether the model cooperates or not:
+
+{% diagram id="four-gates" /%}
 
 **A schema gate.** Inputs are validated before any logic runs. Not "the model usually formats this right", but a parser that rejects anything outside the contract:
 

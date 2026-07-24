@@ -17,6 +17,7 @@ related:
   - which-capabilities-first
   - stop-trusting-your-llm-to-behave
   - anatomy-of-a-team-agent-harness
+diagram: single-player-vs-multiplayer
 layout: blog-post
 ---
 
@@ -43,6 +44,8 @@ None of these are model problems. GPT-next does not fix them. They are architect
 ## Multiplayer: the capability is the unit
 
 Flip the model. Instead of deploying agents that carry tools with them, deploy the **capabilities** centrally, and let both humans and agents call them.
+
+{% diagram id="single-player-vs-multiplayer" /%}
 
 A capability in this sense is a small, bounded, typed operation: fetch the logs for this trace id, check this request against the API spec, compare this record across the primary database and the cache. Deployed once, as ordinary infrastructure, with three properties that the personal model cannot offer:
 

@@ -14,12 +14,15 @@ tags:
 related:
   - your-first-mcp-server-in-typescript
   - routecraft-vs-n8n
+diagram: server-vs-doorway
 layout: blog-post
 ---
 
 If you search for "TypeScript MCP framework", FastMCP is the answer you will find, and it is a good answer. It wraps the official MCP SDK in an ergonomic API, handles sessions and transports, and gets you from zero to a working tool in a few minutes.
 
 Routecraft also lets you ship an MCP server in a few minutes, so the two get compared a lot. But they are not really the same kind of thing, and picking between them comes down to one question: **is the MCP server the product, or is it one doorway into the product?**
+
+{% diagram id="server-vs-doorway" /%}
 
 I build Routecraft, so calibrate accordingly. I will keep the FastMCP claims to what its own docs say it does, and I will tell you when FastMCP is the right pick, because it sometimes is.
 

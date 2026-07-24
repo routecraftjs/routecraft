@@ -12,6 +12,7 @@ tags:
   - mcp
 related:
   - which-capabilities-first
+diagram: maturity-ladder
 layout: blog-post
 ---
 
@@ -28,6 +29,8 @@ That is the ceiling. You cannot write your way through it with better markdown.
 ## The ladder
 
 It helps to see the skills repo as one rung on a ladder rather than a destination:
+
+{% diagram id="maturity-ladder" /%}
 
 **Rung 1: the prompt library.** Shared snippets in a wiki. Knowledge centralised, nothing executable, no contract for contributions.
 
