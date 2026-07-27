@@ -10,8 +10,6 @@ tags:
   - skills
   - platform-engineering
   - mcp
-related:
-  - which-capabilities-first
 diagram: maturity-ladder
 layout: blog-post
 ---

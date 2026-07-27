@@ -14,7 +14,6 @@ tags:
   - capabilities
 related:
   - beyond-the-skills-repository
-  - which-capabilities-first
   - stop-trusting-your-llm-to-behave
   - anatomy-of-a-team-agent-harness
 diagram: single-player-vs-multiplayer

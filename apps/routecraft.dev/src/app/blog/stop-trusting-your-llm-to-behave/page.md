@@ -12,7 +12,6 @@ tags:
   - guardrails
   - llm
 related:
-  - agent-tool-guardrails
   - your-first-mcp-server-in-typescript
 diagram: hands-not-keys
 layout: blog-post

@@ -12,7 +12,6 @@ tags:
   - memory
 related:
   - ai-agents-are-still-single-player
-  - human-in-the-loop
 diagram: team-agent-harness
 layout: blog-post
 ---
