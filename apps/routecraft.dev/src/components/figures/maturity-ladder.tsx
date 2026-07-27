@@ -14,18 +14,18 @@ import type {
 const WIDTH = 1280
 const HEIGHT = 1080
 
-interface Rung {
+interface Stage {
   n: number
   title: string
   body: string
-  /** The rung the post argues you should be standing on. */
+  /** The stage the post argues you should be standing on. */
   highlight?: boolean
-  /** The rung most teams are actually standing on. */
+  /** The stage most teams are actually standing on. */
   youAreHere?: boolean
 }
 
 // Top of the figure is the top of the ladder, so the list runs 5 down to 1.
-const RUNGS: Rung[] = [
+const STAGES: Stage[] = [
   {
     n: 5,
     title: 'Organisational agents',
@@ -51,7 +51,7 @@ const RUNGS: Rung[] = [
   { n: 1, title: 'Prompt library', body: 'Snippets in a wiki.' },
 ]
 
-function Rung({ rung, palette }: { rung: Rung; palette: FigurePalette }) {
+function Stage({ stage, palette }: { stage: Stage; palette: FigurePalette }) {
   return (
     <div
       style={{
@@ -61,26 +61,26 @@ function Rung({ rung, palette }: { rung: Rung; palette: FigurePalette }) {
         gap: 24,
         padding: '0 30px',
         position: 'relative',
-        border: rung.highlight
+        border: stage.highlight
           ? `2px solid ${palette.accent}`
           : `1px solid ${palette.ink25}`,
-        background: rung.highlight ? palette.accent06 : undefined,
+        background: stage.highlight ? palette.accent06 : undefined,
       }}
     >
       <AccentItalic palette={palette} size="2rem" style={{ width: 40 }}>
-        {rung.n}
+        {stage.n}
       </AccentItalic>
       <div>
         <Subhead
           palette={palette}
-          accent={rung.highlight}
+          accent={stage.highlight}
           style={{ whiteSpace: 'nowrap' }}
         >
-          {rung.title}
+          {stage.title}
         </Subhead>
-        <Body palette={palette}>{rung.body}</Body>
+        <Body palette={palette}>{stage.body}</Body>
       </div>
-      {rung.youAreHere && (
+      {stage.youAreHere && (
         <span
           style={{
             position: 'absolute',
@@ -139,11 +139,11 @@ function Figure({ palette }: FigureProps) {
             gap: '16px 28px',
           }}
         >
-          {RUNGS.map((rung) => (
-            <Rung key={rung.n} rung={rung} palette={palette} />
+          {STAGES.map((stage) => (
+            <Stage key={stage.n} stage={stage} palette={palette} />
           ))}
 
-          {/* Bracket across rungs 4 to 2: the climb the post is about. */}
+          {/* Bracket across stages 4 to 2: the climb the post is about. */}
           <div
             style={{
               gridColumn: 2,
@@ -181,14 +181,14 @@ function Figure({ palette }: FigureProps) {
 }
 
 /**
- * Motif: the ladder as a staircase, each rung stepping right as it rises. Rung
+ * Motif: the ladder as a staircase, each stage stepping right as it rises. Stage
  * 4 is the accented one, so the artwork carries the post's claim about where
  * the jump is without needing a single word.
  */
 function Motif({ palette, size }: MotifProps) {
   const unit = size / 100
-  // Drawn top-down, so the array runs from rung 5 to rung 1.
-  const rungs = [5, 4, 3, 2, 1]
+  // Drawn top-down, so the array runs from stage 5 to stage 1.
+  const stages = [5, 4, 3, 2, 1]
   return (
     <div
       style={{
@@ -201,7 +201,7 @@ function Motif({ palette, size }: MotifProps) {
         gap: unit * 5,
       }}
     >
-      {rungs.map((n) => {
+      {stages.map((n) => {
         const accented = n === 4
         return (
           <div
@@ -226,8 +226,8 @@ function Motif({ palette, size }: MotifProps) {
 
 export const maturityLadder: FigureDefinition = {
   id: 'maturity-ladder',
-  alt: 'A five-rung ladder from prompt library at the bottom to organisational agents at the top. Rung two, a skills and agents repository, is marked "you are here"; rung four, deployed capabilities, is highlighted as the jump that matters.',
-  caption: 'The maturity ladder, and the rung most teams are standing on.',
+  alt: 'A five-stage ladder from prompt library at the bottom to organisational agents at the top. Stage two, a skills and agents repository, is marked "you are here"; stage four, deployed capabilities, is highlighted as the jump that matters.',
+  caption: 'The maturity ladder, and the stage most teams are standing on.',
   width: WIDTH,
   height: HEIGHT,
   Figure,

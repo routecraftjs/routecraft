@@ -1,6 +1,6 @@
 ---
 title: AI agents are still single-player. Your organisation isn't.
-description: The personal-harness wave gave every developer an agent with their own access, their own memory, and their own terminal. That model cannot serve a team. The unit of organisational AI leverage is the governed capability, not the personal agent.
+description: The personal-harness wave gave every employee an agent with their own access, their own memory, and their own terminal. That model cannot serve a team. The unit of organisational AI leverage is the governed capability, not the personal agent.
 date: 2026-07-24
 author: Jaco Botha
 authorRole: Founder, DevOptix
@@ -22,7 +22,7 @@ layout: blog-post
 
 The current generation of agent harnesses is genuinely impressive, and almost all of it is built on the same quiet assumption: one human, one agent. Your API tokens. Your laptop. Your memory files. Your terminal. The personal harness automates *you*, and for an individual developer that is exactly right.
 
-Then the team sees the demo, and someone asks the question that the whole category has been avoiding: "great, how do we roll this out to forty engineers?"
+Then the team sees the demo, and someone asks the question that the whole category has been avoiding: "great, how do we roll this out to the whole team, all forty of them?"
 
 The honest answer is that you don't. Not because the tools are immature, but because the single-player model is structurally wrong for organisations, in ways that no amount of polish fixes.
 
@@ -68,4 +68,6 @@ Single-player agents are a local maximum. They demo brilliantly, they genuinely 
 
 The organisations that get leverage from agents in the next few years will be the ones that treat capabilities as shared, governed infrastructure and let every human and every agent in the building stand on them. The ones that hand out personal harnesses will get forty demos and a security review that never ends.
 
-I build [Routecraft](/docs/introduction), a framework for exactly this capability layer, so discount my bias accordingly; the argument above stands regardless of whose tools you use. If you want the companion piece: [a skills repository is not an automation platform](/blog/beyond-the-skills-repository) covers the maturity path most organisations are actually on. The practical guide to choosing your first capabilities is next in this series.
+And whatever the model does, it cannot answer for it; accountability stays with the people who deployed it. So people keep the judgement and the risk, and the system gets exactly the access it needs and nothing more.
+
+We build [Routecraft](/docs/introduction) at [DevOptix](https://devoptix.nl) precisely because we believe the argument above: it is the capability layer, made concrete. But the case stands on its own, and the tools are interchangeable. If you want the companion piece: [a skills repository is not an automation platform](/blog/beyond-the-skills-repository) covers the maturity path most organisations are actually on. The practical guide to choosing your first capabilities is next in this series.
