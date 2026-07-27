@@ -25,3 +25,7 @@ coverage/
 **/pnpm-lock.yaml
 
 .claude/worktrees/
+# Generated route shims (scripts/generate-route-shims.mjs), gitignored
+apps/routecraft.dev/src/app/blog/*/layout.tsx
+apps/routecraft.dev/src/app/blog/*/opengraph-image.tsx
+apps/routecraft.dev/src/app/docs/**/layout.tsx

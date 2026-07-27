@@ -68,6 +68,6 @@ Single-player agents are a local maximum. They demo brilliantly, they genuinely 
 
 The organisations that get leverage from agents in the next few years will be the ones that treat capabilities as shared, governed infrastructure and let every human and every agent in the building stand on them. The ones that hand out personal harnesses will get forty demos and a security review that never ends.
 
-And whatever the model does, it cannot answer for it; accountability stays with the people who deployed it. So people keep the judgement and the risk, and the system gets exactly the access it needs and nothing more.
+Which comes back to the fifth wall. Forty personal harnesses cannot tell you which agent did what on whose behalf, so when it matters, nobody can. The organisation ends up carrying a risk it cannot describe, let alone bound. A capability layer can answer, because every call arrives with a principal on it and leaves a log behind it. The judgement and the risk still sit with people. What changes is whether you can show your working.
 
 We build [Routecraft](/docs/introduction) at [DevOptix](https://devoptix.nl) because we believe the argument above: it is the capability layer, made concrete. For the companion piece, [a skills repository is not an automation platform](/blog/beyond-the-skills-repository) covers the maturity path most organisations are actually on.
