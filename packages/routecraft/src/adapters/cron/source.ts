@@ -71,8 +71,7 @@ export class CronSourceAdapter
   mergedOptions(context: CraftContext): CronOptions {
     const contextOptions =
       (context.getStore(ADAPTER_CRON_OPTIONS) as
-        | Partial<CronOptions>
-        | undefined) ?? {};
+        Partial<CronOptions> | undefined) ?? {};
     return {
       ...contextOptions,
       ...this.options,

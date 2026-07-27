@@ -37,8 +37,7 @@ export type { ToolGuard } from "../../fn/types.ts";
  *   guard is attached to every expanded tool.
  */
 export type ToolsItem =
-  | string
-  | { name: string; guard?: ToolGuard; description?: string };
+  string | { name: string; guard?: ToolGuard; description?: string };
 
 /**
  * Read-only snapshot of every tool registered in the live context,
@@ -292,8 +291,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
 function buildCatalog(ctx: CraftContext): ToolsCatalog {
   const fns: ToolsCatalog["fns"][number][] = [];
   const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
-    | Map<string, FnEntry>
-    | undefined;
+    Map<string, FnEntry> | undefined;
   if (fnRegistry) {
     for (const [name, entry] of fnRegistry) {
       if (isDeferredFn(entry)) {
@@ -395,8 +393,7 @@ function runBuilder(builder: ToolsBuilder, catalog: ToolsCatalog): ToolsItem[] {
  */
 function fnRegistryHas(ctx: CraftContext, name: string): boolean {
   const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
-    | Map<string, FnEntry>
-    | undefined;
+    Map<string, FnEntry> | undefined;
   return fnRegistry?.has(name) ?? false;
 }
 
@@ -411,8 +408,7 @@ function resolveByName(
     });
   }
   const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
-    | Map<string, FnEntry>
-    | undefined;
+    Map<string, FnEntry> | undefined;
   const fnEntry = fnRegistry?.get(name);
   if (fnEntry) {
     return resolveFnEntry(ctx, name, fnEntry, guard);

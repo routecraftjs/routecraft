@@ -31,11 +31,7 @@ import { log, debug, type LogOptions } from "./adapters/log/index.ts";
  * runtime since the factory creates the step directly.
  */
 export type PrimitiveKind =
-  | "process"
-  | "transform"
-  | "tap"
-  | "filter"
-  | "validate";
+  "process" | "transform" | "tap" | "filter" | "validate";
 
 /**
  * Registration descriptor for a DSL sugar method.

@@ -6,11 +6,7 @@ import { BRAND, setBrand } from "./brand.ts";
  * autocomplete on the known set while accepting any value.
  */
 export type KnownErrorCategory =
-  | "Definition"
-  | "DSL"
-  | "Lifecycle"
-  | "Adapter"
-  | "Runtime";
+  "Definition" | "DSL" | "Lifecycle" | "Adapter" | "Runtime";
 
 export type RCMeta = {
   category: KnownErrorCategory | (string & {});

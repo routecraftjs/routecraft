@@ -250,8 +250,7 @@ export async function runPipeline(
   // Snapshot existing split parent keys so cleanup only touches groups
   // created during THIS invocation, not groups from concurrent handlers.
   const parentMap = deps.context.getStore(SPLIT_PARENT_STORE) as
-    | Map<string, Exchange>
-    | undefined;
+    Map<string, Exchange> | undefined;
   const preExistingGroups = parentMap
     ? new Set(parentMap.keys())
     : new Set<string>();
@@ -268,7 +267,7 @@ export async function runPipeline(
   const stepContext: StepContext = {
     takePending(predicate: (candidate: Exchange) => boolean): Exchange[] {
       const taken: Exchange[] = [];
-      for (let i = 0; i < queue.length; ) {
+      for (let i = 0; i < queue.length;) {
         if (predicate(queue[i].exchange)) {
           taken.push(queue[i].exchange);
           queue.splice(i, 1);
@@ -702,8 +701,7 @@ export async function runPipeline(
       const parentEx = parentMap.get(groupId);
       if (parentEx) {
         const hierarchy = parentEx.headers[HeadersKeys.SPLIT_HIERARCHY] as
-          | string[]
-          | undefined;
+          string[] | undefined;
         // Only clean up groups that are NOT part of a nested hierarchy
         if (!hierarchy || !hierarchy.includes(groupId)) {
           parentMap.delete(groupId);

@@ -45,8 +45,7 @@ function resolveChannelType(
 ): DirectChannelType<DirectChannel> | undefined {
   if (adapterOptions.channelType) return adapterOptions.channelType;
   const store = context.getStore(ADAPTER_DIRECT_OPTIONS) as
-    | Pick<DirectBaseOptions, "channelType">
-    | undefined;
+    Pick<DirectBaseOptions, "channelType"> | undefined;
   return store?.channelType;
 }
 
@@ -65,8 +64,7 @@ export function getDirectChannel<T>(
   options: Partial<DirectBaseOptions>,
 ): DirectChannel<Exchange<T>> {
   let store = context.getStore(ADAPTER_DIRECT_STORE) as
-    | Map<string, DirectChannel<Exchange<T>>>
-    | undefined;
+    Map<string, DirectChannel<Exchange<T>>> | undefined;
 
   // If the store is not set, create a new one
   if (!store) {

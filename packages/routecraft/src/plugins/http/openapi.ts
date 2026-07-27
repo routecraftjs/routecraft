@@ -16,13 +16,7 @@ interface OpenApiOperation {
 }
 
 type OpenApiMethod =
-  | "get"
-  | "post"
-  | "put"
-  | "patch"
-  | "delete"
-  | "head"
-  | "options";
+  "get" | "post" | "put" | "patch" | "delete" | "head" | "options";
 
 interface OpenApiPathItem {
   get?: OpenApiOperation;

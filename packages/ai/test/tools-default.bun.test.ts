@@ -229,8 +229,7 @@ describe("agentPlugin per-agent tools field", () => {
       .build();
 
     const entry = t.ctx.getStore(ADAPTER_AGENT_REGISTRY)?.get("researcher") as
-      | AgentRegisteredOptions
-      | undefined;
+      AgentRegisteredOptions | undefined;
     expect(entry?.tools).toBe(sel);
   });
 
@@ -257,8 +256,7 @@ describe("agentPlugin per-agent tools field", () => {
       .build();
 
     const entry = t.ctx.getStore(ADAPTER_AGENT_REGISTRY)?.get("inheritor") as
-      | AgentRegisteredOptions
-      | undefined;
+      AgentRegisteredOptions | undefined;
     expect(entry?.model).toBeUndefined();
   });
 

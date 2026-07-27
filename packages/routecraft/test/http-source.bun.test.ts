@@ -117,8 +117,7 @@ describe("HTTP Source Adapter", () => {
         .from(http({ path: "/orders/:id", method: "GET" }))
         .process(async (ex) => {
           const params = ex.headers["routecraft.http.params"] as
-            | Record<string, string>
-            | undefined;
+            Record<string, string> | undefined;
           return DefaultExchange.rewrap(ex, {
             body: { id: params?.["id"] ?? null },
           });

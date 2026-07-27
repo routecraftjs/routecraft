@@ -8,12 +8,10 @@ import type { LlmResult } from "../src/llm/types.ts";
 // test asserts on the resolved system / user strings handed to the
 // provider layer.
 mock.module("../src/llm/providers/index.ts", () => ({
-  callLlm: mock(
-    async (): Promise<LlmResult> => ({
-      text: "stubbed-response",
-      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-    }),
-  ),
+  callLlm: mock(async (): Promise<LlmResult> => ({
+    text: "stubbed-response",
+    usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+  })),
 }));
 
 import { callLlm } from "../src/llm/providers/index.ts";

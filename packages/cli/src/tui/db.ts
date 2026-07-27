@@ -721,8 +721,7 @@ export class TelemetryDb {
          LIMIT 1`,
       );
       const row = s.get(exchangeId) as
-        | { headers: string; body: string | null; truncated: number }
-        | undefined;
+        { headers: string; body: string | null; truncated: number } | undefined;
       if (!row) return null;
       return {
         headers: row.headers,

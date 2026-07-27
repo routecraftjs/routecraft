@@ -11,8 +11,7 @@ import { deletePath, hasPath, pickPaths } from "./field-paths.ts";
  * as predicates; there is no magic string, `admin` is just a role name.
  */
 export type Grant<T = unknown> =
-  | string
-  | ((record: T, principal: Principal | undefined) => boolean);
+  string | ((record: T, principal: Principal | undefined) => boolean);
 
 /**
  * Rule for one field: `true` keeps it for everyone who reaches this step, or a

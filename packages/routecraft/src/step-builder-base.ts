@@ -516,8 +516,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    */
   transform<Return>(
     transformer:
-      | Transformer<S["body"], Return>
-      | CallableTransformer<S["body"], Return>,
+      Transformer<S["body"], Return> | CallableTransformer<S["body"], Return>,
   ): Retyped<this, SetBody<S, Return>> {
     this.pushStep(new TransformStep<S["body"], Return>(transformer));
     return this.retype<Return>();
@@ -576,8 +575,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    */
   process<Return = S["body"]>(
     processor:
-      | Processor<S["body"], Return>
-      | CallableProcessor<S["body"], Return>,
+      Processor<S["body"], Return> | CallableProcessor<S["body"], Return>,
   ): Retyped<this, SetBody<S, Return>> {
     this.pushStep(new ProcessStep<S["body"], Return>(processor));
     return this.retype<Return>();
@@ -651,8 +649,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    */
   tap(
     destination:
-      | Destination<S["body"], unknown>
-      | CallableDestination<S["body"], unknown>,
+      Destination<S["body"], unknown> | CallableDestination<S["body"], unknown>,
   ): this {
     this.pushStep(new TapStep<S["body"]>(destination));
     return this;

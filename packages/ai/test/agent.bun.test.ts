@@ -14,12 +14,10 @@ import type { LlmResult } from "../src/llm/types.ts";
 // Mock the LLM dispatcher so tests do not hit any provider network. Each
 // happy-path test asserts on the call args and controls the response shape.
 mock.module("../src/llm/providers/index.ts", () => ({
-  callLlm: mock(
-    async (): Promise<LlmResult> => ({
-      text: "stubbed-response",
-      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
-    }),
-  ),
+  callLlm: mock(async (): Promise<LlmResult> => ({
+    text: "stubbed-response",
+    usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+  })),
 }));
 
 import { callLlm } from "../src/llm/providers/index.ts";

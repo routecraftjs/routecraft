@@ -6,8 +6,7 @@ import type { McpPluginOptions } from "./types.ts";
 
 /** Standard Schema validate result: success has value, failure has issues. */
 type ValidateResult<T = unknown> =
-  | { value: T; issues?: never }
-  | { value?: never; issues: readonly unknown[] };
+  { value: T; issues?: never } | { value?: never; issues: readonly unknown[] };
 
 /**
  * Validates MCP plugin options at apply time.

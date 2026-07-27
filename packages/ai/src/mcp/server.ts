@@ -1128,8 +1128,7 @@ export class McpServer {
 
       // The SDK's requireBearerAuth sets req.auth with the verified AuthInfo.
       const authInfo = (req as Record<string, unknown>)["auth"] as
-        | SdkAuthInfo
-        | undefined;
+        SdkAuthInfo | undefined;
       const principal = this.authInfoToPrincipal(authInfo);
 
       if (principal) {
@@ -1230,11 +1229,9 @@ export class McpServer {
    * from the verifier's `issuer` (surfaced by `jwks()` / `jwt()`).
    */
   private buildValidatorVerifier():
-    | ((token: string) => Promise<Principal>)
-    | null {
+    ((token: string) => Promise<Principal>) | null {
     const authOptions = this.options.auth as
-      | (ValidatorAuthOptions & { issuer?: string | string[] })
-      | undefined;
+      (ValidatorAuthOptions & { issuer?: string | string[] }) | undefined;
     if (!authOptions || !("validator" in authOptions)) return null;
 
     const base = (token: string): Promise<Principal> =>
@@ -1501,8 +1498,7 @@ export class McpServer {
    */
   private getExposedLocalEntries(): McpLocalToolEntry[] {
     const registry = this.context.getStore(MCP_LOCAL_TOOL_REGISTRY) as
-      | Map<string, McpLocalToolEntry>
-      | undefined;
+      Map<string, McpLocalToolEntry> | undefined;
 
     if (!registry) {
       return [];
@@ -1519,8 +1515,7 @@ export class McpServer {
    */
   private lookupLocalEntry(toolName: string): McpLocalToolEntry | undefined {
     const registry = this.context.getStore(MCP_LOCAL_TOOL_REGISTRY) as
-      | Map<string, McpLocalToolEntry>
-      | undefined;
+      Map<string, McpLocalToolEntry> | undefined;
     const entry = registry?.get(toolName);
     if (!entry || !this.passesToolsFilter(entry)) return undefined;
     return entry;

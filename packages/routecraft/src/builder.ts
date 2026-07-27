@@ -270,10 +270,7 @@ export class ContextBuilder {
    */
   routes(
     routes:
-      | RouteDefinition[]
-      | AnyRouteBuilder[]
-      | RouteDefinition
-      | AnyRouteBuilder,
+      RouteDefinition[] | AnyRouteBuilder[] | RouteDefinition | AnyRouteBuilder,
   ): this {
     const addOne = (route: RouteDefinition | AnyRouteBuilder): void => {
       // Structural check, matching `AnyRouteBuilder` (and the duck-typing
@@ -1440,8 +1437,7 @@ export class RouteBuilder<
    */
   split<ItemType = S["body"] extends Array<infer U> ? U : S["body"]>(
     splitter?:
-      | Splitter<S["body"], ItemType>
-      | CallableSplitter<S["body"], ItemType>,
+      Splitter<S["body"], ItemType> | CallableSplitter<S["body"], ItemType>,
   ): RouteBuilder<SetBody<S, ItemType>> {
     // If no splitter is provided, use default splitter: arrays are split, non-arrays as single item
     if (!splitter) {

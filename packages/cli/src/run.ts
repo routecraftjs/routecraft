@@ -14,8 +14,7 @@ import {
 const SUPPORTED_EXTENSIONS = [".mjs", ".js", ".cjs", ".ts"] as const;
 
 type RunResult =
-  | { success: true }
-  | { success: false; code?: number; message: string };
+  { success: true } | { success: false; code?: number; message: string };
 
 /**
  * Load a routecraft file, build a context, and start it.

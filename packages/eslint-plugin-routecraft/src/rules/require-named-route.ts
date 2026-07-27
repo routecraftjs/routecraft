@@ -97,8 +97,7 @@ function hasIdBeforeFrom(node: unknown): boolean {
     const name = getMemberCallName(call);
     if (name === "id") {
       const args = (call as Record<string, unknown>)["arguments"] as
-        | unknown[]
-        | undefined;
+        unknown[] | undefined;
       const arg = Array.isArray(args) ? args[0] : undefined;
       if (
         arg &&

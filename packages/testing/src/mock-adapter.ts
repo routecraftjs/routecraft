@@ -145,8 +145,7 @@ export function isAdapterMock(
  */
 export function mockAdapter<
   T extends
-    | ((...args: never[]) => unknown)
-    | (new (...args: never[]) => unknown),
+    ((...args: never[]) => unknown) | (new (...args: never[]) => unknown),
   M = InferAdapterMessage<T>,
 >(target: T, behavior: MockAdapterBehavior<M>): AdapterMock {
   const override: AdapterOverride = {

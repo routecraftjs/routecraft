@@ -20,12 +20,7 @@ export interface HtmlOptions<T = unknown, R = unknown> {
    * - textContent: text only, no HTML (cheerio .text())
    */
   extract?:
-    | "text"
-    | "html"
-    | "attr"
-    | "outerHtml"
-    | "innerText"
-    | "textContent";
+    "text" | "html" | "attr" | "outerHtml" | "innerText" | "textContent";
   /** Attribute name when extract is "attr". */
   attr?: string;
   /** Pluck HTML string from body. If omitted: body is used when it's a string, or body.body when body is an object (e.g. after http()). */

@@ -501,16 +501,14 @@ describe("agent context-bus events", () => {
     await t.test();
 
     const agentReg = registrations.find((r) => r.name === "agent")?.details as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     expect(agentReg).toBeDefined();
     expect(agentReg!["agentId"]).toBe("summariser");
     expect(agentReg!["model"]).toBe("anthropic:claude-opus-4-7");
     expect(agentReg!["source"]).toBe("registered");
 
     const toolReg = registrations.find((r) => r.name === "tool")?.details as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     expect(toolReg).toBeDefined();
     expect(toolReg!["toolName"]).toBe("CurrentTime");
     expect(toolReg!["source"]).toBe("registered");
