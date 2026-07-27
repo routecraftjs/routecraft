@@ -6,7 +6,7 @@
     "dev": "next dev --webpack",
     "prebuild": "node --experimental-strip-types scripts/generate-docs-next.mjs && node --experimental-strip-types scripts/generate-raw-docs.mjs && node --experimental-strip-types scripts/generate-route-shims.mjs",
     "build": "next build --webpack",
-    "start": "next start",
+    "start": "bunx serve@latest out",
     "lint": "eslint ."
   },
   "browserslist": "defaults, not ie <= 11",
