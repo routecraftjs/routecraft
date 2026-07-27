@@ -498,15 +498,13 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
             apply(ctx) {
               const managers = new Map<
                 string,
-                {
-                  callTool(
-                    name: string,
-                    args: Record<string, unknown>,
-                  ): Promise<unknown>;
-                }
+                import("../src/mcp/types.ts").McpStdioToolCaller
               >();
               managers.set("Nuclino", {
                 async callTool() {
+                  throw original;
+                },
+                async callToolRaw() {
                   throw original;
                 },
               });
@@ -554,15 +552,13 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
             apply(ctx) {
               const managers = new Map<
                 string,
-                {
-                  callTool(
-                    name: string,
-                    args: Record<string, unknown>,
-                  ): Promise<unknown>;
-                }
+                import("../src/mcp/types.ts").McpStdioToolCaller
               >();
               managers.set("Nuclino", {
                 async callTool() {
+                  throw original;
+                },
+                async callToolRaw() {
                   throw original;
                 },
               });

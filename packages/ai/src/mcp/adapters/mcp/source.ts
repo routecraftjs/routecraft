@@ -9,44 +9,23 @@ import {
   MCP_PLUGIN_REGISTERED,
   type McpLocalToolEntry,
   type McpServerOptions,
-  type McpToolAnnotations,
 } from "../../types.ts";
 import type { McpMessage } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
-import { deriveAnnotationsFromTags } from "../../annotation-tags.ts";
-
-/**
- * Characters allowed in an MCP tool name. Matches OpenAI's function-calling
- * constraint (the strictest mainstream LLM client), which all major MCP
- * client implementations respect: ASCII letters, digits, underscore, and
- * hyphen, with a 1-64 length bound. Keeping tool names in this set ensures
- * the `tool.name` field survives `tools/list` -> LLM function-calling
- * without further mangling.
- */
-const MCP_TOOL_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+import {
+  deriveAnnotationsFromTags,
+  mergeAnnotations,
+} from "../../annotation-tags.ts";
+import { MCP_TOOL_NAME_PATTERN } from "../../types.ts";
 
 function assertValidMcpToolName(endpoint: string): void {
-  if (!MCP_TOOL_NAME_RE.test(endpoint)) {
+  if (!MCP_TOOL_NAME_PATTERN.test(endpoint)) {
     throw rcError("RC5003", undefined, {
       message: `Invalid MCP tool name "${endpoint}"`,
       suggestion:
         "MCP tool names must match /^[A-Za-z0-9_-]{1,64}$/ for client interoperability (OpenAI, Anthropic, etc.). Use alphanumerics, underscore, or hyphen in the route's .id().",
     });
   }
-}
-
-/**
- * Merge tag-derived annotation hints with the explicit hints passed to
- * `mcp()`. Explicit values win per-key. Returns `undefined` when neither
- * source contributes anything, so the entry omits `annotations` entirely
- * rather than carrying an empty object.
- */
-function mergeAnnotations(
-  derived: McpToolAnnotations,
-  explicit: McpToolAnnotations | undefined,
-): McpToolAnnotations | undefined {
-  const merged: McpToolAnnotations = { ...derived, ...explicit };
-  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 /**

@@ -19,6 +19,23 @@ export class McpToolRegistry {
   /** Nested Map: source -> toolName -> McpToolRegistryEntry */
   private tools = new Map<string, Map<string, McpToolRegistryEntry>>();
 
+  /** Monotonic change counter; bumped on every observable mutation. */
+  private changeVersion = 0;
+
+  /** Per-source fingerprint of the last stored tool list. */
+  private fingerprints = new Map<string, string>();
+
+  /**
+   * Monotonically increasing version, bumped whenever a source's tools
+   * actually change (a periodic re-listing that returns the same tools does
+   * not bump it). Lets consumers (e.g. the MCP server's proxy resolution)
+   * memoize derived state and recompute only when the registry changed,
+   * instead of on every read or refresh tick.
+   */
+  get version(): number {
+    return this.changeVersion;
+  }
+
   /**
    * Set all tools for a given source (replaces previous tools from that source).
    * Called on initial tool listing and on re-listing after restart/refresh.
@@ -41,8 +58,17 @@ export class McpToolRegistry {
         source,
         transport,
       };
+      if (tool.title !== undefined) {
+        entry.title = tool.title;
+      }
       if (tool.description !== undefined) {
         entry.description = tool.description;
+      }
+      if (tool.outputSchema !== undefined) {
+        entry.outputSchema = tool.outputSchema as Record<string, unknown>;
+      }
+      if (tool.icons !== undefined) {
+        entry.icons = tool.icons;
       }
       if (tool.annotations !== undefined) {
         entry.annotations = tool.annotations;
@@ -55,6 +81,15 @@ export class McpToolRegistry {
     }
 
     this.tools.set(source, sourceMap);
+
+    // Only bump the change version when the source's tools actually
+    // differ from what was stored, so periodic HTTP re-listings with an
+    // unchanged tool set do not invalidate memoized consumers.
+    const fingerprint = JSON.stringify([transport, tools]);
+    if (this.fingerprints.get(source) !== fingerprint) {
+      this.fingerprints.set(source, fingerprint);
+      this.changeVersion++;
+    }
   }
 
   /**
@@ -63,7 +98,10 @@ export class McpToolRegistry {
    * @param source - Source identifier whose tools should be removed
    */
   removeSource(source: string): void {
-    this.tools.delete(source);
+    if (this.tools.delete(source)) {
+      this.fingerprints.delete(source);
+      this.changeVersion++;
+    }
   }
 
   /**

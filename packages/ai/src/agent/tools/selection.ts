@@ -1,7 +1,7 @@
 import { rcError, type CraftContext, type Tag } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { ADAPTER_FN_REGISTRY } from "../../fn/store.ts";
-import type { FnHandlerContext, FnOptions } from "../../fn/types.ts";
+import type { FnOptions, ToolGuard } from "../../fn/types.ts";
 import { dispatchMcpCall } from "../../mcp/dispatch.ts";
 import {
   MCP_TOOL_REGISTRY,
@@ -12,14 +12,11 @@ import { directTool } from "./builders.ts";
 import { isDeferredFn, type FnEntry } from "./types.ts";
 
 /**
- * Synchronous or async guard run after schema validation, before the
- * underlying handler. Throwing surfaces back to the LLM as a tool error
- * so the model can self-correct.
+ * Re-exported from `fn/types.ts`, where the guard type lives so both the
+ * agent tool bridge and the MCP proxy (`mcpPlugin({ proxy })`) share one
+ * guard contract. Kept here so existing imports keep working.
  */
-export type ToolGuard = (
-  input: unknown,
-  ctx: FnHandlerContext,
-) => void | Promise<void>;
+export type { ToolGuard } from "../../fn/types.ts";
 
 /**
  * One entry in the agent's `tools([...])` list.

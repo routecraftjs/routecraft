@@ -253,6 +253,57 @@ describe("buildVercelTools: execute path", () => {
   });
 
   /**
+   * @case userinfoClaims is cloned so freezing the snapshot does not freeze the caller's object
+   * @preconditions Principal carrying a userinfoClaims object; buildVercelTools freezes the handler snapshot
+   * @expectedResult The original principal's userinfoClaims stays mutable (not frozen in place), and the snapshot's copy is isolated and frozen
+   */
+  test("userinfoClaims is cloned and isolated from the caller", async () => {
+    let capturedCtx: {
+      principal?: { userinfoClaims?: Record<string, unknown> };
+    } = {};
+    const handler = mock(async (_input: unknown, ctx: unknown) => {
+      capturedCtx = ctx as {
+        principal?: { userinfoClaims?: Record<string, unknown> };
+      };
+    });
+    const resolved: ResolvedTool = {
+      name: "userinfo-check",
+      description: "Userinfo check.",
+      input: z.object({}),
+      handler: handler as unknown as ResolvedTool["handler"],
+    };
+    const principal = {
+      kind: "jwt" as const,
+      scheme: "bearer" as const,
+      subject: "user-42",
+      userinfoClaims: { email: "a@example.com" },
+    };
+    const map = await buildVercelTools(
+      [resolved],
+      undefined,
+      new AbortController().signal,
+      undefined,
+      principal,
+    );
+    await (
+      map["userinfo-check"] as { execute: (i: unknown) => Promise<unknown> }
+    ).execute({});
+
+    const snapshotUserinfo = capturedCtx.principal!.userinfoClaims!;
+    // The snapshot's userinfoClaims is a clone, not the caller's object.
+    expect(snapshotUserinfo).not.toBe(principal.userinfoClaims);
+    // The caller's original object was NOT frozen in place: it stays mutable.
+    expect(() => {
+      principal.userinfoClaims.email = "b@example.com";
+    }).not.toThrow();
+    // The snapshot copy is frozen and unaffected by the caller mutation.
+    expect(snapshotUserinfo["email"]).toBe("a@example.com");
+    expect(() => {
+      (snapshotUserinfo as Record<string, unknown>)["email"] = "evil";
+    }).toThrow(TypeError);
+  });
+
+  /**
    * @case Nested claim objects are deep-cloned and deep-frozen
    * @preconditions Principal with a nested object claim and a nested array claim
    * @expectedResult Mutating the original nested objects does not affect the snapshot; runtime mutation of nested values throws TypeError
