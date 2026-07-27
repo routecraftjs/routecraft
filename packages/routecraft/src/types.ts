@@ -178,6 +178,21 @@ export interface StepSignalContext {
 }
 
 /**
+ * Narrow a {@link StepContext} down to its abort surface for handing to
+ * user code. Function-form steps (`.process()`, `.transform()`, `.to()`,
+ * `.enrich()`) pass THIS to their callables instead of the executor's
+ * full context: the narrowing is a deliberate capability boundary (only
+ * `signal` may reach user code, never scheduling capabilities like
+ * `takePending`), so every call site funnels through here rather than
+ * re-spelling the spread.
+ *
+ * @internal
+ */
+export function toSignalContext(ctx?: StepContext): StepSignalContext {
+  return ctx?.signal ? { signal: ctx.signal } : {};
+}
+
+/**
  * Narrow executor capability handed to {@link Step.execute}.
  *
  * `takePending` atomically removes and returns pending sibling exchanges

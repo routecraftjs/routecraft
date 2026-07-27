@@ -4,6 +4,7 @@ import {
   type StepContext,
   type StepOutcome,
   type StepSignalContext,
+  toSignalContext,
 } from "../types.ts";
 import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
 
@@ -69,13 +70,8 @@ export class ProcessStep<T = unknown, R = T> implements Step<Processor<T, R>> {
     exchange: Exchange<T>,
     ctx?: StepContext,
   ): Promise<StepOutcome> {
-    // Hand the processor a NARROW context (just the abort surface), not
-    // the executor's StepContext: scheduling capabilities like
-    // takePending stay framework-internal.
     const returned = await Promise.resolve(
-      this.adapter.process(exchange, {
-        ...(ctx?.signal ? { signal: ctx.signal } : {}),
-      }),
+      this.adapter.process(exchange, toSignalContext(ctx)),
     );
     // The fast path is identity equality (the user returned the same `ex`
     // they were given). For anything else -- a plain spread, a freshly

@@ -4,6 +4,7 @@ import {
   type StepContext,
   type StepOutcome,
   type StepSignalContext,
+  toSignalContext,
 } from "../types.ts";
 import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
 
@@ -104,12 +105,8 @@ export class TransformStep<T = unknown, R = T> implements Step<
     exchange: Exchange<T>,
     ctx?: StepContext,
   ): Promise<StepOutcome> {
-    // Narrow context on purpose: only the abort surface reaches user
-    // code, never the executor's scheduling capabilities.
     const newBody = await Promise.resolve(
-      this.adapter.transform(exchange.body, exchange, {
-        ...(ctx?.signal ? { signal: ctx.signal } : {}),
-      }),
+      this.adapter.transform(exchange.body, exchange, toSignalContext(ctx)),
     );
     return {
       kind: "continue",

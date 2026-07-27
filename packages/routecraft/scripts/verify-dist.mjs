@@ -15,8 +15,12 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const pkgRoot = new URL("..", import.meta.url).pathname;
+// fileURLToPath (not URL.pathname) so the root is a real filesystem path
+// on every platform; the dist import below converts back to a file URL,
+// which the ESM loader requires for absolute specifiers on Windows.
+const pkgRoot = fileURLToPath(new URL("..", import.meta.url));
 
 function collectSourceKeys(dir, keys = new Set()) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -47,7 +51,7 @@ if (expected.length === 0) {
 
 const mode = process.argv[2] ?? "esm";
 const entry = mode === "cjs" ? "dist/index.cjs" : "dist/index.js";
-await import(join(pkgRoot, entry));
+await import(pathToFileURL(join(pkgRoot, entry)).href);
 
 const registry = globalThis[Symbol.for("routecraft.config-applier-registry")];
 const missing = expected.filter((key) => !registry?.has(key));

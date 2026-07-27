@@ -5,6 +5,7 @@ import {
   type StepOutcome,
   type StepSignalContext,
   extractOutcomeMetadata,
+  toSignalContext,
 } from "../types.ts";
 import {
   type Exchange,
@@ -100,12 +101,8 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
         override,
       );
     } else {
-      // Narrow context on purpose: only the abort surface reaches the
-      // destination, never the executor's scheduling capabilities.
       result = await Promise.resolve(
-        this.adapter.send(exchange, {
-          ...(ctx?.signal ? { signal: ctx.signal } : {}),
-        }),
+        this.adapter.send(exchange, toSignalContext(ctx)),
       );
     }
 
