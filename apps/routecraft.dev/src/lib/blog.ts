@@ -91,9 +91,9 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
       typeof data.authorAvatar === 'string' ? data.authorAvatar : undefined,
     tags: Array.isArray(data.tags) ? data.tags.map(String) : undefined,
     version: typeof data.version === 'string' ? data.version : undefined,
-    featured: Boolean(data.featured),
-    home: Boolean(data.home),
-    draft: Boolean(data.draft),
+    featured: data.featured === true,
+    home: data.home === true,
+    draft: data.draft === true,
     image: typeof data.image === 'string' ? data.image : undefined,
     imageAlt: typeof data.imageAlt === 'string' ? data.imageAlt : undefined,
     coverGlyph:
