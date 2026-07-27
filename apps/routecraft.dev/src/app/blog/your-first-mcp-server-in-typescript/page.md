@@ -12,6 +12,9 @@ tags:
   - typescript
   - claude-desktop
   - cursor
+related:
+  - stop-trusting-your-llm-to-behave
+  - ai-agents-are-still-single-player
 layout: blog-post
 ---
 

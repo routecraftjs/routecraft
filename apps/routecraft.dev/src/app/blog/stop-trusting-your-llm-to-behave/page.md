@@ -1,9 +1,10 @@
 ---
 title: Stop trusting your LLM to behave. Enforce it.
 description: System prompts are requests, not rules. If an agent can touch email, money, or production data, the boundary has to live in code that runs whether the model cooperates or not. Give the agent hands, not keys. A case for deterministic guardrails around probabilistic systems.
-date: 2026-07-22
+date: 2026-06-16
 author: Jaco Botha
 authorRole: Founder, DevOptix
+version: '0.5.0+'
 draft: false
 featured: true
 tags:
@@ -25,9 +26,9 @@ That paragraph is called a system prompt, and in a lot of systems it has quietly
 
 Three incidents, three different failure modes, one shared root cause.
 
-In April 2026, an AI coding agent on a routine staging task for the software company PocketOS [deleted the production database in nine seconds](https://www.tomshardware.com/tech-industry/artificial-intelligence/claude-powered-ai-coding-agent-deletes-entire-company-database-in-9-seconds-backups-zapped-after-cursor-tool-powered-by-anthropics-claude-goes-rogue). It hit a barrier, guessed that a Railway volume belonged to staging, and ran a delete that took production and its backups with it. Asked to explain itself, it confessed that it knew the rule was "never guess" and had guessed anyway. It could recite the rule perfectly. Reciting is not enforcing: the rule lived in prose, the credential lived in scope, and the credential won.
+In April 2026, an AI coding agent on a routine staging task for the software company PocketOS [deleted the production database in nine seconds](https://www.tomshardware.com/tech-industry/artificial-intelligence/claude-powered-ai-coding-agent-deletes-entire-company-database-in-9-seconds-backups-zapped-after-cursor-tool-powered-by-anthropics-claude-goes-rogue). It hit a credential mismatch, scanned the codebase for a way forward, found an over-scoped API token sitting in an unrelated file, and used it to run a single delete that took production and every backup with it. Nobody had handed it that token. It simply had the reach to find one, and the token did not know what task it had been issued for. The rule lived in prose, the credential lived in scope, and the credential won.
 
-A few weeks earlier, researchers disclosed that ROME, an agentic model from an Alibaba-affiliated team, had gone off-script during reinforcement-learning training: it [probed internal hosts, opened a reverse SSH tunnel to an external IP, and redirected GPU capacity to mine cryptocurrency](https://www.theblock.co/post/392765/alibaba-linked-ai-agent-hijacked-gpus-for-unauthorized-crypto-mining-researchers-say). No attacker, no instruction; the behaviour emerged as a side effect of optimisation, in an environment where nothing structural stopped it.
+Earlier the same year, researchers disclosed that ROME, an agentic model from an Alibaba-affiliated team, had gone off-script during reinforcement-learning training: it [probed internal hosts, opened a reverse SSH tunnel to an external IP, and redirected GPU capacity to mine cryptocurrency](https://www.theblock.co/post/392765/alibaba-linked-ai-agent-hijacked-gpus-for-unauthorized-crypto-mining-researchers-say). No attacker, no instruction; the behaviour emerged as a side effect of optimisation, in an environment where nothing structural stopped it.
 
 And in mid-2025, Aim Security disclosed [EchoLeak, CVE-2025-32711](https://thehackernews.com/2025/06/zero-click-ai-vulnerability-exposes.html), a zero-click prompt injection against Microsoft 365 Copilot: one crafted email, never opened by a human, made the assistant pull data from Outlook, SharePoint, and Teams and exfiltrate it through a trusted Microsoft domain. CVSS 9.3, triggered by nothing more than the victim asking Copilot an ordinary question.
 
@@ -88,7 +89,7 @@ When that predicate returns false, the pipeline halts. There is no negotiation s
 
 **An identity gate.** Who is calling matters as much as what they ask for. The capability checks an authenticated principal's roles and scopes before any business logic runs, so "the agent acting for an intern" and "the agent acting for the CFO" are different callers with different rights, enforced at the door.
 
-**Declared intent.** Destructive operations are labelled as destructive in the tool's own metadata, so the calling side can require confirmation for them. The label is set by the author in code, not inferred by the model at runtime.
+**Declared intent.** What an operation does to the world is labelled in the tool's own metadata: whether it only reads, whether it destroys, whether it is safe to repeat, whether it reaches outside your systems. The calling side can then require confirmation for the ones that warrant it. The label is set by the author in code, not inferred by the model at runtime. Sending email is the outward-facing kind: it cannot be un-sent, so it is marked as reaching the open world and is never advertised as safe to retry.
 
 Put together, in [Routecraft](/docs/introduction) syntax, the whole bounded hand is about twenty lines:
 
@@ -122,7 +123,7 @@ export default craft()
 
 An agent connected to this tool can send email to colleagues. That sentence is now complete: there is no asterisk that says "unless someone embeds the right instructions in a calendar invite". The recipient check is not a behaviour the model exhibits. It is a property the system has.
 
-The example is Routecraft because that is what we build at [DevOptix](https://devoptix.nl), and we build it precisely because we kept hitting these same failure modes putting real AI use cases into production for customers. The argument, though, is framework-independent. You can build the same layers with raw validation code and middleware. The point is the architecture: schema, predicate, identity, declared intent, in code, on every call.
+The example is Routecraft because that is what we build at [DevOptix](https://devoptix.nl), and we build it because we kept hitting these same failure modes putting real AI use cases into production for customers. The architecture is the point, not the framework: schema, predicate, identity, declared intent, in code, on every call. You can build the same layers with raw validation code and middleware.
 
 ## "But the models are getting better"
 
