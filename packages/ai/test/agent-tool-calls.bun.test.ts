@@ -14,27 +14,25 @@ import type { LlmResult } from "../src/llm/types.ts";
 // the session, regardless of whether the streaming or sync path was
 // taken.
 mock.module("../src/llm/providers/index.ts", () => ({
-  callLlm: mock(
-    async (): Promise<LlmResult> => ({
-      text: "stubbed",
-      finishReason: "stop",
-      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-      toolCalls: [
-        {
-          toolCallId: "call-1",
-          toolName: "fetchOrder",
-          input: { id: "abc" },
-          output: { status: "shipped" },
-        },
-        {
-          toolCallId: "call-2",
-          toolName: "sendSlack",
-          input: { channel: "#ops" },
-          error: new Error("slack-down"),
-        },
-      ],
-    }),
-  ),
+  callLlm: mock(async (): Promise<LlmResult> => ({
+    text: "stubbed",
+    finishReason: "stop",
+    usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    toolCalls: [
+      {
+        toolCallId: "call-1",
+        toolName: "fetchOrder",
+        input: { id: "abc" },
+        output: { status: "shipped" },
+      },
+      {
+        toolCallId: "call-2",
+        toolName: "sendSlack",
+        input: { channel: "#ops" },
+        error: new Error("slack-down"),
+      },
+    ],
+  })),
   streamLlm: mock(
     async (params: {
       onDelta: (d: { type: string; text: string }) => void | Promise<void>;

@@ -173,8 +173,7 @@ export class SplitStep<T = unknown, R = unknown> implements Step<
 
     // Stash the parent exchange so aggregate can restore it
     let parentMap = context.getStore(SPLIT_PARENT_STORE) as
-      | Map<string, Exchange>
-      | undefined;
+      Map<string, Exchange> | undefined;
     if (!parentMap) {
       parentMap = new Map<string, Exchange>();
       context.setStore(SPLIT_PARENT_STORE, parentMap);

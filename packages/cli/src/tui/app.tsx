@@ -107,12 +107,7 @@ function metricSteps(levels: number): { max: number; color: string }[] {
  * - "tool-call": scrollable JSON of one tool call's input/output
  */
 type ViewKind =
-  | "browse"
-  | "exchange"
-  | "event"
-  | "snapshot"
-  | "agent-run"
-  | "tool-call";
+  "browse" | "exchange" | "event" | "snapshot" | "agent-run" | "tool-call";
 
 /** Views whose body is a scrollable JSON document. */
 const JSON_VIEWS: ReadonlySet<ViewKind> = new Set([

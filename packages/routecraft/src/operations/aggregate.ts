@@ -159,8 +159,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
 
     // Look up the parent exchange early so step events use its ID
     const parentMap = context?.getStore(SPLIT_PARENT_STORE) as
-      | Map<string, Exchange>
-      | undefined;
+      Map<string, Exchange> | undefined;
     const parentExchange = currentGroupId
       ? parentMap?.get(currentGroupId)
       : undefined;

@@ -17,12 +17,10 @@ import type { LlmResult } from "../src/llm/types.ts";
 // happy-path test asserts on the dispatcher args (tools, output,
 // stopWhen, modelId, etc.) and controls the response shape.
 mock.module("../src/llm/providers/index.ts", () => ({
-  callLlm: mock(
-    async (): Promise<LlmResult> => ({
-      text: "stubbed-response",
-      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
-    }),
-  ),
+  callLlm: mock(async (): Promise<LlmResult> => ({
+    text: "stubbed-response",
+    usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+  })),
 }));
 
 import { callLlm } from "../src/llm/providers/index.ts";

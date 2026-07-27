@@ -39,6 +39,8 @@ export function BlogCard({
               title={post.title}
               slug={post.slug}
               tags={post.tags}
+              glyph={post.coverGlyph}
+              diagram={post.diagram}
             />
           )}
           {post.draft && (

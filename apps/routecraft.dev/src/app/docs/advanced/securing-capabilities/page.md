@@ -165,8 +165,6 @@ auth: oauth({
 
 The populated `Principal` rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter, e.g. `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`.
 
-> A vendor-specific walkthrough of this flow with Clerk lives in the blog: [Securing a Routecraft MCP with Clerk](/blog/securing-mcp-with-clerk).
-
 ## Principal enrichment via `userinfo`
 
 OAuth access tokens are intentionally thin: they authorize but rarely identify. Identity fields needed to gate routes (`email`, `name`, `roles`, org membership) usually live behind the IdP's userinfo endpoint, not in the token itself. The optional `userinfo` option on `mcpPlugin({})` runs after `auth` verifies the token and merges enrichment onto the verified principal.

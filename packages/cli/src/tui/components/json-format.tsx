@@ -3,12 +3,7 @@ import { theme } from "../theme.js";
 
 /** Token types for JSON syntax coloring. */
 export type TokenType =
-  | "key"
-  | "string"
-  | "number"
-  | "boolean"
-  | "null"
-  | "brace";
+  "key" | "string" | "number" | "boolean" | "null" | "brace";
 
 export interface JsonToken {
   text: string;

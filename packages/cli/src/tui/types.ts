@@ -1,10 +1,5 @@
 export type NavItem =
-  | "capabilities"
-  | "agents"
-  | "tools"
-  | "exchanges"
-  | "errors"
-  | "events";
+  "capabilities" | "agents" | "tools" | "exchanges" | "errors" | "events";
 
 export type NavSection = {
   label?: string;

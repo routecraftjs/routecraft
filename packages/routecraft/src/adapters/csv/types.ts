@@ -109,8 +109,7 @@ export interface CsvFileOptions extends CsvParseOptions {
 }
 
 export type CsvOptions<T = unknown, R = unknown> =
-  | CsvTransformerOptions<T, R>
-  | CsvFileOptions;
+  CsvTransformerOptions<T, R> | CsvFileOptions;
 
 export type CsvRow = Record<string, unknown> | string[];
 export type CsvData = CsvRow[];

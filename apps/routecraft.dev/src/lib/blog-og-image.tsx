@@ -169,7 +169,6 @@ export async function createBlogOgImage({
     if (response) return response
   }
 
-  const fonts = await loadFonts()
   const figureNumber = figureNumberFor(slug)
 
   return new ImageResponse(
@@ -179,36 +178,12 @@ export async function createBlogOgImage({
       tags={post.tags}
       subtitle={post.description}
       glyph={post.coverGlyph}
+      diagram={post.diagram}
       figureNumber={figureNumber}
     />,
     {
       ...OG_SIZE,
-      fonts: [
-        {
-          name: 'Fraunces',
-          data: fonts.fraunces,
-          style: 'normal',
-          weight: 400,
-        },
-        {
-          name: 'Fraunces',
-          data: fonts.fraunces700,
-          style: 'normal',
-          weight: 700,
-        },
-        {
-          name: 'Fraunces',
-          data: fonts.fraunces400i,
-          style: 'italic',
-          weight: 400,
-        },
-        {
-          name: 'JetBrains Mono',
-          data: fonts.mono,
-          style: 'normal',
-          weight: 400,
-        },
-      ],
+      fonts: await ogFonts(),
     },
   )
 }

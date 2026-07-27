@@ -92,8 +92,7 @@ export function getAdapterFactory(
 ): ((...args: unknown[]) => unknown) | undefined {
   if (adapter === null || typeof adapter !== "object") return undefined;
   return (adapter as Record<symbol, unknown>)[RC_ADAPTER_FACTORY] as
-    | ((...args: unknown[]) => unknown)
-    | undefined;
+    ((...args: unknown[]) => unknown) | undefined;
 }
 
 /**
@@ -107,6 +106,5 @@ export function getAdapterFactory(
 export function getAdapterArgs(adapter: unknown): unknown[] | undefined {
   if (adapter === null || typeof adapter !== "object") return undefined;
   return (adapter as Record<symbol, unknown>)[RC_ADAPTER_ARGS] as
-    | unknown[]
-    | undefined;
+    unknown[] | undefined;
 }

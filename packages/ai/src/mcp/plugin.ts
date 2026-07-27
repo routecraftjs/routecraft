@@ -232,10 +232,12 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
 
     const headers = await buildAuthHeaders(auth);
     const transportOptions = headers ? { requestInit: { headers } } : undefined;
-    const transport = new (StreamableHTTPClientTransport as new (
-      url: URL,
-      options?: { requestInit?: { headers?: Record<string, string> } },
-    ) => unknown)(new URL(url), transportOptions);
+    const transport = new (
+      StreamableHTTPClientTransport as new (
+        url: URL,
+        options?: { requestInit?: { headers?: Record<string, string> } },
+      ) => unknown
+    )(new URL(url), transportOptions);
     const rawClient = new Client(
       { name: "routecraft-mcp-client", version: "1.0.0" },
       { capabilities: {} },

@@ -179,8 +179,7 @@ describe("MCP Plugin Integration", () => {
       .build();
 
     const registry = t.ctx.getStore(MCP_TOOL_REGISTRY_KEY) as
-      | McpToolRegistry
-      | undefined;
+      McpToolRegistry | undefined;
     expect(registry).toBeDefined();
     expect(typeof registry!.getTools).toBe("function");
     expect(typeof registry!.getTool).toBe("function");

@@ -338,12 +338,10 @@ describe("Direct adapter", () => {
         craft()
           .id("agent")
           .from(direct())
-          .transform(
-            (body): AgentResult => ({
-              answer: `echo:${(body as AgentInput).query}`,
-              tokens: 42,
-            }),
-          ),
+          .transform((body): AgentResult => ({
+            answer: `echo:${(body as AgentInput).query}`,
+            tokens: 42,
+          })),
       ])
       .build();
 

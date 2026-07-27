@@ -44,10 +44,7 @@ export type EmbeddingModelConfig =
   | EmbeddingModelConfigMock;
 
 export type EmbeddingProviderType =
-  | "huggingface"
-  | "ollama"
-  | "openai"
-  | "mock";
+  "huggingface" | "ollama" | "openai" | "mock";
 
 export interface EmbeddingOptions<T = unknown> {
   /** Build the string to embed from the exchange (e.g. jobTitle + location). */

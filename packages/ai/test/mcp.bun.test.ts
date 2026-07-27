@@ -24,8 +24,7 @@ async function invokeTool(
   headers: Record<string, unknown> = {},
 ): Promise<void> {
   const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
-    | Map<string, McpLocalToolEntry>
-    | undefined;
+    Map<string, McpLocalToolEntry> | undefined;
   const entry = registry?.get(endpoint);
   if (!entry) throw new Error(`Tool not found: ${endpoint}`);
   const exchange = new DefaultExchange(t.ctx, { body, headers });
@@ -189,8 +188,7 @@ describe("mcp() DSL function", () => {
 
     await t.startAndWaitReady();
     const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
-      | Map<string, McpLocalToolEntry>
-      | undefined;
+      Map<string, McpLocalToolEntry> | undefined;
     expect(registry).toBeDefined();
     expect(registry?.has("search-tool")).toBe(true);
     const entry = registry?.get("search-tool");
@@ -288,8 +286,7 @@ describe("mcp() DSL function", () => {
 
     await t.startAndWaitReady();
     const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
-      | Map<string, McpLocalToolEntry>
-      | undefined;
+      Map<string, McpLocalToolEntry> | undefined;
     const entry = registry?.get("list-items");
     expect(entry?.annotations).toEqual({
       readOnlyHint: true,
@@ -318,8 +315,7 @@ describe("mcp() DSL function", () => {
 
     await t.startAndWaitReady();
     const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
-      | Map<string, McpLocalToolEntry>
-      | undefined;
+      Map<string, McpLocalToolEntry> | undefined;
     const entry = registry?.get("plain-tool");
     expect(entry?.annotations).toBeUndefined();
   });
@@ -345,8 +341,7 @@ describe("mcp() DSL function", () => {
     await t.startAndWaitReady();
 
     const mcpRegistry = t.ctx.getStore(MCP_LOCAL_KEY) as
-      | Map<string, McpLocalToolEntry>
-      | undefined;
+      Map<string, McpLocalToolEntry> | undefined;
     expect(Array.from(mcpRegistry?.keys() ?? [])).toEqual(["exposed"]);
 
     const endpoints = t.ctx.capabilities().map((c) => c.endpoint);
@@ -389,14 +384,12 @@ describe("mcp() DSL function", () => {
 
     await t.startAndWaitReady();
     const before = t.ctx.getStore(MCP_LOCAL_KEY) as
-      | Map<string, McpLocalToolEntry>
-      | undefined;
+      Map<string, McpLocalToolEntry> | undefined;
     expect(before?.has("ephemeral")).toBe(true);
 
     await t.stop();
     const after = t.ctx.getStore(MCP_LOCAL_KEY) as
-      | Map<string, McpLocalToolEntry>
-      | undefined;
+      Map<string, McpLocalToolEntry> | undefined;
     expect(after?.has("ephemeral")).toBe(false);
   });
 
@@ -457,8 +450,7 @@ describe("mcp() DSL function", () => {
       .build();
     await okCtx.startAndWaitReady();
     const registry = okCtx.ctx.getStore(MCP_LOCAL_KEY) as
-      | Map<string, McpLocalToolEntry>
-      | undefined;
+      Map<string, McpLocalToolEntry> | undefined;
     expect(registry?.has("good_name-1")).toBe(true);
     await okCtx.stop();
   });

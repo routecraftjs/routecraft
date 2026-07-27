@@ -14,8 +14,7 @@ export type DirectChannelType<T extends DirectChannel> = new (
 ) => T;
 
 export type DirectEndpoint<T = unknown> =
-  | RegisteredDirectEndpoint
-  | ((exchange: Exchange<T>) => string);
+  RegisteredDirectEndpoint | ((exchange: Exchange<T>) => string);
 
 /**
  * DirectChannel interface for synchronous inter-route communication.

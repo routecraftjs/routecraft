@@ -45,8 +45,7 @@ export type SampleOptions =
  * @internal
  */
 export type ResolvedSampleOptions =
-  | { mode: "count"; every: number }
-  | { mode: "interval"; intervalMs: number };
+  { mode: "count"; every: number } | { mode: "interval"; intervalMs: number };
 
 /**
  * Validate user-supplied {@link SampleOptions} into a

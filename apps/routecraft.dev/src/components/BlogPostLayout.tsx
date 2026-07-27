@@ -27,6 +27,7 @@ interface BlogPostFrontmatter {
   image?: string
   imageAlt?: string
   coverGlyph?: string
+  diagram?: string
   readingTime?: number
   draft?: boolean
   related?: string[]
@@ -142,6 +143,7 @@ export function BlogPostLayout({
                 tags={frontmatter.tags}
                 subtitle={frontmatter.description}
                 glyph={frontmatter.coverGlyph}
+                diagram={frontmatter.diagram}
                 figureNumber={figureNumber}
               />
             </figure>

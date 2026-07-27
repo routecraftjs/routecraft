@@ -1,4 +1,5 @@
 import { Callout } from '@/components/Callout'
+import { Diagram } from '@/components/figures/Diagram'
 import { LightboxImage } from '@/components/Lightbox'
 import { Badge } from '@/components/Badge'
 import { QuickLink, QuickLinks } from '@/components/QuickLinks'
@@ -36,6 +37,17 @@ const tags = {
         {caption ? <figcaption>{caption}</figcaption> : null}
       </figure>
     ),
+  },
+  // A brand figure drawn in the DOM rather than shipped as an image, so it
+  // re-tones with the theme and stays crisp at any width. `id` is a key in
+  // @/components/figures; `caption` overrides the figure's own.
+  diagram: {
+    selfClosing: true,
+    attributes: {
+      id: { type: String, required: true },
+      caption: { type: String },
+    },
+    render: Diagram,
   },
   'quick-links': {
     render: QuickLinks,

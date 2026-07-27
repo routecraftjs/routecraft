@@ -27,11 +27,19 @@ export interface BlogPostMeta {
   /** Routecraft version the post was written for / verified against. */
   version?: string
   featured?: boolean
+  /** Pin this post as the homepage pick, independent of dates. One post should carry it. */
+  home?: boolean
   draft?: boolean
   image?: string
   imageAlt?: string
   /** Override the auto-picked cover glyph. First character only. */
   coverGlyph?: string
+  /**
+   * Id of the post's lead figure (see `@/components/figures`). Its motif
+   * becomes the cover artwork on the post hero, the index card, the home
+   * teaser, and the OG image.
+   */
+  diagram?: string
   /** Explicit follow-up posts (slugs); overrides the tag-based suggestions. */
   related?: string[]
   readingTime: number
@@ -83,12 +91,14 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
       typeof data.authorAvatar === 'string' ? data.authorAvatar : undefined,
     tags: Array.isArray(data.tags) ? data.tags.map(String) : undefined,
     version: typeof data.version === 'string' ? data.version : undefined,
-    featured: Boolean(data.featured),
-    draft: Boolean(data.draft),
+    featured: data.featured === true,
+    home: data.home === true,
+    draft: data.draft === true,
     image: typeof data.image === 'string' ? data.image : undefined,
     imageAlt: typeof data.imageAlt === 'string' ? data.imageAlt : undefined,
     coverGlyph:
       typeof data.coverGlyph === 'string' ? data.coverGlyph : undefined,
+    diagram: typeof data.diagram === 'string' ? data.diagram : undefined,
     related: Array.isArray(data.related) ? data.related.map(String) : undefined,
     readingTime:
       typeof data.readingTime === 'number'
@@ -145,6 +155,7 @@ export function getFeaturedPost(
   posts: BlogPostMeta[] = getAllBlogPosts(),
 ): BlogPostMeta | undefined {
   return (
+    posts.find((p) => p.home && !p.draft) ??
     posts.find((p) => p.featured && !p.draft) ??
     posts.find((p) => !p.draft) ??
     posts[0]

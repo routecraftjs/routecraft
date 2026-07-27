@@ -177,8 +177,7 @@ describe("fn registration via agentPlugin", () => {
       .build();
 
     const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("CurrentTime") as
-      | FnOptions
-      | undefined;
+      FnOptions | undefined;
     expect(entry?.tags).toEqual(["read-only", "idempotent"]);
   });
 

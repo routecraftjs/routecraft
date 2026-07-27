@@ -16,12 +16,10 @@ import type { LlmResult } from "../src/llm/types.ts";
 // drains. Coarse decision events (tool-call, tool-result, finished,
 // error) flow on the context bus and are tested separately.
 mock.module("../src/llm/providers/index.ts", () => ({
-  callLlm: mock(
-    async (): Promise<LlmResult> => ({
-      text: "non-stream",
-      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-    }),
-  ),
+  callLlm: mock(async (): Promise<LlmResult> => ({
+    text: "non-stream",
+    usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+  })),
   streamLlm: mock(
     async ({
       onDelta,

@@ -22,7 +22,7 @@ craft()
   .to(agent({
     model: 'anthropic:claude-sonnet-4-6',
     system: 'Triage and route inbound support mail.',
-    tools: tools(['publishBrief', 'sendDigest']),
+    tools: tools(['Direct(publishBrief)', 'Direct(sendDigest)']),
   }))
 
 // One of the bounded hands the agent can reach for.
@@ -30,6 +30,7 @@ craft()
   .id('publishBrief')
   .input(BriefInput)
   .authorize({ roles: ['editor'] })
+  .from(direct())
   .transform(redactPII)
   .to(http({ url: '/feed' }))`
 
@@ -53,8 +54,8 @@ export function Guardrails() {
           <p className="mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
             Agents have deleted production databases trying to do their job.
             Routecraft capabilities are bounded by design: typed inputs,
-            authorize(), guard(), the same code in test and prod. The agent gets
-            the hands you choose, not the keyring.
+            authorize(), per-tool guards, the same code in test and prod. The
+            agent gets the hands you choose, not the keyring.
           </p>
         </header>
 

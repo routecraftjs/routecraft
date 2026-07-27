@@ -303,10 +303,7 @@ export class TestContextBuilder {
 
   routes(
     routes:
-      | RouteDefinition[]
-      | AnyRouteBuilder[]
-      | RouteDefinition
-      | AnyRouteBuilder,
+      RouteDefinition[] | AnyRouteBuilder[] | RouteDefinition | AnyRouteBuilder,
   ): this {
     this.builder.routes(routes);
     return this;

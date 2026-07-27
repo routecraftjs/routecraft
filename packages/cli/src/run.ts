@@ -14,8 +14,7 @@ import {
 const SUPPORTED_EXTENSIONS = [".mjs", ".js", ".cjs", ".ts"] as const;
 
 type RunResult =
-  | { success: true }
-  | { success: false; code?: number; message: string };
+  { success: true } | { success: false; code?: number; message: string };
 
 /**
  * Load a routecraft file, build a context, and start it.
@@ -82,8 +81,14 @@ export async function runCommand(
       logger.error(`Failed to run ${absFilePath}: ${error.message}`);
       return { success: false, code: 1, message: error.message };
     }
-    logger.error(`Failed to run ${absFilePath}: Unknown error occurred`);
-    return { success: false, code: 1, message: "Unknown error" };
+    // Non-Error throws (e.g. Bun's ResolveMessage for a missing package)
+    // still carry a message; surface it instead of "Unknown error".
+    const message =
+      typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message: unknown }).message)
+        : String(error);
+    logger.error(`Failed to run ${absFilePath}: ${message}`);
+    return { success: false, code: 1, message };
   }
 }
 
