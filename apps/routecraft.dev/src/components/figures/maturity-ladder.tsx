@@ -6,7 +6,7 @@ import {
 } from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
 import type {
-  FigureDefinition,
+  FigureDrawing,
   FigureProps,
   MotifProps,
 } from '@/components/figures/types'
@@ -224,10 +224,8 @@ function Motif({ palette, size }: MotifProps) {
   )
 }
 
-export const maturityLadder: FigureDefinition = {
+export const maturityLadder: FigureDrawing = {
   id: 'maturity-ladder',
-  alt: 'A five-stage ladder from prompt library at the bottom to organisational agents at the top. Stage two, a skills and agents repository, is marked "you are here"; stage four, deployed capabilities, is highlighted as the jump that matters.',
-  caption: 'The maturity ladder, and the stage most teams are standing on.',
   width: WIDTH,
   height: HEIGHT,
   Figure,

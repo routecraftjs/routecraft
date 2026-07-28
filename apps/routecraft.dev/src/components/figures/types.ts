@@ -32,15 +32,28 @@ export interface MotifProps {
  * pseudo-elements, no `color-mix`. It takes no font, because a motif that needs
  * words has not been reduced far enough.
  */
-export interface FigureDefinition {
+export interface FigureDrawing {
   /** Stable id used in frontmatter and in the `{% diagram %}` tag. */
   id: string
-  /** Sentence describing what the figure shows. Becomes the accessible name. */
-  alt: string
-  /** Default caption when the tag does not override it. */
-  caption: string
   width: number
   height: number
   Figure: (props: FigureProps) => ReactElement
   Motif: (props: MotifProps) => ReactElement
 }
+
+/**
+ * A figure's words. They live in `manifest.mjs` rather than beside the drawing,
+ * because the raw markdown build and the markdoc cleaner have to read them
+ * without loading JSX: `{% diagram %}` becomes a real markdown image in
+ * `public/raw/**`, and its alt text is all a reader who cannot fetch the PNG
+ * has to go on.
+ */
+export interface FigureText {
+  /** Sentence describing what the figure shows. Becomes the accessible name. */
+  alt: string
+  /** Default caption when the tag does not override it. */
+  caption: string
+}
+
+/** A drawing joined to its words, which is what every consumer renders. */
+export type FigureDefinition = FigureDrawing & FigureText

@@ -10,7 +10,7 @@ import {
 } from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
 import type {
-  FigureDefinition,
+  FigureDrawing,
   FigureProps,
   MotifProps,
 } from '@/components/figures/types'
@@ -252,10 +252,8 @@ function Motif({ palette, size }: MotifProps) {
   )
 }
 
-export const handsNotKeys: FigureDefinition = {
+export const handsNotKeys: FigureDrawing = {
   id: 'hands-not-keys',
-  alt: 'Left: an agent holding one key that opens a door to a database, email, deploy and payments. Right: the same agent reaching two named tools, each stacked with an input, rules, identity and intent gate.',
-  caption: 'Keys open everything behind them. Hands only press what you built.',
   width: WIDTH,
   height: HEIGHT,
   Figure,

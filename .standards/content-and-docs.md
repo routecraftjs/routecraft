@@ -53,6 +53,13 @@ Blog diagrams are React components, not images. Each one lives in
 `index.ts`. A figure is drawn on a fixed canvas and scaled by `<ScaledFrame>`, so the
 composition never reflows: the same drawing at every width, just smaller.
 
+A figure is authored across two files. The **drawing** is the `.tsx`; its **words** (`alt`
+and `caption`) live in `figures/manifest.mjs`, keyed by id. That split exists because the
+words have to be readable without loading JSX: the prebuild that writes `public/raw/**` and
+the markdoc cleaner both need them, and the cleaner also runs inside the webpack config where
+TypeScript type stripping is not guaranteed. `index.ts` joins the two and throws if a drawing
+has no entry, so the halves cannot drift apart silently.
+
 Every figure ships in two resolutions, because it renders on surfaces with very different
 size budgets:
 
@@ -94,6 +101,16 @@ help; only dropping foreignObject does.
 So: measure and transform. Check Safari, not just Chrome, on anything that scales fixed-canvas
 artwork. Because the frame has to measure before it can scale, artwork stays hidden until the
 first measurement and `tailwind.css` carries a `@media (scripting: none)` fallback.
+
+### In raw markdown, a figure is an image
+
+`{% diagram %}` is meaningless off the site, so `clean-markdoc.mjs` turns it into a real
+markdown image of the light PNG, with the figure's `alt` and its caption in italics beneath.
+That is what `public/raw/blog/<slug>.md` and the "copy page" button emit, so a cross-post to
+dev.to or an LLM reading the raw file gets the artwork and a description rather than an
+unresolved tag. The URL is absolute, because raw markdown is read away from the site where a
+root-relative path resolves against the wrong host. An unknown figure id leaves the tag
+untouched rather than emitting a link that 404s.
 
 ### At phone width, a figure is a picture
 

@@ -12,7 +12,7 @@ import {
 } from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
 import type {
-  FigureDefinition,
+  FigureDrawing,
   FigureProps,
   MotifProps,
 } from '@/components/figures/types'
@@ -202,10 +202,8 @@ function Motif({ palette, size }: MotifProps) {
   )
 }
 
-export const fourGates: FigureDefinition = {
+export const fourGates: FigureDrawing = {
   id: 'four-gates',
-  alt: 'A tool call falling through four stacked gates in order: input, rules, identity and declared intent. The rules gate diverts a call whose recipient is outside the company domain. What survives all four reaches your logic.',
-  caption: 'The four gates every agent-facing tool runs on every call.',
   width: WIDTH,
   height: HEIGHT,
   Figure,

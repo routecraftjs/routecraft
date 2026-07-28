@@ -1,3 +1,16 @@
+import {
+  FIGURE_TEXT,
+  figureImagePath,
+} from '../components/figures/manifest.mjs'
+
+/**
+ * Production origin for the absolute image URLs in cleaned markdown. Raw
+ * markdown is read away from the site (an LLM crawl, a dev.to cross-post, a
+ * pasted page), where a root-relative image resolves against the wrong host or
+ * nothing at all. Mirrors the fallback in `lib/site.ts`.
+ */
+const SITE_ORIGIN = 'https://routecraft.dev'
+
 /**
  * Strips Markdoc-specific syntax from raw `.md` source and returns
  * clean, standard markdown suitable for copying or serving as a raw file.
@@ -32,6 +45,23 @@ export function cleanMarkdoc(source, title) {
         : `**${type.charAt(0).toUpperCase() + type.slice(1)}**`
       const lines = content.trim().split('\n')
       return `> ${label}\n>\n${lines.map((l) => `> ${l}`).join('\n')}`
+    },
+  )
+
+  // Convert a figure to a real markdown image of its exported PNG. The figure
+  // itself is a React drawing that only exists on the site, so outside it the
+  // tag is noise; the light PNG and the figure's alt text are what a reader or
+  // a crawler can actually use. Italic caption underneath, as a plain reader
+  // has no figcaption.
+  out = out.replace(
+    /^\{%\s*diagram\s+id="([^"]+)"[^%]*\/%\}$/gm,
+    (match, id) => {
+      const text = FIGURE_TEXT[id]
+      // An unknown id means a typo or a renamed figure. Leave the tag alone
+      // rather than emit an image link that 404s.
+      if (!text) return match
+      const url = `${SITE_ORIGIN}${figureImagePath(id)}`
+      return `![${text.alt}](${url})\n\n_${text.caption}_`
     },
   )
 
