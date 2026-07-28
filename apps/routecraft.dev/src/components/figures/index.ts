@@ -34,6 +34,14 @@ if (process.env.NODE_ENV !== 'production' && BY_ID.size !== FIGURES.length) {
   }
 }
 
+/**
+ * Every figure, in declaration order. Backs the `/figures` gallery and the
+ * static params of `/figures/[id]`, which is also what the PNG export walks.
+ */
+export function allFigures(): readonly FigureDefinition[] {
+  return FIGURES
+}
+
 export function getFigure(
   id: string | undefined,
 ): FigureDefinition | undefined {

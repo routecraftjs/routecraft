@@ -85,12 +85,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const isBlogSection = pathname?.startsWith('/blog') ?? false
   const isBlogLanding = pathname === '/blog' || pathname === '/blog/'
   const isCheatSheet = pathname?.startsWith('/cheat-sheet') ?? false
-  const showDocsSidebar = !isHomePage && !isBlogSection && !isCheatSheet
-  const useFullWidth = isHomePage || isCheatSheet
+  // Figures are drawn at their authored size, wider than the docs column, and
+  // carry no navigation of their own beyond the gallery.
+  const isFigures = pathname?.startsWith('/figures') ?? false
+  const showDocsSidebar =
+    !isHomePage && !isBlogSection && !isCheatSheet && !isFigures
+  const useFullWidth = isHomePage || isCheatSheet || isFigures
   // Footer only on marketing-style pages. Docs and blog detail pages have
   // their own scroll behavior (docs sidebar scrolls separately, blog posts
   // have a per-post footer) and a global footer there overflows weirdly.
-  const showFooter = isHomePage || isCheatSheet || isBlogLanding
+  const showFooter = isHomePage || isCheatSheet || isBlogLanding || isFigures
 
   return (
     <div className="flex min-h-full w-full flex-col">
