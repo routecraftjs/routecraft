@@ -80,6 +80,61 @@ Two constraints follow from that split:
 Write a real `alt` on every figure: it is the accessible name, and a DOM drawing gives a
 screen reader nothing on its own.
 
+### Scaling: never through `<foreignObject>`
+
+`<ScaledFrame>` measures its own width and applies a CSS `transform: scale()`. The obvious
+alternative, wrapping the artwork in an SVG `viewBox` with a `<foreignObject>`, is prettier
+(pure CSS, no measurement) and was how this worked until it turned out that **WebKit paints
+foreignObject content at 1:1, ignoring the viewBox, as soon as anything in the subtree is
+positioned**. Every one of these drawings positions something, so on Safari every cover and
+figure showed the top-left corner of its canvas at full size, at every viewport width. Adding
+`width`/`height` attributes, an `xmlns`, `overflow: hidden`, or a static wrapper does not
+help; only dropping foreignObject does.
+
+So: measure and transform. Check Safari, not just Chrome, on anything that scales fixed-canvas
+artwork. Because the frame has to measure before it can scale, artwork stays hidden until the
+first measurement and `tailwind.css` carries a `@media (scripting: none)` fallback.
+
+### At phone width, a figure is a picture
+
+A 1600x900 drawing scaled into a 358px column is complete but unreadable, so `{% diagram %}`
+makes the figure a lightbox trigger: tapping opens the exported PNG full-screen, filling the
+height and panning horizontally, with the dark file served in dark mode. **The exported PNGs
+are therefore part of the site, not just syndication assets** -- a figure whose PNG is stale
+or missing enlarges to the wrong thing or to nothing.
+
+### Exporting a figure
+
+A figure is HTML and CSS, so it draws in a browser and nowhere else: a standalone `.svg`
+renders blank through an `<img>` tag, and Satori cannot lay one out either. Both the lightbox
+and anywhere a post is republished (dev.to, a slide, a newsletter) need a raster.
+
+Every figure therefore has its own page at `/figures/<id>/`, which shows the drawing at its
+authored size next to the URLs and markdown snippet for its PNGs. `/figures/` is the gallery.
+Both are `noindex`: they are utility surfaces, not arguments.
+
+The PNGs are produced by `scripts/export-figures.ts`, which serves the built export, drives
+Chromium over each figure page, and writes two files per figure at 2x:
+`<id>.png` (light) and `<id>-dark.png`. Light is the unsuffixed default because it is the
+safer choice on a surface whose background we do not control, and because one guessable URL
+per figure is worth having. The theme comes from the emulated colour scheme, which is what
+next-themes resolves against when no preference is stored:
+
+```sh
+bun run build && bun run figures:export      # all figures
+bun run figures:export four-gates            # just one
+bunx playwright install chromium             # once, before the first export
+```
+
+A figure id may not end in `-dark`; the export rejects it rather than let one figure's light
+file overwrite another's dark one.
+
+Run it whenever a figure changes, and commit the PNGs; the site itself serves them, so a
+skipped export ships a post whose figure enlarges to the previous drawing. They are checked in
+rather than built in CI so the Pages workflow never has to install a browser. The page and the script agree on
+the output path and the screenshot marker through `src/lib/figure-image.ts`; keep new
+surfaces reading from there rather than hardcoding `/images/figures/`.
+
 ## Capability project structure (public-surface file)
 
 Recommended project layout is one folder per capability under `capabilities/<domain>/<id>/`,
