@@ -128,6 +128,20 @@
       transition: none;
     }
   }
+
+  /* ScaledFrame measures its own width to scale fixed-canvas artwork, and keeps
+     the artwork hidden until it has. With scripting off that measurement never
+     happens, so show the drawing at 1:1 in a pannable frame rather than leave
+     an empty box where every cover and figure should be. */
+  @media (scripting: none) {
+    [data-scaled-frame] {
+      overflow: auto;
+    }
+
+    [data-scaled-frame-art] {
+      visibility: visible !important;
+    }
+  }
 }
 
 @keyframes marquee {
