@@ -60,7 +60,10 @@ export function Guardrails() {
         </header>
 
         <div className="mt-12 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 lg:grid-cols-2">
-          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10">
+          {/* min-w-0: a grid item defaults to min-width:auto, so without it the
+              column grows to the widest unwrappable code line and drags the
+              whole page into a horizontal scroll on a phone. */}
+          <article className="relative flex min-w-0 flex-col gap-5 bg-paper p-7 lg:p-10">
             <header className="flex items-baseline gap-3">
               <span
                 aria-hidden="true"
@@ -84,7 +87,10 @@ export function Guardrails() {
             </p>
           </article>
 
-          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10">
+          {/* min-w-0: a grid item defaults to min-width:auto, so without it the
+              column grows to the widest unwrappable code line and drags the
+              whole page into a horizontal scroll on a phone. */}
+          <article className="relative flex min-w-0 flex-col gap-5 bg-paper p-7 lg:p-10">
             <header className="flex items-baseline gap-3">
               <span
                 aria-hidden="true"
@@ -142,7 +148,9 @@ function CodeBlock({ code, muted }: { code: string; muted?: boolean }) {
   return (
     <div
       className={
-        'border border-ink/15 bg-paper-deep/40 px-4 py-4 ' +
+        // The code cannot wrap, so on a narrow card the overflow has to be
+        // reachable rather than pushing the card wider than the viewport.
+        'overflow-x-auto border border-ink/15 bg-paper-deep/40 px-4 py-4 ' +
         (muted ? 'opacity-70' : '')
       }
     >
