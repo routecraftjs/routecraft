@@ -20,7 +20,7 @@ layout: blog-post
 
 Somewhere in your company, right now, someone is wiring an LLM up to something that matters. An inbox. A CRM. A deploy pipeline. A payment API. And in most of those integrations, the only thing standing between the model and a very bad day is a paragraph of English that says, in effect, "please be careful".
 
-That paragraph is called a system prompt, and in a lot of systems it has quietly become the de facto security boundary. It is not one. A system prompt is a request. The model will honour it most of the time, the same way most drivers stay under the speed limit most of the time. If your safety story depends on "most of the time", you do not have a safety story. You have a base rate.
+That paragraph is called a system prompt, and in a lot of systems it has quietly become the de facto security boundary. Not because anyone decided it should be one, but because nothing else was ever put in its place. It cannot hold that line. A system prompt is a request. The model will honour it most of the time, the same way most drivers stay under the speed limit most of the time. If your safety story depends on "most of the time", you do not have a safety story. You have a base rate.
 
 ## The failure is not hypothetical
 

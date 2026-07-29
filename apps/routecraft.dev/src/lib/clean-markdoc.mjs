@@ -22,6 +22,14 @@ const SITE_ORIGIN = 'https://routecraft.dev'
 export function cleanMarkdoc(source, title) {
   let out = source
 
+  // A cross-post declares its original publication in frontmatter. The raw
+  // markdown is exactly the surface that gets scraped and republished, so the
+  // attribution must survive the frontmatter strip below; it is re-emitted
+  // under the title at the end.
+  const canonical = out.match(
+    /^---[\s\S]*?^canonical:\s*(https?:\S+)\s*$[\s\S]*?---/m,
+  )?.[1]
+
   // Strip YAML frontmatter
   out = out.replace(/^---[\s\S]*?---\n*/, '')
 
@@ -91,6 +99,12 @@ export function cleanMarkdoc(source, title) {
     out = `# ${title}\n\n${out.trim()}\n`
   } else {
     out = out.trim() + '\n'
+  }
+
+  // Attribution line for cross-posts, directly under the title so a reader
+  // (or an LLM) of the raw file sees where the article's home is.
+  if (canonical) {
+    out = out.replace(/\n\n/, `\n\n_Originally published at ${canonical}_\n\n`)
   }
 
   return out

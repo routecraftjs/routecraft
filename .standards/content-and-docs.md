@@ -46,7 +46,27 @@ split. Both are concept-led; advanced just goes deeper and may also carry guides
   demos, and the throwaway capabilities under the repo's `examples/src` are not showcase
   examples and do not get an examples page just because they exist.
 
-## Blog figures
+## Cross-posted blog articles
+
+Some blog posts run on both routecraft.dev and devoptix.nl as one article, and every such
+pair has exactly one home, declared by which file carries `canonical:` in its frontmatter
+(an absolute URL pointing at the original publication; the home post carries none):
+
+- **Thought leadership belongs to devoptix.nl.** Posts whose argument stands without code
+  (organisational patterns, maturity ladders, buying advice) are canonical on devoptix.nl;
+  the routecraft.dev copy sets `canonical:` to the devoptix.nl URL.
+- **Code-first posts belong to routecraft.dev.** Posts whose spine is Routecraft code or
+  the framework itself are canonical here; the devoptix.nl copy points back.
+
+Setting `canonical:` on a post drives the canonical link tag, `og:url`, and JSON-LD
+`mainEntityOfPage`, removes the post from the sitemap (it stays in the RSS feed, which
+serves this site's readers rather than crawlers), renders an "originally published at"
+line on the page, and stamps the same attribution into the `/raw/blog/*.md` output.
+
+The two copies are the same article, not two articles: identical spine, identical section
+structure, at most a site-specific closing block (product close here, engagement close
+there) and per-site link paths and figure syntax. When editing a cross-posted article,
+apply the edit to both repos in the same round of changes.
 
 Blog diagrams are React components, not images. Each one lives in
 `apps/routecraft.dev/src/components/figures/` and is registered by id in that folder's

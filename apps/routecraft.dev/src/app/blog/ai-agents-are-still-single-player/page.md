@@ -1,9 +1,10 @@
 ---
 title: AI agents are still single-player. Your organisation isn't.
-description: The personal-harness wave gave every employee an agent with their own access, their own memory, and their own terminal. That model cannot serve a team. The unit of organisational AI leverage is the governed capability, not the personal agent.
+description: The personal-assistant wave gave every employee an agent with their own access, their own memory, and their own chat window. That model cannot serve a team. The unit of organisational AI leverage is the governed capability, not the personal agent.
 date: 2026-06-30
 author: Jaco Botha
 authorRole: Founder, DevOptix
+canonical: https://devoptix.nl/en/blog/ai-agents-are-still-single-player
 draft: false
 featured: true
 home: true
@@ -20,25 +21,25 @@ diagram: single-player-vs-multiplayer
 layout: blog-post
 ---
 
-The current generation of agent harnesses is genuinely impressive, and almost all of it is built on the same quiet assumption: one human, one agent. Your API tokens. Your laptop. Your memory files. Your terminal. The personal harness automates *you*, and for an individual developer that is exactly right.
+The current generation of agent tools is genuinely impressive, and almost all of it is built on the same quiet assumption: one human, one agent. Your accounts. Your laptop. Your memory files. Your chat window. The personal assistant automates *you*, and for an individual that is exactly right.
 
-Then the team sees the demo, and someone asks the question that the whole category has been avoiding: "great, how do we roll this out to the whole team, all forty of them?"
+Then the team sees the demo, and someone asks the question that the whole category has been avoiding: "great, how do we roll this out to forty people?"
 
 The honest answer is that you don't. Not because the tools are immature, but because the single-player model is structurally wrong for organisations, in ways that no amount of polish fixes.
 
 ## Five walls you hit, in order
 
-**1. Access.** A personal agent runs on your credentials. Whatever you can read, it can read; whatever you can break, it can break, and the argument for never giving an agent raw keys is [a post of its own](/blog/stop-trusting-your-llm-to-behave). At organisational scale the problem compounds: forty agents on forty personal tokens is a surface your security team cannot reason about. Who reviewed what the agent does with that access? What happens to the agent's standing infrastructure when its owner leaves? "Shadow IT, but autonomous" is not a phrase you want in an audit report.
+**1. Access.** A personal agent runs on your credentials. Whatever you can read, it can read; whatever you can break, it can break, and the argument for never giving an agent raw keys is [a post of its own](/blog/stop-trusting-your-llm-to-behave). At organisational scale the problem compounds: forty agents on forty personal logins is a surface your security team cannot reason about. Who reviewed what the agent does with that access? What happens to the agent's standing infrastructure when its owner leaves? "Shadow IT, but autonomous" is not a phrase you want in an audit report.
 
-**2. Memory.** What your agent learns about your systems lives on your machine. The colleague two desks over runs the same investigation tomorrow, and their agent re-learns it from scratch. Organisations spent two decades fighting knowledge silos; the personal-harness model rebuilds them and automates the digging of the moat.
+**2. Memory.** What your agent learns about your systems lives on your machine. The colleague two desks over runs the same investigation tomorrow, and their agent re-learns it from scratch. Organisations spent two decades fighting knowledge silos; the personal-assistant model rebuilds them and automates the digging of the moat.
 
-**3. Surface.** The personal agent lives where its credentials live: your terminal, your laptop, sometimes your inbox. The moment someone wants to trigger the same automation from Teams during an incident call, or from a phone on a Saturday, the model breaks, because the execution is welded to one person's machine.
+**3. Surface.** The personal agent lives where its credentials live: your chat window, your laptop, sometimes your inbox. The moment someone wants to trigger the same automation from Teams during an incident call, or from a phone on a Saturday, the model breaks, because the execution is welded to one person's machine.
 
-**4. Duplication.** Forty engineers wire up the same ticketing, logging, and database tools forty times, forty slightly different ways, with forty copies of the prompt that explains them. None of it is reviewed, none of it is shared, and the best version of each tool is trapped in the dotfiles of whoever wrote it.
+**4. Duplication.** Forty people wire up the same ticketing, logging, and database tools forty times, forty slightly different ways, with forty copies of the prompt that explains them. None of it is reviewed, none of it is shared, and the best version of each tool is trapped in the personal setup of whoever wrote it.
 
-**5. Audit.** When something goes wrong, the question is always the same: which agent did what, with whose permission, on whose behalf? A fleet of personal harnesses has no answer. There is no central log, no principal attached to actions, no place where the organisation's rules are enforced rather than suggested.
+**5. Audit.** When something goes wrong, the question is always the same: which agent did what, with whose permission, on whose behalf? A fleet of personal assistants has no answer. There is no central log, no named person behind each action, no place where the organisation's rules are enforced rather than suggested.
 
-None of these are model problems. GPT-next does not fix them. They are architecture problems, and they all trace back to the same root: in the single-player model, the *agent* is the unit of deployment.
+None of these are model problems. GPT-next does not fix them; a smarter model still cannot be held accountable for what it does with your systems. They are architecture problems, and they all trace back to the same root: in the single-player model, the *agent* is the unit of deployment.
 
 ## Multiplayer: the capability is the unit
 
@@ -46,28 +47,28 @@ Flip the model. Instead of deploying agents that carry tools with them, deploy t
 
 {% diagram id="single-player-vs-multiplayer" /%}
 
-A capability in this sense is a small, bounded, typed operation: fetch the logs for this trace id, check this request against the API spec, compare this record across the primary database and the cache. Deployed once, as ordinary infrastructure, with three properties that the personal model cannot offer:
+A capability in this sense is a small, bounded, well-defined operation: look up this customer's open orders, check this invoice against the contract behind it, compare this record across the two systems that both claim to own it. Deployed once, as ordinary infrastructure, with three properties that the personal model cannot offer:
 
-- **Identity at the front door.** A person signs in with the organisation's SSO. An agent acts on behalf of an authenticated principal. Either way, the capability knows *who* is asking, and authorisation rules decide per principal what is allowed: this team sees these systems, that role may run this query, nobody runs that one without sign-off.
-- **Service accounts at the back door.** The capability reaches the database, the log store, the observability stack through credentials the platform owns, scoped to exactly what the capability needs. No personal tokens in the loop, nothing to revoke when someone leaves, and the blast radius of any one capability is the capability's own narrow contract.
-- **Any surface.** Because the capability is a deployed service rather than a local process, the same operation is callable from an IDE, from a chat message during the incident call, from a phone, or by an agent chaining it with five others. The consumer changes; the capability, its access rules, and its audit trail do not.
+- **Identity at the front door.** A person signs in with the organisation's single sign-on. An agent acts on behalf of an identified person too. Either way, the capability knows *who* is asking, and authorisation rules decide per person what is allowed: this team sees these systems, that role may run this query, nobody runs that one without sign-off.
+- **Service accounts at the back door.** The capability reaches the systems it needs through credentials the platform owns, scoped to exactly what that capability does. No personal logins in the loop, nothing to revoke when someone leaves, and the blast radius of any one capability is the capability's own narrow contract.
+- **Any surface.** Because the capability is a deployed service rather than a local process, the same operation is callable from a laptop, from a chat message during the incident call, from a phone, or by an agent chaining it with five others. The consumer changes; the capability, its access rules, and its audit trail do not.
 
-The agents do not disappear in this model. They get *better*, because a team-maintained, reviewed, typed capability beats the private tool collection of any individual. The personal agent becomes a thin client of shared infrastructure, the way a developer's laptop is a thin client of the CI system. We did not scale version control by giving everyone better local folders, and we will not scale agents by giving everyone better personal harnesses.
+The agents do not disappear in this model. They get *better*, because a capability that a team maintains, reviews, and tests beats the private tool collection of any individual. The personal agent becomes a front door to shared infrastructure. No finance director would run the company's books across forty personal spreadsheets; there is no better reason to run its automation across forty personal setups.
 
 ## What this looks like in practice
 
-A concrete shape, from production at a major European bank: incident triage. Capabilities for pulling an incident's context from the ticket system, fetching logs by trace id, walking a distributed trace to see which services called which, validating an observed request against the API specification, finding the code that emitted a log line, and checking whether a record is in sync between the primary store and its replicas.
+A concrete shape: incident triage at a major European bank. When a system misbehaves, the first minutes go to gathering facts, and the lookups behind those facts become shared capabilities: pull the incident's context from the ticket system, fetch the logs that matter, trace which systems called which, check whether a record is in sync between the primary system and its copies.
 
-Each one is small, deterministic, and read-only. And each one serves three consumers at once: a junior engineer runs them step by step and learns how triage works; a senior runs the one lookup they need in three seconds instead of six browser tabs; an agent chains all of them and arrives at "the caller is sending a field the spec renamed in v2, and here is the code that rejects it" before a human has finished opening Grafana. Same capabilities, same access rules, same audit trail, three very different users.
+Each lookup is small, predictable, and read-only. And each one serves three consumers at once: a junior engineer runs them step by step and learns how triage works; a senior runs the one lookup they need in seconds instead of six browser tabs; an agent chains all of them and reports which calls fail and which records disagree before anyone has found the right dashboard. Same capabilities, same access rules, same audit trail, three very different users.
 
-That suite started as one engineer's personal automation. The point of the multiplayer model is that this is a legitimate starting point: the path from "my script" to "our infrastructure" is a deployment and an identity layer, not a rewrite.
+We are building exactly this shape with that bank now. It began as one engineer's personal automation, made it through the bank's review as a proof of concept, and is a funded project with multiple contributors today. The point of the multiplayer model is that this is a legitimate path: from "my script" to "our infrastructure" is a deployment and an identity layer, not a rewrite. And the shape is not a banking shape: the same pattern fits a logistics team tracing shipments, a law firm assembling case files, or a clinic reconciling appointments against billing.
 
 ## The uncomfortable summary
 
 Single-player agents are a local maximum. They demo brilliantly, they genuinely help individuals, and they cannot be rolled out, because access, memory, surface, reuse, and audit all assume an organisation-shaped answer that the personal model cannot give.
 
-The organisations that get leverage from agents in the next few years will be the ones that treat capabilities as shared, governed infrastructure and let every human and every agent in the building stand on them. The ones that hand out personal harnesses will get forty demos and a security review that never ends.
-
-Which comes back to the fifth wall. Forty personal harnesses cannot tell you which agent did what on whose behalf, so when it matters, nobody can. The organisation ends up carrying a risk it cannot describe, let alone bound. A capability layer can answer, because every call arrives with a principal on it and leaves a log behind it. The judgement and the risk still sit with people. What changes is whether you can show your working.
+The organisations that get leverage from agents in the next few years will be the ones that treat capabilities as shared, governed infrastructure and let every human and every agent in the building stand on them. The ones that hand out personal assistants will get forty demos and a security review that never ends.
 
 We build [Routecraft](/docs/introduction) at [DevOptix](https://devoptix.nl) because we believe the argument above: it is the capability layer, made concrete. For the companion piece, [a skills repository is not an automation platform](/blog/beyond-the-skills-repository) covers the maturity path most organisations are actually on.
+
+What never changes is who answers for it. When something goes wrong, somebody has to say which agent did what, on whose behalf, and why it was allowed. A shared capability layer can answer that, because every call arrives with a person attached and leaves a record behind it. Forty personal setups cannot answer it at all. That is the difference between forty demos and infrastructure your whole organisation can stand on.
