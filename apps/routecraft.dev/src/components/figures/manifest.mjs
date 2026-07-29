@@ -48,7 +48,7 @@ export const FIGURE_TEXT = {
       'Keys open everything behind them. Hands only press what you built.',
   },
   'four-gates': {
-    alt: 'A tool call falling through four stacked gates in order: input, rules, identity and declared intent. The rules gate diverts a call whose recipient is outside the company domain. What survives all four reaches your logic.',
+    alt: 'A tool call falling through four stacked gates in order: input, policy, identity and declared intent. The policy gate diverts a call whose recipient is outside the company domain. What survives all four reaches your logic.',
     caption: 'The four gates every agent-facing tool runs on every call.',
   },
   'server-vs-doorway': {

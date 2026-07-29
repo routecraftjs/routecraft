@@ -32,7 +32,7 @@ const GATES: Gate[] = [
   { n: 1, title: 'Input', body: 'malformed input never reaches you' },
   {
     n: 2,
-    title: 'Rules',
+    title: 'Policy',
     body: 'business rules as code',
     rejects: 'recipient outside\ncompany domain',
   },
