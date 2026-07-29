@@ -31,7 +31,7 @@ The honest answer is that you don't. Not because the tools are immature, but bec
 
 **1. Access.** A personal agent runs on your credentials. Whatever you can read, it can read; whatever you can break, it can break, and the argument for never giving an agent raw keys is [a post of its own](/blog/stop-trusting-your-llm-to-behave). At organisational scale the problem compounds: forty agents on forty personal logins is a surface your security team cannot reason about. Who reviewed what the agent does with that access? What happens to the agent's standing infrastructure when its owner leaves? "Shadow IT, but autonomous" is not a phrase you want in an audit report.
 
-**2. Memory.** What your agent learns about your systems lives on your machine. The colleague two desks over runs the same investigation tomorrow, and their agent re-learns it from scratch. Organisations spent two decades fighting knowledge silos; the personal-assistant model rebuilds them and automates the digging of the moat.
+**2. Memory.** What your agent learns about your systems lives on your machine. The colleague two desks over runs the same investigation tomorrow, and their agent re-learns it from scratch. Organisations spent two decades fighting knowledge silos; the personal-assistant model rebuilds them one completed task at a time, automatically.
 
 **3. Surface.** The personal agent lives where its credentials live: your chat window, your laptop, sometimes your inbox. The moment someone wants to trigger the same automation from Teams during an incident call, or from a phone on a Saturday, the model breaks, because the execution is welded to one person's machine.
 
