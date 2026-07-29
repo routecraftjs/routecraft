@@ -39,7 +39,7 @@ export function Diagram({
       <Lightbox
         label={`Expand figure: ${alt}`}
         alt={alt}
-        caption={text || alt}
+        caption={text}
         image={figureImagePath(id)}
         imageDark={figureImagePath(id, 'dark')}
       >

@@ -53,17 +53,21 @@ export function Lightbox({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label={label}
-        className={clsx(
-          'group/lightbox block w-full cursor-zoom-in border-0 bg-transparent p-0',
-          className,
-        )}
-      >
+      {/* The trigger sits over the artwork rather than wrapping it. A button
+          may only contain phrasing content, and a figure is a div, so nesting
+          one inside the button is invalid markup and lets a screen reader
+          flatten the drawing into the button's name. An empty labelled button
+          stretched across the artwork keeps the same click target and focus
+          behaviour with a valid tree. */}
+      <div className={clsx('group/lightbox relative', className)}>
         {children}
-      </button>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label={label}
+          className="absolute inset-0 h-full w-full cursor-zoom-in border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cobalt-500"
+        />
+      </div>
 
       <Dialog
         open={open}

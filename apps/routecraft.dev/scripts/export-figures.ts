@@ -2,11 +2,11 @@
 /**
  * Renders every blog figure to a PNG under `public/images/figures/`.
  *
- * A figure is HTML and CSS inside an SVG `<foreignObject>` (see ScaledFrame),
- * which only a browser lays out: exporting to a standalone `.svg` produces a
- * blank box when it is loaded through an `<img>` tag, and Satori (what the OG
- * images use) cannot render one either. So the export drives a real browser
- * over the built `/figures/<id>/` pages and screenshots the figure element.
+ * A figure is a DOM drawing: HTML and CSS scaled by ScaledFrame, which only a
+ * browser lays out. There is no vector form to export (the drawing is not SVG),
+ * and Satori, which renders the OG images, cannot lay one out either. So the
+ * export drives a real browser over the built `/figures/<id>/` pages and
+ * screenshots the figure element.
  *
  * The PNGs are committed rather than built in CI: they change only when a
  * figure changes, and keeping them out of the build means the Pages workflow
@@ -137,7 +137,10 @@ async function main() {
   await mkdir(imageDir, { recursive: true })
 
   const server = await serveExport()
+  // A listening server holds the event loop open, so a launch failure here has
+  // to close it or the CLI prints the hint and then hangs instead of exiting.
   const browser = await chromium.launch().catch((error: unknown) => {
+    server.close()
     throw new Error(
       `Could not launch Chromium. Install it with \`bunx playwright install chromium\`.\n${String(error)}`,
     )

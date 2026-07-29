@@ -147,10 +147,15 @@ export function Guardrails() {
 function CodeBlock({ code, muted }: { code: string; muted?: boolean }) {
   return (
     <div
+      // The code cannot wrap, so on a narrow card the overflow has to be
+      // reachable rather than pushing the card wider than the viewport. A
+      // scroll container holding nothing focusable is unreachable by keyboard,
+      // so it is its own tab stop with a visible focus ring.
+      tabIndex={0}
+      role="region"
+      aria-label="Code sample"
       className={
-        // The code cannot wrap, so on a narrow card the overflow has to be
-        // reachable rather than pushing the card wider than the viewport.
-        'overflow-x-auto border border-ink/15 bg-paper-deep/40 px-4 py-4 ' +
+        'overflow-x-auto border border-ink/15 bg-paper-deep/40 px-4 py-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cobalt-500 ' +
         (muted ? 'opacity-70' : '')
       }
     >

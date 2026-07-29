@@ -32,9 +32,12 @@ const DRAWINGS: FigureDrawing[] = [
  */
 const FIGURES: FigureDefinition[] = DRAWINGS.map((drawing) => {
   const text = FIGURE_TEXT[drawing.id]
-  if (!text) {
+  // Both fields are checked for content, not just presence: an empty alt is an
+  // unnamed image to a screen reader and an empty markdown alt in the raw
+  // build, which is exactly what this guard exists to prevent.
+  if (!text?.alt?.trim() || !text?.caption?.trim()) {
     throw new Error(
-      `[figures] no alt or caption in manifest.mjs for figure: ${drawing.id}`,
+      `[figures] manifest.mjs needs a non-empty alt and caption for figure: ${drawing.id}`,
     )
   }
   return { ...drawing, ...text }

@@ -54,10 +54,10 @@ Blog diagrams are React components, not images. Each one lives in
 composition never reflows: the same drawing at every width, just smaller.
 
 A figure is authored across two files. The **drawing** is the `.tsx`; its **words** (`alt`
-and `caption`) live in `figures/manifest.mjs`, keyed by id. That split exists because the
+and `caption`) live in `apps/routecraft.dev/src/components/figures/manifest.mjs`, keyed by id. That split exists because the
 words have to be readable without loading JSX: the prebuild that writes `public/raw/**` and
 the markdoc cleaner both need them, and the cleaner also runs inside the webpack config where
-TypeScript type stripping is not guaranteed. `index.ts` joins the two and throws if a drawing
+TypeScript type stripping is not guaranteed. `apps/routecraft.dev/src/components/figures/index.ts` joins the two and throws if a drawing
 has no entry, so the halves cannot drift apart silently.
 
 Every figure ships in two resolutions, because it renders on surfaces with very different
@@ -104,7 +104,7 @@ first measurement and `tailwind.css` carries a `@media (scripting: none)` fallba
 
 ### In raw markdown, a figure is an image
 
-`{% diagram %}` is meaningless off the site, so `clean-markdoc.mjs` turns it into a real
+`{% diagram %}` is meaningless off the site, so `apps/routecraft.dev/src/lib/clean-markdoc.mjs` turns it into a real
 markdown image of the light PNG, with the figure's `alt` and its caption in italics beneath.
 That is what `public/raw/blog/<slug>.md` and the "copy page" button emit, so a cross-post to
 dev.to or an LLM reading the raw file gets the artwork and a description rather than an
@@ -130,7 +130,7 @@ Every figure therefore has its own page at `/figures/<id>/`, which shows the dra
 authored size next to the URLs and markdown snippet for its PNGs. `/figures/` is the gallery.
 Both are `noindex`: they are utility surfaces, not arguments.
 
-The PNGs are produced by `scripts/export-figures.ts`, which serves the built export, drives
+The PNGs are produced by `apps/routecraft.dev/scripts/export-figures.ts`, which serves the built export, drives
 Chromium over each figure page, and writes two files per figure at 2x:
 `<id>.png` (light) and `<id>-dark.png`. Light is the unsuffixed default because it is the
 safer choice on a surface whose background we do not control, and because one guessable URL
@@ -149,7 +149,7 @@ file overwrite another's dark one.
 Run it whenever a figure changes, and commit the PNGs; the site itself serves them, so a
 skipped export ships a post whose figure enlarges to the previous drawing. They are checked in
 rather than built in CI so the Pages workflow never has to install a browser. The page and the script agree on
-the output path and the screenshot marker through `src/lib/figure-image.ts`; keep new
+the output path and the screenshot marker through `apps/routecraft.dev/src/lib/figure-image.ts`; keep new
 surfaces reading from there rather than hardcoding `/images/figures/`.
 
 ## Capability project structure (public-surface file)

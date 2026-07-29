@@ -98,8 +98,12 @@ export default async function FigurePage({
                 {theme}
               </dt>
               <dd>
+                {/* Links the same absolute URL it displays. A root-relative
+                    href would disagree with the text under a basePath
+                    deployment, and this page exists to hand over the exact URL
+                    to hotlink. */}
                 <a
-                  href={figureImagePath(id, theme)}
+                  href={absoluteUrl(figureImagePath(id, theme))}
                   className="font-mono text-sm break-all text-cobalt-500 hover:underline"
                 >
                   {absoluteUrl(figureImagePath(id, theme))}
