@@ -14,9 +14,8 @@ tags:
   - mcp
   - capabilities
 related:
-  - beyond-the-skills-repository
-  - stop-trusting-your-llm-to-behave
   - anatomy-of-a-team-agent-harness
+  - beyond-the-skills-repository
 diagram: single-player-vs-multiplayer
 layout: blog-post
 ---
@@ -59,16 +58,20 @@ The agents do not disappear in this model. They get *better*, because a capabili
 
 A concrete shape: incident triage at a major European bank. When a system misbehaves, the first minutes go to gathering facts, and the lookups behind those facts become shared capabilities: pull the incident's context from the ticket system, fetch the logs that matter, trace which systems called which, check whether a record is in sync between the primary system and its copies.
 
-Each lookup is small, predictable, and read-only. And each one serves three consumers at once: a junior engineer runs them step by step and learns how triage works; a senior runs the one lookup they need in seconds instead of six browser tabs; an agent chains all of them and reports which calls fail and which records disagree before anyone has found the right dashboard. Same capabilities, same access rules, same audit trail, three very different users.
+Each lookup is small, predictable, and read-only, and the same few of them cover work that looks nothing alike. Someone runs one directly because they know exactly which fact is missing. Someone else describes the problem to the assistant they already have open and never touches the individual lookups at all. A written procedure captures the order for a situation that recurs. A scheduled run does the whole chain at three in the morning and reports that eleven records disagree, with nobody awake to ask. A new joiner, meanwhile, steps through them one at a time and learns how triage actually works. Same capabilities, same access rules, same audit trail.
 
-We are building exactly this shape with that bank now. It began as one engineer's personal automation, made it through the bank's review as a proof of concept, and is a funded project with multiple contributors today. The point of the multiplayer model is that this is a legitimate path: from "my script" to "our infrastructure" is a deployment and an identity layer, not a rewrite. And the shape is not a banking shape: the same pattern fits a logistics team tracing shipments, a law firm assembling case files, or a clinic reconciling appointments against billing.
+We are building exactly this shape with that bank now. It began as one engineer's personal automation, made it through the bank's review as a proof of concept, and is a funded project with multiple contributors today. The point of the multiplayer model is that this is a legitimate path: from "my script" to "our infrastructure" is a deployment and an identity layer, not a rewrite. The capabilities are the part that has to be fixed; the order they are called in does not. A rigid workflow runs every step whether it earns its place or not, so ask it about a log line and it will still go and fetch the API specification, because that is what step three says. Chosen at the moment it is needed, by a person, by a written procedure, or by a model reading the evidence in front of it, those same few capabilities cover cases nobody enumerated in advance. And the shape is not a banking shape: the same pattern fits a logistics team tracing shipments, a law firm assembling case files, or a clinic reconciling appointments against billing.
 
 ## The uncomfortable summary
 
 Single-player agents are a local maximum. They demo brilliantly, they genuinely help individuals, and they cannot be rolled out, because access, memory, surface, reuse, and audit all assume an organisation-shaped answer that the personal model cannot give.
 
-The organisations that get leverage from agents in the next few years will be the ones that treat capabilities as shared, governed infrastructure and let every human and every agent in the building stand on them. The ones that hand out personal assistants will get forty demos and a security review that never ends.
+The organisations that get leverage from agents in the next few years will be the ones that treat capabilities as shared, governed infrastructure and let every human, every agent, and every automation in the building stand on them. The ones that hand out personal assistants will get forty demos and a security review that never ends.
 
-We build [Routecraft](/docs/introduction) at [DevOptix](https://devoptix.nl) because we believe the argument above: it is the capability layer, made concrete. For the companion piece, [a skills repository is not an automation platform](/blog/beyond-the-skills-repository) covers the maturity path most organisations are actually on.
+If you want to start, do not start with the agent. Pick the single lookup your team already runs by hand a dozen times a week, the one somebody has half-automated in a personal script. Deploy that one capability behind the sign-on you already have, with a service account scoped to exactly what it reads, and let one team call it from wherever they already work. One governed capability is worth more than forty demos, and it is the plank everything else stands on.
+
+Once a handful of those exist, the question changes shape: what should the agent standing on them actually be able to do? That is the subject of [anatomy of a team agent harness](/blog/anatomy-of-a-team-agent-harness), and the maturity path most organisations are climbing to get there is in [a skills repository is not an automation platform](/blog/beyond-the-skills-repository).
+
+We build [Routecraft](/docs/introduction) at [DevOptix](https://devoptix.nl) because we believe the argument above: it is the capability layer, made concrete.
 
 What never changes is who answers for it. When something goes wrong, somebody has to say which agent did what, on whose behalf, and why it was allowed. A shared capability layer can answer that, because every call arrives with a person attached and leaves a record behind it. Forty personal setups cannot answer it at all. That is the difference between forty demos and infrastructure your whole organisation can stand on.
