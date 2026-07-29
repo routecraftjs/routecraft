@@ -39,7 +39,9 @@ This is the difference between an agent that is *used* and an agent that *accumu
 
 ## Primitive 3: self-aware capability gaps
 
-The most underrated thing an agent can know is what it cannot do. A team harness makes that knowledge productive: when the agent is blocked mid-task because a capability is missing (no access to the planning system that would confirm a delivery date, no connection to the archive that holds the signed contract), it does not shrug into the chat. It **files a request**. What it was trying to accomplish, which access it lacked, why that access would have changed the outcome, and what it would have concluded with it.
+The most underrated thing an agent can know is what it cannot do. A team harness makes that knowledge productive: when the agent is blocked mid-task because a capability is missing (no access to the planning system that would confirm a delivery date, no connection to the archive that holds the signed contract), it does not shrug into the chat. It has two ways out, and a good harness takes both.
+
+If a person can simply supply what is missing, it asks. An email, or a message on whichever channel fits, and the answer unblocks the task in front of it: that is primitive 1 doing its work on a missing fact rather than a missing decision. If the gap is structural, something it will hit again next week and the week after, it **files a request** instead: what it was trying to accomplish, which access it lacked, why that access would have changed the outcome, and what it would have concluded with it.
 
 That request is written at the moment of failure, with the full context still loaded. It is better than most tickets people write. And it turns the list of things to build next into an evidence-ranked queue instead of a brainstorm: the requests that block the most real work rise to the top on their own. The agent identifies its own gaps; humans review, approve, and grant access; and increasingly the new capability itself is drafted by an agent from that very request. The boundary that keeps this safe is one sentence. The agent **requests** capabilities, it never grants them.
 
