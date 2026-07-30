@@ -66,12 +66,10 @@ We are building exactly this shape with that bank now. It began as one engineer'
 
 Single-player agents are a local maximum. They demo brilliantly, they genuinely help individuals, and they cannot be rolled out, because access, memory, surface, reuse, and audit all assume an organisation-shaped answer that the personal model cannot give.
 
-The organisations that get leverage from agents in the next few years will be the ones that treat capabilities as shared, governed infrastructure and let every human, every agent, and every automation in the building stand on them. The ones that hand out personal assistants will get forty demos and a security review that never ends.
+The organisations that get leverage from agents in the next few years will be the ones that treat capabilities as shared, governed infrastructure and let every human, every agent, and every automation in the building stand on them. The ones that hand out personal assistants will get forty demos and a security review that never ends, because when something goes wrong, nobody can say which agent did what, on whose behalf, or why it was allowed. A capability layer can always answer that question: every call arrives with a person attached and leaves a record behind it.
 
 If you want to start, do not start with the agent. Pick the single lookup your team already runs by hand a dozen times a week, the one somebody has half-automated in a personal script. Deploy that one capability behind the sign-on you already have, with a service account scoped to exactly what it reads, and let one team call it from wherever they already work. One governed capability is worth more than forty demos, and it is the plank everything else stands on.
 
 Once a handful of those exist, the question changes shape: what should the agent standing on them actually be able to do? That is the subject of [anatomy of a team agent harness](/blog/anatomy-of-a-team-agent-harness), and the maturity path most organisations are climbing to get there is in [a skills repository is not an automation platform](/blog/beyond-the-skills-repository).
 
 We build [Routecraft](/docs/introduction) at [DevOptix](https://devoptix.nl) because we believe the argument above: it is the capability layer, made concrete.
-
-What never changes is who answers for it. When something goes wrong, somebody has to say which agent did what, on whose behalf, and why it was allowed. A shared capability layer can answer that, because every call arrives with a person attached and leaves a record behind it. Forty personal setups cannot answer it at all. That is the difference between forty demos and infrastructure your whole organisation can stand on.
