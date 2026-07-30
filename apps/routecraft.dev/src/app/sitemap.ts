@@ -111,7 +111,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     // which would tell crawlers every post changed on every deploy. A malformed
     // date is omitted rather than passed on as an Invalid Date, which would make
     // Next throw while serialising lastmod and fail the whole sitemap build.
-    for (const post of getPublishedPosts()) {
+    // Cross-posts (frontmatter `canonical` pointing at another site) are
+    // skipped: their pages canonicalise elsewhere, so listing them here would
+    // claim URLs the site tells crawlers not to index in our favour.
+    for (const post of getPublishedPosts().filter((p) => !p.canonical)) {
       const lastModified = new Date(lastModifiedDate(post))
       routes.push({
         url: `${baseUrl}/blog/${post.slug}/`,
@@ -138,9 +141,20 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.7,
   })
 
-  // Add raw markdown files for AI crawlers and direct access
+  // Add raw markdown files for AI crawlers and direct access. The raw files
+  // of cross-posted blog articles are skipped like their HTML pages: the
+  // article's canonical home is elsewhere, so this site should not offer the
+  // content for indexing (the file itself stays served, with its attribution
+  // line, for readers and direct links).
+  const crossPostRawUrls = new Set(
+    getPublishedPosts()
+      .filter((post) => post.canonical)
+      .map((post) => `/raw/blog/${post.slug}.md`),
+  )
   const rawDir = path.join(process.cwd(), 'public', 'raw')
-  const rawPages = collectRawMarkdown(rawDir, '/raw')
+  const rawPages = collectRawMarkdown(rawDir, '/raw').filter(
+    ({ url }) => !crossPostRawUrls.has(url),
+  )
   for (const { url, mtime } of rawPages) {
     routes.push({
       url: `${baseUrl}${url}`,

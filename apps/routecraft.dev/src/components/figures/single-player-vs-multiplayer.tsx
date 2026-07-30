@@ -12,7 +12,7 @@ import {
 } from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
 import type {
-  FigureDefinition,
+  FigureDrawing,
   FigureProps,
   MotifProps,
 } from '@/components/figures/types'
@@ -256,10 +256,8 @@ function Motif({ palette, size }: MotifProps) {
   )
 }
 
-export const singlePlayerVsMultiplayer: FigureDefinition = {
+export const singlePlayerVsMultiplayer: FigureDrawing = {
   id: 'single-player-vs-multiplayer',
-  alt: 'Left: six identical agents, each on its own laptop with its own key and memory. Right: laptop, chat, phone and agent all entering through one SSO front door into three shared capabilities backed by platform-owned service accounts.',
-  caption: 'Single-player agents, and the multiplayer alternative.',
   width: WIDTH,
   height: HEIGHT,
   Figure,

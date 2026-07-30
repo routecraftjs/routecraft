@@ -42,6 +42,14 @@ export interface BlogPostMeta {
   diagram?: string
   /** Explicit follow-up posts (slugs); overrides the tag-based suggestions. */
   related?: string[]
+  /**
+   * Absolute URL of the canonical publication when this post is a cross-post
+   * of an article whose home is elsewhere (e.g. devoptix.nl). Drives the
+   * canonical link tag, `og:url`, JSON-LD `mainEntityOfPage`, the sitemap
+   * exclusion, and the visible attribution line on the post page. Mirrors the
+   * same field in the devoptix.nl blog frontmatter, pointing the other way.
+   */
+  canonical?: string
   readingTime: number
   href: string
 }
@@ -100,6 +108,10 @@ function readPost(blogDir: string, slug: string): BlogPostMeta | undefined {
       typeof data.coverGlyph === 'string' ? data.coverGlyph : undefined,
     diagram: typeof data.diagram === 'string' ? data.diagram : undefined,
     related: Array.isArray(data.related) ? data.related.map(String) : undefined,
+    canonical:
+      typeof data.canonical === 'string' && /^https?:\/\//.test(data.canonical)
+        ? data.canonical
+        : undefined,
     readingTime:
       typeof data.readingTime === 'number'
         ? data.readingTime

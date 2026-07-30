@@ -1,18 +1,17 @@
 import { fourGates } from '@/components/figures/four-gates'
 import { handsNotKeys } from '@/components/figures/hands-not-keys'
+import { FIGURE_TEXT } from '@/components/figures/manifest.mjs'
 import { maturityLadder } from '@/components/figures/maturity-ladder'
 import { serverVsDoorway } from '@/components/figures/server-vs-doorway'
 import { singlePlayerVsMultiplayer } from '@/components/figures/single-player-vs-multiplayer'
 import { teamAgentHarness } from '@/components/figures/team-agent-harness'
-import type { FigureDefinition } from '@/components/figures/types'
+import type {
+  FigureDefinition,
+  FigureDrawing,
+} from '@/components/figures/types'
 
-/**
- * Every blog figure, keyed by the id used in post frontmatter (`diagram:`) and
- * in the `{% diagram %}` tag. A post's first figure is normally the one it
- * declares as `diagram:`, which is what the cover, the card, and the social
- * image draw their artwork from.
- */
-const FIGURES: FigureDefinition[] = [
+/** The drawings, in the order the gallery and the export walk them. */
+const DRAWINGS: FigureDrawing[] = [
   singlePlayerVsMultiplayer,
   maturityLadder,
   handsNotKeys,
@@ -20,6 +19,29 @@ const FIGURES: FigureDefinition[] = [
   serverVsDoorway,
   teamAgentHarness,
 ]
+
+/**
+ * Every blog figure, keyed by the id used in post frontmatter (`diagram:`) and
+ * in the `{% diagram %}` tag. A post's first figure is normally the one it
+ * declares as `diagram:`, which is what the cover, the card, and the social
+ * image draw their artwork from.
+ *
+ * A drawing is joined here to its words from `manifest.mjs`. A drawing with no
+ * entry there would render an unnamed image and an empty markdown alt, so it
+ * fails the build instead.
+ */
+const FIGURES: FigureDefinition[] = DRAWINGS.map((drawing) => {
+  const text = FIGURE_TEXT[drawing.id]
+  // Both fields are checked for content, not just presence: an empty alt is an
+  // unnamed image to a screen reader and an empty markdown alt in the raw
+  // build, which is exactly what this guard exists to prevent.
+  if (!text?.alt?.trim() || !text?.caption?.trim()) {
+    throw new Error(
+      `[figures] manifest.mjs needs a non-empty alt and caption for figure: ${drawing.id}`,
+    )
+  }
+  return { ...drawing, ...text }
+})
 
 const BY_ID = new Map(FIGURES.map((figure) => [figure.id, figure]))
 
@@ -32,6 +54,14 @@ if (process.env.NODE_ENV !== 'production' && BY_ID.size !== FIGURES.length) {
       console.warn(`[figures] duplicate figure id: ${figure.id}`)
     seen.add(figure.id)
   }
+}
+
+/**
+ * Every figure, in declaration order. Backs the `/figures` gallery and the
+ * static params of `/figures/[id]`, which is also what the PNG export walks.
+ */
+export function allFigures(): readonly FigureDefinition[] {
+  return FIGURES
 }
 
 export function getFigure(

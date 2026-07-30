@@ -8,7 +8,7 @@ import {
 } from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
 import type {
-  FigureDefinition,
+  FigureDrawing,
   FigureProps,
   MotifProps,
 } from '@/components/figures/types'
@@ -246,11 +246,8 @@ function Motif({ palette, size }: MotifProps) {
   )
 }
 
-export const teamAgentHarness: FigureDefinition = {
+export const teamAgentHarness: FigureDrawing = {
   id: 'team-agent-harness',
-  alt: 'A harness boundary holding four primitives (delegation, shared memory, capability gaps, channels) around a central model doing judgement only, sitting on three platform rules.',
-  caption:
-    'The four primitives of a team agent harness, and the model in the middle.',
   width: WIDTH,
   height: HEIGHT,
   Figure,

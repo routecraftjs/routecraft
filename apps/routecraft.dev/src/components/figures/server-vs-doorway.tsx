@@ -9,7 +9,7 @@ import {
   FigureCanvas,
 } from '@/components/figures/primitives'
 import type {
-  FigureDefinition,
+  FigureDrawing,
   FigureProps,
   MotifProps,
 } from '@/components/figures/types'
@@ -250,10 +250,8 @@ function Motif({ palette, size }: MotifProps) {
   )
 }
 
-export const serverVsDoorway: FigureDefinition = {
+export const serverVsDoorway: FigureDrawing = {
   id: 'server-vs-doorway',
-  alt: 'Left: an agent calling an MCP server that holds three tools. Right: MCP, cron and HTTP all entering one Routecraft capability, which in turn calls other MCP servers and hosts the agent.',
-  caption: 'Is the MCP server the product, or one doorway into the product?',
   width: WIDTH,
   height: HEIGHT,
   Figure,

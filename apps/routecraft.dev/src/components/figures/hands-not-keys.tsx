@@ -10,7 +10,7 @@ import {
 } from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
 import type {
-  FigureDefinition,
+  FigureDrawing,
   FigureProps,
   MotifProps,
 } from '@/components/figures/types'
@@ -71,7 +71,7 @@ function Hand({ palette, name }: { palette: FigurePalette; name: string }) {
       >
         {name}
       </div>
-      {['input', 'rules', 'identity', 'intent'].map((gate, i, all) => (
+      {['input', 'policy', 'identity', 'intent'].map((gate, i, all) => (
         <div
           key={gate}
           style={{
@@ -252,10 +252,8 @@ function Motif({ palette, size }: MotifProps) {
   )
 }
 
-export const handsNotKeys: FigureDefinition = {
+export const handsNotKeys: FigureDrawing = {
   id: 'hands-not-keys',
-  alt: 'Left: an agent holding one key that opens a door to a database, email, deploy and payments. Right: the same agent reaching two named tools, each stacked with an input, rules, identity and intent gate.',
-  caption: 'Keys open everything behind them. Hands only press what you built.',
   width: WIDTH,
   height: HEIGHT,
   Figure,

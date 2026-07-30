@@ -7,6 +7,7 @@
     "prebuild": "node --experimental-strip-types scripts/generate-docs-next.mjs && node --experimental-strip-types scripts/generate-raw-docs.mjs && node --experimental-strip-types scripts/generate-route-shims.mjs",
     "build": "next build --webpack",
     "start": "bunx serve@latest out",
+    "figures:export": "bun scripts/export-figures.ts",
     "lint": "eslint ."
   },
   "browserslist": "defaults, not ie <= 11",
@@ -41,6 +42,7 @@
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.2.10",
+    "playwright": "^1.62.0",
     "prettier": "^3.9.5",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "sharp": "^0.35.3"

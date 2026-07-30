@@ -485,25 +485,16 @@ function RoutecraftLogomark({
   )
 }
 
-// Responsive scaler. Wraps the fixed 1200x630 <BlogCover /> in an SVG with a
-// viewBox so the cover scales natively (no JS, no fragile transforms).
-//
-// Two modes:
-//  - default: width 100%, height auto. The SVG defines its own height from the
-//    1200:630 ratio. Use when the container matches that aspect (the blog grid
-//    cards) or has no fixed height.
-//  - fill: the SVG fills its (positioned) parent and crops like
-//    `object-fit: cover`, anchored left so the title stays in frame. Use when
-//    the container's aspect differs (featured card, home teaser column).
+// Responsive scaler: fits the fixed 1200x630 <BlogCover /> to whatever width
+// the container offers, keeping the 1200:630 ratio. See ScaledFrame for how the
+// scaling works and why it is not an SVG viewBox.
 export function BlogCoverFrame({
   children,
   className,
-  fill = false,
   label,
 }: {
   children: React.ReactNode
   className?: string
-  fill?: boolean
   /**
    * Accessible name for the artwork. Set it when the cover carries a figure
    * motif, which means something; leave it unset for the letter glyph, which is
@@ -516,7 +507,6 @@ export function BlogCoverFrame({
       width={COVER_WIDTH}
       height={COVER_HEIGHT}
       className={className}
-      fill={fill}
       role={label ? 'img' : 'presentation'}
       label={label}
     >
@@ -530,16 +520,14 @@ export function BlogCoverFrame({
 // image path renders <BlogCover /> directly with its literal-name defaults.
 export function BlogCoverInline({
   className,
-  fill,
   ...props
-}: BlogCoverProps & { className?: string; fill?: boolean }) {
+}: BlogCoverProps & { className?: string }) {
   // The title is adjacent text on every surface that renders a cover, so the
   // accessible name describes the artwork alone and does not repeat it.
   const motif = getFigure(props.diagram)
   return (
     <BlogCoverFrame
       className={['blog-cover', className].filter(Boolean).join(' ')}
-      fill={fill}
       label={motif?.alt}
     >
       <BlogCover
