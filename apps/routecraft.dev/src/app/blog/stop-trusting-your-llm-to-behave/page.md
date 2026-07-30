@@ -32,7 +32,7 @@ Earlier the same year, researchers disclosed that ROME, an agentic model built b
 
 And in mid-2025, Aim Security disclosed [EchoLeak](https://thehackernews.com/2025/06/zero-click-ai-vulnerability-exposes.html), a zero-click attack on Microsoft 365 Copilot: one crafted email, never opened by a human, was enough to make the assistant pull data from Outlook, SharePoint, and Teams and leak it through a trusted Microsoft domain, triggered by nothing more than the victim asking Copilot an ordinary question. Rated 9.3 out of 10 in severity; Microsoft patched it server-side.
 
-A coding agent with a found credential. A training run with idle capacity. An assistant with a poisoned inbox. Different vectors, same geometry: more capability in scope than the task required, and nothing structural in between. Simon Willison calls the sharpest version of that shape the [lethal trifecta](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/): an agent with access to private data, exposure to untrusted content, and a channel to the outside world is one carefully crafted message away from leaking whatever it can read. Notice what is not on that list: a malicious model. In the ROME case there was no attacker at all, and in an attack like EchoLeak the model is not betraying you. It is doing exactly what it was built to do: follow instructions, including the ones an attacker planted in its reading material.
+A coding agent with a found credential. A training run with idle capacity. An assistant with a poisoned inbox. Same geometry every time: more capability in scope than the task required, nothing structural in between, and no malicious model anywhere, just one doing what it was built to do, following instructions, including the ones an attacker planted in its reading material. Simon Willison calls that shape the [lethal trifecta](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/): private data, untrusted content, and a channel to the outside world, all in one agent.
 
 ## What the industry is doing about it
 
@@ -62,15 +62,9 @@ Here is what they share. With the partial exception of the human, every one of t
 
 The vendors say so themselves, in their own documentation, about their own products. Microsoft's page for Prompt Shields ends by noting that it "may not catch all attack vectors or may flag legitimate prompts. Always implement additional validation layers." [OWASP's prevention guidance](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html) is blunter, observing that content filters "can be systematically defeated through sufficient variation attempts" and that the right posture is to treat all of this as one layer among several, never as a substitute for least-privilege tool scopes and human approval on destructive actions. Nobody serious claims otherwise. The overclaim lives in the gap between what the vendor documents and what the team deploying it assumes.
 
-**The judge has a sharper version of the problem**, and we walked into it designing our own agent. One of its pipelines ends by sending information to a named colleague, and the obvious safety measure was a judge at the end: check that what is about to be sent is genuinely relevant to that person, and does not leak something team-wide they should not see. It is an appealing design. It reads like a conscience.
+**The judge has the sharpest version of the problem.** The appealing design, and teams reach for it constantly, is a judge at the end of the pipeline: check that what is about to go out is appropriate, before it goes. It reads like a conscience. Do not build it that way, because the payload is exactly what an attacker controls, and whoever can influence the payload can write, into that same payload, the argument for why it is fine. The judge is not standing outside the attack. It is inside it. Judge the envelope, not the letter: who the recipient is, what scopes the caller holds, which record was requested, whether that record belongs to that person. Those are deterministic attributes the system produced itself, and no amount of clever writing in the body moves any of them.
 
-The objection that killed it was one sentence. Do not have the model judge the payload, because the payload is exactly what an attacker controls.
-
-Asking a model "is this content appropriate to send?" makes the judge injectable through the same content it is judging. Whoever can influence the payload can also write, in the same field, the argument for why the payload is fine. The judge is not standing outside the attack. It is inside it.
-
-So judge the envelope, not the letter. Not "does this text look appropriate for Sam", but: who is the recipient, what scopes does the caller hold, which record was requested, and does that record belong to that person. Those are deterministic attributes of the request. Our own system produced them, they are not prose, and no amount of clever writing in the body moves any of them. The letter is untrusted all the way down. The envelope is not.
-
-That generalises past our one pipeline. A model-based defence improves the base rate, sometimes dramatically, and it never changes what is possible. It has to hold every single time. An attacker needs it to fail once. And in the cases that matter, the thing you are asking it to reason about was written by the person trying to get past it. The [research literature](https://simonwillison.net/2025/Jun/13/prompt-injection-design-patterns/) has converged on the same conclusion: once an agent has ingested untrusted input, it must be constrained so that the input cannot trigger a consequential action at all.
+A model-based defence improves the base rate, sometimes dramatically, and it never changes what is possible. It has to hold every single time; an attacker needs it to fail once. The [research literature](https://simonwillison.net/2025/Jun/13/prompt-injection-design-patterns/) has converged on the same conclusion: once an agent has ingested untrusted input, it must be constrained so that the input cannot trigger a consequential action at all.
 
 ## Banks did not hire more honest tellers
 
@@ -86,19 +80,11 @@ This piece is that argument transposed. Classifiers, judges, and guardrail confi
 
 So what is the second signature for an agent? Here is the framing we keep coming back to when we design these systems: give the agent **hands, not keys**.
 
-Handing an agent keys looks like this: an access token with broad permissions, a direct database connection, a command line. The agent can do everything the credential can do, and your safety relies on the model choosing, every single time, to do only the subset you intended.
+Keys look like an access token with broad permissions, a direct database connection, a command line. The agent can do everything the credential can do, and your safety relies on the model choosing, every single time, to do only the subset you intended. Hands look like a small set of named functions, each doing one bounded thing and refusing everything else. The agent can press the buttons you built. It cannot build new buttons.
 
-Handing an agent hands looks like this: a small set of named functions, each accepting only a narrowly defined input, each doing one bounded thing and refusing everything else. The agent can press the buttons you built. It cannot build new buttons.
+The difference is where the boundary lives. With keys it is in the model's behaviour; with hands it is in your code, and code does not get sweet-talked. Keys are quicker: one credential, one afternoon, a working demo. Hands cost more up front, because someone has to design every button, and pay it back every day after, because broad access is harder to unpick once it is woven through your operation, and when something goes wrong, "what could the agent have done?" is answered with "anything".
 
-The difference is where the boundary lives. With keys, the boundary is in the model's behaviour. With hands, the boundary is in your code, and code does not get sweet-talked.
-
-{% diagram id="hands-not-keys" /%}
-
-There is an honest trade-off here. Handing over the keys is quicker to start with: one credential, one afternoon, a working demo. Bounded hands cost more up front, because someone has to design and build every button. But broad access is the expensive path in the long run. It is harder to unpick once it is woven through your operation, and far harder to debug, because when something goes wrong the answer to "what could the agent have done?" is "anything".
-
-## The four gates
-
-Concretely, a bounded capability stacks deterministic layers, each of which runs whether the model cooperates or not. None of the four is exotic. Each is a named practice that predates agents, pointed at a new kind of caller.
+A bounded hand stacks four deterministic gates, each of which runs whether the model cooperates or not. None of them is exotic. Each is a named practice that predates agents, pointed at a new kind of caller.
 
 {% diagram id="four-gates" /%}
 
@@ -169,13 +155,13 @@ The example is Routecraft because that is what we build at [DevOptix](https://de
 
 They are, and the objection deserves a straight answer. If next year's model is better aligned and harder to fool, does the deterministic layer stop mattering?
 
-No, and the reason has nothing to do with how good the model gets. Alignment improves the base rate; it does not produce a guarantee. A planted instruction sidesteps alignment entirely, because that attack never needed a misaligned model in the first place. Copilot was not misbehaving during EchoLeak. It was following instructions, which is the entire product. The people building the models document the same posture in their own agent guidance, and so does the protocol their tools speak: input, output, and tool guardrails, approval flows that pause before risky work continues, and servers that validate every tool input and enforce access control. The deterministic layer is not a workaround for today's models. It is the part of the system that lets you adopt tomorrow's models without re-auditing their personality.
+No, and the reason has nothing to do with how good the model gets. Alignment improves the base rate; it does not produce a guarantee. A planted instruction sidesteps alignment entirely, because that attack never needed a misaligned model in the first place. Copilot was not misbehaving during EchoLeak. It was following instructions, which is the entire product. The people building the models say the same in their own agent guidance: guardrail your inputs, outputs, and tools, and pause for approval before risky work continues. The deterministic layer is not a workaround for today's models. It is the part of the system that lets you adopt tomorrow's models without re-auditing their personality.
 
 There is a better use for all that improving capability than trusting it at runtime. Point it at build time instead. Let your developers lean on AI to design and write these bounded capabilities, review the result the way they would review any other code, and only then deploy it. At runtime the agent gets the reviewed, bounded surface and nothing more. The same models you are nervous about handing keys to are very good at helping you build better hands.
 
 Then there is the limit no amount of capability crosses. When an automated decision goes wrong, someone answers for it, and accountability does not transfer to the thing that acted. It stays with whoever chose to deploy it. So take it deliberately, and give the system only the access it needs, because you can only stand behind behaviour you can bound.
 
-That is not only an ethical position. It is why bounded agents ship at all. Teams that wrap agents in enforced capabilities get them into production; teams that hand over keys either get burned or, far more often, get stuck, because a reviewer asked what the agent could do and "anything" was the honest answer. A bounded agent is an approvable agent, because a bounded agent is one somebody can put their name to. Constraints are not the tax on the demo. They are the price of leaving it.
+That is not only an ethical position. It is why bounded agents ship at all. Teams that wrap agents in enforced capabilities get them into production; teams that hand over keys either get burned or get stuck in security review. A bounded agent is an approvable agent, because a bounded agent is one somebody can put their name to. Constraints are not the tax on the demo. They are the price of leaving it.
 
 ## The boundary is yours
 

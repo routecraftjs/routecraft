@@ -71,7 +71,7 @@ function Hand({ palette, name }: { palette: FigurePalette; name: string }) {
       >
         {name}
       </div>
-      {['input', 'rules', 'identity', 'intent'].map((gate, i, all) => (
+      {['input', 'policy', 'identity', 'intent'].map((gate, i, all) => (
         <div
           key={gate}
           style={{

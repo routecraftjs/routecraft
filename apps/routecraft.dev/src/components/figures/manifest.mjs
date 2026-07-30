@@ -43,7 +43,7 @@ export const FIGURE_TEXT = {
     caption: 'The maturity ladder, and the stage most teams are standing on.',
   },
   'hands-not-keys': {
-    alt: 'Left: an agent holding one key that opens a door to a database, email, deploy and payments. Right: the same agent reaching two named tools, each stacked with an input, rules, identity and intent gate.',
+    alt: 'Left: an agent holding one key that opens a door to a database, email, deploy and payments. Right: the same agent reaching two named tools, each stacked with an input, policy, identity and intent gate.',
     caption:
       'Keys open everything behind them. Hands only press what you built.',
   },
