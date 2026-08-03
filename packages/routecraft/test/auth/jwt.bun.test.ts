@@ -851,6 +851,35 @@ describe("jwt()", () => {
     });
 
     /**
+     * @case A supplied scopes mapper replaces the default parse entirely
+     * @preconditions claims.scopes deliberately returns undefined; the token carries a top-level space-delimited scope claim
+     * @expectedResult principal.scopes is undefined; the authority-granting scope claim is not reinstated behind the mapper's decision
+     */
+    test("scopes mapper undefined result is not overridden by the default parser", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        claims: {
+          scopes: () => undefined,
+        },
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          scope: "kb:read kb:write",
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.scopes).toBeUndefined();
+    });
+
+    /**
      * @case A present-but-malformed top-level sub_profile rejects the token
      * @preconditions Token carries sub_profile: 123
      * @expectedResult Verification rejects, matching the fail-closed discipline of sub_profile inside act and may_act entries, so an exclusion predicate cannot pass an unclassified principal

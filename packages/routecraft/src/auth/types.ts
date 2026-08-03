@@ -18,7 +18,13 @@ export interface ClaimMappers {
   subject?: (payload: Record<string, unknown>) => string;
   /** Map to `Principal.clientId`. Default: `payload.client_id` then `azp`. */
   clientId?: (payload: Record<string, unknown>) => string;
-  /** Map to `Principal.scopes`. Default: space-split `payload.scope`. */
+  /**
+   * Map to `Principal.scopes`. Default: space-split `payload.scope`.
+   *
+   * Supplying this replaces the default parse entirely, including its
+   * undefined results: scopes grant authority, so a top-level `scope`
+   * claim is never reinstated behind a mapper that decided against it.
+   */
   scopes?: (payload: Record<string, unknown>) => string[] | undefined;
   /**
    * Map to `Principal.roles`. Default: `payload.roles` when it is an array

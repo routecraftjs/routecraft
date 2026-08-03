@@ -61,7 +61,7 @@ export function markAuthentic<P extends Principal>(principal: P): P {
   // input is neither mutated nor frozen as a side effect): the spread
   // above copies only references, so freezing in place would freeze the
   // caller's structures too.
-  cloneDelegationState(copy);
+  cloneDelegationState(copy, principal as Principal);
   freezeDelegationState(copy);
   const target = Object.freeze(copy) as P;
   authentic.add(target);
@@ -77,13 +77,21 @@ export function markAuthentic<P extends Principal>(principal: P): P {
  *
  * @internal
  */
-function cloneDelegationState(principal: Principal): void {
+function cloneDelegationState(principal: Principal, original: Principal): void {
   if (principal.roles) principal.roles = [...principal.roles];
   if (principal.scopes) principal.scopes = [...principal.scopes];
   if (principal.audience) principal.audience = [...principal.audience];
   if (principal.mayAct) principal.mayAct = cloneMatchers(principal.mayAct);
   if (principal.actor) {
-    principal.actor = cloneActor(principal.actor, new Map());
+    // Seed the map with the roots (the caller's original object and the
+    // fresh copy) so a hand-assembled chain that points back at either
+    // closes on the copy itself instead of minting an extra clone, which
+    // would shift the depth authorize() counts by one hop.
+    const seen = new Map<Principal, Principal>([
+      [original, principal],
+      [principal, principal],
+    ]);
+    principal.actor = cloneActor(principal.actor, seen);
   }
 }
 

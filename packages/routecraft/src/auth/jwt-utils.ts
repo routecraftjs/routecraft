@@ -120,11 +120,15 @@ export function principalFromJwtPayload(
   if (typeof payload["iss"] === "string") principal.issuer = payload["iss"];
   if (audience !== undefined) principal.audience = audience;
 
-  const scopes =
-    options.claims?.scopes?.(payload) ??
-    (typeof payload["scope"] === "string"
+  // Presence-checked for the same reason as `roles` below: scopes grant
+  // authority (authorize() reads them for RC5038), so a mapper that
+  // deliberately returns undefined must not have the top-level `scope`
+  // claim silently reinstated.
+  const scopes = options.claims?.scopes
+    ? options.claims.scopes(payload)
+    : typeof payload["scope"] === "string"
       ? (payload["scope"] as string).split(" ").filter(Boolean)
-      : undefined);
+      : undefined;
   if (scopes !== undefined) principal.scopes = scopes;
 
   // Presence-checked like the delegation mappers below, not `??`-chained:

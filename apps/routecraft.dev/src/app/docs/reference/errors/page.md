@@ -275,7 +275,7 @@ A mid-pipeline `.validate(authorize(...))` (or the pre-from `.authorize()` guard
 
 The check is also raised fail-closed when either `expiresAt` or `clockToleranceSec` is non-finite (`NaN`, `Infinity`); a numeric-coercion bug must not silently bypass the guard.
 
-The check is distinct from `RC5012` (no principal at all) and `RC5015` (principal failed a role / predicate check; a missing scope is `RC5038`) so clients can react accordingly: a `RC5020` signal almost always means "refresh and retry," whereas `RC5015` is a permanent denial under the current credentials.
+The check is distinct from `RC5012` (no principal at all) and `RC5015` (principal failed a role / predicate check; a missing scope is `RC5038`) so clients can react accordingly: an `RC5020` signal almost always means "refresh and retry," whereas `RC5015` is a permanent denial under the current credentials.
 
 **Suggestion**  
 - The client should refresh the bearer and retry the request.
