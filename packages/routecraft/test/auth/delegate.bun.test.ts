@@ -60,11 +60,11 @@ describe("delegate() helper", () => {
   });
 
   /**
-   * @case Scopes intersect across subject, ceiling, and actor; roles pass through
-   * @preconditions Subject has [mail:send, employees:read], ceiling [mail:send, kb:read], actor [mail:send, kb:read]
-   * @expectedResult Effective scopes are exactly [mail:send]; subject roles untouched
+   * @case Scopes intersect the subject with the consent ceiling; roles pass through
+   * @preconditions Subject has [mail:send, employees:read]; ceiling is [mail:send, kb:read]
+   * @expectedResult Effective scopes are exactly [mail:send]; subject roles untouched and the actor's own roles stay on the actor
    */
-  test("intersects scopes and passes roles through", () => {
+  test("intersects subject scopes with the ceiling and passes roles through", () => {
     const delegated = delegate(jaco(), zoeClaims, {
       scopes: ["mail:send", "kb:read"],
     });
@@ -72,6 +72,42 @@ describe("delegate() helper", () => {
     expect(delegated.scopes).toEqual(["mail:send"]);
     expect(delegated.roles).toEqual(["member", "admin"]);
     expect(delegated.actor?.roles).toEqual(["agent"]);
+  });
+
+  /**
+   * @case A user can delegate authority the agent does not hold standalone
+   * @preconditions Agent identity carries only read scopes; the subject holds kb:write and grants it
+   * @expectedResult The delegated principal carries kb:write. The actor's own scopes are not a term, so an agent that must never write on its own can still be granted write on a user's behalf (the shared system-account case)
+   */
+  test("grants authority the actor lacks on its own identity", () => {
+    const readOnlyAgent: PrincipalClaims = {
+      subject: "agent:zoe",
+      subjectProfile: "ai_agent",
+      issuer: EYWA_ISS,
+      scopes: ["kb:read"],
+    };
+    const subject = jaco({ scopes: ["kb:read", "kb:write"] });
+
+    const delegated = delegate(subject, readOnlyAgent, {
+      scopes: ["kb:write"],
+    });
+
+    expect(delegated.scopes).toEqual(["kb:write"]);
+    expect(delegated.actor?.scopes).toEqual(["kb:read"]);
+  });
+
+  /**
+   * @case The consent ceiling still cannot exceed what the subject holds
+   * @preconditions Subject holds only kb:read; the ceiling asks for kb:write as well
+   * @expectedResult Only kb:read survives, so removing the actor's scopes from the intersection did not create a widening path
+   */
+  test("ceiling cannot exceed the subject's own scopes", () => {
+    const subject = jaco({ scopes: ["kb:read"] });
+    const delegated = delegate(subject, zoeClaims, {
+      scopes: ["kb:read", "kb:write"],
+    });
+
+    expect(delegated.scopes).toEqual(["kb:read"]);
   });
 
   /**

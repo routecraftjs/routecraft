@@ -14,12 +14,22 @@ export interface DelegateOptions {
   /**
    * Scope ceiling from the caller's consent mechanism (an OAuth grant, a
    * grant table, static config). Effective scopes on the delegated
-   * principal are ALWAYS the intersection of the subject's scopes, this
-   * ceiling, and the actor's own scopes; omitting the ceiling intersects
-   * only subject and actor. Roles are never intersected: the subject's
-   * roles pass through (they describe who the subject IS, RFC 9068
-   * section 2.2.3.1), and the actor's own roles stay on `actor.roles`
-   * for matching.
+   * principal are the intersection of the subject's scopes and this
+   * ceiling; omitting it leaves the subject's scopes as they are.
+   *
+   * The actor's OWN scopes are deliberately NOT a term. They describe what
+   * the actor may do under its own identity (when it is the subject of an
+   * autonomous run), which is a different question from what a user may
+   * delegate to it. Intersecting them would make it impossible to grant an
+   * agent something it must never do standalone: an agent with no write
+   * access of its own could never be granted write access on a user's
+   * behalf, because the term it lacks would strip the grant. Delegated
+   * authority derives from the subject and the consent record; the actor's
+   * reachability is enforced by `authorize({ actor })` at each route.
+   *
+   * Roles are never intersected either: the subject's roles pass through
+   * (they describe who the subject IS, RFC 9068 section 2.2.3.1), and the
+   * actor's own roles stay on `actor.roles` for matching.
    */
   scopes?: string[];
   /** Consent record id to carry on the delegated principal for audit. */
@@ -91,8 +101,10 @@ function intersect(
  * Semantics (see the delegation table in the docs):
  *
  * - `subject`, `roles`, `claims`, `email`, `name` pass through unchanged.
- * - `scopes` become the intersection of the subject's scopes, the
- *   `options.scopes` ceiling, and the actor's own scopes.
+ * - `scopes` become the intersection of the subject's scopes and the
+ *   `options.scopes` ceiling. The actor's own scopes are NOT a term (see
+ *   {@link DelegateOptions.scopes}): an agent must be grantable something
+ *   it may never do standalone.
  * - `actor` is set to the minted actor principal; a pre-existing actor
  *   nests one level down, expressing the chain (RFC 8693 section 4.1).
  *   The outermost entry is the current actor.
@@ -156,7 +168,7 @@ export function delegate(
     }
   }
 
-  const scopes = intersect(subject.scopes, options.scopes, actor.scopes);
+  const scopes = intersect(subject.scopes, options.scopes);
 
   const chainedActor: Principal =
     subject.actor === undefined

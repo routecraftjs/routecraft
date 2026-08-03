@@ -25,10 +25,24 @@ Delegation semantics (also the contract of the underlying `delegate()` helper, i
 | Field | On delegation |
 |-------|---------------|
 | `subject`, `roles`, `claims`, `email`, `name` | Pass through unchanged. Roles are subject attributes (RFC 9068): they describe who the action is for. |
-| `scopes` | `intersect(subject.scopes, ceiling, actor.scopes)`. Scopes are credential capabilities: they narrow at every hop and can never widen. A ceiling over a scope-less subject grants nothing. |
+| `scopes` | `intersect(subject.scopes, ceiling)`. Scopes are credential capabilities: they narrow at every hop and can never widen. A ceiling over a scope-less subject grants nothing. The actor's own scopes are deliberately not a term, see below. |
 | `actor` | Set to the new actor. A pre-existing actor nests one level down, expressing the chain; the outermost entry is the current actor. |
 | `expiresAt` | The earlier of the subject's and the actor's expiry. |
 | Authenticity | The result carries a fresh brand. The input must already be authentic. |
+
+## Why the actor's own scopes are not intersected
+
+An agent's own scopes say what it may do **as itself**, which is a different question from what a user may delegate **to** it. Folding them into the intersection would make the most common shape inexpressible.
+
+Consider a capability backed by a shared system account (an API key to a knowledge base, an HR system, a billing provider). There is no "the agent's own write access" for a scope to attach to: one credential serves everyone, and the only real question is whether the caller may invoke the write route. An agent that is deliberately read-only by default holds no `kb:write`, so intersecting its scopes would strip the very grant a user just issued.
+
+```ts
+// The agent may never write on its own. A user can still grant it.
+const readOnlyAgent = { subject: 'agent:zoe', subjectProfile: 'ai_agent', scopes: ['kb:read'] }
+delegate(userWithWrite, readOnlyAgent, { scopes: ['kb:write'] }).scopes // ['kb:write']
+```
+
+Two properties keep this safe. The ceiling can never exceed what the subject holds, so consent still only narrows. And which routes an actor may reach at all is enforced separately by `authorize({ actor })`, which is the gate that decides agent reachability. Confused-deputy protection is unaffected: the delegated scopes derive from the subject, so an actor cannot exercise its own elevated access while acting for a less-privileged subject.
 
 Failure modes:
 

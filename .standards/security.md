@@ -187,11 +187,26 @@ surface of `authorize()`. Grounded in RFC 8693 (`act` / `may_act`), RFC 9068
   `mayAct` check and the scope intersection. `mayAct` is still accepted at
   mint: it describes the subject, like roles.
 - **Delegation narrows scopes, and only scopes.** Effective scopes become
-  `intersect(subject, ceiling, actor)`. Roles are NOT intersected: they live in
-  different namespaces (a user's `["employee"]` and an agent's `["agent"]`
-  intersect to nothing), and per RFC 9068 § 2.2.3.1 roles are subject
-  attributes, authorization *outside* delegation. A ceiling over a scope-less
-  subject grants nothing, never the ceiling.
+  `intersect(subject, ceiling)`. A ceiling over a scope-less subject grants
+  nothing, never the ceiling, so consent can only narrow what the subject
+  already holds.
+  - **Roles are NOT intersected**: they live in different namespaces (a user's
+    `["employee"]` and an agent's `["agent"]` intersect to nothing), and per
+    RFC 9068 § 2.2.3.1 roles are subject attributes, authorization *outside*
+    delegation.
+  - **The actor's own scopes are NOT a term either.** They describe what the
+    actor may do as its own subject, which is a different question from what a
+    user may delegate to it. Including them would make it impossible to grant
+    an agent something it must never do standalone, which is the common case
+    wherever a capability runs on a shared system account (an API key to a
+    knowledge base or an HR system): there is no "the agent's own write
+    access" for the scope to attach to, so an agent that is read-only by
+    default could never be granted write on a user's behalf. Delegated
+    authority derives from the subject and the consent record; which routes
+    an actor may reach at all is enforced by `authorize({ actor })`.
+  - Confused-deputy protection is unaffected: the delegated principal's scopes
+    derive from the subject, so an actor still cannot exercise its own
+    elevated access while acting for a less-privileged subject.
 - **`actor: 'none'` is the `authorize()` default**, per § 6a. A capability is
   not agent-reachable unless it says so. `maxDelegationDepth` defaults to `1`
   and its walk is bounded, so a hand-assembled cyclic chain fails rather than
