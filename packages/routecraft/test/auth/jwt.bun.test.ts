@@ -821,6 +821,61 @@ describe("jwt()", () => {
     });
 
     /**
+     * @case A supplied roles mapper replaces the default parse entirely
+     * @preconditions claims.roles maps a nested location and returns undefined for this token; the token also carries a top-level roles array
+     * @expectedResult principal.roles is undefined; the authority-granting top-level claim is not reinstated behind the mapper's decision
+     */
+    test("roles mapper undefined result is not overridden by the default parser", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        claims: {
+          roles: (p) =>
+            (p["realm_access"] as { roles?: string[] } | undefined)?.roles,
+        },
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          roles: ["admin"],
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.roles).toBeUndefined();
+    });
+
+    /**
+     * @case A present-but-malformed top-level sub_profile rejects the token
+     * @preconditions Token carries sub_profile: 123
+     * @expectedResult Verification rejects, matching the fail-closed discipline of sub_profile inside act and may_act entries, so an exclusion predicate cannot pass an unclassified principal
+     */
+    test("rejects a malformed top-level sub_profile", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          sub_profile: 123,
+        },
+        SECRET,
+      );
+
+      await expect(validator(token)).rejects.toThrow(/sub_profile/);
+    });
+
+    /**
      * @case may_act narrowing constraints beyond sub and iss are preserved
      * @preconditions Token may_act carries sub_profile and roles
      * @expectedResult The matcher keeps profile and roles, so the in-process gate is no wider than the token stated

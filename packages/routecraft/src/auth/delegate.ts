@@ -151,8 +151,12 @@ export function delegate(
   // prior-actor audit data (the whole point of the nested entries) and
   // inflate the depth `authorize({ maxDelegationDepth })` counts. Nesting
   // is derived from `subject.actor` below and from nowhere else.
+  // grantId is stripped for the same reason: grant attribution belongs to
+  // THIS delegation and comes only from options.grantId; a cast-in value
+  // would otherwise surface as an authenticate()-attributed RC5024.
   const actorClaims: PrincipalClaims = { ...actor };
-  delete (actorClaims as { actor?: unknown }).actor;
+  delete (actorClaims as { actor?: unknown; grantId?: unknown }).actor;
+  delete (actorClaims as { actor?: unknown; grantId?: unknown }).grantId;
   const actorPrincipal = authenticate(actorClaims);
 
   if (subject.mayAct !== undefined) {

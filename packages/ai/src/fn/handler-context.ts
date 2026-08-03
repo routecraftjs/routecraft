@@ -90,8 +90,9 @@ export function freezePrincipal(principal: Principal): Principal {
   // principal is exactly as authentic as its source, and a snapshot of a
   // self-asserted (plain-object) principal must stay non-authentic so a
   // downstream authorize() still rejects it with RC5023. markAuthentic
-  // returns a frozen member whose nested claims/arrays are the already
-  // deep-frozen references from above.
+  // re-clones and freezes the policy-bearing structures (actor chain,
+  // mayAct, roles/scopes/audience); claims and userinfoClaims stay the
+  // already deep-frozen references from above.
   return wasAuthentic ? markAuthentic(snapshot) : snapshot;
 }
 

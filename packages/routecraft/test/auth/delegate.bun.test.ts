@@ -346,20 +346,23 @@ describe("delegation state cannot be forged", () => {
   });
 
   /**
-   * @case Actor claims cannot smuggle in a pre-built chain
-   * @preconditions Actor claims carry their own nested actor entries (cast past the type)
-   * @expectedResult The forged entries are stripped; the chain is exactly one hop deep and names only the real actor
+   * @case Actor claims cannot smuggle in delegation state
+   * @preconditions Actor claims carry their own nested actor entries and a grantId (cast past the type)
+   * @expectedResult Both are stripped: the chain is exactly one hop deep naming only the real actor, and grant attribution comes solely from options.grantId (absent here)
    */
-  test("strips a forged chain from the actor claims", () => {
+  test("strips a forged chain and grantId from the actor claims", () => {
     const forged = {
       subject: "agent:max",
       issuer: EYWA_ISS,
       actor: { subject: "agent:ghost", actor: { subject: "agent:ghost2" } },
+      grantId: "grant_forged",
     } as unknown as PrincipalClaims;
     const delegated = delegate(jaco(), forged);
 
     expect(delegated.actor?.subject).toBe("agent:max");
     expect(delegated.actor?.actor).toBeUndefined();
+    expect(delegated.grantId).toBeUndefined();
+    expect(delegated.actor?.grantId).toBeUndefined();
   });
 
   /**

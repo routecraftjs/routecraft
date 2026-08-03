@@ -127,17 +127,33 @@ export function principalFromJwtPayload(
       : undefined);
   if (scopes !== undefined) principal.scopes = scopes;
 
-  const roles =
-    options.claims?.roles?.(payload) ??
-    (Array.isArray(payload["roles"])
+  // Presence-checked like the delegation mappers below, not `??`-chained:
+  // roles grant authority, so a mapper that deliberately returns undefined
+  // (e.g. a Keycloak realm_access mapper on a token without realm_access)
+  // must not have a top-level `roles` claim silently reinstated.
+  const roles = options.claims?.roles
+    ? options.claims.roles(payload)
+    : Array.isArray(payload["roles"])
       ? (payload["roles"] as unknown[]).filter(
           (r): r is string => typeof r === "string",
         )
-      : undefined);
+      : undefined;
   if (roles !== undefined) principal.roles = roles;
 
-  const subjectProfile = stringClaim(payload["sub_profile"]);
-  if (subjectProfile !== undefined) principal.subjectProfile = subjectProfile;
+  // Same fail-closed discipline as `sub_profile` inside act / may_act
+  // entries: a present-but-malformed profile must not silently leave the
+  // principal unclassified, or a predicate written as an exclusion
+  // (p.subjectProfile !== 'ai_agent') would pass the malformed token.
+  const subProfileRaw = payload["sub_profile"];
+  if (subProfileRaw !== undefined) {
+    const subjectProfile = stringClaim(subProfileRaw);
+    if (subjectProfile === undefined) {
+      throw new TypeError(
+        `${options.kind}: verified token has a malformed \`sub_profile\` claim (expected a non-empty string). Refusing rather than leaving the principal unclassified.`,
+      );
+    }
+    principal.subjectProfile = subjectProfile;
+  }
 
   // Both delegation claims fail closed when present but unparseable (see
   // the parsers). A supplied mapper replaces the default parse ENTIRELY,

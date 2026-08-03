@@ -25,6 +25,10 @@ export interface ClaimMappers {
    * of strings (RFC 9068 section 2.2.3.1, semantics from SCIM). Override for
    * IdPs that nest roles elsewhere, e.g. Keycloak
    * (`realm_access.roles`) or WorkOS (`role`, a single string).
+   *
+   * Supplying this replaces the default parse entirely, including its
+   * undefined results: roles grant authority, so a top-level `roles` claim
+   * is never reinstated behind a mapper that decided against it.
    */
   roles?: (payload: Record<string, unknown>) => string[] | undefined;
   /**
