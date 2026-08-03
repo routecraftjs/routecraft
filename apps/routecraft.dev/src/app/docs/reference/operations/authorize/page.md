@@ -44,6 +44,8 @@ All codes flow through the route's normal error path: `.error()` handles them li
 
 {% callout type="warning" title="Breaking change: delegation is opt-in per route" %}
 The `actor` default is `'none'`. Routes written before delegation existed keep exactly their old behavior for direct callers, but a principal carrying an actor (minted by [`.delegate()`](/docs/reference/operations/delegate) or parsed from a token's `act` claim) is rejected with RC5034 until the route declares its permitted actor(s). This is deliberate: a capability is not agent-reachable unless it says so.
+
+Because stacked `.authorize()` calls AND-combine, **every** guard on a route carries its own `actor` default. Adding `.authorize({ actor: 'any' })` next to an existing `.authorize({ roles: ['admin'] })` still fails with RC5034, since the first guard rejects the actor before the second runs. Put the `actor` clause on the guard that needs it, or fold the guards into one.
 {% /callout %}
 
 ```ts

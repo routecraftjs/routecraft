@@ -336,6 +336,7 @@ Three rules keep the model sound:
 
 - **Identification is not authorization.** A verified channel identifier (a DKIM-passing sender, a Slack user id) says who someone is, never what an agent may do for them. Convert identity into delegated authority only through an explicit consent record, and mint it with `.delegate()`, not by handing the agent the user's full principal.
 - **Only the outermost actor is policy input.** Nested actors in a chain are audit data (RFC 8693 section 4.1); `authorize({ actor })` matches the current actor and `maxDelegationDepth` bounds the chain.
+- **Delegation claims fail closed at the token boundary.** A verified token whose `act` or `may_act` claim the parser cannot read is rejected, never silently stripped: dropping an `act` would promote a delegated token to a direct call and pass an `actor: 'none'` route, and dropping a `may_act` would turn a restriction into permission. Map non-standard shapes (an actor identified by `client_id`, for instance) with `ClaimMappers.actor` / `ClaimMappers.mayAct`.
 - **Autonomous authority is minted from internal triggers only.** An agent acting as its own subject (`subjectProfile: 'ai_agent'`, no actor) should be minted on cron or timer sources, never from an externally reachable channel, so inbound messages can never trigger an agent's standing authority.
 
 ## Security checklist

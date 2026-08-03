@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { jwt, type JwtAuthOptions } from "../../src/auth/jwt.ts";
+import { markAuthentic } from "../../src/auth/authentic.ts";
 import type { Principal } from "../../src/auth/types.ts";
 
 /**
@@ -598,11 +599,117 @@ describe("jwt()", () => {
     });
 
     /**
-     * @case A malformed act claim (no sub) is dropped rather than half-parsed
-     * @preconditions Token act claim is an object without a string sub
-     * @expectedResult Principal has no actor; verification itself still succeeds
+     * @case An act claim the parser cannot identify rejects the token instead of dropping the actor
+     * @preconditions Token carries act identified by client_id (no sub), a non-object act, and an act nested past the depth cap
+     * @expectedResult Every variant rejects. Dropping the actor would leave a delegated token indistinguishable from a direct call, which passes the authorize({ actor: 'none' }) default
      */
-    test("drops a malformed act claim", async () => {
+    test("rejects a token whose act claim has no usable sub", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const base = { sub: "user-1", iss: ISSUER, aud: AUDIENCE, exp: FUTURE };
+
+      // A client-credentials actor: the shape most likely to lack `sub`.
+      await expect(
+        validator(
+          signHs256(
+            { ...base, act: { client_id: "agent:zoe", iss: "https://a" } },
+            SECRET,
+          ),
+        ),
+      ).rejects.toThrow(/act/);
+
+      await expect(
+        validator(signHs256({ ...base, act: "agent:zoe" }, SECRET)),
+      ).rejects.toThrow(/act/);
+
+      let deep: Record<string, unknown> = { sub: "agent:0" };
+      for (let i = 1; i <= 20; i++) deep = { sub: `agent:${i}`, act: deep };
+      await expect(
+        validator(signHs256({ ...base, act: deep }, SECRET)),
+      ).rejects.toThrow(/deeper than/);
+    });
+
+    /**
+     * @case A may_act claim the parser cannot read rejects the token instead of removing the restriction
+     * @preconditions Token carries may_act identified by client_id, and a non-object may_act
+     * @expectedResult Both reject. An unreadable may_act resolving to undefined would mean "anyone may act", inverting a claim whose purpose is to restrict
+     */
+    test("rejects a token whose may_act claim has no usable sub", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const base = { sub: "user-1", iss: ISSUER, aud: AUDIENCE, exp: FUTURE };
+
+      await expect(
+        validator(
+          signHs256({ ...base, may_act: { client_id: "agent:zoe" } }, SECRET),
+        ),
+      ).rejects.toThrow(/may_act/);
+
+      await expect(
+        validator(signHs256({ ...base, may_act: "agent:zoe" }, SECRET)),
+      ).rejects.toThrow(/may_act/);
+    });
+
+    /**
+     * @case Claim mappers accept non-standard actor and may_act shapes that the default parser refuses
+     * @preconditions Token identifies both by client_id; claims.actor and claims.mayAct map them
+     * @expectedResult Verification succeeds and both fields are populated from the mapped values
+     */
+    test("claims.actor and claims.mayAct map non-standard shapes", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        claims: {
+          actor: (payload) => {
+            const act = payload["act"] as
+              { client_id?: string; iss?: string } | undefined;
+            return act?.client_id
+              ? {
+                  kind: "jwt",
+                  scheme: "bearer",
+                  subject: act.client_id,
+                  ...(act.iss ? { issuer: act.iss } : {}),
+                }
+              : undefined;
+          },
+          mayAct: (payload) => {
+            const may = payload["may_act"] as
+              { client_id?: string } | undefined;
+            return may?.client_id ? [{ subject: may.client_id }] : undefined;
+          },
+        },
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          act: { client_id: "agent:zoe", iss: "https://agents.example.com" },
+          may_act: { client_id: "agent:zoe" },
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.actor?.subject).toBe("agent:zoe");
+      expect(principal.actor?.issuer).toBe("https://agents.example.com");
+      expect(principal.mayAct).toEqual([{ subject: "agent:zoe" }]);
+    });
+
+    /**
+     * @case may_act narrowing constraints beyond sub and iss are preserved
+     * @preconditions Token may_act carries sub_profile and roles
+     * @expectedResult The matcher keeps profile and roles, so the in-process gate is no wider than the token stated
+     */
+    test("keeps profile and roles from a may_act entry", async () => {
       const { validator } = jwt({
         secret: SECRET,
         issuer: ISSUER,
@@ -614,13 +721,63 @@ describe("jwt()", () => {
           iss: ISSUER,
           aud: AUDIENCE,
           exp: FUTURE,
-          act: { iss: "https://agents.example.com" },
+          may_act: {
+            sub: "agent:zoe",
+            iss: "https://agents.example.com",
+            sub_profile: "ai_agent",
+            roles: ["ops"],
+          },
         },
         SECRET,
       );
 
       const principal: Principal = await validator(token);
-      expect(principal.actor).toBeUndefined();
+      expect(principal.mayAct).toEqual([
+        {
+          subject: "agent:zoe",
+          issuer: "https://agents.example.com",
+          profile: "ai_agent",
+          roles: ["ops"],
+        },
+      ]);
+    });
+
+    /**
+     * @case The parsed actor chain and mayAct are frozen once branded authentic
+     * @preconditions Verified token with a nested act chain and a may_act entry
+     * @expectedResult Mutating the current actor, a nested actor, or the mayAct list all throw, so an in-process holder cannot rewrite policy inputs
+     */
+    test("freezes the parsed delegation state", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          act: {
+            sub: "agent:max",
+            act: { sub: "agent:zoe" },
+          },
+          may_act: { sub: "agent:zoe" },
+        },
+        SECRET,
+      );
+
+      const principal = markAuthentic(await validator(token));
+      expect(Object.isFrozen(principal.actor)).toBe(true);
+      expect(Object.isFrozen(principal.actor?.actor)).toBe(true);
+      expect(Object.isFrozen(principal.mayAct)).toBe(true);
+      expect(() => {
+        (principal.actor as { subject: string }).subject = "agent:superuser";
+      }).toThrow(TypeError);
+      expect(() => {
+        principal.mayAct?.push({ subject: "agent:evil" });
+      }).toThrow(TypeError);
     });
   });
 });

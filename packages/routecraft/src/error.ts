@@ -396,6 +396,10 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The identity is valid but lacks scope for this capability. The error's `missing` detail lists what is absent (RFC 9470 / RFC 6750 insufficient_scope shape). Obtain the missing grant via your consent flow, then retry.",
     docs: `${DOCS_BASE}#rc-5038`,
+    // "Recoverable" describes the AUTHORIZATION outcome (a consent flow can
+    // add the scope), not the request. Retrying the same call with the same
+    // credential fails identically, so the retry wrapper must not treat this
+    // as transient.
     retryable: false,
   },
   RC9901: {

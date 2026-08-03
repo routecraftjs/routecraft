@@ -34,7 +34,9 @@ Failure modes:
 
 - **Resolver returns a directive but the exchange is anonymous:** [`RC5012`](/docs/reference/errors#rc-5012). Delegation transforms an existing identity; it never creates one.
 - **Subject principal is not authentic:** [`RC5023`](/docs/reference/errors#rc-5023). A chain cannot be built on a self-asserted object.
-- **Subject's `mayAct` does not permit this actor:** [`RC5037`](/docs/reference/errors#rc-5037). Matching uses the `(issuer, subject)` pair.
+- **Subject's `mayAct` does not permit this actor:** [`RC5037`](/docs/reference/errors#rc-5037). Matching uses the `(issuer, subject)` pair. `mayAct` travels with the subject, so it gates every hop: re-delegation to a second agent is checked against the same consent list, which makes delegation non-transitive by default.
+
+Delegation state can only be established here. [`authenticate()`](/docs/reference/operations/authenticate) rejects `actor` and `grantId` claims with [`RC5024`](/docs/reference/errors#rc-5024), so spreading a delegated principal back through a mint cannot fabricate a chain while skipping the `mayAct` check and the scope intersection. (`mayAct` itself is accepted at mint: it describes the subject, like roles, and is legitimately established when identity is resolved from a directory or grant store.)
 
 ```ts
 import { agent } from '@routecraft/ai'

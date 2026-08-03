@@ -16,6 +16,7 @@ import {
   craft,
   delegate,
   isAuthentic,
+  markAuthentic,
   simple,
   type Principal,
   type PrincipalClaims,
@@ -186,23 +187,176 @@ describe("delegate() helper", () => {
   });
 });
 
+describe("delegation state cannot be forged", () => {
+  /**
+   * @case authenticate() refuses to mint delegation state
+   * @preconditions Claims carry an actor, or a grantId, as a spread of an already-delegated principal would
+   * @expectedResult RC5024 in both cases, so re-minting cannot bypass delegate()'s mayAct check and scope intersection
+   */
+  test("authenticate() rejects actor and grantId claims", () => {
+    const delegated = delegate(jaco(), zoeClaims);
+    expect(
+      thrownString(() => authenticate(delegated as unknown as PrincipalClaims)),
+    ).toContain("RC5024");
+    expect(
+      thrownString(() =>
+        authenticate({
+          subject: "user_jaco",
+          grantId: "grant_forged",
+        } as unknown as PrincipalClaims),
+      ),
+    ).toContain("RC5024");
+  });
+
+  /**
+   * @case mayAct is still accepted by authenticate(), since it describes the subject
+   * @preconditions Claims carry mayAct, as a directory-sourced consent policy would
+   * @expectedResult Mint succeeds and the restriction is enforced by a later delegate()
+   */
+  test("authenticate() still accepts mayAct", () => {
+    const principal = authenticate({
+      subject: "user_jaco",
+      mayAct: [{ subject: "agent:zoe", issuer: EYWA_ISS }],
+    });
+    expect(principal.mayAct).toHaveLength(1);
+    expect(
+      thrownString(() => delegate(principal, { subject: "agent:evil" })),
+    ).toContain("RC5037");
+  });
+
+  /**
+   * @case The actor chain and mayAct of an authentic principal cannot be mutated in place
+   * @preconditions Authentic principal carrying a two-hop chain and a mayAct entry
+   * @expectedResult Rewriting the current actor, a nested actor, or pushing to mayAct all throw, so a holder of ex.principal cannot rewrite policy inputs
+   */
+  test("freezes the chain and the consent list", () => {
+    const withConsent = authenticate({
+      subject: "user_jaco",
+      scopes: ["mail:send"],
+      mayAct: [
+        { subject: "agent:zoe", issuer: EYWA_ISS },
+        { subject: "agent:max", issuer: EYWA_ISS },
+      ],
+    });
+    const chained = delegate(delegate(withConsent, zoeClaims), {
+      subject: "agent:max",
+      issuer: EYWA_ISS,
+    });
+
+    expect(() => {
+      (chained.actor as { subject: string }).subject = "agent:superuser";
+    }).toThrow(TypeError);
+    expect(() => {
+      (chained.actor!.actor as { subject: string }).subject = "agent:ghost";
+    }).toThrow(TypeError);
+    expect(() => {
+      chained.mayAct?.push({ subject: "agent:evil" });
+    }).toThrow(TypeError);
+  });
+
+  /**
+   * @case mayAct rides on the subject, so it also gates re-delegation
+   * @preconditions Subject permits only agent:zoe; the chain tries to hand off from zoe to max
+   * @expectedResult RC5037 at the second hop, making re-delegation non-transitive without any extra mechanism
+   */
+  test("mayAct gates every hop, not just the first", () => {
+    const withConsent = authenticate({
+      subject: "user_jaco",
+      mayAct: [{ subject: "agent:zoe", issuer: EYWA_ISS }],
+    });
+    const viaZoe = delegate(withConsent, zoeClaims);
+
+    expect(
+      thrownString(() =>
+        delegate(viaZoe, { subject: "agent:max", issuer: EYWA_ISS }),
+      ),
+    ).toContain("RC5037");
+  });
+
+  /**
+   * @case Actor claims cannot smuggle in a pre-built chain
+   * @preconditions Actor claims carry their own nested actor entries (cast past the type)
+   * @expectedResult The forged entries are stripped; the chain is exactly one hop deep and names only the real actor
+   */
+  test("strips a forged chain from the actor claims", () => {
+    const forged = {
+      subject: "agent:max",
+      issuer: EYWA_ISS,
+      actor: { subject: "agent:ghost", actor: { subject: "agent:ghost2" } },
+    } as unknown as PrincipalClaims;
+    const delegated = delegate(jaco(), forged);
+
+    expect(delegated.actor?.subject).toBe("agent:max");
+    expect(delegated.actor?.actor).toBeUndefined();
+  });
+
+  /**
+   * @case A cyclic actor chain is bounded rather than hanging the check
+   * @preconditions Hand-assembled self-referential chain reached through a cast
+   * @expectedResult authorize() rejects with RC5036 promptly instead of walking the cycle forever
+   */
+  test("bounds a cyclic chain instead of spinning", () => {
+    const cyclic: Principal = {
+      kind: "custom",
+      scheme: "custom",
+      subject: "agent:loop",
+    };
+    (cyclic as { actor?: Principal }).actor = cyclic;
+    const principal = markAuthentic({
+      kind: "custom",
+      scheme: "custom",
+      subject: "user_jaco",
+      actor: cyclic,
+    } as Principal);
+
+    const check = authorize({ actor: "any" });
+    expect(
+      thrownString(() =>
+        check({ body: "x", principal } as unknown as Parameters<
+          typeof check
+        >[0]),
+      ),
+    ).toContain("RC5036");
+  });
+});
+
 describe("authorize() delegation awareness", () => {
   type FailedEventDetails = { details: { error: unknown } };
 
+  /**
+   * Chain of actors to apply, outermost last: `[zoe]` is one hop,
+   * `[zoe, max]` is zoe handing off to max. Built with real `.delegate()`
+   * steps so the route under test sees a principal assembled exactly the
+   * way production assembles one (`.authenticate()` refuses pre-delegated
+   * claims by design, so a chain cannot be smuggled in via the mint).
+   */
+  type Hops = PrincipalClaims[];
+
   async function run(
-    principalFactory: () => Principal,
+    hops: Hops,
     options: Parameters<typeof authorize>[0],
+    subjectClaims: PrincipalClaims = {
+      subject: "user_jaco",
+      subjectProfile: "user",
+      issuer: "https://idp.example.com",
+      roles: ["member", "admin"],
+      scopes: ["mail:send", "employees:read"],
+    },
+    ceiling?: string[],
   ): Promise<{ delivered: number; failure: string }> {
     const s = spy<string>();
+    let builder = craft()
+      .id("delegation")
+      .from(simple("hello"))
+      .authenticate(() => subjectClaims);
+    for (const hop of hops) {
+      builder = builder.delegate(() => ({
+        actor: hop,
+        ...(ceiling ? { scopes: ceiling } : {}),
+      }));
+    }
     const t = await testContext()
-      .routes(
-        craft()
-          .id("delegation")
-          .from(simple("hello"))
-          .authenticate(() => principalFactory())
-          .validate(authorize(options))
-          .to(s),
-      )
+      .routes(builder.validate(authorize(options)).to(s))
       .build();
     const failures: unknown[] = [];
     t.ctx.on("route:exchange:failed", ((payload: FailedEventDetails) => {
@@ -219,16 +373,14 @@ describe("authorize() delegation awareness", () => {
     };
   }
 
-  // .authenticate() re-mints, so factories below hand back pre-built
-  // principals; authenticate() accepts full Principal-shaped claims.
-  const direct = () => jaco();
-  const viaZoe = () => delegate(jaco(), zoeClaims);
-  const viaMaxViaZoe = () =>
-    delegate(delegate(jaco(), zoeClaims), {
-      subject: "agent:max",
-      subjectProfile: "ai_agent",
-      issuer: EYWA_ISS,
-    });
+  const maxClaims: PrincipalClaims = {
+    subject: "agent:max",
+    subjectProfile: "ai_agent",
+    issuer: EYWA_ISS,
+  };
+  const direct: Hops = [];
+  const viaZoe: Hops = [zoeClaims];
+  const viaMaxViaZoe: Hops = [zoeClaims, maxClaims];
 
   /**
    * @case Default actor spec is 'none': delegated principals are rejected
@@ -300,15 +452,76 @@ describe("authorize() delegation awareness", () => {
     expect(res.delivered).toBe(0);
     expect(res.failure).toContain("RC5035");
 
-    const agentSelf = () =>
-      authenticate({
+    const ok = await run(
+      direct,
+      { subject: { profile: "ai_agent" } },
+      {
         subject: "agent:zoe",
         subjectProfile: "ai_agent",
         issuer: EYWA_ISS,
         roles: ["agent"],
-      });
-    const ok = await run(agentSelf, { subject: { profile: "ai_agent" } });
+      },
+    );
     expect(ok.delivered).toBe(1);
+  });
+
+  /**
+   * @case Subject matcher gates on subject id and issuer, not only profile
+   * @preconditions Route pins subject "user_jaco" at the IdP issuer
+   * @expectedResult The matching caller passes; a different subject and a same-subject-different-issuer caller both raise RC5035
+   */
+  test("subject matcher pins id and issuer", async () => {
+    const spec = {
+      subject: { subject: "user_jaco", issuer: "https://idp.example.com" },
+    };
+    expect((await run(direct, spec)).delivered).toBe(1);
+
+    const otherSubject = await run(direct, spec, {
+      subject: "user_other",
+      issuer: "https://idp.example.com",
+    });
+    expect(otherSubject.failure).toContain("RC5035");
+
+    const otherIssuer = await run(direct, spec, {
+      subject: "user_jaco",
+      issuer: "https://evil.example.com",
+    });
+    expect(otherIssuer.failure).toContain("RC5035");
+  });
+
+  /**
+   * @case A subject predicate receives the full principal
+   * @preconditions Predicate requires an email on the internal domain
+   * @expectedResult Matching caller passes; non-matching raises RC5035
+   */
+  test("supports a predicate subject spec", async () => {
+    const spec = {
+      subject: (p: Principal) => p.email?.endsWith("@example.com") === true,
+    };
+    const ok = await run(direct, spec, {
+      subject: "user_jaco",
+      email: "jaco@example.com",
+    });
+    expect(ok.delivered).toBe(1);
+
+    const nope = await run(direct, spec, {
+      subject: "user_jaco",
+      email: "jaco@elsewhere.test",
+    });
+    expect(nope.failure).toContain("RC5035");
+  });
+
+  /**
+   * @case maxDelegationDepth of 0 rejects any delegation while leaving direct calls alone
+   * @preconditions actor 'any' with maxDelegationDepth 0
+   * @expectedResult One hop raises RC5036; a direct call still passes
+   */
+  test("maxDelegationDepth 0 forbids every hop", async () => {
+    const spec = { actor: "any" as const, maxDelegationDepth: 0 };
+    const hop = await run(viaZoe, spec);
+    expect(hop.delivered).toBe(0);
+    expect(hop.failure).toContain("RC5036");
+    expect((await run(direct, spec)).delivered).toBe(1);
   });
 
   /**
@@ -318,16 +531,36 @@ describe("authorize() delegation awareness", () => {
    */
   test("roles pass through delegation while scopes narrow", async () => {
     const res = await run(
-      () => delegate(jaco(), zoeClaims, { scopes: ["mail:send"] }),
-      {
-        roles: ["member"],
-        scopes: ["employees:read"],
-        actor: "any",
-      },
+      viaZoe,
+      { roles: ["member"], scopes: ["employees:read"], actor: "any" },
+      undefined,
+      ["mail:send"],
     );
     expect(res.delivered).toBe(0);
     expect(res.failure).toContain("RC5038");
     expect(res.failure).toContain("employees:read");
+  });
+
+  /**
+   * @case RC5038 carries a machine-readable list of the missing scopes
+   * @preconditions Route requires two scopes the principal lacks
+   * @expectedResult error.cause.missing.scopes lists exactly the absent scopes, so a consent flow can request them
+   */
+  test("RC5038 exposes missing.scopes on the cause", () => {
+    const principal = authenticate({
+      subject: "user_jaco",
+      scopes: ["mail:draft"],
+    });
+    const check = authorize({ scopes: ["mail:send", "employees:read"] });
+    let caught: unknown;
+    try {
+      check({ body: "x", principal } as unknown as Parameters<typeof check>[0]);
+    } catch (err) {
+      caught = err;
+    }
+    const cause = (caught as { cause?: { missing?: { scopes?: string[] } } })
+      .cause;
+    expect(cause?.missing?.scopes).toEqual(["mail:send", "employees:read"]);
   });
 
   /**

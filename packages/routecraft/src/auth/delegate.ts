@@ -133,8 +133,15 @@ export function delegate(
   }
 
   // Mint the actor first (validates its own claims, e.g. non-empty subject)
-  // so a bad actor identity fails before we touch the subject.
-  const actorPrincipal = authenticate(actor);
+  // so a bad actor identity fails before we touch the subject. `actor` is
+  // typed without a nested `actor`, but strip it defensively: a caller who
+  // casts could otherwise hand in a pre-built chain, which would forge
+  // prior-actor audit data (the whole point of the nested entries) and
+  // inflate the depth `authorize({ maxDelegationDepth })` counts. Nesting
+  // is derived from `subject.actor` below and from nowhere else.
+  const actorClaims: PrincipalClaims = { ...actor };
+  delete (actorClaims as { actor?: unknown }).actor;
+  const actorPrincipal = authenticate(actorClaims);
 
   if (subject.mayAct !== undefined) {
     const permitted = subject.mayAct.some((m) =>

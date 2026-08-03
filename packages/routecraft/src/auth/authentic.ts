@@ -48,9 +48,57 @@ const authentic = new WeakSet<object>();
  */
 export function markAuthentic<P extends Principal>(principal: P): P {
   if (isAuthentic(principal)) return principal;
-  const target = Object.freeze({ ...(principal as Principal) }) as P;
+  const copy = { ...(principal as Principal) };
+  // Freeze the delegation state, not just the top level. `actor` and
+  // `mayAct` are policy inputs: the outermost actor decides
+  // `authorize({ actor })` and `mayAct` decides whether `delegate()` is
+  // permitted at all. A shallow freeze would leave both writable through
+  // any holder of `ex.principal` (an adapter, a plugin, route code), so an
+  // in-process caller could rewrite the current actor or widen the consent
+  // list of an already-authentic identity. Principals built by `delegate()`
+  // are frozen at every level because each level passes through here, but
+  // a principal parsed from a token's `act` / `may_act` claims arrives as
+  // plain nested objects and would otherwise stay mutable.
+  freezeDelegationState(copy);
+  const target = Object.freeze(copy) as P;
   authentic.add(target);
   return target;
+}
+
+/**
+ * Freeze the `actor` chain and the `mayAct` list of a principal in place.
+ * Cycle-guarded: an actor chain is acyclic when built by `delegate()` or
+ * parsed from a token, but a hand-assembled one need not be, and freezing
+ * must not be the thing that hangs.
+ *
+ * @internal
+ */
+function freezeDelegationState(
+  principal: Principal,
+  seen: WeakSet<object> = new WeakSet(),
+): void {
+  if (principal.mayAct !== undefined) {
+    for (const matcher of principal.mayAct) {
+      if (typeof matcher === "object" && matcher !== null) {
+        if (Array.isArray(matcher.subject)) Object.freeze(matcher.subject);
+        if (Array.isArray(matcher.profile)) Object.freeze(matcher.profile);
+        if (Array.isArray(matcher.roles)) Object.freeze(matcher.roles);
+        Object.freeze(matcher);
+      }
+    }
+    Object.freeze(principal.mayAct);
+  }
+  let current = principal.actor;
+  while (current !== undefined && !seen.has(current)) {
+    seen.add(current);
+    if (current.roles) Object.freeze(current.roles);
+    if (current.scopes) Object.freeze(current.scopes);
+    if (current.audience) Object.freeze(current.audience);
+    if (current.mayAct !== undefined) freezeDelegationState(current, seen);
+    const next = current.actor;
+    Object.freeze(current);
+    current = next;
+  }
 }
 
 /**

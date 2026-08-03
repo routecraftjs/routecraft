@@ -139,45 +139,78 @@ export function principalFromJwtPayload(
   const subjectProfile = stringClaim(payload["sub_profile"]);
   if (subjectProfile !== undefined) principal.subjectProfile = subjectProfile;
 
-  const actor = actorFromActClaim(payload["act"], options.kind);
+  // Both delegation claims fail closed when present but unparseable (see
+  // the parsers). An explicit mapper replaces the default parse entirely,
+  // which is how a non-standard actor shape avoids the rejection.
+  const actor =
+    options.claims?.actor?.(payload) ??
+    actorFromActClaim(payload["act"], options.kind);
   if (actor !== undefined) principal.actor = actor;
 
-  const mayAct = mayActFromClaim(payload["may_act"]);
+  const mayAct =
+    options.claims?.mayAct?.(payload) ??
+    mayActFromClaim(payload["may_act"], options.kind);
   if (mayAct !== undefined) principal.mayAct = mayAct;
 
   return principal;
 }
 
 /**
+ * Maximum `act` nesting depth accepted from a token. RFC 8693 places no
+ * bound on the chain, but the parse is recursive and the depth beyond a
+ * route's `maxDelegationDepth` is never used, so an unbounded chain buys a
+ * caller nothing but stack pressure. Exceeding the cap rejects the token
+ * rather than truncating it: a silently shortened chain would misreport the
+ * current actor.
+ */
+const MAX_ACT_DEPTH = 16;
+
+/**
  * Map an RFC 8693 section 4.1 `act` claim (possibly nested) to a
  * {@link Principal} actor chain. The outermost entry is the current actor.
- * Entries without a string `sub` terminate the chain: an actor the policy
- * layer cannot identify must not silently vanish mid-chain, so the malformed
- * tail is dropped as a unit (returns `undefined` at that level).
  *
- * Nested actors are plain (non-branded) objects; authenticity covers the
- * chain through the ROOT principal's brand, applied by the verifier
- * boundary that called {@link principalFromJwtPayload} on a
- * signature-verified payload.
+ * **Fails closed.** RFC 8693 requires `sub` on every `act` entry. A present
+ * but unparseable claim THROWS rather than resolving to `undefined`,
+ * because a dropped actor is not a neutral outcome: it promotes a delegated
+ * token to a direct call, which is exactly what the `authorize({ actor })`
+ * default of `'none'` exists to refuse. Deployments whose IdP identifies
+ * actors by a non-standard claim (for example `client_id` on a
+ * client-credentials actor) map it explicitly via `ClaimMappers.actor`.
+ *
+ * Nested actors are plain objects at construction; the verifier boundary
+ * brands and deep-freezes the chain through `markAuthentic`.
  *
  * @internal
  */
 function actorFromActClaim(
   act: unknown,
   kind: "jwt" | "jwks",
+  depth = 1,
 ): Principal | undefined {
-  if (typeof act !== "object" || act === null || Array.isArray(act)) {
-    return undefined;
+  if (act === undefined || act === null) return undefined;
+  if (depth > MAX_ACT_DEPTH) {
+    throw new TypeError(
+      `${kind}: verified token has an \`act\` chain deeper than ${MAX_ACT_DEPTH}. Refusing the token rather than truncating the delegation chain.`,
+    );
+  }
+  if (typeof act !== "object" || Array.isArray(act)) {
+    throw new TypeError(
+      `${kind}: verified token has a non-object \`act\` claim. RFC 8693 section 4.1 requires a JSON object identifying the current actor; provide claims.actor to map a non-standard shape.`,
+    );
   }
   const record = act as Record<string, unknown>;
   const subject = stringClaim(record["sub"]);
-  if (subject === undefined) return undefined;
+  if (subject === undefined) {
+    throw new TypeError(
+      `${kind}: verified token has an \`act\` claim without a \`sub\`. An actor the policy layer cannot identify must not be silently dropped, which would let a delegated token pass an actor: 'none' route; provide claims.actor to map a non-standard shape.`,
+    );
+  }
   const actor: Principal = { kind, scheme: "bearer", subject };
   const issuer = stringClaim(record["iss"]);
   if (issuer !== undefined) actor.issuer = issuer;
   const profile = stringClaim(record["sub_profile"]);
   if (profile !== undefined) actor.subjectProfile = profile;
-  const nested = actorFromActClaim(record["act"], kind);
+  const nested = actorFromActClaim(record["act"], kind, depth + 1);
   if (nested !== undefined) actor.actor = nested;
   return actor;
 }
@@ -186,22 +219,49 @@ function actorFromActClaim(
  * Map an RFC 8693 section 4.4 `may_act` claim to {@link ActorMatcher}
  * entries. The wire claim is a single JSON object naming one permitted
  * party; an array of such objects is also accepted since multi-party
- * deployments emit it in practice. Entries without a string `sub` are
- * dropped.
+ * deployments emit it in practice.
+ *
+ * **Fails closed**, for the same reason as {@link actorFromActClaim} and in
+ * the same direction: `may_act` is a RESTRICTION, so a present-but-
+ * unparseable claim must never resolve to `undefined`, which `delegate()`
+ * reads as "no restriction" and would turn a narrowing claim into a
+ * permissive one. Map non-standard shapes with `ClaimMappers.mayAct`.
  *
  * @internal
  */
-function mayActFromClaim(mayAct: unknown): ActorMatcher[] | undefined {
+function mayActFromClaim(
+  mayAct: unknown,
+  kind: "jwt" | "jwks",
+): ActorMatcher[] | undefined {
+  if (mayAct === undefined || mayAct === null) return undefined;
   const entries = Array.isArray(mayAct) ? mayAct : [mayAct];
   const matchers: ActorMatcher[] = [];
   for (const entry of entries) {
-    if (typeof entry !== "object" || entry === null) continue;
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new TypeError(
+        `${kind}: verified token has a malformed \`may_act\` entry (expected a JSON object). Refusing rather than treating a delegation restriction as absent; provide claims.mayAct to map a non-standard shape.`,
+      );
+    }
     const record = entry as Record<string, unknown>;
     const subject = stringClaim(record["sub"]);
-    if (subject === undefined) continue;
+    if (subject === undefined) {
+      throw new TypeError(
+        `${kind}: verified token has a \`may_act\` entry without a \`sub\`. Refusing rather than treating a delegation restriction as absent; provide claims.mayAct to map a non-standard shape.`,
+      );
+    }
     const matcher: ActorMatcher = { subject };
     const issuer = stringClaim(record["iss"]);
     if (issuer !== undefined) matcher.issuer = issuer;
+    // Carry the narrowing constraints the wire claim expressed. Dropping
+    // them would widen the matcher relative to what the token stated.
+    const profile = stringClaim(record["sub_profile"]);
+    if (profile !== undefined) matcher.profile = profile;
+    const roles = Array.isArray(record["roles"])
+      ? (record["roles"] as unknown[]).filter(
+          (r): r is string => typeof r === "string",
+        )
+      : undefined;
+    if (roles !== undefined && roles.length > 0) matcher.roles = roles;
     matchers.push(matcher);
   }
   return matchers.length > 0 ? matchers : undefined;

@@ -10,6 +10,25 @@ import {
 } from "./types.ts";
 
 /**
+ * Machine-readable detail attached to an `RC5038` error's cause, naming
+ * exactly what the principal lacked. Read it off `error.cause` to drive a
+ * consent flow:
+ *
+ * ```ts
+ * const missing = (err.cause as InsufficientAuthority | undefined)?.missing
+ * if (missing?.scopes) requestGrant(missing.scopes)
+ * ```
+ *
+ * In-process only: `RoutecraftError.toJSON()` serialises the cause's message
+ * and stack, not its own properties, so a consumer reading the failure from
+ * a serialised event log sees the scope names in the message text but not
+ * this structured field.
+ */
+export interface InsufficientAuthority extends Error {
+  missing: { scopes: string[] };
+}
+
+/**
  * Constraint on who is driving the request (the outermost `actor`).
  *
  * - `'none'`: reject when any actor is present. This is the DEFAULT: a
@@ -97,11 +116,19 @@ export interface AuthorizeOptions {
   maxDelegationDepth?: number;
 }
 
-/** Depth of the actor chain: 0 for no actor, 1 per nesting level. */
-function chainDepth(principal: Principal): number {
+/**
+ * Depth of the actor chain: 0 for no actor, 1 per nesting level.
+ *
+ * Stops at `limit + 1` because the caller only ever asks "is this deeper
+ * than the limit", never "how much deeper". The bound doubles as the cycle
+ * guard: a hand-assembled self-referential chain would otherwise spin here
+ * forever, turning a policy check into a hung event loop.
+ */
+function chainDepth(principal: Principal, limit: number): number {
+  const ceiling = Number.isFinite(limit) ? Math.max(0, limit) + 1 : 1;
   let depth = 0;
   let current = principal.actor;
-  while (current !== undefined) {
+  while (current !== undefined && depth < ceiling) {
     depth += 1;
     current = current.actor;
   }
@@ -292,7 +319,7 @@ export function authorize(
     }
 
     if (currentActor !== undefined) {
-      const depth = chainDepth(principal);
+      const depth = chainDepth(principal, maxDelegationDepth);
       if (depth > maxDelegationDepth) {
         throw rcError(
           "RC5036",
@@ -354,7 +381,7 @@ export function authorize(
           Object.assign(
             new Error(`Missing required scopes: ${missing.join(", ")}`),
             { missing: { scopes: missing } },
-          ),
+          ) satisfies InsufficientAuthority,
           {
             message: `Authorization failed: principal is missing required scope(s): ${missing.join(", ")}`,
             suggestion:

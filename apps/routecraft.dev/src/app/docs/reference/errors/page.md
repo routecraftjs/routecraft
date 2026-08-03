@@ -322,15 +322,21 @@ The check is distinct from `RC5012` (no principal at all) and `RC5015` (an authe
 - Do not assign a plain object to the principal header and do not spread an existing principal to change its roles; both produce a non-authentic principal.
 
 ## RC5024
-authenticate() called without a subject
+authenticate() called with invalid claims
 
 **Why it happens**  
-`authenticate()` (or the `.authenticate()` operation) was called with claims that have no `subject`, or an empty-string `subject`. Every minted identity must name the stable identity it represents, so the mint fails fast rather than producing an anonymous "authenticated" principal.
+Two cases, both programming errors at the mint call site:
 
-This is a programming error at the mint call site, distinct from `RC5023`, which fires later at `authorize()` when a principal reached the check without being established by a trusted origin.
+1. **No subject.** The claims have no `subject`, or an empty-string `subject`. Every minted identity must name the stable identity it represents, so the mint fails fast rather than producing an anonymous "authenticated" principal.
+2. **Delegation state passed to a mint.** The claims carry `actor` or `grantId`. Establishing identity and establishing who is acting for it are separate operations: `authenticate()` mints, [`delegate()`](/docs/reference/operations/delegate) delegates. Without this guard, spreading an already-delegated principal back through `authenticate()` would produce an authentic delegated identity while skipping every invariant `delegate()` enforces (the `mayAct` consent check, the scope intersection, truthful chain nesting).
+
+Note that `mayAct` *is* accepted at mint. It describes the subject (who may act on their behalf), like `roles`, and is legitimately established when identity is resolved from a directory or a grant store.
+
+Both are distinct from `RC5023`, which fires later at `authorize()` when a principal reached the check without being established by a trusted origin.
 
 **Suggestion**  
 - Pass a non-empty `subject`: `authenticate({ subject: sender.address, roles: [...] })`.
+- To delegate, mint first and then delegate: `delegate(authenticate(claims), actorClaims, { scopes, grantId })`.
 - If the source cannot identify the caller, return `undefined` from the `.authenticate()` resolver to leave the exchange anonymous instead of minting an empty identity.
 
 ## RC5025

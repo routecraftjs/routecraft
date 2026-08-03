@@ -202,6 +202,36 @@ const errors: ErrorRow[] = [
     retryable: false,
   },
   {
+    code: 'RC5034',
+    category: 'Adapter',
+    message: 'Actor not permitted',
+    retryable: false,
+  },
+  {
+    code: 'RC5035',
+    category: 'Adapter',
+    message: 'Subject not permitted',
+    retryable: false,
+  },
+  {
+    code: 'RC5036',
+    category: 'Adapter',
+    message: 'Delegation chain too deep',
+    retryable: false,
+  },
+  {
+    code: 'RC5037',
+    category: 'Adapter',
+    message: 'Delegation refused by mayAct',
+    retryable: false,
+  },
+  {
+    code: 'RC5038',
+    category: 'Adapter',
+    message: 'Insufficient authority (recoverable)',
+    retryable: false,
+  },
+  {
     code: 'RC9901',
     category: 'Runtime',
     message: 'Unknown error',

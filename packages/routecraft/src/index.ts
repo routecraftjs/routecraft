@@ -10,6 +10,7 @@ export {
   authorize,
   type AuthorizeOptions,
   type ActorSpec,
+  type InsufficientAuthority,
   type SubjectMatcher,
 } from "./auth/authorize.ts";
 export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
