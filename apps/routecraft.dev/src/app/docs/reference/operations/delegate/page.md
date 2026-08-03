@@ -10,6 +10,8 @@ delegate(resolver: (exchange: Exchange<Current>) => DelegationClaims | undefined
 
 Mark the exchange's principal as being exercised by an **actor** (an agent, a service) on the subject's behalf. The resolver returns the actor's identity claims plus the consent-derived scope ceiling; they are minted into a delegated principal and attached to `headers["routecraft.auth.principal"]`. Return `undefined` to leave the exchange untouched, so a caller without a consent record simply never delegates. The body is unchanged.
 
+The name and the claim are the two halves of one RFC 8693 concept: *delegation* is the verb (section 1.1, "Delegation vs. Impersonation Semantics"), and the `act` (actor) claim is the noun it produces, "a means within a JWT to express that delegation has occurred" (section 4.1). So `delegate()` writes `Principal.actor`, which serialises as `act`, exactly as `subject` serialises as `sub`. Tokens that already carry `act` (an IdP doing RFC 8693 token exchange, or Clerk's user-impersonation sessions) produce the same principal shape through `jwt()` / `jwks()` with no `delegate()` call involved.
+
 The distinction this operation establishes is the core of the delegation model (RFC 8693): `subject` stays the party the action is taken **on behalf of**, `actor` becomes the party **performing** it. A route can then distinguish the three cases with one [`authorize()`](/docs/reference/operations/authorize) grammar: a person acting directly (no actor), an agent acting for a person (subject person, actor agent), and an agent acting under its own standing authority (subject agent, no actor).
 
 `DelegationClaims`:
