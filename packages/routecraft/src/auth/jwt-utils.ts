@@ -1,4 +1,10 @@
-import type { ClaimMappers, JwtAudience, OAuthPrincipal } from "./types.ts";
+import type {
+  ActorMatcher,
+  ClaimMappers,
+  JwtAudience,
+  OAuthPrincipal,
+  Principal,
+} from "./types.ts";
 
 function stringClaim(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -121,12 +127,82 @@ export function principalFromJwtPayload(
       : undefined);
   if (scopes !== undefined) principal.scopes = scopes;
 
-  const roles = Array.isArray(payload["roles"])
-    ? (payload["roles"] as unknown[]).filter(
-        (r): r is string => typeof r === "string",
-      )
-    : undefined;
+  const roles =
+    options.claims?.roles?.(payload) ??
+    (Array.isArray(payload["roles"])
+      ? (payload["roles"] as unknown[]).filter(
+          (r): r is string => typeof r === "string",
+        )
+      : undefined);
   if (roles !== undefined) principal.roles = roles;
 
+  const subjectProfile = stringClaim(payload["sub_profile"]);
+  if (subjectProfile !== undefined) principal.subjectProfile = subjectProfile;
+
+  const actor = actorFromActClaim(payload["act"], options.kind);
+  if (actor !== undefined) principal.actor = actor;
+
+  const mayAct = mayActFromClaim(payload["may_act"]);
+  if (mayAct !== undefined) principal.mayAct = mayAct;
+
   return principal;
+}
+
+/**
+ * Map an RFC 8693 section 4.1 `act` claim (possibly nested) to a
+ * {@link Principal} actor chain. The outermost entry is the current actor.
+ * Entries without a string `sub` terminate the chain: an actor the policy
+ * layer cannot identify must not silently vanish mid-chain, so the malformed
+ * tail is dropped as a unit (returns `undefined` at that level).
+ *
+ * Nested actors are plain (non-branded) objects; authenticity covers the
+ * chain through the ROOT principal's brand, applied by the verifier
+ * boundary that called {@link principalFromJwtPayload} on a
+ * signature-verified payload.
+ *
+ * @internal
+ */
+function actorFromActClaim(
+  act: unknown,
+  kind: "jwt" | "jwks",
+): Principal | undefined {
+  if (typeof act !== "object" || act === null || Array.isArray(act)) {
+    return undefined;
+  }
+  const record = act as Record<string, unknown>;
+  const subject = stringClaim(record["sub"]);
+  if (subject === undefined) return undefined;
+  const actor: Principal = { kind, scheme: "bearer", subject };
+  const issuer = stringClaim(record["iss"]);
+  if (issuer !== undefined) actor.issuer = issuer;
+  const profile = stringClaim(record["sub_profile"]);
+  if (profile !== undefined) actor.subjectProfile = profile;
+  const nested = actorFromActClaim(record["act"], kind);
+  if (nested !== undefined) actor.actor = nested;
+  return actor;
+}
+
+/**
+ * Map an RFC 8693 section 4.4 `may_act` claim to {@link ActorMatcher}
+ * entries. The wire claim is a single JSON object naming one permitted
+ * party; an array of such objects is also accepted since multi-party
+ * deployments emit it in practice. Entries without a string `sub` are
+ * dropped.
+ *
+ * @internal
+ */
+function mayActFromClaim(mayAct: unknown): ActorMatcher[] | undefined {
+  const entries = Array.isArray(mayAct) ? mayAct : [mayAct];
+  const matchers: ActorMatcher[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const record = entry as Record<string, unknown>;
+    const subject = stringClaim(record["sub"]);
+    if (subject === undefined) continue;
+    const matcher: ActorMatcher = { subject };
+    const issuer = stringClaim(record["iss"]);
+    if (issuer !== undefined) matcher.issuer = issuer;
+    matchers.push(matcher);
+  }
+  return matchers.length > 0 ? matchers : undefined;
 }

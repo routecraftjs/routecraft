@@ -464,6 +464,60 @@ Supply an explicit `key` function that returns a stable string identifier:
 
 This error is not retryable: the same body fails key derivation the same way every time.
 
+## RC5034
+Actor not permitted
+
+**Why it happens**  
+The exchange's principal carries an `actor` (a delegate, typically an agent, acting on the subject's behalf per RFC 8693 `act` semantics), and the route's `authorize({ actor })` specification does not admit it. The default specification is `'none'`: a capability is not reachable through delegation unless it declares otherwise, so any delegated principal is rejected until the route names its permitted actor(s). Also raised in the inverse case: a route that requires an actor (for example `actor: { profile: 'ai_agent' }`) rejects a direct call. Only the outermost actor is considered; nested prior actors in a chain are audit data (RFC 8693 section 4.1).
+
+**Suggestion**  
+Declare the permitted actor(s) on the route, matching by the `(issuer, subject)` pair:
+
+```ts
+.authorize({
+  scopes: ['mail:send'],
+  actor: ['none', { subject: 'agent:zoe', issuer: 'https://agents.example.com' }],
+})
+```
+
+or have the permitted party perform the call. This is permanent under the current declaration; no retry or ceremony changes it.
+
+## RC5035
+Subject not permitted
+
+**Why it happens**  
+The principal's subject does not satisfy the route's `authorize({ subject })` constraint: wrong subject id, wrong issuer, or wrong entity profile (for example a route restricted to `subject: { profile: 'ai_agent' }` called by a human principal, or vice versa).
+
+**Suggestion**  
+Check the route's subject constraint against the caller's identity. This is permanent under current credentials.
+
+## RC5036
+Delegation chain too deep
+
+**Why it happens**  
+The principal's actor chain is longer than the route's `maxDelegationDepth` (default `1`, applied once the `actor` spec admits an actor at all). A re-delegated chain (user to agent to sub-agent) exceeds the default.
+
+**Suggestion**  
+Have an agent closer to the subject perform the call, or raise `maxDelegationDepth` on the route deliberately. Only the outermost actor is a policy input; deeper chains add audit surface, not authority.
+
+## RC5037
+Delegation refused by mayAct
+
+**Why it happens**  
+`delegate()` was asked to mint an actor that the subject's `mayAct` list (RFC 8693 section 4.4) does not permit. The subject has not consented to this party acting on their behalf. Matching uses the `(issuer, subject)` pair, so a same-named actor from a different issuer is also refused.
+
+**Suggestion**  
+Obtain the subject's consent through your grant flow, which adds the matching `mayAct` entry, then retry the delegation. Never widen `mayAct` without an explicit consent event.
+
+## RC5038
+Insufficient authority (recoverable)
+
+**Why it happens**  
+The principal is authentic and admitted, but lacks one or more scopes the route requires. Unlike a role failure (RC5015, permanent: no ceremony changes who the subject is), a missing scope is the one recoverable authorization failure: a consent or grant flow could add the scope and the call could be retried. This mirrors the RFC 9470 / RFC 6750 `insufficient_scope` challenge shape. For delegated principals, remember that scopes are intersected at every hop, so the missing scope may have been narrowed away by the delegation ceiling rather than absent from the subject.
+
+**Suggestion**  
+The cause error carries a machine-readable `missing.scopes` array listing exactly what is absent. Feed it to your consent flow (request a grant for those scopes), or grant them at the IdP, then retry.
+
 ## RC9901
 Unknown error
 

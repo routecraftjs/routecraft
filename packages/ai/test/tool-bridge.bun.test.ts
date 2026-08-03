@@ -304,6 +304,73 @@ describe("buildVercelTools: execute path", () => {
   });
 
   /**
+   * @case The delegation actor chain survives the tool boundary and is cloned, not shared
+   * @preconditions Principal with a nested actor chain (user -> zoe -> max ordering outermost-first) and a mayAct list
+   * @expectedResult ctx.principal carries the full chain and mayAct; both are clones (caller's objects stay mutable) and the snapshot chain is frozen
+   */
+  test("actor chain and mayAct are cloned and isolated from the caller", async () => {
+    let capturedCtx: {
+      principal?: {
+        actor?: { subject: string; actor?: { subject: string } };
+        mayAct?: Array<{ subject?: string | string[] }>;
+      };
+    } = {};
+    const handler = mock(async (_input: unknown, ctx: unknown) => {
+      capturedCtx = ctx as typeof capturedCtx;
+    });
+    const resolved: ResolvedTool = {
+      name: "actor-check",
+      description: "Actor chain check.",
+      input: z.object({}),
+      handler: handler as unknown as ResolvedTool["handler"],
+    };
+    const principal = {
+      kind: "custom" as const,
+      scheme: "custom" as const,
+      subject: "user_jaco",
+      actor: {
+        kind: "custom" as const,
+        scheme: "custom" as const,
+        subject: "agent:max",
+        actor: {
+          kind: "custom" as const,
+          scheme: "custom" as const,
+          subject: "agent:zoe",
+        },
+      },
+      mayAct: [{ subject: "agent:zoe" }],
+    };
+    const map = await buildVercelTools(
+      [resolved],
+      undefined,
+      new AbortController().signal,
+      undefined,
+      principal,
+    );
+    await (
+      map["actor-check"] as { execute: (i: unknown) => Promise<unknown> }
+    ).execute({});
+
+    const snapshot = capturedCtx.principal!;
+    expect(snapshot.actor?.subject).toBe("agent:max");
+    expect(snapshot.actor?.actor?.subject).toBe("agent:zoe");
+    expect(snapshot.mayAct).toEqual([{ subject: "agent:zoe" }]);
+    // Clones, not the caller's objects: the live chain stays mutable.
+    expect(snapshot.actor).not.toBe(principal.actor);
+    expect(() => {
+      principal.actor.subject = "agent:other";
+    }).not.toThrow();
+    // The snapshot chain is frozen, nested levels included.
+    expect(snapshot.actor?.subject).toBe("agent:max");
+    expect(() => {
+      (snapshot.actor as { subject: string }).subject = "evil";
+    }).toThrow(TypeError);
+    expect(() => {
+      (snapshot.actor!.actor as { subject: string }).subject = "evil";
+    }).toThrow(TypeError);
+  });
+
+  /**
    * @case Nested claim objects are deep-cloned and deep-frozen
    * @preconditions Principal with a nested object claim and a nested array claim
    * @expectedResult Mutating the original nested objects does not affect the snapshot; runtime mutation of nested values throws TypeError

@@ -77,6 +77,14 @@ export function freezePrincipal(principal: Principal): Principal {
   if (snapshot.userinfoClaims) {
     snapshot.userinfoClaims = structuredClone(snapshot.userinfoClaims);
   }
+  // Clone the delegation fields for the same reason: `actor` is a nested
+  // Principal chain and `mayAct` an array of matcher objects, both shared
+  // by the shallow spread. delegate() output arrives already frozen (so
+  // freezing in place would be harmless there), but a principal assembled
+  // by a .process() step is mutable and must not have its chain frozen as
+  // a side effect of a tool dispatch.
+  if (snapshot.actor) snapshot.actor = structuredClone(snapshot.actor);
+  if (snapshot.mayAct) snapshot.mayAct = structuredClone(snapshot.mayAct);
   deepFreeze(snapshot);
   // Preserve authenticity across the snapshot: a snapshot of an authentic
   // principal is exactly as authentic as its source, and a snapshot of a

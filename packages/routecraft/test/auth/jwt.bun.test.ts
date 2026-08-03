@@ -520,4 +520,107 @@ describe("jwt()", () => {
       await expect(validator(token)).rejects.toThrow(/exp/);
     });
   });
+
+  describe("delegation claims", () => {
+    /**
+     * @case act, may_act, and sub_profile round-trip from a verified token onto the Principal
+     * @preconditions Token carries nested act {sub, iss, sub_profile, act}, a may_act object, sub_profile, and a roles array
+     * @expectedResult Principal has the full actor chain (outermost first), mayAct matcher, subjectProfile, and roles; matches what an in-process delegate() would produce
+     */
+    test("parses act, may_act, sub_profile, and roles claims", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user_jaco",
+          sub_profile: "user",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          roles: ["member", "admin"],
+          scope: "mail:send",
+          act: {
+            sub: "agent:max",
+            iss: "https://agents.example.com",
+            sub_profile: "ai_agent",
+            act: { sub: "agent:zoe", iss: "https://agents.example.com" },
+          },
+          may_act: { sub: "agent:zoe", iss: "https://agents.example.com" },
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.subject).toBe("user_jaco");
+      expect(principal.subjectProfile).toBe("user");
+      expect(principal.roles).toEqual(["member", "admin"]);
+      expect(principal.actor?.subject).toBe("agent:max");
+      expect(principal.actor?.subjectProfile).toBe("ai_agent");
+      expect(principal.actor?.actor?.subject).toBe("agent:zoe");
+      expect(principal.actor?.actor?.actor).toBeUndefined();
+      expect(principal.mayAct).toEqual([
+        { subject: "agent:zoe", issuer: "https://agents.example.com" },
+      ]);
+    });
+
+    /**
+     * @case ClaimMappers.roles overrides the default roles claim location
+     * @preconditions Token nests roles under realm_access.roles (Keycloak shape); claims.roles mapper supplied
+     * @expectedResult Principal.roles comes from the mapped location
+     */
+    test("maps roles from a non-standard claim via claims.roles", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        claims: {
+          roles: (payload) =>
+            (payload["realm_access"] as { roles?: string[] } | undefined)
+              ?.roles,
+        },
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          realm_access: { roles: ["member"] },
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.roles).toEqual(["member"]);
+    });
+
+    /**
+     * @case A malformed act claim (no sub) is dropped rather than half-parsed
+     * @preconditions Token act claim is an object without a string sub
+     * @expectedResult Principal has no actor; verification itself still succeeds
+     */
+    test("drops a malformed act claim", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          act: { iss: "https://agents.example.com" },
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.actor).toBeUndefined();
+    });
+  });
 });
