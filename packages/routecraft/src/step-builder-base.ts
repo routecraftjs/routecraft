@@ -66,6 +66,7 @@ import {
   type CallableAuthenticator,
   AuthenticateStep,
 } from "./operations/authenticate.ts";
+import { type CallableDelegator, DelegateStep } from "./operations/delegate.ts";
 import { HeaderStep } from "./operations/header.ts";
 import type { ErrorHandler } from "./route.ts";
 import { PUSH_STEP } from "./dsl-symbol.ts";
@@ -634,6 +635,41 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    */
   authenticate(resolver: CallableAuthenticator<S["body"]>): this {
     this.pushStep(new AuthenticateStep<S["body"]>(resolver));
+    return this;
+  }
+
+  /**
+   * Mark the exchange's principal as being exercised by an actor (an agent,
+   * a service) on the subject's behalf. The resolver returns the actor's
+   * identity claims plus the consent-derived scope ceiling; they are minted
+   * into a delegated principal (subject unchanged, actor set, scopes
+   * intersected) and attached to the exchange. Return `undefined` to leave
+   * the exchange untouched, so a caller without a consent record simply
+   * never delegates. Body type is unchanged.
+   *
+   * Sugar over the `delegate()` helper; see it for the full semantics
+   * (scope intersection, role pass-through, chain nesting, mayAct
+   * enforcement). Requires an authentic principal on the exchange when a
+   * directive is returned.
+   *
+   * @param resolver - Returns the delegation directive, or `undefined`
+   * @returns This builder (same subclass, same body type)
+   *
+   * @example
+   * ```ts
+   * craft()
+   *   .from(mail("INBOX"))
+   *   .authenticate(mailPrincipal)
+   *   .delegate((ex) => {
+   *     const grant = grants.find(ex.principal?.subject, "agent:zoe")
+   *     if (!grant) return undefined
+   *     return { actor: zoeIdentity, scopes: grant.scopes, grantId: grant.id }
+   *   })
+   *   .to(agent("zoe"))
+   * ```
+   */
+  delegate(resolver: CallableDelegator<S["body"]>): this {
+    this.pushStep(new DelegateStep<S["body"]>(resolver));
     return this;
   }
 

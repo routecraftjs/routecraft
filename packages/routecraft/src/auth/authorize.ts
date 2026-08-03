@@ -2,7 +2,65 @@ import { type Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { type CallableValidator } from "../operations/validate.ts";
 import { isAuthentic } from "./authentic.ts";
-import { type Principal } from "./types.ts";
+import { actorMatches } from "./delegate.ts";
+import {
+  type ActorMatcher,
+  type Principal,
+  type PrincipalProfile,
+} from "./types.ts";
+
+/**
+ * Machine-readable detail attached to an `RC5038` error's cause, naming
+ * exactly what the principal lacked. Read it off `error.cause` to drive a
+ * consent flow:
+ *
+ * ```ts
+ * const missing = (err.cause as InsufficientAuthority | undefined)?.missing
+ * if (missing?.scopes) requestGrant(missing.scopes)
+ * ```
+ *
+ * In-process only: `RoutecraftError.toJSON()` serialises the cause's message
+ * and stack, not its own properties, so a consumer reading the failure from
+ * a serialised event log sees the scope names in the message text but not
+ * this structured field.
+ */
+export interface InsufficientAuthority extends Error {
+  missing: { scopes: string[] };
+}
+
+/**
+ * Constraint on who is driving the request (the outermost `actor`).
+ *
+ * - `'none'`: reject when any actor is present. This is the DEFAULT: a
+ *   capability is not reachable through delegation unless it says so, per
+ *   the security-defaults policy (production-safe unconfigured default).
+ * - `'any'`: accept any actor (and no actor).
+ * - {@link ActorMatcher}: require an actor matching the given identity.
+ * - Array: OR across entries; include `'none'` to also accept direct calls.
+ * - Predicate: full custom check over `(actor, subject)`.
+ *
+ * Per RFC 8693 section 4.1, only the OUTERMOST actor is considered; prior
+ * actors in a nested chain are audit data and never a policy input.
+ */
+export type ActorSpec =
+  | "none"
+  | "any"
+  | ActorMatcher
+  | Array<"none" | ActorMatcher>
+  | ((actor: Principal | undefined, subject: Principal) => boolean);
+
+/**
+ * Constraint on whose authority is being exercised (the subject). All
+ * provided fields must match; array-valued fields are an OR across values.
+ */
+export interface SubjectMatcher {
+  /** Subject id(s) to accept. */
+  subject?: string | string[];
+  /** Issuer the subject is scoped to. */
+  issuer?: string;
+  /** Entity profile(s) to accept (e.g. restrict a route to `ai_agent`). */
+  profile?: PrincipalProfile | PrincipalProfile[];
+}
 
 /**
  * Options accepted by {@link authorize}. All criteria are AND-combined: the
@@ -11,17 +69,21 @@ import { type Principal } from "./types.ts";
 export interface AuthorizeOptions {
   /**
    * Required roles. The principal must carry every listed role on
-   * `principal.roles`. Defaults to no role check.
+   * `principal.roles`. Roles are SUBJECT attributes: they describe who the
+   * action is for and pass through delegation unchanged, so this checks the
+   * subject even when an actor is driving. Defaults to no role check.
    */
   roles?: string[];
   /**
    * Required scopes. The principal must carry every listed scope on
-   * `principal.scopes`. Defaults to no scope check.
+   * `principal.scopes`. Scopes are CREDENTIAL capabilities: delegation
+   * intersects them at every hop, so this checks the effective (narrowed)
+   * set. Defaults to no scope check.
    */
   scopes?: string[];
   /**
    * Custom predicate for advanced checks. Return `false` to reject. Runs
-   * after the role and scope checks.
+   * after the built-in checks.
    */
   predicate?: (principal: Principal) => boolean;
   /**
@@ -34,36 +96,138 @@ export interface AuthorizeOptions {
    * a fraction of a second.
    */
   clockToleranceSec?: number;
+  /**
+   * Constrain whose authority is exercised. Throws RC5035 on mismatch.
+   * Defaults to no subject constraint.
+   */
+  subject?: SubjectMatcher | ((subject: Principal) => boolean);
+  /**
+   * Constrain who is driving. Defaults to `'none'`: a principal carrying an
+   * actor (a delegate acting on the subject's behalf) is rejected with
+   * RC5034 unless the route explicitly admits one. See {@link ActorSpec}.
+   */
+  actor?: ActorSpec;
+  /**
+   * Maximum delegation chain length (number of nested actors). Applies only
+   * once the `actor` spec admits an actor at all. Defaults to `1`: one
+   * delegation hop is accepted, a re-delegated chain (agent to sub-agent)
+   * throws RC5036 until a route raises the limit deliberately.
+   */
+  maxDelegationDepth?: number;
+}
+
+/**
+ * Depth of the actor chain: 0 for no actor, 1 per nesting level.
+ *
+ * Stops at `limit + 1` because the caller only ever asks "is this deeper
+ * than the limit", never "how much deeper". The bound doubles as the cycle
+ * guard: a hand-assembled self-referential chain would otherwise spin here
+ * forever, turning a policy check into a hung event loop.
+ */
+function chainDepth(principal: Principal, limit: number): number {
+  const ceiling = Number.isFinite(limit) ? Math.max(0, limit) + 1 : 1;
+  let depth = 0;
+  let current = principal.actor;
+  while (current !== undefined && depth < ceiling) {
+    depth += 1;
+    current = current.actor;
+  }
+  return depth;
+}
+
+function subjectMatches(
+  principal: Principal,
+  matcher: SubjectMatcher,
+): boolean {
+  if (matcher.subject !== undefined) {
+    const subjects = Array.isArray(matcher.subject)
+      ? matcher.subject
+      : [matcher.subject];
+    if (!subjects.includes(principal.subject)) return false;
+  }
+  if (matcher.issuer !== undefined && principal.issuer !== matcher.issuer) {
+    return false;
+  }
+  if (matcher.profile !== undefined) {
+    const profiles: PrincipalProfile[] = Array.isArray(matcher.profile)
+      ? matcher.profile
+      : [matcher.profile];
+    if (
+      principal.subjectProfile === undefined ||
+      !profiles.includes(principal.subjectProfile)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function actorAllowed(
+  spec: ActorSpec,
+  actor: Principal | undefined,
+  subject: Principal,
+): boolean {
+  if (typeof spec === "function") return spec(actor, subject);
+  if (spec === "any") return true;
+  if (spec === "none") return actor === undefined;
+  if (Array.isArray(spec)) {
+    return spec.some((entry) =>
+      entry === "none"
+        ? actor === undefined
+        : actor !== undefined && actorMatches(actor, entry),
+    );
+  }
+  return actor !== undefined && actorMatches(actor, spec);
 }
 
 /**
  * Build a {@link CallableValidator} that **checks** the exchange carries an
  * authenticated principal and (optionally) that the principal has every
- * required role and scope. This is a verification primitive: it asserts an
- * existing identity meets the criteria. It does NOT issue, mint, or attach
- * credentials to the exchange (use `.authenticate()` / `authenticate()` for
- * that), and it trusts only principals established by a trusted origin.
+ * required role and scope, an admissible subject, and an admissible actor.
+ * This is a verification primitive: it asserts an existing identity meets
+ * the criteria. It does NOT issue, mint, or attach credentials to the
+ * exchange (use `.authenticate()` / `.delegate()` for that), and it trusts
+ * only principals established by a trusted origin.
  *
- * Throws `RC5012` when no principal is present, `RC5023` when a principal is
- * present but was not established by a trusted origin (a self-asserted plain
- * object), `RC5020` when the principal carries an `expiresAt` in the past
- * (mid-pipeline token expiry), and `RC5015` when the principal fails the
- * role / scope / predicate check.
+ * Delegation awareness (RFC 8693): `roles` are checked on the subject
+ * (they pass through delegation), `scopes` on the effective narrowed set,
+ * and the `actor` spec on the OUTERMOST actor only; nested prior actors are
+ * audit data. The default `actor: 'none'` means a route is not reachable
+ * through delegation unless it says so.
+ *
+ * Throws `RC5012` when no principal is present, `RC5023` when a principal
+ * is present but was not established by a trusted origin, `RC5020` on
+ * expiry, `RC5034` when the actor is not admitted, `RC5035` when the
+ * subject is not admitted, `RC5036` when the delegation chain exceeds
+ * `maxDelegationDepth`, `RC5015` when the principal fails the role or
+ * predicate check, and `RC5038` when a required scope is missing
+ * (recoverable; the cause carries `missing.scopes`).
  *
  * Most routes should declare authorization at the route boundary using the
  * pre-from `.authorize()` builder method, which wires this validator as a
  * route-entry guard. Use this function directly with `.validate(...)` only
- * when the check must run mid-pipeline (for example, after an `.authenticate()`
- * step that establishes the principal, or inside a `.choice()` branch).
+ * when the check must run mid-pipeline (for example, after an
+ * `.authenticate()` or `.delegate()` step, or inside a `.choice()` branch).
  *
  * @example Route-entry guard (preferred)
  * ```ts
  * craft()
  *   .id("delete-user")
- *   .description("Delete a user by id")
- *   .authorize({ roles: ["admin"] })
+ *   .authorize({ roles: ["admin"], actor: "none" })
  *   .from(mcp({ annotations: { destructiveHint: true } }))
  *   .to(deleteUserDestination)
+ * ```
+ *
+ * @example Admit one named agent alongside direct callers
+ * ```ts
+ * craft()
+ *   .id("send-reply")
+ *   .authorize({
+ *     scopes: ["mail:send"],
+ *     actor: ["none", { subject: "agent:zoe", issuer: "https://eywa.example" }],
+ *   })
+ *   .from(direct())
+ *   .to(smtp())
  * ```
  *
  * @example Mid-pipeline check (escape hatch)
@@ -80,7 +244,15 @@ export interface AuthorizeOptions {
 export function authorize(
   options: AuthorizeOptions = {},
 ): CallableValidator<unknown, unknown> {
-  const { roles, scopes, predicate, clockToleranceSec = 0 } = options;
+  const {
+    roles,
+    scopes,
+    predicate,
+    clockToleranceSec = 0,
+    subject: subjectSpec,
+    actor: actorSpec = "none",
+    maxDelegationDepth = 1,
+  } = options;
   return (exchange: Exchange<unknown>) => {
     const principal = exchange.principal;
     if (!principal) {
@@ -92,11 +264,11 @@ export function authorize(
     }
 
     // Trust only principals established by a trusted origin: a source-side
-    // verifier (jwt/jwks/oauth) or an explicit authenticate() mint. A plain
-    // object written onto headers["routecraft.auth.principal"] is treated as
-    // self-asserted and rejected, so identity cannot be forged by an
-    // incidental header write or by spreading an existing principal with
-    // elevated roles.
+    // verifier (jwt/jwks/oauth) or an explicit authenticate()/delegate()
+    // mint. A plain object written onto headers["routecraft.auth.principal"]
+    // is treated as self-asserted and rejected, so identity cannot be forged
+    // by an incidental header write or by spreading an existing principal
+    // with elevated roles.
     if (!isAuthentic(principal)) {
       throw rcError("RC5023", new Error("Principal is not authentic"), {
         message:
@@ -124,6 +296,64 @@ export function authorize(
       }
     }
 
+    // Actor gate before role/scope checks: "you may not be here as a
+    // delegate" is a different fact from "you lack a role", and the actor
+    // decision must not leak which roles would have sufficed.
+    const currentActor = principal.actor;
+    if (!actorAllowed(actorSpec, currentActor, principal)) {
+      throw rcError(
+        "RC5034",
+        new Error(
+          currentActor === undefined
+            ? "Direct calls are not admitted by the actor spec"
+            : `Actor "${currentActor.subject}" is not admitted`,
+        ),
+        {
+          message:
+            currentActor === undefined
+              ? "Authorization failed: this route requires a delegated actor and the call is direct"
+              : `Authorization failed: actor "${currentActor.subject}" is not permitted to act on the subject's behalf here`,
+          suggestion:
+            "Declare the permitted actor(s) on the route's authorize({ actor }) (the default 'none' rejects all delegation), or have the permitted party perform the call.",
+        },
+      );
+    }
+
+    if (currentActor !== undefined) {
+      const depth = chainDepth(principal, maxDelegationDepth);
+      // Fail closed on a non-finite limit, matching the expiresAt /
+      // clockToleranceSec discipline above: `depth > NaN` is always false,
+      // so a misconfigured limit (e.g. Number(unsetEnvVar)) would silently
+      // accept a chain of any depth instead of rejecting it.
+      if (!Number.isFinite(maxDelegationDepth) || depth > maxDelegationDepth) {
+        throw rcError(
+          "RC5036",
+          new Error(
+            `Delegation depth ${depth} exceeds maximum ${maxDelegationDepth}`,
+          ),
+          {
+            message: `Authorization failed: delegation chain of depth ${depth} exceeds this route's maximum of ${maxDelegationDepth}`,
+            suggestion:
+              "Have an agent closer to the subject perform the call, or raise maxDelegationDepth on the route deliberately. Only the outermost actor is a policy input; deeper chains add audit surface, not authority.",
+          },
+        );
+      }
+    }
+
+    if (subjectSpec !== undefined) {
+      const ok =
+        typeof subjectSpec === "function"
+          ? subjectSpec(principal)
+          : subjectMatches(principal, subjectSpec);
+      if (!ok) {
+        throw rcError("RC5035", new Error("Subject not permitted"), {
+          message: `Authorization failed: subject "${principal.subject}" is not permitted by this route's subject constraint`,
+          suggestion:
+            "Check the route's authorize({ subject }) constraint (subject id, issuer, profile) against the caller's identity.",
+        });
+      }
+    }
+
     if (roles && roles.length > 0) {
       const granted = new Set(principal.roles ?? []);
       const missing = roles.filter((r) => !granted.has(r));
@@ -144,13 +374,23 @@ export function authorize(
       const granted = new Set(principal.scopes ?? []);
       const missing = scopes.filter((s) => !granted.has(s));
       if (missing.length > 0) {
+        // RC5038, not RC5015: a missing scope is the one recoverable
+        // failure (RFC 9470 / RFC 6750 insufficient_scope shape). The
+        // identity is valid; a consent flow could add the scope and the
+        // call could be retried. Role and predicate failures stay RC5015
+        // because no ceremony changes who the subject is. The cause error
+        // carries a machine-readable `missing` field so a consent flow can
+        // request exactly what is absent.
         throw rcError(
-          "RC5015",
-          new Error(`Missing required scopes: ${missing.join(", ")}`),
+          "RC5038",
+          Object.assign(
+            new Error(`Missing required scopes: ${missing.join(", ")}`),
+            { missing: { scopes: missing } },
+          ) satisfies InsufficientAuthority,
           {
             message: `Authorization failed: principal is missing required scope(s): ${missing.join(", ")}`,
             suggestion:
-              "Grant the principal the missing scope(s) at the IdP, or relax the authorize() requirement.",
+              "The identity is valid but lacks scope. Obtain the missing scope(s) via your consent/grant flow (the cause's `missing.scopes` lists them), or grant them at the IdP, then retry.",
           },
         );
       }

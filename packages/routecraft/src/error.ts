@@ -76,6 +76,11 @@ export interface ErrorCodeRegistry {
   RC5031: RCMeta;
   RC5032: RCMeta;
   RC5033: RCMeta;
+  RC5034: RCMeta;
+  RC5035: RCMeta;
+  RC5036: RCMeta;
+  RC5037: RCMeta;
+  RC5038: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -283,9 +288,9 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
   },
   RC5024: {
     category: "Adapter",
-    message: "authenticate() called without a subject",
+    message: "authenticate() called with invalid claims",
     suggestion:
-      "authenticate() (and the .authenticate() operation) require a non-empty `subject` naming the verified identity, e.g. authenticate({ subject: sender.address, roles: [...] }). This is a programming error at the mint call, distinct from RC5023 (a principal that reached authorize() without being established by a trusted origin).",
+      "authenticate() (and the .authenticate() operation) require a non-empty `subject` naming the verified identity, and reject delegation state (`actor`, `grantId`): minting establishes identity, delegate() establishes who is acting for it. This is a programming error at the mint call, distinct from RC5023 (a principal that reached authorize() without being established by a trusted origin).",
     docs: `${DOCS_BASE}#rc-5024`,
     retryable: false,
   },
@@ -351,6 +356,50 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The default `.dedupe()` key hashes JSON.stringify(body); it fails on non-serialisable bodies (functions, symbols, circular refs, BigInt). Supply an explicit `key` function in dedupe({ key: ... }). Retrying will not help: the same body fails the same way.",
     docs: `${DOCS_BASE}#rc-5033`,
+    retryable: false,
+  },
+  RC5034: {
+    category: "Adapter",
+    message: "Actor not permitted",
+    suggestion:
+      "The principal carries an actor (a delegate acting on the subject's behalf) that this route's authorize({ actor }) does not accept. The default is actor: 'none' (not agent-reachable). Declare the permitted actor(s) on the route, or have the caller act directly. Permanent under the current declaration.",
+    docs: `${DOCS_BASE}#rc-5034`,
+    retryable: false,
+  },
+  RC5035: {
+    category: "Adapter",
+    message: "Subject not permitted",
+    suggestion:
+      "The principal's subject does not match this route's authorize({ subject }) constraint (subject id, issuer, or profile). Permanent under current credentials.",
+    docs: `${DOCS_BASE}#rc-5035`,
+    retryable: false,
+  },
+  RC5036: {
+    category: "Adapter",
+    message: "Delegation chain too deep",
+    suggestion:
+      "The principal's actor chain is longer than the route's maxDelegationDepth (default 1). Re-delegation through further agents is not accepted here; have an agent closer to the subject perform the call, or raise maxDelegationDepth deliberately.",
+    docs: `${DOCS_BASE}#rc-5036`,
+    retryable: false,
+  },
+  RC5037: {
+    category: "Adapter",
+    message: "Delegation refused by mayAct",
+    suggestion:
+      "delegate() was asked to mint an actor the subject has not permitted (no matching mayAct entry). Obtain the subject's consent (record a grant, which populates mayAct) and retry. Never widen mayAct without an explicit consent event.",
+    docs: `${DOCS_BASE}#rc-5037`,
+    retryable: false,
+  },
+  RC5038: {
+    category: "Adapter",
+    message: "Insufficient authority (recoverable)",
+    suggestion:
+      "The identity is valid but lacks scope for this capability. The error's `missing` detail lists what is absent (RFC 9470 / RFC 6750 insufficient_scope shape). Obtain the missing grant via your consent flow, then retry.",
+    docs: `${DOCS_BASE}#rc-5038`,
+    // "Recoverable" describes the AUTHORIZATION outcome (a consent flow can
+    // add the scope), not the request. Retrying the same call with the same
+    // credential fails identically, so the retry wrapper must not treat this
+    // as transient.
     retryable: false,
   },
   RC9901: {

@@ -214,11 +214,11 @@ Permission denied
 **Why it happens**  
 Two cases share this code:
 - An upstream service denied the operation (e.g. 403 from access control or IAM).
-- A route's `.authorize()` guard ran (or `.validate(authorize(...))` mid-pipeline), the exchange had a principal, but the principal was missing a required role or scope, or a custom predicate returned `false`.
+- A route's `.authorize()` guard ran (or `.validate(authorize(...))` mid-pipeline), the exchange had a principal, but the principal was missing a required role, or a custom predicate returned `false`. A missing **scope** is not this code: it raises [`RC5038`](#rc-5038), because a role or predicate failure states something about who the subject is (permanent under current credentials), while a missing scope is recoverable through a consent or grant flow.
 
 **Suggestion**  
 - For upstream denials: check IAM, ACLs, and scopes granted to the credential.
-- For in-route denials: grant the principal the missing role(s) or scope(s) at your IdP, or relax the `.authorize()` requirement. The error message lists the missing roles/scopes. See [`.authorize()`](/docs/reference/operations/authorize).
+- For in-route denials: grant the principal the missing role(s) at your IdP, or relax the `.authorize()` requirement. The error message lists the missing roles. See [`.authorize()`](/docs/reference/operations/authorize).
 
 ## RC5016
 Source payload parse failed
@@ -275,7 +275,7 @@ A mid-pipeline `.validate(authorize(...))` (or the pre-from `.authorize()` guard
 
 The check is also raised fail-closed when either `expiresAt` or `clockToleranceSec` is non-finite (`NaN`, `Infinity`); a numeric-coercion bug must not silently bypass the guard.
 
-The check is distinct from `RC5012` (no principal at all) and `RC5015` (principal failed a role / scope / predicate check) so clients can react accordingly: a `RC5020` signal almost always means "refresh and retry," whereas `RC5015` is a permanent denial under the current credentials.
+The check is distinct from `RC5012` (no principal at all) and `RC5015` (principal failed a role / predicate check; a missing scope is `RC5038`) so clients can react accordingly: an `RC5020` signal almost always means "refresh and retry," whereas `RC5015` is a permanent denial under the current credentials.
 
 **Suggestion**  
 - The client should refresh the bearer and retry the request.
@@ -313,7 +313,7 @@ Authorization failed: principal is not authentic
 **Why it happens**  
 `authorize()` found a principal on the exchange, but it was not established by a trusted origin. Authenticity is conferred only by a source-side verifier (`jwt()` / `jwks()` / `oauth()`) or by an explicit mint (`.authenticate()` / the `authenticate()` helper), which register the principal in a private set. A plain object written directly onto `headers["routecraft.auth.principal"]` (for example via `.process()` or `.header()`), or a copy made from an existing principal (`{ ...ex.principal, roles: ['admin'] }`, which is a different object and so not in the set), is treated as self-asserted and rejected. This makes establishing identity an explicit, greppable act and prevents a route from silently forging or escalating identity.
 
-The check is distinct from `RC5012` (no principal at all) and `RC5015` (an authentic principal that lacks a required role / scope), so you can tell "forged / self-asserted" apart from "missing a role."
+The check is distinct from `RC5012` (no principal at all), `RC5015` (an authentic principal that lacks a required role or fails a predicate), and `RC5038` (an authentic principal that lacks a required scope), so you can tell "forged / self-asserted" apart from "missing a role" and "missing a grantable scope."
 
 **Suggestion**  
 - Mint the identity with the `.authenticate()` operation (or the `authenticate()` helper for mid-pipeline / custom-source use), which brands and freezes the principal.
@@ -322,15 +322,21 @@ The check is distinct from `RC5012` (no principal at all) and `RC5015` (an authe
 - Do not assign a plain object to the principal header and do not spread an existing principal to change its roles; both produce a non-authentic principal.
 
 ## RC5024
-authenticate() called without a subject
+authenticate() called with invalid claims
 
 **Why it happens**  
-`authenticate()` (or the `.authenticate()` operation) was called with claims that have no `subject`, or an empty-string `subject`. Every minted identity must name the stable identity it represents, so the mint fails fast rather than producing an anonymous "authenticated" principal.
+Two cases, both programming errors at the mint call site:
 
-This is a programming error at the mint call site, distinct from `RC5023`, which fires later at `authorize()` when a principal reached the check without being established by a trusted origin.
+1. **No subject.** The claims have no `subject`, or an empty-string `subject`. Every minted identity must name the stable identity it represents, so the mint fails fast rather than producing an anonymous "authenticated" principal.
+2. **Delegation state passed to a mint.** The claims carry `actor` or `grantId`. Establishing identity and establishing who is acting for it are separate operations: `authenticate()` mints, [`delegate()`](/docs/reference/operations/delegate) delegates. Without this guard, spreading an already-delegated principal back through `authenticate()` would produce an authentic delegated identity while skipping every invariant `delegate()` enforces (the `mayAct` consent check, the scope intersection, truthful chain nesting).
+
+Note that `mayAct` *is* accepted at mint. It describes the subject (who may act on their behalf), like `roles`, and is legitimately established when identity is resolved from a directory or a grant store.
+
+Both are distinct from `RC5023`, which fires later at `authorize()` when a principal reached the check without being established by a trusted origin.
 
 **Suggestion**  
 - Pass a non-empty `subject`: `authenticate({ subject: sender.address, roles: [...] })`.
+- To delegate, mint first and then delegate: `delegate(authenticate(claims), actorClaims, { scopes, grantId })`.
 - If the source cannot identify the caller, return `undefined` from the `.authenticate()` resolver to leave the exchange anonymous instead of minting an empty identity.
 
 ## RC5025
@@ -463,6 +469,60 @@ Supply an explicit `key` function that returns a stable string identifier:
 ```
 
 This error is not retryable: the same body fails key derivation the same way every time.
+
+## RC5034
+Actor not permitted
+
+**Why it happens**  
+The exchange's principal carries an `actor` (a delegate, typically an agent, acting on the subject's behalf per RFC 8693 `act` semantics), and the route's `authorize({ actor })` specification does not admit it. The default specification is `'none'`: a capability is not reachable through delegation unless it declares otherwise, so any delegated principal is rejected until the route names its permitted actor(s). Also raised in the inverse case: a route that requires an actor (for example `actor: { profile: 'ai_agent' }`) rejects a direct call. Only the outermost actor is considered; nested prior actors in a chain are audit data (RFC 8693 section 4.1).
+
+**Suggestion**  
+Declare the permitted actor(s) on the route, matching by the `(issuer, subject)` pair:
+
+```ts
+.authorize({
+  scopes: ['mail:send'],
+  actor: ['none', { subject: 'agent:zoe', issuer: 'https://agents.example.com' }],
+})
+```
+
+or have the permitted party perform the call. This is permanent under the current declaration; no retry or ceremony changes it.
+
+## RC5035
+Subject not permitted
+
+**Why it happens**  
+The principal's subject does not satisfy the route's `authorize({ subject })` constraint: wrong subject id, wrong issuer, or wrong entity profile (for example a route restricted to `subject: { profile: 'ai_agent' }` called by a human principal, or vice versa).
+
+**Suggestion**  
+Check the route's subject constraint against the caller's identity. This is permanent under current credentials.
+
+## RC5036
+Delegation chain too deep
+
+**Why it happens**  
+The principal's actor chain is longer than the route's `maxDelegationDepth` (default `1`, applied once the `actor` spec admits an actor at all). A re-delegated chain (user to agent to sub-agent) exceeds the default.
+
+**Suggestion**  
+Have an agent closer to the subject perform the call, or raise `maxDelegationDepth` on the route deliberately. Only the outermost actor is a policy input; deeper chains add audit surface, not authority.
+
+## RC5037
+Delegation refused by mayAct
+
+**Why it happens**  
+`delegate()` was asked to mint an actor that the subject's `mayAct` list (RFC 8693 section 4.4) does not permit. The subject has not consented to this party acting on their behalf. Matching uses the `(issuer, subject)` pair, so a same-named actor from a different issuer is also refused.
+
+**Suggestion**  
+Obtain the subject's consent through your grant flow, which adds the matching `mayAct` entry, then retry the delegation. Never widen `mayAct` without an explicit consent event.
+
+## RC5038
+Insufficient authority (recoverable)
+
+**Why it happens**  
+The principal is authentic and admitted, but lacks one or more scopes the route requires. Unlike a role failure (RC5015, permanent: no ceremony changes who the subject is), a missing scope is the one recoverable authorization failure: a consent or grant flow could add the scope and the call could be retried. This mirrors the RFC 9470 / RFC 6750 `insufficient_scope` challenge shape. For delegated principals, remember that scopes are intersected at every hop, so the missing scope may have been narrowed away by the delegation ceiling rather than absent from the subject.
+
+**Suggestion**  
+The cause error carries a machine-readable `missing.scopes` array listing exactly what is absent. Feed it to your consent flow (request a grant for those scopes), or grant them at the IdP, then retry.
 
 ## RC9901
 Unknown error

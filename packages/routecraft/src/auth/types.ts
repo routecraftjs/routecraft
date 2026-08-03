@@ -18,8 +18,85 @@ export interface ClaimMappers {
   subject?: (payload: Record<string, unknown>) => string;
   /** Map to `Principal.clientId`. Default: `payload.client_id` then `azp`. */
   clientId?: (payload: Record<string, unknown>) => string;
-  /** Map to `Principal.scopes`. Default: space-split `payload.scope`. */
+  /**
+   * Map to `Principal.scopes`. Default: space-split `payload.scope`.
+   *
+   * Supplying this replaces the default parse entirely, including its
+   * undefined results: scopes grant authority, so a top-level `scope`
+   * claim is never reinstated behind a mapper that decided against it.
+   */
   scopes?: (payload: Record<string, unknown>) => string[] | undefined;
+  /**
+   * Map to `Principal.roles`. Default: `payload.roles` when it is an array
+   * of strings (RFC 9068 section 2.2.3.1, semantics from SCIM). Override for
+   * IdPs that nest roles elsewhere, e.g. Keycloak
+   * (`realm_access.roles`) or WorkOS (`role`, a single string).
+   *
+   * Supplying this replaces the default parse entirely, including its
+   * undefined results: roles grant authority, so a top-level `roles` claim
+   * is never reinstated behind a mapper that decided against it.
+   */
+  roles?: (payload: Record<string, unknown>) => string[] | undefined;
+  /**
+   * Map to `Principal.actor` (the delegation chain). Default: the RFC 8693
+   * `act` claim, which REQUIRES a `sub` on every entry.
+   *
+   * Supplying this replaces the default parse entirely, which is the
+   * supported way to accept an actor identified by a non-standard claim
+   * (for example `client_id` on a client-credentials actor). Without a
+   * mapper, a present-but-unparseable `act` claim rejects the token: the
+   * parser must not silently drop an actor, because that would promote a
+   * delegated token to a direct call and pass an `actor: 'none'` route.
+   */
+  actor?: (payload: Record<string, unknown>) => Principal | undefined;
+  /**
+   * Map to `Principal.mayAct`. Default: the RFC 8693 `may_act` claim (an
+   * object, or an array of objects, each requiring `sub`).
+   *
+   * Supplying this replaces the default parse entirely. Without a mapper, a
+   * present-but-unparseable `may_act` claim rejects the token: `may_act` is
+   * a restriction, and an absent `mayAct` means "unrestricted", so dropping
+   * a malformed one would invert the claim's meaning.
+   */
+  mayAct?: (payload: Record<string, unknown>) => ActorMatcher[] | undefined;
+}
+
+/**
+ * What kind of entity a principal's subject is. Wire claim: `sub_profile`
+ * (aligned with draft-mcguinness-oauth-actor-profile). Orthogonal to
+ * `Principal.kind`, which records HOW the principal was authenticated; a
+ * human and an agent can both arrive via `kind: "jwks"`.
+ *
+ * An absent profile means unclassified; policy should treat unclassified
+ * principals restrictively rather than assuming `"user"`.
+ */
+export type PrincipalProfile = "user" | "service" | "ai_agent" | (string & {});
+
+/**
+ * Matches an actor (or a permitted future actor) by identity. All provided
+ * fields must match (AND). Actor identity is canonically the
+ * `(issuer, subject)` pair: per RFC 7519 section 4.1.2 a `sub` is only
+ * locally unique within its issuer, so matching on `subject` alone is
+ * ambiguous the moment two issuers exist, and a same-named agent from
+ * another issuer would match. Omitting `issuer` works but is intended only
+ * for single-issuer deployments; set it wherever more than one issuer can
+ * mint actors.
+ *
+ * A matcher with no fields set (`{}`) matches ANY actor, as does one whose
+ * only field is an empty `roles` array. That is deliberate (it is the
+ * degenerate case of "all constraints satisfied"), but it means a matcher
+ * built from partially-populated config is permissive rather than
+ * restrictive; validate config before turning it into a matcher.
+ */
+export interface ActorMatcher {
+  /** Actor subject(s) to accept. An array is an OR across values. */
+  subject?: string | string[];
+  /** Issuer the actor's subject is scoped to. */
+  issuer?: string;
+  /** Entity profile(s) to accept. An array is an OR across values. */
+  profile?: PrincipalProfile | PrincipalProfile[];
+  /** Roles that must ALL be present on the actor's own `roles`. */
+  roles?: string[];
 }
 
 /**
@@ -73,6 +150,47 @@ export interface Principal {
    * not populate it automatically for the function variant.
    */
   userinfoClaims?: Record<string, unknown>;
+
+  /**
+   * What kind of entity the subject is. Wire claim: `sub_profile`. Absent
+   * means unclassified; treat restrictively. See {@link PrincipalProfile}.
+   */
+  subjectProfile?: PrincipalProfile;
+
+  /**
+   * Current actor when this identity is being exercised by a delegate.
+   * `subject` remains the party the action is taken ON BEHALF OF; `actor`
+   * is the party PERFORMING it. Wire claim: `act` (RFC 8693 section 4.1).
+   *
+   * Nests to express a delegation chain: the outermost entry is the current
+   * actor and the ONLY access-control input; nested entries are prior
+   * actors, informational for audit only (RFC 8693 section 4.1 makes this a
+   * MUST for token consumers). `authorize({ actor })` therefore matches the
+   * outermost actor exclusively.
+   *
+   * Set only by `delegate()` (or parsed from a verified token's `act`
+   * claim); there is no API that attaches an actor to an existing
+   * principal, so authenticity always covers the whole chain.
+   */
+  actor?: Principal;
+
+  /**
+   * Parties permitted to become this principal's actor. Wire claim:
+   * `may_act` (RFC 8693 section 4.4). RFC 8693 defines it as input to the
+   * authorization server at token-exchange time; Routecraft additionally
+   * enforces the same semantics in-process at the `delegate()` boundary,
+   * which throws RC5037 when the requested actor matches no entry. Absent
+   * means no in-process restriction (route-level `authorize({ actor })`
+   * still applies).
+   */
+  mayAct?: ActorMatcher[];
+
+  /**
+   * Identifier of the consent record (delegation grant) this principal was
+   * minted under, when the delegating caller supplied one. Opaque to the
+   * framework; carried for audit and revocation correlation.
+   */
+  grantId?: string;
 }
 
 /**
