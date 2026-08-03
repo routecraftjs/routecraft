@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { jwt, type JwtAuthOptions } from "../../src/auth/jwt.ts";
 import { markAuthentic } from "../../src/auth/authentic.ts";
+import { delegate } from "../../src/auth/delegate.ts";
 import type { Principal } from "../../src/auth/types.ts";
 
 /**
@@ -655,8 +656,8 @@ describe("jwt()", () => {
 
     /**
      * @case An empty may_act array is preserved as a restrict-all list, not widened to unrestricted
-     * @preconditions Token carries may_act: []
-     * @expectedResult principal.mayAct is [] (a stated restriction permitting nobody), and delegate() against it refuses with RC5037
+     * @preconditions Token carries may_act: []; the parsed principal is branded authentic (as a source verifier would) and a delegation is attempted
+     * @expectedResult principal.mayAct is [] (a stated restriction permitting nobody) and delegate() refuses with RC5037, so the empty list cannot regress to unrestricted access
      */
     test("preserves an empty may_act as restrict-all", async () => {
       const { validator } = jwt({
@@ -677,6 +678,14 @@ describe("jwt()", () => {
 
       const principal: Principal = await validator(token);
       expect(principal.mayAct).toEqual([]);
+
+      let thrown: unknown;
+      try {
+        delegate(markAuthentic(principal), { subject: "agent:zoe" });
+      } catch (error) {
+        thrown = error;
+      }
+      expect((thrown as { rc?: string } | undefined)?.rc).toBe("RC5037");
     });
 
     /**
