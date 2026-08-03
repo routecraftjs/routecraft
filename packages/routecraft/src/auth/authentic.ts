@@ -1,4 +1,4 @@
-import { type Principal } from "./types.ts";
+import { type ActorMatcher, type Principal } from "./types.ts";
 
 /**
  * Module-private registry of authentic principals.
@@ -49,20 +49,71 @@ const authentic = new WeakSet<object>();
 export function markAuthentic<P extends Principal>(principal: P): P {
   if (isAuthentic(principal)) return principal;
   const copy = { ...(principal as Principal) };
-  // Freeze the delegation state, not just the top level. `actor` and
-  // `mayAct` are policy inputs: the outermost actor decides
-  // `authorize({ actor })` and `mayAct` decides whether `delegate()` is
-  // permitted at all. A shallow freeze would leave both writable through
-  // any holder of `ex.principal` (an adapter, a plugin, route code), so an
-  // in-process caller could rewrite the current actor or widen the consent
-  // list of an already-authentic identity. Principals built by `delegate()`
-  // are frozen at every level because each level passes through here, but
-  // a principal parsed from a token's `act` / `may_act` claims arrives as
-  // plain nested objects and would otherwise stay mutable.
+  // Clone, then freeze, the policy-bearing structures, not just the top
+  // level. `actor`, `mayAct`, and the policy arrays (`roles`, `scopes`,
+  // `audience`) are access-control inputs: the outermost actor decides
+  // `authorize({ actor })`, `mayAct` decides whether `delegate()` is
+  // permitted, and roles/scopes decide RC5015/RC5038. A shallow freeze
+  // would leave all of them writable through any holder of
+  // `ex.principal`, so an in-process caller could push a role, rewrite
+  // the current actor, or widen the consent list of an already-authentic
+  // identity. Cloning first keeps this function's contract (the caller's
+  // input is neither mutated nor frozen as a side effect): the spread
+  // above copies only references, so freezing in place would freeze the
+  // caller's structures too.
+  cloneDelegationState(copy);
   freezeDelegationState(copy);
   const target = Object.freeze(copy) as P;
   authentic.add(target);
   return target;
+}
+
+/**
+ * Replace the policy-bearing structures of `principal` (a fresh shallow
+ * copy) with clones, so the subsequent freeze never reaches the caller's
+ * objects. Cycle-safe: an original-to-clone map keeps a self-referential
+ * actor chain self-referential instead of unrolling it, so the depth
+ * bound in `authorize()` still detects it.
+ *
+ * @internal
+ */
+function cloneDelegationState(principal: Principal): void {
+  if (principal.roles) principal.roles = [...principal.roles];
+  if (principal.scopes) principal.scopes = [...principal.scopes];
+  if (principal.audience) principal.audience = [...principal.audience];
+  if (principal.mayAct) principal.mayAct = cloneMatchers(principal.mayAct);
+  if (principal.actor) {
+    principal.actor = cloneActor(principal.actor, new Map());
+  }
+}
+
+/** @internal */
+function cloneMatchers(matchers: ActorMatcher[]): ActorMatcher[] {
+  return matchers.map((matcher) => {
+    if (typeof matcher !== "object" || matcher === null) return matcher;
+    const clone: ActorMatcher = { ...matcher };
+    if (Array.isArray(clone.subject)) clone.subject = [...clone.subject];
+    if (Array.isArray(clone.profile)) clone.profile = [...clone.profile];
+    if (clone.roles) clone.roles = [...clone.roles];
+    return clone;
+  });
+}
+
+/** @internal */
+function cloneActor(
+  actor: Principal,
+  seen: Map<Principal, Principal>,
+): Principal {
+  const existing = seen.get(actor);
+  if (existing) return existing;
+  const clone: Principal = { ...actor };
+  seen.set(actor, clone);
+  if (clone.roles) clone.roles = [...clone.roles];
+  if (clone.scopes) clone.scopes = [...clone.scopes];
+  if (clone.audience) clone.audience = [...clone.audience];
+  if (actor.mayAct) clone.mayAct = cloneMatchers(actor.mayAct);
+  if (actor.actor) clone.actor = cloneActor(actor.actor, seen);
+  return clone;
 }
 
 /**

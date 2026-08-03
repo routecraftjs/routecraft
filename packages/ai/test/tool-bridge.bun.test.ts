@@ -357,6 +357,9 @@ describe("buildVercelTools: execute path", () => {
     expect(snapshot.mayAct).toEqual([{ subject: "agent:zoe" }]);
     // Clones, not the caller's objects: the live chain stays mutable.
     expect(snapshot.actor).not.toBe(principal.actor);
+    expect(snapshot.mayAct).not.toBe(principal.mayAct);
+    principal.mayAct.push({ subject: "agent:other" });
+    expect(snapshot.mayAct).toEqual([{ subject: "agent:zoe" }]);
     expect(() => {
       principal.actor.subject = "agent:other";
     }).not.toThrow();

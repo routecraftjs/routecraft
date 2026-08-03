@@ -221,6 +221,22 @@ describe("delegate() helper", () => {
     const delegated = delegate(jaco(), zoeClaims, { grantId: "grant_1" });
     expect(delegated.grantId).toBe("grant_1");
   });
+
+  /**
+   * @case A re-delegation without its own grantId does not inherit the prior hop's
+   * @preconditions First hop carries grantId "grant_1"; second hop passes no grantId
+   * @expectedResult The second principal has no grantId, so the new hop is not misattributed to the earlier consent record
+   */
+  test("clears a stale grantId on re-delegation", () => {
+    const first = delegate(jaco(), zoeClaims, { grantId: "grant_1" });
+    const second = delegate(first, {
+      subject: "agent:max",
+      subjectProfile: "ai_agent",
+      issuer: EYWA_ISS,
+    });
+
+    expect(second.grantId).toBeUndefined();
+  });
 });
 
 describe("delegation state cannot be forged", () => {
@@ -344,6 +360,36 @@ describe("delegation state cannot be forged", () => {
 
     expect(delegated.actor?.subject).toBe("agent:max");
     expect(delegated.actor?.actor).toBeUndefined();
+  });
+
+  /**
+   * @case markAuthentic freezes its own copy, never the caller's structures
+   * @preconditions A shared actor object and roles array passed into markAuthentic (the trusted adapter-author path)
+   * @expectedResult The returned principal's delegation state is frozen clones; the caller's objects stay unfrozen and later caller mutation does not leak into the authentic principal
+   */
+  test("markAuthentic clones instead of freezing caller structures", () => {
+    const sharedActor: Principal = {
+      kind: "custom",
+      scheme: "custom",
+      subject: "agent:zoe",
+    };
+    const sharedRoles = ["member"];
+    const principal = markAuthentic({
+      kind: "custom",
+      scheme: "custom",
+      subject: "user_jaco",
+      roles: sharedRoles,
+      actor: sharedActor,
+    } as Principal);
+
+    expect(Object.isFrozen(sharedActor)).toBe(false);
+    expect(Object.isFrozen(sharedRoles)).toBe(false);
+    sharedActor.subject = "agent:changed";
+    sharedRoles.push("admin");
+    expect(principal.actor?.subject).toBe("agent:zoe");
+    expect(principal.roles).toEqual(["member"]);
+    expect(Object.isFrozen(principal.actor)).toBe(true);
+    expect(Object.isFrozen(principal.roles)).toBe(true);
   });
 
   /**

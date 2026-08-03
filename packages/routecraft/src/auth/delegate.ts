@@ -190,7 +190,12 @@ export function delegate(
   if (scopes !== undefined) delegated.scopes = scopes;
   else delete delegated.scopes;
   if (expiresAt !== undefined) delegated.expiresAt = expiresAt;
+  // grantId attributes THIS delegation to its consent record. A
+  // re-delegation without its own grantId must not inherit the prior
+  // hop's id through the subject spread, or the new hop would be
+  // misattributed to an earlier consent.
   if (options.grantId !== undefined) delegated.grantId = options.grantId;
+  else delete delegated.grantId;
 
   return markAuthentic(delegated);
 }

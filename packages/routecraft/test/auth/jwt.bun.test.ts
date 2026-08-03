@@ -633,6 +633,81 @@ describe("jwt()", () => {
     });
 
     /**
+     * @case Present-but-null delegation claims reject; only absence is neutral
+     * @preconditions Tokens carry act: null and may_act: null respectively
+     * @expectedResult Both reject. A null act would otherwise pass an actor: 'none' route as a direct call, and a null may_act would turn a restriction into permission
+     */
+    test("rejects null act and null may_act claims", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const base = { sub: "user-1", iss: ISSUER, aud: AUDIENCE, exp: FUTURE };
+
+      await expect(
+        validator(signHs256({ ...base, act: null }, SECRET)),
+      ).rejects.toThrow(/act/);
+      await expect(
+        validator(signHs256({ ...base, may_act: null }, SECRET)),
+      ).rejects.toThrow(/may_act/);
+    });
+
+    /**
+     * @case An empty may_act array is preserved as a restrict-all list, not widened to unrestricted
+     * @preconditions Token carries may_act: []
+     * @expectedResult principal.mayAct is [] (a stated restriction permitting nobody), and delegate() against it refuses with RC5037
+     */
+    test("preserves an empty may_act as restrict-all", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          may_act: [],
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.mayAct).toEqual([]);
+    });
+
+    /**
+     * @case A present-but-malformed constraint inside a delegation entry rejects the token
+     * @preconditions act carries a numeric iss; may_act carries roles as a bare string
+     * @expectedResult Both reject rather than dropping the constraint, which would misidentify the actor or widen the restriction
+     */
+    test("rejects malformed constraint shapes inside act and may_act", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const base = { sub: "user-1", iss: ISSUER, aud: AUDIENCE, exp: FUTURE };
+
+      await expect(
+        validator(
+          signHs256({ ...base, act: { sub: "agent:zoe", iss: 123 } }, SECRET),
+        ),
+      ).rejects.toThrow(/iss/);
+      await expect(
+        validator(
+          signHs256(
+            { ...base, may_act: { sub: "agent:zoe", roles: "ops" } },
+            SECRET,
+          ),
+        ),
+      ).rejects.toThrow(/roles/);
+    });
+
+    /**
      * @case A may_act claim the parser cannot read rejects the token instead of removing the restriction
      * @preconditions Token carries may_act identified by client_id, and a non-object may_act
      * @expectedResult Both reject. An unreadable may_act resolving to undefined would mean "anyone may act", inverting a claim whose purpose is to restrict

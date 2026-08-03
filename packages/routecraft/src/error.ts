@@ -288,9 +288,9 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
   },
   RC5024: {
     category: "Adapter",
-    message: "authenticate() called without a subject",
+    message: "authenticate() called with invalid claims",
     suggestion:
-      "authenticate() (and the .authenticate() operation) require a non-empty `subject` naming the verified identity, e.g. authenticate({ subject: sender.address, roles: [...] }). This is a programming error at the mint call, distinct from RC5023 (a principal that reached authorize() without being established by a trusted origin).",
+      "authenticate() (and the .authenticate() operation) require a non-empty `subject` naming the verified identity, and reject delegation state (`actor`, `grantId`): minting establishes identity, delegate() establishes who is acting for it. This is a programming error at the mint call, distinct from RC5023 (a principal that reached authorize() without being established by a trusted origin).",
     docs: `${DOCS_BASE}#rc-5024`,
     retryable: false,
   },

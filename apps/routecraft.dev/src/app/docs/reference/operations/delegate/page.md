@@ -90,7 +90,7 @@ craft()
     actor: ['none', { subject: 'agent:zoe', issuer: 'https://agents.example.com' }],
   })
   .from(direct())
-  .to(smtp())
+  .to(mail())
 ```
 
 For the autonomous case there is nothing to delegate: mint the agent as its own subject with [`.authenticate()`](/docs/reference/operations/authenticate) on an internal trigger (for example `cron()`), and gate capabilities with `authorize({ subject: { profile: 'ai_agent' } })`.

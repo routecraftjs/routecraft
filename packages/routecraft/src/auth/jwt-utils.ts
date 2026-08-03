@@ -185,18 +185,48 @@ const MAX_ACT_DEPTH = 16;
  *
  * @internal
  */
+/**
+ * Read an optional string field off a delegation-claim entry, failing
+ * closed on a present-but-malformed value. Dropping a malformed
+ * constraint would change the claim's meaning: a dropped `iss` on an
+ * `act` entry misidentifies the actor (a same-named actor from another
+ * issuer would match issuer-less matchers), and a dropped constraint on
+ * a `may_act` entry widens the restriction the token stated.
+ *
+ * @internal
+ */
+function optionalConstraint(
+  record: Record<string, unknown>,
+  key: string,
+  claim: "act" | "may_act",
+  kind: "jwt" | "jwks",
+): string | undefined {
+  const value = record[key];
+  if (value === undefined) return undefined;
+  const parsed = stringClaim(value);
+  if (parsed === undefined) {
+    throw new TypeError(
+      `${kind}: verified token has a \`${claim}\` entry whose \`${key}\` is not a non-empty string. Refusing rather than dropping the constraint; provide claims.${claim === "act" ? "actor" : "mayAct"} to map a non-standard shape.`,
+    );
+  }
+  return parsed;
+}
+
 function actorFromActClaim(
   act: unknown,
   kind: "jwt" | "jwks",
   depth = 1,
 ): Principal | undefined {
-  if (act === undefined || act === null) return undefined;
+  // Only an ABSENT claim is a direct call. A present `act: null` is a
+  // malformed delegation claim and must reject like any other
+  // unparseable shape, or a delegated token could pass actor: 'none'.
+  if (act === undefined) return undefined;
   if (depth > MAX_ACT_DEPTH) {
     throw new TypeError(
       `${kind}: verified token has an \`act\` chain deeper than ${MAX_ACT_DEPTH}. Refusing the token rather than truncating the delegation chain.`,
     );
   }
-  if (typeof act !== "object" || Array.isArray(act)) {
+  if (typeof act !== "object" || act === null || Array.isArray(act)) {
     throw new TypeError(
       `${kind}: verified token has a non-object \`act\` claim. RFC 8693 section 4.1 requires a JSON object identifying the current actor; provide claims.actor to map a non-standard shape.`,
     );
@@ -209,9 +239,9 @@ function actorFromActClaim(
     );
   }
   const actor: Principal = { kind, scheme: "bearer", subject };
-  const issuer = stringClaim(record["iss"]);
+  const issuer = optionalConstraint(record, "iss", "act", kind);
   if (issuer !== undefined) actor.issuer = issuer;
-  const profile = stringClaim(record["sub_profile"]);
+  const profile = optionalConstraint(record, "sub_profile", "act", kind);
   if (profile !== undefined) actor.subjectProfile = profile;
   const nested = actorFromActClaim(record["act"], kind, depth + 1);
   if (nested !== undefined) actor.actor = nested;
@@ -236,7 +266,11 @@ function mayActFromClaim(
   mayAct: unknown,
   kind: "jwt" | "jwks",
 ): ActorMatcher[] | undefined {
-  if (mayAct === undefined || mayAct === null) return undefined;
+  // Only an ABSENT claim means unrestricted. `may_act: null` is a
+  // malformed restriction and rejects (the singleton path below throws
+  // on null); an empty array is a stated restriction that permits
+  // nobody and is preserved as such, never widened to undefined.
+  if (mayAct === undefined) return undefined;
   const entries = Array.isArray(mayAct) ? mayAct : [mayAct];
   const matchers: ActorMatcher[] = [];
   for (const entry of entries) {
@@ -253,19 +287,26 @@ function mayActFromClaim(
       );
     }
     const matcher: ActorMatcher = { subject };
-    const issuer = stringClaim(record["iss"]);
+    // Carry the narrowing constraints the wire claim expressed, and
+    // reject present-but-malformed ones. Dropping either would widen the
+    // matcher relative to what the token stated.
+    const issuer = optionalConstraint(record, "iss", "may_act", kind);
     if (issuer !== undefined) matcher.issuer = issuer;
-    // Carry the narrowing constraints the wire claim expressed. Dropping
-    // them would widen the matcher relative to what the token stated.
-    const profile = stringClaim(record["sub_profile"]);
+    const profile = optionalConstraint(record, "sub_profile", "may_act", kind);
     if (profile !== undefined) matcher.profile = profile;
-    const roles = Array.isArray(record["roles"])
-      ? (record["roles"] as unknown[]).filter(
-          (r): r is string => typeof r === "string",
-        )
-      : undefined;
-    if (roles !== undefined && roles.length > 0) matcher.roles = roles;
+    const rolesRaw = record["roles"];
+    if (rolesRaw !== undefined) {
+      if (
+        !Array.isArray(rolesRaw) ||
+        !rolesRaw.every((r) => typeof r === "string" && r.length > 0)
+      ) {
+        throw new TypeError(
+          `${kind}: verified token has a \`may_act\` entry whose \`roles\` is not an array of non-empty strings. Refusing rather than dropping the constraint; provide claims.mayAct to map a non-standard shape.`,
+        );
+      }
+      if (rolesRaw.length > 0) matcher.roles = rolesRaw as string[];
+    }
     matchers.push(matcher);
   }
-  return matchers.length > 0 ? matchers : undefined;
+  return matchers;
 }

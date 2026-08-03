@@ -92,7 +92,7 @@ craft()
     actor: ['none', { subject: 'agent:zoe', issuer: 'https://agents.example.com' }],
   })
   .from(direct())
-  .to(smtp())
+  .to(mail())
 
 // Autonomous agents only (e.g. a cron-triggered heartbeat).
 craft()

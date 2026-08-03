@@ -147,7 +147,7 @@ const errors: ErrorRow[] = [
   {
     code: 'RC5024',
     category: 'Adapter',
-    message: 'authenticate() called without a subject',
+    message: 'authenticate() called with invalid claims',
     retryable: false,
   },
   // The original RC5025-RC5027 agent blocks moved to the AI namespace as
