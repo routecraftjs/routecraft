@@ -169,23 +169,6 @@ export function principalFromJwtPayload(
 const MAX_ACT_DEPTH = 16;
 
 /**
- * Map an RFC 8693 section 4.1 `act` claim (possibly nested) to a
- * {@link Principal} actor chain. The outermost entry is the current actor.
- *
- * **Fails closed.** RFC 8693 requires `sub` on every `act` entry. A present
- * but unparseable claim THROWS rather than resolving to `undefined`,
- * because a dropped actor is not a neutral outcome: it promotes a delegated
- * token to a direct call, which is exactly what the `authorize({ actor })`
- * default of `'none'` exists to refuse. Deployments whose IdP identifies
- * actors by a non-standard claim (for example `client_id` on a
- * client-credentials actor) map it explicitly via `ClaimMappers.actor`.
- *
- * Nested actors are plain objects at construction; the verifier boundary
- * brands and deep-freezes the chain through `markAuthentic`.
- *
- * @internal
- */
-/**
  * Read an optional string field off a delegation-claim entry, failing
  * closed on a present-but-malformed value. Dropping a malformed
  * constraint would change the claim's meaning: a dropped `iss` on an
@@ -212,6 +195,23 @@ function optionalConstraint(
   return parsed;
 }
 
+/**
+ * Map an RFC 8693 section 4.1 `act` claim (possibly nested) to a
+ * {@link Principal} actor chain. The outermost entry is the current actor.
+ *
+ * **Fails closed.** RFC 8693 requires `sub` on every `act` entry. A present
+ * but unparseable claim THROWS rather than resolving to `undefined`,
+ * because a dropped actor is not a neutral outcome: it promotes a delegated
+ * token to a direct call, which is exactly what the `authorize({ actor })`
+ * default of `'none'` exists to refuse. Deployments whose IdP identifies
+ * actors by a non-standard claim (for example `client_id` on a
+ * client-credentials actor) map it explicitly via `ClaimMappers.actor`.
+ *
+ * Nested actors are plain objects at construction; the verifier boundary
+ * brands and deep-freezes the chain through `markAuthentic`.
+ *
+ * @internal
+ */
 function actorFromActClaim(
   act: unknown,
   kind: "jwt" | "jwks",
