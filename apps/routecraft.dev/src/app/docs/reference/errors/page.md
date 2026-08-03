@@ -214,11 +214,11 @@ Permission denied
 **Why it happens**  
 Two cases share this code:
 - An upstream service denied the operation (e.g. 403 from access control or IAM).
-- A route's `.authorize()` guard ran (or `.validate(authorize(...))` mid-pipeline), the exchange had a principal, but the principal was missing a required role or scope, or a custom predicate returned `false`.
+- A route's `.authorize()` guard ran (or `.validate(authorize(...))` mid-pipeline), the exchange had a principal, but the principal was missing a required role, or a custom predicate returned `false`. A missing **scope** is not this code: it raises [`RC5038`](#rc-5038), because a role or predicate failure states something about who the subject is (permanent under current credentials), while a missing scope is recoverable through a consent or grant flow.
 
 **Suggestion**  
 - For upstream denials: check IAM, ACLs, and scopes granted to the credential.
-- For in-route denials: grant the principal the missing role(s) or scope(s) at your IdP, or relax the `.authorize()` requirement. The error message lists the missing roles/scopes. See [`.authorize()`](/docs/reference/operations/authorize).
+- For in-route denials: grant the principal the missing role(s) at your IdP, or relax the `.authorize()` requirement. The error message lists the missing roles. See [`.authorize()`](/docs/reference/operations/authorize).
 
 ## RC5016
 Source payload parse failed
@@ -275,7 +275,7 @@ A mid-pipeline `.validate(authorize(...))` (or the pre-from `.authorize()` guard
 
 The check is also raised fail-closed when either `expiresAt` or `clockToleranceSec` is non-finite (`NaN`, `Infinity`); a numeric-coercion bug must not silently bypass the guard.
 
-The check is distinct from `RC5012` (no principal at all) and `RC5015` (principal failed a role / scope / predicate check) so clients can react accordingly: a `RC5020` signal almost always means "refresh and retry," whereas `RC5015` is a permanent denial under the current credentials.
+The check is distinct from `RC5012` (no principal at all) and `RC5015` (principal failed a role / predicate check; a missing scope is `RC5038`) so clients can react accordingly: a `RC5020` signal almost always means "refresh and retry," whereas `RC5015` is a permanent denial under the current credentials.
 
 **Suggestion**  
 - The client should refresh the bearer and retry the request.
@@ -313,7 +313,7 @@ Authorization failed: principal is not authentic
 **Why it happens**  
 `authorize()` found a principal on the exchange, but it was not established by a trusted origin. Authenticity is conferred only by a source-side verifier (`jwt()` / `jwks()` / `oauth()`) or by an explicit mint (`.authenticate()` / the `authenticate()` helper), which register the principal in a private set. A plain object written directly onto `headers["routecraft.auth.principal"]` (for example via `.process()` or `.header()`), or a copy made from an existing principal (`{ ...ex.principal, roles: ['admin'] }`, which is a different object and so not in the set), is treated as self-asserted and rejected. This makes establishing identity an explicit, greppable act and prevents a route from silently forging or escalating identity.
 
-The check is distinct from `RC5012` (no principal at all) and `RC5015` (an authentic principal that lacks a required role / scope), so you can tell "forged / self-asserted" apart from "missing a role."
+The check is distinct from `RC5012` (no principal at all), `RC5015` (an authentic principal that lacks a required role or fails a predicate), and `RC5038` (an authentic principal that lacks a required scope), so you can tell "forged / self-asserted" apart from "missing a role" and "missing a grantable scope."
 
 **Suggestion**  
 - Mint the identity with the `.authenticate()` operation (or the `authenticate()` helper for mid-pipeline / custom-source use), which brands and freezes the principal.

@@ -1,8 +1,19 @@
 # Proposal: Agent Identity and Delegation
 
-**Status:** Draft for review. Not normative. Nothing in this document is agreed
-policy, and no implementation should be started against it until the open
-questions in § 10 are settled.
+**Status: SUPERSEDED.** This was the design-time document; the feature shipped
+(issue #512, PR #513) and the normative content now lives where shipped truth
+lives: `.standards/security.md` § 12 for the rules, the `delegate` /
+`authorize` operation references for the API, and the 0.5-to-0.6 migration
+guide for the breaking changes. This file is retained only as the record of
+the research and the decision path (prior art, rejected alternatives, the
+consent-layer thinking that moved to application level). **Where this document
+and the shipped code differ, the code and the shipped docs win.** Known
+divergences: the scope intersection here is three-way
+(`subject, grant, actor`); the shipped rule is two-way
+(`intersect(subject, ceiling)`, actor scopes deliberately excluded, see the
+delegate reference for the rationale). The `.identify()` operation,
+channel-confidence grading, and the framework-level grant/ceremony layers
+described below were deliberately not built.
 
 **Scope:** How Routecraft represents *who is acting*, *for whom*, and *with what
 authority*, across three cases: a human acting directly, an agent acting on
@@ -192,6 +203,11 @@ hand-built subject and defeat the `WeakSet` guarantee.
 ### 4.2 Narrowing rule
 
 `delegate()` intersects **scopes only**.
+
+> **Superseded:** the shipped implementation intersects only `subject.scopes`
+> and the consent ceiling; the actor's own scopes are deliberately excluded.
+> See the `delegate` operation reference ("Why the actor's own scopes are not
+> intersected") for the adopted rule and rationale.
 
 Roles and scopes live in different namespaces. A user's roles
 (`["employee", "finance"]`) and an agent identity's roles

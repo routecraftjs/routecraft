@@ -140,16 +140,19 @@ export function principalFromJwtPayload(
   if (subjectProfile !== undefined) principal.subjectProfile = subjectProfile;
 
   // Both delegation claims fail closed when present but unparseable (see
-  // the parsers). An explicit mapper replaces the default parse entirely,
-  // which is how a non-standard actor shape avoids the rejection.
-  const actor =
-    options.claims?.actor?.(payload) ??
-    actorFromActClaim(payload["act"], options.kind);
+  // the parsers). A supplied mapper replaces the default parse ENTIRELY,
+  // including its undefined results: presence-checked, not `??`-chained,
+  // because a mapper that deliberately returns undefined for an
+  // RFC-8693-shaped claim must not have the default parser silently
+  // reinstate the actor or restriction it decided against.
+  const actor = options.claims?.actor
+    ? options.claims.actor(payload)
+    : actorFromActClaim(payload["act"], options.kind);
   if (actor !== undefined) principal.actor = actor;
 
-  const mayAct =
-    options.claims?.mayAct?.(payload) ??
-    mayActFromClaim(payload["may_act"], options.kind);
+  const mayAct = options.claims?.mayAct
+    ? options.claims.mayAct(payload)
+    : mayActFromClaim(payload["may_act"], options.kind);
   if (mayAct !== undefined) principal.mayAct = mayAct;
 
   return principal;

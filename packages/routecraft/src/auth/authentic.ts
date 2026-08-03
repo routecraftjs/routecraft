@@ -77,6 +77,14 @@ function freezeDelegationState(
   principal: Principal,
   seen: WeakSet<object> = new WeakSet(),
 ): void {
+  // The subject's own policy arrays are the primary access-control inputs
+  // (authorize() reads roles for RC5015 and scopes for RC5038). The spread
+  // in markAuthentic copies the ARRAY REFERENCES, and the top-level
+  // Object.freeze is shallow, so without this a holder of ex.principal
+  // could push a role or scope onto an already-authentic identity.
+  if (principal.roles) Object.freeze(principal.roles);
+  if (principal.scopes) Object.freeze(principal.scopes);
+  if (principal.audience) Object.freeze(principal.audience);
   if (principal.mayAct !== undefined) {
     for (const matcher of principal.mayAct) {
       if (typeof matcher === "object" && matcher !== null) {

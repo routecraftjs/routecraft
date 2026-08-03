@@ -199,8 +199,9 @@ function actorAllowed(
  * is present but was not established by a trusted origin, `RC5020` on
  * expiry, `RC5034` when the actor is not admitted, `RC5035` when the
  * subject is not admitted, `RC5036` when the delegation chain exceeds
- * `maxDelegationDepth`, and `RC5015` when the principal fails the
- * role / scope / predicate check.
+ * `maxDelegationDepth`, `RC5015` when the principal fails the role or
+ * predicate check, and `RC5038` when a required scope is missing
+ * (recoverable; the cause carries `missing.scopes`).
  *
  * Most routes should declare authorization at the route boundary using the
  * pre-from `.authorize()` builder method, which wires this validator as a
@@ -320,7 +321,11 @@ export function authorize(
 
     if (currentActor !== undefined) {
       const depth = chainDepth(principal, maxDelegationDepth);
-      if (depth > maxDelegationDepth) {
+      // Fail closed on a non-finite limit, matching the expiresAt /
+      // clockToleranceSec discipline above: `depth > NaN` is always false,
+      // so a misconfigured limit (e.g. Number(unsetEnvVar)) would silently
+      // accept a chain of any depth instead of rejecting it.
+      if (!Number.isFinite(maxDelegationDepth) || depth > maxDelegationDepth) {
         throw rcError(
           "RC5036",
           new Error(

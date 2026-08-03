@@ -705,6 +705,38 @@ describe("jwt()", () => {
     });
 
     /**
+     * @case A supplied mapper replaces the default parser entirely, including its undefined results
+     * @preconditions Token carries RFC-8693-shaped act and may_act (with sub); claims.actor and claims.mayAct mappers deliberately return undefined
+     * @expectedResult Principal has no actor and no mayAct; the default parser must not reinstate what the mapper decided against
+     */
+    test("mapper undefined results are not overridden by the default parser", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        claims: {
+          actor: () => undefined,
+          mayAct: () => undefined,
+        },
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          act: { sub: "agent:zoe" },
+          may_act: { sub: "agent:zoe" },
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.actor).toBeUndefined();
+      expect(principal.mayAct).toBeUndefined();
+    });
+
+    /**
      * @case may_act narrowing constraints beyond sub and iss are preserved
      * @preconditions Token may_act carries sub_profile and roles
      * @expectedResult The matcher keeps profile and roles, so the in-process gate is no wider than the token stated

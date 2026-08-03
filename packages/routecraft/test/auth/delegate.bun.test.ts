@@ -291,6 +291,26 @@ describe("delegation state cannot be forged", () => {
   });
 
   /**
+   * @case The subject's own policy arrays are frozen on any authentic principal
+   * @preconditions Plain authenticate() mint carrying roles and scopes
+   * @expectedResult Pushing onto principal.roles or principal.scopes throws, so a holder of ex.principal cannot escalate an authentic identity in place
+   */
+  test("freezes the subject's own roles and scopes", () => {
+    const principal = authenticate({
+      subject: "user_jaco",
+      roles: ["member"],
+      scopes: ["kb:read"],
+    });
+
+    expect(() => {
+      (principal.roles as string[]).push("admin");
+    }).toThrow(TypeError);
+    expect(() => {
+      (principal.scopes as string[]).push("payroll:read");
+    }).toThrow(TypeError);
+  });
+
+  /**
    * @case mayAct rides on the subject, so it also gates re-delegation
    * @preconditions Subject permits only agent:zoe; the chain tries to hand off from zoe to max
    * @expectedResult RC5037 at the second hop, making re-delegation non-transitive without any extra mechanism
@@ -554,6 +574,19 @@ describe("authorize() delegation awareness", () => {
    */
   test("maxDelegationDepth 0 forbids every hop", async () => {
     const spec = { actor: "any" as const, maxDelegationDepth: 0 };
+    const hop = await run(viaZoe, spec);
+    expect(hop.delivered).toBe(0);
+    expect(hop.failure).toContain("RC5036");
+    expect((await run(direct, spec)).delivered).toBe(1);
+  });
+
+  /**
+   * @case A non-finite maxDelegationDepth fails closed
+   * @preconditions actor 'any' with maxDelegationDepth NaN (e.g. Number of an unset env var); one delegation hop
+   * @expectedResult RC5036, because depth > NaN is always false and would otherwise accept a chain of any depth; direct calls are unaffected since the depth check only runs when an actor is present
+   */
+  test("non-finite maxDelegationDepth rejects delegation with RC5036", async () => {
+    const spec = { actor: "any" as const, maxDelegationDepth: Number.NaN };
     const hop = await run(viaZoe, spec);
     expect(hop.delivered).toBe(0);
     expect(hop.failure).toContain("RC5036");
