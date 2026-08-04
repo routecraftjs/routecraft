@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { testContext } from "@routecraft/testing";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { agentPlugin, agents, tools } from "../src/index.ts";
 import { isToolSelection } from "../src/agent/tools/selection.ts";
 
@@ -129,6 +130,54 @@ describe("agents() markdown loader", () => {
     const renderer = (): string => "## Caller\n\ncustom";
     const result = await agents(dir, { x: { principal: renderer } });
     expect(result["x"]?.principal).toBe(renderer);
+  });
+
+  /**
+   * @case Override supplies the output schema that YAML cannot express
+   * @preconditions Markdown omits output; override sets a Standard Schema
+   * @expectedResult Loaded agent.output is the override schema (override-only, mirroring blocks)
+   */
+  test("override can set the output schema", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\n---\nsystem",
+    });
+    const schema: StandardSchemaV1 = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value: unknown) => ({ value }),
+      },
+    };
+    const result = await agents(dir, { x: { output: schema } });
+    expect(result["x"]?.output).toBe(schema);
+  });
+
+  /**
+   * @case output in frontmatter is rejected as override-only
+   * @preconditions Agent with an output key in YAML (a schema cannot be expressed there)
+   * @expectedResult Throws RC5003 pointing at the override map, not the generic not-yet-supported error
+   */
+  test("rejects output frontmatter as override-only", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\noutput: json\n---\nsystem",
+    });
+    await expect(agents(dir)).rejects.toThrow(
+      /frontmatter field "output" is override-only.*agents\(path, \{ "x": \{ output: \.\.\. \} \}\)/,
+    );
+  });
+
+  /**
+   * @case blocks in frontmatter is rejected as override-only
+   * @preconditions Agent with a blocks key in YAML (resolvers may carry functions YAML cannot express)
+   * @expectedResult Throws RC5003 pointing at the override map, not the generic not-yet-supported error
+   */
+  test("rejects blocks frontmatter as override-only", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\nblocks: {}\n---\nsystem",
+    });
+    await expect(agents(dir)).rejects.toThrow(
+      /frontmatter field "blocks" is override-only/,
+    );
   });
 
   /**

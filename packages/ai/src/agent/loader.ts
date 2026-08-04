@@ -30,6 +30,15 @@ const SUPPORTED_AGENT_KEYS = new Set([
 ]);
 
 /**
+ * Fields that can never live in frontmatter because their values are not
+ * YAML-expressible (function-form block resolvers, Standard Schema objects
+ * with a live `validate` function). They get a pointed error instead of
+ * the generic "not yet supported" one, since no future release can lift
+ * the limitation; the override map is the permanent home.
+ */
+const OVERRIDE_ONLY_AGENT_KEYS = new Set(["blocks", "output"]);
+
+/**
  * Per-agent override layered on top of the markdown frontmatter. Only
  * the fields that make sense to override at config time are exposed
  * here. Lifecycle fields like `validate` and `onDelta` belong in code
@@ -41,11 +50,22 @@ const SUPPORTED_AGENT_KEYS = new Set([
  * carry the boolean form; reach for the override (or
  * `agentPlugin({ defaultOptions })`) when an agent needs the
  * function-renderer form that YAML cannot express.
+ *
+ * `output` is override-only, mirroring `blocks`: a Standard Schema is a
+ * live object with a `validate` function, so YAML frontmatter can never
+ * express one. Supply the schema here to give a markdown-defined agent
+ * structured output (the parsed value lands on `AgentResult.output`).
  */
 export interface AgentMarkdownOverride extends Partial<
   Pick<
     AgentRegisteredOptions,
-    "description" | "model" | "maxTurns" | "tools" | "principal" | "blocks"
+    | "description"
+    | "model"
+    | "maxTurns"
+    | "tools"
+    | "principal"
+    | "blocks"
+    | "output"
   >
 > {
   /**
@@ -72,6 +92,11 @@ function toAgent(
   source: string,
 ): { name: string; agent: AgentRegisteredOptions } {
   for (const key of Object.keys(frontmatter)) {
+    if (OVERRIDE_ONLY_AGENT_KEYS.has(key)) {
+      throw rcError("RC5003", undefined, {
+        message: `Markdown file "${source}": frontmatter field "${key}" is override-only; YAML cannot express its value. Supply it via the override map instead: agents(path, { ${JSON.stringify(filename)}: { ${key}: ... } }).`,
+      });
+    }
     if (!SUPPORTED_AGENT_KEYS.has(key)) {
       throw rcError("RC5003", undefined, {
         message: `Markdown file "${source}": frontmatter field "${key}" is not yet supported. Currently supported fields: ${[...SUPPORTED_AGENT_KEYS].sort().join(", ")}.`,
@@ -151,6 +176,7 @@ function applyOverride(
   if (override.tools !== undefined) out.tools = override.tools;
   if (override.principal !== undefined) out.principal = override.principal;
   if (override.blocks !== undefined) out.blocks = override.blocks;
+  if (override.output !== undefined) out.output = override.output;
   if (override.system !== undefined) out.system = override.system;
   return out;
 }
@@ -187,9 +213,10 @@ function applyOverride(
  *
  * Pass `overrides` keyed by agent name to replace any of
  * `description` / `model` / `maxTurns` / `tools` / `blocks` /
- * `principal` / `system` per agent without editing the markdown
- * source. `blocks` is override-only because YAML cannot express the
- * function-form resolvers a block may carry.
+ * `principal` / `output` / `system` per agent without editing the
+ * markdown source. `blocks` and `output` are override-only because
+ * YAML cannot express the function-form resolvers a block may carry,
+ * nor a Standard Schema (a live object with a `validate` function).
  *
  * Returns a `Record<name, AgentRegisteredOptions>` ready to spread
  * into `agentPlugin({ agents: agents("./agents") })`.

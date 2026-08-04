@@ -47,6 +47,10 @@ export const navigation = [
       { title: 'Running an MCP server', href: '/docs/advanced/expose-as-mcp' },
       { title: 'Calling an MCP', href: '/docs/advanced/call-an-mcp' },
       {
+        title: 'Judging Agent Results',
+        href: '/docs/advanced/judging-agent-results',
+      },
+      {
         title: 'Securing capabilities',
         href: '/docs/advanced/securing-capabilities',
       },
