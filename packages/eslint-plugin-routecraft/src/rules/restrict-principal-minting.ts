@@ -1,5 +1,6 @@
 import type { Rule } from "eslint";
 import {
+  collectChainBackwards,
   isCallExpression,
   isIdentifier,
   isLiteral,
@@ -76,22 +77,13 @@ function memberPropertyName(callee: {
 }
 
 /**
- * Walk a builder chain back to its innermost call and return that call's
- * callee node, e.g. the `craft` identifier or the `rc.craft` member of
- * `rc.craft().id("x").from(...)`.
+ * A builder chain's innermost call's callee node, e.g. the `craft`
+ * identifier or the `rc.craft` member of `rc.craft().id("x").from(...)`.
+ * Built on the shared chain traversal so all rules walk chains one way.
  */
 function chainRootCallee(call: unknown): unknown {
-  let current: unknown = call;
-  let root: unknown;
-  while (isCallExpression(current)) {
-    root = current.callee;
-    if (isMemberExpression(root)) {
-      current = root.object;
-      continue;
-    }
-    break;
-  }
-  return root;
+  const innermost = collectChainBackwards(call)[0];
+  return isCallExpression(innermost) ? innermost.callee : undefined;
 }
 
 /**
