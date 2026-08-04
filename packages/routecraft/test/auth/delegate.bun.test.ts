@@ -738,16 +738,17 @@ describe(".delegate() builder step", () => {
   });
 
   /**
-   * @case A resolver returning undefined leaves the exchange untouched
-   * @preconditions .delegate() resolver returns undefined (no consent record)
-   * @expectedResult Principal is unchanged (no actor); default authorize() passes it
+   * @case No consent drops the direct principal by default and downstream authorize() refuses
+   * @preconditions .delegate() resolver returns undefined for an authenticated human subject; default options
+   * @expectedResult The exchange continues anonymous, the downstream authorize() raises RC5012, and the destination receives nothing
    */
-  test("undefined resolver result skips delegation", async () => {
+  test("undefined resolver result drops the direct principal by default", async () => {
     const s = spy<string>();
+    const failures: unknown[] = [];
     t = await testContext()
       .routes(
         craft()
-          .id("skip")
+          .id("drop-default")
           .from(simple("hello"))
           .authenticate(() => jaco())
           .delegate(() => undefined)
@@ -755,10 +756,134 @@ describe(".delegate() builder step", () => {
           .to(s),
       )
       .build();
+    t.ctx.on("route:exchange:failed", ((payload: {
+      details: { error: unknown };
+    }) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual([]);
+    expect(String(failures[0])).toContain("RC5012");
+  });
+
+  /**
+   * @case The dropped exchange itself continues anonymous rather than failing
+   * @preconditions Same no-consent resolver, but no authorize() gate after the delegate step
+   * @expectedResult The destination receives the body with no principal attached
+   */
+  test("the drop leaves an anonymous exchange that continues", async () => {
+    const s = spy<string>();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("drop-anonymous")
+          .from(simple("hello"))
+          .authenticate(() => jaco())
+          .delegate(() => undefined)
+          .to(s),
+      )
+      .build();
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
+    expect(s.lastReceived().principal).toBeUndefined();
+  });
+
+  /**
+   * @case otherwise: "keep" preserves the pass-through behavior
+   * @preconditions .delegate() resolver returns undefined; { otherwise: "keep" } supplied
+   * @expectedResult Principal is unchanged (no actor); default authorize() passes it
+   */
+  test("otherwise keep preserves the direct principal", async () => {
+    const s = spy<string>();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("keep")
+          .from(simple("hello"))
+          .authenticate(() => jaco())
+          .delegate(() => undefined, { otherwise: "keep" })
+          .validate(authorize())
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual(["hello"]);
+    expect(s.lastReceived().principal?.subject).toBe("user_jaco");
     expect(s.lastReceived().principal?.actor).toBeUndefined();
+  });
+
+  /**
+   * @case An autonomous agent subject survives the default drop
+   * @preconditions Principal with subjectProfile "ai_agent" (minted on an internal trigger); resolver returns undefined
+   * @expectedResult The agent principal passes through untouched
+   */
+  test("the default drop spares autonomous agent subjects", async () => {
+    const s = spy<string>();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("spare-agent")
+          .from(simple("hello"))
+          .authenticate(() => zoeClaims)
+          .delegate(() => undefined)
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual(["hello"]);
+    expect(s.lastReceived().principal?.subject).toBe("agent:zoe");
+  });
+
+  /**
+   * @case An already-delegated principal survives the default drop
+   * @preconditions First delegate hop establishes consent; a second delegate step resolves undefined
+   * @expectedResult The delegated principal (subject plus actor) passes through untouched
+   */
+  test("the default drop spares already-delegated principals", async () => {
+    const s = spy<string>();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("spare-delegated")
+          .from(simple("hello"))
+          .authenticate(() => jaco())
+          .delegate(() => ({ actor: zoeClaims, scopes: ["mail:send"] }))
+          .delegate(() => undefined)
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual(["hello"]);
+    const principal = s.lastReceived().principal;
+    expect(principal?.subject).toBe("user_jaco");
+    expect(principal?.actor?.subject).toBe("agent:zoe");
+  });
+
+  /**
+   * @case An anonymous exchange passes the default drop untouched
+   * @preconditions No principal on the exchange; resolver returns undefined
+   * @expectedResult The exchange continues with no principal and no error
+   */
+  test("the default drop is a no-op on anonymous exchanges", async () => {
+    const s = spy<string>();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("anonymous-noop")
+          .from(simple("hello"))
+          .delegate(() => undefined)
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual(["hello"]);
+    expect(s.lastReceived().principal).toBeUndefined();
   });
 
   /**

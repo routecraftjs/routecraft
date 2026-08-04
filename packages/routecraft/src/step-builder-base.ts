@@ -66,7 +66,11 @@ import {
   type CallableAuthenticator,
   AuthenticateStep,
 } from "./operations/authenticate.ts";
-import { type CallableDelegator, DelegateStep } from "./operations/delegate.ts";
+import {
+  type CallableDelegator,
+  DelegateStep,
+  type DelegateStepOptions,
+} from "./operations/delegate.ts";
 import { HeaderStep } from "./operations/header.ts";
 import type { ErrorHandler } from "./route.ts";
 import { PUSH_STEP } from "./dsl-symbol.ts";
@@ -643,9 +647,17 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * a service) on the subject's behalf. The resolver returns the actor's
    * identity claims plus the consent-derived scope ceiling; they are minted
    * into a delegated principal (subject unchanged, actor set, scopes
-   * intersected) and attached to the exchange. Return `undefined` to leave
-   * the exchange untouched, so a caller without a consent record simply
-   * never delegates. Body type is unchanged.
+   * intersected) and attached to the exchange. Body type is unchanged.
+   *
+   * A resolver that returns `undefined` (no consent record) fails closed by
+   * default: the subject's direct principal is STRIPPED so the continuation
+   * runs anonymous and downstream `authorize()` refuses with RC5012. An
+   * actor downstream must never inherit a caller's full direct authority
+   * precisely because consent is absent. The strip skips anonymous
+   * exchanges, already-delegated principals, and autonomous agent subjects
+   * (`subjectProfile: "ai_agent"`). Pass `{ otherwise: "keep" }` when the
+   * continuation serves the caller directly and an ungranted caller should
+   * keep acting as themselves.
    *
    * Sugar over the `delegate()` helper; see it for the full semantics
    * (scope intersection, role pass-through, chain nesting, mayAct
@@ -653,6 +665,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * directive is returned.
    *
    * @param resolver - Returns the delegation directive, or `undefined`
+   * @param options - No-consent behavior; default `{ otherwise: "drop" }`
    * @returns This builder (same subclass, same body type)
    *
    * @example
@@ -662,14 +675,17 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    *   .authenticate(mailPrincipal)
    *   .delegate((ex) => {
    *     const grant = grants.find(ex.principal?.subject, "agent:zoe")
-   *     if (!grant) return undefined
+   *     if (!grant) return undefined // no consent: principal is dropped
    *     return { actor: zoeIdentity, scopes: grant.scopes, grantId: grant.id }
    *   })
    *   .to(agent("zoe"))
    * ```
    */
-  delegate(resolver: CallableDelegator<S["body"]>): this {
-    this.pushStep(new DelegateStep<S["body"]>(resolver));
+  delegate(
+    resolver: CallableDelegator<S["body"]>,
+    options?: DelegateStepOptions,
+  ): this {
+    this.pushStep(new DelegateStep<S["body"]>(resolver, options));
     return this;
   }
 
