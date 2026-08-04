@@ -1,5 +1,5 @@
 ---
-"@routecraft/routecraft": major
+"@routecraft/routecraft": minor
 ---
 
 Harden `.retry()` backoff and remove the `exponential` option (breaking).
