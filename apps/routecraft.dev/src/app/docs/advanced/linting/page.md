@@ -59,7 +59,7 @@ The `recommended` preset enables all rules at their default levels. See the [Lin
 
 ## Presets
 
-The plugin ships two presets: `recommended` (rules at their default levels) and `all` (every rule as an error). Use `recommended` for most projects; use `all` to enforce every rule strictly from the start. Both presets cover the general convention rules; the opt-in `capability-boundaries` rule is excluded from both and must be enabled explicitly (see below). See the [Linting reference](/docs/reference/linting#presets) for the full preset and rule catalog.
+The plugin ships two presets: `recommended` (rules at their default levels) and `all` (rules at their strictest levels). Use `recommended` for most projects; use `all` to enforce the conventions strictly from the start. Both presets cover the general convention rules and the security rule `restrict-principal-minting` (an error in both); the opt-in `capability-boundaries` rule is excluded from both and must be enabled explicitly (see below). See the [Linting reference](/docs/reference/linting#presets) for the full preset and rule catalog.
 
 ## Principal minting is a sanctioned exception
 

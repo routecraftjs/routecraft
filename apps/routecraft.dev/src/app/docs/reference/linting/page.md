@@ -18,8 +18,8 @@ Rule catalog for `@routecraft/eslint-plugin-routecraft`. {% .lead %}
 
 | Preset | Description |
 |--------|-------------|
-| `routecraftPlugin.configs.recommended` | The convention rules at their default levels |
-| `routecraftPlugin.configs.all` | The convention rules as errors |
+| `routecraftPlugin.configs.recommended` | Convention rules at their default levels, plus the security rule `restrict-principal-minting` as an error |
+| `routecraftPlugin.configs.all` | Convention rules at their strictest levels, plus `restrict-principal-minting` as an error |
 
 `capability-boundaries` is **not** in either preset. It encodes a specific repository layout
 (`capabilities/<domain>/<capability>/route.ts`), so it is opt-in only and must be enabled

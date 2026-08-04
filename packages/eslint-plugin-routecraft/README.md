@@ -87,7 +87,7 @@ site is then always a visible act in review.
 ```ts
 // ✅ Good: a sanctioned channel authenticator
 // eslint-disable-next-line @routecraft/routecraft/restrict-principal-minting -- channel boundary: DKIM-verified sender
-craft().id('inbox').from(mail('INBOX')).authenticate(mintFromSender).to(agent)
+craft().id('inbox').from(mail('INBOX', { markSeen: true })).authenticate(mintFromSender).to(agent)
 
 // ❌ Bad: fabricating identity in ordinary route code
 craft().id('sneaky').from(direct()).authenticate(() => ({ subject: 'admin', roles: ['admin'] }))
@@ -98,11 +98,15 @@ const principal = authenticate({ subject: 'admin' })
 ```
 
 Detection is precise over exhaustive (lint is advisory, not a sandbox): flagged are
-`.authenticate(...)` on chains that provably originate from `craft()`, and calls to
-`authenticate` / `markAuthentic` imported (directly, aliased, or via namespace) from
-`@routecraft/routecraft`. A same-named function from another module is not flagged.
-`delegate()` is deliberately not restricted: it requires an already-branded subject
-and can only narrow scopes, never fabricate.
+`.authenticate(...)` on chains originating from `craft()` (bare, aliased, or via a
+routecraft namespace import), and calls to `authenticate` / `markAuthentic` reached
+through a routecraft import (named, aliased, namespace member, or computed member with
+a string literal), resolved through scope so a same-named function from another module
+or a shadowing local is not flagged. Knowingly uncovered laundering forms, all of which
+require code that is itself review-visible: re-exporting the helpers from a local
+module, `export *`, destructuring a namespace import, and assigning the helper to
+another variable. `delegate()` is deliberately not restricted: it requires an
+already-branded subject and can only narrow scopes, never fabricate.
 
 ### routecraft/capability-boundaries (opt-in)
 
