@@ -123,11 +123,12 @@ function intersect(
  *   requested actor.
  *
  * Note for custom steps calling this helper directly: the `.delegate()`
- * route operation additionally DROPS a non-delegated direct principal when
- * its resolver finds no consent (fail closed; see `DelegateStepOptions`).
- * The helper itself only mints. A custom step that skips minting on a
- * missing grant must decide what happens to the caller's direct principal,
- * or an actor downstream inherits the caller's full authority precisely
+ * route operation defaults to DROPPING a non-delegated direct principal
+ * when its resolver returns `undefined` (fail closed;
+ * `DelegateStepOptions.otherwise: "keep"` is the opt-out). The helper
+ * itself only mints. A custom step that skips minting on a missing grant
+ * must decide what happens to the caller's direct principal, or the
+ * continuation runs with the caller's full direct authority precisely
  * when consent is absent.
  *
  * @example
