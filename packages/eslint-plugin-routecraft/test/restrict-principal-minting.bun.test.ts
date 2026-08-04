@@ -67,6 +67,15 @@ ruleTester.run("restrict-principal-minting", restrictPrincipalMintingRule, {
       `,
     },
     {
+      // a shadowing craft parameter is not the routecraft DSL either
+      code: `
+        import { craft } from "@routecraft/routecraft";
+        export function build(craft) {
+          return craft().connect().authenticate({ apiKey: "k" });
+        }
+      `,
+    },
+    {
       // delegate() narrows an already-branded subject; it cannot fabricate
       code: `
         import { delegate } from "@routecraft/routecraft";
@@ -184,6 +193,26 @@ export default craft()
       code: `
         import * as rc from "@routecraft/routecraft";
         export default rc.craft().id("ns").from(rc.direct()).authenticate(mint).to(rc.noop());
+      `,
+      errors: [
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+      ],
+    },
+    {
+      // a computed string-literal authenticate on the chain does not evade
+      code: `
+        import { craft, direct, noop } from "@routecraft/routecraft";
+        export default craft().id("q")["authenticate"](mint).to(noop());
+      `,
+      errors: [
+        { messageId: "restrictedMint", data: { what: ".authenticate()" } },
+      ],
+    },
+    {
+      // a computed string-literal namespace craft origin does not evade
+      code: `
+        import * as rc from "@routecraft/routecraft";
+        export default rc["craft"]().id("qns").authenticate(mint);
       `,
       errors: [
         { messageId: "restrictedMint", data: { what: ".authenticate()" } },

@@ -12,10 +12,12 @@
  * rule files.
  */
 
+/** Non-null object check that narrows to an indexable record. */
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/** Narrow to an ESTree Identifier node carrying a name. */
 export function isIdentifier(
   node: unknown,
 ): node is { type: "Identifier"; name: string } {
@@ -26,12 +28,14 @@ export function isIdentifier(
   );
 }
 
+/** Narrow to an ESTree Literal node carrying a value. */
 export function isLiteral(
   node: unknown,
 ): node is { type: "Literal"; value: unknown } {
   return isObject(node) && node["type"] === "Literal" && "value" in node;
 }
 
+/** Narrow to an ESTree MemberExpression with object/property fields. */
 export function isMemberExpression(node: unknown): node is {
   type: "MemberExpression";
   computed: boolean;
@@ -47,6 +51,7 @@ export function isMemberExpression(node: unknown): node is {
   );
 }
 
+/** Narrow to an ESTree CallExpression with callee and arguments. */
 export function isCallExpression(
   node: unknown,
 ): node is { type: "CallExpression"; callee: unknown; arguments: unknown[] } {
@@ -98,55 +103,17 @@ export function collectChainBackwards(node: unknown): unknown[] {
 }
 
 /**
- * Optional origin bindings for {@link originatesFromCraft}. When supplied,
- * a chain also counts as craft-originating when it walks back to a call of
- * one of `craftNames` (locals bound to the routecraft `craft` export,
- * covering aliased imports) or to `<namespace>.craft(...)` for one of
- * `namespaces` (namespace imports of routecraft).
+ * Walk back a call chain to see if it originates from a bare `craft()`
+ * identifier. Name-based on purpose: the convention rules that use this
+ * treat any `craft()` chain as the Routecraft DSL. A rule that needs
+ * lexical precision (aliased or namespace imports, shadowing) resolves the
+ * chain root through scope itself, as `restrict-principal-minting` does.
  */
-export interface CraftOrigins {
-  craftNames?: ReadonlySet<string>;
-  namespaces?: ReadonlySet<string>;
-  /**
-   * Local names bound by imports from modules OTHER than routecraft. A
-   * bare identifier in this set never counts as a craft origin, so
-   * `import { craft } from "some-other-lib"` does not make that module's
-   * chains look like Routecraft DSL.
-   */
-  foreignNames?: ReadonlySet<string>;
-}
-
-/**
- * Walk back a call chain to see if it originates from `craft()`. Without
- * `origins`, only a bare identifier named `craft` matches (the historical
- * behaviour every rule shipped with); rules that track imports can pass
- * `origins` to also match aliased and namespace forms and to exclude a
- * `craft` binding that provably came from another module.
- */
-export function originatesFromCraft(
-  call: unknown,
-  origins?: CraftOrigins,
-): boolean {
+export function originatesFromCraft(call: unknown): boolean {
   let current: unknown = call;
   while (isCallExpression(current)) {
     const callee = (current as Record<string, unknown>)["callee"] as unknown;
-    if (
-      isIdentifier(callee) &&
-      (origins?.craftNames?.has(callee.name) ||
-        (callee.name === "craft" && !origins?.foreignNames?.has(callee.name)))
-    ) {
-      return true;
-    }
-    if (
-      isMemberExpression(callee) &&
-      !callee.computed &&
-      isIdentifier(callee.object) &&
-      origins?.namespaces?.has(callee.object.name) &&
-      isIdentifier(callee.property) &&
-      callee.property.name === "craft"
-    ) {
-      return true;
-    }
+    if (isIdentifier(callee) && callee.name === "craft") return true;
     if (isMemberExpression(callee)) {
       current = callee["object"] as unknown;
       continue;

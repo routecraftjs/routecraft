@@ -59,7 +59,7 @@ The `recommended` preset enables all rules at their default levels. See the [Lin
 
 ## Presets
 
-The plugin ships two presets: `recommended` (rules at their default levels) and `all` (rules at their strictest levels). Use `recommended` for most projects; use `all` to enforce the conventions strictly from the start. Both presets cover the general convention rules and the security rule `restrict-principal-minting` (an error in both); the opt-in `capability-boundaries` rule is excluded from both and must be enabled explicitly (see below). See the [Linting reference](/docs/reference/linting#presets) for the full preset and rule catalog.
+The plugin ships two presets: `recommended` (rules at their default levels) and `all` (convention rules as errors, except `single-to-per-route`, which stays a warning). Use `recommended` for most projects; use `all` to enforce the conventions strictly from the start. Both presets cover the general convention rules and the security rule `restrict-principal-minting` (an error in both); the opt-in `capability-boundaries` rule is excluded from both and must be enabled explicitly (see below). See the [Linting reference](/docs/reference/linting#presets) for the full preset and rule catalog.
 
 ## Principal minting is a sanctioned exception
 
@@ -90,6 +90,11 @@ lands silently. Exempt your test files (principal fixtures legitimately use
 `authenticate()`) with a `files: ['**/*.test.ts']` override. `delegate()` is
 deliberately not restricted: it requires an already-branded subject and can only
 narrow scopes, never fabricate.
+
+The rule covers the direct minting forms only. Laundering forms (re-exporting the
+helpers from a local module, `export *`, destructuring a namespace import, assigning
+the helper to another variable) stay outside lint coverage and remain a manual review
+concern; each of them is itself review-visible code.
 
 ## Capability boundaries (opt-in)
 

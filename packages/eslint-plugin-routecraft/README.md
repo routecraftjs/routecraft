@@ -99,10 +99,11 @@ const principal = authenticate({ subject: 'admin' })
 
 Detection is precise over exhaustive (lint is advisory, not a sandbox): flagged are
 `.authenticate(...)` on chains originating from `craft()` (bare, aliased, or via a
-routecraft namespace import), and calls to `authenticate` / `markAuthentic` reached
-through a routecraft import (named, aliased, namespace member, or computed member with
-a string literal), resolved through scope so a same-named function from another module
-or a shadowing local is not flagged. Knowingly uncovered laundering forms, all of which
+routecraft namespace import, with dotted or computed string-literal member access),
+and calls to `authenticate` / `markAuthentic` reached through a routecraft import
+(named, aliased, namespace member, or computed member with a string literal). Bindings
+are resolved through scope, so a same-named function from another module or a
+shadowing local is not flagged. Knowingly uncovered laundering forms, all of which
 require code that is itself review-visible: re-exporting the helpers from a local
 module, `export *`, destructuring a namespace import, and assigning the helper to
 another variable. `delegate()` is deliberately not restricted: it requires an
