@@ -46,7 +46,7 @@ export type Judgement = z.infer<typeof judgement>
 export interface JudgeEvidence {
   request: unknown
   account: string
-  toolCalls: Array<{ toolName: string; failed: boolean }>
+  toolCalls: Array<{ toolName: string; failed: boolean; error?: string }>
 }
 
 export default craft()
@@ -106,6 +106,7 @@ craft()
             toolCalls: (result.toolCalls ?? []).map((c) => ({
               toolName: c.toolName,
               failed: c.error !== undefined,
+              ...(c.error !== undefined ? { error: String(c.error) } : {}),
             })),
           },
         }),
@@ -146,6 +147,7 @@ agent({
           toolCalls: (result.toolCalls ?? []).map((c) => ({
             toolName: c.toolName,
             failed: c.error !== undefined,
+            ...(c.error !== undefined ? { error: String(c.error) } : {}),
           })),
         },
       }),

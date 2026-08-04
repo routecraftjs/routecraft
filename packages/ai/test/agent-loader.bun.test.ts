@@ -162,7 +162,7 @@ describe("agents() markdown loader", () => {
       "x.md": "---\nname: x\ndescription: d\noutput: json\n---\nsystem",
     });
     await expect(agents(dir)).rejects.toThrow(
-      /frontmatter field "output" is override-only.*agents\(path, \{ x: \{ output: \.\.\. \} \}\)/,
+      /frontmatter field "output" is override-only.*agents\(path, \{ "x": \{ output: \.\.\. \} \}\)/,
     );
   });
 

@@ -94,7 +94,7 @@ function toAgent(
   for (const key of Object.keys(frontmatter)) {
     if (OVERRIDE_ONLY_AGENT_KEYS.has(key)) {
       throw rcError("RC5003", undefined, {
-        message: `Markdown file "${source}": frontmatter field "${key}" is override-only; YAML cannot express its value. Supply it via the override map instead: agents(path, { ${filename}: { ${key}: ... } }).`,
+        message: `Markdown file "${source}": frontmatter field "${key}" is override-only; YAML cannot express its value. Supply it via the override map instead: agents(path, { ${JSON.stringify(filename)}: { ${key}: ... } }).`,
       });
     }
     if (!SUPPORTED_AGENT_KEYS.has(key)) {

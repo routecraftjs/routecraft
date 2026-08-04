@@ -78,7 +78,7 @@ The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 | Field | Type | Description |
 |-------|------|-------------|
 | `text` | `string` | Generated text from the model |
-| `output` | `T` | Parsed structured output (only when an `output` schema was supplied; runtime ships in a follow-up) |
+| `output` | `T` | Parsed structured output (only when an `output` schema was supplied) |
 | `usage.inputTokens` | `number` | Input token count (when reported) |
 | `usage.outputTokens` | `number` | Output token count (when reported) |
 | `usage.totalTokens` | `number` | Total token count (when reported) |
