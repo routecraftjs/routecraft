@@ -305,6 +305,13 @@ describe("Timeout wrapper (.timeout())", () => {
    */
   test("route scope: an abort-induced step failure emits no extra step:error", async () => {
     const events: string[] = [];
+    // Without these, the test would still pass if signal forwarding
+    // regressed: the step would simply run its 300ms course, the route
+    // deadline would fire RC5011 anyway, and the event counts would
+    // match for the wrong reason. Asserting the signal arrived AND
+    // fired is what makes this a regression test for the fix.
+    let signalSeen = false;
+    let signalAborted = false;
 
     t = await testContext()
       .on("route:step:error", () => {
@@ -319,10 +326,12 @@ describe("Timeout wrapper (.timeout())", () => {
           .timeout(30)
           .from(simple("slow"))
           .process(async (ex, ctx) => {
+            signalSeen = ctx?.signal !== undefined;
             // Mirror real cancellation-aware IO: reject on abort.
             await new Promise((resolve, reject) => {
               const timer = setTimeout(resolve, 300);
               ctx?.signal?.addEventListener("abort", () => {
+                signalAborted = true;
                 clearTimeout(timer);
                 reject(new Error("aborted by signal"));
               });
@@ -336,6 +345,8 @@ describe("Timeout wrapper (.timeout())", () => {
     await t.test();
     await sleep(350);
 
+    expect(signalSeen).toBe(true);
+    expect(signalAborted).toBe(true);
     expect(events.filter((e) => e === "step:error")).toHaveLength(1);
     expect(events.filter((e) => e === "exchange:failed")).toHaveLength(1);
     expect(t.errors).toHaveLength(1);
