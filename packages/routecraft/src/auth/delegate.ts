@@ -122,6 +122,14 @@ function intersect(
  * @throws RC5037 when `subject.mayAct` is present and no entry matches the
  *   requested actor.
  *
+ * Note for custom steps calling this helper directly: the `.delegate()`
+ * route operation additionally DROPS a non-delegated direct principal when
+ * its resolver finds no consent (fail closed; see `DelegateStepOptions`).
+ * The helper itself only mints. A custom step that skips minting on a
+ * missing grant must decide what happens to the caller's direct principal,
+ * or an actor downstream inherits the caller's full authority precisely
+ * when consent is absent.
+ *
  * @example
  * ```ts
  * const delegated = delegate(ex.principal, zoeIdentity, {
