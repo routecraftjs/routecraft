@@ -44,6 +44,7 @@ export default [
 - `routecraft/require-named-route`: Enforce `.id(<non-empty string>)` before `.from()` in a `craft()` chain
 - `routecraft/batch-before-from`: Enforce `batch()` is used as a route-level operation before `.from()`
 - `routecraft/single-to-per-route`: Warn when a route uses more than one `.to()`
+- `routecraft/restrict-principal-minting`: Principal minting (`.authenticate()`, `authenticate()`, `markAuthentic()`) must be an explicitly sanctioned, per-site exception
 - `routecraft/capability-boundaries` (opt-in): Enforce capability module boundaries (Spring Modulith style)
 
 ### routecraft/require-named-route
@@ -71,6 +72,37 @@ craft()
   .batch({ size: 50 })
   .to(dest)
 ```
+
+### routecraft/restrict-principal-minting
+
+`.authenticate()` (and the `authenticate()` / `markAuthentic()` helpers) produce an
+authenticity-branded principal that every downstream `authorize()` trusts and that
+propagates across `direct()` calls, so an unreviewed mint anywhere in a codebase is a
+privilege-escalation vector. Minting is legitimate at channel boundaries (a mail route
+minting from a DKIM-verified sender), so instead of banning it the rule makes every
+mint site an explicit, reviewable exception: sanction it with a scoped disable comment
+carrying a justification, or a per-file override in the ESLint config. Adding a mint
+site is then always a visible act in review.
+
+```ts
+// ✅ Good: a sanctioned channel authenticator
+// eslint-disable-next-line @routecraft/routecraft/restrict-principal-minting -- channel boundary: DKIM-verified sender
+craft().id('inbox').from(mail('INBOX')).authenticate(mintFromSender).to(agent)
+
+// ❌ Bad: fabricating identity in ordinary route code
+craft().id('sneaky').from(direct()).authenticate(() => ({ subject: 'admin', roles: ['admin'] }))
+
+// ❌ Bad: helper minting outside a sanctioned site (aliased and namespace imports are also caught)
+import { authenticate } from '@routecraft/routecraft'
+const principal = authenticate({ subject: 'admin' })
+```
+
+Detection is precise over exhaustive (lint is advisory, not a sandbox): flagged are
+`.authenticate(...)` on chains that provably originate from `craft()`, and calls to
+`authenticate` / `markAuthentic` imported (directly, aliased, or via namespace) from
+`@routecraft/routecraft`. A same-named function from another module is not flagged.
+`delegate()` is deliberately not restricted: it requires an already-branded subject
+and can only narrow scopes, never fabricate.
 
 ### routecraft/capability-boundaries (opt-in)
 

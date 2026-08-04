@@ -11,6 +11,7 @@ Rule catalog for `@routecraft/eslint-plugin-routecraft`. {% .lead %}
 | `require-named-route` | error | Every `craft()` chain must call `.id(<non-empty string>)` before `.from()` | No |
 | `batch-before-from` | warn | `.batch()` must appear before `.from()` -- using it after has no effect on the current route | No |
 | `single-to-per-route` | warn | Each `craft()` chain should have at most one `.to()`; extra outputs belong in `.tap()` | No |
+| `restrict-principal-minting` | error | Principal minting (`.authenticate()`, `authenticate()`, `markAuthentic()`) is restricted to explicitly sanctioned sites (scoped disable comment or per-file override) | No |
 | `capability-boundaries` | off (opt-in) | From outside a capability folder, import only its public-surface `route.ts`, never its internals | No |
 
 ## Presets

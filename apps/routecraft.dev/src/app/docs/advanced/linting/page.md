@@ -61,6 +61,36 @@ The `recommended` preset enables all rules at their default levels. See the [Lin
 
 The plugin ships two presets: `recommended` (rules at their default levels) and `all` (every rule as an error). Use `recommended` for most projects; use `all` to enforce every rule strictly from the start. Both presets cover the general convention rules; the opt-in `capability-boundaries` rule is excluded from both and must be enabled explicitly (see below). See the [Linting reference](/docs/reference/linting#presets) for the full preset and rule catalog.
 
+## Principal minting is a sanctioned exception
+
+`restrict-principal-minting` (error in both presets) treats identity fabrication as a
+security decision, not a convenience. `.authenticate()` and the `authenticate()` /
+`markAuthentic()` helpers produce a branded principal every downstream `authorize()`
+trusts, so the rule flags every mint site and you sanction the legitimate ones
+explicitly, either with a scoped disable comment carrying a justification:
+
+```ts
+// eslint-disable-next-line @routecraft/routecraft/restrict-principal-minting -- channel boundary: DKIM-verified sender
+.authenticate(mintFromSender)
+```
+
+or with a per-file override in your config, which keeps the full list of sanctioned
+channel authenticators auditable in one place:
+
+```js
+// eslint.config.mjs
+{
+  files: ['capabilities/comms/zoe-mail/route.ts'],
+  rules: { '@routecraft/routecraft/restrict-principal-minting': 'off' },
+}
+```
+
+Either way, adding a new mint site is a visible act in review, never something that
+lands silently. Exempt your test files (principal fixtures legitimately use
+`authenticate()`) with a `files: ['**/*.test.ts']` override. `delegate()` is
+deliberately not restricted: it requires an already-branded subject and can only
+narrow scopes, never fabricate.
+
 ## Capability boundaries (opt-in)
 
 `capability-boundaries` enforces Spring-Modulith-style module boundaries between capabilities. A capability is any folder that contains a public-surface file (`route.ts` by default) under a `capabilities/` directory: the route file is the capability's only public surface, and everything else in the folder is internal. From outside a capability, only its public surface may be imported. Share across capabilities via a `direct()` route or a shared package instead.
