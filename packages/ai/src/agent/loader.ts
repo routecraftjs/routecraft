@@ -41,11 +41,22 @@ const SUPPORTED_AGENT_KEYS = new Set([
  * carry the boolean form; reach for the override (or
  * `agentPlugin({ defaultOptions })`) when an agent needs the
  * function-renderer form that YAML cannot express.
+ *
+ * `output` is override-only, mirroring `blocks`: a Standard Schema is a
+ * live object with a `validate` function, so YAML frontmatter can never
+ * express one. Supply the schema here to give a markdown-defined agent
+ * structured output (the parsed value lands on `AgentResult.output`).
  */
 export interface AgentMarkdownOverride extends Partial<
   Pick<
     AgentRegisteredOptions,
-    "description" | "model" | "maxTurns" | "tools" | "principal" | "blocks"
+    | "description"
+    | "model"
+    | "maxTurns"
+    | "tools"
+    | "principal"
+    | "blocks"
+    | "output"
   >
 > {
   /**
@@ -151,6 +162,7 @@ function applyOverride(
   if (override.tools !== undefined) out.tools = override.tools;
   if (override.principal !== undefined) out.principal = override.principal;
   if (override.blocks !== undefined) out.blocks = override.blocks;
+  if (override.output !== undefined) out.output = override.output;
   if (override.system !== undefined) out.system = override.system;
   return out;
 }
@@ -187,9 +199,10 @@ function applyOverride(
  *
  * Pass `overrides` keyed by agent name to replace any of
  * `description` / `model` / `maxTurns` / `tools` / `blocks` /
- * `principal` / `system` per agent without editing the markdown
- * source. `blocks` is override-only because YAML cannot express the
- * function-form resolvers a block may carry.
+ * `principal` / `output` / `system` per agent without editing the
+ * markdown source. `blocks` and `output` are override-only because
+ * YAML cannot express the function-form resolvers a block may carry,
+ * nor a Standard Schema (a live object with a `validate` function).
  *
  * Returns a `Record<name, AgentRegisteredOptions>` ready to spread
  * into `agentPlugin({ agents: agents("./agents") })`.

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { testContext } from "@routecraft/testing";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { agentPlugin, agents, tools } from "../src/index.ts";
 import { isToolSelection } from "../src/agent/tools/selection.ts";
 
@@ -129,6 +130,40 @@ describe("agents() markdown loader", () => {
     const renderer = (): string => "## Caller\n\ncustom";
     const result = await agents(dir, { x: { principal: renderer } });
     expect(result["x"]?.principal).toBe(renderer);
+  });
+
+  /**
+   * @case Override supplies the output schema that YAML cannot express
+   * @preconditions Markdown omits output; override sets a Standard Schema
+   * @expectedResult Loaded agent.output is the override schema (override-only, mirroring blocks)
+   */
+  test("override can set the output schema", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\n---\nsystem",
+    });
+    const schema: StandardSchemaV1 = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value: unknown) => ({ value }),
+      },
+    };
+    const result = await agents(dir, { x: { output: schema } });
+    expect(result["x"]?.output).toBe(schema);
+  });
+
+  /**
+   * @case output in frontmatter is rejected as unsupported
+   * @preconditions Agent with an output key in YAML (a schema cannot be expressed there)
+   * @expectedResult Throws RC5003 listing the supported frontmatter fields
+   */
+  test("rejects output frontmatter", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\noutput: json\n---\nsystem",
+    });
+    await expect(agents(dir)).rejects.toThrow(
+      /frontmatter field "output" is not yet supported/,
+    );
   });
 
   /**
