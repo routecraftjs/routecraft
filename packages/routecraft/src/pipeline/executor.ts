@@ -521,14 +521,25 @@ export async function runPipeline(
       ] as string;
       const duration = Date.now() - startTime;
 
-      // Emit step-level error
-      deps.context.emit("route:step:error", {
-        routeId: deps.routeId,
-        error: err,
-        route: deps.route,
-        exchange,
-        operation: stepLabel,
-      });
+      // Emit step-level error, unless this run was already abandoned by
+      // an outer abort (a route-scope timeout that expired). Since the
+      // wrapped step now receives that abort through its StepContext
+      // signal, a cancellation-aware step FAILS on expiry rather than
+      // running to completion with a discarded outcome. That failure is
+      // a consequence of the deadline the segment step has already
+      // reported (RC5011), not an independent step error, so surfacing
+      // it would add a spurious `route:step:error` per expiry for
+      // exactly the steps that cooperate with cancellation. The
+      // abandoned run's result is discarded either way.
+      if (!deps.abortSignal?.aborted) {
+        deps.context.emit("route:step:error", {
+          routeId: deps.routeId,
+          error: err,
+          route: deps.route,
+          exchange,
+          operation: stepLabel,
+        });
+      }
 
       if (deps.definition.errorHandler) {
         // Route-scope error-handler events. Step-scope wrappers

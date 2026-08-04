@@ -299,6 +299,50 @@ describe("Timeout wrapper (.timeout())", () => {
   });
 
   /**
+   * @case A step that fails BECAUSE the route-scope deadline aborted it adds no extra route:step:error
+   * @preconditions Route-scope .timeout(30) over a process step that rejects when its ctx.signal aborts
+   * @expectedResult Exactly one route:step:error and one route:exchange:failed fire, matching the event stream of a step that ignores the signal; cooperating with cancellation must not add observability noise
+   */
+  test("route scope: an abort-induced step failure emits no extra step:error", async () => {
+    const events: string[] = [];
+
+    t = await testContext()
+      .on("route:step:error", () => {
+        events.push("step:error");
+      })
+      .on("route:exchange:failed", () => {
+        events.push("exchange:failed");
+      })
+      .routes(
+        craft()
+          .id("timeout-abort-no-noise")
+          .timeout(30)
+          .from(simple("slow"))
+          .process(async (ex, ctx) => {
+            // Mirror real cancellation-aware IO: reject on abort.
+            await new Promise((resolve, reject) => {
+              const timer = setTimeout(resolve, 300);
+              ctx?.signal?.addEventListener("abort", () => {
+                clearTimeout(timer);
+                reject(new Error("aborted by signal"));
+              });
+            });
+            return ex;
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.test();
+    await sleep(350);
+
+    expect(events.filter((e) => e === "step:error")).toHaveLength(1);
+    expect(events.filter((e) => e === "exchange:failed")).toHaveLength(1);
+    expect(t.errors).toHaveLength(1);
+    expect(t.errors[0].rc).toBe("RC5011");
+  });
+
+  /**
    * @case Step-scope expiry aborts the wrapped step's ctx.signal
    * @preconditions Route with .timeout(30) wrapping a 300ms process step that captures its StepSignalContext
    * @expectedResult The captured signal exists, aborts when the deadline fires, and carries the RC5011 error as the abort reason

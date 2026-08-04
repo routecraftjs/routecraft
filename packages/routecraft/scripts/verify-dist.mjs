@@ -49,8 +49,19 @@ if (expected.length === 0) {
   process.exit(1);
 }
 
+// Reject an unrecognised mode instead of defaulting to ESM: a silent
+// fallback would verify dist/index.js twice and report success while the
+// CJS bundle went unchecked, defeating the guard for exactly the
+// packaging regression it exists to catch.
+const ENTRIES = { esm: "dist/index.js", cjs: "dist/index.cjs" };
 const mode = process.argv[2] ?? "esm";
-const entry = mode === "cjs" ? "dist/index.cjs" : "dist/index.js";
+const entry = ENTRIES[mode];
+if (entry === undefined) {
+  console.error(
+    `verify-dist: unknown mode "${mode}"; expected one of ${Object.keys(ENTRIES).join(", ")}.`,
+  );
+  process.exit(1);
+}
 await import(pathToFileURL(join(pkgRoot, entry)).href);
 
 const registry = globalThis[Symbol.for("routecraft.config-applier-registry")];

@@ -178,8 +178,10 @@ const INPUT_STEP_ADAPTER: Adapter = { adapterId: "routecraft.input" };
  * See #447 for the fold that replaced the old eager consumer-handler path.
  *
  * The step manages its own lifecycle events (`skipStepEvents: true`),
- * mirroring the parse step, so subscribers see `operation: "input"` with
- * the `routecraft.input` adapter id.
+ * mirroring the parse step: subscribers see `operation: "input"` and
+ * `adapter: "input"` on the payloads. (The carrier's `routecraft.input`
+ * adapter id is not what reaches subscribers, exactly as the parse step
+ * emits `adapter: "parse"` rather than `routecraft.parse`.)
  */
 export function buildInputValidationStep(
   applyValidation: (exchange: Exchange) => Promise<Exchange>,
