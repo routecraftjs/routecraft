@@ -187,6 +187,7 @@ export { type CallableAuthenticator } from "./operations/authenticate.ts";
 
 export {
   type CallableDelegator,
+  type DelegateStepOptions,
   type DelegationClaims,
 } from "./operations/delegate.ts";
 

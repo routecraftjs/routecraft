@@ -211,6 +211,18 @@ surface of `authorize()`. Grounded in RFC 8693 (`act` / `may_act`), RFC 9068
   not agent-reachable unless it says so. `maxDelegationDepth` defaults to `1`
   and its walk is bounded, so a hand-assembled cyclic chain fails rather than
   hanging the check.
+- **`.delegate()` fails closed on missing consent.** A resolver returning
+  `undefined` STRIPS the subject's direct principal by default (the exchange
+  continues anonymous; downstream `authorize()` refuses with RC5012), because
+  the step marks the boundary where a request starts acting through someone
+  else: passing the principal onward would hand the continuation the caller's
+  full direct authority precisely when consent is absent. The strip is narrow
+  (anonymous exchanges, already-delegated principals, and `ai_agent` subjects
+  pass untouched) and `{ otherwise: "keep" }` opts a pipeline out when its
+  continuation serves the caller directly. A configurable scope-composition
+  strategy (merging or otherwise varying the two-way intersection) was
+  considered and DEFERRED until a real case demands it; the intersection is
+  two-way and final.
 - **Actor identity is the `(issuer, subject)` pair**, never `subject` alone
   (RFC 7519 § 4.1.2: a `sub` is only locally unique within its issuer). A
   matcher with no fields set matches any actor; validate config before

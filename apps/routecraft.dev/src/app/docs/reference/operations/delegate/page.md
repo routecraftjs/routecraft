@@ -5,10 +5,10 @@ title: delegate
 [← All operations](/docs/reference/operations) {% .lead %}
 
 ```ts
-delegate(resolver: (exchange: Exchange<Current>) => DelegationClaims | undefined | Promise<DelegationClaims | undefined>): RouteBuilder<Current>
+delegate(resolver: (exchange: Exchange<Current>) => DelegationClaims | undefined | Promise<DelegationClaims | undefined>, options?: { otherwise?: 'drop' | 'keep' }): RouteBuilder<Current>
 ```
 
-Mark the exchange's principal as being exercised by an **actor** (an agent, a service) on the subject's behalf. The resolver returns the actor's identity claims plus the consent-derived scope ceiling; they are minted into a delegated principal and attached to `headers["routecraft.auth.principal"]`. Return `undefined` to leave the exchange untouched, so a caller without a consent record simply never delegates. The body is unchanged.
+Mark the exchange's principal as being exercised by an **actor** (an agent, a service) on the subject's behalf. The resolver returns the actor's identity claims plus the consent-derived scope ceiling; they are minted into a delegated principal and attached to `headers["routecraft.auth.principal"]`. A resolver that returns `undefined` (no consent record) fails closed by default: the subject's direct principal is stripped and the exchange continues anonymous (see the failure modes below). The body is unchanged.
 
 The name and the claim are the two halves of one RFC 8693 concept: *delegation* is the verb (section 1.1, "Delegation vs. Impersonation Semantics"), and the `act` (actor) claim is the noun it produces, "a means within a JWT to express that delegation has occurred" (section 4.1). So `delegate()` writes `Principal.actor`, which serialises as `act`, exactly as `subject` serialises as `sub`. Tokens that already carry `act` (an IdP doing RFC 8693 token exchange, or Clerk's user-impersonation sessions) produce the same principal shape through `jwt()` / `jwks()` with no `delegate()` call involved.
 
@@ -48,6 +48,7 @@ Two properties keep this safe. The ceiling can never exceed what the subject hol
 
 Failure modes:
 
+- **Resolver returns `undefined` (no consent record):** by default the subject's direct principal is STRIPPED and the exchange continues anonymous, so downstream [`authorize()`](/docs/reference/operations/authorize) refuses with [`RC5012`](/docs/reference/errors#rc-5012). Drop is the default because the step marks the boundary where a request starts acting THROUGH someone else: passing the principal through would hand the continuation the caller's full direct authority precisely when consent is absent, which is the fail-open confused-deputy shape this operation exists to prevent. The strip is narrow: anonymous exchanges, already-delegated principals, and autonomous agent subjects (`subjectProfile: 'ai_agent'`) pass through untouched. Pass `{ otherwise: 'keep' }` when the continuation serves the caller directly (delegation was an optional enhancement, not the authority boundary) and an ungranted caller should keep acting as themselves.
 - **Resolver returns a directive but the exchange is anonymous:** [`RC5012`](/docs/reference/errors#rc-5012). Delegation transforms an existing identity; it never creates one.
 - **Subject principal is not authentic:** [`RC5023`](/docs/reference/errors#rc-5023). A chain cannot be built on a self-asserted object.
 - **Subject's `mayAct` does not permit this actor:** [`RC5037`](/docs/reference/errors#rc-5037). Matching uses the `(issuer, subject)` pair. `mayAct` travels with the subject, so it gates every hop: re-delegation to a second agent is checked against the same consent list, which makes delegation non-transitive by default.
@@ -74,7 +75,7 @@ craft()
     // authority: what may the agent do for them
     if (!ex.principal) return undefined
     const grant = await grants.find(ex.principal.subject, 'agent:zoe')
-    if (!grant) return undefined // no consent: the agent never acquires the identity
+    if (!grant) return undefined // no consent: principal dropped, the agent acquires nothing
     return { actor: zoeIdentity, scopes: grant.scopes, grantId: grant.id }
   })
   .to(agent('zoe'))
