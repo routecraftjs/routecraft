@@ -30,6 +30,15 @@ const SUPPORTED_AGENT_KEYS = new Set([
 ]);
 
 /**
+ * Fields that can never live in frontmatter because their values are not
+ * YAML-expressible (function-form block resolvers, Standard Schema objects
+ * with a live `validate` function). They get a pointed error instead of
+ * the generic "not yet supported" one, since no future release can lift
+ * the limitation; the override map is the permanent home.
+ */
+const OVERRIDE_ONLY_AGENT_KEYS = new Set(["blocks", "output"]);
+
+/**
  * Per-agent override layered on top of the markdown frontmatter. Only
  * the fields that make sense to override at config time are exposed
  * here. Lifecycle fields like `validate` and `onDelta` belong in code
@@ -83,6 +92,11 @@ function toAgent(
   source: string,
 ): { name: string; agent: AgentRegisteredOptions } {
   for (const key of Object.keys(frontmatter)) {
+    if (OVERRIDE_ONLY_AGENT_KEYS.has(key)) {
+      throw rcError("RC5003", undefined, {
+        message: `Markdown file "${source}": frontmatter field "${key}" is override-only; YAML cannot express its value. Supply it via the override map instead: agents(path, { ${filename}: { ${key}: ... } }).`,
+      });
+    }
     if (!SUPPORTED_AGENT_KEYS.has(key)) {
       throw rcError("RC5003", undefined, {
         message: `Markdown file "${source}": frontmatter field "${key}" is not yet supported. Currently supported fields: ${[...SUPPORTED_AGENT_KEYS].sort().join(", ")}.`,

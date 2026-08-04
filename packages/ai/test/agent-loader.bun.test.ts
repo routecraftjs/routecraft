@@ -153,16 +153,30 @@ describe("agents() markdown loader", () => {
   });
 
   /**
-   * @case output in frontmatter is rejected as unsupported
+   * @case output in frontmatter is rejected as override-only
    * @preconditions Agent with an output key in YAML (a schema cannot be expressed there)
-   * @expectedResult Throws RC5003 listing the supported frontmatter fields
+   * @expectedResult Throws RC5003 pointing at the override map, not the generic not-yet-supported error
    */
-  test("rejects output frontmatter", async () => {
+  test("rejects output frontmatter as override-only", async () => {
     const dir = makeDir({
       "x.md": "---\nname: x\ndescription: d\noutput: json\n---\nsystem",
     });
     await expect(agents(dir)).rejects.toThrow(
-      /frontmatter field "output" is not yet supported/,
+      /frontmatter field "output" is override-only.*agents\(path, \{ x: \{ output: \.\.\. \} \}\)/,
+    );
+  });
+
+  /**
+   * @case blocks in frontmatter is rejected as override-only
+   * @preconditions Agent with a blocks key in YAML (resolvers may carry functions YAML cannot express)
+   * @expectedResult Throws RC5003 pointing at the override map, not the generic not-yet-supported error
+   */
+  test("rejects blocks frontmatter as override-only", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\nblocks: {}\n---\nsystem",
+    });
+    await expect(agents(dir)).rejects.toThrow(
+      /frontmatter field "blocks" is override-only/,
     );
   });
 
