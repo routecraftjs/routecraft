@@ -65,9 +65,9 @@ craft()
 | `maxTurns` | `number` | No | Cap on tool-calling turns. Inherits `defaultOptions.maxTurns` when omitted |
 | `blocks` | `Blocks` (`Record<string, BlockBody \| false>`) | No | Contributions to the agent's system context, keyed by name. Each block has a `mode` (`"inject"` to concatenate into the system prompt as `## <name>\n\n<content>`, or `"progressive"` to surface as a synthetic `_block_load_<name>` tool the model invokes on demand) and an optional `lifetime` (`"dispatch"` re-runs the resolver every call, `"context"` caches once per `CraftContext`). Set an entry to `false` to remove a default inherited from `agentPlugin({ defaultOptions: { blocks } })`. Use `skills({ source })` to load markdown skills. See the [blocks reference](#agent-blocks) |
 | `principal` | `boolean \| (principal, exchange) => string` | No | Append a `## Caller` section describing `exchange.principal`. `true` for the built-in block, a function to render it yourself. Inherits `defaultOptions.principal` when omitted; a per-agent value (including `false`) overrides it. See [Telling the agent who the caller is](/docs/reference/adapters/agent#telling-the-agent-who-the-caller-is) |
-| `output` | `StandardSchemaV1` | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
+| `output` | `StandardSchemaV1` | No | Schema for structured output. The agent requests provider-level structured output, validates the response, and parses it onto `AgentResult.output` |
 
-Agents loaded from markdown via [`agents("./dir")`](/docs/reference/adapters/agent) accept the same fields as frontmatter, except for `blocks`. `principal` is supported in frontmatter as a boolean (`principal: true`); the function-renderer form is a closure YAML cannot express, so set it via the per-agent override map (`agents("./dir", { zoe: { principal: (p) => ... } })`) or `agentPlugin({ defaultOptions })`. `blocks` is override-only because resolvers may carry functions; supply them via the same override map (`agents("./dir", { zoe: { blocks: await skills({ source: "./skills" }) } })`).
+Agents loaded from markdown via [`agents("./dir")`](/docs/reference/adapters/agent) accept the same fields as frontmatter, except for `blocks` and `output`. `principal` is supported in frontmatter as a boolean (`principal: true`); the function-renderer form is a closure YAML cannot express, so set it via the per-agent override map (`agents("./dir", { triage: { principal: (p) => ... } })`) or `agentPlugin({ defaultOptions })`. `blocks` and `output` are override-only because YAML can express neither the function-form resolvers a block may carry nor a Standard Schema (a live object with a `validate` function); supply them via the same override map (`agents("./dir", { triage: { blocks: await skills({ source: "./skills" }), output: triageSchema } })`).
 
 **Resolution semantics:**
 
@@ -525,6 +525,8 @@ craft()
 ```
 
 The context bus events (`route:agent:tool:*`) are the live observation channel for the same calls; `toolCalls` on the result is the synchronous post-hoc view a pipeline step can branch on. Use the bus for telemetry / dashboards / TUIs; use `toolCalls` for assertions and routing.
+
+Hard-coded assertions like the one above cover mechanical requirements ("this tool must have been called"). To judge whether the agent achieved the *outcome* the request asked for, pair `toolCalls` with a second model call: see [Judging Agent Results](/docs/advanced/judging-agent-results).
 
 ## Typed fn ids (`FnRegistry`)
 
