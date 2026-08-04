@@ -116,7 +116,7 @@ export class DelegateStep<T = unknown> implements Step<Adapter> {
 
 /**
  * Fail-closed backstop for the default `otherwise: "drop"` mode: a direct
- * human principal that did NOT get delegated must not flow onward, or the
+ * principal that did NOT get delegated must not flow onward, or the
  * continuation would wield the caller's full authority precisely when
  * consent is absent. Strips the principal so the exchange continues
  * anonymous and every downstream `authorize()` refuses it (RC5012).
