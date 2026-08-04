@@ -30,11 +30,11 @@ const SUPPORTED_AGENT_KEYS = new Set([
 ]);
 
 /**
- * Fields that can never live in frontmatter because their values are not
- * YAML-expressible (function-form block resolvers, Standard Schema objects
- * with a live `validate` function). They get a pointed error instead of
- * the generic "not yet supported" one, since no future release can lift
- * the limitation; the override map is the permanent home.
+ * Fields whose values are not YAML-expressible today (function-form block
+ * resolvers, Standard Schema objects with a live `validate` function).
+ * They get a pointed error instead of the generic "not yet supported"
+ * one: the override map is their home unless a serializable form (say, a
+ * JSON Schema string for `output`) is ever adopted.
  */
 const OVERRIDE_ONLY_AGENT_KEYS = new Set(["blocks", "output"]);
 
