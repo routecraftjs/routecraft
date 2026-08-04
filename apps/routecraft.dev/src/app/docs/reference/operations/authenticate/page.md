@@ -14,6 +14,8 @@ This is the explicit way to establish identity from a source the framework canno
 
 Only `subject` is required; `kind` defaults to `"custom"` and `scheme` to `"custom"`.
 
+`.authenticate()` establishes **identification**: who the caller is. It answers nothing about delegation. When an agent should act on the authenticated caller's behalf, follow it with [`.delegate()`](/docs/reference/operations/delegate), which marks the actor and narrows scopes under a consent record; minting a principal from a channel identifier alone and handing it to an agent gives the agent the caller's full authority with no consent trail.
+
 ```ts
 // Mint identity from a verified inbound email, then authorize it
 craft()

@@ -6,16 +6,25 @@ export type {
 } from "./auth/jwt.ts";
 export { jwks } from "./auth/jwks.ts";
 export type { JwksOptions } from "./auth/jwks.ts";
-export { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
+export {
+  authorize,
+  type AuthorizeOptions,
+  type ActorSpec,
+  type InsufficientAuthority,
+  type SubjectMatcher,
+} from "./auth/authorize.ts";
 export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
+export { delegate, type DelegateOptions } from "./auth/delegate.ts";
 export { isAuthentic, markAuthentic } from "./auth/authentic.ts";
 export type {
+  ActorMatcher,
   ClaimMappers,
   JwtAudience,
   OAuthPrincipal,
   OAuthTokenVerifier,
   OAuthValidatorAuthOptions,
   Principal,
+  PrincipalProfile,
   TokenVerifier,
   ValidatorAuthOptions,
 } from "./auth/types.ts";
@@ -175,6 +184,12 @@ export {
 export { type HeaderSetter } from "./operations/header.ts";
 
 export { type CallableAuthenticator } from "./operations/authenticate.ts";
+
+export {
+  type CallableDelegator,
+  type DelegateStepOptions,
+  type DelegationClaims,
+} from "./operations/delegate.ts";
 
 export {
   type DestinationAggregator,

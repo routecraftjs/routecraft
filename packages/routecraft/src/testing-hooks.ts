@@ -253,8 +253,7 @@ export function wrapSourceWithOverride<M = unknown>(
     }
 
     for await (const message of values as
-      | Iterable<unknown>
-      | AsyncIterable<unknown>) {
+      Iterable<unknown> | AsyncIterable<unknown>) {
       if (sub.signal.aborted) break;
       dispatch(message);
     }

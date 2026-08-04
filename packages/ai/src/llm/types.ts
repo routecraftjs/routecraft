@@ -187,8 +187,7 @@ export type LlmProviderOptionsMap = Required<LlmPluginProviders>;
  * Resolve system or user prompt from exchange (string or function).
  */
 export type LlmPromptSource =
-  | string
-  | ((exchange: Exchange<unknown>) => string);
+  string | ((exchange: Exchange<unknown>) => string);
 
 export interface LlmOptions {
   system?: LlmPromptSource;

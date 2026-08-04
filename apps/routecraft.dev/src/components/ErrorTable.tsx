@@ -147,7 +147,7 @@ const errors: ErrorRow[] = [
   {
     code: 'RC5024',
     category: 'Adapter',
-    message: 'authenticate() called without a subject',
+    message: 'authenticate() called with invalid claims',
     retryable: false,
   },
   // The original RC5025-RC5027 agent blocks moved to the AI namespace as
@@ -199,6 +199,36 @@ const errors: ErrorRow[] = [
     code: 'RC5033',
     category: 'Adapter',
     message: 'Dedupe key derivation failed',
+    retryable: false,
+  },
+  {
+    code: 'RC5034',
+    category: 'Adapter',
+    message: 'Actor not permitted',
+    retryable: false,
+  },
+  {
+    code: 'RC5035',
+    category: 'Adapter',
+    message: 'Subject not permitted',
+    retryable: false,
+  },
+  {
+    code: 'RC5036',
+    category: 'Adapter',
+    message: 'Delegation chain too deep',
+    retryable: false,
+  },
+  {
+    code: 'RC5037',
+    category: 'Adapter',
+    message: 'Delegation refused by mayAct',
+    retryable: false,
+  },
+  {
+    code: 'RC5038',
+    category: 'Adapter',
+    message: 'Insufficient authority (recoverable)',
     retryable: false,
   },
   {

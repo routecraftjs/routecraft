@@ -10,13 +10,13 @@ A capability is a TypeScript file that defines a secure, type-safe action your s
 
 ```ts
 // capabilities/send-email.ts
-import { craft, http, smtp } from "@routecraft/routecraft";
+import { craft, http, mail } from "@routecraft/routecraft";
 
 export default craft()
   .id("send-email")
   .from(http({ path: "/send", method: "POST" }))
   .transform((body) => ({ to: body.recipient, subject: body.subject }))
-  .to(smtp());
+  .to(mail());
 ```
 
 When an AI agent calls `send-email`, it executes exactly this pipeline. You define the boundary; the agent works within it.

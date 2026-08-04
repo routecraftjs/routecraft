@@ -28,25 +28,28 @@ import routecraftPlugin from '@routecraft/eslint-plugin-routecraft';
 
 export default [
   {
-    plugins: {
-      routecraft: routecraftPlugin,
-    },
-    rules: {
-      'routecraft/require-named-route': 'error',
-      'routecraft/batch-before-from': 'warn',
-    },
+    files: ['**/*.{js,mjs,cjs,ts}'],
+    plugins: { '@routecraft/routecraft': routecraftPlugin },
+    ...routecraftPlugin.configs.recommended,
   },
 ];
 ```
 
+The `recommended` preset enables the convention rules at their default levels and
+`restrict-principal-minting` as an error. The preset rule ids use the
+`@routecraft/routecraft/` prefix, so the plugin must be registered under that key
+(as above) for the presets and the disable-comment examples in this document to
+match.
+
 ## Rules
 
-- `routecraft/require-named-route`: Enforce `.id(<non-empty string>)` before `.from()` in a `craft()` chain
-- `routecraft/batch-before-from`: Enforce `batch()` is used as a route-level operation before `.from()`
-- `routecraft/single-to-per-route`: Warn when a route uses more than one `.to()`
-- `routecraft/capability-boundaries` (opt-in): Enforce capability module boundaries (Spring Modulith style)
+- `@routecraft/routecraft/require-named-route`: Enforce `.id(<non-empty string>)` before `.from()` in a `craft()` chain
+- `@routecraft/routecraft/batch-before-from`: Enforce `batch()` is used as a route-level operation before `.from()`
+- `@routecraft/routecraft/single-to-per-route`: Warn when a route uses more than one `.to()`
+- `@routecraft/routecraft/restrict-principal-minting`: Principal minting (`.authenticate()`, `authenticate()`, `markAuthentic()`) must be an explicitly sanctioned, per-site exception
+- `@routecraft/routecraft/capability-boundaries` (opt-in): Enforce capability module boundaries (Spring Modulith style)
 
-### routecraft/require-named-route
+### require-named-route
 
 ```ts
 // ✅ Good
@@ -56,7 +59,7 @@ craft().id('user-processor').from(source).to(dest)
 craft().from(source).to(dest)
 ```
 
-### routecraft/batch-before-from
+### batch-before-from
 
 ```ts
 // ✅ Good: batch() before from()
@@ -72,7 +75,43 @@ craft()
   .to(dest)
 ```
 
-### routecraft/capability-boundaries (opt-in)
+### restrict-principal-minting
+
+`.authenticate()` (and the `authenticate()` / `markAuthentic()` helpers) produce an
+authenticity-branded principal that every downstream `authorize()` trusts and that
+propagates across `direct()` calls, so an unreviewed mint anywhere in a codebase is a
+privilege-escalation vector. Minting is legitimate at channel boundaries (a mail route
+minting from a DKIM-verified sender), so instead of banning it the rule makes every
+mint site an explicit, reviewable exception: sanction it with a scoped disable comment
+carrying a justification, or a per-file override in the ESLint config. Adding a mint
+site is then always a visible act in review.
+
+```ts
+// ✅ Good: a sanctioned channel authenticator
+// eslint-disable-next-line @routecraft/routecraft/restrict-principal-minting -- channel boundary: DKIM-verified sender
+craft().id('inbox').from(mail('INBOX', { markSeen: true })).authenticate(mintFromSender).to(agent)
+
+// ❌ Bad: fabricating identity in ordinary route code
+craft().id('sneaky').from(direct()).authenticate(() => ({ subject: 'admin', roles: ['admin'] }))
+
+// ❌ Bad: helper minting outside a sanctioned site (aliased and namespace imports are also caught)
+import { authenticate } from '@routecraft/routecraft'
+const principal = authenticate({ subject: 'admin' })
+```
+
+Detection is precise over exhaustive (lint is advisory, not a sandbox): flagged are
+`.authenticate(...)` on chains originating from `craft()` (bare, aliased, or via a
+routecraft namespace import, with dotted or computed string-literal member access),
+and calls to `authenticate` / `markAuthentic` reached through a routecraft import
+(named, aliased, namespace member, or computed member with a string literal). Bindings
+are resolved through scope, so a same-named function from another module or a
+shadowing local is not flagged. Knowingly uncovered laundering forms, all of which
+require code that is itself review-visible: re-exporting the helpers from a local
+module, `export *`, destructuring a namespace import, and assigning the helper to
+another variable. `delegate()` is deliberately not restricted: it requires an
+already-branded subject and can only narrow scopes, never fabricate.
+
+### capability-boundaries (opt-in)
 
 Enforces Spring-Modulith-style module boundaries between capabilities. A capability
 is any folder that contains a public-surface file (`route.ts` by default) under a
@@ -120,9 +159,9 @@ export default [
     // Scope the rule to the part of the repo that follows the layout. In a
     // mixed monorepo where only one app is Routecraft, point `files` at it.
     files: ["apps/agent/**/*.{ts,tsx}"],
-    plugins: { routecraft: routecraftPlugin },
+    plugins: { "@routecraft/routecraft": routecraftPlugin },
     rules: {
-      "routecraft/capability-boundaries": "error",
+      "@routecraft/routecraft/capability-boundaries": "error",
     },
   },
 ];
@@ -139,7 +178,7 @@ scoping. Two options tune it for a different layout:
 
 ```js
 rules: {
-  "routecraft/capability-boundaries": [
+  "@routecraft/routecraft/capability-boundaries": [
     "error",
     { capabilitiesDir: "modules", publicSurface: "api.ts" },
   ],
@@ -156,18 +195,25 @@ public-surface file, so domain grouping folders must not contain one themselves
 (a `route.ts` directly under `employees/` would make `employees/` a capability).
 Keep the public surface at the capability leaf, never at a grouping level.
 
-## Recommended Configuration
+## Customizing severity
+
+Spread the preset, then override individual rules. Test files are a common
+exemption for `restrict-principal-minting` (principal fixtures legitimately use
+`authenticate()`):
 
 ```javascript
 export default [
   {
-    plugins: {
-      routecraft: routecraftPlugin,
-    },
+    files: ['**/*.{js,mjs,cjs,ts}'],
+    plugins: { '@routecraft/routecraft': routecraftPlugin },
+    ...routecraftPlugin.configs.recommended,
     rules: {
-      'routecraft/require-named-route': 'warn',
-      'routecraft/batch-before-from': 'warn',
+      '@routecraft/routecraft/require-named-route': 'warn',
     },
+  },
+  {
+    files: ['**/*.test.{ts,js}'],
+    rules: { '@routecraft/routecraft/restrict-principal-minting': 'off' },
   },
 ];
 ```

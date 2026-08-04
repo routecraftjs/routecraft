@@ -23,7 +23,7 @@ Authoritative rules for authentication, authorization, principal propagation, an
 
 - The verified `Principal` rides on the exchange as a single structured header: `headers["routecraft.auth.principal"]`. The `ex.principal` getter is sugar over this header. Read principal fields off the structured object; never look them up under flat header keys.
 - **Only authentic principals are trusted.** A principal counts as authentic when it was established by a trusted origin and registered by `markAuthentic` (see `packages/routecraft/src/auth/authentic.ts`): a source-side verifier (`jwt()` / `jwks()` / `oauth()`, branded at the MCP attach point), or an explicit `authenticate()` mint. Authenticity is membership in a module-private `WeakSet`, not a property on the object. Set membership cannot be enumerated, read back, copied, or transferred, so even code holding a genuine authentic principal (userland receives them via `ex.principal`, `.process()` callbacks, and event payloads) cannot mark a different object as authentic. A property brand, even a non-enumerable private `Symbol`, would be reflectable via `Object.getOwnPropertySymbols()` and could be copied onto a forged object; the `WeakSet` is what closes that hole, so do not regress it to a property brand. `authorize()` rejects any non-authentic principal with `RC5023`. This makes minting an explicit, greppable act and prevents identity from being forged by an incidental header write or by copying an existing principal with elevated roles.
-- **To establish identity, mint it; do not write the header by hand.** Use the `.authenticate()` operation (or the `authenticate()` helper) to mint a branded principal from claims you have verified yourself (an e-mail sender, a Slack signature, a service account). A plain object assigned to `headers["routecraft.auth.principal"]` is self-asserted and will not pass `authorize()`. Custom source adapters that verify identity themselves brand their resolved principal with `markAuthentic`.
+- **To establish identity, mint it; do not write the header by hand.** Use the `.authenticate()` operation (or the `authenticate()` helper) to mint a branded principal from claims you have verified yourself (an e-mail sender, a Slack signature, a service account). A plain object assigned to `headers["routecraft.auth.principal"]` is self-asserted and will not pass `authorize()`. Custom source adapters that verify identity themselves brand their resolved principal with `markAuthentic`. Because minting is an in-process capability (branding stops forgery, not fabrication by code that can call the mint), `@routecraft/eslint-plugin-routecraft` ships `restrict-principal-minting` (error in both the `recommended` and `all` presets): every direct mint site must be explicitly sanctioned with a scoped disable comment or per-file override, so adding one is always a visible act in review. The rule covers direct minting forms only; laundering forms (local re-exports, `export *`, namespace destructuring, helper reassignment) stay outside lint coverage and are a review concern.
 - **Adapters MUST NOT mutate `ex.principal`.** Principals are frozen at the trusted origin; build a derived exchange via `.authenticate()` or `DefaultExchange.rewrap` if a `.process()` step needs to swap the principal (e.g. service-account exchange). Mutating in place throws (frozen) and would break event payload immutability and downstream `.authorize()` checks. See `.standards/exchange-state-model.md`.
 - **Principal fields are loggable; bearer tokens are not.** `principal.subject`, `principal.clientId`, `principal.email`, `principal.name`, `principal.scopes`, `principal.roles`, `principal.issuer`, `principal.audience` are safe to include in structured logs. Never log the raw bearer or anything derived from it that could be reversed.
 - **`principal.claims` is the verified JWT payload.** When `mcpPlugin({ userinfo })` enrichment runs, the framework writes the raw userinfo response to `principal.userinfoClaims` and leaves `principal.claims` untouched. This invariant is enforced by the protected-fields list in `userinfo.ts`; do not move userinfo data into `claims`.
@@ -90,12 +90,19 @@ When you add a new default that affects authentication, authorization, network e
   |------|-------|--------------------|
   | `RC5012` | No principal on the exchange | Auth flow failed upstream; retry will not help without fresh credentials |
   | `RC5023` | Principal present but not authentic (self-asserted plain object) | Mint via `.authenticate()` / `authenticate()` or let a source verifier attach it; a hand-written header is not trusted |
-  | `RC5015` | Principal failed role / scope / predicate | Permanent denial under current credentials |
+  | `RC5015` | Principal failed role / predicate | Permanent denial under current credentials |
   | `RC5020` | `principal.expiresAt` in the past (beyond `clockToleranceSec`) | Refresh and retry |
   | `RC5021` | `userinfo` enrichment failed | Investigate IdP availability; client cannot recover |
   | `RC5022` | `userinfo` sub invariant violated | Investigate IdP / userinfo URL pairing; potential compromise |
+  | `RC5034` | Actor not admitted by the route's `actor` spec (default `'none'`) | Permanent: this capability is not agent-reachable, or requires a different actor |
+  | `RC5035` | Subject not admitted by the route's `subject` spec | Permanent denial under current credentials |
+  | `RC5036` | Actor chain deeper than `maxDelegationDepth` | Permanent: call from an actor closer to the subject |
+  | `RC5037` | `delegate()` refused: no `mayAct` entry permits this actor | Obtain the subject's consent, then retry |
+  | `RC5038` | Missing scope | **Recoverable**: a consent flow can grant the scope. `error.cause.missing.scopes` names them |
 
-  Do not collapse RC5023 into RC5012 or RC5015, nor RC5020 into either; each distinction lets clients decide between "forge / mint correctly," "refresh," and "give up."
+  Do not collapse RC5023 into RC5012 or RC5015, nor RC5020 into either; each distinction lets clients decide between "forge / mint correctly," "refresh," and "give up." The same applies to the delegation codes: "this capability is human-only" (RC5034) is not "you lack a role" (RC5015), and neither is "you lack a scope a consent flow could grant" (RC5038).
+
+- **Scope failures are RC5038, not RC5015.** Per § 9 this is a deliberate change in check semantics, and the rationale is the recoverable / permanent split: a role or predicate failure states something about who the subject *is*, which no ceremony changes, while a missing scope states something about what the *credential* carries, which a consent flow can widen. Collapsing them would force every consent implementation to parse error text to tell "ask the user" from "give up". The structured detail rides on the cause (`InsufficientAuthority`), not on the RC metadata, so it is in-process only: `RoutecraftError.toJSON()` serialises the cause's message and stack, not its own fields.
 
 - **Fail closed on non-finite inputs.** `Number.isFinite(principal.expiresAt) && Number.isFinite(clockToleranceSec)` is checked before comparison. A `NaN` would otherwise silently bypass the guard.
 
@@ -155,3 +162,93 @@ agent can read `ctx.principal` in a guard or in its own handler and put a
 `tenantId` field into the MCP call's input. The MCP server then enforces
 that argument against its own policy. Never repurpose a credential field as
 a per-user parameter; never reuse a per-user bearer as an MCP credential.
+
+## 12. Agent identity and delegation
+
+Anchors `packages/routecraft/src/auth/delegate.ts` and the delegation-aware
+surface of `authorize()`. Grounded in RFC 8693 (`act` / `may_act`), RFC 9068
+(`roles`), and the OAuth actor profile draft (`sub_profile`).
+
+- **`subject` is the party on whose behalf an action is taken; `actor` is the
+  party performing it.** `actor` nests (RFC 8693 § 4.1); the outermost entry is
+  the current actor and **only the current actor is an access-control input**.
+  Prior actors are audit data and MUST NOT be exposed as an authorization
+  input. `authorize({ actor })` matches the outermost entry exclusively.
+- **Routecraft supports delegation, never impersonation** (RFC 8693 § 1.1).
+  A minted principal always retains its subject and always names its actor.
+  There is no API that replaces a subject with an agent.
+- **Authenticity is a property of the whole chain.** The `WeakSet` brand is
+  applied to the root, and `markAuthentic` deep-freezes the `actor` chain and
+  the `mayAct` list, because both are policy inputs: a shallow freeze would
+  let any holder of `ex.principal` rewrite the current actor or widen the
+  consent list of an already-authentic identity. Chains are constructed only
+  inside `delegate()`; `authenticate()` rejects `actor` and `grantId` (RC5024)
+  so re-minting cannot fabricate a delegated identity while skipping the
+  `mayAct` check and the scope intersection. `mayAct` is still accepted at
+  mint: it describes the subject, like roles.
+- **Delegation narrows scopes, and only scopes.** Effective scopes become
+  `intersect(subject, ceiling)`. A ceiling over a scope-less subject grants
+  nothing, never the ceiling, so consent can only narrow what the subject
+  already holds.
+  - **Roles are NOT intersected**: they live in different namespaces (a user's
+    `["employee"]` and an agent's `["agent"]` intersect to nothing), and per
+    RFC 9068 § 2.2.3.1 roles are subject attributes, authorization *outside*
+    delegation.
+  - **The actor's own scopes are NOT a term either.** They describe what the
+    actor may do as its own subject, which is a different question from what a
+    user may delegate to it. Including them would make it impossible to grant
+    an agent something it must never do standalone, which is the common case
+    wherever a capability runs on a shared system account (an API key to a
+    knowledge base or an HR system): there is no "the agent's own write
+    access" for the scope to attach to, so an agent that is read-only by
+    default could never be granted write on a user's behalf. Delegated
+    authority derives from the subject and the consent record; which routes
+    an actor may reach at all is enforced by `authorize({ actor })`.
+  - Confused-deputy protection is unaffected: the delegated principal's scopes
+    derive from the subject, so an actor still cannot exercise its own
+    elevated access while acting for a less-privileged subject.
+- **`actor: 'none'` is the `authorize()` default**, per § 6a. A capability is
+  not agent-reachable unless it says so. `maxDelegationDepth` defaults to `1`
+  and its walk is bounded, so a hand-assembled cyclic chain fails rather than
+  hanging the check.
+- **`.delegate()` fails closed on missing consent.** A resolver returning
+  `undefined` STRIPS the subject's direct principal by default (the exchange
+  continues anonymous; downstream `authorize()` refuses with RC5012), because
+  the step marks the boundary where a request starts acting through someone
+  else: passing the principal onward would hand the continuation the caller's
+  full direct authority precisely when consent is absent. The strip is narrow
+  (anonymous exchanges, already-delegated principals, and `ai_agent` subjects
+  pass untouched) and `{ otherwise: "keep" }` opts a pipeline out when its
+  continuation serves the caller directly. A configurable scope-composition
+  strategy (merging or otherwise varying the two-way intersection) was
+  considered and DEFERRED until a real case demands it; the intersection is
+  two-way and final.
+- **Actor identity is the `(issuer, subject)` pair**, never `subject` alone
+  (RFC 7519 § 4.1.2: a `sub` is only locally unique within its issuer). A
+  matcher with no fields set matches any actor; validate config before
+  building matchers from it.
+- **Agent-ness is structural, never a role.** `subjectProfile` and `actor` are
+  set by the framework at trusted boundaries. Roles come from the IdP and are
+  a namespace we do not control, so an "is an agent" role would be forgeable
+  where the structural field is not. An absent `subjectProfile` is
+  unclassified and MUST attract restrictive policy.
+- **Delegation claims fail closed at the token boundary.** A present but
+  unparseable `act` or `may_act` claim REJECTS the token; it never resolves to
+  `undefined`. Both directions are load-bearing: a dropped `act` promotes a
+  delegated token to a direct call and passes an `actor: 'none'` route, and a
+  dropped `may_act` turns a restriction into permission. Non-standard shapes
+  (an actor identified by `client_id`, say) are mapped explicitly via
+  `ClaimMappers.actor` / `ClaimMappers.mayAct`, never by silent omission. The
+  `act` parse is depth-capped and rejects beyond the cap rather than
+  truncating, since a silently shortened chain misreports the current actor.
+- **A channel identifier is not a credential.** An inbound channel assertion
+  (a DKIM-passing sender, a signed Slack event) establishes identification
+  only. Converting one into an agent's authority requires a consent record;
+  `.authenticate()` MUST NOT be used to mint a user principal from a channel
+  identifier and hand it straight to an agent.
+- **A model's judgement is never an authorization boundary.** One agent
+  reviewing another's work is quality control. Enforcement stays in
+  `authorize()` and tool guards.
+- **Scopes gate the verb; guards gate the object.** A scope string cannot
+  express "to whom" or "which record". Parameter-level authorization belongs
+  in `ToolGuard`, not in the scope vocabulary.

@@ -98,5 +98,4 @@ export interface JsonFileOptions {
 }
 
 export type JsonOptions<T = unknown, R = unknown, V = unknown> =
-  | JsonTransformerOptions<T, R, V>
-  | JsonFileOptions;
+  JsonTransformerOptions<T, R, V> | JsonFileOptions;

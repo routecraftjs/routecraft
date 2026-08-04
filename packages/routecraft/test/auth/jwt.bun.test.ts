@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { jwt, type JwtAuthOptions } from "../../src/auth/jwt.ts";
+import { markAuthentic } from "../../src/auth/authentic.ts";
+import { delegate } from "../../src/auth/delegate.ts";
 import type { Principal } from "../../src/auth/types.ts";
 
 /**
@@ -518,6 +520,464 @@ describe("jwt()", () => {
         SECRET,
       );
       await expect(validator(token)).rejects.toThrow(/exp/);
+    });
+  });
+
+  describe("delegation claims", () => {
+    /**
+     * @case act, may_act, and sub_profile round-trip from a verified token onto the Principal
+     * @preconditions Token carries nested act {sub, iss, sub_profile, act}, a may_act object, sub_profile, and a roles array
+     * @expectedResult Principal has the full actor chain (outermost first), mayAct matcher, subjectProfile, and roles; matches what an in-process delegate() would produce
+     */
+    test("parses act, may_act, sub_profile, and roles claims", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user_jaco",
+          sub_profile: "user",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          roles: ["member", "admin"],
+          scope: "mail:send",
+          act: {
+            sub: "agent:max",
+            iss: "https://agents.example.com",
+            sub_profile: "ai_agent",
+            act: { sub: "agent:zoe", iss: "https://agents.example.com" },
+          },
+          may_act: { sub: "agent:zoe", iss: "https://agents.example.com" },
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.subject).toBe("user_jaco");
+      expect(principal.subjectProfile).toBe("user");
+      expect(principal.roles).toEqual(["member", "admin"]);
+      expect(principal.actor?.subject).toBe("agent:max");
+      expect(principal.actor?.subjectProfile).toBe("ai_agent");
+      expect(principal.actor?.actor?.subject).toBe("agent:zoe");
+      expect(principal.actor?.actor?.actor).toBeUndefined();
+      expect(principal.mayAct).toEqual([
+        { subject: "agent:zoe", issuer: "https://agents.example.com" },
+      ]);
+    });
+
+    /**
+     * @case ClaimMappers.roles overrides the default roles claim location
+     * @preconditions Token nests roles under realm_access.roles (Keycloak shape); claims.roles mapper supplied
+     * @expectedResult Principal.roles comes from the mapped location
+     */
+    test("maps roles from a non-standard claim via claims.roles", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        claims: {
+          roles: (payload) =>
+            (payload["realm_access"] as { roles?: string[] } | undefined)
+              ?.roles,
+        },
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          realm_access: { roles: ["member"] },
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.roles).toEqual(["member"]);
+    });
+
+    /**
+     * @case An act claim the parser cannot identify rejects the token instead of dropping the actor
+     * @preconditions Token carries act identified by client_id (no sub), a non-object act, and an act nested past the depth cap
+     * @expectedResult Every variant rejects. Dropping the actor would leave a delegated token indistinguishable from a direct call, which passes the authorize({ actor: 'none' }) default
+     */
+    test("rejects a token whose act claim has no usable sub", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const base = { sub: "user-1", iss: ISSUER, aud: AUDIENCE, exp: FUTURE };
+
+      // A client-credentials actor: the shape most likely to lack `sub`.
+      await expect(
+        validator(
+          signHs256(
+            { ...base, act: { client_id: "agent:zoe", iss: "https://a" } },
+            SECRET,
+          ),
+        ),
+      ).rejects.toThrow(/act/);
+
+      await expect(
+        validator(signHs256({ ...base, act: "agent:zoe" }, SECRET)),
+      ).rejects.toThrow(/act/);
+
+      let deep: Record<string, unknown> = { sub: "agent:0" };
+      for (let i = 1; i <= 20; i++) deep = { sub: `agent:${i}`, act: deep };
+      await expect(
+        validator(signHs256({ ...base, act: deep }, SECRET)),
+      ).rejects.toThrow(/deeper than/);
+    });
+
+    /**
+     * @case Present-but-null delegation claims reject; only absence is neutral
+     * @preconditions Tokens carry act: null and may_act: null respectively
+     * @expectedResult Both reject. A null act would otherwise pass an actor: 'none' route as a direct call, and a null may_act would turn a restriction into permission
+     */
+    test("rejects null act and null may_act claims", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const base = { sub: "user-1", iss: ISSUER, aud: AUDIENCE, exp: FUTURE };
+
+      await expect(
+        validator(signHs256({ ...base, act: null }, SECRET)),
+      ).rejects.toThrow(/act/);
+      await expect(
+        validator(signHs256({ ...base, may_act: null }, SECRET)),
+      ).rejects.toThrow(/may_act/);
+    });
+
+    /**
+     * @case An empty may_act array is preserved as a restrict-all list, not widened to unrestricted
+     * @preconditions Token carries may_act: []; the parsed principal is branded authentic (as a source verifier would) and a delegation is attempted
+     * @expectedResult principal.mayAct is [] (a stated restriction permitting nobody) and delegate() refuses with RC5037, so the empty list cannot regress to unrestricted access
+     */
+    test("preserves an empty may_act as restrict-all", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          may_act: [],
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.mayAct).toEqual([]);
+
+      let thrown: unknown;
+      try {
+        delegate(markAuthentic(principal), { subject: "agent:zoe" });
+      } catch (error) {
+        thrown = error;
+      }
+      expect((thrown as { rc?: string } | undefined)?.rc).toBe("RC5037");
+    });
+
+    /**
+     * @case A present-but-malformed constraint inside a delegation entry rejects the token
+     * @preconditions act carries a numeric iss; may_act carries roles as a bare string
+     * @expectedResult Both reject rather than dropping the constraint, which would misidentify the actor or widen the restriction
+     */
+    test("rejects malformed constraint shapes inside act and may_act", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const base = { sub: "user-1", iss: ISSUER, aud: AUDIENCE, exp: FUTURE };
+
+      await expect(
+        validator(
+          signHs256({ ...base, act: { sub: "agent:zoe", iss: 123 } }, SECRET),
+        ),
+      ).rejects.toThrow(/iss/);
+      await expect(
+        validator(
+          signHs256(
+            { ...base, may_act: { sub: "agent:zoe", roles: "ops" } },
+            SECRET,
+          ),
+        ),
+      ).rejects.toThrow(/roles/);
+    });
+
+    /**
+     * @case A may_act claim the parser cannot read rejects the token instead of removing the restriction
+     * @preconditions Token carries may_act identified by client_id, and a non-object may_act
+     * @expectedResult Both reject. An unreadable may_act resolving to undefined would mean "anyone may act", inverting a claim whose purpose is to restrict
+     */
+    test("rejects a token whose may_act claim has no usable sub", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const base = { sub: "user-1", iss: ISSUER, aud: AUDIENCE, exp: FUTURE };
+
+      await expect(
+        validator(
+          signHs256({ ...base, may_act: { client_id: "agent:zoe" } }, SECRET),
+        ),
+      ).rejects.toThrow(/may_act/);
+
+      await expect(
+        validator(signHs256({ ...base, may_act: "agent:zoe" }, SECRET)),
+      ).rejects.toThrow(/may_act/);
+    });
+
+    /**
+     * @case Claim mappers accept non-standard actor and may_act shapes that the default parser refuses
+     * @preconditions Token identifies both by client_id; claims.actor and claims.mayAct map them
+     * @expectedResult Verification succeeds and both fields are populated from the mapped values
+     */
+    test("claims.actor and claims.mayAct map non-standard shapes", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        claims: {
+          actor: (payload) => {
+            const act = payload["act"] as
+              { client_id?: string; iss?: string } | undefined;
+            return act?.client_id
+              ? {
+                  kind: "jwt",
+                  scheme: "bearer",
+                  subject: act.client_id,
+                  ...(act.iss ? { issuer: act.iss } : {}),
+                }
+              : undefined;
+          },
+          mayAct: (payload) => {
+            const may = payload["may_act"] as
+              { client_id?: string } | undefined;
+            return may?.client_id ? [{ subject: may.client_id }] : undefined;
+          },
+        },
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          act: { client_id: "agent:zoe", iss: "https://agents.example.com" },
+          may_act: { client_id: "agent:zoe" },
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.actor?.subject).toBe("agent:zoe");
+      expect(principal.actor?.issuer).toBe("https://agents.example.com");
+      expect(principal.mayAct).toEqual([{ subject: "agent:zoe" }]);
+    });
+
+    /**
+     * @case A supplied mapper replaces the default parser entirely, including its undefined results
+     * @preconditions Token carries RFC-8693-shaped act and may_act (with sub); claims.actor and claims.mayAct mappers deliberately return undefined
+     * @expectedResult Principal has no actor and no mayAct; the default parser must not reinstate what the mapper decided against
+     */
+    test("mapper undefined results are not overridden by the default parser", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        claims: {
+          actor: () => undefined,
+          mayAct: () => undefined,
+        },
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          act: { sub: "agent:zoe" },
+          may_act: { sub: "agent:zoe" },
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.actor).toBeUndefined();
+      expect(principal.mayAct).toBeUndefined();
+    });
+
+    /**
+     * @case A supplied roles mapper replaces the default parse entirely
+     * @preconditions claims.roles maps a nested location and returns undefined for this token; the token also carries a top-level roles array
+     * @expectedResult principal.roles is undefined; the authority-granting top-level claim is not reinstated behind the mapper's decision
+     */
+    test("roles mapper undefined result is not overridden by the default parser", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        claims: {
+          roles: (p) =>
+            (p["realm_access"] as { roles?: string[] } | undefined)?.roles,
+        },
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          roles: ["admin"],
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.roles).toBeUndefined();
+    });
+
+    /**
+     * @case A supplied scopes mapper replaces the default parse entirely
+     * @preconditions claims.scopes deliberately returns undefined; the token carries a top-level space-delimited scope claim
+     * @expectedResult principal.scopes is undefined; the authority-granting scope claim is not reinstated behind the mapper's decision
+     */
+    test("scopes mapper undefined result is not overridden by the default parser", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        claims: {
+          scopes: () => undefined,
+        },
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          scope: "kb:read kb:write",
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.scopes).toBeUndefined();
+    });
+
+    /**
+     * @case A present-but-malformed top-level sub_profile rejects the token
+     * @preconditions Token carries sub_profile: 123
+     * @expectedResult Verification rejects, matching the fail-closed discipline of sub_profile inside act and may_act entries, so an exclusion predicate cannot pass an unclassified principal
+     */
+    test("rejects a malformed top-level sub_profile", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          sub_profile: 123,
+        },
+        SECRET,
+      );
+
+      await expect(validator(token)).rejects.toThrow(/sub_profile/);
+    });
+
+    /**
+     * @case may_act narrowing constraints beyond sub and iss are preserved
+     * @preconditions Token may_act carries sub_profile and roles
+     * @expectedResult The matcher keeps profile and roles, so the in-process gate is no wider than the token stated
+     */
+    test("keeps profile and roles from a may_act entry", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          may_act: {
+            sub: "agent:zoe",
+            iss: "https://agents.example.com",
+            sub_profile: "ai_agent",
+            roles: ["ops"],
+          },
+        },
+        SECRET,
+      );
+
+      const principal: Principal = await validator(token);
+      expect(principal.mayAct).toEqual([
+        {
+          subject: "agent:zoe",
+          issuer: "https://agents.example.com",
+          profile: "ai_agent",
+          roles: ["ops"],
+        },
+      ]);
+    });
+
+    /**
+     * @case The parsed actor chain and mayAct are frozen once branded authentic
+     * @preconditions Verified token with a nested act chain and a may_act entry
+     * @expectedResult Mutating the current actor, a nested actor, or the mayAct list all throw, so an in-process holder cannot rewrite policy inputs
+     */
+    test("freezes the parsed delegation state", async () => {
+      const { validator } = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      const token = signHs256(
+        {
+          sub: "user-1",
+          iss: ISSUER,
+          aud: AUDIENCE,
+          exp: FUTURE,
+          act: {
+            sub: "agent:max",
+            act: { sub: "agent:zoe" },
+          },
+          may_act: { sub: "agent:zoe" },
+        },
+        SECRET,
+      );
+
+      const principal = markAuthentic(await validator(token));
+      expect(Object.isFrozen(principal.actor)).toBe(true);
+      expect(Object.isFrozen(principal.actor?.actor)).toBe(true);
+      expect(Object.isFrozen(principal.mayAct)).toBe(true);
+      expect(() => {
+        (principal.actor as { subject: string }).subject = "agent:superuser";
+      }).toThrow(TypeError);
+      expect(() => {
+        principal.mayAct?.push({ subject: "agent:evil" });
+      }).toThrow(TypeError);
     });
   });
 });

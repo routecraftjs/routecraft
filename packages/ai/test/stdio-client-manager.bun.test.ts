@@ -49,8 +49,7 @@ const MockClient = mock().mockImplementation(function (
   options?: Record<string, unknown>,
 ) {
   capturedListChangedConfig = options?.["listChanged"] as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   return {
     connect: mockConnect,
     close: mockClose,

@@ -63,7 +63,7 @@ Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be
 | `user` | `(exchange) => string` | body as-is / JSON | No | Override for deriving the user prompt. Defaults to body (string as-is, JSON for objects) |
 | `tools` | `ToolSelection` | -- | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
 | `principal` | `boolean \| (principal, exchange) => string` | `false` | No | When `true`, append a built-in `## Caller` section to the system prompt describing `exchange.principal` (identity + roles), or stating the request is unauthenticated. Pass a function to render the section yourself. See [Telling the agent who the caller is](#telling-the-agent-who-the-caller-is) |
-| `output` | `StandardSchemaV1` | -- | No | Schema for structured output. Validated and parsed onto `AgentResult.output` after dispatch (runtime ships in a follow-up release) |
+| `output` | `StandardSchemaV1` | -- | No | Schema for structured output. The agent requests provider-level structured output, validates the response, and parses it onto `AgentResult.output` |
 
 **`AgentRegisteredOptions` (entries in `agentPlugin({ agents: {...} })`, for by-name reuse):** same as `AgentOptions` plus:
 
@@ -78,7 +78,7 @@ The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 | Field | Type | Description |
 |-------|------|-------------|
 | `text` | `string` | Generated text from the model |
-| `output` | `T` | Parsed structured output (only when an `output` schema was supplied; runtime ships in a follow-up) |
+| `output` | `T` | Parsed structured output (only when an `output` schema was supplied) |
 | `usage.inputTokens` | `number` | Input token count (when reported) |
 | `usage.outputTokens` | `number` | Output token count (when reported) |
 | `usage.totalTokens` | `number` | Total token count (when reported) |

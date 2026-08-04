@@ -20,17 +20,33 @@ For mid-pipeline checks (rare, for example after a `.process()` swaps the princi
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `roles` | `string[]` | Required roles. The principal must carry every listed role. AND-combined. |
-| `scopes` | `string[]` | Required scopes. The principal must carry every listed scope. AND-combined. |
-| `predicate` | `(p: Principal) => boolean` | Custom check. Runs after the role and scope checks. Return `false` to reject. |
+| `roles` | `string[]` | Required roles, checked on the SUBJECT (roles pass through delegation unchanged). The principal must carry every listed role. AND-combined. |
+| `scopes` | `string[]` | Required scopes, checked on the effective set (delegation intersects scopes at every hop). The principal must carry every listed scope. AND-combined. |
+| `subject` | `SubjectMatcher \| (p: Principal) => boolean` | Constrain whose authority is exercised: subject id(s), `issuer`, and/or entity `profile` (`user` / `service` / `ai_agent`). |
+| `actor` | `ActorSpec` | Constrain who is driving. Default `'none'`: any delegated principal is rejected until the route admits an actor. `'any'`, an `ActorMatcher`, an array (OR, may include `'none'`), or a predicate `(actor, subject) => boolean`. Matches the OUTERMOST actor only (RFC 8693 section 4.1); nested prior actors are audit data. |
+| `maxDelegationDepth` | `number` | Maximum actor-chain length once an actor is admitted at all. Default `1` (one hop; agent-to-sub-agent chains rejected). |
+| `predicate` | `(p: Principal) => boolean` | Custom check. Runs after the built-in checks. Return `false` to reject. |
+| `clockToleranceSec` | `number` | Clock skew tolerance for the `expiresAt` check. Default `0`. |
+
+Match actors by the `(issuer, subject)` pair: a bare `subject` matches a same-named actor from any issuer, which is ambiguous the moment two issuers exist.
 
 Failure modes:
 
-- **No principal on the exchange:** throws [`RC5012`](/docs/reference/errors#rc-5012). The source did not authenticate (no `auth:` configured) and no `.process()` step attached one before the route ran.
-- **Missing role or scope:** throws [`RC5015`](/docs/reference/errors#rc-5015). The error message lists the missing entries.
-- **Predicate returned `false`:** throws [`RC5015`](/docs/reference/errors#rc-5015).
+- **No principal on the exchange:** throws [`RC5012`](/docs/reference/errors#rc-5012). The source did not authenticate (no `auth:` configured) and no `.authenticate()` step ran before the check.
+- **Principal not authentic (self-asserted object):** throws [`RC5023`](/docs/reference/errors#rc-5023).
+- **Actor present but not admitted (or required but absent):** throws [`RC5034`](/docs/reference/errors#rc-5034).
+- **Subject constraint failed:** throws [`RC5035`](/docs/reference/errors#rc-5035).
+- **Delegation chain deeper than `maxDelegationDepth`:** throws [`RC5036`](/docs/reference/errors#rc-5036).
+- **Missing role or failed predicate:** throws [`RC5015`](/docs/reference/errors#rc-5015). Permanent: no ceremony changes who the subject is.
+- **Missing scope:** throws [`RC5038`](/docs/reference/errors#rc-5038). Recoverable: the cause carries `missing.scopes` so a consent flow can request exactly what is absent.
 
-Both error codes flow through the route's normal error path: `.error()` handles them like any other validation failure; without `.error()`, `exchange:failed` fires.
+All codes flow through the route's normal error path: `.error()` handles them like any other validation failure; without `.error()`, `exchange:failed` fires.
+
+{% callout type="warning" title="Breaking change: delegation is opt-in per route" %}
+The `actor` default is `'none'`. Routes written before delegation existed keep exactly their old behavior for direct callers, but a principal carrying an actor (minted by [`.delegate()`](/docs/reference/operations/delegate) or parsed from a token's `act` claim) is rejected with RC5034 until the route declares its permitted actor(s). This is deliberate: a capability is not agent-reachable unless it says so.
+
+Because stacked `.authorize()` calls AND-combine, **every** guard on a route carries its own `actor` default. Adding `.authorize({ actor: 'any' })` next to an existing `.authorize({ roles: ['admin'] })` still fails with RC5034, since the first guard rejects the actor before the second runs. Put the `actor` clause on the guard that needs it, or fold the guards into one.
+{% /callout %}
 
 ```ts
 import { craft, mcp } from '@routecraft/routecraft'
@@ -53,6 +69,37 @@ craft()
   .authorize({ scopes: ['billing:write'] })
   .from(http({ path: '/admin/billing', method: 'POST' }))
   .to(billingDestination)
+```
+
+```ts
+// Delegation-aware declarations: the same grammar covers a person
+// acting directly, an agent acting on a person's behalf, and an agent
+// acting under its own standing authority.
+
+// Humans only; never reachable through delegation (this is the default).
+craft()
+  .id('delete-invoice')
+  .authorize({ roles: ['finance'], actor: 'none' })
+  .from(mcp({ annotations: { destructiveHint: true } }))
+  .to(deleteInvoice)
+
+// A member directly, OR one named agent acting for a member.
+craft()
+  .id('send-reply')
+  .authorize({
+    roles: ['member'],
+    scopes: ['mail:send'],
+    actor: ['none', { subject: 'agent:zoe', issuer: 'https://agents.example.com' }],
+  })
+  .from(direct())
+  .to(mail())
+
+// Autonomous agents only (e.g. a cron-triggered heartbeat).
+craft()
+  .id('write-daily-note')
+  .authorize({ subject: { profile: 'ai_agent' }, actor: 'none' })
+  .from(direct())
+  .to(writeNote)
 ```
 
 ```ts

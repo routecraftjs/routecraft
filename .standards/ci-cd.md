@@ -145,6 +145,8 @@ The core invariant: **`package.json` always holds the LAST RELEASED version**, n
 
 Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick the affected package(s) and bump level, describe the change. Internal-only changes skip it (or use `bunx changeset add --empty` if a status check demands one).
 
+**Bump levels during v0: breaking changes are `minor`, never `major`.** The whole 0.x line is the breaking window (see `api-stability.md`), so a conventional-commit `!` does NOT translate to a `major` changeset. A `major` bump would compute the next version as 1.0.0 and stamp every canary `1.0.0-canary-*` (this happened: a stray `major` shipped 1.0.0 canaries for weeks). `major` is reserved for the deliberate 1.0.0 release and requires explicit maintainer sign-off in the PR.
+
 ### Versioning model
 
 - `.changeset/config.json` declares a `fixed` group, the **core train**: `@routecraft/routecraft`, `@routecraft/cli`, `@routecraft/testing`, `create-routecraft`, `@routecraft/eslint-plugin-routecraft`, `@routecraft/prettier-plugin-routecraft`. These always share one version number.

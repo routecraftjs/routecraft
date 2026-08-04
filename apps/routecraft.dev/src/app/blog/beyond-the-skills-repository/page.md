@@ -1,0 +1,75 @@
+---
+title: A skills repository is not an automation platform
+description: Every organisation is building a central repo of AI skills, prompts, and agent definitions right now. It is the right first step, and it has a ceiling nobody talks about. A skill is advice for an AI assistant; the doing still runs on personal access. A maturity ladder for what comes next.
+date: 2026-07-14
+author: Jaco Botha
+authorRole: Founder, DevOptix
+canonical: https://devoptix.nl/en/blog/beyond-the-skills-repository
+draft: false
+tags:
+  - ai-agents
+  - skills
+  - platform-engineering
+  - mcp
+related:
+  - ai-agents-are-still-single-player
+  - stop-trusting-your-llm-to-behave
+diagram: maturity-ladder
+layout: blog-post
+---
+
+Somewhere in your organisation, probably under a catchy internal codename, a team is building a central repository of AI skills: written instructions that teach an AI assistant your coding standards, your review checklist, your runbooks, your standard operating procedures. Agent definitions next to them. A contribution guide. Maybe a little command-line tool to install them.
+
+This is a good thing. Sincerely. A shared skills repo beats forty private prompt collections the same way a shared style guide beats forty opinions, and the teams building these repos are usually the first in the building to think seriously about agents at all.
+
+But after the first wave of contributions, the same pattern emerges everywhere: the repo fills up with skills that are *advice*. "Code should look like this." "When you do a code review, check these things." "When the customer orders X, follow these steps." Useful, and weirdly superficial, and the reason is structural, not a lack of effort.
+
+**A skill is advice, not a pair of hands.** The AI assistant you paste a skill into can act: it runs tools, opens files, talks to other systems. The skill itself is only instructions the assistant follows. So when a skill says "now check the logs" or "now pull last month's figures", the doing happens through whatever access the person at the keyboard has: their laptop, their tools, their accounts. And that access is almost always far broader than the task needs; an assistant asked to look up one record is borrowing the credentials of someone who could change thousands. The repo centralises the *knowledge* and leaves the *capability* exactly where it was: scattered, personal, unreviewed.
+
+That is the ceiling. You cannot write your way through it with better markdown.
+
+## The ladder
+
+It helps to see the skills repo as one stage in a progression rather than a destination.
+
+If you have read Dan Shapiro's [five levels of AI-assisted software development](https://www.danshapiro.com/blog/2026/01/the-five-levels-from-spicy-autocomplete-to-the-software-factory/), from spicy autocomplete up to the fully autonomous "dark factory", this is a different ladder, and the difference is the point. His levels measure how much of the *coding* a developer hands to the model. These measure how much of your *execution* the organisation actually governs. The two are independent: a team can reach his Level 4, shipping features from specs, and still sit on stage 2 here, because writing code well and running operations safely are separate problems. For a software engineering team the dark factory is a fair place to be heading; for the rest of the organisation, finance, operations, support, the destination is not a factory that writes software. It is a governed capability layer that any person, and any agent, can safely call.
+
+{% diagram id="maturity-ladder" /%}
+
+**Stage 1: the prompt library.** Shared snippets in a wiki. Knowledge centralised, nothing executable, no contract for contributions.
+
+**Stage 2: the skills and agents repo.** Structured, versioned, installable instructions; agent definitions with personas and procedures. This is where most organisations are today. The doing is still local and personal: the material has to be on your machine, the tools have to be installed, the access is yours.
+
+**Stage 3: local tools.** Skills get hands: tool servers running on each person's machine, so the assistant can actually fetch the logs or pull the figures instead of asking you to. A real step up, with a catch: these custom tool servers usually have to run on every machine separately, or lean on command-line tools that carry real credentials. That is per-laptop setup and per-person access all over again, exactly the sprawl the next stage removes, and it offers nothing to the colleague who lives in chat instead of a technical setup. The security model is still "whatever the person running it can do", which is precisely the model that does not survive a security review (the [single-player problem](/blog/ai-agents-are-still-single-player), at the tool level).
+
+**Stage 4: deployed capabilities.** The tools stop living on laptops and become infrastructure. Each capability (look up a shipment across systems, check whether an invoice was paid, pull the full history of a support ticket) is deployed centrally with an identity model: the organisation's single sign-on in front, so every call belongs to an authenticated person; service accounts owned by the platform behind, scoped to what each capability needs; authorisation rules deciding per person who may do what. Because the capability is a service, the surface stops mattering: the same operation works from a developer's editor, from a chat message in Teams, from a phone during an on-call weekend, and from an agent chaining it with others. No local code, no local tooling, no personal access tokens.
+
+**Stage 5: organisational agents.** With governed capabilities in place, agents stop being personal conveniences and become shared workers: a triage agent anyone can invoke, drawing on team memory, leaving an audit trail of which capabilities it called on whose behalf. And being invoked stops being the only way in. The same agent can hang off an event, so nobody has to remember to go and check the orders: an order arrives, the agent does its work, and a person hears about it only when there is something a person needs to decide. The skills from stage 2 come back here, and now they have depth, because "follow the runbook" is backed by tools that execute each step.
+
+## The jump that matters is stage 2 to stage 4
+
+**The gap between a skills repo and an automation platform is not an AI problem. It is an identity and deployment problem.**
+
+Nothing about stage 4 requires smarter models. It requires the unglamorous things platform teams already know how to want: single sign-on, service accounts, authorisation rules, audit logs, a deployment pipeline. The reason this layer is missing from most AI initiatives is that it does not demo as well as a talking agent, not that it is mysterious. And the organisations best equipped for it, the ones with the strongest identity discipline and the strictest auditors, are oddly the ones most likely to assume they must wait. They are not waiting on technology. The pieces exist today.
+
+What stage 4 buys, concretely:
+
+- A skill that says "check whether the record synced" links to a capability that *checks*, for everyone, from anywhere, under their own permissions.
+- The best version of each tool exists once, reviewed and tested, instead of forty times in forty personal setups.
+- Security reviews one capability with one scoped service account, not a sprawl of personal tokens on personal laptops.
+- The person on the incident call types one message in the channel instead of asking "who has the right access and a working setup?"
+
+Stage 4 is the shape we are building with a major European bank right now: read-only capabilities that gather the facts of an incident behind the corporate login, so a junior can learn the runbook from them, a senior can skip six browser tabs, and an agent can chain the lot in the first minutes. The suite started life as one engineer's private script; today it is shared infrastructure with multiple contributors behind it. The skills repo explains triage; the capabilities perform it; the same access rules govern both. And nothing here is banking-specific: swap the incident for a late shipment, a case file, or a double-booked clinic and the ladder reads exactly the same. We make the architectural argument behind this layer in [AI agents are still single-player](/blog/ai-agents-are-still-single-player).
+
+## How to climb without a big-bang programme
+
+The good news for whoever owns the skills repo: nothing is wasted. Skills remain the knowledge layer at every stage; they just gain hands. The climb can be incremental and honestly quite cheap:
+
+1. Pick one procedure whose steps only look things up and change nothing. Triage and diagnostics are ideal; so is any "what is the status of X" question your team answers daily.
+2. Turn its manual steps into deployed capabilities behind your single sign-on, with one scoped service account each.
+3. Point the existing skill at them, so the instructions and the execution finally meet.
+4. Let one team use it from chat for a month, then read the audit log together with security. That log is the artefact that unlocks every conversation after it.
+
+Written procedures that explain the work, plus infrastructure that performs it, governed by the identity layer you already trust. That is the whole platform. The repo you have is the right first stage; the mistake would be mistaking it for the whole ladder.
+
+None of it needs a particular framework, and the four steps above work with whatever you already run. What does not change is the plumbing: identity on every call, a scoped service account, an input contract, an audit trail, and a deployment story, written again for every capability you add. We build [Routecraft](/docs/introduction) in the open for exactly that reason, so the capability and the automation are the parts you write and the boilerplate around them is not.

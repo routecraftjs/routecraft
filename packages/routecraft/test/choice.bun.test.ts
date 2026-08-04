@@ -420,13 +420,15 @@ describe("choice operation", () => {
           .choice<Report | Audit>(
             when(
               (ex) => ex.body.priority === "urgent",
-              (b) => b.transform(
-                (o): Report => ({ tag: "report", n: o.amount }),
-              ),
+              (b) => b.transform((o): Report => ({
+                tag: "report",
+                n: o.amount,
+              })),
             ),
-            otherwise((b) => b.transform(
-              (o): Audit => ({ tag: "audit", who: o.priority }),
-            )),
+            otherwise((b) => b.transform((o): Audit => ({
+              tag: "audit",
+              who: o.priority,
+            }))),
           )
           // The downstream sees the union and must narrow it (the `tag` guard):
           .transform((body) => ({

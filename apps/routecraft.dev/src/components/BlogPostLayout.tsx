@@ -27,10 +27,21 @@ interface BlogPostFrontmatter {
   image?: string
   imageAlt?: string
   coverGlyph?: string
+  diagram?: string
   readingTime?: number
   draft?: boolean
   related?: string[]
   slug?: string
+  canonical?: string
+}
+
+/** Display host of a cross-post's canonical URL, e.g. "devoptix.nl". */
+function canonicalHost(canonical: string): string {
+  try {
+    return new URL(canonical).hostname.replace(/^www\./, '')
+  } catch {
+    return canonical
+  }
 }
 
 function resolveSlugAndFigure(frontmatter: BlogPostFrontmatter): {
@@ -114,6 +125,18 @@ export function BlogPostLayout({
               authorRole={frontmatter.authorRole}
               version={frontmatter.version}
             />
+            {frontmatter.canonical && (
+              <p className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
+                Originally published at{' '}
+                <a
+                  href={frontmatter.canonical}
+                  rel="canonical noopener"
+                  className="text-cobalt-500 transition hover:text-cobalt-600"
+                >
+                  {canonicalHost(frontmatter.canonical)}
+                </a>
+              </p>
+            )}
             {frontmatter.draft && (
               <div className="flex items-baseline gap-3 border border-l-4 border-amber-500/40 border-l-amber-500 p-4">
                 <span className="font-mono text-[0.65rem] tracking-[0.22em] text-amber-600 uppercase dark:text-amber-400">
@@ -142,6 +165,7 @@ export function BlogPostLayout({
                 tags={frontmatter.tags}
                 subtitle={frontmatter.description}
                 glyph={frontmatter.coverGlyph}
+                diagram={frontmatter.diagram}
                 figureNumber={figureNumber}
               />
             </figure>

@@ -10,13 +10,7 @@ export type { HttpOpenApiInfo };
 
 /** HTTP request methods supported by both the destination and the source. */
 export type HttpMethod =
-  | "GET"
-  | "POST"
-  | "PUT"
-  | "PATCH"
-  | "DELETE"
-  | "HEAD"
-  | "OPTIONS";
+  "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
 
 /** Query string values accepted by the destination's `query` option. */
 export type QueryParams = Record<string, string | number | boolean>;

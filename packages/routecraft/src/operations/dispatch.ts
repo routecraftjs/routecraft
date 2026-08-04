@@ -20,10 +20,7 @@ import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
  * from operations); keep the two in sync when adding a strategy.
  */
 export type DispatchStrategyName =
-  | "failover"
-  | "round-robin"
-  | "weighted"
-  | "sticky";
+  "failover" | "round-robin" | "weighted" | "sticky";
 
 /**
  * Strategy argument accepted as the required leading parameter of
@@ -95,8 +92,7 @@ export interface WeightedTarget<In = unknown, Out = unknown> {
  * @template Out - Body type the target produces (discarded)
  */
 export type DispatchTarget<In = unknown, Out = unknown> =
-  | Path<In, Out>
-  | WeightedTarget<In, Out>;
+  Path<In, Out> | WeightedTarget<In, Out>;
 
 /**
  * Co-locate a relative weight with a dispatch target for the `weighted`

@@ -98,9 +98,7 @@ export function isInfrastructureError(err: unknown): boolean {
  * @internal
  */
 export type AuthRejectionReason =
-  | "expired"
-  | "infrastructure"
-  | "invalid_token";
+  "expired" | "infrastructure" | "invalid_token";
 
 /**
  * Map a token-verification error to the bounded `auth:rejected` reason

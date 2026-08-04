@@ -117,8 +117,7 @@ export function getClientManager(
   if (!context) return null;
   return (
     (context.getStore(CARDDAV_CLIENT_MANAGER) as
-      | CarddavClientManager
-      | undefined) ?? null
+      CarddavClientManager | undefined) ?? null
   );
 }
 

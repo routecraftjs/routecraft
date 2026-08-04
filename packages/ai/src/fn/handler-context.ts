@@ -77,13 +77,22 @@ export function freezePrincipal(principal: Principal): Principal {
   if (snapshot.userinfoClaims) {
     snapshot.userinfoClaims = structuredClone(snapshot.userinfoClaims);
   }
+  // Clone the delegation fields for the same reason: `actor` is a nested
+  // Principal chain and `mayAct` an array of matcher objects, both shared
+  // by the shallow spread. delegate() output arrives already frozen (so
+  // freezing in place would be harmless there), but a principal assembled
+  // by a .process() step is mutable and must not have its chain frozen as
+  // a side effect of a tool dispatch.
+  if (snapshot.actor) snapshot.actor = structuredClone(snapshot.actor);
+  if (snapshot.mayAct) snapshot.mayAct = structuredClone(snapshot.mayAct);
   deepFreeze(snapshot);
   // Preserve authenticity across the snapshot: a snapshot of an authentic
   // principal is exactly as authentic as its source, and a snapshot of a
   // self-asserted (plain-object) principal must stay non-authentic so a
   // downstream authorize() still rejects it with RC5023. markAuthentic
-  // returns a frozen member whose nested claims/arrays are the already
-  // deep-frozen references from above.
+  // re-clones and freezes the policy-bearing structures (actor chain,
+  // mayAct, roles/scopes/audience); claims and userinfoClaims stay the
+  // already deep-frozen references from above.
   return wasAuthentic ? markAuthentic(snapshot) : snapshot;
 }
 

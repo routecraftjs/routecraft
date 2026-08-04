@@ -19,4 +19,12 @@ export default [
     plugins: { "@routecraft/routecraft": routecraftPlugin },
     ...routecraftPlugin.configs.recommended,
   },
+  {
+    // Test files legitimately mint principals as fixtures with
+    // authenticate(); the restriction targets production mint sites. See
+    // the "Principal minting is a sanctioned exception" section of the
+    // linting docs for how to sanction a real channel authenticator.
+    files: ["**/*.test.{ts,js}", "**/*.spec.{ts,js}"],
+    rules: { "@routecraft/routecraft/restrict-principal-minting": "off" },
+  },
 ];

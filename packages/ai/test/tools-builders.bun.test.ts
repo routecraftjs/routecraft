@@ -80,8 +80,7 @@ describe("tool builders - directTool", () => {
     await t.startAndWaitReady();
 
     const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("fetchOrder") as
-      | FnEntry
-      | undefined;
+      FnEntry | undefined;
     expect(entry).toBeDefined();
     expect(isDeferredFn(entry!)).toBe(true);
 

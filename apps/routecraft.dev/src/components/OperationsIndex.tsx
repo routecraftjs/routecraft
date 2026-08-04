@@ -143,6 +143,13 @@ const ops: Op[] = [
     description: 'Mint a principal from verified claims.',
   },
   {
+    name: 'delegate',
+    category: 'Transform',
+    signature: '.delegate(resolver)',
+    description:
+      'Mark the principal as exercised by an actor (an agent) on the subject’s behalf.',
+  },
+  {
     name: 'map',
     category: 'Transform',
     signature: '.map(mapping)',

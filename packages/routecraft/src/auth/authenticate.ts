@@ -10,7 +10,7 @@ import { type Principal } from "./types.ts";
  * represents.
  */
 export type PrincipalClaims = Partial<Pick<Principal, "kind" | "scheme">> &
-  Omit<Principal, "kind" | "scheme">;
+  Omit<Principal, "kind" | "scheme" | "actor" | "grantId">;
 
 /**
  * Mint an authenticated {@link Principal} from identity claims you have
@@ -49,6 +49,31 @@ export function authenticate(claims: PrincipalClaims): Principal {
       suggestion:
         "Pass the stable identity of the caller you verified, e.g. authenticate({ subject: sender.address, roles: [...] }).",
     });
+  }
+
+  // Delegation state is `delegate()`'s to establish, never a mint's. The
+  // type excludes `actor` / `grantId`, and this guard closes the runtime
+  // hole: without it, spreading an existing principal into authenticate()
+  // would produce an authentic DELEGATED identity while skipping every
+  // invariant delegate() enforces (mayAct consent, scope intersection,
+  // truthful chain nesting). `mayAct` is deliberately still accepted: it
+  // describes the subject (who may act FOR them), like roles, and is
+  // legitimately established when identity is minted.
+  const withDelegation = claims as Partial<Principal>;
+  if (
+    withDelegation.actor !== undefined ||
+    withDelegation.grantId !== undefined
+  ) {
+    throw rcError(
+      "RC5024",
+      new Error("Delegation state passed to authenticate()"),
+      {
+        message:
+          "authenticate() does not accept `actor` or `grantId`: minting establishes identity, delegation establishes who is acting for it",
+        suggestion:
+          "Mint the subject with authenticate(), then hand it to delegate(subject, actorClaims, { scopes, grantId }). Spreading a delegated principal back through authenticate() would bypass the mayAct consent check and the scope intersection.",
+      },
+    );
   }
 
   const principal: Principal = {

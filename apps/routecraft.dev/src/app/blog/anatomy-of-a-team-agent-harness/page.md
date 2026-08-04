@@ -1,0 +1,74 @@
+---
+title: Anatomy of a team agent harness
+description: "A chat loop with tools is not a harness. An agent that works for a team needs four primitives most personal harnesses skip entirely: delegation, a learning loop, self-aware capability gaps, and multi-channel presence, plus three platform rules that keep the whole thing governable."
+date: 2026-07-23
+author: Jaco Botha
+authorRole: Founder, DevOptix
+canonical: https://devoptix.nl/en/blog/anatomy-of-a-team-agent-harness
+draft: false
+tags:
+  - ai-agents
+  - agent-harness
+  - organizations
+  - memory
+related:
+  - ai-agents-are-still-single-player
+diagram: team-agent-harness
+layout: blog-post
+---
+
+An AI agent that serves a whole team needs more than a clever model. We have argued before that the unit of organisational AI leverage is the governed capability: one well-defined thing the system is allowed to do, wrapped in its own access rules ([AI agents are still single-player](/blog/ai-agents-are-still-single-player) makes that case in full). This post is about the layer that sits on top: when you do host an agent for a team or a business, what does the harness itself, the software around the model that turns it into a working agent, need to provide?
+
+The popular answer is "a chat loop with tools", because that is what the current generation of personal agent tools ships and it demos wonderfully. But run an agent for a team for a few months (we run one for our own company's back office) and you discover the loop is the easy part. What makes the agent *organisational* is four primitives, four building blocks that most harnesses skip entirely, plus three platform rules around them. None of this requires new model capabilities. All of it is architecture.
+
+{% diagram id="team-agent-harness" /%}
+
+## Primitive 1: delegation that survives the wait
+
+An agent serving a team constantly hits questions it should not answer alone: a judgement call, a missing fact only one person knows, an approval. The personal-assistant answer is to pop the question up on its owner's screen and stop everything until someone types a reply. That does not survive contact with a team.
+
+The team answer has to be asynchronous, and it starts with knowing *who* to ask. That is a skill in its own right. The agent works out who owns the decision, asks that person on the right channel, then parks the work with its full context intact and picks it up when the answer arrives. Forty seconds or Thursday, it makes no difference. Ask the right person, get the answer, carry on.
+
+This sounds like a convenience feature. It is the load-bearing wall. Without it every uncertain task either stalls forever or, worse, proceeds on a guess. The pattern goes by human in the loop. In a team harness it is not a feature you bolt onto one workflow; it is ambient, available to every task the agent runs.
+
+## Primitive 2: a learning loop into shared memory
+
+Every delegation from primitive 1 produces an answer, and every conversation surfaces facts about how your organisation actually works: this client prefers invoices on the first of the month, the carrier's tracking updates lag a day behind, the VAT filing needs the second account, a refund is signed off in finance and not support. That last kind compounds: knowing who to ask is learned once and then reused, so the agent stops relearning the org chart one question at a time. A personal agent stores all of this in its owner's local files. There it dies. A team harness writes it back to **shared memory**, so a question any human answers once is answered for everyone, permanently.
+
+This is the difference between an agent that is *used* and an agent that *accumulates*. After a quarter, the memory is the most valuable artefact the harness owns: institutional knowledge that previously lived in one founder's head or a thousand email threads, now available to every task the agent runs. That is not tooling any more. Memory that matters belongs to the organisation, with access rules, not to whoever happened to chat with the agent.
+
+## Primitive 3: self-aware capability gaps
+
+The most underrated thing an agent can know is what it cannot do. A team harness makes that knowledge productive: when the agent is blocked mid-task because a capability is missing (no access to the planning system that would confirm a delivery date, no connection to the archive that holds the signed contract), it does not shrug into the chat. It has two ways out, and a good harness takes both.
+
+If a person can simply supply what is missing, it asks. An email, or a message on whichever channel fits, and the answer unblocks the task in front of it: that is primitive 1 doing its work on a missing fact rather than a missing decision. If the gap is structural, something it will hit again next week and the week after, it **files a request** instead: what it was trying to accomplish, which access it lacked, why that access would have changed the outcome, and what it would have concluded with it.
+
+That request is written at the moment of failure, with the full context still loaded. It is better than most tickets people write. And it turns the list of things to build next into an evidence-ranked queue instead of a brainstorm: the requests that block the most real work rise to the top on their own. The agent identifies its own gaps; humans review, approve, and grant access; and increasingly the new capability itself is drafted by an agent from that very request. The boundary that keeps this safe is one sentence. The agent **requests** capabilities, it never grants them.
+
+## Primitive 4: multi-channel presence
+
+A team's members live in email, chat, on their phones, and increasingly inside an AI assistant they already pay for: Claude, Copilot, Gemini, ChatGPT. Nobody lives in one window on one machine. A team agent meets them where they are, with the same memory and the same capabilities, replying on whichever channel the message arrived from. The on-call engineer asks from the incident channel. The office question arrives by email and is answered by email. The founder forwards a supplier invoice from a phone and the agent takes it from there. The analyst who lives in ChatGPT reaches the same capabilities through a connector, from the subscription they already have, with no new app to adopt.
+
+Personal assistants treat channels as exotic integrations because the agent is welded to its owner's machine. In a team harness, channels are thin entry points to centrally run infrastructure. That is what makes "ask the agent from anywhere" boring to implement instead of a roadmap item.
+
+## The three platform rules around them
+
+The primitives describe what the agent can do. Three rules keep the result governable:
+
+**One capability, one policy, many consumers.** Every capability exists once, with an access policy, and the same one is called by a person running it directly, by a scheduled automation, by an agent mid-task, and by an AI assistant over a connector. Nothing here has to be an agent, or automated at all: a human clicking a capability and an agent chaining ten of them are just two consumers of the same governed thing. Different agents see different subsets; automations see what their job needs; humans see what their role allows. Default deny: no access unless explicitly granted. This is what stops "the agent can do X" from quietly meaning "everyone who can reach the agent can do X", and it has to live in the capability layer, not in each agent's instructions.
+
+**Agents are one execution mode, not the platform.** Most of a team's automation should stay deterministic, plain software with predictable results: scheduled jobs, flows that fire when an event happens, data moving between systems on fixed rules, calling the very same capabilities an agent or a person would. They are cheaper, faster, and more reliable than a model in a loop. Agents earn their place where judgement, natural language, or cross-channel conversation is genuinely required, and where the path itself varies: the distinction is not agent against automation, it is a known path against a path that depends on what you find. A harness that makes everything an agent is paying AI rates for a scheduler's job.
+
+**Capabilities grow from real demand.** Speculative capability building is how agent projects die. The growth loop is primitive 3: real task, real gap, real request, reviewed build. Capabilities arrive with their justification attached, and the portfolio stays shaped by what the team actually needed rather than what looked plausible in a planning session.
+
+## Why this is not "a better chatbot"
+
+Notice what the four primitives have in common. None of them is about intelligence. Delegation, memory write-back, gap requests, and channel presence are all *plumbing with policy*. That is the argument of this whole series, applied one layer up: the model provides judgement, and the harness provides the structure that makes the judgement safe to act on and the lessons durable. A smarter model dropped into a single-player harness is still single-player. A modest model inside this architecture compounds, because every answered question, every filed gap, and every granted capability makes the next task easier for everyone.
+
+## Where to start
+
+None of this needs a big-bang build. The order is the whole trick. Stand up shared memory and the gap log first, so every answered question and every blocked task starts accumulating from day one. Read-only capabilities next: the lookups your team already runs by hand. Let the filed requests rank what to build after that. Delegation and multi-channel presence layer on once there is something worth reaching from more than one place.
+
+Build memory before capabilities and the agent compounds; build capabilities before governance and you have forty personal setups with extra steps. We run the harness described here for our own back office, and this is the order it grew in: the primitives first, the model last, because the model was never the part that needed building.
+
+The capability layer underneath it is [Routecraft](/docs/introduction): the four primitives and three rules above are the requirements it grew to meet.

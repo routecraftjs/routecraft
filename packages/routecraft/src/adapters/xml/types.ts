@@ -175,8 +175,7 @@ export interface XmlFileOptions extends XmlParseOptions, XmlBuildOptions {
 }
 
 export type XmlOptions<T = unknown, R = unknown> =
-  | XmlTransformerOptions<T, R>
-  | XmlFileOptions;
+  XmlTransformerOptions<T, R> | XmlFileOptions;
 
 /** A parsed XML document represented as a plain object. */
 export type XmlData = Record<string, unknown>;

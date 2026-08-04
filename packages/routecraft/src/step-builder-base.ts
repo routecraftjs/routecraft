@@ -66,6 +66,11 @@ import {
   type CallableAuthenticator,
   AuthenticateStep,
 } from "./operations/authenticate.ts";
+import {
+  type CallableDelegator,
+  DelegateStep,
+  type DelegateStepOptions,
+} from "./operations/delegate.ts";
 import { HeaderStep } from "./operations/header.ts";
 import type { ErrorHandler } from "./route.ts";
 import { PUSH_STEP } from "./dsl-symbol.ts";
@@ -516,8 +521,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    */
   transform<Return>(
     transformer:
-      | Transformer<S["body"], Return>
-      | CallableTransformer<S["body"], Return>,
+      Transformer<S["body"], Return> | CallableTransformer<S["body"], Return>,
   ): Retyped<this, SetBody<S, Return>> {
     this.pushStep(new TransformStep<S["body"], Return>(transformer));
     return this.retype<Return>();
@@ -576,8 +580,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    */
   process<Return = S["body"]>(
     processor:
-      | Processor<S["body"], Return>
-      | CallableProcessor<S["body"], Return>,
+      Processor<S["body"], Return> | CallableProcessor<S["body"], Return>,
   ): Retyped<this, SetBody<S, Return>> {
     this.pushStep(new ProcessStep<S["body"], Return>(processor));
     return this.retype<Return>();
@@ -640,6 +643,53 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   }
 
   /**
+   * Mark the exchange's principal as being exercised by an actor (an agent,
+   * a service) on the subject's behalf. The resolver returns the actor's
+   * identity claims plus the consent-derived scope ceiling; they are minted
+   * into a delegated principal (subject unchanged, actor set, scopes
+   * intersected) and attached to the exchange. Body type is unchanged.
+   *
+   * A resolver that returns `undefined` (no consent record) fails closed by
+   * default: the subject's direct principal is STRIPPED so the continuation
+   * runs anonymous and downstream `authorize()` refuses with RC5012. An
+   * actor downstream must never inherit a caller's full direct authority
+   * precisely because consent is absent. The strip skips anonymous
+   * exchanges, already-delegated principals, and autonomous agent subjects
+   * (`subjectProfile: "ai_agent"`). Pass `{ otherwise: "keep" }` when the
+   * continuation serves the caller directly and an ungranted caller should
+   * keep acting as themselves.
+   *
+   * Sugar over the `delegate()` helper; see it for the full semantics
+   * (scope intersection, role pass-through, chain nesting, mayAct
+   * enforcement). Requires an authentic principal on the exchange when a
+   * directive is returned.
+   *
+   * @param resolver - Returns the delegation directive, or `undefined`
+   * @param options - No-consent behavior; default `{ otherwise: "drop" }`
+   * @returns This builder (same subclass, same body type)
+   *
+   * @example
+   * ```ts
+   * craft()
+   *   .from(mail("INBOX"))
+   *   .authenticate(mailPrincipal)
+   *   .delegate((ex) => {
+   *     const grant = grants.find(ex.principal?.subject, "agent:zoe")
+   *     if (!grant) return undefined // no consent: principal is dropped
+   *     return { actor: zoeIdentity, scopes: grant.scopes, grantId: grant.id }
+   *   })
+   *   .to(agent("zoe"))
+   * ```
+   */
+  delegate(
+    resolver: CallableDelegator<S["body"]>,
+    options?: DelegateStepOptions,
+  ): this {
+    this.pushStep(new DelegateStep<S["body"]>(resolver, options));
+    return this;
+  }
+
+  /**
    * Execute a side effect without changing the data. Fire-and-forget --
    * the tap runs asynchronously (tracked for drain) while the main flow
    * continues. Tap receives a snapshot of the exchange (body/headers
@@ -651,8 +701,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    */
   tap(
     destination:
-      | Destination<S["body"], unknown>
-      | CallableDestination<S["body"], unknown>,
+      Destination<S["body"], unknown> | CallableDestination<S["body"], unknown>,
   ): this {
     this.pushStep(new TapStep<S["body"]>(destination));
     return this;

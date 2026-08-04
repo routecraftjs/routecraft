@@ -104,10 +104,7 @@ export interface RouteSchemas {
  * tools).
  */
 export type KnownTag =
-  | "read-only"
-  | "destructive"
-  | "idempotent"
-  | "open-world";
+  "read-only" | "destructive" | "idempotent" | "open-world";
 
 /**
  * Tag value: one of the framework's well-known tags or any user string.
@@ -481,8 +478,7 @@ export class DefaultRoute implements Route {
     // keeps cross-route logs / spans on the same logical request without
     // requiring callers to thread the id manually.
     const incomingCorrelationId = headers?.[HeadersKeys.CORRELATION_ID] as
-      | string
-      | undefined;
+      string | undefined;
     const builtHeaders: Record<string, unknown> = {
       ...headers,
       [HeadersKeys.CORRELATION_ID]: incomingCorrelationId ?? randomUUID(),

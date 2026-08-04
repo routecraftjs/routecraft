@@ -4,7 +4,7 @@ description: A ten-minute walkthrough from `bunx create-routecraft` to a working
 date: 2026-05-29
 author: Jaco Botha
 authorRole: Founder, DevOptix
-version: '0.6.0+'
+version: '0.5.0+'
 draft: false
 tags:
   - mcp
@@ -12,6 +12,9 @@ tags:
   - typescript
   - claude-desktop
   - cursor
+related:
+  - stop-trusting-your-llm-to-behave
+  - ai-agents-are-still-single-player
 layout: blog-post
 ---
 
@@ -74,7 +77,7 @@ cd notebook
 bun install
 ```
 
-This drops you in a clean project with a `craft.config.ts` at the root and a `capabilities/` directory. Open it in your editor.
+The scaffolder asks a couple of questions; pick **None - empty project** when it asks for an example, and Bun as the package manager. That drops you in a clean project with a `craft.config.ts`, an `index.ts`, and an empty `capabilities/` directory at the root. We will fill that directory with route files in a moment. Open the project in your editor.
 
 Add the MCP and validation packages:
 

@@ -46,6 +46,132 @@ split. Both are concept-led; advanced just goes deeper and may also carry guides
   demos, and the throwaway capabilities under the repo's `examples/src` are not showcase
   examples and do not get an examples page just because they exist.
 
+## Cross-posted blog articles
+
+Some blog posts run on both routecraft.dev and devoptix.nl as one article, and every such
+pair has exactly one home, declared by which file carries `canonical:` in its frontmatter
+(an absolute URL pointing at the original publication; the home post carries none):
+
+- **Thought leadership belongs to devoptix.nl.** Posts whose argument stands without code
+  (organisational patterns, maturity ladders, buying advice) are canonical on devoptix.nl;
+  the routecraft.dev copy sets `canonical:` to the devoptix.nl URL.
+- **Code-first posts belong to routecraft.dev.** Posts whose spine is Routecraft code or
+  the framework itself are canonical here; the devoptix.nl copy points back.
+
+Setting `canonical:` on a post drives the canonical link tag, `og:url`, and JSON-LD
+`mainEntityOfPage`, removes the post from the sitemap (it stays in the RSS feed, which
+serves this site's readers rather than crawlers), renders an "originally published at"
+line on the page, and stamps the same attribution into the `/raw/blog/*.md` output.
+
+The two copies are the same article, not two articles: identical spine, identical section
+structure, at most a site-specific closing block (product close here, engagement close
+there) and per-site link paths and figure syntax. When editing a cross-posted article,
+apply the edit to both repos in the same round of changes.
+
+Blog diagrams are React components, not images. Each one lives in
+`apps/routecraft.dev/src/components/figures/` and is registered by id in that folder's
+`index.ts`. A figure is drawn on a fixed canvas and scaled by `<ScaledFrame>`, so the
+composition never reflows: the same drawing at every width, just smaller.
+
+A figure is authored across two files. The **drawing** is the `.tsx`; its **words** (`alt`
+and `caption`) live in `apps/routecraft.dev/src/components/figures/manifest.mjs`, keyed by id. That split exists because the
+words have to be readable without loading JSX: the prebuild that writes `public/raw/**` and
+the markdoc cleaner both need them, and the cleaner also runs inside the webpack config where
+TypeScript type stripping is not guaranteed. `apps/routecraft.dev/src/components/figures/index.ts` joins the two and throws if a drawing
+has no entry, so the halves cannot drift apart silently.
+
+Every figure ships in two resolutions, because it renders on surfaces with very different
+size budgets:
+
+- **`Figure`** is the full drawing. It renders in the browser only, so it may use grid and
+  `color-mix`. Type and colour come from the `primitives.tsx` vocabulary and the `palette`
+  prop, not from Tailwind classes, so the drawing stays self-contained and a subtree of it
+  can be lifted into a motif. Place it with `{% diagram id="..." /%}` at the point in the
+  prose where the argument needs it.
+- **`Motif`** is the same idea reduced to shapes that survive a 368px index card and a social
+  preview. It replaces the cover glyph when a post sets `diagram: <id>` in frontmatter, which
+  puts the same mark on the post hero, the index card, the home teaser, and the OG image.
+
+Two constraints follow from that split:
+
+- **Motifs render through Satori.** Inline styles only, flexbox only, no CSS variables, no
+  pseudo-elements, no `color-mix`. A motif that uses an unsupported feature does not fail the
+  build; it renders wrong in the social image, where nobody is looking. Keep text out of a
+  motif entirely: if it needs words, it has not been reduced far enough.
+- **Colours are always passed in, never read from CSS.** Motifs take a `CoverPalette`, so
+  `COVER_PALETTE_LIGHT` in `BlogCover.tsx` is what Satori resolves and `COVER_PALETTE_THEMED`
+  is what the browser follows. Figures take a `FigurePalette`, of which only
+  `FIGURE_PALETTE_THEMED` exists, because a figure never renders through Satori. All three
+  mirror the tokens in `tailwind.css`, so when the brand palette moves, all of them move.
+
+Write a real `alt` on every figure: it is the accessible name, and a DOM drawing gives a
+screen reader nothing on its own.
+
+### Scaling: never through `<foreignObject>`
+
+`<ScaledFrame>` measures its own width and applies a CSS `transform: scale()`. The obvious
+alternative, wrapping the artwork in an SVG `viewBox` with a `<foreignObject>`, is prettier
+(pure CSS, no measurement) and was how this worked until it turned out that **WebKit paints
+foreignObject content at 1:1, ignoring the viewBox, as soon as anything in the subtree is
+positioned**. Every one of these drawings positions something, so on Safari every cover and
+figure showed the top-left corner of its canvas at full size, at every viewport width. Adding
+`width`/`height` attributes, an `xmlns`, `overflow: hidden`, or a static wrapper does not
+help; only dropping foreignObject does.
+
+So: measure and transform. Check Safari, not just Chrome, on anything that scales fixed-canvas
+artwork. Because the frame has to measure before it can scale, artwork stays hidden until the
+first measurement and `tailwind.css` carries a `@media (scripting: none)` fallback.
+
+### In raw markdown, a figure is an image
+
+`{% diagram %}` is meaningless off the site, so `apps/routecraft.dev/src/lib/clean-markdoc.mjs` turns it into a real
+markdown image of the light PNG, with the figure's `alt` and its caption in italics beneath.
+That is what `public/raw/blog/<slug>.md` and the "copy page" button emit, so a cross-post to
+dev.to or an LLM reading the raw file gets the artwork and a description rather than an
+unresolved tag. The URL is absolute, because raw markdown is read away from the site where a
+root-relative path resolves against the wrong host. An unknown figure id leaves the tag
+untouched rather than emitting a link that 404s.
+
+### At phone width, a figure is a picture
+
+A 1600x900 drawing scaled into a 358px column is complete but unreadable, so `{% diagram %}`
+makes the figure a lightbox trigger: tapping opens the exported PNG full-screen, filling the
+height and panning horizontally, with the dark file served in dark mode. **The exported PNGs
+are therefore part of the site, not just syndication assets** -- a figure whose PNG is stale
+or missing enlarges to the wrong thing or to nothing.
+
+### Exporting a figure
+
+A figure is HTML and CSS, so it draws in a browser and nowhere else: a standalone `.svg`
+renders blank through an `<img>` tag, and Satori cannot lay one out either. Both the lightbox
+and anywhere a post is republished (dev.to, a slide, a newsletter) need a raster.
+
+Every figure therefore has its own page at `/figures/<id>/`, which shows the drawing at its
+authored size next to the URLs and markdown snippet for its PNGs. `/figures/` is the gallery.
+Both are `noindex`: they are utility surfaces, not arguments.
+
+The PNGs are produced by `apps/routecraft.dev/scripts/export-figures.ts`, which serves the built export, drives
+Chromium over each figure page, and writes two files per figure at 2x:
+`<id>.png` (light) and `<id>-dark.png`. Light is the unsuffixed default because it is the
+safer choice on a surface whose background we do not control, and because one guessable URL
+per figure is worth having. The theme comes from the emulated colour scheme, which is what
+next-themes resolves against when no preference is stored:
+
+```sh
+bun run build && bun run figures:export      # all figures
+bun run figures:export four-gates            # just one
+bunx playwright install chromium             # once, before the first export
+```
+
+A figure id may not end in `-dark`; the export rejects it rather than let one figure's light
+file overwrite another's dark one.
+
+Run it whenever a figure changes, and commit the PNGs; the site itself serves them, so a
+skipped export ships a post whose figure enlarges to the previous drawing. They are checked in
+rather than built in CI so the Pages workflow never has to install a browser. The page and the script agree on
+the output path and the screenshot marker through `apps/routecraft.dev/src/lib/figure-image.ts`; keep new
+surfaces reading from there rather than hardcoding `/images/figures/`.
+
 ## Capability project structure (public-surface file)
 
 Recommended project layout is one folder per capability under `capabilities/<domain>/<id>/`,

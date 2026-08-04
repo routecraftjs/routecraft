@@ -71,8 +71,7 @@ describe("Async Tap Execution", () => {
           .from(simple({ data: "test" }))
           .to((ex) => {
             originalCorrelationId = ex.headers["routecraft.correlation_id"] as
-              | string
-              | undefined;
+              string | undefined;
           })
           .tap(tapSpy)
           .to(() => {}),

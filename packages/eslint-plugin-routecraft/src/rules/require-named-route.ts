@@ -1,78 +1,11 @@
 import type { Rule } from "eslint";
-
-// Type guards for minimal ESTree-like nodes we need
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function isIdentifier(
-  node: unknown,
-): node is { type: "Identifier"; name: string } {
-  return (
-    isObject(node) &&
-    node["type"] === "Identifier" &&
-    typeof node["name"] === "string"
-  );
-}
-
-function isLiteral(node: unknown): node is { type: "Literal"; value: unknown } {
-  return isObject(node) && node["type"] === "Literal" && "value" in node;
-}
-
-function isMemberExpression(node: unknown): node is {
-  type: "MemberExpression";
-  computed: boolean;
-  object: unknown;
-  property: unknown;
-} {
-  return (
-    isObject(node) &&
-    node["type"] === "MemberExpression" &&
-    typeof node["computed"] === "boolean" &&
-    "object" in node &&
-    "property" in node
-  );
-}
-
-function isCallExpression(
-  node: unknown,
-): node is { type: "CallExpression"; callee: unknown; arguments: unknown[] } {
-  return (
-    isObject(node) &&
-    node["type"] === "CallExpression" &&
-    Array.isArray(node["arguments"]) &&
-    "callee" in node
-  );
-}
-
-// Utility: find the callee name for a CallExpression like obj.method()
-function getMemberCallName(node: unknown): string | undefined {
-  if (!isCallExpression(node)) return undefined;
-  const callee = (node as Record<string, unknown>)["callee"] as unknown;
-  if (isMemberExpression(callee) && !callee.computed) {
-    if (isIdentifier(callee["property"])) {
-      return (callee["property"] as { name: string }).name;
-    }
-  } else if (isIdentifier(callee)) {
-    return callee.name;
-  }
-  return undefined;
-}
-
-// Utility: Walk back the chain to see if it originates from craft()
-function originatesFromCraft(call: unknown): boolean {
-  let current: unknown = call;
-  while (isCallExpression(current)) {
-    const callee = (current as Record<string, unknown>)["callee"] as unknown;
-    if (isIdentifier(callee) && callee.name === "craft") return true;
-    if (isMemberExpression(callee)) {
-      current = callee["object"] as unknown;
-      continue;
-    }
-    break;
-  }
-  return false;
-}
+import {
+  isCallExpression,
+  isLiteral,
+  isMemberExpression,
+  getMemberCallName,
+  originatesFromCraft,
+} from "./shared/ast.ts";
 
 // Utility: Check if the chain contains `.id("...")` before `.from(...)`
 function hasIdBeforeFrom(node: unknown): boolean {
@@ -97,8 +30,7 @@ function hasIdBeforeFrom(node: unknown): boolean {
     const name = getMemberCallName(call);
     if (name === "id") {
       const args = (call as Record<string, unknown>)["arguments"] as
-        | unknown[]
-        | undefined;
+        unknown[] | undefined;
       const arg = Array.isArray(args) ? args[0] : undefined;
       if (
         arg &&

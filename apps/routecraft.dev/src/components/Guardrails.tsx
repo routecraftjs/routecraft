@@ -22,7 +22,7 @@ craft()
   .to(agent({
     model: 'anthropic:claude-sonnet-4-6',
     system: 'Triage and route inbound support mail.',
-    tools: tools(['publishBrief', 'sendDigest']),
+    tools: tools(['Direct(publishBrief)', 'Direct(sendDigest)']),
   }))
 
 // One of the bounded hands the agent can reach for.
@@ -30,6 +30,7 @@ craft()
   .id('publishBrief')
   .input(BriefInput)
   .authorize({ roles: ['editor'] })
+  .from(direct())
   .transform(redactPII)
   .to(http({ url: '/feed' }))`
 
@@ -53,13 +54,16 @@ export function Guardrails() {
           <p className="mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
             Agents have deleted production databases trying to do their job.
             Routecraft capabilities are bounded by design: typed inputs,
-            authorize(), guard(), the same code in test and prod. The agent gets
-            the hands you choose, not the keyring.
+            authorize(), per-tool guards, the same code in test and prod. The
+            agent gets the hands you choose, not the keyring.
           </p>
         </header>
 
         <div className="mt-12 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 lg:grid-cols-2">
-          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10">
+          {/* min-w-0: a grid item defaults to min-width:auto, so without it the
+              column grows to the widest unwrappable code line and drags the
+              whole page into a horizontal scroll on a phone. */}
+          <article className="relative flex min-w-0 flex-col gap-5 bg-paper p-7 lg:p-10">
             <header className="flex items-baseline gap-3">
               <span
                 aria-hidden="true"
@@ -83,7 +87,10 @@ export function Guardrails() {
             </p>
           </article>
 
-          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10">
+          {/* min-w-0: a grid item defaults to min-width:auto, so without it the
+              column grows to the widest unwrappable code line and drags the
+              whole page into a horizontal scroll on a phone. */}
+          <article className="relative flex min-w-0 flex-col gap-5 bg-paper p-7 lg:p-10">
             <header className="flex items-baseline gap-3">
               <span
                 aria-hidden="true"
@@ -140,8 +147,15 @@ export function Guardrails() {
 function CodeBlock({ code, muted }: { code: string; muted?: boolean }) {
   return (
     <div
+      // The code cannot wrap, so on a narrow card the overflow has to be
+      // reachable rather than pushing the card wider than the viewport. A
+      // scroll container holding nothing focusable is unreachable by keyboard,
+      // so it is its own tab stop with a visible focus ring.
+      tabIndex={0}
+      role="region"
+      aria-label="Code sample"
       className={
-        'border border-ink/15 bg-paper-deep/40 px-4 py-4 ' +
+        'overflow-x-auto border border-ink/15 bg-paper-deep/40 px-4 py-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cobalt-500 ' +
         (muted ? 'opacity-70' : '')
       }
     >

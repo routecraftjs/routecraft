@@ -84,8 +84,7 @@ export interface OtherwiseDescriptor<In = unknown, Out = In> {
  * @template Out - Body type every branch must converge on
  */
 export type ChoiceDescriptor<In = unknown, Out = In> =
-  | WhenDescriptor<In, Out>
-  | OtherwiseDescriptor<In, Out>;
+  WhenDescriptor<In, Out> | OtherwiseDescriptor<In, Out>;
 
 /**
  * Register a conditional branch for `.choice(...)`. The predicate receives

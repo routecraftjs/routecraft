@@ -1,5 +1,8 @@
 import type { CSSProperties, ReactElement } from 'react'
 
+import { ScaledFrame } from '@/components/ScaledFrame'
+import { getFigure } from '@/components/figures'
+
 export interface CoverPalette {
   /** Page background. */
   bg: string
@@ -7,18 +10,19 @@ export interface CoverPalette {
   fg: string
   /** The single accent (glyph, accent word, bullet, hairline). */
   accent: string
-  /** Foreground at 25% — faint separators. */
+  /** Foreground at 25%: faint separators. */
   muted25: string
-  /** Foreground at 40% — eyebrow separator, registration crosses. */
+  /** Foreground at 40%: eyebrow separator, registration crosses. */
   muted40: string
-  /** Foreground at 55% — eyebrow label, tag chips. */
+  /** Foreground at 55%: eyebrow label, tag chips. */
   muted55: string
-  /** Foreground at 62% — subtitle. */
+  /** Foreground at 62%: subtitle. */
   muted62: string
 }
 
 // Literal palette used for the OG image: Satori resolves real color values,
-// not CSS variables. This is the light/paper-deep look.
+// not CSS variables. This is the light/paper-deep look, and it is also what a
+// figure motif is drawn with when it stands in for the glyph.
 export const COVER_PALETTE_LIGHT: CoverPalette = {
   bg: '#ebe5da',
   fg: '#22232c',
@@ -45,6 +49,11 @@ export const COVER_PALETTE_THEMED: CoverPalette = {
 // Callers that need a different display size wrap it in BlogCoverFrame.
 export const COVER_WIDTH = 1200
 export const COVER_HEIGHT = 630
+
+// Edge of the square the figure motif is drawn into. Sized to fill the artwork
+// column to the right of the title block (which is capped at 600) without
+// crowding the registration crosses.
+const MOTIF_SIZE = 440
 
 const STOPWORDS = new Set([
   'a',
@@ -171,6 +180,12 @@ export interface BlogCoverProps {
   subtitle?: string
   /** Override the auto-picked cover glyph. First character only. */
   glyph?: string
+  /**
+   * Id of the post's figure. When set, that figure's motif takes the glyph's
+   * place as the cover artwork, so the card and the social image carry the same
+   * mark as the diagram inside the post. The glyph is the fallback.
+   */
+  diagram?: string
   /** 1-indexed figure number, ascending by post date. */
   figureNumber?: number
   /**
@@ -193,6 +208,7 @@ export function BlogCover({
   tags,
   subtitle,
   glyph,
+  diagram,
   figureNumber,
   serifFont = '"Fraunces", serif',
   monoFont = '"JetBrains Mono", monospace',
@@ -201,6 +217,7 @@ export function BlogCover({
   const { prefix, accent } = splitTitle(title)
   const chosenGlyph = pickGlyph(slug, tags, glyph)
   const placement = pickPlacement(slug)
+  const motif = getFigure(diagram)
   const figLabel =
     typeof figureNumber === 'number'
       ? `FIG. ${String(figureNumber).padStart(2, '0')}`
@@ -227,26 +244,40 @@ export function BlogCover({
         overflow: 'hidden',
       }}
     >
-      {/* Giant italic letter glyph on the right */}
-      <div
-        style={{
-          position: 'absolute',
-          top: placement.top,
-          right: placement.right,
-          fontFamily: serifFont,
-          fontStyle: 'italic',
-          fontWeight: 400,
-          color: palette.accent,
-          fontSize: placement.fontSize,
-          lineHeight: 0.78,
-          opacity: placement.opacity,
-          transform: `rotate(${placement.rotation}deg)`,
-          transformOrigin: 'center',
-          display: 'flex',
-        }}
-      >
-        {chosenGlyph}
-      </div>
+      {/* Artwork on the right: the post's figure reduced to a motif, or the
+          giant italic letter glyph when the post declares no figure. */}
+      {motif ? (
+        <div
+          style={{
+            position: 'absolute',
+            top: (COVER_HEIGHT - MOTIF_SIZE) / 2,
+            right: 56,
+            display: 'flex',
+          }}
+        >
+          <motif.Motif palette={palette} size={MOTIF_SIZE} />
+        </div>
+      ) : (
+        <div
+          style={{
+            position: 'absolute',
+            top: placement.top,
+            right: placement.right,
+            fontFamily: serifFont,
+            fontStyle: 'italic',
+            fontWeight: 400,
+            color: palette.accent,
+            fontSize: placement.fontSize,
+            lineHeight: 0.78,
+            opacity: placement.opacity,
+            transform: `rotate(${placement.rotation}deg)`,
+            transformOrigin: 'center',
+            display: 'flex',
+          }}
+        >
+          {chosenGlyph}
+        </div>
+      )}
 
       {/* Registration crosses */}
       <RegMark color={palette.muted40} style={{ top: 28, left: 28 }} />
@@ -454,54 +485,33 @@ function RoutecraftLogomark({
   )
 }
 
-// Responsive scaler. Wraps the fixed 1200x630 <BlogCover /> in an SVG with a
-// viewBox so the cover scales natively (no JS, no fragile transforms).
-//
-// Two modes:
-//  - default: width 100%, height auto. The SVG defines its own height from the
-//    1200:630 ratio. Use when the container matches that aspect (the blog grid
-//    cards) or has no fixed height.
-//  - fill: the SVG fills its (positioned) parent and crops like
-//    `object-fit: cover`, anchored left so the title stays in frame. Use when
-//    the container's aspect differs (featured card, home teaser column).
+// Responsive scaler: fits the fixed 1200x630 <BlogCover /> to whatever width
+// the container offers, keeping the 1200:630 ratio. See ScaledFrame for how the
+// scaling works and why it is not an SVG viewBox.
 export function BlogCoverFrame({
   children,
   className,
-  fill = false,
+  label,
 }: {
   children: React.ReactNode
   className?: string
-  fill?: boolean
+  /**
+   * Accessible name for the artwork. Set it when the cover carries a figure
+   * motif, which means something; leave it unset for the letter glyph, which is
+   * decoration and is better hidden than announced as an unnamed image.
+   */
+  label?: string
 }) {
-  const style: CSSProperties = fill
-    ? {
-        position: 'absolute',
-        inset: 0,
-        width: '100%',
-        height: '100%',
-        display: 'block',
-      }
-    : {
-        display: 'block',
-        width: '100%',
-        height: 'auto',
-        // Explicit ratio so the height is definite cross-browser. Safari does
-        // not infer an inline SVG's height from its viewBox when height is auto
-        // (the foreignObject cover then collapses on mobile), so pin it here.
-        aspectRatio: `${COVER_WIDTH} / ${COVER_HEIGHT}`,
-      }
   return (
-    <svg
+    <ScaledFrame
+      width={COVER_WIDTH}
+      height={COVER_HEIGHT}
       className={className}
-      role="img"
-      viewBox={`0 0 ${COVER_WIDTH} ${COVER_HEIGHT}`}
-      preserveAspectRatio={fill ? 'xMinYMid slice' : 'xMidYMid meet'}
-      style={style}
+      role={label ? 'img' : 'presentation'}
+      label={label}
     >
-      <foreignObject x={0} y={0} width={COVER_WIDTH} height={COVER_HEIGHT}>
-        {children}
-      </foreignObject>
-    </svg>
+      {children}
+    </ScaledFrame>
   )
 }
 
@@ -510,13 +520,15 @@ export function BlogCoverFrame({
 // image path renders <BlogCover /> directly with its literal-name defaults.
 export function BlogCoverInline({
   className,
-  fill,
   ...props
-}: BlogCoverProps & { className?: string; fill?: boolean }) {
+}: BlogCoverProps & { className?: string }) {
+  // The title is adjacent text on every surface that renders a cover, so the
+  // accessible name describes the artwork alone and does not repeat it.
+  const motif = getFigure(props.diagram)
   return (
     <BlogCoverFrame
       className={['blog-cover', className].filter(Boolean).join(' ')}
-      fill={fill}
+      label={motif?.alt}
     >
       <BlogCover
         {...props}

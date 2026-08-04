@@ -739,8 +739,7 @@ export async function fetchMessages(
         seenUids.add(msg.uid);
 
         let content:
-          | Awaited<ReturnType<typeof parseMessageContent>>
-          | undefined;
+          Awaited<ReturnType<typeof parseMessageContent>> | undefined;
         let parseError: Error | undefined;
         try {
           content = await parseMessageContent(

@@ -33,13 +33,17 @@ export function blogPostMetadata(slug: string): Metadata {
   // metadata to keep an unpublished page out of search results.
   if (!post) return { robots: NOINDEX_ROBOTS }
   const url = canonicalPath(`/blog/${slug}`)
+  // A cross-posted article's canonical (and og:url) points at its original
+  // publication so search engines consolidate signals there instead of
+  // treating the two sites as duplicating each other.
+  const canonical = post.canonical ?? url
   const published = isoDate(post.date)
   const modified = isoDate(lastModifiedDate(post))
 
   return {
     title: post.title,
     description: post.description,
-    alternates: { canonical: url },
+    alternates: { canonical },
     // Drafts stay reachable by direct link (for preview and sharing) but must
     // not be discoverable. The sitemap, RSS feed, and blog index already omit
     // drafts; this covers the page itself.
@@ -49,7 +53,7 @@ export function blogPostMetadata(slug: string): Metadata {
       type: 'article',
       title: post.title,
       description: post.description,
-      url,
+      url: canonical,
       publishedTime: published,
       modifiedTime: modified,
       authors: post.author ? [post.author] : undefined,
@@ -81,7 +85,9 @@ export function BlogPostJsonLd({ slug }: { slug: string }) {
     headline: post.title,
     description: post.description,
     url,
-    mainEntityOfPage: url,
+    // For a cross-post, the main entity is the original publication, matching
+    // the canonical link tag. The `url` above stays this page's own address.
+    mainEntityOfPage: post.canonical ?? url,
     datePublished: published,
     dateModified: modified,
     inLanguage: 'en-US',

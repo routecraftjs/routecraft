@@ -179,9 +179,9 @@ describe("authorize() validator", () => {
   /**
    * @case Required scopes are AND-combined and rejection cites the missing scope
    * @preconditions Principal has scope "read" but authorize() requires ["read", "write"]
-   * @expectedResult exchange:failed fires with RC5015 mentioning "write"
+   * @expectedResult exchange:failed fires with RC5038 (recoverable insufficiency, not RC5015) mentioning "write"
    */
-  test("rejects with RC5015 when a required scope is missing", async () => {
+  test("rejects with RC5038 when a required scope is missing", async () => {
     const s = spy<string>();
     const principal: Principal = {
       kind: "custom",
@@ -209,7 +209,7 @@ describe("authorize() validator", () => {
     await t.test();
 
     expect(s.received).toHaveLength(0);
-    expect(String(failures[0])).toContain("RC5015");
+    expect(String(failures[0])).toContain("RC5038");
     expect(String(failures[0])).toContain("write");
   });
 

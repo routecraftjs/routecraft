@@ -59,9 +59,7 @@ export interface JsonlFileOptions {
    * Can be a function or an array of allowed keys.
    */
   replacer?:
-    | ((key: string, value: unknown) => unknown)
-    | Array<string | number>
-    | null;
+    ((key: string, value: unknown) => unknown) | Array<string | number> | null;
 
   /**
    * How to handle a `JSON.parse` failure on a line (chunked mode) or any
