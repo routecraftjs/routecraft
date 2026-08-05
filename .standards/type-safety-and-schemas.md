@@ -202,7 +202,7 @@ Every step that previously mutated now produces one extra wrapper + frozen heade
 
 ### Verification
 
-`packages/routecraft/test/exchange-immutability.test.ts` is the authoritative test for this contract. It asserts: instances are frozen, casts at runtime throw `TypeError`, spread updates produce fresh frozen instances, identity equality survives a no-op pass-through, and `rewrap` honours an explicit `body: undefined`.
+`packages/routecraft/test/exchange-immutability.bun.test.ts` is the authoritative test for this contract. It asserts: instances are frozen, casts at runtime throw `TypeError`, spread updates produce fresh frozen instances, identity equality survives a no-op pass-through, and `rewrap` honours an explicit `body: undefined`.
 
 ---
 

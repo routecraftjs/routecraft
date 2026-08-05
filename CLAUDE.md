@@ -41,7 +41,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [CI/CD](.standards/ci-cd.md) -- PR gates, hook policy, peer-dependency rules, release flow
 - [Package Boundaries](.standards/package-boundaries.md) -- standards-in-core vs vendors-grouped-by-ecosystem, bounded package count, core dependency policy (minimal-dependency ambition with pragmatic exceptions), packages created on first adapter
 - [Resilience Wrappers](.standards/resilience-wrappers.md) -- dual-mode wrapper pattern (`.error()` and future resilience ops), authoring contract
-- [Pre-from Filter Chain](.standards/pre-from-filter-chain.md) -- fixed ordered chain at route scope (`error` / `authorize` / `parse` / `input` / `throttle` / `circuitBreaker` / `retry` / `timeout` / `cacheCheck` / pipeline / `cacheStore`); framework picks the order, future wrappers slot into reserved positions
+- [Pre-from Filter Chain](.standards/pre-from-filter-chain.md) -- fixed ordered chain at route scope (`error` / `authorize` / `parse` / `input` / `throttle` / `circuitBreaker` / `retry` / `timeout` / `concurrency` / `cacheCheck` / pipeline / `cacheStore`); framework picks the order, and every position is filled by a shipped operation
 - [Security](.standards/security.md) -- JWT / JWKS verification, principal propagation, bearer-token handling, `userinfo` enrichment, RFC 9728 metadata, `authorize()` semantics
 - [API Stability](.standards/api-stability.md) -- the v0 policy: the whole public API is unstable, so we tag only `@internal` and `@deprecated`; per-symbol `@experimental` / `@beta` / `@stable` tiers arrive at v1
 - [Content and Docs](.standards/content-and-docs.md) -- where content belongs across docs and blog (the five surfaces), introduction-vs-advanced depth axis, code-lives-once, nav-matches-folders, the `route.ts` public-surface decision, static-export redirect constraint
@@ -59,6 +59,7 @@ See [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md) for what must be satisfied be
 | `@routecraft/cli` | `packages/cli` | CLI (`craft`) to run routes and contexts |
 | `@routecraft/testing` | `packages/testing` | Test utilities (spy logger, testContext, pseudo, fixtures) |
 | `@routecraft/eslint-plugin-routecraft` | `packages/eslint-plugin-routecraft` | ESLint plugin |
+| `@routecraft/os` | `packages/os` | System-native host adapters (browser automation via `agentBrowser()`) |
 | `@routecraft/prettier-plugin-routecraft` | `packages/prettier-plugin-routecraft` | Prettier plugin (compact DSL formatting) |
 | `create-routecraft` | `packages/create-routecraft` | Project scaffolder |
 

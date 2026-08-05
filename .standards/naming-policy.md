@@ -25,10 +25,12 @@ Examples: `DirectServerOptions` / `DirectClientOptions`, `McpServerOptions` / `M
 When the two roles genuinely share fields (auth config, base URL, common headers, retry policy), factor them into **XxxBaseOptions** and have both `XxxServerOptions` and `XxxClientOptions` `extends XxxBaseOptions`. Export the union as **XxxOptions**:
 
 ```ts
-export interface HttpBaseOptions { auth?: HttpAuth; baseUrl?: string; }
-export interface HttpServerOptions extends HttpBaseOptions { /* server-only */ }
-export interface HttpClientOptions extends HttpBaseOptions { /* client-only */ }
-export type HttpOptions = HttpServerOptions | HttpClientOptions;
+// Illustrative shape (the real http adapter declares its roles
+// independently; no HttpBaseOptions / HttpOptions exist in code):
+export interface XxxBaseOptions { auth?: XxxAuth; baseUrl?: string; }
+export interface XxxServerOptions extends XxxBaseOptions { /* server-only */ }
+export interface XxxClientOptions extends XxxBaseOptions { /* client-only */ }
+export type XxxOptions = XxxServerOptions | XxxClientOptions;
 ```
 
 When the two roles do not share fields (e.g. `mail`: IMAP polling on the server side and SMTP send on the client side), declare each independently and export the union directly:

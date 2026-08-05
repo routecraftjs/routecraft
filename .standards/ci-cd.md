@@ -73,7 +73,7 @@ Packages are created by hand; there is no generator. Copy the shape of an existi
 1. Create `packages/<name>/` with:
    - `package.json`: dual `exports` (`types`/`import`/`require` pointing at `dist/`), `"files": ["dist"]`, `"publishConfig": {"access": "public"}`, repository/homepage/bugs fields, scripts `build` (tsup), `test`, `prepublishOnly: "bun run build"`. Dependency shape per section 5.
    - `tsup.config.mjs` (or build script flags) with `external: ["@routecraft/routecraft"]` so core is never bundled.
-   - `vitest.config.mjs` with aliases mapping `@routecraft/{routecraft,testing}` and the package's own name onto `src/` entry points (copy `packages/ai/vitest.config.mjs`).
+   - `vitest.config.mjs` with aliases mapping `@routecraft/{routecraft,testing}` and the package's own name onto `src/` entry points (copy `packages/ai/vitest.config.mjs`). This serves the vitest arm only (cross-runtime suites and the deliberate exceptions in `testing.md` § 1); unit tests default to bun:test.
    - `src/index.ts` barrel. If the package contributes `defineConfig` keys or DSL, follow the cross-package pattern in `packages/ai/src/config.ts` (`declare module "@routecraft/routecraft"` + `registerConfigApplier` + side-effect import from the barrel).
    - Tests under `test/` per `.standards/testing.md` (JSDoc on every test).
 2. Never add a `sideEffects` allowlist to a package that registers anything via side-effect imports (config appliers, DSL sugar, adapter registries). Core shipped this bug: its allowlist named only the dist entry points, so esbuild pruned every `registerConfigApplier` side-effect import out of the bundle and `defineConfig({ mail: {...} })` silently no-opped at runtime. Bundle-size wins must come from somewhere else. If the package relies on side-effect registration, add a post-build guard that imports the built bundles and asserts the registrations are live (core's `packages/routecraft/scripts/verify-dist.mjs`, run for both ESM and CJS in its `build` script, is the reference).
@@ -146,7 +146,7 @@ The core invariant: **`package.json` always holds the LAST RELEASED version**, n
 
 Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick the affected package(s) and bump level, describe the change. Internal-only changes skip it (or use `bunx changeset add --empty` if a status check demands one).
 
-**Bump levels during v0: breaking changes are `minor`, never `major`.** The whole 0.x line is the breaking window (see `api-stability.md`), so a conventional-commit `!` does NOT translate to a `major` changeset. A `major` bump would compute the next version as 1.0.0 and stamp every canary `1.0.0-canary-*` (this happened: a stray `major` shipped 1.0.0 canaries for weeks). `major` is reserved for the deliberate 1.0.0 release and requires explicit maintainer sign-off in the PR.
+**Bump levels during v0: breaking changes are `minor`, never `major`.** The whole 0.x line is the breaking window (see `api-stability.md`), so a conventional-commit `!` does NOT translate to a `major` changeset. A `major` bump would compute the next version as 1.0.0 and stamp every canary `1.0.0-canary-*` (this happened: a stray `major` computed 1.0.0 and shipped `1.0.0-canary-*` releases that had to be unpublished and deprecated). `major` is reserved for the deliberate 1.0.0 release and requires explicit maintainer sign-off in the PR.
 
 ### Versioning model
 
@@ -179,7 +179,7 @@ The publish goes through `changeset publish` (npm under the hood) even though th
 ## References
 
 - Workflow sources: `.github/workflows/ci.yml`, `.github/workflows/release.yml`
-- Scripts: `scripts/sync-derived-versions.mjs`, `.github/scripts/smoke-test-embedding.mjs`
+- Scripts: `scripts/sync-derived-versions.mjs`, `scripts/prepare-canary-snapshot.mjs`, `.github/scripts/smoke-test-embedding.mjs`, `packages/routecraft/scripts/verify-dist.mjs`
 - Changesets config: `.changeset/config.json`
 - Definition of Done: `DEFINITION_OF_DONE.md`
 - Testing standards: `./testing.md`

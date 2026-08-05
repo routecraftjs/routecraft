@@ -14,7 +14,7 @@ Each adapter concept (direct, http, simple, etc.) exposes **one factory function
 // One concept = one import
 import { direct } from '@routecraft/routecraft';
 
-route.from(direct('channel', options)).to(direct(handler));
+route.from(direct()).to(direct('target-route'));
 
 // NOT multiple imports per concept
 import { directSource, directDestination } from '@routecraft/routecraft';
@@ -32,8 +32,8 @@ Expose exactly one factory function per adapter concept. Use overloads for multi
 
 ```typescript
 // Good: single factory with overloads
-export function direct<S>(endpoint: string, options: {...}): Source<...>;
-export function direct<T>(endpoint: string | function): Destination<T, T>;
+export function direct(options?: DirectServerOptions): Source<unknown>;
+export function direct<T>(endpoint: string | ((ex: Exchange<T>) => string)): Destination<T, T>;
 
 // Bad: multiple factories for one concept
 export function directSource(...): Source<...>;
@@ -79,19 +79,18 @@ export function http<T, R>(options: HttpOptions): HttpDestinationAdapter<T, R> {
 Use structural checks (`arguments.length`, `typeof`) to discriminate factory overloads.
 
 ```typescript
-// Good: structural checks
+// Good: structural checks (this is the real direct() discriminator)
 export function direct<...>(...): Source<...> | Destination<...> {
-  if (arguments.length === 2) {
-    return new DirectSourceAdapter(endpoint, options);
+  // String or function first-arg -> Destination (names a target route).
+  if (typeof arg === 'string' || typeof arg === 'function') {
+    return new DirectDestinationAdapter(arg);
   }
-  if (typeof endpoint === 'function') {
-    return new DirectDestinationAdapter<T>(endpoint);
-  }
-  throw new Error('Invalid arguments');
+  // Undefined or options object -> Source (endpoint resolved from route id).
+  return new DirectSourceAdapter(arg);
 }
 
-// Bad: value-based checks (unreliable)
-if (options !== undefined) { ... }
+// Bad: arity checks (break when optional args are omitted)
+if (arguments.length === 2) { ... }
 ```
 
 ### Rule 5: Always Use Multi-Interface Naming
@@ -183,8 +182,8 @@ When an adapter can be used as both a source and a destination with different op
 
 **Exported types (public API):**
 
-- **Base:** `XxxBaseOptions` -- shared by both roles.
-- **Server:** `XxxServerOptions extends XxxBaseOptions` -- options for `.from()`.
+- **Base:** `XxxBaseOptions` -- only when the roles genuinely share two or more fields; when they share nothing (e.g. `mail`), skip it and declare each role independently (see [naming-policy.md](./naming-policy.md)).
+- **Server:** `XxxServerOptions` (extending the base when one exists) -- options for `.from()`.
 - **Client:** `XxxClientOptions` -- options for `.to()` / `.tap()`.
 - **Union:** `XxxOptions = XxxServerOptions | XxxClientOptions` -- constructor parameter type and public signatures.
 
@@ -248,10 +247,10 @@ Callable variants allow bare functions as adapters -- critical for tests, protot
 
 ```typescript
 // Test: inline mock destination
-route.from(simple(() => ({ id: 1 }))).to(vi.fn());
+route.from(simple(() => ({ id: 1 }))).to(mock());
 
 // Production: full adapter
-route.from(direct('channel', options)).to(http({ url: 'https://api.example.com' }));
+route.from(direct()).to(http({ url: 'https://api.example.com' }));
 ```
 
 The builder wraps bare functions automatically:

@@ -57,6 +57,8 @@ Each boundary handles the error (does not re-throw it to another boundary). Do n
 | **route.trackTask** | Background task (e.g., tap) rejection | error | `{ err, route }` |
 | **AI server tool handler** | Tool call errors | error | `{ tool, err }` |
 
+The auth surface adds four more boundaries (source credential verification, route `.authorize()`, userinfo enrichment, HTTP transport), specified in [security.md](./security.md) § Boundaries; they follow the same handle-once rule and their log levels follow security.md's rejection-level policy.
+
 All boundaries use `err.meta.message` (`RoutecraftError`) or `err.message` (plain `Error`) as the log message, with a fallback string specific to the boundary.
 
 ---

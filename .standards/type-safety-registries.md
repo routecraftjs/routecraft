@@ -30,9 +30,9 @@ declare module '@routecraft/routecraft' {
 Now:
 
 ```typescript
-direct('payments', {})       // OK
-direct('orders', {})         // OK
-direct('invoices', {})       // red line: 'invoices' not in registry
+.to(direct('payments'))       // OK
+.to(direct('orders'))         // OK
+.to(direct('invoices'))       // red line: 'invoices' not in registry
 
 // ForwardFn in error handlers is also constrained:
 craft()
@@ -53,8 +53,8 @@ interface DirectEndpointRegistry {
 
 **What this does NOT cover:**
 
-- Auto-discovering endpoints from your route files. TypeScript cannot scan across files to collect string literals from function calls. If you write `craft().from(direct('payments', {}))` in `routes/payments.ts`, the string `'payments'` is not automatically added to the registry. You must declare it manually.
-- Verifying that a registered endpoint has a matching `.from()` source at runtime. The registry says "this name is valid" but does not check that a route actually listens on it. If you register `'invoices'` but never write `craft().from(direct('invoices', {}))`, the type is happy but the message will hang at runtime.
+- Auto-discovering endpoints from your route files. TypeScript cannot scan across files to collect string literals from function calls. If you write `craft().id('payments').from(direct())` in `routes/payments.ts` (a source binds to its route id; `direct()` takes no endpoint argument), the id `'payments'` is not automatically added to the registry. You must declare it manually.
+- Verifying that a registered endpoint has a matching `.from()` source at runtime. The registry says "this name is valid" but does not check that a route actually listens on it. If you register `'invoices'` but no route has `.id('invoices')` with `.from(direct())`, the type is happy but the message will hang at runtime.
 
 ---
 
@@ -166,7 +166,7 @@ The core limitation is that TypeScript cannot scan your project to discover endp
 bun run craft typegen
 ```
 
-1. **Direct endpoints** - scan all `.ts` files for `direct('name', {` and `direct('name', options)` patterns (the two-argument form = source). Collect all string literals. Write them into `DirectEndpointRegistry`.
+1. **Direct endpoints** - scan all `.ts` files for routes that pair `.id('name')` with `.from(direct())` (a direct source binds to its route id; the factory takes no endpoint argument). Collect the id string literals. Write them into `DirectEndpointRegistry`.
 
 2. **LLM providers** - read your `craft.config.ts`, find the `llmPlugin({ providers: { ... } })` call, extract the provider keys. Write them into `LlmProviderRegistry`.
 
@@ -204,7 +204,7 @@ declare module '@routecraft/ai' {
 bun run craft typegen --watch
 ```
 
-Re-runs on file save. As soon as you add `craft().from(direct('invoices', {}))`, the `invoices` entry appears in the registry and `direct('invoices')` destinations immediately become valid.
+Re-runs on file save. As soon as you add `craft().id('invoices').from(direct())`, the `invoices` entry appears in the registry and `direct('invoices')` destinations immediately become valid.
 
 ### Commit the generated file
 

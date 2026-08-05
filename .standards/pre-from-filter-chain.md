@@ -25,7 +25,7 @@ below).
 | # | Filter | Status | Throws on rejection? | Notes |
 |---|---|---|---|---|
 | 1 | `error` | shipped (#119, #140) | — | catches throws from everything below; handler picks what to recover |
-| 2 | `authorize` (stacks) | shipped | yes (`RC5012` / `RC5015`) | identity gate; deterministic, not retried |
+| 2 | `authorize` (stacks) | shipped | yes (`RC5012` / `RC5015` / `RC5023` / `RC5020` / delegation `RC5034`-`RC5038`; full vocabulary in [security.md](./security.md)) | identity gate; deterministic, not retried |
 | 3 | `parse` | shipped (source-attached) | yes (`RC5016`) | raw bytes → typed body; deterministic, not retried |
 | 4 | `input` | shipped (#447 folded it into the chain) | yes (`RC5002`) | schema validation; deterministic, not retried; runs inside the parse step when a parser is attached |
 | 5 | `throttle` | shipped (#151) | `mode: 'reject'` only (`RC5013`); default `'delay'` paces | rate limit valid requests (not pre-auth; that's source-layer DoS protection). Delay paces; reject fails fast with `RC5013` |
@@ -111,7 +111,9 @@ The handler decides what to recover:
   // Deterministic gate rejections: re-throw so the source can
   // translate (HTTP source → 401 / 403 / 400; MCP source → error
   // response).
-  if (['RC5012', 'RC5015', 'RC5002', 'RC5016'].includes(err.rc)) throw err
+  // (plus the rest of the authorize vocabulary: RC5023, RC5020 and
+  // delegation RC5034-RC5038; see security.md. Do not collapse them.)
+  if (['RC5012', 'RC5015', 'RC5023', 'RC5020', 'RC5002', 'RC5016'].includes(err.rc)) throw err
 
   // Throttle / breaker: re-throw to surface backpressure to the caller.
   if (['RC5013', 'RC5025'].includes(err.rc)) throw err

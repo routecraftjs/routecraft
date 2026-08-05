@@ -266,7 +266,7 @@ accordingly.
   route-scope counterpart of this contract. Documents the fixed
   ordered chain (`error` -> `authorize` -> `parse` -> `input` ->
   `throttle` -> `circuitBreaker` -> `retry` -> `timeout` ->
-  `cacheCheck` -> pipeline -> `cacheStore`); every position is now filled
+  `concurrency` -> `cacheCheck` -> pipeline -> `cacheStore`); every position is now filled
   by a shipped operation (see section 1).
 - `WrapperStep` source: `packages/routecraft/src/operations/wrapper.ts`.
 - `ErrorWrapperStep` source:
