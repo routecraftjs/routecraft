@@ -62,13 +62,10 @@ export interface HttpWebhookSignatureOptions {
  * security standard: never derived from `err.message` free text.
  */
 export type HttpWebhookSignatureRejection =
-  | "missing signature header"
-  | "invalid signature"
-  | "signature expired";
+  "missing signature header" | "invalid signature" | "signature expired";
 
 export type HttpWebhookSignatureResult =
-  | { ok: true }
-  | { ok: false; reason: HttpWebhookSignatureRejection };
+  { ok: true } | { ok: false; reason: HttpWebhookSignatureRejection };
 
 const DEFAULT_TOLERANCE_SEC = 300;
 
