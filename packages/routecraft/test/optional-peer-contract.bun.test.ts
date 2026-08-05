@@ -7,6 +7,7 @@ const SRC_ROOT = join(import.meta.dir, "../src");
 /** Runtime-provided module namespaces that need no install and no peer contract. */
 const BUILTIN_PREFIXES = ["node:", "bun:"];
 
+/** Recursively collect all .ts files under a directory. */
 function walk(dir: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

@@ -25,6 +25,7 @@ function stubChildLogger(calls: WarnCall[]) {
   return stub as unknown as ReturnType<typeof logger.child>;
 }
 
+/** Construct a CraftContext with the child-logger spy installed and return the captured warn calls. */
 function constructCapturingWarns(config: CraftConfig): WarnCall[] {
   const calls: WarnCall[] = [];
   const spy = spyOn(logger, "child").mockReturnValue(stubChildLogger(calls));
