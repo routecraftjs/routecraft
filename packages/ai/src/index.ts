@@ -20,9 +20,15 @@ export type {
 } from "./registry.ts";
 
 // LLM adapter and plugin
-export { llm, LlmDestinationAdapter, llmPlugin } from "./llm/index.ts";
+export {
+  disposeCopilotProviderCache,
+  llm,
+  LlmDestinationAdapter,
+  llmPlugin,
+} from "./llm/index.ts";
 export type {
   CopilotPermissionHandler,
+  CopilotPermissionRequest,
   CopilotPermissionResult,
   CustomLanguageModel,
   LlmAnthropicProviderOptions,

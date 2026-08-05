@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { loadOptionalPeer } from "@routecraft/routecraft";
 import { assertLanguageModelShape, PROVIDER_DEFAULTS } from "./llm-utils.ts";
 import type { LlmModelConfig } from "../types.ts";
@@ -187,18 +188,49 @@ async function resolveLmStudio(
   return rawModel;
 }
 
-type CopilotProviderFactory = (
+type CopilotProviderFactory = ((
   id: string,
   settings?: Record<string, unknown>,
-) => unknown;
+) => unknown) & {
+  getClient?: () => { stop?: () => Promise<unknown> };
+};
 
 /**
  * One provider (and therefore one `CopilotClient`, which owns a spawned
  * `copilot` CLI server process) per distinct client config. `resolveCopilot`
  * runs on every dispatch, so without this cache each `llm()` call would
  * spawn and leak a fresh CLI process.
+ *
+ * Keyed by a hash of the client options rather than the options themselves:
+ * they can carry a `githubToken`, and `.standards/security.md` section 4
+ * forbids holding a plaintext bearer as a map key.
  */
 const copilotProviderCache = new Map<string, CopilotProviderFactory>();
+
+/**
+ * Stop every cached Copilot client and clear the cache. Each client owns a
+ * spawned `copilot` CLI process that is not unref'd, so without this the
+ * process outlives context shutdown and keeps the runtime alive. Wired into
+ * `llmPlugin`'s teardown; mirrors `disposeEmbeddingPipelineCache`.
+ *
+ * The cache is process-wide, so this stops clients belonging to every
+ * context in the process. That is safe for the common single-context host
+ * and for sequential contexts; a host running concurrent contexts that share
+ * a client config should tear them down together.
+ */
+export async function disposeCopilotProviderCache(): Promise<void> {
+  const providers = [...copilotProviderCache.values()];
+  copilotProviderCache.clear();
+  await Promise.all(
+    providers.map(async (provider) => {
+      try {
+        await provider.getClient?.().stop?.();
+      } catch {
+        // Ignore stop errors during shutdown.
+      }
+    }),
+  );
+}
 
 async function resolveCopilot(
   config: import("../types.ts").LlmModelConfigCopilot,
@@ -224,7 +256,12 @@ async function resolveCopilot(
   if (config.githubToken !== undefined) {
     clientOptions["githubToken"] = config.githubToken;
   }
-  const cacheKey = JSON.stringify(clientOptions);
+  // Hash rather than store: clientOptions can hold a githubToken, and a
+  // plaintext bearer must never sit in a long-lived map key
+  // (.standards/security.md section 4).
+  const cacheKey = createHash("sha256")
+    .update(JSON.stringify(clientOptions))
+    .digest("hex");
   let provider = copilotProviderCache.get(cacheKey);
   if (!provider) {
     provider = mod.createGitHubCopilot(
@@ -233,13 +270,16 @@ async function resolveCopilot(
     copilotProviderCache.set(cacheKey, provider);
   }
   const name = config.modelId ?? modelId;
-  // Always forward a permission handler: without one the Copilot SDK leaves
-  // permission requests pending as events, which stalls non-interactive
-  // routes forever on the first tool call that needs approval.
-  const settings: Record<string, unknown> = {
-    onPermissionRequest:
-      config.onPermissionRequest ?? (() => ({ kind: "approved" })),
-  };
+  // Forward a permission handler only when the caller asked for one. With no
+  // handler registered the Copilot SDK denies each request that needs
+  // approval, so doing nothing here is the fail-closed default; approving
+  // everything is an explicit opt-in via approveAllTools.
+  const settings: Record<string, unknown> = {};
+  if (config.onPermissionRequest !== undefined) {
+    settings["onPermissionRequest"] = config.onPermissionRequest;
+  } else if (config.approveAllTools === true) {
+    settings["onPermissionRequest"] = () => ({ kind: "approved" });
+  }
   if (config.workingDirectory !== undefined) {
     settings["workingDirectory"] = config.workingDirectory;
   }

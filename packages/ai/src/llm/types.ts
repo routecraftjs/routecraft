@@ -114,29 +114,37 @@ export interface LlmModelConfigLmStudio {
 }
 
 /**
- * Result of a Copilot tool permission decision. Mirrors the Copilot SDK's
- * `PermissionRequestResult` structurally so no type from the optional peer
- * package reaches the public surface.
+ * A Copilot tool execution awaiting approval. Mirrors the Copilot SDK's
+ * `PermissionRequest` structurally so no type from the optional peer package
+ * reaches the public surface. `kind` says what the tool wants to do, which is
+ * usually enough to write a policy; the index signature carries the SDK's
+ * remaining fields through unchanged.
+ */
+export interface CopilotPermissionRequest {
+  kind: "shell" | "write" | "mcp" | "read" | "url";
+  toolCallId?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Decision returned by a permission handler. Narrowed to the two outcomes a
+ * programmatic policy can produce: the SDK's remaining `denied-*` kinds
+ * describe interactive or absent-handler situations that it raises itself.
  */
 export interface CopilotPermissionResult {
-  kind:
-    | "approved"
-    | "denied-by-rules"
-    | "denied-no-approval-rule-and-could-not-request-from-user"
-    | "denied-interactively-by-user";
-  rules?: unknown[];
+  kind: "approved" | "denied-by-rules";
 }
 
 /**
  * Handler invoked before each Copilot tool execution. Return
- * `{ kind: "approved" }` to allow the call or one of the `denied-*` kinds
+ * `{ kind: "approved" }` to allow the call or `{ kind: "denied-by-rules" }`
  * to block it; the handler may be async for per-call policy lookups.
- * The request payload is the Copilot SDK's `PermissionRequest`, kept
- * `unknown` here so the optional peer's types stay out of the public
- * surface; narrow it in your handler if you need its fields.
+ *
+ * Requires a provider version that forwards the handler to the Copilot SDK
+ * session. See the `onPermissionRequest` note on `LlmModelConfigCopilot`.
  */
 export type CopilotPermissionHandler = (
-  request: unknown,
+  request: CopilotPermissionRequest,
   invocation: { sessionId: string },
 ) => CopilotPermissionResult | Promise<CopilotPermissionResult>;
 
@@ -159,12 +167,26 @@ export interface LlmModelConfigCopilot {
    */
   modelId?: string;
   /**
-   * Approve or deny each Copilot tool execution. Optional: defaults to
-   * approving everything so non-interactive routes never hang on a pending
-   * permission request. Supply a handler to enforce a real allow/deny
-   * policy per call.
+   * Approve or deny each Copilot tool execution. Optional: with no handler
+   * and no `approveAllTools`, the Copilot SDK denies every request that
+   * needs approval, which is the safe default. Supply a handler to enforce
+   * a real allow/deny policy per call.
+   *
+   * Forwarding depends on the installed provider package: version 0.2.0
+   * accepts the option and silently drops it, so the handler only takes
+   * effect on a version that passes it to the Copilot SDK session. Routes
+   * that never trigger an approval-gated tool are unaffected either way.
    */
   onPermissionRequest?: CopilotPermissionHandler;
+  /**
+   * Approve every Copilot tool execution without consulting a handler.
+   * Off by default. This is an explicit opt-in for trusted, sandboxed,
+   * non-interactive routes: it lets the model run shell commands and write
+   * files in `workingDirectory` with no gate, so anything that can steer
+   * the model (including untrusted content in the exchange) can steer those
+   * actions. Ignored when `onPermissionRequest` is set.
+   */
+  approveAllTools?: boolean;
   /**
    * Path to the Copilot CLI executable. Optional: defaults to resolving
    * `copilot` from PATH.
@@ -243,6 +265,7 @@ export interface LlmLmStudioProviderOptions {
 export interface LlmCopilotProviderOptions {
   modelId?: string;
   onPermissionRequest?: CopilotPermissionHandler;
+  approveAllTools?: boolean;
   cliPath?: string;
   cliUrl?: string;
   githubToken?: string;

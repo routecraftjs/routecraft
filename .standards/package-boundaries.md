@@ -241,7 +241,7 @@ Recommend the vendor's official MCP server through `mcp()`; ship no adapter. Peo
 
 ### Layer 5 - AI providers (`@routecraft/ai`)
 
-Provider entries via the Vercel AI SDK seam (#385), not packages. Have: openai, anthropic, gemini, openrouter, ollama, custom. Planned: mistral, cohere, deepseek, perplexity, bedrock, vertex, azure openai.
+Provider entries via the Vercel AI SDK seam (#385), not packages. Have: openai, anthropic, gemini, openrouter, ollama, lmstudio, copilot, custom. Planned: mistral, cohere, deepseek, perplexity, bedrock, vertex, azure openai.
 
 ## Related
 

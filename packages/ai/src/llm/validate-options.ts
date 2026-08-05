@@ -115,6 +115,16 @@ export function validateLlmPluginOptions(options: LlmPluginOptions): void {
             `llmPlugin: providers["copilot"].onPermissionRequest must be a function when provided`,
           );
         }
+        if (
+          (opts as { approveAllTools?: unknown }).approveAllTools !==
+            undefined &&
+          typeof (opts as { approveAllTools?: unknown }).approveAllTools !==
+            "boolean"
+        ) {
+          throw new TypeError(
+            `llmPlugin: providers["copilot"].approveAllTools must be a boolean when provided`,
+          );
+        }
         for (const field of [
           "cliPath",
           "cliUrl",
@@ -127,6 +137,17 @@ export function validateLlmPluginOptions(options: LlmPluginOptions): void {
               `llmPlugin: providers["copilot"].${field} must be a string when provided`,
             );
           }
+        }
+        // The Copilot SDK rejects this combination when it builds the client,
+        // which would surface as an opaque throw on first dispatch. Fail here
+        // instead, while the offending config is still in front of the user.
+        if (
+          (opts as { cliUrl?: string }).cliUrl !== undefined &&
+          (opts as { cliPath?: string }).cliPath !== undefined
+        ) {
+          throw new TypeError(
+            `llmPlugin: providers["copilot"].cliUrl and cliPath are mutually exclusive: cliUrl connects to an already-running Copilot CLI server, cliPath spawns one`,
+          );
         }
         break;
       }

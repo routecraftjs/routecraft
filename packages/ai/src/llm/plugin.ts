@@ -1,4 +1,5 @@
 import type { CraftContext, CraftPlugin } from "@routecraft/routecraft";
+import { disposeCopilotProviderCache } from "./providers/resolve.ts";
 import { ADAPTER_LLM_OPTIONS, ADAPTER_LLM_PROVIDERS } from "./types.ts";
 import type {
   LlmModelConfig,
@@ -32,12 +33,17 @@ function toModelConfig<P extends LlmModelConfig["provider"]>(
 }
 
 /**
- * LLM plugin: config-only helper (no lifecycle hooks). Registers providers and optional
- * default options in the context store so routes can use llm("providerId:modelName", options),
- * e.g. llm("ollama:lfm2.5-thinking"). Key is the provider; only set options you need.
+ * LLM plugin: registers providers and optional default options in the context store so
+ * routes can use llm("providerId:modelName", options), e.g. llm("ollama:lfm2.5-thinking").
+ * Key is the provider; only set options you need.
+ *
+ * Teardown stops any Copilot CLI clients started during the run. Every other provider
+ * is config-only, so this hook is a no-op unless the copilot provider was used.
  *
  * Advanced users can set the store directly: context.setStore(ADAPTER_LLM_PROVIDERS, map)
  * and context.setStore(ADAPTER_LLM_OPTIONS, partialOptions) without using this plugin.
+ * That path skips this teardown, so a copilot user going direct must call
+ * disposeCopilotProviderCache() themselves.
  */
 export function llmPlugin(
   options: LlmPluginOptions = { providers: {} },
@@ -59,6 +65,9 @@ export function llmPlugin(
       ) {
         ctx.setStore(ADAPTER_LLM_OPTIONS, options.defaultOptions);
       }
+    },
+    async teardown() {
+      await disposeCopilotProviderCache();
     },
   };
 }

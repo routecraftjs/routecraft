@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
 import { llmPlugin } from "../src/index.ts";
-import { resolveLanguageModel } from "../src/llm/providers/resolve.ts";
+import {
+  disposeCopilotProviderCache,
+  resolveLanguageModel,
+} from "../src/llm/providers/resolve.ts";
 
 /** Build a deterministic in-process model that always returns `text`. */
 function mockModel(text: string): MockLanguageModelV3 {
@@ -172,15 +175,31 @@ describe("copilot LLM provider", () => {
   });
 
   /**
-   * @case An approve-all permission handler is injected when none is configured
-   * @preconditions copilot config without onPermissionRequest
-   * @expectedResult The resolved model's settings carry a default handler
-   *   that returns { kind: "approved" }, so non-interactive routes never
-   *   hang on a pending permission request
+   * @case No permission handler is registered when the caller configures none
+   * @preconditions copilot config without onPermissionRequest and without
+   *   approveAllTools
+   * @expectedResult The model settings carry no onPermissionRequest, so the
+   *   Copilot SDK applies its own fail-closed default and denies each request
+   *   needing approval rather than Routecraft silently approving them
    */
-  test("injects an approve-all permission handler by default", async () => {
+  test("registers no permission handler by default (fail closed)", async () => {
     const model = (await resolveLanguageModel(
       { provider: "copilot" },
+      "gpt-5",
+    )) as { settings?: Record<string, unknown> };
+
+    expect(model.settings?.["onPermissionRequest"]).toBeUndefined();
+  });
+
+  /**
+   * @case approveAllTools opts in to approving every tool execution
+   * @preconditions copilot config sets approveAllTools true and supplies no handler
+   * @expectedResult A handler is registered that approves every request, so the
+   *   permissive behaviour is reachable only through the named opt-in
+   */
+  test("approveAllTools registers an approve-all handler", async () => {
+    const model = (await resolveLanguageModel(
+      { provider: "copilot", approveAllTools: true },
       "gpt-5",
     )) as {
       settings?: { onPermissionRequest?: (...args: unknown[]) => unknown };
@@ -192,19 +211,99 @@ describe("copilot LLM provider", () => {
   });
 
   /**
-   * @case A configured onPermissionRequest is forwarded unchanged
-   * @preconditions copilot config supplies a custom permission handler
-   * @expectedResult The resolved model's settings hold the same function
-   *   reference, not the injected approve-all default
+   * @case A configured onPermissionRequest wins over approveAllTools
+   * @preconditions copilot config supplies a deny handler and also sets
+   *   approveAllTools true
+   * @expectedResult The caller's handler is registered unchanged, so an
+   *   explicit policy is never silently widened by the opt-in flag
    */
-  test("forwards a configured permission handler unchanged", async () => {
+  test("a configured handler takes precedence over approveAllTools", async () => {
     const deny = () => ({ kind: "denied-by-rules" as const });
     const model = (await resolveLanguageModel(
-      { provider: "copilot", onPermissionRequest: deny },
+      { provider: "copilot", onPermissionRequest: deny, approveAllTools: true },
       "gpt-5",
     )) as { settings?: { onPermissionRequest?: unknown } };
 
     expect(model.settings?.onPermissionRequest).toBe(deny);
+  });
+
+  /**
+   * @case cliPath and githubToken reach the underlying CopilotClient
+   * @preconditions copilot config sets the spawn-side client options; the
+   *   client is constructed lazily and spawns no CLI process until first use
+   * @expectedResult The client the model resolves against carries those exact
+   *   values. Regression test: these were previously passed as model settings,
+   *   which the provider ignores, making them dead config
+   */
+  test("routes client options through to the CopilotClient", async () => {
+    const model = (await resolveLanguageModel(
+      { provider: "copilot", cliPath: "/opt/copilot", githubToken: "ghp_test" },
+      "gpt-5",
+    )) as { getClient?: () => { options?: Record<string, unknown> } };
+
+    const options = model.getClient?.().options;
+    expect(options?.["cliPath"]).toBe("/opt/copilot");
+    expect(options?.["githubToken"]).toBe("ghp_test");
+  });
+
+  /**
+   * @case llmPlugin rejects cliUrl and cliPath set together
+   * @preconditions providers.copilot sets both cliUrl and cliPath
+   * @expectedResult Build throws naming both options. Without this the Copilot
+   *   SDK throws "cliUrl is mutually exclusive with useStdio and cliPath" only
+   *   at first dispatch, far from the offending config
+   */
+  test("validation rejects cliUrl combined with cliPath", () => {
+    expect(() =>
+      llmPlugin({
+        providers: {
+          copilot: { cliUrl: "http://localhost:9999", cliPath: "/opt/copilot" },
+        },
+      }),
+    ).toThrow(/cliUrl and cliPath are mutually exclusive/);
+  });
+
+  /**
+   * @case One CopilotClient is shared per distinct client config
+   * @preconditions Two resolves with identical client options, then one with
+   *   a different cliPath
+   * @expectedResult Identical configs share a client (so a dispatch does not
+   *   spawn a CLI process per call) while a different config gets its own
+   */
+  test("caches one client per distinct client config", async () => {
+    const config = { provider: "copilot", cliPath: "/opt/a" } as const;
+    const first = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+    const second = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+    const other = (await resolveLanguageModel(
+      { provider: "copilot", cliPath: "/opt/b" },
+      "gpt-5",
+    )) as { getClient?: () => unknown };
+
+    expect(first.getClient?.()).toBe(second.getClient?.());
+    expect(first.getClient?.()).not.toBe(other.getClient?.());
+  });
+
+  /**
+   * @case disposeCopilotProviderCache releases cached clients
+   * @preconditions A client is cached, then the cache is disposed
+   * @expectedResult A later resolve builds a fresh client, so context teardown
+   *   does not leave a stopped client behind for the next context to reuse
+   */
+  test("disposing the cache drops cached clients", async () => {
+    const config = { provider: "copilot", cliPath: "/opt/dispose" } as const;
+    const before = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+    await disposeCopilotProviderCache();
+    const after = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+
+    expect(before.getClient?.()).not.toBe(after.getClient?.());
   });
 
   /**
@@ -233,35 +332,46 @@ describe("copilot LLM provider", () => {
   });
 
   /**
-   * @case llmPlugin rejects a non-string githubToken
-   * @preconditions providers.copilot.githubToken is a number
-   * @expectedResult Build throws a TypeError naming copilot.githubToken
+   * @case llmPlugin rejects a non-boolean approveAllTools
+   * @preconditions providers.copilot.approveAllTools is a string
+   * @expectedResult Build throws a TypeError naming copilot.approveAllTools,
+   *   so a truthy string cannot silently enable approve-all
    */
-  test("validation rejects a non-string githubToken", () => {
+  test("validation rejects a non-boolean approveAllTools", () => {
     expect(() =>
       llmPlugin({
         providers: {
-          // @ts-expect-error githubToken must be a string
-          copilot: { githubToken: 123 },
+          // @ts-expect-error approveAllTools must be a boolean
+          copilot: { approveAllTools: "yes" },
         },
       }),
-    ).toThrow(/copilot"\]\.githubToken/);
+    ).toThrow(/copilot"\]\.approveAllTools/);
   });
 
   /**
-   * @case llmPlugin rejects a non-string cliPath
-   * @preconditions providers.copilot.cliPath is a number
-   * @expectedResult Build throws a TypeError naming copilot.cliPath
+   * @case llmPlugin rejects a non-string value on every copilot string option
+   * @preconditions Each of cliPath, cliUrl, githubToken and workingDirectory
+   *   is set to a number in turn
+   * @expectedResult Build throws a TypeError naming the offending field, so a
+   *   plain-JS config cannot pass a non-string through to the CLI
    */
-  test("validation rejects a non-string cliPath", () => {
-    expect(() =>
-      llmPlugin({
-        providers: {
-          // @ts-expect-error cliPath must be a string
-          copilot: { cliPath: 42 },
-        },
-      }),
-    ).toThrow(/copilot"\]\.cliPath/);
+  test("validation rejects non-string values on the copilot string options", () => {
+    for (const field of [
+      "cliPath",
+      "cliUrl",
+      "githubToken",
+      "workingDirectory",
+    ] as const) {
+      expect(() =>
+        llmPlugin({
+          providers: {
+            // Simulates a plain-JS config: the cast smuggles a number past
+            // the compile-time string type so the runtime guard must catch it.
+            copilot: { [field]: 42 as unknown as string },
+          },
+        }),
+      ).toThrow(new RegExp(`copilot"\\]\\.${field}`));
+    }
   });
 });
 

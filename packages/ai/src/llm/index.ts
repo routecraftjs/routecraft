@@ -3,8 +3,10 @@ export { LlmDestinationAdapter } from "./destination.ts";
 export { llmPlugin } from "./plugin.ts";
 export { validateLlmPluginOptions } from "./validate-options.ts";
 export { ADAPTER_LLM_OPTIONS, ADAPTER_LLM_PROVIDERS } from "./types.ts";
+export { disposeCopilotProviderCache } from "./providers/resolve.ts";
 export type {
   CopilotPermissionHandler,
+  CopilotPermissionRequest,
   CopilotPermissionResult,
   CustomLanguageModel,
   LlmAnthropicProviderOptions,
