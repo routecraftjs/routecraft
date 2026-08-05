@@ -10,7 +10,11 @@ import {
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, mail, replace } from "@routecraft/routecraft";
 import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
-import { buildSearchCriteriaSets } from "../src/adapters/mail/shared.ts";
+import {
+  buildSearchCriteriaSets,
+  isMissingPeerError,
+} from "../src/adapters/mail/shared.ts";
+import { rcError } from "../src/error.ts";
 import {
   analyzeHeaders,
   extractAnalysisHeaders,
@@ -3102,3 +3106,26 @@ function createMailExchange(uid: number, folder: string, ctx?: any) {
 function attachContext(exchange: any, ctx: any) {
   EXCHANGE_INTERNALS.set(exchange, { context: ctx });
 }
+
+describe("isMissingPeerError", () => {
+  /**
+   * @case RC5017 missing-peer errors classify as terminal
+   * @preconditions An RC5017 RoutecraftError (the loadOptionalPeer shape), an RC5001 fetch error, and a plain Error
+   * @expectedResult Only the RC5017 error returns true, so the source reconnect boundary stops instead of retrying a missing package
+   */
+  test("returns true only for RC5017 RoutecraftErrors", () => {
+    const missingPeer = rcError("RC5017", undefined, {
+      message:
+        'mail adapter requires the optional peer dependency "mailparser".',
+    });
+    const fetchFailure = rcError("RC5001", undefined, {
+      message: "fetch failed",
+    });
+    expect(isMissingPeerError(missingPeer)).toBe(true);
+    expect(isMissingPeerError(fetchFailure)).toBe(false);
+    expect(
+      isMissingPeerError(new Error("Cannot find package 'mailparser'")),
+    ).toBe(false);
+    expect(isMissingPeerError(undefined)).toBe(false);
+  });
+});

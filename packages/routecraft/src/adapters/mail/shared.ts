@@ -1,6 +1,7 @@
 import type { CraftContext } from "../../context.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
+import { isRoutecraftError } from "../../brand.ts";
 import type {
   MailBody,
   MailMessage,
@@ -395,6 +396,18 @@ export async function createSmtpTransport(
 // ---------------------------------------------------------------------------
 // Error helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * True when the error is the RC5017 raised by `loadOptionalPeer` for a
+ * missing optional peer (`imapflow`, `nodemailer`, `mailparser`). A missing
+ * package cannot be fixed by reconnecting; the source must surface the
+ * install hint and stop instead of burning reconnect attempts into RC5010.
+ */
+export function isMissingPeerError(error: unknown): boolean {
+  return (
+    isRoutecraftError(error) && (error as { rc?: unknown }).rc === "RC5017"
+  );
+}
 
 /**
  * Check whether an error is an authentication failure.

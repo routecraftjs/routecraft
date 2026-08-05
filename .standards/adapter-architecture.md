@@ -312,7 +312,7 @@ export class MyTransformerAdapter<T = unknown, R = T>
 
 Every adapter factory stamps its return value with `tagAdapter(instance, factory, factoryArgs(...))` so the testing package's `mockAdapter(factory, ...)` can match instances back to their factory at route execution time. Always build the args tuple with `factoryArgs(...)` (it trims trailing `undefined` so `args.length` matches what the user typed), pass the factory function itself as the second argument (identity is what `mockAdapter` matches on), and tag at every return path of a multi-interface factory. The full contract with examples is documented in the custom-adapters guide (`apps/routecraft.dev/src/app/docs/advanced/custom-adapters/page.md`, "Making your adapter mockable" section).
 
-One internal detail with no docs equivalent: `tagAdapter` stamps **non-enumerable symbol properties**, so wrappers created via object spread lose them. When an adapter instance must be cloned, use `Object.create(Object.getPrototypeOf(adapter))` plus `Object.assign` plus re-`tagAdapter`.
+One consequence with no docs equivalent: because `tagAdapter` stamps **non-enumerable symbol properties** (documented in the custom-adapters guide's "Making your adapter mockable" section), wrappers created via object spread lose them. When an adapter instance must be cloned, use `Object.create(Object.getPrototypeOf(adapter))` plus `Object.assign` plus re-`tagAdapter`.
 
 ---
 

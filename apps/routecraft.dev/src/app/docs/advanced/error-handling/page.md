@@ -151,7 +151,7 @@ This means you always have a safety net. Even a broken error handler cannot cras
 
 ## Events
 
-When `.error()` is defined, the following events are emitted instead of the default `route:error` + `route:exchange:failed` pair:
+When `.error()` is defined, the following events are emitted instead of the default `route:error` + `context:error` + `route:exchange:failed` set:
 
 | Event | When |
 |-------|------|

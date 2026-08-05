@@ -20,6 +20,7 @@ import {
   splitMailMessage,
   MAIL_PARSE_ERRORS,
   type MailFetchLogger,
+  isMissingPeerError,
 } from "./shared.ts";
 
 type ImapClient = InstanceType<typeof import("imapflow").ImapFlow>;
@@ -331,6 +332,10 @@ export class MailSourceAdapter implements Source<MailBody> {
       );
     } catch (error) {
       if (abortController.signal.aborted) return;
+      if (isMissingPeerError(error)) {
+        // Missing optional peer: reconnecting cannot install the package.
+        throw error;
+      }
       if (isMailAuthError(error)) {
         // Auth failures will not recover on reconnect; surface clearly and stop.
         throwMailConnectionError(error, "IMAP");
@@ -387,6 +392,10 @@ export class MailSourceAdapter implements Source<MailBody> {
         messages = await fetchMessages(client, options, folder, logger);
       } catch (error) {
         if (abortController.signal.aborted) return;
+        if (isMissingPeerError(error)) {
+          // Missing optional peer: reconnecting cannot install the package.
+          throw error;
+        }
         if (isMailAuthError(error)) {
           // Auth failures will not recover on reconnect; surface clearly and stop.
           throwMailConnectionError(error, "IMAP");
@@ -496,6 +505,10 @@ export class MailSourceAdapter implements Source<MailBody> {
         needDrain = true;
       } catch (error) {
         if (abortController.signal.aborted) return;
+        if (isMissingPeerError(error)) {
+          // Missing optional peer: reconnecting cannot install the package.
+          throw error;
+        }
         if (isMailAuthError(error)) {
           // Auth failures will not recover on reconnect; surface clearly and stop.
           throwMailConnectionError(error, "IMAP");
@@ -648,6 +661,10 @@ export class MailSourceAdapter implements Source<MailBody> {
         );
         return;
       } catch (error) {
+        if (isMissingPeerError(error)) {
+          // Missing optional peer: reconnecting cannot install the package.
+          throw error;
+        }
         if (isMailAuthError(error)) {
           throwMailConnectionError(error, "IMAP");
         }
