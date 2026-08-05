@@ -63,7 +63,7 @@ function rootPackage(specifier: string): string {
 describe("optional-peer contract (ci-cd.md section 6)", () => {
   /**
    * @case Every optional-peer dynamic import across the scanned packages goes through loadOptionalPeer
-   * @preconditions All .ts sources under packages/{routecraft,ai,os,cli}/src are scanned (comments stripped) for runtime `import("...")` calls with a bare specifier; specifiers whose root package is a regular dependency of that package are exempt (they are always installed), as are runtime builtins and the sanctioned exceptions listed above
+   * @preconditions All .ts sources under packages/{routecraft,ai,os,cli}/src are scanned (comments stripped) for runtime `import("...")` calls with a bare specifier; exempt are runtime builtins, the sanctioned exceptions listed above, and specifiers whose root package is a regular dependency OR a required (non-optional) peer: regular deps are always installed, and a missing required peer is an install-broken environment the package manager flags, for which RC5017's "optional peer" install hint would be the wrong message
    * @expectedResult Each remaining call site sits inside a `loadOptionalPeer(() => import("..."))` thunk, so a missing optional peer always surfaces as RC5017 with an install hint instead of a raw module-not-found error
    */
   test("no bare optional-peer dynamic import outside loadOptionalPeer", () => {
@@ -82,8 +82,11 @@ describe("optional-peer contract (ci-cd.md section 6)", () => {
         peerDependencies?: Record<string, string>;
         peerDependenciesMeta?: Record<string, { optional?: boolean }>;
       };
-      // Regular dependencies and required (non-optional) peers are always
-      // installed; only optional peers carry the loadOptionalPeer contract.
+      // Only optional peers carry the loadOptionalPeer contract. Regular
+      // dependencies are always installed, and a required (non-optional)
+      // peer that is absent is an install-broken environment the package
+      // manager already flags; RC5017's "optional peer" hint would be the
+      // wrong message for it.
       const alwaysInstalled = new Set([
         ...Object.keys(manifest.dependencies ?? {}),
         ...Object.keys(manifest.peerDependencies ?? {}).filter(
