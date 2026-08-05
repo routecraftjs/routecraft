@@ -2394,6 +2394,36 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
   });
 
   /**
+   * @case Unknown signature scheme fails at construction
+   * @preconditions http({ signature }) with a scheme outside the supported set
+   * @expectedResult RC5003 thrown from the http({...}) call site
+   */
+  test("unknown signature scheme throws RC5003 at construction time", () => {
+    expect(() =>
+      http({
+        path: "/hooks/bad-scheme",
+        method: "POST",
+        signature: {
+          header: "x-hub-signature-256",
+          secret: WEBHOOK_SECRET,
+          scheme: "hmac-md5-hex" as unknown as "hmac-sha256-hex",
+        },
+      }),
+    ).toThrow(/signature\.scheme/);
+  });
+
+  /**
+   * @case Unsupported method fails at construction
+   * @preconditions http({ method }) with a value outside the HTTP method set
+   * @expectedResult RC5003 thrown from the http({...}) call site instead of a dead route
+   */
+  test("unsupported method throws RC5003 at construction time", () => {
+    expect(() =>
+      http({ path: "/bad-method", method: "FETCH" as unknown as "POST" }),
+    ).toThrow(/invalid method/);
+  });
+
+  /**
    * @case Empty body does not bypass the signature gate
    * @preconditions signature configured; POST with an empty body and no signature header
    * @expectedResult 401, proving the empty-body shortcut runs after verification

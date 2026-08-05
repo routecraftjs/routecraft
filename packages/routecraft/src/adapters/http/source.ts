@@ -13,14 +13,34 @@ import { METHODS_WITHOUT_BODY } from "../../plugins/http/body-parser";
 import { invalidSignatureOptionsReason } from "../../plugins/http/webhook-signature";
 import type { HttpMethod, HttpRequestBody, HttpServerOptions } from "./types";
 
+const HTTP_METHODS: ReadonlySet<string> = new Set([
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+]);
+
 /**
  * Resolve the route's method, defaulting to GET and upper-casing so an
  * untyped JS caller passing `method: "post"` matches the dispatcher's
  * uppercase comparison instead of silently registering a route that can
- * never match a request.
+ * never match a request. Anything outside the supported set (including
+ * non-strings squeezed past the types) fails RC5003 at the http({...})
+ * call site rather than registering a dead route.
  */
 function normalizeMethod(options: HttpServerOptions): HttpMethod {
-  return (options.method ?? "GET").toUpperCase() as HttpMethod;
+  const method = options.method ?? "GET";
+  const normalized =
+    typeof method === "string" ? method.toUpperCase() : undefined;
+  if (normalized === undefined || !HTTP_METHODS.has(normalized)) {
+    throw rcError("RC5003", undefined, {
+      message: `http() source: invalid method ${String(method)}. Allowed: ${[...HTTP_METHODS].map((m) => `"${m}"`).join(", ")}.`,
+    });
+  }
+  return normalized as HttpMethod;
 }
 
 // Surface CraftPlugin in the public types of this module so consumers that
@@ -46,6 +66,10 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     // "skip" as "optional", which means "admit anonymously when no
     // credential is presented." Surface the misconfiguration at the
     // `http({...})` call site, not at the first unauthenticated request.
+    // Validate the method unconditionally so an unsupported or non-string
+    // method fails here, not as a dead route at subscribe time.
+    normalizeMethod(options);
+
     const auth = options.auth;
     if (
       auth !== undefined &&

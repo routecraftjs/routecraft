@@ -83,6 +83,19 @@ const HEX_DIGEST_LENGTH = {
 } as const;
 
 /**
+ * Render an untrusted config value for an error message without letting the
+ * renderer itself throw (JSON.stringify rejects BigInt and circular values,
+ * which are exactly the malformed inputs being reported).
+ */
+function describeValue(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
  * Validate a signature options object at construction time. Returns an
  * error message when the shape is invalid, `null` when it is usable.
  * The http source turns a non-null result into RC5003 so misconfiguration
@@ -92,22 +105,22 @@ export function invalidSignatureOptionsReason(
   options: HttpWebhookSignatureOptions,
 ): string | null {
   if (typeof options !== "object" || options === null) {
-    return `invalid signature options ${JSON.stringify(options)}. Pass { header, secret, scheme }.`;
+    return `invalid signature options ${describeValue(options)}. Pass { header, secret, scheme }.`;
   }
   if (
     typeof options.header !== "string" ||
     !HEADER_TOKEN.test(options.header)
   ) {
-    return `invalid signature.header ${JSON.stringify(options.header)}. Pass a legal HTTP header name (RFC 7230 token, e.g. "x-hub-signature-256").`;
+    return `invalid signature.header ${describeValue(options.header)}. Pass a legal HTTP header name (RFC 7230 token, e.g. "x-hub-signature-256").`;
   }
   if (typeof options.secret !== "string" || options.secret === "") {
     return "invalid signature.secret. Pass the provider's non-empty signing secret.";
   }
   if (!SCHEMES.includes(options.scheme)) {
-    return `invalid signature.scheme ${JSON.stringify(options.scheme)}. Allowed: ${SCHEMES.map((s) => `"${s}"`).join(", ")}.`;
+    return `invalid signature.scheme ${describeValue(options.scheme)}. Allowed: ${SCHEMES.map((s) => `"${s}"`).join(", ")}.`;
   }
   if (options.prefix !== undefined && typeof options.prefix !== "string") {
-    return `invalid signature.prefix ${JSON.stringify(options.prefix)}. Pass a string (e.g. "sha256=").`;
+    return `invalid signature.prefix ${describeValue(options.prefix)}. Pass a string (e.g. "sha256=").`;
   }
   if (
     options.toleranceSec !== undefined &&
@@ -115,7 +128,7 @@ export function invalidSignatureOptionsReason(
       !Number.isFinite(options.toleranceSec) ||
       options.toleranceSec <= 0)
   ) {
-    return `invalid signature.toleranceSec ${JSON.stringify(options.toleranceSec)}. Pass a positive number of seconds.`;
+    return `invalid signature.toleranceSec ${describeValue(options.toleranceSec)}. Pass a positive number of seconds.`;
   }
   return null;
 }
@@ -203,6 +216,16 @@ function verifyStripeTimestamped(
     return { ok: false, reason: "invalid signature" };
   }
 
+  // Drop candidates whose length cannot match a sha256 hex digest BEFORE
+  // hashing, so the module's no-full-body-hash-for-malformed-signatures
+  // guarantee holds for this scheme too.
+  const viable = candidates.filter(
+    (candidate) => candidate.length === HEX_DIGEST_LENGTH["hmac-sha256-hex"],
+  );
+  if (viable.length === 0) {
+    return { ok: false, reason: "invalid signature" };
+  }
+
   const toleranceSec = options.toleranceSec ?? DEFAULT_TOLERANCE_SEC;
   const nowSec = Math.floor(Date.now() / 1000);
   if (Math.abs(nowSec - parseInt(rawTimestamp, 10)) > toleranceSec) {
@@ -216,10 +239,8 @@ function verifyStripeTimestamped(
     .update(`${rawTimestamp}.`)
     .update(rawBody)
     .digest("hex");
-  return candidates.some(
-    (candidate) =>
-      candidate.length === HEX_DIGEST_LENGTH["hmac-sha256-hex"] &&
-      timingSafeStringEqual(expected, candidate.toLowerCase()),
+  return viable.some((candidate) =>
+    timingSafeStringEqual(expected, candidate.toLowerCase()),
   )
     ? { ok: true }
     : { ok: false, reason: "invalid signature" };

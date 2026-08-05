@@ -274,17 +274,18 @@ Schemes: `"hmac-sha256-hex"` (hex HMAC-SHA256, optional `prefix` such as GitHub'
 
 Rules enforced at construction (`RC5003` from the `http({...})` call site): `signature` requires a body-bearing method (`POST`, `PUT`, `PATCH`), a non-empty `secret`, and a known `scheme`. At request time, oversized bodies still return 413 before any signature computation, and an empty body on a signature-gated route is verified rather than waved through. The gate is independent of the global `auth` middleware; webhook endpoints typically pair it with `auth: "skip"` since the signature is the credential.
 
-**Manual verification (escape hatch).** For providers whose scheme is not built in, opt in to the raw bytes and verify in a route step:
+**Manual verification (escape hatch).** For providers whose scheme is not built in, opt in to the raw bytes and verify in a route step. Note the semantics differ from the built-in gate: `.filter()` drops an unsigned or invalid delivery (the exchange ends with a `route:exchange:dropped` event and the sender receives the route's normal empty response), it does not return 401 or raise RC5039. That is usually fine for webhooks, since providers only distinguish 2xx from non-2xx, but if you need an explicit 401 use the built-in `signature` option or set the response status yourself before dropping.
 
 ```typescript
 .from(http({ path: '/hooks/custom', method: 'POST', auth: 'skip', rawBody: true }))
-.filter((ex) => verifyMySignature(
-  ex.headers['routecraft.http.rawBody']!,
-  ex.headers['routecraft.http.rawHeaders']!['x-custom-signature'],
-))
+.filter((ex) => {
+  const signature = ex.headers['routecraft.http.rawHeaders']?.['x-custom-signature']
+  if (!signature) return { reason: 'missing x-custom-signature header' }
+  return verifyMySignature(ex.headers['routecraft.http.rawBody']!, signature)
+})
 ```
 
-Failure of a signature check (RC5039) is documented on the [errors reference](/docs/reference/errors#rc-5039).
+RC5039 applies only to the built-in `signature` gate; it is documented on the [errors reference](/docs/reference/errors#rc-5039).
 
 ### Route matching and information disclosure
 

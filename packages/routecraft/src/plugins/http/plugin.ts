@@ -23,6 +23,7 @@ import {
   type HttpRouteRegistry,
 } from "./registry";
 import type { HttpOpenApiInfo } from "./openapi";
+import type { HttpWebhookSignatureRejection } from "./webhook-signature";
 import { findPackageInfo } from "./package-info";
 import { startServer, type HttpServerHandle } from "./server";
 
@@ -189,7 +190,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
       // because the per-route signature gate is independent of the global
       // auth middleware; a webhook endpoint typically pairs it with
       // auth: "skip".
-      const onSignatureRejected = (reason: string) => {
+      const onSignatureRejected = (reason: HttpWebhookSignatureRejection) => {
         ctx.emit("auth:rejected", {
           reason,
           scheme: "signature",

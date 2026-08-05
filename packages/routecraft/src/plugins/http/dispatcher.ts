@@ -164,7 +164,7 @@ export function createDispatcher(
           // it through the same `onAuthAbsent` hook the user-route path uses.
           if (result.kind === "reject") return result.response;
           if (result.kind === "absent") {
-            opts.onAuthAbsent?.(result.scheme);
+            safeNotify(() => opts.onAuthAbsent?.(result.scheme));
             return missingCredentialResponse(result.scheme);
           }
         }
@@ -224,7 +224,7 @@ export function createDispatcher(
       }
       if (result.kind === "absent") {
         if (entry.authMode === "required") {
-          opts.onAuthAbsent?.(result.scheme);
+          safeNotify(() => opts.onAuthAbsent?.(result.scheme));
           const response = missingCredentialResponse(result.scheme);
           emitCompleted(opts, {
             method,
@@ -267,7 +267,7 @@ export function createDispatcher(
         // is not an RFC 7235 challenge scheme, matching the apiKey
         // precedent. The bounded reason rides the typed field on the error,
         // never err.message (see .standards/security.md section 10).
-        opts.onSignatureRejected?.(err.signatureRejection);
+        safeNotify(() => opts.onSignatureRejected?.(err.signatureRejection));
         const response = jsonResponse(
           { error: "unauthorized", reason: err.signatureRejection },
           { status: err.httpStatus },
@@ -360,6 +360,18 @@ export function createDispatcher(
       return response;
     }
   };
+}
+
+/**
+ * Run a user-facing listener without letting its exceptions reach the
+ * request path, mirroring the guard emitCompleted applies to its handler.
+ */
+function safeNotify(fn: () => void): void {
+  try {
+    fn();
+  } catch {
+    // never let listener exceptions propagate into the request path
+  }
 }
 
 function emitCompleted(
