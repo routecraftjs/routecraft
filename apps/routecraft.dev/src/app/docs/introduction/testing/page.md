@@ -276,8 +276,8 @@ const logsForRoute = infoCalls.filter(
 ### Test custom sources that await the final exchange
 
 ```ts
-import { testContext } from "@routecraft/testing";
-import { craft, spy } from "@routecraft/routecraft";
+import { testContext, spy } from "@routecraft/testing";
+import { craft } from "@routecraft/routecraft";
 
 let observed: any;
 const spyAdapter = spy();

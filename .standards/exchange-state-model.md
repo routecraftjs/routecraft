@@ -154,7 +154,7 @@ ex.headers["routecraft.http.response.contentType"]
 ex.headers["routecraft.http.response.headers"]
 ```
 
-Request metadata and response hints mirror each other deliberately — both are envelope around the same `body` payload.
+Request metadata and response hints mirror each other deliberately -- both are envelope around the same `body` payload.
 
 ### What stays on `body`
 
