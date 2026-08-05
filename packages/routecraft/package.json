@@ -32,7 +32,7 @@
     "access": "public"
   },
   "devDependencies": {
-    "@opentelemetry/sdk-trace-base": "^2.9.0",
+    "@opentelemetry/sdk-trace-base": "^2.10.0",
     "@routecraft/testing": "workspace:*",
     "@sinonjs/fake-timers": "^11.3.1",
     "@types/better-sqlite3": "^7.6.13",
@@ -44,8 +44,8 @@
     "better-sqlite3": "^11.10.0",
     "cheerio": "^1.2.0",
     "croner": "^10.0.1",
-    "fast-xml-parser": "^5.10.0",
-    "imapflow": "^1.4.7",
+    "fast-xml-parser": "^5.10.1",
+    "imapflow": "^1.4.9",
     "mailauth": "^4.13.2",
     "mailparser": "^3.9.14",
     "nodemailer": "^6.10.1",
