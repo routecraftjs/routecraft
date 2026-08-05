@@ -1,8 +1,8 @@
 import type { Cron as CronType } from "croner";
-import { type ExchangeHeaders } from "../../exchange";
+import type { ExchangeHeaders } from "../../exchange";
 import { CronHeaders } from "./types";
-import { type Source, type Subscription } from "../../operations/from";
-import { type CraftContext, type MergedOptions } from "../../context";
+import type { Source, Subscription } from "../../operations/from";
+import type { CraftContext, MergedOptions } from "../../context";
 import { loadOptionalPeer } from "../shared/optional-peer";
 import type { CronExpression, CronOptions } from "./types";
 

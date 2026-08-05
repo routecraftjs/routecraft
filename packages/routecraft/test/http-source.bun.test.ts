@@ -1848,3 +1848,833 @@ describe("HTTP Source Adapter -- regression: auth hardening", () => {
     expect(body.subject).toMatch(/^apiKey:[0-9a-f]{16}$/);
   });
 });
+
+describe("HTTP Source Adapter: raw body and webhook signatures", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) {
+      await t.stop();
+      t = undefined;
+    }
+  });
+
+  const WEBHOOK_SECRET = "whsec_test_secret";
+
+  function signSha256Hex(body: string, secret = WEBHOOK_SECRET): string {
+    return createHmac("sha256", secret).update(body).digest("hex");
+  }
+
+  function signSha1Hex(body: string, secret = WEBHOOK_SECRET): string {
+    return createHmac("sha1", secret).update(body).digest("hex");
+  }
+
+  function stripeHeader(
+    body: string,
+    opts: { timestamp?: number; secret?: string; v1?: string } = {},
+  ): string {
+    const timestamp = opts.timestamp ?? Math.floor(Date.now() / 1000);
+    const v1 =
+      opts.v1 ??
+      createHmac("sha256", opts.secret ?? WEBHOOK_SECRET)
+        .update(`${timestamp}.${body}`)
+        .digest("hex");
+    return `t=${timestamp},v1=${v1}`;
+  }
+
+  /**
+   * @case rawBody opt-in attaches the exact wire bytes to the exchange
+   * @preconditions Route uses http({ rawBody: true }); POST body contains unicode and significant whitespace
+   * @expectedResult routecraft.http.rawBody is a Uint8Array byte-identical to what was sent, and the parsed body still arrives as the JSON object
+   */
+  test("rawBody: true attaches byte-faithful wire bytes alongside the parsed body", async () => {
+    let captured: Uint8Array | undefined;
+    let parsedBody: unknown;
+    // Key order, embedded whitespace, and unicode are exactly what a
+    // re-serialisation of the parsed object would not preserve.
+    const wireBody = '{ "b":\t"émoji 🚀",  "a": 1 }';
+    const bound = await bootHttp({
+      routes: craft()
+        .id("raw-echo")
+        .from(http({ path: "/raw-echo", method: "POST", rawBody: true }))
+        .process(async (ex) => {
+          captured = ex.headers["routecraft.http.rawBody"];
+          parsedBody = ex.body;
+          return DefaultExchange.rewrap(ex, { body: { ok: true } });
+        })
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/raw-echo`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: wireBody,
+    });
+    expect(res.status).toBe(200);
+    expect(captured).toBeInstanceOf(Uint8Array);
+    expect(Buffer.from(captured!).equals(Buffer.from(wireBody))).toBe(true);
+    expect(parsedBody).toEqual({ b: "émoji 🚀", a: 1 });
+  });
+
+  /**
+   * @case rawBody defaults to off
+   * @preconditions Route uses http({...}) without rawBody
+   * @expectedResult routecraft.http.rawBody is absent from the exchange headers
+   */
+  test("rawBody is absent by default", async () => {
+    let sawKey = true;
+    const bound = await bootHttp({
+      routes: craft()
+        .id("raw-off")
+        .from(http({ path: "/raw-off", method: "POST" }))
+        .process(async (ex) => {
+          sawKey = "routecraft.http.rawBody" in ex.headers;
+          return DefaultExchange.rewrap(ex, { body: { ok: true } });
+        })
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/raw-off`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"a":1}',
+    });
+    expect(res.status).toBe(200);
+    expect(sawKey).toBe(false);
+  });
+
+  /**
+   * @case GitHub-style hmac-sha256-hex signature with prefix admits a valid delivery
+   * @preconditions signature: { header: x-hub-signature-256, scheme: hmac-sha256-hex, prefix: "sha256=" }
+   * @expectedResult Correctly signed request reaches the route and returns 200
+   */
+  test("hmac-sha256-hex with prefix admits a correctly signed request", async () => {
+    const body = '{"action":"opened"}';
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-hook")
+        .from(
+          http({
+            path: "/hooks/github",
+            method: "POST",
+            signature: {
+              header: "x-hub-signature-256",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha256-hex",
+              prefix: "sha256=",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/github`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature-256": `sha256=${signSha256Hex(body)}`,
+      },
+      body,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true });
+  });
+
+  /**
+   * @case Tampered body rejects before the route runs
+   * @preconditions Valid signature computed for a different body than the one sent
+   * @expectedResult 401 { error: "unauthorized", reason: "invalid signature" }; the route handler never executes
+   */
+  test("tampered body rejects 401 and the route never runs", async () => {
+    let routeRan = false;
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-tamper")
+        .from(
+          http({
+            path: "/hooks/tamper",
+            method: "POST",
+            signature: {
+              header: "x-hub-signature-256",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha256-hex",
+              prefix: "sha256=",
+            },
+          }),
+        )
+        .transform(() => {
+          routeRan = true;
+          return { received: true };
+        })
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/tamper`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature-256": `sha256=${signSha256Hex('{"a":1}')}`,
+      },
+      body: '{"a":2}',
+    });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({
+      error: "unauthorized",
+      reason: "invalid signature",
+    });
+    expect(routeRan).toBe(false);
+  });
+
+  /**
+   * @case Wrong signing secret rejects
+   * @preconditions Signature computed with a secret that differs from the route's
+   * @expectedResult 401 with reason "invalid signature"
+   */
+  test("wrong secret rejects 401", async () => {
+    const body = '{"a":1}';
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-wrong-secret")
+        .from(
+          http({
+            path: "/hooks/ws",
+            method: "POST",
+            signature: {
+              header: "x-hub-signature-256",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha256-hex",
+              prefix: "sha256=",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/ws`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature-256": `sha256=${signSha256Hex(body, "other-secret")}`,
+      },
+      body,
+    });
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { reason: string }).reason).toBe(
+      "invalid signature",
+    );
+  });
+
+  /**
+   * @case Missing signature header rejects with its own bounded reason
+   * @preconditions signature configured; request sent without the header
+   * @expectedResult 401 with reason "missing signature header"
+   */
+  test("missing signature header rejects 401 with bounded reason", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-missing")
+        .from(
+          http({
+            path: "/hooks/missing",
+            method: "POST",
+            signature: {
+              header: "x-hub-signature-256",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha256-hex",
+              prefix: "sha256=",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/missing`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"a":1}',
+    });
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { reason: string }).reason).toBe(
+      "missing signature header",
+    );
+  });
+
+  /**
+   * @case Legacy hmac-sha1-hex scheme verifies symmetrically
+   * @preconditions signature: { scheme: hmac-sha1-hex, prefix: "sha1=" }
+   * @expectedResult Valid sha1 signature admits; invalid rejects 401
+   */
+  test("hmac-sha1-hex admits valid and rejects invalid signatures", async () => {
+    const body = '{"a":1}';
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-sha1")
+        .from(
+          http({
+            path: "/hooks/sha1",
+            method: "POST",
+            signature: {
+              header: "x-hub-signature",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha1-hex",
+              prefix: "sha1=",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const good = await fetch(`http://127.0.0.1:${bound.port}/hooks/sha1`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature": `sha1=${signSha1Hex(body)}`,
+      },
+      body,
+    });
+    expect(good.status).toBe(200);
+
+    const bad = await fetch(`http://127.0.0.1:${bound.port}/hooks/sha1`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature": `sha1=${signSha1Hex(body, "other")}`,
+      },
+      body,
+    });
+    expect(bad.status).toBe(401);
+  });
+
+  /**
+   * @case Stripe-timestamped scheme admits a fresh signature and rejects expiry and tampering distinctly
+   * @preconditions signature: { scheme: stripe-timestamped } with default tolerance
+   * @expectedResult Fresh t admits; t older than the tolerance rejects "signature expired"; tampered v1 rejects "invalid signature"
+   */
+  test("stripe-timestamped verifies freshness and integrity separately", async () => {
+    const body = '{"type":"payment_intent.succeeded"}';
+    const bound = await bootHttp({
+      routes: craft()
+        .id("stripe-hook")
+        .from(
+          http({
+            path: "/hooks/stripe",
+            method: "POST",
+            signature: {
+              header: "stripe-signature",
+              secret: WEBHOOK_SECRET,
+              scheme: "stripe-timestamped",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const url = `http://127.0.0.1:${bound.port}/hooks/stripe`;
+    const headers = { "content-type": "application/json" };
+
+    const fresh = await fetch(url, {
+      method: "POST",
+      headers: { ...headers, "stripe-signature": stripeHeader(body) },
+      body,
+    });
+    expect(fresh.status).toBe(200);
+
+    const stale = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "stripe-signature": stripeHeader(body, {
+          timestamp: Math.floor(Date.now() / 1000) - 3600,
+        }),
+      },
+      body,
+    });
+    expect(stale.status).toBe(401);
+    expect(((await stale.json()) as { reason: string }).reason).toBe(
+      "signature expired",
+    );
+
+    const tampered = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "stripe-signature": stripeHeader(body, { v1: "0".repeat(64) }),
+      },
+      body,
+    });
+    expect(tampered.status).toBe(401);
+    expect(((await tampered.json()) as { reason: string }).reason).toBe(
+      "invalid signature",
+    );
+  });
+
+  /**
+   * @case Length-mismatched signature value is an ordinary rejection
+   * @preconditions Signature header carries a value shorter than a sha256 hex digest
+   * @expectedResult 401 "invalid signature" through the same path as a same-length mismatch; no 500 from timingSafeEqual length constraints
+   */
+  test("signature of a different length rejects without throwing", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-short")
+        .from(
+          http({
+            path: "/hooks/short",
+            method: "POST",
+            signature: {
+              header: "x-hub-signature-256",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha256-hex",
+              prefix: "sha256=",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/short`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature-256": "sha256=abc123",
+      },
+      body: '{"a":1}',
+    });
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { reason: string }).reason).toBe(
+      "invalid signature",
+    );
+  });
+
+  /**
+   * @case Oversized body is rejected 413 before any signature computation
+   * @preconditions maxBodySize smaller than the payload; signature configured with a value that would also fail
+   * @expectedResult 413 (size check), not 401 (signature check), proving the ordering
+   */
+  test("maxBodySize rejects 413 before the signature gate", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-big")
+        .from(
+          http({
+            path: "/hooks/big",
+            method: "POST",
+            signature: {
+              header: "x-hub-signature-256",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha256-hex",
+              prefix: "sha256=",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0, maxBodySize: 16 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/big`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature-256": "sha256=not-checked",
+      },
+      body: JSON.stringify({ padding: "x".repeat(64) }),
+    });
+    expect(res.status).toBe(413);
+  });
+
+  /**
+   * @case Signature gate is independent of the global auth middleware
+   * @preconditions Global jwt auth configured; route uses auth: "skip" plus signature
+   * @expectedResult A correctly signed request with no Authorization header returns 200
+   */
+  test("signature admits with auth: skip and no credential under global auth", async () => {
+    const body = '{"a":1}';
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-skip")
+        .from(
+          http({
+            path: "/hooks/skip",
+            method: "POST",
+            auth: "skip",
+            signature: {
+              header: "x-hub-signature-256",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha256-hex",
+              prefix: "sha256=",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/skip`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature-256": `sha256=${signSha256Hex(body)}`,
+      },
+      body,
+    });
+    expect(res.status).toBe(200);
+  });
+
+  /**
+   * @case signature on a bodyless method fails at construction
+   * @preconditions http({ method: "GET", signature: {...} })
+   * @expectedResult RC5003 thrown from the http({...}) call site, before any server exists
+   */
+  test("signature on GET throws RC5003 at construction time", () => {
+    expect(() =>
+      http({
+        path: "/hooks/get",
+        method: "GET",
+        signature: {
+          header: "x-hub-signature-256",
+          secret: WEBHOOK_SECRET,
+          scheme: "hmac-sha256-hex",
+        },
+      }),
+    ).toThrow(/body-bearing method/);
+  });
+
+  /**
+   * @case Invalid signature options fail at construction
+   * @preconditions http({ signature }) with an empty secret
+   * @expectedResult RC5003 thrown from the http({...}) call site
+   */
+  test("empty signature secret throws RC5003 at construction time", () => {
+    expect(() =>
+      http({
+        path: "/hooks/bad-opts",
+        method: "POST",
+        signature: {
+          header: "x-hub-signature-256",
+          secret: "",
+          scheme: "hmac-sha256-hex",
+        },
+      }),
+    ).toThrow(/signature\.secret/);
+  });
+
+  /**
+   * @case Unknown signature scheme fails at construction
+   * @preconditions http({ signature }) with a scheme outside the supported set
+   * @expectedResult RC5003 thrown from the http({...}) call site
+   */
+  test("unknown signature scheme throws RC5003 at construction time", () => {
+    expect(() =>
+      http({
+        path: "/hooks/bad-scheme",
+        method: "POST",
+        signature: {
+          header: "x-hub-signature-256",
+          secret: WEBHOOK_SECRET,
+          scheme: "hmac-md5-hex" as unknown as "hmac-sha256-hex",
+        },
+      }),
+    ).toThrow(/signature\.scheme/);
+  });
+
+  /**
+   * @case Unsupported method fails at construction
+   * @preconditions http({ method }) with a value outside the HTTP method set
+   * @expectedResult RC5003 thrown from the http({...}) call site instead of a dead route
+   */
+  test("unsupported method throws RC5003 at construction time", () => {
+    expect(() =>
+      http({ path: "/bad-method", method: "FETCH" as unknown as "POST" }),
+    ).toThrow(/invalid method/);
+  });
+
+  /**
+   * @case Empty body does not bypass the signature gate
+   * @preconditions signature configured; POST with an empty body and no signature header
+   * @expectedResult 401, proving the empty-body shortcut runs after verification
+   */
+  test("unsigned empty body rejects 401 on a signature-gated route", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-empty")
+        .from(
+          http({
+            path: "/hooks/empty",
+            method: "POST",
+            signature: {
+              header: "x-hub-signature-256",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha256-hex",
+              prefix: "sha256=",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const unsigned = await fetch(`http://127.0.0.1:${bound.port}/hooks/empty`, {
+      method: "POST",
+    });
+    expect(unsigned.status).toBe(401);
+
+    // A correctly signed empty body is still a valid delivery.
+    const signed = await fetch(`http://127.0.0.1:${bound.port}/hooks/empty`, {
+      method: "POST",
+      headers: { "x-hub-signature-256": `sha256=${signSha256Hex("")}` },
+    });
+    expect(signed.status).toBe(200);
+  });
+
+  /**
+   * @case Signature rejection emits auth:rejected with the documented shape
+   * @preconditions signature configured; one invalid delivery
+   * @expectedResult auth:rejected fires with { reason, scheme: "signature", source: "http" }
+   */
+  test("signature rejection emits auth:rejected with scheme signature", async () => {
+    const rejected: Array<Record<string, unknown>> = [];
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-event")
+        .from(
+          http({
+            path: "/hooks/event",
+            method: "POST",
+            signature: {
+              header: "x-hub-signature-256",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha256-hex",
+              prefix: "sha256=",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+      events: {
+        "auth:rejected": (ev) =>
+          rejected.push(ev.details as Record<string, unknown>),
+      },
+    });
+    t = bound.ctx;
+
+    await fetch(`http://127.0.0.1:${bound.port}/hooks/event`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"a":1}',
+    });
+
+    expect(rejected[0]).toEqual({
+      reason: "missing signature header",
+      scheme: "signature",
+      source: "http",
+    });
+  });
+
+  /**
+   * @case Illegal header name in signature options fails at construction
+   * @preconditions signature.header contains a space (invalid RFC 7230 token)
+   * @expectedResult RC5003 from the http({...}) call site, not a request-time TypeError
+   */
+  test("invalid signature.header token throws RC5003 at construction time", () => {
+    expect(() =>
+      http({
+        path: "/hooks/bad-header",
+        method: "POST",
+        signature: {
+          header: "x hub signature",
+          secret: WEBHOOK_SECRET,
+          scheme: "hmac-sha256-hex",
+        },
+      }),
+    ).toThrow(/signature\.header/);
+  });
+
+  /**
+   * @case Uppercase hex signatures verify (hex casing carries no information)
+   * @preconditions Provider emits the HMAC digest in uppercase hex
+   * @expectedResult Correctly signed request is admitted with 200
+   */
+  test("uppercase hex signature is accepted", async () => {
+    const body = '{"a":1}';
+    const bound = await bootHttp({
+      routes: craft()
+        .id("gh-upper")
+        .from(
+          http({
+            path: "/hooks/upper",
+            method: "POST",
+            signature: {
+              header: "x-hub-signature-256",
+              secret: WEBHOOK_SECRET,
+              scheme: "hmac-sha256-hex",
+              prefix: "sha256=",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/upper`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hub-signature-256": `sha256=${signSha256Hex(body).toUpperCase()}`,
+      },
+      body,
+    });
+    expect(res.status).toBe(200);
+  });
+
+  /**
+   * @case Stripe scheme signs over the raw t field text, not a re-serialised parse of it
+   * @preconditions t carries a leading zero; the sender signed over the exact raw field
+   * @expectedResult Delivery verifies (200); a t with a junk suffix rejects as invalid signature
+   */
+  test("stripe scheme uses the raw t text and rejects malformed t", async () => {
+    const body = '{"type":"x"}';
+    const bound = await bootHttp({
+      routes: craft()
+        .id("stripe-rawt")
+        .from(
+          http({
+            path: "/hooks/stripe-rawt",
+            method: "POST",
+            signature: {
+              header: "stripe-signature",
+              secret: WEBHOOK_SECRET,
+              scheme: "stripe-timestamped",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const url = `http://127.0.0.1:${bound.port}/hooks/stripe-rawt`;
+    const headers = { "content-type": "application/json" };
+
+    // Leading-zero t: same numeric instant (within tolerance), different text.
+    const rawT = `0${Math.floor(Date.now() / 1000)}`;
+    const v1 = createHmac("sha256", WEBHOOK_SECRET)
+      .update(`${rawT}.${body}`)
+      .digest("hex");
+    const leadingZero = await fetch(url, {
+      method: "POST",
+      headers: { ...headers, "stripe-signature": `t=${rawT},v1=${v1}` },
+      body,
+    });
+    expect(leadingZero.status).toBe(200);
+
+    // Non-digit t must reject as invalid signature, not silently truncate.
+    const junk = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "stripe-signature": stripeHeader(body).replace(",v1=", "junk,v1="),
+      },
+      body,
+    });
+    expect(junk.status).toBe(401);
+    expect(((await junk.json()) as { reason: string }).reason).toBe(
+      "invalid signature",
+    );
+  });
+
+  /**
+   * @case rawBody does not alias a mutable exchange body
+   * @preconditions Unknown content-type (body IS the raw bytes) with rawBody: true; a step mutates the body in place
+   * @expectedResult routecraft.http.rawBody still carries the original wire bytes
+   */
+  test("rawBody stays byte-faithful when the octet-stream body is mutated in place", async () => {
+    let rawAfterMutation: Uint8Array | undefined;
+    const wire = new Uint8Array([1, 2, 3, 4]);
+    const bound = await bootHttp({
+      routes: craft()
+        .id("raw-alias")
+        .from(http({ path: "/raw-alias", method: "POST", rawBody: true }))
+        .process(async (ex) => {
+          (ex.body as Uint8Array)[0] = 99;
+          rawAfterMutation = ex.headers["routecraft.http.rawBody"];
+          return DefaultExchange.rewrap(ex, { body: { ok: true } });
+        })
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/raw-alias`, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: wire,
+    });
+    expect(res.status).toBe(200);
+    expect(Array.from(rawAfterMutation!)).toEqual([1, 2, 3, 4]);
+  });
+
+  /**
+   * @case Lowercase method from an untyped caller is normalised at registration
+   * @preconditions http({ method: "post" }) via a JS-style cast
+   * @expectedResult The route matches POST requests instead of silently 404ing
+   */
+  test("lowercase method is normalised so the route still matches", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("lower-method")
+        .from(http({ path: "/lower", method: "post" as unknown as "POST" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/lower`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"a":1}',
+    });
+    expect(res.status).toBe(200);
+  });
+});

@@ -1,9 +1,9 @@
-import { type Exchange, type ExchangeHeaders } from "./exchange.ts";
-import { type OperationType } from "./exchange.ts";
-import { type CraftContext } from "./context.ts";
-import { type RouteDefinition } from "./route.ts";
-import { type Route } from "./route.ts";
-import { type OnParseError } from "./adapters/shared/parse.ts";
+import type { Exchange, ExchangeHeaders } from "./exchange.ts";
+import type { OperationType } from "./exchange.ts";
+import type { CraftContext } from "./context.ts";
+import type { RouteDefinition } from "./route.ts";
+import type { Route } from "./route.ts";
+import type { OnParseError } from "./adapters/shared/parse.ts";
 
 /**
  * Base interface for all adapters (sources, destinations, transformers, filters, etc.).

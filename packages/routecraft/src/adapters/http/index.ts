@@ -84,4 +84,6 @@ export type {
   HttpBuiltinOptions,
   HttpOpenApiBuiltinOptions,
   HttpOpenApiInfo,
+  HttpWebhookSignatureOptions,
+  HttpWebhookSignatureScheme,
 } from "./types";

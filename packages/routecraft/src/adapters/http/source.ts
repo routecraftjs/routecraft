@@ -1,4 +1,4 @@
-import { type CraftPlugin } from "../../context";
+import type { CraftPlugin } from "../../context";
 import { rcError } from "../../error";
 import type { Source, Subscription } from "../../operations/from";
 import {
@@ -9,7 +9,39 @@ import {
   type HttpRouteRegistry,
 } from "../../plugins/http/registry";
 import { compilePathMatcher } from "../../plugins/http/path-matcher";
+import { METHODS_WITHOUT_BODY } from "../../plugins/http/body-parser";
+import { invalidSignatureOptionsReason } from "../../plugins/http/webhook-signature";
 import type { HttpMethod, HttpRequestBody, HttpServerOptions } from "./types";
+
+const HTTP_METHODS: ReadonlySet<string> = new Set([
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+]);
+
+/**
+ * Resolve the route's method, defaulting to GET and upper-casing so an
+ * untyped JS caller passing `method: "post"` matches the dispatcher's
+ * uppercase comparison instead of silently registering a route that can
+ * never match a request. Anything outside the supported set (including
+ * non-strings squeezed past the types) fails RC5003 at the http({...})
+ * call site rather than registering a dead route.
+ */
+function normalizeMethod(options: HttpServerOptions): HttpMethod {
+  const method = options.method ?? "GET";
+  const normalized =
+    typeof method === "string" ? method.toUpperCase() : undefined;
+  if (normalized === undefined || !HTTP_METHODS.has(normalized)) {
+    throw rcError("RC5003", undefined, {
+      message: `http() source: invalid method ${String(method)}. Allowed: ${[...HTTP_METHODS].map((m) => `"${m}"`).join(", ")}.`,
+    });
+  }
+  return normalized as HttpMethod;
+}
 
 // Surface CraftPlugin in the public types of this module so consumers that
 // only import the source adapter still see the symbol (without re-exporting
@@ -34,6 +66,10 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     // "skip" as "optional", which means "admit anonymously when no
     // credential is presented." Surface the misconfiguration at the
     // `http({...})` call site, not at the first unauthenticated request.
+    // Validate the method unconditionally so an unsupported or non-string
+    // method fails here, not as a dead route at subscribe time.
+    normalizeMethod(options);
+
     const auth = options.auth;
     if (
       auth !== undefined &&
@@ -46,6 +82,27 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
           auth,
         )}. Allowed: "required", "optional", "skip".`,
       });
+    }
+
+    if (options.signature !== undefined) {
+      // The body parser skips METHODS_WITHOUT_BODY entirely, which would
+      // silently skip verification too. A signature gate on a route that
+      // never has a body to sign is a configuration error; fail at the
+      // http({...}) call site, not at the first delivery. Checking the
+      // shared set (not a local copy) keeps this guard in lockstep with
+      // the parser's skip.
+      const method = normalizeMethod(this.options);
+      if (METHODS_WITHOUT_BODY.has(method)) {
+        throw rcError("RC5003", undefined, {
+          message: `http() source: signature verification requires a body-bearing method, got "${method}". Webhook providers sign the request body; use POST, PUT, or PATCH.`,
+        });
+      }
+      const invalid = invalidSignatureOptionsReason(options.signature);
+      if (invalid !== null) {
+        throw rcError("RC5003", undefined, {
+          message: `http() source: ${invalid}`,
+        });
+      }
     }
   }
 
@@ -67,7 +124,7 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
       });
     }
 
-    const method: HttpMethod = this.options.method ?? "GET";
+    const method = normalizeMethod(this.options);
     const matcher = compilePathMatcher(this.options.path);
     const routeId = meta?.routeId ?? `http:${method}:${matcher.pattern}`;
     // `auth` was validated in the constructor; here we just normalise the
@@ -78,6 +135,8 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
       method,
       matcher,
       authMode,
+      rawBody: this.options.rawBody ?? false,
+      signature: this.options.signature,
       discovery: meta?.discovery,
       handler: (body, headers) =>
         sub.emit({

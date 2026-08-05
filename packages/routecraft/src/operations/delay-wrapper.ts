@@ -1,4 +1,4 @@
-import { type Exchange } from "../exchange.ts";
+import type { Exchange } from "../exchange.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { wrapperEventScope } from "./event-scope.ts";

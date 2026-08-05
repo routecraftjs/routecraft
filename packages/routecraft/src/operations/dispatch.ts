@@ -1,10 +1,5 @@
 import { LRUCache } from "lru-cache";
-import {
-  type Adapter,
-  type Step,
-  type StepContext,
-  type StepOutcome,
-} from "../types.ts";
+import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { type Exchange, OperationType, cloneExchange } from "../exchange.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";

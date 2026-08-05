@@ -24,16 +24,11 @@ import {
 import { rcError } from "./error.ts";
 import { logger } from "./logger.ts";
 import { CraftClient } from "./client.ts";
-import { type EventHandler, type EventName } from "./types.ts";
+import type { EventHandler, EventName } from "./types.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
 import { BatchConsumer } from "./consumers/batch.ts";
 import { type Source, type SourceLike, toSource } from "./operations/from.ts";
-import {
-  type Adapter,
-  type Step,
-  type Consumer,
-  type ConsumerType,
-} from "./types.ts";
+import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
 import {
   type Splitter,

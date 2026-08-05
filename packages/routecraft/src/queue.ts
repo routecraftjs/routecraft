@@ -1,5 +1,5 @@
-import { type ProcessingQueue } from "./types.ts";
-import { type Exchange } from "./exchange.ts";
+import type { ProcessingQueue } from "./types.ts";
+import type { Exchange } from "./exchange.ts";
 
 /**
  * In-memory processing queue used internally by a route to pass messages from the source to the consumer.

@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { INTERNALS_KEY, BRAND, setBrand, setInternals } from "./brand.ts";
-import { type CraftContext } from "./context.ts";
+// `import type` (not `import { type }`): under verbatimModuleSyntax the
+// braced form keeps a runtime side-effect import, which closes the module
+// cycle exchange -> context -> route -> wrapper -> exchange and leaves
+// OperationType uninitialised for ESM loaders that evaluate the cycle in
+// that order (vite/vitest; bun's loader happens to tolerate it).
+import type { CraftContext } from "./context.ts";
 import { logger, childBindings } from "./logger.ts";
 import type { Route } from "./route.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";

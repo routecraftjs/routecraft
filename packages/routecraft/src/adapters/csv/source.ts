@@ -5,7 +5,7 @@ import type {
   Subscription,
 } from "../../operations/from.ts";
 import type { CsvFileOptions, CsvData, CsvRow } from "./types.ts";
-import { type ExchangeHeaders } from "../../exchange.ts";
+import type { ExchangeHeaders } from "../../exchange.ts";
 import { CsvHeaders } from "./types.ts";
 import { file } from "../file/index.ts";
 import { ensurePapaparse, parseCsv } from "./shared.ts";

@@ -1,4 +1,4 @@
-import { type ActorMatcher, type Principal } from "./types.ts";
+import type { ActorMatcher, Principal } from "./types.ts";
 
 /**
  * Module-private registry of authentic principals.

@@ -1,4 +1,4 @@
-import { type FieldTransform } from "./transform.ts";
+import type { FieldTransform } from "./transform.ts";
 import { getPath, hasPath, setPath } from "./field-paths.ts";
 
 /**

@@ -1,5 +1,5 @@
 ---
-"@routecraft/routecraft": major
+"@routecraft/routecraft": minor
 ---
 
 Fold `.input()` validation into the pre-from filter chain (breaking behaviour change).

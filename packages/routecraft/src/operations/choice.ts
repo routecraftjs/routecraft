@@ -1,4 +1,4 @@
-import { type Adapter, type Step, type StepOutcome } from "../types.ts";
+import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -10,7 +10,7 @@ import {
 import { rcError } from "../error.ts";
 import { COLLECT_STEPS } from "../dsl-symbol.ts";
 import { StepBuilderBase, type BuilderState } from "../step-builder-base.ts";
-import { type Destination, type ToResultBody } from "./to.ts";
+import type { Destination, ToResultBody } from "./to.ts";
 
 /**
  * Predicate that decides whether a choice branch matches an exchange.

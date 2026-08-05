@@ -386,6 +386,8 @@ export {
   type HttpBuiltinOptions,
   type HttpOpenApiBuiltinOptions,
   type HttpOpenApiInfo,
+  type HttpWebhookSignatureOptions,
+  type HttpWebhookSignatureScheme,
 } from "./adapters/http/index.ts";
 export {
   type DirectBaseOptions,

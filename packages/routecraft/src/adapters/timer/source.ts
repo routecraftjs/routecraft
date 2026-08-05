@@ -1,6 +1,6 @@
-import { type ExchangeHeaders } from "../../exchange";
+import type { ExchangeHeaders } from "../../exchange";
 import { TimerHeaders } from "./types";
-import { type Source, type Subscription } from "../../operations/from";
+import type { Source, Subscription } from "../../operations/from";
 import type { TimerOptions } from "./types";
 
 export class TimerSourceAdapter implements Source<undefined> {

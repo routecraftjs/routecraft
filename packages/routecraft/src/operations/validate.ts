@@ -1,5 +1,5 @@
-import { type StandardSchemaV1 } from "@standard-schema/spec";
-import { type Adapter, type Step, type StepOutcome } from "../types.ts";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type { Adapter, Step, StepOutcome } from "../types.ts";
 import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
 import { formatSchemaIssues, rcError } from "../error.ts";
 

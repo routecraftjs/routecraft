@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve, isAbsolute, basename } from "node:path";
 import { homedir } from "node:os";
 import { pino } from "pino";
-import { type Route } from "./route.ts";
+import type { Route } from "./route.ts";
 import { type Exchange, getExchangeContext, HeadersKeys } from "./exchange.ts";
 import { isCraftContext, isRoute, isExchange } from "./brand.ts";
 import type { CraftContext } from "./context.ts";

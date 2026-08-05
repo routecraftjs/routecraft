@@ -2,6 +2,7 @@ import type { Exchange, ExchangeHeaders } from "../../exchange";
 import type { RouteDiscovery } from "../../route";
 import type { HttpMethod, HttpServerOptions } from "../../adapters/http/types";
 import type { PathMatcher } from "./path-matcher";
+import type { HttpWebhookSignatureOptions } from "./webhook-signature";
 
 /**
  * How the dispatcher applies the plugin's global auth middleware to a route.
@@ -24,6 +25,10 @@ export interface HttpRouteEntry {
   readonly method: HttpMethod;
   readonly matcher: PathMatcher;
   readonly authMode: HttpRouteAuthMode;
+  /** Whether the route opted in to `routecraft.http.rawBody` on the exchange. */
+  readonly rawBody: boolean;
+  /** Webhook-signature gate; requests failing verification 401 before the route runs. */
+  readonly signature: HttpWebhookSignatureOptions | undefined;
   /** Route-level discovery bundle, used by /openapi.json. */
   readonly discovery: RouteDiscovery | undefined;
   /** Provided by the source on subscribe; the dispatcher calls it once it has a parsed body. */

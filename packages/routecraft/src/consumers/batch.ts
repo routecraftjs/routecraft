@@ -1,19 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { CraftContext } from "../context.ts";
-import { type RouteDefinition } from "../route.ts";
-import {
-  type ProcessingQueue,
-  type Message,
-  type Consumer,
-  type ConsumerDeps,
-  type EventName,
-  type EventHandler,
+import type { RouteDefinition } from "../route.ts";
+import type {
+  ProcessingQueue,
+  Message,
+  Consumer,
+  ConsumerDeps,
+  EventName,
+  EventHandler,
 } from "../types.ts";
-import {
-  type Exchange,
-  type ExchangeHeaders,
-  type HeaderValue,
-} from "../exchange.ts";
+import type { Exchange, ExchangeHeaders, HeaderValue } from "../exchange.ts";
 
 export type BatchOptions = {
   /**

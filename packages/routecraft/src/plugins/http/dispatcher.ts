@@ -1,10 +1,16 @@
 import { logger as defaultLogger } from "../../logger";
 import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
+import { isRoutecraftError } from "../../brand";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
 import { missingCredentialReason, type HttpAuthMiddleware } from "./auth";
 import type { HttpRouteEntry, HttpRouteRegistry } from "./registry";
-import { parseRequestBody } from "./body-parser";
+import {
+  isSignatureRejection,
+  parseRequestBody,
+  type HttpBodyError,
+} from "./body-parser";
+import type { HttpWebhookSignatureRejection } from "./webhook-signature";
 
 /** Function called once per completed dispatch when per-request events are enabled. */
 export type RequestCompletedHandler = (event: {
@@ -67,6 +73,13 @@ export interface DispatcherOptions {
    * wrapper installed in `plugin.ts`.
    */
   onAuthAbsent?: (scheme: string) => void;
+  /**
+   * Called when a route's webhook-signature gate rejects a request (RC5039
+   * out of the body parser). The plugin uses this to emit `auth:rejected`
+   * with `scheme: "signature"`, keeping signature failures on the same
+   * observability surface as credential failures.
+   */
+  onSignatureRejected?: (reason: HttpWebhookSignatureRejection) => void;
   /** Optional logger; defaults to the framework logger. */
   logger?: typeof defaultLogger;
 }
@@ -151,7 +164,7 @@ export function createDispatcher(
           // it through the same `onAuthAbsent` hook the user-route path uses.
           if (result.kind === "reject") return result.response;
           if (result.kind === "absent") {
-            opts.onAuthAbsent?.(result.scheme);
+            safeNotify(() => opts.onAuthAbsent?.(result.scheme));
             return missingCredentialResponse(result.scheme);
           }
         }
@@ -211,7 +224,7 @@ export function createDispatcher(
       }
       if (result.kind === "absent") {
         if (entry.authMode === "required") {
-          opts.onAuthAbsent?.(result.scheme);
+          safeNotify(() => opts.onAuthAbsent?.(result.scheme));
           const response = missingCredentialResponse(result.scheme);
           emitCompleted(opts, {
             method,
@@ -229,15 +242,48 @@ export function createDispatcher(
     }
 
     // 4. Parse the body. Failures here are user-input errors (malformed JSON,
-    //    body too large) -> 4xx; never 5xx.
+    //    body too large, failed signature) -> 4xx; never 5xx. The signature
+    //    gate runs inside parseRequestBody, after the maxBodySize checks and
+    //    before content-type parsing.
     let parsedBody: unknown;
+    let rawBytes: Uint8Array | undefined;
     try {
       const parsed = await parseRequestBody(req, {
         maxBodySize: opts.maxBodySize,
+        ...(entry.signature !== undefined
+          ? { signature: entry.signature }
+          : {}),
+        ...(entry.rawBody ? { rawBody: true } : {}),
       });
       parsedBody = parsed.body;
+      // Only retain the wire buffer when the route asked for it; holding it
+      // unconditionally would pin up to maxBodySize per in-flight request on
+      // routes that never opted in.
+      rawBytes = entry.rawBody ? parsed.rawBytes : undefined;
     } catch (err) {
-      const status = (err as { httpStatus?: number }).httpStatus ?? 400;
+      if (isSignatureRejection(err)) {
+        // Signature rejections use the same wire shape as the other 401s
+        // (missing/invalid credential). No WWW-Authenticate: the mechanism
+        // is not an RFC 7235 challenge scheme, matching the apiKey
+        // precedent. The bounded reason rides the typed field on the error,
+        // never err.message (see .standards/security.md section 10).
+        safeNotify(() => opts.onSignatureRejected?.(err.signatureRejection));
+        const response = jsonResponse(
+          { error: "unauthorized", reason: err.signatureRejection },
+          { status: err.httpStatus },
+        );
+        emitCompleted(opts, {
+          method,
+          path: entry.matcher.pattern,
+          status: err.httpStatus,
+          durationMs: ms(started),
+          routeId: entry.routeId,
+        });
+        return response;
+      }
+      const status = isRoutecraftError(err)
+        ? ((err as HttpBodyError).httpStatus ?? 400)
+        : 400;
       const message =
         err instanceof Error ? err.message : "request body could not be parsed";
       const response = jsonResponse(
@@ -272,6 +318,9 @@ export function createDispatcher(
       "routecraft.http.params": params,
       "routecraft.http.query": Object.freeze(queryObject),
       "routecraft.http.rawHeaders": Object.freeze(reqHeaders),
+      ...(entry.rawBody && rawBytes !== undefined
+        ? { "routecraft.http.rawBody": rawBytes }
+        : {}),
       ...(principal !== undefined
         ? { [HeadersKeys.AUTH_PRINCIPAL]: principal }
         : {}),
@@ -311,6 +360,18 @@ export function createDispatcher(
       return response;
     }
   };
+}
+
+/**
+ * Run a user-facing listener without letting its exceptions reach the
+ * request path, mirroring the guard emitCompleted applies to its handler.
+ */
+function safeNotify(fn: () => void): void {
+  try {
+    fn();
+  } catch {
+    // never let listener exceptions propagate into the request path
+  }
 }
 
 function emitCompleted(

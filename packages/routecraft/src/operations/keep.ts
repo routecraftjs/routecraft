@@ -1,7 +1,7 @@
-import { type Exchange } from "../exchange.ts";
-import { type Principal } from "../auth/types.ts";
+import type { Exchange } from "../exchange.ts";
+import type { Principal } from "../auth/types.ts";
 import { isAuthentic } from "../auth/authentic.ts";
-import { type FieldTransform } from "./transform.ts";
+import type { FieldTransform } from "./transform.ts";
 import { deletePath, hasPath, pickPaths } from "./field-paths.ts";
 
 /**

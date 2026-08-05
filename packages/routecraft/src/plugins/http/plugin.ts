@@ -1,4 +1,4 @@
-import { type CraftContext, type CraftPlugin } from "../../context";
+import type { CraftContext, CraftPlugin } from "../../context";
 import { rcError } from "../../error";
 import type { HttpPluginOptions } from "../../adapters/http/types";
 import {
@@ -23,6 +23,7 @@ import {
   type HttpRouteRegistry,
 } from "./registry";
 import type { HttpOpenApiInfo } from "./openapi";
+import type { HttpWebhookSignatureRejection } from "./webhook-signature";
 import { findPackageInfo } from "./package-info";
 import { startServer, type HttpServerHandle } from "./server";
 
@@ -184,6 +185,19 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           }
         : undefined;
 
+      // Signature rejections surface through the same auth:rejected event
+      // as credential failures. Wired unconditionally (unlike onAuthAbsent)
+      // because the per-route signature gate is independent of the global
+      // auth middleware; a webhook endpoint typically pairs it with
+      // auth: "skip".
+      const onSignatureRejected = (reason: HttpWebhookSignatureRejection) => {
+        ctx.emit("auth:rejected", {
+          reason,
+          scheme: "signature",
+          source: "http",
+        });
+      };
+
       const dispatcher = createDispatcher({
         registry,
         authMiddleware: wrappedAuth,
@@ -193,6 +207,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         ...(gatedBuiltins !== undefined ? { gatedBuiltins } : {}),
         ...(onRequestCompleted !== undefined ? { onRequestCompleted } : {}),
         ...(onAuthAbsent !== undefined ? { onAuthAbsent } : {}),
+        onSignatureRejected,
         logger: ctx.logger,
       });
 

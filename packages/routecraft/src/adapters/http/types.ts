@@ -5,8 +5,16 @@ import type {
   ValidatorAuthOptions,
 } from "../../auth/types";
 import type { HttpOpenApiInfo } from "../../plugins/http/openapi";
+import type {
+  HttpWebhookSignatureOptions,
+  HttpWebhookSignatureScheme,
+} from "../../plugins/http/webhook-signature";
 
-export type { HttpOpenApiInfo };
+export type {
+  HttpOpenApiInfo,
+  HttpWebhookSignatureOptions,
+  HttpWebhookSignatureScheme,
+};
 
 /** HTTP request methods supported by both the destination and the source. */
 export type HttpMethod =
@@ -249,6 +257,32 @@ export interface HttpServerOptions {
    * it is a user error.
    */
   auth?: "required" | "optional" | "skip";
+  /**
+   * Attach the exact wire bytes of the request body to the exchange as
+   * `routecraft.http.rawBody` (a `Uint8Array`). Needed to verify webhook
+   * signatures manually: providers sign the raw bytes, and re-serialising
+   * the parsed body is not byte-faithful. Defaults to `false`.
+   *
+   * Opt-in because of retention and exposure, not cost: the bytes already
+   * exist in memory during parsing, but attaching them pins a buffer of up
+   * to `maxBodySize` for the exchange lifetime and surfaces raw payload
+   * bytes to anything that logs or serialises the exchange headers.
+   */
+  rawBody?: boolean;
+  /**
+   * Declarative webhook-signature verification. When set, the plugin
+   * verifies the raw request bytes against the configured header before
+   * any route step runs; a missing, invalid, or expired signature returns
+   * 401 and emits `auth:rejected` with `scheme: "signature"`. Independent
+   * of the global `auth` gate; combine with `auth: "skip"` for webhook
+   * endpoints whose only credential is the signature itself.
+   *
+   * Only valid on body-bearing methods; configuring it on `GET`, `HEAD`,
+   * `DELETE`, or `OPTIONS` throws RC5003 at construction. For providers
+   * whose scheme is not built in, use `rawBody: true` and verify in a
+   * route step instead. See {@link HttpWebhookSignatureOptions}.
+   */
+  signature?: HttpWebhookSignatureOptions;
 }
 
 /**
@@ -310,6 +344,13 @@ declare module "@routecraft/routecraft" {
      * its own keys above.
      */
     "routecraft.http.rawHeaders"?: Readonly<Record<string, string>>;
+    /**
+     * Exact wire bytes of the request body. Only present when the route
+     * opted in via `http({ rawBody: true })`; empty-body requests carry an
+     * empty array. Use for manual webhook-signature verification or any
+     * consumer that needs byte-faithful input.
+     */
+    "routecraft.http.rawBody"?: Uint8Array;
     /** Override the response status code. */
     "routecraft.http.response.status"?: number;
     /** Override the response Content-Type. */

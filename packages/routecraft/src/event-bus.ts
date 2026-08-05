@@ -1,9 +1,5 @@
 import { rcError } from "./error.ts";
-import {
-  type EventHandler,
-  type EventName,
-  type EventPayload,
-} from "./types.ts";
+import type { EventHandler, EventName, EventPayload } from "./types.ts";
 
 /**
  * Minimal logging surface the bus needs for handler-error reporting.

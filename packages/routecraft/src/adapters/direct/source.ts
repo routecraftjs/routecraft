@@ -1,4 +1,4 @@
-import { type Exchange } from "../../exchange";
+import type { Exchange } from "../../exchange";
 import type { Source, Subscription } from "../../operations/from";
 import { rcError } from "../../error";
 import type { DirectServerOptions } from "./types";
