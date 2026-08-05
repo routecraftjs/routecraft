@@ -8,6 +8,7 @@ const PROVIDERS: LlmProviderType[] = [
   "ollama",
   "gemini",
   "lmstudio",
+  "copilot",
   "custom",
 ];
 
@@ -94,6 +95,40 @@ export function validateLlmPluginOptions(options: LlmPluginOptions): void {
           );
         }
         break;
+      case "copilot": {
+        if (
+          (opts as { modelId?: string }).modelId !== undefined &&
+          (typeof (opts as { modelId?: string }).modelId !== "string" ||
+            !(opts as { modelId: string }).modelId.trim())
+        ) {
+          throw new TypeError(
+            `llmPlugin: providers["copilot"].modelId must be a non-empty string when provided`,
+          );
+        }
+        if (
+          (opts as { onPermissionRequest?: unknown }).onPermissionRequest !==
+            undefined &&
+          typeof (opts as { onPermissionRequest?: unknown })
+            .onPermissionRequest !== "function"
+        ) {
+          throw new TypeError(
+            `llmPlugin: providers["copilot"].onPermissionRequest must be a function when provided`,
+          );
+        }
+        for (const field of [
+          "cliPath",
+          "cliUrl",
+          "workingDirectory",
+        ] as const) {
+          const value = (opts as Record<string, unknown>)[field];
+          if (value !== undefined && typeof value !== "string") {
+            throw new TypeError(
+              `llmPlugin: providers["copilot"].${field} must be a string when provided`,
+            );
+          }
+        }
+        break;
+      }
       case "custom": {
         const model = (opts as { model?: unknown }).model;
         // A factory is only invoked at dispatch, so its return shape cannot be

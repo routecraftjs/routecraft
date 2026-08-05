@@ -45,6 +45,7 @@ export default config
 | `ollama` | `{ baseURL?: string, modelId?: string }` | Local Ollama instance |
 | `gemini` | `{ apiKey: string, baseURL?: string }` | Google Gemini API |
 | `lmstudio` | `{ baseURL?: string, apiKey?: string, modelId?: string }` | Local [LM Studio](https://lmstudio.ai) server (OpenAI-compatible; defaults to `http://localhost:1234/v1`) |
+| `copilot` | `{ modelId?: string, onPermissionRequest?: handler, cliPath?: string, cliUrl?: string, workingDirectory?: string }` | GitHub Copilot via the local `copilot` CLI (no API key; uses the CLI's own authentication) |
 | `custom` | `{ model: model \| (modelId) => model, modelId?: string }` | Any AI SDK model object you supply, or a factory (in-process, no key, no network). Typed as `unknown` and validated at runtime so no engine type leaks into your code. |
 
 ## LM Studio
@@ -57,6 +58,34 @@ llmPlugin({ providers: { lmstudio: {} } })
 ```
 
 Requires the `@ai-sdk/openai-compatible` peer (`bun add @ai-sdk/openai-compatible`); a missing peer raises a clear install error. Token usage is reported on both buffered and streaming responses.
+
+## GitHub Copilot
+
+The `copilot` provider drives the GitHub Copilot CLI through the official Copilot SDK. The `copilot` CLI must be installed, authenticated, and on PATH (or referenced via `cliPath`) wherever routes run; no API key is configured in Routecraft. Model names come from the CLI (`copilot -i /models`):
+
+```ts
+llmPlugin({ providers: { copilot: {} } })
+// llm("copilot:gpt-5")
+```
+
+Copilot tool executions require approval. Routecraft defaults to approving everything so non-interactive routes never hang on a pending permission request; supply `onPermissionRequest` to enforce a real allow/deny policy:
+
+```ts
+llmPlugin({
+  providers: {
+    copilot: {
+      onPermissionRequest: (request) =>
+        isAllowed(request)
+          ? { kind: 'approved' }
+          : { kind: 'denied-by-rules' },
+    },
+  },
+})
+```
+
+Requires the `@nomomon/ai-sdk-provider-github-copilot` peer (`bun add @nomomon/ai-sdk-provider-github-copilot`); a missing peer raises a clear install error.
+
+Provider limitations (inherited from the Copilot CLI, not Routecraft's): no structured output (`output` schemas fall back to prompt-engineered JSON; prefer another provider when you need schema-guaranteed output), no embeddings, and sampling options (`temperature`, `topP`, penalties, `maxTokens`) are ignored.
 
 ## Custom (bring your own model)
 

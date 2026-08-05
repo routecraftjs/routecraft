@@ -138,6 +138,117 @@ describe("lmstudio LLM provider", () => {
   });
 });
 
+describe("copilot LLM provider", () => {
+  /**
+   * @case resolveLanguageModel("copilot") returns the CLI-backed AI SDK model
+   * @preconditions A minimal copilot config (no overrides); the provider
+   *   package is installed but no Copilot CLI runs (client creation is lazy)
+   * @expectedResult Resolved model is shaped like a LanguageModel and carries
+   *   the model id parsed from llm("copilot:model")
+   */
+  test("resolves to a valid model with the parsed name", async () => {
+    const model = (await resolveLanguageModel(
+      { provider: "copilot" },
+      "gpt-5",
+    )) as { modelId?: string; doGenerate?: unknown; doStream?: unknown };
+
+    expect(model.modelId).toBe("gpt-5");
+    expect(typeof model.doGenerate).toBe("function");
+    expect(typeof model.doStream).toBe("function");
+  });
+
+  /**
+   * @case A config-level modelId overrides the name from the model string
+   * @preconditions copilot config sets modelId; resolve called with a different name
+   * @expectedResult The config modelId wins
+   */
+  test("config modelId overrides the parsed name", async () => {
+    const model = (await resolveLanguageModel(
+      { provider: "copilot", modelId: "claude-sonnet-4.5" },
+      "ignored",
+    )) as { modelId?: string };
+
+    expect(model.modelId).toBe("claude-sonnet-4.5");
+  });
+
+  /**
+   * @case An approve-all permission handler is injected when none is configured
+   * @preconditions copilot config without onPermissionRequest
+   * @expectedResult The resolved model's settings carry a default handler
+   *   that returns { kind: "approved" }, so non-interactive routes never
+   *   hang on a pending permission request
+   */
+  test("injects an approve-all permission handler by default", async () => {
+    const model = (await resolveLanguageModel(
+      { provider: "copilot" },
+      "gpt-5",
+    )) as {
+      settings?: { onPermissionRequest?: (...args: unknown[]) => unknown };
+    };
+
+    const handler = model.settings?.onPermissionRequest;
+    expect(typeof handler).toBe("function");
+    expect(handler?.()).toEqual({ kind: "approved" });
+  });
+
+  /**
+   * @case A configured onPermissionRequest is forwarded unchanged
+   * @preconditions copilot config supplies a custom permission handler
+   * @expectedResult The resolved model's settings hold the same function
+   *   reference, not the injected approve-all default
+   */
+  test("forwards a configured permission handler unchanged", async () => {
+    const deny = () => ({ kind: "denied-by-rules" as const });
+    const model = (await resolveLanguageModel(
+      { provider: "copilot", onPermissionRequest: deny },
+      "gpt-5",
+    )) as { settings?: { onPermissionRequest?: unknown } };
+
+    expect(model.settings?.onPermissionRequest).toBe(deny);
+  });
+
+  /**
+   * @case llmPlugin accepts a copilot provider with no options
+   * @preconditions providers.copilot is an empty object
+   * @expectedResult Plugin construction succeeds (all copilot options are optional)
+   */
+  test("validation accepts an empty copilot config", () => {
+    expect(() => llmPlugin({ providers: { copilot: {} } })).not.toThrow();
+  });
+
+  /**
+   * @case llmPlugin rejects a non-function onPermissionRequest
+   * @preconditions providers.copilot.onPermissionRequest is a string
+   * @expectedResult Build throws a TypeError naming copilot.onPermissionRequest
+   */
+  test("validation rejects a non-function onPermissionRequest", () => {
+    expect(() =>
+      llmPlugin({
+        providers: {
+          // @ts-expect-error onPermissionRequest must be a function
+          copilot: { onPermissionRequest: "approve" },
+        },
+      }),
+    ).toThrow(/copilot"\]\.onPermissionRequest/);
+  });
+
+  /**
+   * @case llmPlugin rejects a non-string cliPath
+   * @preconditions providers.copilot.cliPath is a number
+   * @expectedResult Build throws a TypeError naming copilot.cliPath
+   */
+  test("validation rejects a non-string cliPath", () => {
+    expect(() =>
+      llmPlugin({
+        providers: {
+          // @ts-expect-error cliPath must be a string
+          copilot: { cliPath: 42 },
+        },
+      }),
+    ).toThrow(/copilot"\]\.cliPath/);
+  });
+});
+
 describe("keyed provider baseURL validation", () => {
   /**
    * @case llmPlugin rejects a non-string baseURL on openai, anthropic, gemini

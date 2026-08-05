@@ -22,13 +22,17 @@ export type {
 // LLM adapter and plugin
 export { llm, LlmDestinationAdapter, llmPlugin } from "./llm/index.ts";
 export type {
+  CopilotPermissionHandler,
+  CopilotPermissionResult,
   CustomLanguageModel,
   LlmAnthropicProviderOptions,
+  LlmCopilotProviderOptions,
   LlmCustomProviderOptions,
   LlmGeminiProviderOptions,
   LlmLmStudioProviderOptions,
   LlmModelConfig,
   LlmModelConfigAnthropic,
+  LlmModelConfigCopilot,
   LlmModelConfigCustom,
   LlmModelConfigGemini,
   LlmModelConfigLmStudio,

@@ -28,6 +28,8 @@ export async function resolveLanguageModel(
       return resolveOllama(config, modelId);
     case "lmstudio":
       return resolveLmStudio(config, modelId);
+    case "copilot":
+      return resolveCopilot(config, modelId);
     case "custom":
       return resolveCustom(config, modelId);
     default: {
@@ -182,6 +184,37 @@ async function resolveLmStudio(
   const name = config.modelId ?? modelId;
   const rawModel = lmstudio(name);
   assertLanguageModelShape(rawModel, "LM Studio", name);
+  return rawModel;
+}
+
+async function resolveCopilot(
+  config: import("../types.ts").LlmModelConfigCopilot,
+  modelId: string,
+): Promise<unknown> {
+  const mod = (await loadOptionalPeer(
+    () => import("@nomomon/ai-sdk-provider-github-copilot"),
+    {
+      adapterName: "GitHub Copilot LLM",
+      packageName: "@nomomon/ai-sdk-provider-github-copilot",
+    },
+  )) as {
+    githubCopilot: (id: string, settings?: Record<string, unknown>) => unknown;
+  };
+  const name = config.modelId ?? modelId;
+  // Always forward a permission handler: without one the Copilot SDK leaves
+  // permission requests pending as events, which stalls non-interactive
+  // routes forever on the first tool call that needs approval.
+  const settings: Record<string, unknown> = {
+    onPermissionRequest:
+      config.onPermissionRequest ?? (() => ({ kind: "approved" })),
+  };
+  if (config.cliPath !== undefined) settings["cliPath"] = config.cliPath;
+  if (config.cliUrl !== undefined) settings["cliUrl"] = config.cliUrl;
+  if (config.workingDirectory !== undefined) {
+    settings["workingDirectory"] = config.workingDirectory;
+  }
+  const rawModel = mod.githubCopilot(name, settings);
+  assertLanguageModelShape(rawModel, "GitHub Copilot", name);
   return rawModel;
 }
 

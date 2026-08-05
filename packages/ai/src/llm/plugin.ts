@@ -14,6 +14,7 @@ const PROVIDER_IDS = [
   "ollama",
   "gemini",
   "lmstudio",
+  "copilot",
   "custom",
 ] as const satisfies readonly LlmModelConfig["provider"][];
 

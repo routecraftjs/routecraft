@@ -41,6 +41,7 @@ export type LlmProviderType =
   | "ollama"
   | "gemini"
   | "lmstudio"
+  | "copilot"
   | "custom";
 
 export interface LlmModelConfigOpenAI {
@@ -112,6 +113,72 @@ export interface LlmModelConfigLmStudio {
   modelId?: string;
 }
 
+/**
+ * Result of a Copilot tool permission decision. Mirrors the Copilot SDK's
+ * `PermissionRequestResult` structurally so no type from the optional peer
+ * package reaches the public surface.
+ */
+export interface CopilotPermissionResult {
+  kind:
+    | "approved"
+    | "denied-by-rules"
+    | "denied-no-approval-rule-and-could-not-request-from-user"
+    | "denied-interactively-by-user";
+  rules?: unknown[];
+}
+
+/**
+ * Handler invoked before each Copilot tool execution. Return
+ * `{ kind: "approved" }` to allow the call or one of the `denied-*` kinds
+ * to block it; the handler may be async for per-call policy lookups.
+ * The request payload is the Copilot SDK's `PermissionRequest`, kept
+ * `unknown` here so the optional peer's types stay out of the public
+ * surface; narrow it in your handler if you need its fields.
+ */
+export type CopilotPermissionHandler = (
+  request: unknown,
+  invocation: { sessionId: string },
+) => CopilotPermissionResult | Promise<CopilotPermissionResult>;
+
+/**
+ * GitHub Copilot, CLI-backed via `@nomomon/ai-sdk-provider-github-copilot`
+ * and the official Copilot SDK. The `copilot` CLI must be installed,
+ * authenticated, and on PATH (or referenced via `cliPath`) wherever routes
+ * run; model names come from the CLI (`copilot -i /models`).
+ *
+ * Provider limitations (not Routecraft's): no structured output (use
+ * prompt-engineered JSON instead of `output` schemas), no embeddings, and
+ * sampling parameters (`temperature`, `topP`, penalties, `maxTokens`) are
+ * ignored by the CLI.
+ */
+export interface LlmModelConfigCopilot {
+  provider: "copilot";
+  /**
+   * Override model name sent to Copilot. Optional: defaults to the model
+   * from the llm("copilot:model") call (the part after the colon).
+   */
+  modelId?: string;
+  /**
+   * Approve or deny each Copilot tool execution. Optional: defaults to
+   * approving everything so non-interactive routes never hang on a pending
+   * permission request. Supply a handler to enforce a real allow/deny
+   * policy per call.
+   */
+  onPermissionRequest?: CopilotPermissionHandler;
+  /**
+   * Path to the Copilot CLI executable. Optional: defaults to resolving
+   * `copilot` from PATH.
+   */
+  cliPath?: string;
+  /**
+   * URL of an already-running Copilot CLI server to connect to instead of
+   * spawning one.
+   */
+  cliUrl?: string;
+  /** Working directory for Copilot sessions. */
+  workingDirectory?: string;
+}
+
 export interface LlmModelConfigCustom {
   provider: "custom";
   /**
@@ -135,6 +202,7 @@ export type LlmModelConfig =
   | LlmModelConfigOllama
   | LlmModelConfigGemini
   | LlmModelConfigLmStudio
+  | LlmModelConfigCopilot
   | LlmModelConfigCustom;
 
 /**
@@ -165,6 +233,13 @@ export interface LlmLmStudioProviderOptions {
   apiKey?: string;
   modelId?: string;
 }
+export interface LlmCopilotProviderOptions {
+  modelId?: string;
+  onPermissionRequest?: CopilotPermissionHandler;
+  cliPath?: string;
+  cliUrl?: string;
+  workingDirectory?: string;
+}
 export interface LlmCustomProviderOptions {
   model: CustomLanguageModel | ((modelId: string) => CustomLanguageModel);
   modelId?: string;
@@ -177,6 +252,7 @@ export interface LlmPluginProviders {
   openrouter?: LlmOpenRouterProviderOptions;
   gemini?: LlmGeminiProviderOptions;
   lmstudio?: LlmLmStudioProviderOptions;
+  copilot?: LlmCopilotProviderOptions;
   custom?: LlmCustomProviderOptions;
 }
 
@@ -348,6 +424,11 @@ export type LlmModelId =
   | "lmstudio:llama-3.2-3b-instruct"
   | "lmstudio:phi-4"
   | "lmstudio:mistral-nemo-instruct-2407"
+  // GitHub Copilot (CLI-backed; ids from `copilot -i /models`)
+  | "copilot:gpt-5"
+  | "copilot:gpt-5-mini"
+  | "copilot:claude-sonnet-4.5"
+  | "copilot:gemini-2.5-pro"
   // OpenRouter (top open-weight / frontier: GLM, Kimi, Qwen, DeepSeek)
   | "openrouter:z-ai/glm-5"
   | "openrouter:z-ai/glm-4.7"
