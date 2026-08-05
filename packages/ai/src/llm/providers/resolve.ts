@@ -227,14 +227,14 @@ let copilotClientHolders = 0;
  * has torn down. Call this directly when registering providers without the
  * plugin, or to force disposal.
  *
- * This drops all Copilot client state, holders included, so what remains is
- * what a fresh process would have. A holder that releases afterwards finds
- * the count already at zero and disposes an empty cache, which is harmless.
+ * Holder registrations survive this deliberately. They track which contexts
+ * are still live, which invalidating the cache does not change: zeroing them
+ * would strand every holder, and the next teardown would then dispose a
+ * replacement client the remaining contexts are still dispatching to.
  */
 export async function disposeCopilotProviderCache(): Promise<void> {
   const providers = [...copilotProviderCache.values()];
   copilotProviderCache.clear();
-  copilotClientHolders = 0;
   await Promise.all(
     providers.map(async (provider) => {
       try {
@@ -264,6 +264,17 @@ export function retainCopilotClients(): void {
 export async function releaseCopilotClients(): Promise<void> {
   copilotClientHolders = Math.max(0, copilotClientHolders - 1);
   if (copilotClientHolders === 0) await disposeCopilotProviderCache();
+}
+
+/**
+ * Drop every holder registration without touching the cache. Only for tests,
+ * which share this module across a whole run and otherwise inherit whatever
+ * count earlier tests left behind. Production code releases holders through
+ * `releaseCopilotClients` so the refcount stays honest.
+ * @internal
+ */
+export function resetCopilotClientHolders(): void {
+  copilotClientHolders = 0;
 }
 
 async function resolveCopilot(

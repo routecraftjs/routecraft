@@ -1,9 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
 import { llmPlugin } from "../src/index.ts";
 import {
   disposeCopilotProviderCache,
   releaseCopilotClients,
+  resetCopilotClientHolders,
   resolveLanguageModel,
   retainCopilotClients,
 } from "../src/llm/providers/resolve.ts";
@@ -144,6 +145,14 @@ describe("lmstudio LLM provider", () => {
 });
 
 describe("copilot LLM provider", () => {
+  // The client cache and its holder count live at module scope, shared across
+  // the whole bun test run. Starting each test from a known state keeps the
+  // refcount assertions independent of what any other test left behind.
+  beforeEach(async () => {
+    resetCopilotClientHolders();
+    await disposeCopilotProviderCache();
+  });
+
   /**
    * @case resolveLanguageModel("copilot") returns the CLI-backed AI SDK model
    * @preconditions A minimal copilot config (no overrides); the provider
@@ -345,6 +354,40 @@ describe("copilot LLM provider", () => {
       getClient?: () => unknown;
     };
     expect(afterLast.getClient?.()).not.toBe(model.getClient?.());
+  });
+
+  /**
+   * @case A force dispose leaves live holder registrations intact
+   * @preconditions Two contexts hold references, a client is cached, then
+   *   disposeCopilotProviderCache is called directly and a later dispatch
+   *   caches a replacement client
+   * @expectedResult The first teardown does not stop the replacement, because
+   *   invalidating the cache says nothing about which contexts are still live.
+   *   Zeroing the count there would strand both holders and let the next
+   *   teardown kill a client the other context is still dispatching to
+   */
+  test("a force dispose does not strand live holders", async () => {
+    retainCopilotClients();
+    retainCopilotClients();
+    const config = { provider: "copilot", cliPath: "/opt/forced" } as const;
+    await resolveLanguageModel(config, "gpt-5");
+
+    await disposeCopilotProviderCache();
+    const replacement = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+
+    await releaseCopilotClients();
+    const stillLive = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+    expect(stillLive.getClient?.()).toBe(replacement.getClient?.());
+
+    await releaseCopilotClients();
+    const afterLast = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+    expect(afterLast.getClient?.()).not.toBe(replacement.getClient?.());
   });
 
   /**
