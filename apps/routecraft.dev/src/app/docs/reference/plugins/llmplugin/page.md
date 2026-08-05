@@ -91,9 +91,9 @@ llmPlugin({ providers: { copilot: { approveAllTools: true } } })
 
 Requires the `@nomomon/ai-sdk-provider-github-copilot` peer (`bun add @nomomon/ai-sdk-provider-github-copilot`); a missing peer raises a clear install error.
 
-Version note: provider release 0.2.0 accepts `onPermissionRequest` and silently drops it, so neither a custom handler nor `approveAllTools` reaches the Copilot SDK on that version and every approval-gated tool call is denied. Both take effect on a release that forwards the handler ([upstream PR](https://github.com/nomomon/ai-sdk-provider-github-copilot)). Everything else in this provider works on 0.2.0.
+Version note: provider release 0.2.0 accepts `onPermissionRequest` and silently drops it, so neither a custom handler nor `approveAllTools` reaches the Copilot SDK on that version and every approval-gated tool call is denied. Both take effect on a release that forwards the handler ([upstream repository](https://github.com/nomomon/ai-sdk-provider-github-copilot)). Everything else in this provider works on 0.2.0.
 
-`cliPath` and `cliUrl` are mutually exclusive: `cliPath` spawns a CLI, `cliUrl` connects to one that is already running.
+`cliPath` and `cliUrl` are mutually exclusive: `cliPath` spawns a CLI, `cliUrl` connects to one that is already running. `githubToken` cannot be combined with `cliUrl` either, because an already-running server manages its own authentication. Both combinations are rejected when the plugin is built rather than on the first dispatch.
 
 Copilot sessions run a `copilot` CLI child process. `llmPlugin` stops it on context teardown, so nothing is left behind when a context shuts down. If you register providers by writing the store directly instead of using `llmPlugin`, call `disposeCopilotProviderCache()` yourself.
 

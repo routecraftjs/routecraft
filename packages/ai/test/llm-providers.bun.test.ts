@@ -230,22 +230,34 @@ describe("copilot LLM provider", () => {
   });
 
   /**
-   * @case cliPath and githubToken reach the underlying CopilotClient
-   * @preconditions copilot config sets the spawn-side client options; the
-   *   client is constructed lazily and spawns no CLI process until first use
-   * @expectedResult The client the model resolves against carries those exact
-   *   values. Regression test: these were previously passed as model settings,
-   *   which the provider ignores, making them dead config
+   * @case Each copilot option reaches the destination the provider reads it from
+   * @preconditions copilot config sets cliPath and githubToken (client-level)
+   *   plus workingDirectory (session-level); the client is constructed lazily
+   *   and spawns no CLI process until first use
+   * @expectedResult cliPath and githubToken land on the CopilotClient while
+   *   workingDirectory lands on the model settings. Regression test: the
+   *   client-level options were previously passed as model settings, which the
+   *   provider ignores, making them dead config, so a wrong destination is
+   *   exactly the failure this guards against
    */
-  test("routes client options through to the CopilotClient", async () => {
+  test("routes each option to the destination the provider reads", async () => {
     const model = (await resolveLanguageModel(
-      { provider: "copilot", cliPath: "/opt/copilot", githubToken: "ghp_test" },
+      {
+        provider: "copilot",
+        cliPath: "/opt/copilot",
+        githubToken: "ghp_test",
+        workingDirectory: "/tmp/work",
+      },
       "gpt-5",
-    )) as { getClient?: () => { options?: Record<string, unknown> } };
+    )) as {
+      settings?: Record<string, unknown>;
+      getClient?: () => { options?: Record<string, unknown> };
+    };
 
     const options = model.getClient?.().options;
     expect(options?.["cliPath"]).toBe("/opt/copilot");
     expect(options?.["githubToken"]).toBe("ghp_test");
+    expect(model.settings?.["workingDirectory"]).toBe("/tmp/work");
   });
 
   /**
