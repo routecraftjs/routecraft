@@ -58,16 +58,21 @@ export function llmPlugin(
   validateLlmPluginOptions(options);
 
   // Only the copilot provider owns a CLI process, so only a copilot config
-  // takes part in the client refcount. `retained` keeps retain and release
-  // paired per plugin instance.
+  // takes part in the client refcount. `retainedCount` counts this instance's
+  // live applies rather than being a flag: one plugin object can be applied to
+  // several contexts (reusing a plugins array across builders does it), and
+  // each of those contexts must hold its own reference, or the first teardown
+  // would stop a client the others are still dispatching to. Counting also
+  // keeps release paired, so a teardown for a context whose apply never ran
+  // (init threw earlier in the plugin list) stays inert.
   const usesCopilot = options.providers.copilot !== undefined;
-  let retained = false;
+  let retainedCount = 0;
 
   return {
     apply(ctx: CraftContext) {
-      if (usesCopilot && !retained) {
+      if (usesCopilot) {
         retainCopilotClients();
-        retained = true;
+        retainedCount += 1;
       }
       const map = new Map<string, LlmModelConfig>();
       for (const providerId of PROVIDER_IDS) {
@@ -84,8 +89,8 @@ export function llmPlugin(
       }
     },
     async teardown() {
-      if (!retained) return;
-      retained = false;
+      if (retainedCount === 0) return;
+      retainedCount -= 1;
       await releaseCopilotClients();
     },
   };

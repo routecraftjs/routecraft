@@ -301,6 +301,41 @@ describe("copilot LLM provider", () => {
   });
 
   /**
+   * @case One plugin instance applied to two contexts holds two references
+   * @preconditions A single llmPlugin object is applied twice, as reusing one
+   *   plugins array across two context builders does, and a client is cached
+   * @expectedResult The client survives the first teardown and is only stopped
+   *   by the second, so the context still running keeps its CLI process
+   */
+  test("counts each apply when one plugin instance spans contexts", async () => {
+    await disposeCopilotProviderCache();
+    const plugin = llmPlugin({ providers: { copilot: {} } });
+    // apply only needs setStore; a stub keeps this focused on the refcount.
+    const ctx = { setStore: () => {} } as unknown as Parameters<
+      typeof plugin.apply
+    >[0];
+    plugin.apply(ctx);
+    plugin.apply(ctx);
+
+    const config = { provider: "copilot", cliPath: "/opt/shared" } as const;
+    const model = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+
+    await plugin.teardown?.(ctx);
+    const stillLive = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+    expect(stillLive.getClient?.()).toBe(model.getClient?.());
+
+    await plugin.teardown?.(ctx);
+    const afterLast = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+    expect(afterLast.getClient?.()).not.toBe(model.getClient?.());
+  });
+
+  /**
    * @case Teardown without a preceding apply does not dispose shared clients
    * @preconditions A copilot llmPlugin is built but never applied (as when an
    *   earlier plugin throws during init), while another holder is retained;
