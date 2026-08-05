@@ -76,10 +76,10 @@ const DEFAULT_TOLERANCE_SEC = 300;
  */
 const HEADER_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
-/** Fixed hex-digest lengths per scheme, used to reject malformed candidates before hashing. */
-const HEX_DIGEST_LENGTH = {
-  "hmac-sha256-hex": 64,
-  "hmac-sha1-hex": 40,
+/** Exact hex-digest shape per scheme, used to reject malformed candidates before hashing. */
+const HEX_DIGEST_PATTERN = {
+  "hmac-sha256-hex": /^[0-9a-fA-F]{64}$/,
+  "hmac-sha1-hex": /^[0-9a-fA-F]{40}$/,
 } as const;
 
 /**
@@ -91,7 +91,11 @@ function describeValue(value: unknown): string {
   try {
     return JSON.stringify(value) ?? String(value);
   } catch {
-    return String(value);
+    try {
+      return String(value);
+    } catch {
+      return "<unrepresentable value>";
+    }
   }
 }
 
@@ -139,8 +143,8 @@ export function invalidSignatureOptionsReason(
  * All comparisons are timing-safe via the shared {@link timingSafeStringEqual}
  * (length-guarded `timingSafeEqual`, also used by the JWT HMAC validator).
  * Hex comparison is case-insensitive: providers disagree on digest casing
- * and hex case carries no information. Candidates whose length cannot match
- * the scheme's digest are rejected before any HMAC is computed, so floods of
+ * and hex case carries no information. Candidates that do not match the
+ * scheme's exact hex-digest shape are rejected before any HMAC is computed, so floods of
  * malformed signatures do not pay a full-body hash. The verifier never
  * throws for untrusted input; every failure mode maps to a bounded
  * {@link HttpWebhookSignatureRejection}.
@@ -165,7 +169,7 @@ export function verifyWebhookSignature(
     }
     candidate = candidate.slice(options.prefix.length);
   }
-  if (candidate.length !== HEX_DIGEST_LENGTH[options.scheme]) {
+  if (!HEX_DIGEST_PATTERN[options.scheme].test(candidate)) {
     return { ok: false, reason: "invalid signature" };
   }
 
@@ -219,8 +223,8 @@ function verifyStripeTimestamped(
   // Drop candidates whose length cannot match a sha256 hex digest BEFORE
   // hashing, so the module's no-full-body-hash-for-malformed-signatures
   // guarantee holds for this scheme too.
-  const viable = candidates.filter(
-    (candidate) => candidate.length === HEX_DIGEST_LENGTH["hmac-sha256-hex"],
+  const viable = candidates.filter((candidate) =>
+    HEX_DIGEST_PATTERN["hmac-sha256-hex"].test(candidate),
   );
   if (viable.length === 0) {
     return { ok: false, reason: "invalid signature" };
