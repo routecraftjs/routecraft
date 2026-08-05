@@ -1,5 +1,8 @@
 import type { CraftContext, CraftPlugin } from "@routecraft/routecraft";
-import { disposeCopilotProviderCache } from "./providers/resolve.ts";
+import {
+  releaseCopilotClients,
+  retainCopilotClients,
+} from "./providers/resolve.ts";
 import { ADAPTER_LLM_OPTIONS, ADAPTER_LLM_PROVIDERS } from "./types.ts";
 import type {
   LlmModelConfig,
@@ -37,8 +40,10 @@ function toModelConfig<P extends LlmModelConfig["provider"]>(
  * routes can use llm("providerId:modelName", options), e.g. llm("ollama:lfm2.5-thinking").
  * Key is the provider; only set options you need.
  *
- * Teardown stops any Copilot CLI clients started during the run. Every other provider
- * is config-only, so this hook is a no-op unless the copilot provider was used.
+ * Teardown stops any Copilot CLI clients started during the run, once the last context
+ * using them has stopped (the client cache is process-wide, so concurrent contexts
+ * sharing a client config share its CLI process). Every other provider is config-only,
+ * so this hook is a no-op unless the copilot provider was used.
  *
  * Advanced users can set the store directly: context.setStore(ADAPTER_LLM_PROVIDERS, map)
  * and context.setStore(ADAPTER_LLM_OPTIONS, partialOptions) without using this plugin.
@@ -52,6 +57,7 @@ export function llmPlugin(
 
   return {
     apply(ctx: CraftContext) {
+      retainCopilotClients();
       const map = new Map<string, LlmModelConfig>();
       for (const providerId of PROVIDER_IDS) {
         const opts = options.providers[providerId];
@@ -67,7 +73,7 @@ export function llmPlugin(
       }
     },
     async teardown() {
-      await disposeCopilotProviderCache();
+      await releaseCopilotClients();
     },
   };
 }

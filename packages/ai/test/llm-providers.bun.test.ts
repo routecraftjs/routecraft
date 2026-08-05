@@ -3,7 +3,9 @@ import { MockLanguageModelV3 } from "ai/test";
 import { llmPlugin } from "../src/index.ts";
 import {
   disposeCopilotProviderCache,
+  releaseCopilotClients,
   resolveLanguageModel,
+  retainCopilotClients,
 } from "../src/llm/providers/resolve.ts";
 
 /** Build a deterministic in-process model that always returns `text`. */
@@ -264,6 +266,23 @@ describe("copilot LLM provider", () => {
   });
 
   /**
+   * @case llmPlugin rejects githubToken combined with cliUrl
+   * @preconditions providers.copilot sets both cliUrl and githubToken
+   * @expectedResult Build throws naming both options. An external CLI server
+   *   manages its own auth, and the SDK rejects the pair when it builds the
+   *   client, so catching it here keeps the failure next to the config
+   */
+  test("validation rejects githubToken combined with cliUrl", () => {
+    expect(() =>
+      llmPlugin({
+        providers: {
+          copilot: { cliUrl: "http://localhost:9999", githubToken: "ghp_x" },
+        },
+      }),
+    ).toThrow(/githubToken cannot be combined with cliUrl/);
+  });
+
+  /**
    * @case One CopilotClient is shared per distinct client config
    * @preconditions Two resolves with identical client options, then one with
    *   a different cliPath
@@ -304,6 +323,35 @@ describe("copilot LLM provider", () => {
     };
 
     expect(before.getClient?.()).not.toBe(after.getClient?.());
+  });
+
+  /**
+   * @case Clients survive teardown while another context still holds them
+   * @preconditions Two llmPlugin holders are retained (as two applied
+   *   contexts would), a client is cached, then one holder releases
+   * @expectedResult The client is kept until the second holder releases, so
+   *   stopping one context cannot kill a CLI process another is still using
+   */
+  test("refcounts client disposal across contexts", async () => {
+    await disposeCopilotProviderCache();
+    retainCopilotClients();
+    retainCopilotClients();
+    const config = { provider: "copilot", cliPath: "/opt/refcount" } as const;
+    const first = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+
+    await releaseCopilotClients();
+    const stillCached = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+    expect(stillCached.getClient?.()).toBe(first.getClient?.());
+
+    await releaseCopilotClients();
+    const afterLast = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+    expect(afterLast.getClient?.()).not.toBe(first.getClient?.());
   });
 
   /**

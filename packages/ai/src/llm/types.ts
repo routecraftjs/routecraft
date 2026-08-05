@@ -150,9 +150,11 @@ export type CopilotPermissionHandler = (
 
 /**
  * GitHub Copilot, CLI-backed via `@nomomon/ai-sdk-provider-github-copilot`
- * and the official Copilot SDK. The `copilot` CLI must be installed,
- * authenticated, and on PATH (or referenced via `cliPath`) wherever routes
- * run; model names come from the CLI (`copilot -i /models`).
+ * and the official Copilot SDK. By default a `copilot` CLI is spawned, so it
+ * must be installed, authenticated, and on PATH (or referenced via
+ * `cliPath`) wherever routes run. Setting `cliUrl` instead connects to an
+ * already-running CLI server, which needs no local install and handles its
+ * own authentication. Model names come from the CLI (`copilot -i /models`).
  *
  * Provider limitations (not Routecraft's): no structured output (use
  * prompt-engineered JSON instead of `output` schemas), no embeddings, and

@@ -210,13 +210,13 @@ const copilotProviderCache = new Map<string, CopilotProviderFactory>();
 /**
  * Stop every cached Copilot client and clear the cache. Each client owns a
  * spawned `copilot` CLI process that is not unref'd, so without this the
- * process outlives context shutdown and keeps the runtime alive. Wired into
- * `llmPlugin`'s teardown; mirrors `disposeEmbeddingPipelineCache`.
+ * process outlives context shutdown and keeps the runtime alive.
  *
- * The cache is process-wide, so this stops clients belonging to every
- * context in the process. That is safe for the common single-context host
- * and for sequential contexts; a host running concurrent contexts that share
- * a client config should tear them down together.
+ * The cache is process-wide, so this stops clients belonging to every context
+ * in the process. `llmPlugin` therefore does not call it directly: it goes
+ * through `releaseCopilotClients`, which only disposes once the last context
+ * has torn down. Call this directly when registering providers without the
+ * plugin, or to force disposal.
  */
 export async function disposeCopilotProviderCache(): Promise<void> {
   const providers = [...copilotProviderCache.values()];
@@ -230,6 +230,35 @@ export async function disposeCopilotProviderCache(): Promise<void> {
       }
     }),
   );
+}
+
+/**
+ * Number of applied `llmPlugin` instances that have not yet torn down. The
+ * Copilot client cache is process-wide, so concurrent contexts sharing a
+ * client config share its CLI process; disposing on the first teardown would
+ * stop a client another context is still using.
+ * @internal
+ */
+let copilotClientHolders = 0;
+
+/**
+ * Register a holder of the Copilot client cache. Paired with
+ * `releaseCopilotClients`.
+ * @internal
+ */
+export function retainCopilotClients(): void {
+  copilotClientHolders += 1;
+}
+
+/**
+ * Release a holder and dispose the cache once none remain, so the CLI
+ * process outlives every context that might still dispatch to it and no
+ * longer.
+ * @internal
+ */
+export async function releaseCopilotClients(): Promise<void> {
+  copilotClientHolders = Math.max(0, copilotClientHolders - 1);
+  if (copilotClientHolders === 0) await disposeCopilotProviderCache();
 }
 
 async function resolveCopilot(
