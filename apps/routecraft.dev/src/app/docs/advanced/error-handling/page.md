@@ -151,7 +151,7 @@ This means you always have a safety net. Even a broken error handler cannot cras
 
 ## Events
 
-When `.error()` is defined, the following events are emitted instead of the default `route:error` + `context:error` + `route:exchange:failed` set:
+When `.error()` is defined, the handler lifecycle emits its own events:
 
 | Event | When |
 |-------|------|
@@ -161,9 +161,10 @@ When `.error()` is defined, the following events are emitted instead of the defa
 
 The event names are fixed -- the route identity travels in the payload. Every payload carries `routeId`, `exchangeId`, `correlationId`, `originalError`, `failedOperation`, and `scope` (`"route"` or `"step"`, plus `stepLabel` at step scope).
 
-On successful recovery, only `invoked` and `recovered` fire -- `route:exchange:failed` does **not** fire because the exchange was recovered.
+The two outcomes differ in what else fires alongside them:
 
-If the handler throws, all three fire: `invoked`, `failed`, and `route:exchange:failed`.
+- **Successful recovery:** only `invoked` and `recovered` fire. The default failure set (`route:error`, `context:error`, `route:exchange:failed`) does **not** fire, because the exchange was recovered.
+- **Handler failure:** `invoked` and `failed` fire, and then the error takes the normal failure path, so the full default set (`route:error`, `context:error`, `route:exchange:failed`) fires as well (see "When the error handler itself throws" above).
 
 ### Subscribing to events
 
