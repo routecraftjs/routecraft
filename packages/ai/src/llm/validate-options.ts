@@ -141,14 +141,16 @@ export function validateLlmPluginOptions(options: LlmPluginOptions): void {
         // The Copilot SDK rejects these combinations when it builds the
         // client, which would surface as an opaque throw on first dispatch.
         // Fail here instead, while the offending config is still in front of
-        // the user.
-        if ((opts as { cliUrl?: string }).cliUrl !== undefined) {
-          if ((opts as { cliPath?: string }).cliPath !== undefined) {
+        // the user. The SDK decides with truthy checks, so an empty string
+        // counts as absent there and must count as absent here too, or a
+        // config the SDK accepts would be rejected.
+        if ((opts as { cliUrl?: string }).cliUrl) {
+          if ((opts as { cliPath?: string }).cliPath) {
             throw new TypeError(
               `llmPlugin: providers["copilot"].cliUrl and cliPath are mutually exclusive: cliUrl connects to an already-running Copilot CLI server, cliPath spawns one`,
             );
           }
-          if ((opts as { githubToken?: string }).githubToken !== undefined) {
+          if ((opts as { githubToken?: string }).githubToken) {
             throw new TypeError(
               `llmPlugin: providers["copilot"].githubToken cannot be combined with cliUrl: an external Copilot CLI server manages its own authentication`,
             );

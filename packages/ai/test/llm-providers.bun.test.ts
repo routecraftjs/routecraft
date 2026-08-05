@@ -283,6 +283,55 @@ describe("copilot LLM provider", () => {
   });
 
   /**
+   * @case An empty githubToken alongside cliUrl is accepted
+   * @preconditions providers.copilot sets cliUrl and an empty githubToken,
+   *   as an unresolved environment variable would
+   * @expectedResult Build succeeds. The Copilot SDK decides the conflict with
+   *   truthy checks and treats an empty value as absent, so rejecting it here
+   *   would refuse a config the SDK accepts
+   */
+  test("validation accepts an empty githubToken alongside cliUrl", () => {
+    expect(() =>
+      llmPlugin({
+        providers: {
+          copilot: { cliUrl: "http://localhost:9999", githubToken: "" },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  /**
+   * @case Teardown without a preceding apply does not dispose shared clients
+   * @preconditions A copilot llmPlugin is built but never applied (as when an
+   *   earlier plugin throws during init), while another holder is retained;
+   *   the host then stops the context, which tears down every registered plugin
+   * @expectedResult The unapplied plugin's teardown is inert, so the retained
+   *   holder still owns the cached client and it is not stopped underneath a
+   *   context still dispatching to it
+   */
+  test("teardown without apply leaves retained clients alone", async () => {
+    await disposeCopilotProviderCache();
+    retainCopilotClients();
+    const config = { provider: "copilot", cliPath: "/opt/unapplied" } as const;
+    const model = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+
+    const neverApplied = llmPlugin({ providers: { copilot: {} } });
+    await neverApplied.teardown?.(
+      undefined as unknown as Parameters<
+        NonNullable<typeof neverApplied.teardown>
+      >[0],
+    );
+
+    const after = (await resolveLanguageModel(config, "gpt-5")) as {
+      getClient?: () => unknown;
+    };
+    expect(after.getClient?.()).toBe(model.getClient?.());
+    await releaseCopilotClients();
+  });
+
+  /**
    * @case One CopilotClient is shared per distinct client config
    * @preconditions Two resolves with identical client options, then one with
    *   a different cliPath

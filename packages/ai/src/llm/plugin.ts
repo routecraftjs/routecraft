@@ -42,8 +42,10 @@ function toModelConfig<P extends LlmModelConfig["provider"]>(
  *
  * Teardown stops any Copilot CLI clients started during the run, once the last context
  * using them has stopped (the client cache is process-wide, so concurrent contexts
- * sharing a client config share its CLI process). Every other provider is config-only,
- * so this hook is a no-op unless the copilot provider was used.
+ * sharing a client config share its CLI process). Only a plugin configured with the
+ * copilot provider takes part in that refcount, and only once its `apply` has run:
+ * `teardown` runs for every registered plugin even when init failed before reaching
+ * this one, and an unpaired release could stop a client another context is still using.
  *
  * Advanced users can set the store directly: context.setStore(ADAPTER_LLM_PROVIDERS, map)
  * and context.setStore(ADAPTER_LLM_OPTIONS, partialOptions) without using this plugin.
@@ -55,9 +57,18 @@ export function llmPlugin(
 ): CraftPlugin {
   validateLlmPluginOptions(options);
 
+  // Only the copilot provider owns a CLI process, so only a copilot config
+  // takes part in the client refcount. `retained` keeps retain and release
+  // paired per plugin instance.
+  const usesCopilot = options.providers.copilot !== undefined;
+  let retained = false;
+
   return {
     apply(ctx: CraftContext) {
-      retainCopilotClients();
+      if (usesCopilot && !retained) {
+        retainCopilotClients();
+        retained = true;
+      }
       const map = new Map<string, LlmModelConfig>();
       for (const providerId of PROVIDER_IDS) {
         const opts = options.providers[providerId];
@@ -73,6 +84,8 @@ export function llmPlugin(
       }
     },
     async teardown() {
+      if (!retained) return;
+      retained = false;
       await releaseCopilotClients();
     },
   };
