@@ -233,6 +233,22 @@ describe("copilot LLM provider", () => {
   });
 
   /**
+   * @case llmPlugin rejects a non-string githubToken
+   * @preconditions providers.copilot.githubToken is a number
+   * @expectedResult Build throws a TypeError naming copilot.githubToken
+   */
+  test("validation rejects a non-string githubToken", () => {
+    expect(() =>
+      llmPlugin({
+        providers: {
+          // @ts-expect-error githubToken must be a string
+          copilot: { githubToken: 123 },
+        },
+      }),
+    ).toThrow(/copilot"\]\.githubToken/);
+  });
+
+  /**
    * @case llmPlugin rejects a non-string cliPath
    * @preconditions providers.copilot.cliPath is a number
    * @expectedResult Build throws a TypeError naming copilot.cliPath

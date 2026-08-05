@@ -45,7 +45,7 @@ export default config
 | `ollama` | `{ baseURL?: string, modelId?: string }` | Local Ollama instance |
 | `gemini` | `{ apiKey: string, baseURL?: string }` | Google Gemini API |
 | `lmstudio` | `{ baseURL?: string, apiKey?: string, modelId?: string }` | Local [LM Studio](https://lmstudio.ai) server (OpenAI-compatible; defaults to `http://localhost:1234/v1`) |
-| `copilot` | `{ modelId?: string, onPermissionRequest?: handler, cliPath?: string, cliUrl?: string, workingDirectory?: string }` | GitHub Copilot via the local `copilot` CLI (no API key; uses the CLI's own authentication) |
+| `copilot` | `{ modelId?: string, onPermissionRequest?: handler, cliPath?: string, cliUrl?: string, githubToken?: string, workingDirectory?: string }` | GitHub Copilot via the local `copilot` CLI (defaults to the CLI's logged-in user; `githubToken` enables non-interactive auth) |
 | `custom` | `{ model: model \| (modelId) => model, modelId?: string }` | Any AI SDK model object you supply, or a factory (in-process, no key, no network). Typed as `unknown` and validated at runtime so no engine type leaks into your code. |
 
 ## LM Studio
@@ -61,7 +61,7 @@ Requires the `@ai-sdk/openai-compatible` peer (`bun add @ai-sdk/openai-compatibl
 
 ## GitHub Copilot
 
-The `copilot` provider drives the GitHub Copilot CLI through the official Copilot SDK. The `copilot` CLI must be installed, authenticated, and on PATH (or referenced via `cliPath`) wherever routes run; no API key is configured in Routecraft. Model names come from the CLI (`copilot -i /models`):
+The `copilot` provider drives the GitHub Copilot CLI through the official Copilot SDK. The `copilot` CLI must be installed and on PATH (or referenced via `cliPath`) wherever routes run. Authentication defaults to the CLI's logged-in user; on non-interactive hosts pass `githubToken` with a Copilot-entitled token instead. Model names come from the CLI (`copilot -i /models`):
 
 ```ts
 llmPlugin({ providers: { copilot: {} } })

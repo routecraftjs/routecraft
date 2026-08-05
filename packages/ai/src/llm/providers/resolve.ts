@@ -187,6 +187,19 @@ async function resolveLmStudio(
   return rawModel;
 }
 
+type CopilotProviderFactory = (
+  id: string,
+  settings?: Record<string, unknown>,
+) => unknown;
+
+/**
+ * One provider (and therefore one `CopilotClient`, which owns a spawned
+ * `copilot` CLI server process) per distinct client config. `resolveCopilot`
+ * runs on every dispatch, so without this cache each `llm()` call would
+ * spawn and leak a fresh CLI process.
+ */
+const copilotProviderCache = new Map<string, CopilotProviderFactory>();
+
 async function resolveCopilot(
   config: import("../types.ts").LlmModelConfigCopilot,
   modelId: string,
@@ -198,8 +211,27 @@ async function resolveCopilot(
       packageName: "@nomomon/ai-sdk-provider-github-copilot",
     },
   )) as {
-    githubCopilot: (id: string, settings?: Record<string, unknown>) => unknown;
+    createGitHubCopilot: (options?: {
+      clientOptions?: Record<string, unknown>;
+    }) => CopilotProviderFactory;
   };
+  // cliPath/cliUrl/githubToken configure the CopilotClient, not the model:
+  // the provider's default export ignores the same-named settings fields, so
+  // they must go through createGitHubCopilot({ clientOptions }).
+  const clientOptions: Record<string, unknown> = {};
+  if (config.cliPath !== undefined) clientOptions["cliPath"] = config.cliPath;
+  if (config.cliUrl !== undefined) clientOptions["cliUrl"] = config.cliUrl;
+  if (config.githubToken !== undefined) {
+    clientOptions["githubToken"] = config.githubToken;
+  }
+  const cacheKey = JSON.stringify(clientOptions);
+  let provider = copilotProviderCache.get(cacheKey);
+  if (!provider) {
+    provider = mod.createGitHubCopilot(
+      Object.keys(clientOptions).length > 0 ? { clientOptions } : {},
+    );
+    copilotProviderCache.set(cacheKey, provider);
+  }
   const name = config.modelId ?? modelId;
   // Always forward a permission handler: without one the Copilot SDK leaves
   // permission requests pending as events, which stalls non-interactive
@@ -208,12 +240,10 @@ async function resolveCopilot(
     onPermissionRequest:
       config.onPermissionRequest ?? (() => ({ kind: "approved" })),
   };
-  if (config.cliPath !== undefined) settings["cliPath"] = config.cliPath;
-  if (config.cliUrl !== undefined) settings["cliUrl"] = config.cliUrl;
   if (config.workingDirectory !== undefined) {
     settings["workingDirectory"] = config.workingDirectory;
   }
-  const rawModel = mod.githubCopilot(name, settings);
+  const rawModel = provider(name, settings);
   assertLanguageModelShape(rawModel, "GitHub Copilot", name);
   return rawModel;
 }

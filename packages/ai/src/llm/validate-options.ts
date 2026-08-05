@@ -118,6 +118,7 @@ export function validateLlmPluginOptions(options: LlmPluginOptions): void {
         for (const field of [
           "cliPath",
           "cliUrl",
+          "githubToken",
           "workingDirectory",
         ] as const) {
           const value = (opts as Record<string, unknown>)[field];

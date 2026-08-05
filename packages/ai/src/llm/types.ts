@@ -175,6 +175,13 @@ export interface LlmModelConfigCopilot {
    * spawning one.
    */
   cliUrl?: string;
+  /**
+   * GitHub token used to authenticate the spawned Copilot CLI. Optional:
+   * defaults to the CLI's own logged-in user. Set it for non-interactive
+   * hosts where nobody has run `copilot` login. The token's account must
+   * have a Copilot entitlement.
+   */
+  githubToken?: string;
   /** Working directory for Copilot sessions. */
   workingDirectory?: string;
 }
@@ -238,6 +245,7 @@ export interface LlmCopilotProviderOptions {
   onPermissionRequest?: CopilotPermissionHandler;
   cliPath?: string;
   cliUrl?: string;
+  githubToken?: string;
   workingDirectory?: string;
 }
 export interface LlmCustomProviderOptions {
