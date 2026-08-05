@@ -8,59 +8,9 @@ For user-facing adapter documentation, see the [adapters reference](https://rout
 
 ## Single-Factory Pattern
 
-Each adapter concept (direct, http, simple, etc.) exposes **one factory function** that returns the appropriate interface based on parameters.
+Each adapter concept (direct, http, simple, etc.) exposes **one factory function** that returns the appropriate interface based on parameters; users think in concepts, not operations (source, destination). This is the cornerstone of DX. The pattern is documented user-facing in the custom-adapters guide (`apps/routecraft.dev/src/app/docs/advanced/custom-adapters/page.md`): one factory per concept with overloads and structural discrimination ("Factory function" section), `{Concept}{Operation}Adapter` class naming even for single-role adapters (same section), and the per-concept directory layout with one file per role ("File structure" section). Follow that guide for new adapters; the rule below is internal-only and has no docs equivalent.
 
-```typescript
-// One concept = one import
-import { direct } from '@routecraft/routecraft';
-
-route.from(direct('channel', options)).to(direct(handler));
-
-// NOT multiple imports per concept
-import { directSource, directDestination } from '@routecraft/routecraft';
-```
-
-Users think in concepts (direct, http, simple), not operations (source, destination). This is the cornerstone of DX.
-
----
-
-## The 5 Pattern Rules
-
-### Rule 1: One Concept = One Factory
-
-Expose exactly one factory function per adapter concept. Use overloads for multi-interface adapters.
-
-```typescript
-// Good: single factory with overloads
-export function direct<S>(endpoint: string, options: {...}): Source<...>;
-export function direct<T>(endpoint: string | function): Destination<T, T>;
-
-// Bad: multiple factories for one concept
-export function directSource(...): Source<...>;
-export function directDestination(...): Destination<...>;
-```
-
-### Rule 2: Always Use Directory Structure
-
-Use separate files for each operation, even for single-interface adapters.
-
-```
-adapters/
-  simple/
-    source.ts       # SimpleSourceAdapter class
-    index.ts        # Public simple() factory + exports
-
-  direct/
-    source.ts       # DirectSourceAdapter class
-    destination.ts  # DirectDestinationAdapter class
-    shared.ts       # Shared helpers (getDirectChannel, etc.)
-    types.ts        # Type definitions
-    index.ts        # Public direct() factory + exports
-```
-
-Every adapter follows the same pattern, making the codebase predictable and easy to extend. If we later need `SimpleDestinationAdapter`, we just add `destination.ts`.
-
-### Rule 3: Factories Return Interfaces, Not Classes
+### Factories return interfaces, not classes
 
 Factory return types must be interface types (`Source<T>`, `Destination<T, R>`), never class types.
 
@@ -73,41 +23,6 @@ export function http<T, R>(options: HttpOptions): Destination<T, HttpResult<R>> 
 // Bad: returns class type (exposes implementation)
 export function http<T, R>(options: HttpOptions): HttpDestinationAdapter<T, R> { ... }
 ```
-
-### Rule 4: Use Structural Type Guards
-
-Use structural checks (`arguments.length`, `typeof`) to discriminate factory overloads.
-
-```typescript
-// Good: structural checks
-export function direct<...>(...): Source<...> | Destination<...> {
-  if (arguments.length === 2) {
-    return new DirectSourceAdapter(endpoint, options);
-  }
-  if (typeof endpoint === 'function') {
-    return new DirectDestinationAdapter<T>(endpoint);
-  }
-  throw new Error('Invalid arguments');
-}
-
-// Bad: value-based checks (unreliable)
-if (options !== undefined) { ... }
-```
-
-### Rule 5: Always Use Multi-Interface Naming
-
-Include the operation in class names, even for single-interface adapters.
-
-```typescript
-// Good: operation in name (future-proof)
-export class SimpleSourceAdapter<T> implements Source<T> { }
-export class HttpDestinationAdapter<T, R> implements Destination<T, HttpResult<R>> { }
-
-// Bad: generic names
-export class SimpleAdapter<T> implements Source<T> { }
-```
-
-**Class naming pattern:** `{Concept}{Operation}Adapter` (e.g., `DirectSourceAdapter`, `LogDestinationAdapter`, `TimerSourceAdapter`).
 
 ---
 
@@ -156,7 +71,7 @@ export class SimpleAdapter<T> implements Source<T> { }
 ### Options and configuration
 
 - Use a single constructor with a minimal options object: `myAdapter(options?: Partial<MyOptions>)`.
-- For adapters needing context-level config, implement `MergedOptions<T>`: expose `options` and a `mergedOptions(context)` method that reads from a typed `StoreRegistry` key.
+- For adapters needing context-level config, implement `MergedOptions<T>`: expose `options` and a `mergedOptions(context)` method that reads from a typed `StoreRegistry` key. The full walkthrough (companion plugin, precedence, rationale) is documented at `apps/routecraft.dev/src/app/docs/advanced/merged-options/page.md`.
 - Extend `StoreRegistry` via declaration merging to type your store keys.
 
 ### Store keys: use `Symbol.for`
@@ -177,39 +92,7 @@ declare module "@routecraft/routecraft" {
 
 ### Options naming for two-role adapters
 
-For naming conventions (Source/Destination vs Server/Client), see [naming-policy.md](./naming-policy.md).
-
-When an adapter can be used as both a source and a destination with different options for each role:
-
-**Exported types (public API):**
-
-- **Base:** `XxxBaseOptions` -- shared by both roles.
-- **Server:** `XxxServerOptions extends XxxBaseOptions` -- options for `.from()`.
-- **Client:** `XxxClientOptions` -- options for `.to()` / `.tap()`.
-- **Union:** `XxxOptions = XxxServerOptions | XxxClientOptions` -- constructor parameter type and public signatures.
-
-**Internal type (not exported):**
-
-- **Merged:** `XxxOptionsMerged = XxxServerOptions & XxxClientOptions` -- intersection type for `this.options`, `StoreRegistry`, and `mergedOptions()` return type.
-
-```ts
-export interface MyAdapterBaseOptions {
-  timeout?: number;
-}
-
-export interface MyAdapterServerOptions extends MyAdapterBaseOptions {
-  pollInterval?: number;
-  schema?: StandardSchemaV1;
-}
-
-export type MyAdapterClientOptions = MyAdapterBaseOptions;
-
-// Public: union for constructor
-export type MyAdapterOptions = MyAdapterServerOptions | MyAdapterClientOptions;
-
-// Internal: intersection for stored options (not exported)
-type MyAdapterOptionsMerged = MyAdapterServerOptions & MyAdapterClientOptions;
-```
+For naming conventions (Source/Destination vs Server/Client), see [naming-policy.md](./naming-policy.md). The public type shape -- optional `XxxBaseOptions`, `XxxServerOptions` / `XxxClientOptions`, and the exported `XxxOptions` union used as the factory parameter type -- is documented in the custom-adapters guide (`apps/routecraft.dev/src/app/docs/advanced/custom-adapters/page.md`, "Options naming" section). One internal type has no docs equivalent: declare a non-exported intersection `type XxxOptionsMerged = XxxServerOptions & XxxClientOptions` and use it for `this.options`, the `StoreRegistry` entry, and the `mergedOptions()` return type.
 
 ### Source adapters
 
@@ -248,10 +131,10 @@ Callable variants allow bare functions as adapters -- critical for tests, protot
 
 ```typescript
 // Test: inline mock destination
-route.from(simple(() => ({ id: 1 }))).to(vi.fn());
+route.from(simple(() => ({ id: 1 }))).to(mock());
 
 // Production: full adapter
-route.from(direct('channel', options)).to(http({ url: 'https://api.example.com' }));
+route.from(direct()).to(http({ url: 'https://api.example.com' }));
 ```
 
 The builder wraps bare functions automatically:
@@ -427,43 +310,9 @@ export class MyTransformerAdapter<T = unknown, R = T>
 
 ## Factory Tagging for Testability
 
-Every adapter factory should stamp its return value with `tagAdapter(instance, factory, factoryArgs(...))` so the testing package's `mockAdapter(factory, ...)` can match instances back to their factory at route execution time. Tagging is optional for tests (class-based matching still works without it), but tagged factories give mock authors a direct identity to assert on.
+Every adapter factory stamps its return value with `tagAdapter(instance, factory, factoryArgs(...))` so the testing package's `mockAdapter(factory, ...)` can match instances back to their factory at route execution time. Always build the args tuple with `factoryArgs(...)` (it trims trailing `undefined` so `args.length` matches what the user typed), pass the factory function itself as the second argument (identity is what `mockAdapter` matches on), and tag at every return path of a multi-interface factory. The full contract with examples is documented in the custom-adapters guide (`apps/routecraft.dev/src/app/docs/advanced/custom-adapters/page.md`, "Making your adapter mockable" section).
 
-### Rules
-
-1. **Use `factoryArgs(...)` to build the args tuple.** The helper trims trailing `undefined` so `args.length` matches what the user actually typed at the call site. A uniform convention across adapters means mock authors do not have to learn per-adapter shapes.
-
-   ```typescript
-   import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
-
-   // Do:
-   return tagAdapter(new MyAdapter(opts), myFactory, factoryArgs(endpoint, opts));
-
-   // Don't: hand-build the args tuple, since it drifts across adapters.
-   return tagAdapter(new MyAdapter(opts), myFactory, [endpoint, opts]);
-   ```
-
-2. **Pass the factory function as the second argument**, not a literal or a derived value. Identity is what `mockAdapter(factory, ...)` matches on.
-
-3. **Apply tagging at every return path of a multi-interface factory.** A factory that returns both a `Source` and a `Destination` must tag both; otherwise the overlooked path falls back to class-based matching and loses the nicer factory-form DX.
-
-4. **Do not rely on enumerable properties in tags.** `tagAdapter` stamps non-enumerable symbol properties. Wrappers created via object spread lose them; use `Object.create(Object.getPrototypeOf(adapter))` plus `Object.assign` plus re-`tagAdapter` when an adapter instance must be cloned.
-
-### Example
-
-```typescript
-export function http<T, R>(options: HttpOptions<T>): Destination<T, HttpResult<R>> {
-  const adapter = new HttpDestinationAdapter<T, R>(options);
-  return tagAdapter(adapter, http, factoryArgs(options));
-}
-```
-
-Users can then write:
-
-```typescript
-const mock = mockAdapter(http, { send: async () => ({ status: 200, ... }) });
-expect(mock.calls.send[0].args).toEqual([options]);
-```
+One consequence with no docs equivalent: because `tagAdapter` stamps **non-enumerable symbol properties** (documented in the custom-adapters guide's "Making your adapter mockable" section), wrappers created via object spread lose them. When an adapter instance must be cloned, use `Object.create(Object.getPrototypeOf(adapter))` plus `Object.assign` plus re-`tagAdapter`.
 
 ---
 

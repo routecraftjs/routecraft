@@ -154,7 +154,7 @@ ex.headers["routecraft.http.response.contentType"]
 ex.headers["routecraft.http.response.headers"]
 ```
 
-Request metadata and response hints mirror each other deliberately — both are envelope around the same `body` payload.
+Request metadata and response hints mirror each other deliberately -- both are envelope around the same `body` payload.
 
 ### What stays on `body`
 
@@ -219,4 +219,4 @@ The "HTTP headers go on the wire" connotation is real but mild and addressable v
 - `packages/routecraft/src/exchange.ts` -- `RoutecraftHeaders`, `HeadersKeys`, `ExchangeHeaders`, `DefaultExchange`, `DefaultExchange.rewrap`
 - `packages/routecraft/src/auth/types.ts` -- module augmentation for `routecraft.auth.principal`
 - `packages/routecraft/src/logger.ts` -- `childBindings` (the third / log-projection form)
-- `packages/routecraft/test/exchange-state-model.test.ts` -- end-to-end smoke test for the halt/continue contract
+- `packages/routecraft/test/exchange-state-model.bun.test.ts` -- end-to-end smoke test for the halt/continue contract

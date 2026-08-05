@@ -809,7 +809,7 @@ export class McpServer {
     // Dynamic imports for Express and SDK OAuth infrastructure.
     // Express types are not available at compile time (transitive dep of SDK),
     // so all Express values are typed as unknown and accessed dynamically.
-    let expressFn: (...args: unknown[]) => {
+    type ExpressFn = (...args: unknown[]) => {
       get: (...args: unknown[]) => void;
       use: (...args: unknown[]) => void;
       all: (...args: unknown[]) => void;
@@ -820,15 +820,12 @@ export class McpServer {
       ) => ReturnType<typeof createServer>;
     };
 
-    try {
+    const expressMod = (await loadOptionalPeer(
       // @ts-expect-error -- Express is a transitive dep of @modelcontextprotocol/sdk; no type declarations in this project
-      const expressMod = (await import("express")) as Record<string, unknown>;
-      expressFn = (expressMod["default"] ?? expressMod) as typeof expressFn;
-    } catch {
-      throw new Error(
-        'OAuth auth requires "express" (optional peer dependency of @routecraft/ai). Install it with: bun add express',
-      );
-    }
+      () => import("express"),
+      { adapterName: "mcp (oauth)", packageName: "express" },
+    )) as Record<string, unknown>;
+    const expressFn = (expressMod["default"] ?? expressMod) as ExpressFn;
 
     // OAuth sub-modules require @modelcontextprotocol/sdk v1.27.0+. If the
     // package is missing entirely loadOptionalPeer fires RC5017 with the

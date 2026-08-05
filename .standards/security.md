@@ -40,16 +40,12 @@ Authoritative rules for authentication, authorization, principal propagation, an
 
 - **Never log a bearer token.** Not in pino bindings, not in event payloads, not in error causes. If a token-shaped string is in scope at a log boundary, omit it or replace with a SHA-256 truncated fingerprint.
 - **Never echo a verifier error message into a sanitised field.** A custom `validator` / `verify` controls its own error message and could embed the bearer in it, so `err.message` must never flow into an event payload or any other aggregator-indexed field. The `auth:rejected` `reason` is drawn from a bounded vocabulary (`expired`, `infrastructure`, `invalid_token`, `missing_header`, `unsupported_scheme`, `missing_expires_at`); the full error remains operator-only via the structured `{ err }` log binding, which a deployment can scrub. Custom validators must still not embed the bearer in error messages, since the thrown error reaches the log binding.
-- **Hash before using as a Map key.** `UserinfoCache.entries` is keyed by `createHash("sha256").update(token).digest("hex")`. A heap dump or accidental cache snapshot must not expose plaintext bearers. Any new in-memory token-keyed cache MUST follow the same pattern.
-- **Bound memory.** Token-keyed caches MUST have a hard upper bound (insertion-order LRU with `DEFAULT_CACHE_MAX_ENTRIES = 10_000` in `userinfo.ts`). A misbehaving client that never reuses a token must not be able to grow the map without bound.
-- **In-flight coalescing.** Concurrent enrichments for the same token share a single in-flight `Promise`; the IdP receives one userinfo fetch per `(token, expiresAt)` window. This both protects the IdP from request floods and ensures consistent behavior under load.
+- **Token-keyed caches: hash the key, bound the size, coalesce in-flight.** The user-facing behaviour of `UserinfoCache` (SHA-256 token keys, the 10,000-entry insertion-order cap, one in-flight userinfo fetch per token) is documented at `apps/routecraft.dev/src/app/docs/advanced/securing-capabilities/page.md` ("Principal enrichment via `userinfo`"). The contributor rule stands: any new in-memory token-keyed cache MUST key by SHA-256 fingerprint, never the raw bearer (a heap dump or cache snapshot must not expose plaintext tokens), MUST have a hard upper bound, and MUST coalesce concurrent lookups for the same token onto a single in-flight promise (the IdP must see one fetch per token window, not a request flood).
 
 ## 5. Principal `userinfo` enrichment
 
 - **Plugin-level, orthogonal to the auth mode.** `userinfo` lives on `mcpPlugin({ userinfo })`, not on `oauth()`. It runs after `auth` verifies a token and works with `jwks()` / `jwt()` (validator mode), a custom `{ validator }`, and `oauth()`. The wrapper (`buildEnrichedVerifier`) is generic over the principal type and takes an explicit `(baseVerifier, userinfo, issuer)` so the server applies it uniformly to both auth paths. Built eagerly at startup so a misconfigured `userinfo: true` (no single-string issuer) fails fast rather than on the first request.
-- **`sub` invariant (OIDC Core §5.3.2):** for URL and discovery modes, the userinfo response's `sub` MUST equal the verified token's `sub`. Mismatches throw **`RC5022`**. Function-mode enrichment is trusted by contract (the user owns the backend) but the protected fields (`subject`, `issuer`, `audience`, `expiresAt`, `claims`) still cannot be overridden.
-- **Fail closed.** Every error path in `userinfo.ts` raises **`RC5021`** (fetch / parse / network / discovery failure) or **`RC5022`** (sub invariant). There is no opt-in "best effort" mode; if a user needs that, they write a function-mode `userinfo` that swallows its own errors. The framework's posture is "reject the request rather than authorize on a partial principal."
-- **Discovery document caching.** OIDC Discovery (`userinfo: true`) caches the resolved URL honouring `Cache-Control: max-age`, defaulting to one hour. Transient discovery failures clear the in-flight promise so the next call retries cleanly. Do not cache the *result* of a rejected fetch.
+- **Enrichment semantics are user-facing contract.** The `sub` invariant (**`RC5022`** on mismatch, OIDC Core §5.3.2; function mode trusted by contract with protected fields still preserved), the fail-closed posture (**`RC5021`** on every fetch / parse / network / discovery failure; no "best effort" mode), and discovery-document caching (`Cache-Control: max-age`, default one hour) are documented at `apps/routecraft.dev/src/app/docs/advanced/securing-capabilities/page.md` ("Principal enrichment via `userinfo`"). One review note stays here: transient discovery failures clear the in-flight promise so the next call retries cleanly; do not cache the *result* of a rejected fetch.
 - **OIDC path preservation.** Discovery resolves relative to the issuer URL (`new URL(".well-known/openid-configuration", issuer)`); do not use a leading slash, which would strip the issuer's path component and break Keycloak realms, Auth0 tenant prefixes, and Azure AD `/<tenant>/v2.0` issuers.
 
 ## 6. RFC 9728 protected-resource metadata
@@ -84,23 +80,7 @@ When you add a new default that affects authentication, authorization, network e
 
 - **Checks, does not mint.** `authorize()` verifies that the exchange carries an authentic principal that meets the criteria (roles, scopes, predicate, expiry). It does NOT issue, refresh, mint, or attach credentials. Authentication happens at the source boundary (`mcp({ auth: ... })`, future `http({ auth: ... })`) or via an explicit `.authenticate()` / `authenticate()` mint.
 - **Trusts only authentic principals.** Before checking roles or scopes, `authorize()` rejects a principal that was not established by a trusted origin (see §3): a self-asserted plain object fails with `RC5023`, never with `RC5015`. This keeps "this identity is forged / self-asserted" distinct from "this identity lacks a role."
-- **Error codes are stable and meaningful:**
-
-  | Code | Cause | Client expectation |
-  |------|-------|--------------------|
-  | `RC5012` | No principal on the exchange | Auth flow failed upstream; retry will not help without fresh credentials |
-  | `RC5023` | Principal present but not authentic (self-asserted plain object) | Mint via `.authenticate()` / `authenticate()` or let a source verifier attach it; a hand-written header is not trusted |
-  | `RC5015` | Principal failed role / predicate | Permanent denial under current credentials |
-  | `RC5020` | `principal.expiresAt` in the past (beyond `clockToleranceSec`) | Refresh and retry |
-  | `RC5021` | `userinfo` enrichment failed | Investigate IdP availability; client cannot recover |
-  | `RC5022` | `userinfo` sub invariant violated | Investigate IdP / userinfo URL pairing; potential compromise |
-  | `RC5034` | Actor not admitted by the route's `actor` spec (default `'none'`) | Permanent: this capability is not agent-reachable, or requires a different actor |
-  | `RC5035` | Subject not admitted by the route's `subject` spec | Permanent denial under current credentials |
-  | `RC5036` | Actor chain deeper than `maxDelegationDepth` | Permanent: call from an actor closer to the subject |
-  | `RC5037` | `delegate()` refused: no `mayAct` entry permits this actor | Obtain the subject's consent, then retry |
-  | `RC5038` | Missing scope | **Recoverable**: a consent flow can grant the scope. `error.cause.missing.scopes` names them |
-
-  Do not collapse RC5023 into RC5012 or RC5015, nor RC5020 into either; each distinction lets clients decide between "forge / mint correctly," "refresh," and "give up." The same applies to the delegation codes: "this capability is human-only" (RC5034) is not "you lack a role" (RC5015), and neither is "you lack a scope a consent flow could grant" (RC5038).
+- **Error codes are stable and meaningful.** The full vocabulary (`RC5012` no principal, `RC5023` not authentic, `RC5015` role / predicate, `RC5020` expired, `RC5021` / `RC5022` userinfo, delegation `RC5034`-`RC5038`) with per-code causes and client expectations is documented at `apps/routecraft.dev/src/app/docs/reference/operations/authorize/page.md` and in the per-code entries of the errors reference. The codes are distinct on purpose -- each distinction lets clients decide between "forge / mint correctly," "refresh," "obtain consent," and "give up"; do not collapse them.
 
 - **Scope failures are RC5038, not RC5015.** Per § 9 this is a deliberate change in check semantics, and the rationale is the recoverable / permanent split: a role or predicate failure states something about who the subject *is*, which no ceremony changes, while a missing scope states something about what the *credential* carries, which a consent flow can widen. Collapsing them would force every consent implementation to parse error text to tell "ask the user" from "give up". The structured detail rides on the cause (`InsufficientAuthority`), not on the RC metadata, so it is in-process only: `RoutecraftError.toJSON()` serialises the cause's message and stack, not its own fields.
 
@@ -186,61 +166,33 @@ surface of `authorize()`. Grounded in RFC 8693 (`act` / `may_act`), RFC 9068
   so re-minting cannot fabricate a delegated identity while skipping the
   `mayAct` check and the scope intersection. `mayAct` is still accepted at
   mint: it describes the subject, like roles.
-- **Delegation narrows scopes, and only scopes.** Effective scopes become
-  `intersect(subject, ceiling)`. A ceiling over a scope-less subject grants
-  nothing, never the ceiling, so consent can only narrow what the subject
-  already holds.
-  - **Roles are NOT intersected**: they live in different namespaces (a user's
-    `["employee"]` and an agent's `["agent"]` intersect to nothing), and per
-    RFC 9068 § 2.2.3.1 roles are subject attributes, authorization *outside*
-    delegation.
-  - **The actor's own scopes are NOT a term either.** They describe what the
-    actor may do as its own subject, which is a different question from what a
-    user may delegate to it. Including them would make it impossible to grant
-    an agent something it must never do standalone, which is the common case
-    wherever a capability runs on a shared system account (an API key to a
-    knowledge base or an HR system): there is no "the agent's own write
-    access" for the scope to attach to, so an agent that is read-only by
-    default could never be granted write on a user's behalf. Delegated
-    authority derives from the subject and the consent record; which routes
-    an actor may reach at all is enforced by `authorize({ actor })`.
-  - Confused-deputy protection is unaffected: the delegated principal's scopes
-    derive from the subject, so an actor still cannot exercise its own
-    elevated access while acting for a less-privileged subject.
+- **The delegation semantics are user-facing contract.** The scope
+  intersection (`intersect(subject, ceiling)`, roles pass through, the
+  actor's own scopes are deliberately not a term), the fail-closed strip on
+  missing consent with the `{ otherwise: "keep" }` opt-out, actor identity as
+  the `(issuer, subject)` pair, and the fail-closed `act` / `may_act` token
+  parsing (with `ClaimMappers.actor` / `ClaimMappers.mayAct` for non-standard
+  shapes) are documented at
+  `apps/routecraft.dev/src/app/docs/reference/operations/delegate/page.md`
+  and `apps/routecraft.dev/src/app/docs/advanced/securing-capabilities/page.md`
+  ("Agents acting on behalf of users"). Review notes that stay here:
+  - A matcher with no fields set matches any actor; validate config before
+    building matchers from it.
+  - The `act` parse is depth-capped and rejects beyond the cap rather than
+    truncating, since a silently shortened chain misreports the current
+    actor.
+  - A configurable scope-composition strategy (merging or otherwise varying
+    the two-way intersection) was considered and DEFERRED until a real case
+    demands it; the intersection is two-way and final.
 - **`actor: 'none'` is the `authorize()` default**, per § 6a. A capability is
   not agent-reachable unless it says so. `maxDelegationDepth` defaults to `1`
   and its walk is bounded, so a hand-assembled cyclic chain fails rather than
   hanging the check.
-- **`.delegate()` fails closed on missing consent.** A resolver returning
-  `undefined` STRIPS the subject's direct principal by default (the exchange
-  continues anonymous; downstream `authorize()` refuses with RC5012), because
-  the step marks the boundary where a request starts acting through someone
-  else: passing the principal onward would hand the continuation the caller's
-  full direct authority precisely when consent is absent. The strip is narrow
-  (anonymous exchanges, already-delegated principals, and `ai_agent` subjects
-  pass untouched) and `{ otherwise: "keep" }` opts a pipeline out when its
-  continuation serves the caller directly. A configurable scope-composition
-  strategy (merging or otherwise varying the two-way intersection) was
-  considered and DEFERRED until a real case demands it; the intersection is
-  two-way and final.
-- **Actor identity is the `(issuer, subject)` pair**, never `subject` alone
-  (RFC 7519 § 4.1.2: a `sub` is only locally unique within its issuer). A
-  matcher with no fields set matches any actor; validate config before
-  building matchers from it.
 - **Agent-ness is structural, never a role.** `subjectProfile` and `actor` are
   set by the framework at trusted boundaries. Roles come from the IdP and are
   a namespace we do not control, so an "is an agent" role would be forgeable
   where the structural field is not. An absent `subjectProfile` is
   unclassified and MUST attract restrictive policy.
-- **Delegation claims fail closed at the token boundary.** A present but
-  unparseable `act` or `may_act` claim REJECTS the token; it never resolves to
-  `undefined`. Both directions are load-bearing: a dropped `act` promotes a
-  delegated token to a direct call and passes an `actor: 'none'` route, and a
-  dropped `may_act` turns a restriction into permission. Non-standard shapes
-  (an actor identified by `client_id`, say) are mapped explicitly via
-  `ClaimMappers.actor` / `ClaimMappers.mayAct`, never by silent omission. The
-  `act` parse is depth-capped and rejects beyond the cap rather than
-  truncating, since a silently shortened chain misreports the current actor.
 - **A channel identifier is not a credential.** An inbound channel assertion
   (a DKIM-passing sender, a signed Slack event) establishes identification
   only. Converting one into an agent's authority requires a consent record;

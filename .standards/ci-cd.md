@@ -73,13 +73,14 @@ Packages are created by hand; there is no generator. Copy the shape of an existi
 1. Create `packages/<name>/` with:
    - `package.json`: dual `exports` (`types`/`import`/`require` pointing at `dist/`), `"files": ["dist"]`, `"publishConfig": {"access": "public"}`, repository/homepage/bugs fields, scripts `build` (tsup), `test`, `prepublishOnly: "bun run build"`. Dependency shape per section 5.
    - `tsup.config.mjs` (or build script flags) with `external: ["@routecraft/routecraft"]` so core is never bundled.
-   - `vitest.config.mjs` with aliases mapping `@routecraft/{routecraft,testing}` and the package's own name onto `src/` entry points (copy `packages/ai/vitest.config.mjs`).
+   - `vitest.config.mjs` with aliases mapping `@routecraft/{routecraft,testing}` and the package's own name onto `src/` entry points (copy `packages/ai/vitest.config.mjs`). This serves the vitest arm only (cross-runtime suites and the deliberate exceptions in `testing.md` § 1); unit tests default to bun:test.
    - `src/index.ts` barrel. If the package contributes `defineConfig` keys or DSL, follow the cross-package pattern in `packages/ai/src/config.ts` (`declare module "@routecraft/routecraft"` + `registerConfigApplier` + side-effect import from the barrel).
    - Tests under `test/` per `.standards/testing.md` (JSDoc on every test).
-2. `bun install` (the root `workspaces` glob picks the directory up automatically; `bun run --filter '*' build`, `bun run test`, typecheck, and `changeset publish` all walk the workspace).
-3. Add a size-limit entry in the root config if the package ships to users.
-4. Add a docs page under `apps/routecraft.dev/src/app/docs/` and a row to the CLAUDE.md package table.
-5. Add an introducing changeset: `bunx changeset` (minor, "Introduce @routecraft/<name>"). Decide whether the package joins the fixed core train in `.changeset/config.json` or versions independently (default: independently).
+2. Never add a `sideEffects` allowlist to a package that registers anything via side-effect imports (config appliers, DSL sugar, adapter registries). Core shipped this bug: its allowlist named only the dist entry points, so esbuild pruned every `registerConfigApplier` side-effect import out of the bundle and `defineConfig({ mail: {...} })` silently no-opped at runtime. Bundle-size wins must come from somewhere else. If the package relies on side-effect registration, add a post-build guard that imports the built bundles and asserts the registrations are live (core's `packages/routecraft/scripts/verify-dist.mjs`, run for both ESM and CJS in its `build` script, is the reference).
+3. `bun install` (the root `workspaces` glob picks the directory up automatically; `bun run --filter '*' build`, `bun run test`, typecheck, and `changeset publish` all walk the workspace).
+4. Add a size-limit entry in the root config if the package ships to users.
+5. Add a docs page under `apps/routecraft.dev/src/app/docs/` and a row to the CLAUDE.md package table.
+6. Add an introducing changeset: `bunx changeset` (minor, "Introduce @routecraft/<name>"). Decide whether the package joins the fixed core train in `.changeset/config.json` or versions independently (default: independently).
 
 Nothing needs registering in workflows: there are no per-package publish loops or version scripts anymore.
 
@@ -111,7 +112,7 @@ External SDKs that a package only needs when a specific feature is used (Vercel 
 
 **New code MUST use `loadOptionalPeer`.** The cron source (`packages/routecraft/src/adapters/cron/source.ts`) and the html adapter (`packages/routecraft/src/adapters/html/shared.ts`) are the canonical references; copy the shape (lazy import via the thunk, RC5017 message, type-only `import type` at the top of the file).
 
-The pre-existing migration backlog tracked in [#287](https://github.com/routecraftjs/routecraft/issues/287) is closed: every dynamic-import optional-peer site now goes through `loadOptionalPeer`. `loadOptionalPeer` is exported from `@routecraft/routecraft` so cross-package adapters (`@routecraft/ai`'s mcp suite, `@routecraft/cli`) reuse the same helper. New code MUST follow the same shape and is reviewed against this contract.
+The pre-existing migration backlog tracked in [#287](https://github.com/routecraftjs/routecraft/issues/287) is closed: every dynamic-import optional-peer site now goes through `loadOptionalPeer`. `loadOptionalPeer` is exported from `@routecraft/routecraft` so cross-package adapters (`@routecraft/ai`'s mcp suite, `@routecraft/cli`) reuse the same helper. New code MUST follow the same shape and is reviewed against this contract. A repo-wide contract test (`packages/routecraft/test/optional-peer-contract.bun.test.ts`) enforces it across core, ai, os, and cli: any bare dynamic import of an optional peer fails the suite (regular dependencies and required peers are exempt). One sanctioned exception exists: the mcp server's `streamableHttp` sub-export probe keeps a bespoke `.catch(() => null)` because it distinguishes a missing sub-export on older SDK versions from a missing package and wants a silent fallback, not an RC5017 throw; it is registered in the test's exception list with this reason.
 
 ## 7. Bun command conventions
 
@@ -120,6 +121,8 @@ The pre-existing migration backlog tracked in [#287](https://github.com/routecra
 - Don't mix conventions in the same doc or script. If you find an inconsistency, fix it and call it out in the PR description.
 
 ## 8. Local pre-PR checklist
+
+The user-facing copy of this checklist lives in the contribution guide (`apps/routecraft.dev/src/app/docs/community/contribution-guide/page.md`); keep the two in sync.
 
 Run before opening a PR; matches what CI runs:
 
@@ -145,7 +148,7 @@ The core invariant: **`package.json` always holds the LAST RELEASED version**, n
 
 Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick the affected package(s) and bump level, describe the change. Internal-only changes skip it (or use `bunx changeset add --empty` if a status check demands one).
 
-**Bump levels during v0: breaking changes are `minor`, never `major`.** The whole 0.x line is the breaking window (see `api-stability.md`), so a conventional-commit `!` does NOT translate to a `major` changeset. A `major` bump would compute the next version as 1.0.0 and stamp every canary `1.0.0-canary-*` (this happened: a stray `major` shipped 1.0.0 canaries for weeks). `major` is reserved for the deliberate 1.0.0 release and requires explicit maintainer sign-off in the PR.
+**Bump levels during v0: breaking changes are `minor`, never `major`.** The whole 0.x line is the breaking window (see `api-stability.md`), so a conventional-commit `!` does NOT translate to a `major` changeset. A `major` bump would compute the next version as 1.0.0 and stamp every canary `1.0.0-canary-*` (this happened: a stray `major` computed 1.0.0 and shipped `1.0.0-canary-*` releases that had to be unpublished and deprecated). `major` is reserved for the deliberate 1.0.0 release and requires explicit maintainer sign-off in the PR.
 
 ### Versioning model
 
@@ -178,7 +181,7 @@ The publish goes through `changeset publish` (npm under the hood) even though th
 ## References
 
 - Workflow sources: `.github/workflows/ci.yml`, `.github/workflows/release.yml`
-- Scripts: `scripts/sync-derived-versions.mjs`, `.github/scripts/smoke-test-embedding.mjs`
+- Scripts: `scripts/sync-derived-versions.mjs`, `scripts/prepare-canary-snapshot.mjs`, `.github/scripts/smoke-test-embedding.mjs`, `packages/routecraft/scripts/verify-dist.mjs`
 - Changesets config: `.changeset/config.json`
 - Definition of Done: `DEFINITION_OF_DONE.md`
 - Testing standards: `./testing.md`

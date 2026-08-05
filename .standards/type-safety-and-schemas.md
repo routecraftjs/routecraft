@@ -177,18 +177,7 @@ A lint rule covering this in `@routecraft/eslint-plugin-routecraft` would be the
 
 ### What this means for operations
 
-- A `.process()` callback receives a `Readonly<Exchange<T>>`. It cannot mutate the parameter; the type system rejects assignments and `Object.freeze` makes runtime mutation a `TypeError` in strict mode.
-- The canonical update pattern is a plain object spread. The framework re-wraps the resulting plain object back into a proper instance via `DefaultExchange.rewrap`, preserving internals (context binding, route, parse hooks, child start timestamps).
-
-```ts
-// Canonical:
-.process((ex) => ({ ...ex, body: { ...ex.body, hello: "world" } }))
-
-// Equivalent, framework-aware:
-.process((ex) => DefaultExchange.rewrap(ex, { body: { ...ex.body, hello: "world" } }))
-```
-
-A single batched spread allocates one wrapper plus one inner object per change set. Chained `withX` methods are not provided because each call would allocate a new wrapper.
+The user-facing contract (copy-on-write via a plain object spread, the framework re-wrapping the returned plain object into a proper instance, and why in-place mutation is wrong) is documented at `apps/routecraft.dev/src/app/docs/introduction/exchange/page.md` ("Immutability" section). Batch changes in a single spread: one spread allocates one wrapper plus one inner object per change set, which is why chained `withX` methods are not provided (each call would allocate a new wrapper).
 
 ### Authoring contract for new operations
 
@@ -202,7 +191,7 @@ Every step that previously mutated now produces one extra wrapper + frozen heade
 
 ### Verification
 
-`packages/routecraft/test/exchange-immutability.test.ts` is the authoritative test for this contract. It asserts: instances are frozen, casts at runtime throw `TypeError`, spread updates produce fresh frozen instances, identity equality survives a no-op pass-through, and `rewrap` honours an explicit `body: undefined`.
+`packages/routecraft/test/exchange-immutability.bun.test.ts` is the authoritative test for this contract. It asserts: instances are frozen, casts at runtime throw `TypeError`, spread updates produce fresh frozen instances, identity equality survives a no-op pass-through, and `rewrap` honours an explicit `body: undefined`.
 
 ---
 

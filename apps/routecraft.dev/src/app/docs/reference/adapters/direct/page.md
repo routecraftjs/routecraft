@@ -21,7 +21,7 @@ direct<TIn, TOut>(
 ): Destination<TIn, TOut>
 ```
 
-See [Type Safety: Registries](https://github.com/routecraftjs/routecraft/blob/main/.standards/type-safety-registries.md) for how to populate `DirectEndpointRegistry`.
+See [Type Registries](/docs/advanced/type-registries) for how to populate `DirectEndpointRegistry`.
 
 Enable synchronous inter-route communication. Perfect for composable route architectures where you need request-response patterns. The source form uses the route's `.id()` as the endpoint name; destinations address the target by id.
 

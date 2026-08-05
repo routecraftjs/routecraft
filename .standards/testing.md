@@ -6,11 +6,11 @@ Authoritative rules and conventions for tests in Routecraft.
 
 ## 1. Runners and layout
 
-Routecraft has completed its migration from vitest to `bun:test`. New tests must use `bun:test`. The handful of remaining vitest files are explicit exceptions listed in § 1.2 -- any new vitest file requires justification and a row in that table.
+Routecraft has completed its migration from vitest to `bun:test`. New tests must use `bun:test`. Exactly two vitest surfaces remain, both deliberate: the scaffolder integration test (`packages/create-routecraft/test/integration.test.ts`) and the cross-runtime suites (`packages/*/test/cross-runtime/*.cross.test.ts`, which must run under Node and therefore cannot use `bun:test`; see § 10). Any new vitest file beyond those requires a justification from the known-gaps table in § 1.2.
 
 ### 1.1. File placement and naming
 
-- Unit tests: `packages/<name>/test/<feature>.test.ts` (vitest) or `packages/<name>/test/<feature>.bun.test.ts` (bun:test).
+- Unit tests: `packages/<name>/test/<feature>.bun.test.ts` (bun:test). The `<feature>.test.ts` (vitest) form exists only for the deliberate exceptions above.
 - Integration tests (real network, real subprocesses, slow setup): `packages/<name>/test/<feature>.integration.test.ts`, run via `bun run test:integration`. The default `bun run test` excludes them.
 - **One feature per file.** Group tests around the unit they exercise, not by category. A test file maps to a code file (or a closely related cluster), not to "all the validation tests in the package".
 
@@ -24,7 +24,7 @@ bun run test:vitest    # vitest files only (`*.test.{ts,tsx}` excluding `*.bun.t
 
 ### 1.2. Choosing a runner
 
-Default to `bun:test`. Stay on vitest only when the test hits a known bun:test gap:
+Default to `bun:test`. No current unit test uses vitest; a new vitest file is justified only when the test hits a known bun:test gap:
 
 | Reason | Workaround / Status |
 |---|---|
@@ -158,7 +158,7 @@ If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a se
 
 Some adapters have runtime-specific code paths -- for example, a Postgres source might use `Bun.sql` under Bun and the `pg` driver under Node, or an S3 destination might use `Bun.s3` under Bun and `@aws-sdk/client-s3` under Node. The cross-runtime test suite verifies that the observable behaviour is identical on both runtimes.
 
-**Layout.** Place these tests at `packages/<pkg>/test/cross-runtime/*.test.ts`. The default `bun run test` and `bun run test:coverage` scripts exclude this directory; only the dedicated `adapter-cross-runtime` CI job picks them up.
+**Layout.** Place these tests at `packages/<pkg>/test/cross-runtime/<name>.cross.test.ts` (the vitest glob matches any `*.test.ts` in the directory, but the `.cross.test.ts` suffix is the convention and what DEFINITION_OF_DONE prescribes). The default `bun run test` and `bun run test:coverage` scripts exclude this directory; only the dedicated `adapter-cross-runtime` CI job picks them up.
 
 **Local execution.** From the repo root:
 
@@ -176,7 +176,7 @@ The `:node` script resolves to `node node_modules/vitest/vitest.mjs run --passWi
 
 **When to add one.** New adapters with a Bun-vs-Node driver split, or library code that touches runtime-specific APIs (`Bun.file`, `bun:sqlite` direct usage, `worker_threads`, etc.). For pure type-only code or code that uses the same driver under both runtimes, the regular unit tests are sufficient.
 
-**Reference.** No live cross-runtime tests exist today. The directory and CI matrix are in place for the upcoming Postgres ([#294](https://github.com/routecraftjs/routecraft/issues/294)) and S3 ([#295](https://github.com/routecraftjs/routecraft/issues/295)) adapters, which will land the first real entries (`Bun.sql` vs `pg`, `Bun.s3` vs `@aws-sdk/client-s3`). Until then both `adapter-cross-runtime` legs run with `--passWithNoTests`.
+**Reference.** The first live entry is `packages/routecraft/test/cross-runtime/http-signature.cross.test.ts`, which proves byte-for-byte raw-body fidelity and identical webhook-signature decisions on the `Bun.serve` path and the `node:http` shim. The upcoming Postgres ([#294](https://github.com/routecraftjs/routecraft/issues/294)) and S3 ([#295](https://github.com/routecraftjs/routecraft/issues/295)) adapters will add further entries (`Bun.sql` vs `pg`, `Bun.s3` vs `@aws-sdk/client-s3`). Packages without a cross-runtime directory still pass thanks to `--passWithNoTests`.
 
 ## 11. What runs in CI
 
@@ -191,6 +191,6 @@ The `:node` script resolves to `node node_modules/vitest/vitest.mjs run --passWi
 ## References
 
 - Test helpers source: `packages/testing/src/`
-- Vitest config: `vitest.config.ts` at the workspace root
+- Vitest config: `vitest.config.mjs` at the workspace root
 - CI workflow: `.github/workflows/ci.yml`
 - Definition of Done: `DEFINITION_OF_DONE.md`

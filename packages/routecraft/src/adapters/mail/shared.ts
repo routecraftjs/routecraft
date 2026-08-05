@@ -1,6 +1,7 @@
 import type { CraftContext } from "../../context.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
+import { isRoutecraftError } from "../../brand.ts";
 import type {
   MailBody,
   MailMessage,
@@ -10,6 +11,7 @@ import type {
   MailTargetExtractor,
 } from "./types.ts";
 import type { MailClientManager } from "./client-manager.ts";
+import { loadOptionalPeer } from "../shared/optional-peer.ts";
 import {
   analyzeHeaders,
   extractAnalysisHeaders,
@@ -289,7 +291,12 @@ export async function buildMimeMessage(
   payload: MailSendPayload,
   smtpDefaults: MailClientOptions,
 ): Promise<Buffer> {
-  const MailComposer = (await import("nodemailer/lib/mail-composer")).default;
+  const MailComposer = (
+    await loadOptionalPeer(() => import("nodemailer/lib/mail-composer"), {
+      adapterName: "mail",
+      packageName: "nodemailer",
+    })
+  ).default;
   const composer = new MailComposer(buildMessageOptions(payload, smtpDefaults));
   return composer.compile().build();
 }
@@ -347,7 +354,10 @@ export async function createImapClient(
   options: MailServerOptions,
 ): Promise<InstanceType<typeof import("imapflow").ImapFlow>> {
   const config = buildImapConfig(options);
-  const { ImapFlow } = await import("imapflow");
+  const { ImapFlow } = await loadOptionalPeer(() => import("imapflow"), {
+    adapterName: "mail",
+    packageName: "imapflow",
+  });
   return new ImapFlow(config);
 }
 
@@ -371,7 +381,10 @@ export async function createSmtpTransport(
     });
   }
 
-  const nodemailer = await import("nodemailer");
+  const nodemailer = await loadOptionalPeer(() => import("nodemailer"), {
+    adapterName: "mail",
+    packageName: "nodemailer",
+  });
   return nodemailer.createTransport({
     host: options.host,
     port: options.port ?? 465,
@@ -383,6 +396,18 @@ export async function createSmtpTransport(
 // ---------------------------------------------------------------------------
 // Error helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * True when the error is the RC5017 raised by `loadOptionalPeer` for a
+ * missing optional peer (`imapflow`, `nodemailer`, `mailparser`). A missing
+ * package cannot be fixed by reconnecting; the source must surface the
+ * install hint and stop instead of burning reconnect attempts into RC5010.
+ */
+export function isMissingPeerError(error: unknown): boolean {
+  return (
+    isRoutecraftError(error) && (error as { rc?: unknown }).rc === "RC5017"
+  );
+}
 
 /**
  * Check whether an error is an authentication failure.
@@ -716,6 +741,14 @@ export async function fetchMessages(
   const messages: MailMessage[] = [];
   const seenUids = new Set<number>();
 
+  // Load the parser BEFORE the fetch try/catch: its catch wraps every error
+  // in retryable RC5001, which would bury the RC5017 install hint and spin
+  // reconnect loops on a missing optional peer.
+  const { simpleParser } = await loadOptionalPeer(() => import("mailparser"), {
+    adapterName: "mail",
+    packageName: "mailparser",
+  });
+
   try {
     const fetchOptions = {
       envelope: true,
@@ -724,7 +757,6 @@ export async function fetchMessages(
       source: true,
     };
 
-    const { simpleParser } = await import("mailparser");
     const verify = options.verify ?? "headers";
 
     for (const criteria of criteriaSets) {

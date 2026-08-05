@@ -276,8 +276,8 @@ const logsForRoute = infoCalls.filter(
 ### Test custom sources that await the final exchange
 
 ```ts
-import { testContext } from "@routecraft/testing";
-import { craft, spy } from "@routecraft/routecraft";
+import { testContext, spy } from "@routecraft/testing";
+import { craft } from "@routecraft/routecraft";
 
 let observed: any;
 const spyAdapter = spy();
@@ -285,11 +285,13 @@ const spyAdapter = spy();
 const route = craft()
   .id("return-final")
   .from({
-    subscribe: async (_ctx, handler, controller) => {
+    subscribe: async (sub) => {
+      sub.ready();
       try {
-        observed = await handler("hello");
+        // emit() resolves with the fully processed exchange
+        observed = await sub.emit({ message: "hello" });
       } finally {
-        controller.abort();
+        sub.complete();
       }
     },
   })

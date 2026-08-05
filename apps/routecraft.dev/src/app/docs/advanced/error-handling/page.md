@@ -4,7 +4,7 @@ title: Error Handling
 
 Catch pipeline errors and recover gracefully with `.error()`. {% .lead %}
 
-By default, when a step throws an unhandled error, Routecraft logs it and emits `error` and `exchange:failed` events -- then swallows the error so the route keeps running. `.error()` extends this behavior with a custom recovery handler.
+By default, when a step throws an unhandled error, Routecraft logs it and emits `route:error`, `context:error`, and `route:exchange:failed` events -- then swallows the error so the route keeps running. `.error()` extends this behavior with a custom recovery handler.
 
 ## Basic usage
 
@@ -142,54 +142,59 @@ A wrapper attaches to exactly one step. `.error(h).transform(a).transform(b)` do
 If your `.error()` handler throws, the context takes over:
 
 1. The error is logged
-2. The global `error` event fires (same as the default no-handler path)
-3. `route:<id>:exchange:failed` fires with the handler's error
-4. `route:<id>:operation:error:failed` fires so you can distinguish handler failures from step failures
+2. `route:error` and `context:error` fire (same as the default no-handler path)
+3. `route:exchange:failed` fires with the handler's error
+4. `route:error-handler:failed` fires so you can distinguish handler failures from step failures
 5. The route stays alive -- it will process the next message normally
 
 This means you always have a safety net. Even a broken error handler cannot crash the route.
 
 ## Events
 
-When `.error()` is defined, the following events are emitted instead of the default `error` + `exchange:failed` pair:
+When `.error()` is defined, the handler lifecycle emits its own events:
 
 | Event | When |
 |-------|------|
-| `route:<id>:operation:error:invoked` | Error handler is called |
-| `route:<id>:operation:error:recovered` | Handler returned successfully |
-| `route:<id>:operation:error:failed` | Handler itself threw |
+| `route:error-handler:invoked` | Error handler is called |
+| `route:error-handler:recovered` | Handler returned successfully |
+| `route:error-handler:failed` | Handler itself threw |
 
-On successful recovery, only `error:invoked` and `error:recovered` fire -- `exchange:failed` does **not** fire because the exchange was recovered.
+The event names are fixed -- the route identity travels in the payload. Every payload carries `routeId`, `exchangeId`, `correlationId`, `originalError`, `failedOperation`, and `scope` (`"route"` or `"step"`, plus `stepLabel` at step scope).
 
-If the handler throws, all three fire: `error:invoked`, `error:failed`, and `exchange:failed`.
+The two outcomes differ in what else fires alongside them:
+
+- **Successful recovery:** only `invoked` and `recovered` fire. The default failure set (`route:error`, `context:error`, `route:exchange:failed`) does **not** fire, because the exchange was recovered.
+- **Handler failure:** `invoked` and `failed` fire, and then the error takes the normal failure path, so the full default set (`route:error`, `context:error`, `route:exchange:failed`) fires as well (see "When the error handler itself throws" above).
 
 ### Subscribing to events
 
-Use `ctx.on()` to listen. Wildcards let you monitor error handling across all routes:
+Use `ctx.on()` with the exact event name. The event bus **rejects wildcard patterns** (`route:*`, `route:**`, ...): since identity lives in the payload, subscribing to an exact name already observes every route, and `forRoute(routeId, handler)` narrows a subscription to one route:
 
 ```ts
+import { forRoute } from '@routecraft/routecraft'
+
 const ctx = new ContextBuilder()
   .routes(myRoutes)
-  .on('route:*:operation:error:invoked', ({ details }) => {
+  .on('route:error-handler:invoked', ({ details }) => {
     console.log(
       `Error handler called on ${details.routeId}`,
       `failed at: ${details.failedOperation}`,
     )
   })
-  .on('route:*:operation:error:recovered', ({ details }) => {
+  .on('route:error-handler:recovered', forRoute('process-orders', ({ details }) => {
     console.log(`Recovered: ${details.routeId}`)
-  })
-  .on('route:*:operation:error:failed', ({ details }) => {
+  }))
+  .on('route:error-handler:failed', ({ details }) => {
     // The handler itself failed -- alert
     alertOps(`Error handler crashed on ${details.routeId}`, details.originalError)
   })
   .build()
 ```
 
-For a catch-all, subscribe to the global `error` event. This fires for all unhandled errors and for handler failures:
+For a catch-all, subscribe to `context:error`. This fires for all unhandled errors and for handler failures:
 
 ```ts
-ctx.on('error', ({ details }) => {
+ctx.on('context:error', ({ details }) => {
   console.error('Unhandled error:', details.error)
 })
 ```

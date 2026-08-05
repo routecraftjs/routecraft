@@ -22,24 +22,7 @@ Examples: `DirectServerOptions` / `DirectClientOptions`, `McpServerOptions` / `M
 
 ### Shared fields between roles
 
-When the two roles genuinely share fields (auth config, base URL, common headers, retry policy), factor them into **XxxBaseOptions** and have both `XxxServerOptions` and `XxxClientOptions` `extends XxxBaseOptions`. Export the union as **XxxOptions**:
-
-```ts
-export interface HttpBaseOptions { auth?: HttpAuth; baseUrl?: string; }
-export interface HttpServerOptions extends HttpBaseOptions { /* server-only */ }
-export interface HttpClientOptions extends HttpBaseOptions { /* client-only */ }
-export type HttpOptions = HttpServerOptions | HttpClientOptions;
-```
-
-When the two roles do not share fields (e.g. `mail`: IMAP polling on the server side and SMTP send on the client side), declare each independently and export the union directly:
-
-```ts
-export interface MailServerOptions { /* IMAP-only */ }
-export interface MailClientOptions { /* SMTP-only */ }
-export type MailOptions = MailServerOptions | MailClientOptions;
-```
-
-Do not invent an empty `XxxBaseOptions` to make the structure look uniform; the union is what matters and an empty parent only adds friction. The decision rule is "would I write the same field on both Server and Client?" -- if yes for two or more fields, factor; otherwise, declare independently.
+The base-options factoring pattern (`XxxBaseOptions` extended by both role types, exported `XxxOptions` union) is documented user-facing in the custom-adapters guide (`apps/routecraft.dev/src/app/docs/advanced/custom-adapters/page.md`, "Options naming" section). The decision rule is "would I write the same field on both Server and Client?" -- if the roles genuinely share fields, factor into a base (the `direct` adapter factors one for a single shared field); if they share nothing (`mail`), declare each role independently and export the union directly. Do not invent an empty `XxxBaseOptions` to make the structure look uniform; the union is what matters and an empty parent only adds friction.
 
 ### Discriminating the two sides
 

@@ -18,20 +18,20 @@ order; you opt in by declaring which filters you want.
 
 Outside in (position 1 wraps everything below):
 
-| # | Filter | Status | Opts in via | Reads / produces |
-|---|---|---|---|---|
-| 1 | `error` | shipped | `.error(handler)` | catches throws from everything below |
-| 2 | `authorize` (stacks) | shipped | `.authorize({ roles, scopes, predicate })` | principal on `exchange.headers` |
-| 3 | `parse` | shipped | source adapter (HTTP, mail, CSV, ...) | raw body bytes → typed body |
-| 4 | `input` | shipped | `.input(schema)` | typed body / headers |
-| 5 | `throttle` | shipped | `.throttle({ rate, per, mode })` | rate limit on the route (delay or reject) |
-| 6 | `circuitBreaker` | shipped | `.circuitBreaker({...})` | failure stats; fast-fails when open |
-| 7 | `retry` | shipped | `.retry({...})` | re-runs everything below on failure |
-| 8 | `timeout` | shipped | `.timeout(ms)` | per-attempt deadline |
-| 8.5 | `concurrency` | shipped | `.concurrency({ max })` | bulkhead; bounds simultaneous in-flight (innermost resilience, so a slot is held per attempt) |
-| 9 | `cacheCheck` | shipped | `.cache({...})` | validated body → cache key |
-| - | **your pipeline** | - | `.transform()`, `.to()`, `.process()`, ... | the work |
-| 10 | `cacheStore` | shipped | `.cache({...})` | terminal body, written best-effort |
+| # | Filter | Status | Opts in via | Throws on rejection | Reads / produces |
+|---|---|---|---|---|---|
+| 1 | `error` | shipped | `.error(handler)` | - | catches throws from everything below |
+| 2 | `authorize` (stacks) | shipped | `.authorize({ roles, scopes, predicate })` | `RC5012` / `RC5015` / `RC5023` / `RC5020`; delegation `RC5034`-`RC5038` | principal on `exchange.headers` |
+| 3 | `parse` | shipped | source adapter (HTTP, mail, CSV, ...) | `RC5016` | raw body bytes → typed body |
+| 4 | `input` | shipped | `.input(schema)` | `RC5002` | typed body / headers |
+| 5 | `throttle` | shipped | `.throttle({ rate, per, mode })` | `RC5013` (`mode: 'reject'` only; default `'delay'` paces) | rate limit on the route (delay or reject) |
+| 6 | `circuitBreaker` | shipped | `.circuitBreaker({...})` | `RC5025` (fast-fail when open) | failure stats; fast-fails when open |
+| 7 | `retry` | shipped | `.retry({...})` | final attempt's throw | re-runs everything below on failure |
+| 8 | `timeout` | shipped | `.timeout(ms)` | `RC5011` | per-attempt deadline |
+| 8.5 | `concurrency` | shipped | `.concurrency({ max })` | `RC5026` (`mode: 'reject'` or full `maxQueue`; default `'queue'` paces) | bulkhead; bounds simultaneous in-flight (innermost resilience, so a slot is held per attempt) |
+| 9 | `cacheCheck` | shipped | `.cache({...})` | `RC5028` / `RC5029` | validated body → cache key |
+| - | **your pipeline** | - | `.transform()`, `.to()`, `.process()`, ... | - | the work |
+| 10 | `cacheStore` | shipped | `.cache({...})` | swallows (`cache:failed phase:"set"`) | terminal body, written best-effort |
 
 {% callout type="note" title="Position #4 (`input`) is a real chain step" %}
 `.input()` validation runs inside the chain at position #4: after auth and parse, before any resilience wrapper, `cacheCheck`, or user step. When the source attaches a parser, the validator runs inside the parse step (input validates the parsed body); otherwise it runs as a standalone synthetic `input` step. Either way a failure throws `RC5002` through the chain's catch boundary, so `.error()` can observe and recover it exactly like an `authorize` or `parse` rejection. An unrecovered failure takes the normal error path (`route:error`, `context:error`, `exchange:failed`); it is not a drop.
@@ -85,8 +85,14 @@ the outermost catch:
 ```ts
 .error((err) => {
   // Deterministic rejections: re-throw so the source can translate
-  // (e.g. HTTP returns 401, 403, or 400).
-  if (['RC5012', 'RC5015', 'RC5002', 'RC5016'].includes(err.rc)) throw err
+  // (e.g. HTTP returns 401, 403, or 400). Do not collapse the authorize
+  // codes -- each one tells the client something different (see the
+  // authorize() reference).
+  if ([
+    'RC5012', 'RC5015', 'RC5023', 'RC5020',
+    'RC5034', 'RC5035', 'RC5036', 'RC5037', 'RC5038',
+    'RC5002', 'RC5016',
+  ].includes(err.rc)) throw err
 
   // Backpressure: re-throw so the caller sees it.
   if (err.rc === 'RC5013') throw err
@@ -233,8 +239,10 @@ whether to re-attempt.
 
 ## Reference
 
-- The full contract (with implementation notes for contributors)
-  lives at [`.standards/pre-from-filter-chain.md`](https://github.com/routecraftjs/routecraft/blob/main/.standards/pre-from-filter-chain.md).
+- This page is the user-facing contract for the chain.
+  Implementation notes for contributors (how each position maps onto
+  `RouteDefinition` and the pipeline executor)
+  live at [`.standards/pre-from-filter-chain.md`](https://github.com/routecraftjs/routecraft/blob/main/.standards/pre-from-filter-chain.md).
 - Operation reference pages link back here from their "where this
   slots into the chain" section.
 - The step-scope wrapper pattern (for `.error()` / `.cache()`

@@ -4,11 +4,11 @@ Every change -- feature, fix, refactor -- must satisfy the checklists below befo
 
 ## Scope
 
-The checklists below apply to **packages that ship code**: anything under `packages/*` whose published artefact contains executable JavaScript or TypeScript declarations. Documentation-only packages (no `.js`, `.ts`, or `.d.ts` files in their `files` allowlist; for example `@routecraft/skills`, which ships only Markdown and JSON) are exempt from the General Checklist test rule and the per-surface checklists. They must still satisfy: Conventional Commits, the no-em-dashes rule, and any policy that applies to documentation prose.
+The checklists below apply to **packages that ship code**: anything under `packages/*` whose published artefact contains executable JavaScript or TypeScript declarations. Documentation-only packages (no `.js`, `.ts`, or `.d.ts` files in their `files` allowlist) are exempt from the General Checklist test rule and the per-surface checklists. (The repo-root `skills/` directory is not a package at all and is likewise exempt.) They must still satisfy: Conventional Commits, the no-em-dashes rule, and any policy that applies to documentation prose.
 
 ## General Checklist (every change)
 
-- [ ] New or changed behavior has corresponding tests in `packages/*/test/**/*.bun.test.ts` (bun:test, the default runner; legacy `*.test.ts` Vitest files are being migrated)
+- [ ] New or changed behavior has corresponding tests in `packages/*/test/**/*.bun.test.ts` (bun:test, the default runner; the vitest-to-bun:test migration is complete, and the only deliberate vitest files are the scaffolder integration test and the `test/cross-runtime/` suites, per `.standards/testing.md`)
 - [ ] Bug fixes include a regression test that fails without the fix
 - [ ] Every test has JSDoc with `@case`, `@preconditions`, and `@expectedResult`
 - [ ] JSDoc on any public API you touched is accurate and up to date (`@param`, `@returns`, `@example`)
@@ -32,7 +32,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 
 - [ ] New behavior emits events for at least: started, completed/stopped, and failed states
 - [ ] Event names follow the existing hierarchical convention (e.g., `route:{routeId}:operation:{type}:{adapterId}:started`)
-- [ ] Event payloads are type-safe: add a new entry to `EventDetailsMapping` in `types.ts` with a typed payload shape
+- [ ] Event payloads are type-safe: add a new entry to the `EventDetailsMap` interface in `types.ts` with a typed payload shape (`EventDetailsMapping` is a derived lookup alias and cannot receive entries)
 - [ ] Payloads include enough context for correlation: `contextId`, `routeId`, `exchangeId`, or `correlationId` as appropriate
 - [ ] Duration-sensitive operations include timing information (start timestamp at minimum; duration where practical)
 - [ ] Failure events include the error or reason for failure
@@ -54,7 +54,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 - [ ] Add or update the conceptual guide if the adapter introduces a new pattern
 - [ ] Export the adapter from the package's `index.ts`
 - [ ] If it is an AI adapter (`packages/ai/`), also update the AI package exports
-- [ ] New adapters must include a JSDoc release tag on the factory function (see General Checklist)
+- [ ] New adapter factory functions carry no per-symbol stability tier in 0.x (see General Checklist); mark internal helpers `@internal` and scheduled removals `@deprecated`
 - [ ] If the adapter depends on a third-party package, add it as an optional `peerDependency` (with `peerDependenciesMeta.<name>.optional = true`) in `@routecraft/routecraft` and as a regular `dependency` in `@routecraft/cli` so the CLI bundles it
 - [ ] Optional peer drivers load via `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`), not a bespoke `try/catch`. The missing-peer error is `RC5017` with an install hint. See `.standards/ci-cd.md` § 6 for the contract; cron and html are the canonical references.
 - [ ] If the adapter has a runtime-specific code path (e.g. `Bun.sql` under Bun + `pg` under Node, or `Bun.s3` + `@aws-sdk/client-s3`), add a `packages/<pkg>/test/cross-runtime/<name>.cross.test.ts` that exercises the same observable contract on both runtimes. The `adapter-cross-runtime (bun)` and `adapter-cross-runtime (node)` CI jobs run the suite on each runtime; both must pass.

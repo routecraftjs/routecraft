@@ -88,6 +88,21 @@ export interface CraftPlugin {
 }
 
 /**
+ * Config keys handled directly by the CraftContext constructor, as opposed
+ * to keys claimed by registered config appliers. Used to detect config keys
+ * that nothing consumes. Must stay in sync with the fields of
+ * {@link CraftConfig} declared in this file (ecosystem augmentations are
+ * covered by the applier registry instead).
+ */
+const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  "name",
+  "store",
+  "on",
+  "once",
+  "plugins",
+]);
+
+/**
  * Configuration options for creating a CraftContext.
  *
  * Declared as an `interface` so ecosystem packages can extend it via
@@ -257,11 +272,29 @@ export class CraftContext {
       // mean only `undefined` so applier authors can rely on a stable
       // contract regardless of value type.
       const configRecord = config as unknown as Record<string, unknown>;
+      const applierKeys = new Set<string>();
       for (const [key, factory] of getConfigAppliers()) {
+        applierKeys.add(key);
         const value = configRecord[key];
         if (value !== undefined) {
           this.plugins.push(factory(value));
         }
+      }
+
+      // A set config key that is neither a base key nor a registered applier
+      // is dead weight: a typo (`htttp`), or an applier whose registering
+      // module never loaded (the config-applier bundle regression shipped
+      // exactly this way, with `mail: {...}` silently ignored). Warn instead
+      // of throwing because appliers are an open registry and a false
+      // positive must not take down an otherwise valid context.
+      for (const key of Object.keys(configRecord)) {
+        if (configRecord[key] === undefined) continue;
+        if (BASE_CONFIG_KEYS.has(key) || applierKeys.has(key)) continue;
+        this.logger.warn(
+          { configKey: key },
+          `Unknown config key "${key}": no config applier is registered for it, so it has no effect. ` +
+            `Check the spelling, and ensure the package that provides the key is imported before the context is created.`,
+        );
       }
 
       if (config.plugins?.length) {

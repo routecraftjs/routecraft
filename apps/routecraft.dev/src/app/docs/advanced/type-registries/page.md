@@ -1,0 +1,156 @@
+---
+title: Type Registries
+---
+
+Compile-time safety for string-based adapter APIs via declaration merging. {% .lead %}
+
+Routecraft ships empty marker interfaces. You augment them in your project via `declare module`. When populated, adapter string parameters narrow from `string` to your registered keys -- giving autocomplete and red-line errors for anything not registered. When the registries are empty (the default), everything falls back to `string` with no breaking changes.
+
+## Direct endpoints
+
+**Without registry:** `direct('anything')` accepts any string. Typos only fail at runtime.
+
+**With registry:**
+
+```ts
+// src/types/routecraft.d.ts
+declare module '@routecraft/routecraft' {
+  interface DirectEndpointRegistry {
+    'payments':       PaymentRequest;
+    'orders':         OrderRequest;
+    'notifications':  NotificationPayload;
+  }
+}
+```
+
+Now:
+
+```ts
+.to(direct('payments'))       // OK
+.to(direct('orders'))         // OK
+.to(direct('invoices'))       // red line: 'invoices' not in registry
+
+// ForwardFn in error handlers is also constrained:
+craft()
+  .error((err, exchange, forward) => {
+    forward('payments', { ... })   // OK
+    forward('invoices', { ... })   // red line
+  })
+  .from(...)
+```
+
+The value type in the registry (`PaymentRequest`, `OrderRequest`, etc.) is used by `ResolveBody` to infer the body type when calling `direct(endpoint)` as a destination. When you write `.to(direct('payments'))`, TypeScript constrains the exchange body to `PaymentRequest`. Set values to the actual request body type for full inference:
+
+```ts
+interface DirectEndpointRegistry {
+  'payments': PaymentRequest;
+}
+```
+
+**What this does NOT cover:**
+
+- Auto-discovering endpoints from your route files. TypeScript cannot scan across files to collect string literals from function calls. If you write `craft().id('payments').from(direct())` in `routes/payments.ts` (a source binds to its route id; `direct()` takes no endpoint argument), the id `'payments'` is not automatically added to the registry. You must declare it manually.
+- Verifying that a registered endpoint has a matching `.from()` source at runtime. The registry says "this name is valid" but does not check that a route actually listens on it. If you register `'invoices'` but no route has `.id('invoices')` with `.from(direct())`, the type is happy but the message will hang at runtime.
+
+## LLM providers
+
+**Without registry:** `llm('anything:model')` accepts any string.
+
+**With registry:**
+
+```ts
+// src/types/routecraft.d.ts
+declare module '@routecraft/ai' {
+  interface LlmProviderRegistry {
+    openai:    true;
+    anthropic: true;
+    ollama:    true;
+  }
+}
+```
+
+Now:
+
+```ts
+llm('openai:gpt-5')            // OK
+llm('anthropic:claude-opus-4-6') // OK
+llm('ollama:llama3.2')         // OK
+llm('qwen:model')              // red line: 'qwen' not in registry
+llm('gemini:gemini-2.5-pro')   // red line: 'gemini' not registered
+```
+
+**What this does NOT cover:**
+
+- Syncing the registry with your `llmPlugin({ providers: { ... } })` config. These are two separate declarations -- one compile-time, one runtime. You must keep them in sync manually. If you add `gemini` to the plugin config but forget to update the registry, `llm('gemini:...')` will show a red line but work at runtime. The reverse (in registry but not in plugin config) compiles fine but crashes at runtime.
+- Model-level validation. The registry constrains the provider prefix (before `:`), not the model name. `llm('ollama:this-model-does-not-exist')` will compile and only fail when the Ollama API is called. Knowing which models are actually available requires runtime introspection (e.g., polling Ollama's `/api/tags` endpoint) which is out of scope for compile-time types.
+
+## MCP servers
+
+**Without registry:** `mcp('server:tool')` accepts any `${string}:${string}`.
+
+**With registry:**
+
+```ts
+// src/types/routecraft.d.ts
+declare module '@routecraft/ai' {
+  interface McpServerRegistry {
+    'github':         true;
+    'local-postgres': true;
+    'filesystem':     true;
+  }
+}
+```
+
+Now:
+
+```ts
+mcp('github:create_issue')      // OK
+mcp('local-postgres:query')     // OK
+mcp('unknown-server:tool')      // red line: 'unknown-server' not in registry
+```
+
+**What this does NOT cover:**
+
+- Tool-level validation. The registry constrains the server name prefix, not the tool name after `:`. `mcp('github:nonexistent_tool')` compiles fine and only fails when the MCP server is called. Knowing which tools a server exposes requires pinging the server and reading its tool list at dev-time.
+- Syncing with `mcpPlugin({ clients: { ... } })` config. Same drift risk as LLM providers above.
+
+## Putting it together
+
+A single declaration file for your project:
+
+```ts
+// src/types/routecraft.d.ts
+import type { PaymentRequest, OrderRequest } from '../domain';
+
+declare module '@routecraft/routecraft' {
+  interface DirectEndpointRegistry {
+    'payments':      PaymentRequest;
+    'orders':        OrderRequest;
+    'dead-letter':   unknown;
+  }
+}
+
+declare module '@routecraft/ai' {
+  interface LlmProviderRegistry {
+    openai:    true;
+    anthropic: true;
+    ollama:    true;
+  }
+
+  interface McpServerRegistry {
+    'github':    true;
+    'postgres':  true;
+  }
+}
+```
+
+---
+
+## Related
+
+{% quick-links %}
+
+{% quick-link title="direct adapter" icon="presets" href="/docs/reference/adapters/direct" description="The direct adapter whose endpoints DirectEndpointRegistry constrains." /%}
+{% quick-link title="Composing Capabilities" icon="presets" href="/docs/advanced/composing-capabilities" description="Build modular systems with direct() and reusable capability chains." /%}
+
+{% /quick-links %}

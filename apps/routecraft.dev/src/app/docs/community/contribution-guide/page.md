@@ -121,8 +121,10 @@ Include in your PR description:
 
 ## Releasing
 
-- Releases are handled via GitHub releases and CI publish workflow.
-- Ensure package versions align with tags when publishing.
+- Versioning and publishing are owned by [changesets](https://github.com/changesets/changesets). Never hand-edit `package.json` versions.
+- Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick the affected packages and bump level, and describe the change.
+- The auto-maintained "Version Packages" PR is the release gate: merging it publishes to npm, creates the GitHub releases, and tags the release.
+- During v0, breaking changes are `minor` bumps, never `major` -- the whole 0.x line is the breaking window, and `major` is reserved for the deliberate 1.0.0 release.
 
 ## Questions and Help
 

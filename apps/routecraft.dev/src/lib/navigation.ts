@@ -39,6 +39,7 @@ export const navigation = [
       { title: 'Error Handling', href: '/docs/advanced/error-handling' },
       { title: 'Filter Chain', href: '/docs/advanced/filter-chain' },
       { title: 'Merged Options', href: '/docs/advanced/merged-options' },
+      { title: 'Type Registries', href: '/docs/advanced/type-registries' },
       { title: 'Creating adapters', href: '/docs/advanced/custom-adapters' },
       {
         title: 'Programmatic Invocation',
