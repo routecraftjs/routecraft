@@ -13,6 +13,10 @@ What we use instead:
 
 No symbol is tagged `@experimental`, `@beta`, or `@stable` in 0.x.
 
+## Versioning at 0.x
+
+The same v0 posture governs changeset bump levels: **only `minor` and `patch` are used while in 0.x**. Breaking changes ship as `minor` (the whole 0.x line is the breaking window), and a conventional-commit `!` does not translate to a `major` changeset. `major` is reserved for the deliberate 1.0.0 release and requires an explicit maintainer decision recorded in the PR; a stray `major` recomputes the next version as 1.0.0 and stamps every canary `1.0.0-canary-*` (this has happened and the releases had to be deprecated). See [CI/CD](./ci-cd.md) section 9 for the release mechanics.
+
 ## When we reach v1
 
 At 1.0 we will introduce per-symbol release tags to communicate stability:

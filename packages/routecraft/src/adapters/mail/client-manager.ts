@@ -13,6 +13,7 @@ import type {
   MailAuth,
 } from "./types.ts";
 import { buildImapConfig } from "./shared.ts";
+import { loadOptionalPeer } from "../shared/optional-peer.ts";
 
 // ---------------------------------------------------------------------------
 // ImapPool: fixed-size, mailbox-aware IMAP connection pool for one account
@@ -160,7 +161,10 @@ export class ImapPool {
     InstanceType<typeof import("imapflow").ImapFlow>
   > {
     const config = buildImapConfig(this.imapConfig);
-    const { ImapFlow } = await import("imapflow");
+    const { ImapFlow } = await loadOptionalPeer(() => import("imapflow"), {
+      adapterName: "mail",
+      packageName: "imapflow",
+    });
     const client = new ImapFlow(config);
     await client.connect();
     return client;
@@ -268,7 +272,10 @@ export class MailClientManager {
       });
     }
 
-    const nodemailer = await import("nodemailer");
+    const nodemailer = await loadOptionalPeer(() => import("nodemailer"), {
+      adapterName: "mail",
+      packageName: "nodemailer",
+    });
     const transport = nodemailer.createTransport({
       host: smtp.host,
       port: smtp.port ?? 465,

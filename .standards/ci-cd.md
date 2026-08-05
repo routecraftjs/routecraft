@@ -76,10 +76,11 @@ Packages are created by hand; there is no generator. Copy the shape of an existi
    - `vitest.config.mjs` with aliases mapping `@routecraft/{routecraft,testing}` and the package's own name onto `src/` entry points (copy `packages/ai/vitest.config.mjs`).
    - `src/index.ts` barrel. If the package contributes `defineConfig` keys or DSL, follow the cross-package pattern in `packages/ai/src/config.ts` (`declare module "@routecraft/routecraft"` + `registerConfigApplier` + side-effect import from the barrel).
    - Tests under `test/` per `.standards/testing.md` (JSDoc on every test).
-2. `bun install` (the root `workspaces` glob picks the directory up automatically; `bun run --filter '*' build`, `bun run test`, typecheck, and `changeset publish` all walk the workspace).
-3. Add a size-limit entry in the root config if the package ships to users.
-4. Add a docs page under `apps/routecraft.dev/src/app/docs/` and a row to the CLAUDE.md package table.
-5. Add an introducing changeset: `bunx changeset` (minor, "Introduce @routecraft/<name>"). Decide whether the package joins the fixed core train in `.changeset/config.json` or versions independently (default: independently).
+2. Never add a `sideEffects` allowlist to a package that registers anything via side-effect imports (config appliers, DSL sugar, adapter registries). Core shipped this bug: its allowlist named only the dist entry points, so esbuild pruned every `registerConfigApplier` side-effect import out of the bundle and `defineConfig({ mail: {...} })` silently no-opped at runtime. Bundle-size wins must come from somewhere else. If the package relies on side-effect registration, add a post-build guard that imports the built bundles and asserts the registrations are live (core's `packages/routecraft/scripts/verify-dist.mjs`, run for both ESM and CJS in its `build` script, is the reference).
+3. `bun install` (the root `workspaces` glob picks the directory up automatically; `bun run --filter '*' build`, `bun run test`, typecheck, and `changeset publish` all walk the workspace).
+4. Add a size-limit entry in the root config if the package ships to users.
+5. Add a docs page under `apps/routecraft.dev/src/app/docs/` and a row to the CLAUDE.md package table.
+6. Add an introducing changeset: `bunx changeset` (minor, "Introduce @routecraft/<name>"). Decide whether the package joins the fixed core train in `.changeset/config.json` or versions independently (default: independently).
 
 Nothing needs registering in workflows: there are no per-package publish loops or version scripts anymore.
 

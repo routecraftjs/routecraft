@@ -10,6 +10,7 @@ import type {
   MailTargetExtractor,
 } from "./types.ts";
 import type { MailClientManager } from "./client-manager.ts";
+import { loadOptionalPeer } from "../shared/optional-peer.ts";
 import {
   analyzeHeaders,
   extractAnalysisHeaders,
@@ -289,7 +290,12 @@ export async function buildMimeMessage(
   payload: MailSendPayload,
   smtpDefaults: MailClientOptions,
 ): Promise<Buffer> {
-  const MailComposer = (await import("nodemailer/lib/mail-composer")).default;
+  const MailComposer = (
+    await loadOptionalPeer(() => import("nodemailer/lib/mail-composer"), {
+      adapterName: "mail",
+      packageName: "nodemailer",
+    })
+  ).default;
   const composer = new MailComposer(buildMessageOptions(payload, smtpDefaults));
   return composer.compile().build();
 }
@@ -347,7 +353,10 @@ export async function createImapClient(
   options: MailServerOptions,
 ): Promise<InstanceType<typeof import("imapflow").ImapFlow>> {
   const config = buildImapConfig(options);
-  const { ImapFlow } = await import("imapflow");
+  const { ImapFlow } = await loadOptionalPeer(() => import("imapflow"), {
+    adapterName: "mail",
+    packageName: "imapflow",
+  });
   return new ImapFlow(config);
 }
 
@@ -371,7 +380,10 @@ export async function createSmtpTransport(
     });
   }
 
-  const nodemailer = await import("nodemailer");
+  const nodemailer = await loadOptionalPeer(() => import("nodemailer"), {
+    adapterName: "mail",
+    packageName: "nodemailer",
+  });
   return nodemailer.createTransport({
     host: options.host,
     port: options.port ?? 465,
@@ -724,7 +736,10 @@ export async function fetchMessages(
       source: true,
     };
 
-    const { simpleParser } = await import("mailparser");
+    const { simpleParser } = await loadOptionalPeer(
+      () => import("mailparser"),
+      { adapterName: "mail", packageName: "mailparser" },
+    );
     const verify = options.verify ?? "headers";
 
     for (const criteria of criteriaSets) {
