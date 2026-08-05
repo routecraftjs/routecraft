@@ -122,6 +122,8 @@ The pre-existing migration backlog tracked in [#287](https://github.com/routecra
 
 ## 8. Local pre-PR checklist
 
+The user-facing copy of this checklist lives in the contribution guide (`apps/routecraft.dev/src/app/docs/community/contribution-guide/page.md`); keep the two in sync.
+
 Run before opening a PR; matches what CI runs:
 
 ```sh

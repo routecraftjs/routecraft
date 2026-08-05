@@ -96,21 +96,15 @@ Every operation that alters an exchange's lifecycle must emit an observable even
 
 The companion document for *where state lives on the exchange* is [`exchange-state-model.md`](./exchange-state-model.md). When you instrument a new operation, that document tells you which fields are stored (`body`, `headers`) versus derived (`id`, `principal`, `logger`); this document tells you which events to emit and what `exchangeId` / `correlationId` resolve to.
 
-| Event | When | Key details |
-|-------|------|-------------|
-| `exchange:started` | Exchange enters the pipeline (or a child is first processed) | `exchangeId`, `correlationId` |
-| `exchange:completed` | Exchange finishes all steps successfully (or is consumed by aggregate) | `exchangeId`, `correlationId`, `duration` |
-| `exchange:failed` | Exchange encounters an unrecoverable error | `exchangeId`, `correlationId`, `duration`, `error` |
-| `exchange:dropped` | Exchange is intentionally removed from the pipeline (filter, debounce, sample, etc.) | `exchangeId`, `correlationId`, `reason` |
-| `exchange:restored` | Exchange is restored from cache/storage, skipping some steps | `exchangeId`, `correlationId`, `source` |
+The exchange lifecycle event names (`route:exchange:started` / `:completed` / `:failed` / `:dropped` / `:restored`) and their payloads are documented in the events reference (`apps/routecraft.dev/src/app/docs/reference/events/page.md`, "Exchange events" section); that page is the source of truth for the names.
 
 **Rules:**
 
-- Every `exchange:started` must eventually be followed by exactly one of: `completed`, `failed`, or `dropped`.
+- Every `route:exchange:started` must eventually be followed by exactly one of: `:completed`, `:failed`, or `:dropped`.
 - Child exchanges (from split) get their own `started`/`completed`/`failed`/`dropped` events.
 - The `exchangeId` field must be `exchange.id` (not `correlationId`). Use `correlationId` for grouping related exchanges.
-- Operations that drop exchanges (filter, debounce, sample) must emit `exchange:dropped` with a `reason` string.
-- Future operations that restore from cache must emit `exchange:restored` with a `source` string.
+- Operations that drop exchanges (filter, debounce, sample) must emit `route:exchange:dropped` with a `reason` string.
+- Operations that restore from cache must emit `route:exchange:restored` with a `source` string.
 
 ---
 

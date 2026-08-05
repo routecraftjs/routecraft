@@ -285,11 +285,13 @@ const spyAdapter = spy();
 const route = craft()
   .id("return-final")
   .from({
-    subscribe: async (_ctx, handler, controller) => {
+    subscribe: async (sub) => {
+      sub.ready();
       try {
-        observed = await handler("hello");
+        // emit() resolves with the fully processed exchange
+        observed = await sub.emit({ message: "hello" });
       } finally {
-        controller.abort();
+        sub.complete();
       }
     },
   })

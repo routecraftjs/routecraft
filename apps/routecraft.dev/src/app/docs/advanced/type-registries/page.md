@@ -1,14 +1,10 @@
-# Type Safety: Registries
-
-Compile-time safety for string-based adapter APIs via declaration merging.
-
+---
+title: Type Registries
 ---
 
-## How registries work
+Compile-time safety for string-based adapter APIs via declaration merging. {% .lead %}
 
-Routecraft ships empty marker interfaces. You augment them in your project via `declare module`. When populated, adapter string parameters narrow from `string` to your registered keys - giving autocomplete and red-line errors for anything not registered. When the registries are empty (the default), everything falls back to `string` with no breaking changes.
-
----
+Routecraft ships empty marker interfaces. You augment them in your project via `declare module`. When populated, adapter string parameters narrow from `string` to your registered keys -- giving autocomplete and red-line errors for anything not registered. When the registries are empty (the default), everything falls back to `string` with no breaking changes.
 
 ## Direct endpoints
 
@@ -16,7 +12,7 @@ Routecraft ships empty marker interfaces. You augment them in your project via `
 
 **With registry:**
 
-```typescript
+```ts
 // src/types/routecraft.d.ts
 declare module '@routecraft/routecraft' {
   interface DirectEndpointRegistry {
@@ -29,7 +25,7 @@ declare module '@routecraft/routecraft' {
 
 Now:
 
-```typescript
+```ts
 .to(direct('payments'))       // OK
 .to(direct('orders'))         // OK
 .to(direct('invoices'))       // red line: 'invoices' not in registry
@@ -45,7 +41,7 @@ craft()
 
 The value type in the registry (`PaymentRequest`, `OrderRequest`, etc.) is used by `ResolveBody` to infer the body type when calling `direct(endpoint)` as a destination. When you write `.to(direct('payments'))`, TypeScript constrains the exchange body to `PaymentRequest`. Set values to the actual request body type for full inference:
 
-```typescript
+```ts
 interface DirectEndpointRegistry {
   'payments': PaymentRequest;
 }
@@ -56,15 +52,13 @@ interface DirectEndpointRegistry {
 - Auto-discovering endpoints from your route files. TypeScript cannot scan across files to collect string literals from function calls. If you write `craft().id('payments').from(direct())` in `routes/payments.ts` (a source binds to its route id; `direct()` takes no endpoint argument), the id `'payments'` is not automatically added to the registry. You must declare it manually.
 - Verifying that a registered endpoint has a matching `.from()` source at runtime. The registry says "this name is valid" but does not check that a route actually listens on it. If you register `'invoices'` but no route has `.id('invoices')` with `.from(direct())`, the type is happy but the message will hang at runtime.
 
----
-
 ## LLM providers
 
 **Without registry:** `llm('anything:model')` accepts any string.
 
 **With registry:**
 
-```typescript
+```ts
 // src/types/routecraft.d.ts
 declare module '@routecraft/ai' {
   interface LlmProviderRegistry {
@@ -77,7 +71,7 @@ declare module '@routecraft/ai' {
 
 Now:
 
-```typescript
+```ts
 llm('openai:gpt-5')            // OK
 llm('anthropic:claude-opus-4-6') // OK
 llm('ollama:llama3.2')         // OK
@@ -87,10 +81,8 @@ llm('gemini:gemini-2.5-pro')   // red line: 'gemini' not registered
 
 **What this does NOT cover:**
 
-- Syncing the registry with your `llmPlugin({ providers: { ... } })` config. These are two separate declarations - one compile-time, one runtime. You must keep them in sync manually. If you add `gemini` to the plugin config but forget to update the registry, `llm('gemini:...')` will show a red line but work at runtime. The reverse (in registry but not in plugin config) compiles fine but crashes at runtime.
+- Syncing the registry with your `llmPlugin({ providers: { ... } })` config. These are two separate declarations -- one compile-time, one runtime. You must keep them in sync manually. If you add `gemini` to the plugin config but forget to update the registry, `llm('gemini:...')` will show a red line but work at runtime. The reverse (in registry but not in plugin config) compiles fine but crashes at runtime.
 - Model-level validation. The registry constrains the provider prefix (before `:`), not the model name. `llm('ollama:this-model-does-not-exist')` will compile and only fail when the Ollama API is called. Knowing which models are actually available requires runtime introspection (e.g., polling Ollama's `/api/tags` endpoint) which is out of scope for compile-time types.
-
----
 
 ## MCP servers
 
@@ -98,7 +90,7 @@ llm('gemini:gemini-2.5-pro')   // red line: 'gemini' not registered
 
 **With registry:**
 
-```typescript
+```ts
 // src/types/routecraft.d.ts
 declare module '@routecraft/ai' {
   interface McpServerRegistry {
@@ -111,7 +103,7 @@ declare module '@routecraft/ai' {
 
 Now:
 
-```typescript
+```ts
 mcp('github:create_issue')      // OK
 mcp('local-postgres:query')     // OK
 mcp('unknown-server:tool')      // red line: 'unknown-server' not in registry
@@ -122,13 +114,11 @@ mcp('unknown-server:tool')      // red line: 'unknown-server' not in registry
 - Tool-level validation. The registry constrains the server name prefix, not the tool name after `:`. `mcp('github:nonexistent_tool')` compiles fine and only fails when the MCP server is called. Knowing which tools a server exposes requires pinging the server and reading its tool list at dev-time.
 - Syncing with `mcpPlugin({ clients: { ... } })` config. Same drift risk as LLM providers above.
 
----
-
 ## Putting it together
 
 A single declaration file for your project:
 
-```typescript
+```ts
 // src/types/routecraft.d.ts
 import type { PaymentRequest, OrderRequest } from '../domain';
 
@@ -156,66 +146,11 @@ declare module '@routecraft/ai' {
 
 ---
 
-## How codegen would fix the manual declaration requirement
+## Related
 
-The core limitation is that TypeScript cannot scan your project to discover endpoint names, provider configs, or MCP tool lists. A CLI command could do this scan instead and write the declaration file for you.
+{% quick-links %}
 
-### What `craft typegen` would do
+{% quick-link title="direct adapter" icon="presets" href="/docs/reference/adapters/direct" description="The direct adapter whose endpoints DirectEndpointRegistry constrains." /%}
+{% quick-link title="Composing Capabilities" icon="presets" href="/docs/advanced/composing-capabilities" description="Build modular systems with direct() and reusable capability chains." /%}
 
-```bash
-bun run craft typegen
-```
-
-1. **Direct endpoints** - scan all `.ts` files for routes that pair `.id('name')` with `.from(direct())` (a direct source binds to its route id; the factory takes no endpoint argument). Collect the id string literals. Write them into `DirectEndpointRegistry`.
-
-2. **LLM providers** - read your `craft.config.ts`, find the `llmPlugin({ providers: { ... } })` call, extract the provider keys. Write them into `LlmProviderRegistry`.
-
-3. **MCP servers** - read your `craft.config.ts`, find `mcpPlugin({ clients: { ... } })`, extract server IDs. For each server, optionally ping it with `--introspect` to fetch its tool list and generate `McpServerToolRegistry`.
-
-4. Output a generated file (never edit manually):
-
-```typescript
-// src/types/routecraft.generated.d.ts  (generated - do not edit)
-
-declare module '@routecraft/routecraft' {
-  interface DirectEndpointRegistry {
-    'payments':      unknown;
-    'orders':        unknown;
-    'dead-letter':   unknown;
-  }
-}
-
-declare module '@routecraft/ai' {
-  interface LlmProviderRegistry {
-    openai:    true;
-    ollama:    true;
-  }
-
-  interface McpServerRegistry {
-    'github':   true;
-    'postgres': true;
-  }
-}
-```
-
-### Watch mode
-
-```bash
-bun run craft typegen --watch
-```
-
-Re-runs on file save. As soon as you add `craft().id('invoices').from(direct())`, the `invoices` entry appears in the registry and `direct('invoices')` destinations immediately become valid.
-
-### Commit the generated file
-
-The generated file should be committed. This gives the team a clear diff when endpoints or providers change, and CI can verify the file is not stale:
-
-```bash
-bun run craft typegen && git diff --exit-code src/types/routecraft.generated.d.ts
-```
-
-### What codegen still cannot fix
-
-- **Verifying a registered endpoint has a live listener** - codegen can discover source endpoints, but it cannot know at build time whether the route that listens on `'payments'` is actually started and reachable.
-- **LLM model validation** - knowing which models Ollama has downloaded requires hitting a live API. Codegen with `--introspect` could generate a set of known model IDs by calling `ollama list`, but this would only be accurate at generation time.
-- **MCP tool argument types** - MCP tools expose JSON Schema for their arguments. Codegen with `--introspect` could generate typed wrappers, but this is a larger feature (typed tool call arguments, not just server name safety).
+{% /quick-links %}

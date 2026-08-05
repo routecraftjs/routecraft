@@ -69,10 +69,12 @@ Routecraft sets a number of `routecraft.*` headers automatically on every exchan
 
 | Header | Description |
 | --- | --- |
-| `routecraft.exchange_id` | Unique ID for this exchange |
+| `routecraft.id` | Unique ID for this exchange (the `exchange.id` getter reads this key) |
+| `routecraft.operation` | The operation currently processing the exchange (`from`, `transform`, `to`, ...) |
+| `routecraft.route` | ID of the capability processing this exchange |
 | `routecraft.correlation_id` | Shared ID across split/tap branches for tracing |
-| `routecraft.route` | ID of the capability that produced this exchange |
-| `routecraft.context_id` | ID of the running context |
+| `routecraft.split_hierarchy` | Hierarchy of split groups this exchange belongs to (set by `.split()`) |
+| `routecraft.auth.principal` | The authenticated `Principal`, when a source verified identity (the `exchange.principal` getter reads this key) |
 
 These are useful for logging, debugging, and correlating exchanges across capability chains.
 
@@ -173,6 +175,6 @@ craft()
 
 {% quick-links %}
 
-{% quick-link title="Exchange headers reference" icon="presets" href="/docs/reference/configuration#headers" description="Full list of built-in routecraft.* headers." /%}
+{% quick-link title="Operations" icon="presets" href="/docs/introduction/operations" description="What each operation does with the exchange body and headers." /%}
 
 {% /quick-links %}
