@@ -208,6 +208,15 @@ type CopilotProviderFactory = ((
 const copilotProviderCache = new Map<string, CopilotProviderFactory>();
 
 /**
+ * Number of applied `llmPlugin` instances that have not yet torn down. The
+ * Copilot client cache is process-wide, so concurrent contexts sharing a
+ * client config share its CLI process; disposing on the first teardown would
+ * stop a client another context is still using.
+ * @internal
+ */
+let copilotClientHolders = 0;
+
+/**
  * Stop every cached Copilot client and clear the cache. Each client owns a
  * spawned `copilot` CLI process that is not unref'd, so without this the
  * process outlives context shutdown and keeps the runtime alive.
@@ -217,10 +226,15 @@ const copilotProviderCache = new Map<string, CopilotProviderFactory>();
  * through `releaseCopilotClients`, which only disposes once the last context
  * has torn down. Call this directly when registering providers without the
  * plugin, or to force disposal.
+ *
+ * This drops all Copilot client state, holders included, so what remains is
+ * what a fresh process would have. A holder that releases afterwards finds
+ * the count already at zero and disposes an empty cache, which is harmless.
  */
 export async function disposeCopilotProviderCache(): Promise<void> {
   const providers = [...copilotProviderCache.values()];
   copilotProviderCache.clear();
+  copilotClientHolders = 0;
   await Promise.all(
     providers.map(async (provider) => {
       try {
@@ -231,15 +245,6 @@ export async function disposeCopilotProviderCache(): Promise<void> {
     }),
   );
 }
-
-/**
- * Number of applied `llmPlugin` instances that have not yet torn down. The
- * Copilot client cache is process-wide, so concurrent contexts sharing a
- * client config share its CLI process; disposing on the first teardown would
- * stop a client another context is still using.
- * @internal
- */
-let copilotClientHolders = 0;
 
 /**
  * Register a holder of the Copilot client cache. Paired with
