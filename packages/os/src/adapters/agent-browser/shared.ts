@@ -1,3 +1,4 @@
+import { loadOptionalPeer } from "@routecraft/routecraft";
 import type { Exchange } from "@routecraft/routecraft";
 import type { AgentBrowserCommand, Resolvable } from "./types.ts";
 
@@ -16,18 +17,13 @@ let cached: AgentBrowserLib | null = null;
 
 async function loadAgentBrowser(): Promise<AgentBrowserLib> {
   if (cached) return cached;
-  try {
-    const [{ BrowserManager }, { executeCommand }] = await Promise.all([
-      import("agent-browser/dist/browser.js"),
-      import("agent-browser/dist/actions.js"),
-    ]);
-    cached = { BrowserManager, executeCommand };
-    return cached;
-  } catch {
-    throw new Error(
-      '@routecraft/os: the "agent-browser" package is required for this adapter. Install it with: npm install agent-browser',
-    );
-  }
+  const peer = { adapterName: "agentBrowser", packageName: "agent-browser" };
+  const [{ BrowserManager }, { executeCommand }] = await Promise.all([
+    loadOptionalPeer(() => import("agent-browser/dist/browser.js"), peer),
+    loadOptionalPeer(() => import("agent-browser/dist/actions.js"), peer),
+  ]);
+  cached = { BrowserManager, executeCommand };
+  return cached;
 }
 
 /**
