@@ -342,6 +342,7 @@ export {
   type ProcessingQueue,
   type Step,
   type StepContext,
+  type StepSignalContext,
   type StepOutcome,
   type StepOutcomeMetadata,
 } from "./types.ts";

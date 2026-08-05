@@ -1,4 +1,11 @@
-import { type Adapter, type Step, type StepOutcome } from "../types.ts";
+import {
+  type Adapter,
+  type Step,
+  type StepContext,
+  type StepOutcome,
+  type StepSignalContext,
+  toSignalContext,
+} from "../types.ts";
 import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
 
 /**
@@ -8,7 +15,10 @@ import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
  * transformer can derive the new body from context (the principal, headers,
  * correlation id) without dropping to `.process()`. A transformer still
  * returns only the body; to rewrite headers or the principal use `.process()`.
- * Adding the parameter is backwards compatible: a one-argument
+ * The third argument carries the step's {@link StepSignalContext}: when an
+ * enclosing `.timeout()` expires, `ctx.signal` aborts, so a transformer doing
+ * cancellation-aware IO can forward it (`fetch(url, { signal })`).
+ * Adding parameters is backwards compatible: a one-argument
  * `(message) => ...` is still a valid transformer.
  * @template T - Current body type
  * @template R - Result body type (default T)
@@ -16,6 +26,7 @@ import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
 export type CallableTransformer<T = unknown, R = T> = (
   message: T,
   exchange: Exchange<T>,
+  ctx?: StepSignalContext,
 ) => Promise<R> | R;
 
 /**
@@ -90,9 +101,12 @@ export class TransformStep<T = unknown, R = T> implements Step<
       typeof adapter === "function" ? { transform: adapter } : adapter;
   }
 
-  async execute(exchange: Exchange<T>): Promise<StepOutcome> {
+  async execute(
+    exchange: Exchange<T>,
+    ctx?: StepContext,
+  ): Promise<StepOutcome> {
     const newBody = await Promise.resolve(
-      this.adapter.transform(exchange.body, exchange),
+      this.adapter.transform(exchange.body, exchange, toSignalContext(ctx)),
     );
     return {
       kind: "continue",

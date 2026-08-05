@@ -7,6 +7,14 @@ import { craft, simple, direct } from "@routecraft/routecraft";
  * Direct adapter validation tests
  *
  * Tests for schema validation, header validation, and route discovery.
+ *
+ * Cross-route failure accounting: since #447 folded `.input()` validation
+ * into the pre-from filter chain, a consumer-side validation failure is a
+ * normal pipeline failure of the CONSUMER route (its `.error()` handler can
+ * recover it) whose rejection then also fails the producer's `.to(direct())`
+ * step, exactly like any other consumer-route failure. `t.errors` therefore
+ * collects TWO `context:error` events for one bad message: index 0 is the
+ * consumer route's RC5002, index 1 is the producer's propagated failure.
  */
 
 describe("Direct adapter validation", () => {
@@ -83,7 +91,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
       expect(consumer).not.toHaveBeenCalled();
     });
@@ -114,7 +122,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
     });
 
@@ -143,7 +151,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
     });
 
@@ -327,7 +335,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
       expect(t.errors[0].cause).toBeDefined();
     });
@@ -386,7 +394,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].meta.message).toContain("my-special-endpoint");
     });
 
@@ -453,7 +461,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
     });
 
@@ -776,7 +784,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
     });
 
@@ -806,7 +814,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
     });
 
@@ -832,7 +840,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
     });
 
@@ -889,7 +897,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
     });
 
@@ -1062,7 +1070,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
     });
 
@@ -1091,7 +1099,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
       expect(t.errors[0].meta.message).toContain("Body validation failed");
     });
@@ -1136,7 +1144,7 @@ describe("Direct adapter validation", () => {
     /**
      * @case Validation only on consumer side, not producer
      * @preconditions Producer sends invalid data, only consumer has schema
-     * @expectedResult Error happens at consumer, not producer
+     * @expectedResult The producer's own pipeline runs unvalidated (its tap fires); the consumer rejects with RC5002 and the failure surfaces on both routes
      */
     test("validation only on consumer side", async () => {
       const producerTap = mock();
@@ -1157,7 +1165,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(producerTap).toHaveBeenCalledTimes(1);
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
     });
 
     /**
@@ -1230,11 +1238,11 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Producer doesn't see validation errors
+     * @case Producer observes the consumer's validation failure
      * @preconditions Producer sends, consumer fails validation
-     * @expectedResult Producer completes, error only at consumer level
+     * @expectedResult The consumer's RC5002 rejects the producer's send too, so both routes fail (same contract as any other consumer-route failure)
      */
-    test("producer completes despite consumer validation error", async () => {
+    test("producer observes the consumer's validation failure", async () => {
       t = await testContext()
         .routes([
           craft()
@@ -1250,7 +1258,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
     });
 
     /**
@@ -1274,7 +1282,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(t.errors[0].rc).toBe("RC5002");
     });
 
@@ -1306,7 +1314,7 @@ describe("Direct adapter validation", () => {
         .build();
 
       await t.test();
-      expect(t.errors).toHaveLength(1);
+      expect(t.errors).toHaveLength(2);
       expect(otherConsumer).toHaveBeenCalledTimes(1);
     });
   });

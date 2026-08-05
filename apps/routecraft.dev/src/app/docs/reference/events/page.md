@@ -125,7 +125,7 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 | `route:timeout:stopped` | The guarded execution settled within the deadline | Same plus `elapsed` |
 | `route:timeout:expired` | The deadline fired first; an `RC5011` throw follows | Same plus `elapsed` |
 
-A failure of the wrapped operation *inside* the deadline does not emit a timeout event; the error propagates unchanged and is observable via `step:failed` / the error path. The abandoned work after an expiry keeps running in the background (promises cannot be cancelled); its eventual result is discarded.
+A failure of the wrapped operation *inside* the deadline does not emit a timeout event; the error propagates unchanged and is observable via `step:failed` / the error path. The abandoned work after an expiry has its eventual result discarded (promises cannot be cancelled); the step's context `AbortSignal` fires on expiry so cancellation-aware IO can stop instead of running to completion in the background (see the [timeout reference](/docs/reference/operations/timeout)).
 
 ### Throttle wrapper operations
 

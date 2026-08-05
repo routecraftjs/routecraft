@@ -147,14 +147,64 @@ export type StepOutcome =
   | { kind: "suspend"; exchange: Exchange };
 
 /**
+ * The abort surface of a step execution, handed to function-form steps
+ * (`.process()`, `.transform()`, `.to()`, `.enrich()`) as their trailing
+ * argument. {@link StepContext} extends it, so adapter authors
+ * implementing {@link Step.execute} read the same field from `ctx`.
+ *
+ * `signal` fires when an enclosing `.timeout()` deadline expires (step
+ * scope or route scope): promises cannot be cancelled, so the framework
+ * discards the losing run's outcome, and this signal is how the run
+ * itself finds out. Forward it into cancellation-aware IO (`fetch`, DB
+ * drivers) so abandoned work actually stops instead of running to
+ * completion in the background:
+ *
+ * ```ts
+ * .timeout(3000)
+ * .process(async (ex, { signal }) => {
+ *   const res = await fetch(url, { signal });
+ *   return { ...ex, body: await res.json() };
+ * })
+ * ```
+ *
+ * The signal's abort reason is the `RC5011` timeout error. It is absent
+ * when no timeout wraps the step. Route shutdown does NOT fire it:
+ * graceful drain lets in-flight exchanges complete (sources observe
+ * shutdown via their own `Subscription.signal`).
+ */
+export interface StepSignalContext {
+  /** Fires when an enclosing `.timeout()` deadline expires. */
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Narrow a {@link StepContext} down to its abort surface for handing to
+ * user code. Function-form steps (`.process()`, `.transform()`, `.to()`,
+ * `.enrich()`) pass THIS to their callables instead of the executor's
+ * full context: the narrowing is a deliberate capability boundary (only
+ * `signal` may reach user code, never scheduling capabilities like
+ * `takePending`), so every call site funnels through here rather than
+ * re-spelling the spread.
+ *
+ * @internal
+ */
+export function toSignalContext(ctx?: StepContext): StepSignalContext {
+  return ctx?.signal ? { signal: ctx.signal } : {};
+}
+
+/**
  * Narrow executor capability handed to {@link Step.execute}.
  *
  * `takePending` atomically removes and returns pending sibling exchanges
  * matching the predicate; it exists for join-style steps (aggregate) that
  * consume their split siblings. The queue itself is never exposed, so
  * steps cannot reorder, duplicate, or corrupt scheduling.
+ *
+ * Extends {@link StepSignalContext}: `signal` fires when an enclosing
+ * `.timeout()` deadline expires, so steps doing cancellation-aware IO
+ * can abort abandoned work.
  */
-export interface StepContext {
+export interface StepContext extends StepSignalContext {
   takePending(predicate: (exchange: Exchange) => boolean): Exchange[];
 
   /**

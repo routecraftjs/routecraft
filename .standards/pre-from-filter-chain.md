@@ -27,7 +27,7 @@ below).
 | 1 | `error` | shipped (#119, #140) | — | catches throws from everything below; handler picks what to recover |
 | 2 | `authorize` (stacks) | shipped | yes (`RC5012` / `RC5015`) | identity gate; deterministic, not retried |
 | 3 | `parse` | shipped (source-attached) | yes (`RC5016`) | raw bytes → typed body; deterministic, not retried |
-| 4 | `input` | shipped | yes (`RC5002`) | schema validation; deterministic, not retried |
+| 4 | `input` | shipped (#447 folded it into the chain) | yes (`RC5002`) | schema validation; deterministic, not retried; runs inside the parse step when a parser is attached |
 | 5 | `throttle` | shipped (#151) | `mode: 'reject'` only (`RC5013`); default `'delay'` paces | rate limit valid requests (not pre-auth; that's source-layer DoS protection). Delay paces; reject fails fast with `RC5013` |
 | 6 | `circuitBreaker` | shipped (#139) | yes (`RC5025`, fast-fail when open) | counts inner failures; trips after threshold, fast-fails (fallback or `RC5025`) until cooldown, then probes |
 | 7 | `retry` | shipped (#148) | yes (final attempt's throw) | re-runs everything below on failure |
@@ -251,16 +251,34 @@ Today (as of #112 / #395 / 0.6.0):
   regardless of which `.authorize()` / `.cache()` / `.error()`
   methods were called first on the builder.
 
-Eager input validation (chain position #4 conceptually) still
-runs in `Route.buildConsumerHandler()` rather than as a chain
-step. This is **a deliberate scoping choice** for the v1
-refactor: moving it into the chain alters when `context:error`
-fires for cross-route validation failures (the consumer route's
-chain fires `context:error` from the runPipeline catch instead of
-the eager throw-and-propagate path). Folding it in is tracked
-as a follow-up; until then, parse-attached sources still stash
-the validator on `internals.applyValidation` and the parse step
-runs it.
+Input validation (chain position #4) is folded into the chain
+(#447). Like parse, it is dynamic per exchange:
+`Route.buildConsumerHandler()` stashes the validator on
+`internals.applyValidation` for every source shape, and
+`runPipeline` runs it inside the synthetic parse step when the
+source attached a parser (input validates the parsed body, so #3
+and #4 collapse into one step) or as a standalone synthetic input
+step (`buildInputValidationStep`, `operation: "input"`, adapter id
+`routecraft.input`) when it did not. Both paths throw `RC5002`
+through the chain catch boundary, so `.error()` (position #1) can
+observe and recover a validation failure regardless of source
+shape, and the old eager path's `exchange:dropped` emission is
+gone: an unrecovered RC5002 takes the normal
+`step:failed` -> `route:error` / `context:error` /
+`exchange:failed` path.
+
+The fold intentionally re-specified cross-route `context:error`
+timing (#447's known constraint): a consumer-side validation
+failure now fires the CONSUMER route's error path first (from its
+own runPipeline catch) and then rejects the producer's
+`.to(direct())` step, which fires the producer's error path too --
+two `context:error` events for one bad message, identical to any
+other consumer-route failure. Previously the eager path emitted
+`exchange:dropped` on the consumer and only the producer fired
+`context:error`. Covered by
+`packages/routecraft/test/input-chain.bun.test.ts` and the
+cross-route accounting notes in
+`packages/routecraft/test/direct-validation.bun.test.ts`.
 
 Filters 7-8 (`retry` #148, `timeout` #147) are shipped. They are
 NOT flat `postParseFilters` entries: each scopes OVER the chain

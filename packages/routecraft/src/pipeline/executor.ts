@@ -19,7 +19,7 @@ import {
   type StepOutcome,
   getAdapterLabel,
 } from "../types.ts";
-import { buildParseStep } from "./synthetic-steps.ts";
+import { buildInputValidationStep, buildParseStep } from "./synthetic-steps.ts";
 import {
   applyOutputValidation,
   handleOutputValidationFailure,
@@ -122,13 +122,21 @@ export async function runPipeline(
   // throws an `RC5016` error on parse failure, which then flows through
   // the same error-handler path as any other step error: the route's
   // `.error()` handler is invoked, or `exchange:failed` fires.
+  //
+  // `.input()` validation (chain position #4) rides the same internals
+  // slot: with a parser it runs inside the parse step (input validates
+  // the parsed body, so #3 and #4 collapse into one step); without one it
+  // becomes a standalone synthetic input step in the same position. Both
+  // paths throw `RC5002` into this run's catch boundary, so a validation
+  // failure is routable through `.error()` regardless of the source
+  // shape (#447).
   const internals = EXCHANGE_INTERNALS.get(exchange);
   const sourceParse = internals?.parse;
   const sourceValidate = internals?.applyValidation;
   const sourceFailureMode = internals?.parseFailureMode ?? "fail";
-  if (internals && sourceParse) {
-    // Clear so parse never runs twice on the same exchange (e.g. if the
-    // exchange is forwarded back through the queue).
+  if (internals && (sourceParse || sourceValidate)) {
+    // Clear so parse / validation never run twice on the same exchange
+    // (e.g. if the exchange is forwarded back through the queue).
     delete internals.parse;
     delete internals.parseFailureMode;
     delete internals.applyValidation;
@@ -141,7 +149,8 @@ export async function runPipeline(
   // pre-from arrays:
   //
   //   preParseFilters    -> .authorize()
-  //   (parse if present) -> source-attached
+  //   (parse if present) -> source-attached; runs .input() after parse
+  //   (input if present) -> .input() as a standalone step when no parser
   //   retry segment      -> route-scope .retry() (#7, wraps the tail)
   //   timeout segment    -> route-scope .timeout() (#8, wraps the tail)
   //   concurrency segment-> route-scope .concurrency() (bulkhead, innermost
@@ -228,7 +237,9 @@ export async function runPipeline(
     ...deps.definition.preParseFilters,
     ...(sourceParse
       ? [buildParseStep(sourceParse, sourceFailureMode, sourceValidate)]
-      : []),
+      : sourceValidate
+        ? [buildInputValidationStep(sourceValidate)]
+        : []),
     ...tail,
   ];
 
@@ -265,6 +276,13 @@ export async function runPipeline(
   // semantics (including filter-dropped children: only survivors are
   // collected, nothing waits) are byte-identical to the pre-outcome engine.
   const stepContext: StepContext = {
+    // Surface the abandon signal (route-scope timeout) to the steps
+    // themselves, not just the scheduling loop below: a step doing
+    // cancellation-aware IO forwards it into fetch / DB drivers so an
+    // expired attempt stops working, instead of merely having its
+    // outcome discarded. Step-scope `.timeout()` composes on top by
+    // deriving a linked signal per wrapped step.
+    ...(deps.abortSignal ? { signal: deps.abortSignal } : {}),
     takePending(predicate: (candidate: Exchange) => boolean): Exchange[] {
       const taken: Exchange[] = [];
       for (let i = 0; i < queue.length;) {
@@ -502,14 +520,25 @@ export async function runPipeline(
       ] as string;
       const duration = Date.now() - startTime;
 
-      // Emit step-level error
-      deps.context.emit("route:step:error", {
-        routeId: deps.routeId,
-        error: err,
-        route: deps.route,
-        exchange,
-        operation: stepLabel,
-      });
+      // Emit step-level error, unless this run was already abandoned by
+      // an outer abort (a route-scope timeout that expired). Since the
+      // wrapped step now receives that abort through its StepContext
+      // signal, a cancellation-aware step FAILS on expiry rather than
+      // running to completion with a discarded outcome. That failure is
+      // a consequence of the deadline the segment step has already
+      // reported (RC5011), not an independent step error, so surfacing
+      // it would add a spurious `route:step:error` per expiry for
+      // exactly the steps that cooperate with cancellation. The
+      // abandoned run's result is discarded either way.
+      if (!deps.abortSignal?.aborted) {
+        deps.context.emit("route:step:error", {
+          routeId: deps.routeId,
+          error: err,
+          route: deps.route,
+          exchange,
+          operation: stepLabel,
+        });
+      }
 
       if (deps.definition.errorHandler) {
         // Route-scope error-handler events. Step-scope wrappers
@@ -878,7 +907,6 @@ function makeDownstreamRunner(
           const validationDeps: ValidationDeps = {
             routeId: deps.routeId,
             context: deps.context,
-            logger: deps.route.logger,
             route: deps.route,
             buildForward: () => deps.buildForward(),
             ...(routeDefinition.errorHandler
@@ -930,10 +958,11 @@ function makeDownstreamRunner(
  * Build the route-scope `.timeout()` segment step (pre-from chain
  * position #8). Runs the chain tail via a nested executor invocation
  * raced against the deadline. On expiry, emits `route:timeout:expired`,
- * throws `RC5011`, and aborts the nested run: the in-flight step
- * settles (promises cannot be cancelled) with its outcome discarded,
- * and no further steps are scheduled, so an expired attempt cannot
- * keep producing downstream side effects.
+ * throws `RC5011`, and aborts the nested run: no further steps are
+ * scheduled, the in-flight step's outcome is discarded, and the abort
+ * (reason: the RC5011 error) reaches that step through its StepContext
+ * `signal` so cancellation-aware IO stops instead of running to
+ * completion in the background.
  *
  * `skipStepEvents: true` keeps `runPipeline` from emitting generic
  * lifecycle events for this internal step; the segment emits its own
@@ -983,17 +1012,21 @@ function buildTimeoutSegmentStep(
         return segmentResultToOutcome(result);
       } catch (err) {
         if (!(err instanceof DeadlineExceededError)) throw err;
-        // Stop the abandoned run from scheduling further steps: its
-        // result is discarded, so any remaining steps would only run
-        // side effects after the exchange has already failed.
-        abandon.abort();
+        const timeoutError = rcError("RC5011", undefined, {
+          message: `Route "${deps.routeId}" pipeline exceeded its ${timeoutMs}ms timeout`,
+        });
+        // Stop the abandoned run: the scheduling loop stops queueing
+        // further steps, and the in-flight step sees the abort via its
+        // StepContext signal (exposed by the nested run's stepContext)
+        // so cancellation-aware IO stops instead of running to
+        // completion with a discarded outcome. The RC5011 error rides
+        // as the abort reason.
+        abandon.abort(timeoutError);
         deps.context.emit("route:timeout:expired", {
           ...scoped,
           elapsed: Date.now() - start,
         });
-        throw rcError("RC5011", undefined, {
-          message: `Route "${deps.routeId}" pipeline exceeded its ${timeoutMs}ms timeout`,
-        });
+        throw timeoutError;
       }
     },
   };

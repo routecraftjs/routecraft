@@ -39,7 +39,6 @@ import {
   buildThrottleCheckStep,
 } from "./pipeline/synthetic-steps.ts";
 import {
-  applyInputValidation,
   applyOutputValidation,
   handleOutputValidationFailure,
   validateInputOrThrow,
@@ -530,7 +529,6 @@ export class DefaultRoute implements Route {
       const deps: ValidationDeps = {
         routeId: this.definition.id,
         context: this.context,
-        logger: this.logger,
         route: this,
         buildForward: () => this.buildForward(),
       };
@@ -582,11 +580,13 @@ export class DefaultRoute implements Route {
     // Lifecycle log is emitted only by context (one log per event).
 
     // Register the shared pipeline handler on every per-source consumer.
-    // Framework-level input validation runs here, before the step pipeline,
-    // so any source adapter with an `.input()` schema on the route inherits
-    // validation without per-adapter wiring. On failure the engine emits
-    // `exchange:dropped` for telemetry and re-throws so the source's own
-    // caller (e.g. a direct channel's `send`) sees the validation error.
+    // Framework-level `.input()` validation is stashed on exchange
+    // internals here and runs INSIDE the pre-from filter chain (position
+    // #4), so any source adapter with an `.input()` schema on the route
+    // inherits validation without per-adapter wiring, and a failure is
+    // routable through the route-scope `.error()` handler. Unrecovered,
+    // the handler's rejection still reaches the source's own caller
+    // (e.g. a direct channel's `send`). See #447.
     const consumerHandler = this.buildConsumerHandler();
     for (const consumer of this.consumers) {
       consumer.register(consumerHandler);
@@ -749,49 +749,43 @@ export class DefaultRoute implements Route {
   /**
    * Build the handler registered on every per-source consumer. The handler is
    * shared across all of a route's ingresses so they drive one pipeline; it
-   * applies framework-level `.input()` validation (eagerly, or deferred to the
-   * synthetic parse step when the source supplies a parser) before running the
-   * route's steps.
+   * stashes the source-supplied parser and the route's `.input()` validator
+   * on exchange internals so `runPipeline` runs both INSIDE the pre-from
+   * filter chain (positions #3 / #4). A parse or validation failure is
+   * therefore a normal step failure, routable through the route-scope
+   * `.error()` handler (chain position #1) for every source shape; see
+   * #187 (parse) and #447 (the input fold).
    */
   private buildConsumerHandler(): (envelope: Message) => Promise<Exchange> {
     return async ({ message, headers, parse, parseFailureMode }) => {
-      const initialExchange = this.buildExchange(message, headers);
+      const exchange = this.buildExchange(message, headers);
       const inputSchemas = this.definition.discovery?.input;
       const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
 
-      let exchange: Exchange = initialExchange;
-      if (parse) {
-        // Stash the source-supplied parser on exchange internals so
-        // `runPipeline` can apply it as a synthetic first pipeline step.
-        // This is what makes parse errors surface as normal pipeline
-        // events the route can observe (`.error()` for `'fail'`,
-        // `exchange:dropped` for `'drop'`). See #187.
-        const internals = EXCHANGE_INTERNALS.get(exchange);
-        if (internals) {
+      const internals = EXCHANGE_INTERNALS.get(exchange);
+      if (internals) {
+        if (parse) {
+          // Stash the source-supplied parser so `runPipeline` applies it
+          // as a synthetic first pipeline step. This is what makes parse
+          // errors surface as normal pipeline events the route can
+          // observe (`.error()` for `'fail'`, `exchange:dropped` for
+          // `'drop'`). See #187.
           internals.parse = parse;
           internals.parseFailureMode = parseFailureMode ?? "fail";
-          // Validation must run AFTER parse so `.input()` schemas
-          // validate the parsed body, not the raw bytes. The synthetic
-          // parse step calls this hook once parse succeeds. Use the
-          // non-emitting variant so a validation failure inside the parse
-          // step throws RC5002 cleanly into the step loop's catch path
-          // (which emits `step:failed` and then `exchange:failed`),
-          // without firing duplicate `exchange:started` /
-          // `exchange:dropped` events (see #187).
-          if (hasInputSchema && inputSchemas) {
-            internals.applyValidation = (ex: Exchange) =>
-              validateInputOrThrow(this.validationDeps(), ex, inputSchemas);
-          }
         }
-      } else if (hasInputSchema && inputSchemas) {
-        // No parse: run validation eagerly. The validated exchange
-        // replaces the initial one; with frozen headers/body the
-        // validator returns a new instance via `rewrap`.
-        exchange = await applyInputValidation(
-          this.validationDeps(),
-          exchange,
-          inputSchemas,
-        );
+        // Stash the `.input()` validator alongside. With a parser the
+        // synthetic parse step runs it once parse succeeds (input
+        // validates the parsed body, not the raw bytes); without one
+        // `runPipeline` inserts a standalone input step in the same
+        // chain position. The non-emitting variant throws RC5002
+        // cleanly into the step loop's catch path (which emits
+        // `step:failed` and then the error path), without firing
+        // duplicate `exchange:started` / stray `exchange:dropped`
+        // events (see #187, #447).
+        if (hasInputSchema && inputSchemas) {
+          internals.applyValidation = (ex: Exchange) =>
+            validateInputOrThrow(this.validationDeps(), ex, inputSchemas);
+        }
       }
 
       return this.handler(exchange);

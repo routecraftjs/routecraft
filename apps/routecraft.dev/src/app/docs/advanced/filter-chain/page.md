@@ -23,7 +23,7 @@ Outside in (position 1 wraps everything below):
 | 1 | `error` | shipped | `.error(handler)` | catches throws from everything below |
 | 2 | `authorize` (stacks) | shipped | `.authorize({ roles, scopes, predicate })` | principal on `exchange.headers` |
 | 3 | `parse` | shipped | source adapter (HTTP, mail, CSV, ...) | raw body bytes → typed body |
-| 4 | `input` | shipped (eager) | `.input(schema)` | typed body / headers |
+| 4 | `input` | shipped | `.input(schema)` | typed body / headers |
 | 5 | `throttle` | shipped | `.throttle({ rate, per, mode })` | rate limit on the route (delay or reject) |
 | 6 | `circuitBreaker` | shipped | `.circuitBreaker({...})` | failure stats; fast-fails when open |
 | 7 | `retry` | shipped | `.retry({...})` | re-runs everything below on failure |
@@ -33,8 +33,8 @@ Outside in (position 1 wraps everything below):
 | - | **your pipeline** | - | `.transform()`, `.to()`, `.process()`, ... | the work |
 | 10 | `cacheStore` | shipped | `.cache({...})` | terminal body, written best-effort |
 
-{% callout type="note" title="Position #4 (`input`) runs eagerly today" %}
-`.input()` schema validation runs in the framework's consumer handler **before** `runSteps`, not as a step in the chain. It still happens at conceptual position #4 (after auth + parse), and an invalid body still gets rejected before `cacheCheck` or any user step runs. The behavioural difference: an `.input()` failure does NOT flow through `.error()` the way a step throw does -- it emits `exchange:dropped` and propagates to the source's caller directly. Folding it into the chain is tracked as a follow-up to the filter chain refactor.
+{% callout type="note" title="Position #4 (`input`) is a real chain step" %}
+`.input()` validation runs inside the chain at position #4: after auth and parse, before any resilience wrapper, `cacheCheck`, or user step. When the source attaches a parser, the validator runs inside the parse step (input validates the parsed body); otherwise it runs as a standalone synthetic `input` step. Either way a failure throws `RC5002` through the chain's catch boundary, so `.error()` can observe and recover it exactly like an `authorize` or `parse` rejection. An unrecovered failure takes the normal error path (`route:error`, `context:error`, `exchange:failed`); it is not a drop.
 {% /callout %}
 
 ## What this means in practice

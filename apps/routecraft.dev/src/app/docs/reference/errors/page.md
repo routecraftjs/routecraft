@@ -131,7 +131,7 @@ Read the error message and suggestion in the log; check adapter documentation. U
 Validation failed
 
 **Why it happens**  
-Framework-enforced schema validation failed. The engine validates the route's `.input()` schema before the pipeline runs (and emits `exchange:dropped` on failure) and the route's `.output()` schema before the primary destination fires (routes to the error handler on failure). RC5002 also covers `validate()` steps, aggregators that received an empty array, and any validator that threw.
+Framework-enforced schema validation failed. The engine validates the route's `.input()` schema at filter chain position #4 (a failure is routable through `.error()` and otherwise takes the normal error path) and the route's `.output()` schema before the primary destination fires (routes to the error handler on failure). RC5002 also covers `validate()` steps, aggregators that received an empty array, and any validator that threw.
 
 **Suggestion**  
 Adjust the schema or coerce input; check data shapes. For Zod: use `z.object()`, `z.looseObject()`, or `z.strictObject()` as appropriate.

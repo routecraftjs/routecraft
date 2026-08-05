@@ -10,7 +10,7 @@ input(
 ): RouteBuilder<Current>
 ```
 
-Declare input validation for the next route. The engine validates the incoming body and headers against these schemas **before any pipeline step runs**; a validation failure emits `exchange:dropped` and the pipeline never sees the message. Accepts either a bundle (`{ body, headers }`) or a bare Standard Schema as a body-only shorthand.
+Declare input validation for the next route. The engine validates the incoming body and headers against these schemas at [filter chain](/docs/advanced/filter-chain) position #4: after `authorize` and `parse`, before any resilience wrapper or user step, so the pipeline never sees an invalid message. A failure throws `RC5002`, which the route-scope `.error()` handler can observe and recover; unrecovered it takes the normal error path (`route:error`, `context:error`, `exchange:failed`) and rejects the sender (e.g. a `direct()` caller). Accepts either a bundle (`{ body, headers }`) or a bare Standard Schema as a body-only shorthand.
 
 When a body schema is given, the chain is retyped: the following `.from(source)` opens the pipeline with the schema's inferred output type, so the body type does not have to be repeated as a `.from<T>()` generic. An explicit `.from<T>(source)` still overrides the inferred type.
 

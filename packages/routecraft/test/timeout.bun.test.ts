@@ -299,6 +299,226 @@ describe("Timeout wrapper (.timeout())", () => {
   });
 
   /**
+   * @case A step that fails BECAUSE the route-scope deadline aborted it adds no extra route:step:error
+   * @preconditions Route-scope .timeout(30) over a process step that rejects when its ctx.signal aborts
+   * @expectedResult Exactly one route:step:error and one route:exchange:failed fire, matching the event stream of a step that ignores the signal; cooperating with cancellation must not add observability noise
+   */
+  test("route scope: an abort-induced step failure emits no extra step:error", async () => {
+    const events: string[] = [];
+    // Without these, the test would still pass if signal forwarding
+    // regressed: the step would simply run its 300ms course, the route
+    // deadline would fire RC5011 anyway, and the event counts would
+    // match for the wrong reason. Asserting the signal arrived AND
+    // fired is what makes this a regression test for the fix.
+    let signalSeen = false;
+    let signalAborted = false;
+
+    t = await testContext()
+      .on("route:step:error", () => {
+        events.push("step:error");
+      })
+      .on("route:exchange:failed", () => {
+        events.push("exchange:failed");
+      })
+      .routes(
+        craft()
+          .id("timeout-abort-no-noise")
+          .timeout(30)
+          .from(simple("slow"))
+          .process(async (ex, ctx) => {
+            signalSeen = ctx?.signal !== undefined;
+            // Mirror real cancellation-aware IO: reject on abort.
+            await new Promise((resolve, reject) => {
+              const timer = setTimeout(resolve, 300);
+              ctx?.signal?.addEventListener("abort", () => {
+                signalAborted = true;
+                clearTimeout(timer);
+                reject(new Error("aborted by signal"));
+              });
+            });
+            return ex;
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.test();
+    await sleep(350);
+
+    expect(signalSeen).toBe(true);
+    expect(signalAborted).toBe(true);
+    expect(events.filter((e) => e === "step:error")).toHaveLength(1);
+    expect(events.filter((e) => e === "exchange:failed")).toHaveLength(1);
+    expect(t.errors).toHaveLength(1);
+    expect(t.errors[0].rc).toBe("RC5011");
+  });
+
+  /**
+   * @case Step-scope expiry aborts the wrapped step's ctx.signal
+   * @preconditions Route with .timeout(30) wrapping a 300ms process step that captures its StepSignalContext
+   * @expectedResult The captured signal exists, aborts when the deadline fires, and carries the RC5011 error as the abort reason
+   */
+  test("step scope: ctx.signal aborts on expiry with RC5011 as reason", async () => {
+    let observed: AbortSignal | undefined;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("timeout-signal-step")
+          .from(simple("slow"))
+          .timeout(30)
+          .process(async (ex, ctx) => {
+            observed = ctx?.signal;
+            await sleep(300);
+            return ex;
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.test();
+
+    expect(t.errors).toHaveLength(1);
+    expect(t.errors[0].rc).toBe("RC5011");
+    expect(observed).toBeDefined();
+    expect(observed?.aborted).toBe(true);
+    expect((observed?.reason as { rc?: string }).rc).toBe("RC5011");
+  });
+
+  /**
+   * @case A step that settles in time never sees its signal abort
+   * @preconditions Route with .timeout(500) wrapping a fast process step that captures its StepSignalContext
+   * @expectedResult The captured signal exists but never aborts; without any enclosing timeout the signal is undefined
+   */
+  test("ctx.signal stays quiet in time and is absent without a timeout", async () => {
+    let wrapped: AbortSignal | undefined;
+    let bare: AbortSignal | undefined | "unset" = "unset";
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("timeout-signal-quiet")
+          .from(simple("fast"))
+          .timeout(500)
+          .process((ex, ctx) => {
+            wrapped = ctx?.signal;
+            return ex;
+          })
+          .process((ex, ctx) => {
+            bare = ctx?.signal;
+            return ex;
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.test();
+
+    expect(t.errors).toHaveLength(0);
+    expect(wrapped).toBeDefined();
+    expect(wrapped?.aborted).toBe(false);
+    // The second process step sits outside the wrapper, and no route-scope
+    // timeout is configured, so it gets no signal at all.
+    expect(bare).toBeUndefined();
+  });
+
+  /**
+   * @case Route-scope expiry aborts the in-flight step's ctx.signal
+   * @preconditions Route with .timeout(30) declared BEFORE .from() and a 300ms transform that captures its StepSignalContext (third argument)
+   * @expectedResult The captured signal aborts when the route deadline fires, with the route RC5011 error as the reason
+   */
+  test("route scope: ctx.signal aborts the in-flight step on expiry", async () => {
+    let observed: AbortSignal | undefined;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("timeout-signal-route")
+          .timeout(30)
+          .from(simple("slow"))
+          .transform(async (body: string, _ex, ctx) => {
+            observed = ctx?.signal;
+            await sleep(300);
+            return body;
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.test();
+
+    expect(t.errors).toHaveLength(1);
+    expect(t.errors[0].rc).toBe("RC5011");
+    expect(observed).toBeDefined();
+    expect(observed?.aborted).toBe(true);
+    expect((observed?.reason as { message?: string }).message).toContain(
+      "pipeline exceeded",
+    );
+  });
+
+  /**
+   * @case Destination callables receive the signal too
+   * @preconditions Route with .timeout(30) wrapping a slow function-form .to() that captures its StepSignalContext
+   * @expectedResult The destination's captured signal aborts when the deadline fires
+   */
+  test("step scope: a function-form destination sees the abort", async () => {
+    let observed: AbortSignal | undefined;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("timeout-signal-to")
+          .from(simple("slow"))
+          .timeout(30)
+          .to(async (_ex, ctx) => {
+            observed = ctx?.signal;
+            await sleep(300);
+          }),
+      )
+      .build();
+
+    await t.test();
+
+    expect(t.errors).toHaveLength(1);
+    expect(t.errors[0].rc).toBe("RC5011");
+    expect(observed?.aborted).toBe(true);
+  });
+
+  /**
+   * @case Step-scope and route-scope signals are linked; the earliest deadline wins
+   * @preconditions Route-scope .timeout(30) outside a step-scope .timeout(500) wrapping a 300ms process step
+   * @expectedResult The step's composed signal aborts when the ROUTE deadline (the earlier one) fires, carrying the route RC5011 as the reason
+   */
+  test("nested timeouts: the earliest deadline aborts the composed signal", async () => {
+    let observed: AbortSignal | undefined;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("timeout-signal-nested")
+          .timeout(30)
+          .from(simple("slow"))
+          .timeout(500)
+          .process(async (ex, ctx) => {
+            observed = ctx?.signal;
+            await sleep(300);
+            return ex;
+          })
+          .to(spy()),
+      )
+      .build();
+
+    await t.test();
+
+    expect(t.errors).toHaveLength(1);
+    expect(t.errors[0].rc).toBe("RC5011");
+    expect(observed?.aborted).toBe(true);
+    expect((observed?.reason as { message?: string }).message).toContain(
+      "pipeline exceeded",
+    );
+  });
+
+  /**
    * @case Builder body type is preserved across .timeout()
    * @preconditions Route chaining .timeout() between typed transforms
    * @expectedResult The chain compiles with the string body type flowing through the wrapper and produces the typed result

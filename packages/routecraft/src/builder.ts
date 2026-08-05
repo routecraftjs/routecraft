@@ -1237,11 +1237,12 @@ export class RouteBuilder<
     //
     //   preParseFilters   -> .authorize() (#2)
     //   parse              (#3; dynamic, source-attached, inserted at runtime)
-    //   .input()           (#4; CURRENTLY EAGER -- runs in `Route.buildConsumerHandler()`
-    //                       outside the chain, not in postParseFilters. See
-    //                       `.standards/pre-from-filter-chain.md` for the
-    //                       scoping note: folding it in changes cross-route
-    //                       context:error semantics and is tracked separately.)
+    //   .input()           (#4; dynamic like parse -- the consumer handler
+    //                       stashes the validator on exchange internals and
+    //                       runPipeline runs it inside the parse step, or as
+    //                       a standalone synthetic input step for
+    //                       parser-less sources. RC5002 is routable through
+    //                       `.error()` either way; see #447.)
     //   postParseFilters  -> .cache() check (#9); reserved slot for future
     //                        .circuitBreaker() (#6). Route-scope .throttle()
     //                        (#5), .retry() (#7), and .timeout() (#8) sit

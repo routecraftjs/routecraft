@@ -1,5 +1,6 @@
 import { type Destination } from "../../operations/to";
 import { type Exchange } from "../../exchange";
+import type { StepSignalContext } from "../../types.ts";
 import type { HttpClientOptions, HttpResult, QueryParams } from "./types";
 
 /**
@@ -16,8 +17,11 @@ export class HttpDestinationAdapter<
 
   constructor(private readonly options: HttpClientOptions<T>) {}
 
-  async send(exchange: Exchange<T>): Promise<HttpResult<R>> {
-    const result = await this.performFetch(exchange);
+  async send(
+    exchange: Exchange<T>,
+    ctx: StepSignalContext = {},
+  ): Promise<HttpResult<R>> {
+    const result = await this.performFetch(exchange, ctx.signal);
     return result as HttpResult<R>;
   }
 
@@ -45,7 +49,10 @@ export class HttpDestinationAdapter<
     return metadata;
   }
 
-  private async performFetch(exchange: Exchange<T>): Promise<HttpResult> {
+  private async performFetch(
+    exchange: Exchange<T>,
+    stepSignal?: AbortSignal,
+  ): Promise<HttpResult> {
     const method = this.options.method ?? "GET";
     const url = this.resolveRequired(this.options.url, exchange);
     const headers = { ...(this.resolve(this.options.headers, exchange) ?? {}) };
@@ -75,13 +82,21 @@ export class HttpDestinationAdapter<
     const timeout = timeoutMs
       ? setTimeout(() => controller!.abort(), timeoutMs)
       : undefined;
+    // Combine the adapter's own timeoutMs controller with the step's
+    // signal (an enclosing `.timeout()` deadline): whichever fires
+    // first aborts the request.
+    const signals = [controller?.signal, stepSignal].filter(
+      (s): s is AbortSignal => s !== undefined,
+    );
+    const signal =
+      signals.length > 1 ? AbortSignal.any(signals) : (signals[0] ?? undefined);
 
     try {
       const res = (await globalThis.fetch(finalUrl, {
         method,
         headers,
         body,
-        signal: controller?.signal,
+        signal,
       } as RequestInit)) as Response;
 
       if (throwOnHttpError && !res.ok) {

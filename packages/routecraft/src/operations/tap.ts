@@ -61,7 +61,12 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
             override,
           );
         } else {
-          await this.adapter.send(snapshot);
+          // Empty signal context on purpose: the tap runs detached from
+          // the main flow (its outcome never gates the pipeline), so an
+          // enclosing timeout abandoning the ATTEMPT must not cancel an
+          // observation already in flight. Mirrors captureDownstream's
+          // no-inherited-abort-signal contract.
+          await this.adapter.send(snapshot, {});
         }
       } catch (error: unknown) {
         const err = rcError("RC5001", error, {

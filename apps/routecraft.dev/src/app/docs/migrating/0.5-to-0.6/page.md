@@ -29,7 +29,7 @@ Architecture changes:
 
 Routes built only from the DSL (`craft().from(...).transform(...).to(...)`) with framework adapters need changes for the agent/tools/mail surface (1-4) where used, event subscriptions (5), builder call order that was already a runtime error (9), and adapter header constants (12). The rest affects adapter authors and advanced integrations.
 
-Two behavioural notes that are not API changes: context store seeding for `cron`/`direct`/`mail` config now happens in `initPlugins()` (called automatically by `start()`) instead of the `CraftContext` constructor, and plugin teardown plus `registerTeardown` callbacks now unwind in reverse (LIFO) order.
+Three behavioural notes that are not API changes: context store seeding for `cron`/`direct`/`mail` config now happens in `initPlugins()` (called automatically by `start()`) instead of the `CraftContext` constructor; plugin teardown plus `registerTeardown` callbacks now unwind in reverse (LIFO) order; and `.input()` validation now runs inside the [filter chain](/docs/advanced/filter-chain) (position #4) instead of eagerly in the consumer handler, so an invalid message is routable through the route-scope `.error()` handler and an unrecovered failure emits `route:exchange:failed` (previously `route:exchange:dropped`) while still rejecting the sender.
 
 ---
 

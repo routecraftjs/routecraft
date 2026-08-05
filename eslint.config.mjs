@@ -72,6 +72,7 @@ export default [
     files: [
       ".github/scripts/**/*.{js,ts,mjs,cjs}",
       "scripts/**/*.{js,ts,mjs,cjs}",
+      "packages/*/scripts/**/*.{js,ts,mjs,cjs}",
     ],
     rules: {
       // Relaxed rules for repo utility scripts
