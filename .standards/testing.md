@@ -158,7 +158,7 @@ If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a se
 
 Some adapters have runtime-specific code paths -- for example, a Postgres source might use `Bun.sql` under Bun and the `pg` driver under Node, or an S3 destination might use `Bun.s3` under Bun and `@aws-sdk/client-s3` under Node. The cross-runtime test suite verifies that the observable behaviour is identical on both runtimes.
 
-**Layout.** Place these tests at `packages/<pkg>/test/cross-runtime/*.test.ts`. The default `bun run test` and `bun run test:coverage` scripts exclude this directory; only the dedicated `adapter-cross-runtime` CI job picks them up.
+**Layout.** Place these tests at `packages/<pkg>/test/cross-runtime/<name>.cross.test.ts` (the vitest glob matches any `*.test.ts` in the directory, but the `.cross.test.ts` suffix is the convention and what DEFINITION_OF_DONE prescribes). The default `bun run test` and `bun run test:coverage` scripts exclude this directory; only the dedicated `adapter-cross-runtime` CI job picks them up.
 
 **Local execution.** From the repo root:
 

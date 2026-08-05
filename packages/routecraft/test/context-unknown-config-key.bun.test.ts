@@ -1,6 +1,9 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { CraftContext, type CraftConfig } from "../src/context.ts";
-import { registerConfigApplier } from "../src/config-applier.ts";
+import {
+  getConfigAppliers,
+  registerConfigApplier,
+} from "../src/config-applier.ts";
 import { logger } from "../src/logger.ts";
 
 type WarnCall = [Record<string, unknown>, string];
@@ -61,14 +64,23 @@ describe("CraftContext unknown config keys", () => {
     registerConfigApplier("unknownKeyTestApplier" as keyof CraftConfig, () => ({
       apply: () => {},
     }));
-    const calls = constructCapturingWarns({
-      name: "test",
-      plugins: [],
-      unknownKeyTestApplier: { enabled: true },
-    } as CraftConfig);
-    expect(
-      calls.filter(([, msg]) => msg.includes("Unknown config key")),
-    ).toEqual([]);
+    try {
+      const calls = constructCapturingWarns({
+        name: "test",
+        plugins: [],
+        unknownKeyTestApplier: { enabled: true },
+      } as CraftConfig);
+      expect(
+        calls.filter(([, msg]) => msg.includes("Unknown config key")),
+      ).toEqual([]);
+    } finally {
+      // The applier registry is module-global shared state; leaving the
+      // synthetic key registered would leak into every later context
+      // construction in the same process.
+      (getConfigAppliers() as Map<string, unknown>).delete(
+        "unknownKeyTestApplier",
+      );
+    }
   });
 
   /**

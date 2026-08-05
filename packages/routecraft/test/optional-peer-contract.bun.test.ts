@@ -18,34 +18,58 @@ function walk(dir: string): string[] {
   return files;
 }
 
+/**
+ * Strip block and line comments so JSDoc examples containing `import("pkg")`
+ * are not flagged. Replaces comment bodies with spaces to preserve offsets
+ * and line numbers.
+ */
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/** 1-indexed line number of a character offset. */
+function lineOf(source: string, offset: number): number {
+  return source.slice(0, offset).split("\n").length;
+}
+
 describe("optional-peer contract (ci-cd.md section 6)", () => {
   /**
    * @case Every external dynamic import in core src goes through loadOptionalPeer
-   * @preconditions All .ts sources under packages/routecraft/src are scanned for runtime `import("...")` calls with a bare (non-relative, non-builtin) specifier
-   * @expectedResult Each such call site is a `loadOptionalPeer(() => import("..."))` thunk, so a missing optional peer always surfaces as RC5017 with an install hint instead of a raw module-not-found error
+   * @preconditions All .ts sources under packages/routecraft/src are scanned (comments stripped) for runtime `import("...")` calls with a bare (non-relative, non-builtin) specifier, in any quote style and across line breaks
+   * @expectedResult Each such call site sits inside a `loadOptionalPeer(() => import("..."))` thunk, so a missing optional peer always surfaces as RC5017 with an install hint instead of a raw module-not-found error
    */
   test("no bare external dynamic import outside loadOptionalPeer", () => {
     const violations: string[] = [];
+    // A dynamic import wrapped in the loadOptionalPeer thunk, tolerating
+    // line breaks between the tokens (prettier splits long calls).
+    const wrappedPattern =
+      /loadOptionalPeer\s*\(\s*(?:async\s*)?\(\)\s*=>\s*import\s*\(\s*["'`]/g;
+    const importPattern = /import\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g;
+
     for (const file of walk(SRC_ROOT)) {
-      const lines = readFileSync(file, "utf8").split("\n");
-      lines.forEach((line, i) => {
-        const trimmed = line.trimStart();
-        // Comment lines (JSDoc examples) and `typeof import("pkg")` type
-        // positions are not runtime imports.
-        if (trimmed.startsWith("*") || trimmed.startsWith("//")) return;
-        if (line.includes("typeof import(")) return;
-        const match = line.match(/import\(\s*["']([^"']+)["']\s*\)/);
-        if (!match) return;
-        const specifier = match[1]!;
-        if (specifier.startsWith(".")) return;
-        if (BUILTIN_PREFIXES.some((p) => specifier.startsWith(p))) return;
-        // The wrapping call is either on the same line or, for multi-line
-        // formatting, within the two preceding lines.
-        const context = lines.slice(Math.max(0, i - 2), i + 1).join("\n");
-        if (!context.includes("loadOptionalPeer")) {
-          violations.push(`${file}:${i + 1} imports "${specifier}"`);
+      const source = stripComments(readFileSync(file, "utf8"));
+
+      // Offsets of every import( that is the thunk body of loadOptionalPeer.
+      const wrappedImportOffsets = new Set<number>();
+      for (const m of source.matchAll(wrappedPattern)) {
+        wrappedImportOffsets.add(m.index + m[0].lastIndexOf("import"));
+      }
+
+      for (const m of source.matchAll(importPattern)) {
+        const specifier = m[1]!;
+        if (specifier.startsWith(".")) continue;
+        if (BUILTIN_PREFIXES.some((p) => specifier.startsWith(p))) continue;
+        // `typeof import("pkg")` is a type position and erased at runtime.
+        const before = source.slice(Math.max(0, m.index - 20), m.index);
+        if (/typeof\s*$/.test(before)) continue;
+        if (!wrappedImportOffsets.has(m.index)) {
+          violations.push(
+            `${file}:${lineOf(source, m.index)} imports "${specifier}"`,
+          );
         }
-      });
+      }
     }
     expect(violations).toEqual([]);
   });

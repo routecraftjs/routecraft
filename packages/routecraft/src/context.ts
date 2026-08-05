@@ -88,6 +88,21 @@ export interface CraftPlugin {
 }
 
 /**
+ * Config keys handled directly by the CraftContext constructor, as opposed
+ * to keys claimed by registered config appliers. Used to detect config keys
+ * that nothing consumes. Must stay in sync with the fields of
+ * {@link CraftConfig} declared in this file (ecosystem augmentations are
+ * covered by the applier registry instead).
+ */
+const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  "name",
+  "store",
+  "on",
+  "once",
+  "plugins",
+]);
+
+/**
  * Configuration options for creating a CraftContext.
  *
  * Declared as an `interface` so ecosystem packages can extend it via
@@ -103,21 +118,6 @@ export interface CraftPlugin {
  * }
  * ```
  */
-/**
- * Config keys handled directly by the CraftContext constructor, as opposed
- * to keys claimed by registered config appliers. Used to detect config keys
- * that nothing consumes. Must stay in sync with the fields of
- * {@link CraftConfig} declared in this file (ecosystem augmentations are
- * covered by the applier registry instead).
- */
-const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
-  "name",
-  "store",
-  "on",
-  "once",
-  "plugins",
-]);
-
 export interface CraftConfig {
   /**
    * Service / application name for this context. Emitted on every log line as

@@ -728,6 +728,14 @@ export async function fetchMessages(
   const messages: MailMessage[] = [];
   const seenUids = new Set<number>();
 
+  // Load the parser BEFORE the fetch try/catch: its catch wraps every error
+  // in retryable RC5001, which would bury the RC5017 install hint and spin
+  // reconnect loops on a missing optional peer.
+  const { simpleParser } = await loadOptionalPeer(() => import("mailparser"), {
+    adapterName: "mail",
+    packageName: "mailparser",
+  });
+
   try {
     const fetchOptions = {
       envelope: true,
@@ -736,10 +744,6 @@ export async function fetchMessages(
       source: true,
     };
 
-    const { simpleParser } = await loadOptionalPeer(
-      () => import("mailparser"),
-      { adapterName: "mail", packageName: "mailparser" },
-    );
     const verify = options.verify ?? "headers";
 
     for (const criteria of criteriaSets) {
