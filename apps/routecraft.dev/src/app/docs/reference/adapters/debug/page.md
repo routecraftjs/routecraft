@@ -5,7 +5,7 @@ title: debug
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-debug<T>(formatter?: (exchange: Exchange<T>) => unknown, options?: Omit<LogOptions, "level">): Destination<T, void>
+debug<T>(formatter?: (exchange: Exchange<T>) => unknown, options?: Omit<LogOptions, "level">): Destination<T>
 ```
 
 Convenience helper for debug-level logging. Equivalent to `log(formatter, { level: 'debug' })`.

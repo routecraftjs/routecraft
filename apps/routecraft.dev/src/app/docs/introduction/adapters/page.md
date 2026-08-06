@@ -10,7 +10,7 @@ Adapters are the boundary between Routecraft and external systems. They handle t
 
 Every capability starts with a source adapter in `.from()` and ends with a destination adapter in `.to()`. Operations in the middle can also use adapters to enrich data or observe side effects.
 
-## The three adapter roles
+## The adapter roles
 
 ### Source
 
@@ -29,17 +29,24 @@ A source produces data and starts the flow. It goes in `.from()`.
 
 ### Destination
 
-A destination receives the final exchange. It goes in `.to()`.
+A destination pushes the exchange out to an external system. It goes in `.to()`. The push is void: the body flows through unchanged, and a receipt (a message id, an etag) lands on headers.
 
 ```ts
 .to(log())
-.to(http({ method: 'POST', url: 'https://api.example.com/events' }))
 .to(json({ path: './output.json' }))
 .to(jsonl({ path: './events.jsonl' }))
-.to(direct('next-stage'))
+.to(mail())
 ```
 
-If the destination returns a value, the exchange body is replaced with it. If it returns nothing, the body is unchanged.
+### Enricher
+
+An enricher pulls a value in per exchange -- an HTTP GET, a file read, a lookup on another capability. It goes in `.enrich()`, where the fetched value replaces the body (or feeds an aggregator such as `only()` to merge). `.to()` accepts an enricher too: the result replaces the body there as well.
+
+```ts
+.enrich(http({ url: 'https://api.example.com/users/1' }))
+.to(http({ method: 'POST', url: 'https://api.example.com/events' }))
+.to(direct('next-stage'))
+```
 
 ### Processor
 
@@ -49,7 +56,7 @@ A processor sits in the middle of a pipeline and modifies the exchange. It goes 
 .process(myCustomProcessor)
 ```
 
-Any `Destination` adapter can also be passed to `.tap()`. The `.tap()` operation is what makes it fire-and-forget -- the adapter itself is still just a `Destination`.
+Any destination or enricher can also be passed to `.tap()`. The `.tap()` operation is what makes it fire-and-forget -- results and receipts are discarded, the adapter itself is unchanged.
 
 ## Configuring adapters
 
@@ -99,6 +106,6 @@ Options passed directly to the adapter always take precedence over config defaul
 {% quick-links %}
 
 {% quick-link title="Adapters reference" icon="presets" href="/docs/reference/adapters" description="Full catalog with all options and signatures." /%}
-{% quick-link title="Creating adapters" icon="plugins" href="/docs/advanced/custom-adapters" description="Build your own source, destination, or processor adapter." /%}
+{% quick-link title="Creating adapters" icon="plugins" href="/docs/advanced/custom-adapters" description="Build your own source, destination, enricher, or processor adapter." /%}
 
 {% /quick-links %}

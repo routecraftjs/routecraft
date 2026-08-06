@@ -2,7 +2,7 @@
 title: Adapters
 ---
 
-Every source, destination, transformer, and processor in Routecraft. Each card opens its own reference page with the full signature, options, and examples. {% .lead %}
+Every source, destination, enricher, transformer, and processor in Routecraft. Each card opens its own reference page with the full signature, options, and examples. {% .lead %}
 
 {% adapter-grid /%}
 

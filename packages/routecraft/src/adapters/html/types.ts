@@ -6,8 +6,8 @@ export type HtmlResult = string | string[];
 export interface HtmlOptions<T = unknown, R = unknown> {
   /**
    * CSS selector to match elements.
-   * Optional when using file destination mode (path + mode: "write"/"append").
-   * Required for transformer mode and source mode.
+   * Optional for the send role (writing needs no extraction).
+   * Required for the transformer, source, and fetch roles.
    */
   selector?: string;
   /**

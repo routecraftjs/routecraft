@@ -1,12 +1,12 @@
 ---
 name: create-adapter
-description: Author a new Routecraft adapter (source, destination, transformer, or multi-role). Use when the user asks to add a new integration, connector, endpoint type, or producer or consumer of exchanges.
+description: Author a new Routecraft adapter (source, destination, enricher, transformer, or multi-role). Use when the user asks to add a new integration, connector, endpoint type, or producer or consumer of exchanges.
 allowed-tools: Read Glob Grep WebFetch Bash(bun run lint:*) Bash(bun run typecheck:*) Bash(bun run test:*)
 ---
 
 # Create a Routecraft adapter
 
-Adapters are how Routecraft talks to the outside world. A source produces exchanges, a destination consumes them, and a transformer changes the body in flight. Many adapters fill more than one role.
+Adapters are how Routecraft talks to the outside world. A source produces exchanges, a destination pushes them out (void send; receipts ride headers), an enricher pulls a value in per exchange, and a transformer changes the body in flight. Many adapters fill more than one role.
 
 You are writing this adapter for the user. Treat the linter (`bun run lint`) as authoritative once you have written the code: if it disagrees, the linter wins.
 
@@ -25,7 +25,7 @@ If the user only needs a one-shot data transformation inside a single capability
 
 Before writing, confirm answers to these questions. Ask the user only the ones that are not already obvious from context.
 
-1. **Which roles does the adapter play?** Source (`.from(...)`), Destination (`.to(...)`, `.enrich(...)`, `.tap(...)`), Transformer (`.transform(...)`), or several of these?
+1. **Which roles does the adapter play?** Source (`.from(...)`), Destination (`.to(...)` / `.tap(...)`, push-out), Enricher (`.enrich(...)`, pull-in), Transformer (`.transform(...)`), or several of these?
 2. **How is data produced or consumed?** Request/response (HTTP-style)? Polling on an interval? Long-running stream or subscription? Filesystem? Two-sided protocol (server + client like mail)?
 3. **Where do options come from?** Per-call options on the factory, or context-wide defaults configured via a plugin?
 4. **What is the exchange shape?** What does `body` look like for sources you produce, and what does `body` need to look like for destinations you consume?

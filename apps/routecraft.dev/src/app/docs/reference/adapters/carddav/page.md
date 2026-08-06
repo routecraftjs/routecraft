@@ -5,9 +5,9 @@ title: carddav
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-carddav(options?: CarddavServerOptions): Source<VCardBody> & Destination<unknown, VCardBody[]>
-carddav(options: CarddavClientOptions & { action: 'save' | 'create' | 'update' }): Destination<VCardBody, CarddavWriteResult>
-carddav(options: CarddavClientOptions & { action: 'delete' }): Destination<unknown, CarddavDeleteResult>
+carddav(options?: CarddavServerOptions): Source<VCardBody> & Enricher<unknown, VCardBody[]>
+carddav(options: CarddavClientOptions & { action: 'save' | 'create' | 'update' }): Destination<VCardBody>
+carddav(options: CarddavClientOptions & { action: 'delete' }): Destination<unknown>
 ```
 
 Read and write contacts over CardDAV. Defaults to Apple iCloud Contacts (`https://contacts.icloud.com`) but works with any CardDAV server (Fastmail, Nextcloud, Google). The role is chosen by an `action` flag, the same way the mail adapter selects its mode: no `action` reads, `action` writes or deletes.
@@ -56,7 +56,7 @@ craft()
 craft().from(carddav({ account: 'work', addressBook: 'Colleagues', limit: 500 })).to(...)
 ```
 
-**Read (`.enrich()`):** no `action`. Fetches all contacts and merges them onto the triggering exchange (the default aggregator spreads the array onto the body with numeric keys, as with `mail`; pass `replace()` for a `VCardBody[]` body).
+**Read (`.enrich()`):** no `action`. Fetches all contacts; the `VCardBody[]` replaces the body by default (pass an aggregator such as `only()` to merge onto the triggering exchange instead).
 
 ```ts
 craft()
@@ -67,6 +67,8 @@ craft()
 
 **Write (`.to()`):** a write serializes the whole body and replaces the card; it does not merge. Because reading is lossless, a read-modify-write keeps every property you did not touch, and removing a property removes it from the card, exactly like an `UPDATE` of a database row. `action: 'save'` upserts: it writes to the `routecraft.carddav.url` header when present, otherwise creates. `'create'` always inserts (injecting a `UID` if absent). `'update'` writes to that url header and raises `RC5014` if none is resolvable, so read the card first (the read sets the url/etag headers). Update and delete send the read-time `routecraft.carddav.etag` header as an `If-Match` precondition, so a concurrent change on the server surfaces as a non-retryable conflict (`RC5030`) instead of silently overwriting.
 
+The send is void: the card body flows through the `.to()` step unchanged, and the write receipt lands on the same headers the read side sets (`routecraft.carddav.url`, `routecraft.carddav.uid`, `routecraft.carddav.etag`), so a follow-up update or delete targets the freshly written resource.
+
 ```ts
 // Read a card, edit one property, write it back. Everything else is preserved.
 craft()
@@ -76,7 +78,7 @@ craft()
   .to(carddav({ action: 'update' }))
 ```
 
-**Delete (`.to()`):** `action: 'delete'` removes the contact resolved from the read headers (`routecraft.carddav.url`/`uid`), the body's `UID`, or a custom `target` extractor. Returns `CarddavDeleteResult`. No match raises `RC5014`.
+**Delete (`.to()`):** `action: 'delete'` removes the contact resolved from the read headers (`routecraft.carddav.url`/`uid`), the body's `UID`, or a custom `target` extractor. The send is void: the body flows through unchanged, and the deleted resource's identity lands on the receipt headers (`routecraft.carddav.url`, `routecraft.carddav.uid`). No match raises `RC5014`.
 
 ```ts
 craft()
@@ -110,8 +112,8 @@ Wrap a body in a `VCard` for ergonomic reads and edits. The wrapper edits the un
 import { VCard } from '@routecraft/routecraft'
 
 const card = VCard.parse(rawVCardString)   // a wrapper; .data is the plain body
-//   VCard.wrap(body)    — wrap a body the source emitted
-//   VCard.create()      — start a fresh, empty card
+//   VCard.wrap(body)    -- wrap a body the source emitted
+//   VCard.create()      -- start a fresh, empty card
 
 card.text('FN')                 // "Jane Q Doe"  (decoded value of the first FN)
 card.uid                        // "ABC-123"     (= text('UID'))
@@ -144,7 +146,7 @@ card.toString()                 // serialize to wire form
 | `clone()` | `VCard` | Deep, independent copy |
 | `toString()` | `string` | Serialize `.data` |
 
-**`VCardProperty`** (a view over one property) `{ name, group?, params, value, raw, components(sep?), setComponents(parts, sep?), param(name) }` — `value` is the decoded text (escapes resolved); `raw` is the escaped wire value; `components()` splits a structured value (`N`, `ADR`, `ORG`) on unescaped separators. `params` is `{ name, value }[]`, preserved verbatim.
+**`VCardProperty`** (a view over one property) `{ name, group?, params, value, raw, components(sep?), setComponents(parts, sep?), param(name) }` -- `value` is the decoded text (escapes resolved); `raw` is the escaped wire value; `components()` splits a structured value (`N`, `ADR`, `ORG`) on unescaped separators. `params` is `{ name, value }[]`, preserved verbatim.
 
 **Bring your own type.** If you want a typed shape, derive it in a `.transform()` and validate with your schema of choice, the same way you would with JSON from an HTTP endpoint:
 
@@ -156,8 +158,8 @@ card.toString()                 // serialize to wire form
 })
 ```
 
-**Exchange headers** on read: `routecraft.carddav.url`, `routecraft.carddav.uid`, `routecraft.carddav.etag`, `routecraft.carddav.account`. These carry the DAV identity used to target updates and deletes.
+**Exchange headers** on read: `routecraft.carddav.url`, `routecraft.carddav.uid`, `routecraft.carddav.etag`, `routecraft.carddav.account`. These carry the DAV identity used to target updates and deletes. Writes set the same `url`/`uid`/`etag` headers as their receipt; deletes set `url` and `uid`.
 
 **Known names:** `VCARD` and `VPARAM` are convenience constants for the standard vCard property and parameter names (e.g. `card.text(VCARD.FN)`), with `KnownProperty` / `KnownParam` union types. They are values for autocomplete and typo-safety, not a constraint: every method still accepts an arbitrary `string`, so any property works.
 
-**Exports:** `VCard`, `VCardProperty`, `parseVCard`, `VCARD`, `VPARAM`, `CarddavHeaders`, `CarddavClientManager`, `CARDDAV_CLIENT_MANAGER` (values); `VCardBody`, `VCardPropertyData`, `CarddavOptions`, `CarddavServerOptions`, `CarddavClientOptions`, `CarddavContextConfig`, `CarddavAccountConfig`, `CarddavAction`, `CarddavTargetExtractor`, `CarddavWriteResult`, `CarddavDeleteResult`, `VCardParam`, `VCardPropertyOptions`, `KnownProperty`, `KnownParam` (types).
+**Exports:** `VCard`, `VCardProperty`, `parseVCard`, `VCARD`, `VPARAM`, `CarddavHeaders`, `CarddavClientManager`, `CARDDAV_CLIENT_MANAGER` (values); `VCardBody`, `VCardPropertyData`, `CarddavOptions`, `CarddavServerOptions`, `CarddavClientOptions`, `CarddavContextConfig`, `CarddavAccountConfig`, `CarddavAction`, `CarddavTargetExtractor`, `VCardParam`, `VCardPropertyOptions`, `KnownProperty`, `KnownParam` (types).

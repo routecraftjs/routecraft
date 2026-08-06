@@ -20,7 +20,8 @@ craft()
     using: (ex) => ex.body.content,
   }))
   .to(vectorStore)
-// Result merged into body: { ..., embedding: [0.123, -0.456, ...] }
+// Result replaces the body: { embedding: [0.123, -0.456, ...] }
+// (use only() to keep the document, e.g. only((r) => r.embedding, 'embedding'))
 
 // Embed a combination of fields
 .enrich(embedding('ollama:nomic-embed-text', {
@@ -38,7 +39,7 @@ Model ID format: `"provider:model-name"` (e.g., `"huggingface:all-MiniLM-L6-v2"`
 |--------|------|----------|-------------|
 | `using` | `(exchange) => string \| string[]` | Yes | Extract the text to embed from the exchange |
 
-**Result shape (merged into body by `.enrich()`):**
+**Result shape (replaces the body in bare `.enrich()` / `.to()`; pass an aggregator such as `only()` to merge):**
 
 | Field | Type | Description |
 |-------|------|-------------|

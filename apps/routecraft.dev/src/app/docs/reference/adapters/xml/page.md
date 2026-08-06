@@ -6,11 +6,10 @@ title: xml
 
 ```ts
 xml(options?: XmlTransformerOptions): Transformer   // no path: parse an XML string in the body
-xml(options: XmlFileOptions & { mode: 'read' }): XmlReadAdapter
-xml(options: XmlFileOptions): XmlAdapter   // Source<XmlData> & Destination<unknown, void>
+xml<T>(options: XmlFileOptions): XmlAdapter<T>   // Source<T> & Destination<unknown> & Enricher<unknown, T>
 ```
 
-Read, write, and parse XML using a plain-object representation. **Requires `fast-xml-parser` as a peer dependency.**
+Read, write, and parse XML using a plain-object representation. With `path`, the operation keyword selects the role: `.from()` reads, `.to()` writes, `.enrich()` reads mid-route. **Requires `fast-xml-parser` as a peer dependency.**
 
 ```bash
 bun add fast-xml-parser
@@ -18,7 +17,7 @@ bun add fast-xml-parser
 
 XML maps to a plain object: each element becomes a key, attributes are kept under the `@_` prefix by default, and text content sits under `#text` when an element also has attributes or children. The same options drive parsing and building, so a read then write round-trip preserves structure.
 
-**Transformer mode** (parse an XML string already in the body):
+**Transformer role** (parse an XML string already in the body):
 ```ts
 // Parse an XML string (e.g. an http() response body) into an object
 .transform(xml())
@@ -30,7 +29,7 @@ XML maps to a plain object: each element becomes a key, attributes are kept unde
 }))
 ```
 
-**Source mode** (read XML files):
+**Source role** (read XML files):
 ```ts
 // Read and parse an XML file
 .from(xml({ path: './data.xml' }))
@@ -44,20 +43,20 @@ XML maps to a plain object: each element becomes a key, attributes are kept unde
 }))
 ```
 
-**Read mid-route** (read + parse an XML file partway through a route): In `read` mode the adapter is also a destination whose `send` reads and parses the file and returns the object, so `.enrich()` / `.to()` can pull it in, the same way an HTTP `GET` returns a body. Read-as-destination accepts dynamic (function) paths. Parse failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to source mode only).
+**Read mid-route** (read + parse an XML file partway through a route): The adapter is also an enricher whose `fetch` reads and parses the file, so `.enrich()` can pull the object in. The parsed object replaces the body; pass an aggregator such as `only()` to merge instead. The fetch role accepts dynamic (function) paths. Parse failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to the source role only).
 
 ```ts
+// Replace the body with the parsed document
+.enrich(xml({ path: './data.xml' }))
+
 // Enrich the body with the parsed document, keeping the existing fields
 .enrich(
-  xml({ path: './config.xml', mode: 'read' }),
+  xml({ path: './config.xml' }),
   only((doc) => doc, 'config'),
 )
-
-// Replace the body with the parsed document
-.to(xml({ path: './data.xml', mode: 'read' }))
 ```
 
-**Destination mode** (write XML files):
+**Destination role** (write XML files). The send is void: the body flows through the `.to()` step unchanged.
 ```ts
 // Build the object body into an XML document and write it
 .to(xml({ path: './output.xml' }))
@@ -73,10 +72,10 @@ XML maps to a plain object: each element becomes a key, attributes are kept unde
 }))
 
 // Delete an XML file (idempotent: an already-absent path is a no-op)
-.to(xml({ path: (ex) => ex.body.processedPath, mode: 'delete' }))
+.to(xml({ path: (ex) => ex.body.processedPath, delete: true }))
 ```
 
-There is no `append` mode: appending a serialized fragment to an XML file produces multiple root elements and an invalid document. Read the file in `read` mode, mutate the parsed object, and write it back instead.
+There is no `append` option: appending a serialized fragment to an XML file produces multiple root elements and an invalid document. Read the file with `.enrich()`, mutate the parsed object, and write it back instead.
 
 **Transformer Options** (when no `path` provided):
 
@@ -98,21 +97,21 @@ There is no `append` mode: appending a serialized fragment to an XML file produc
 
 | Option | Type | Default | Required | Description |
 |--------|------|---------|----------|-------------|
-| `path` | `string \| (exchange) => string` | | Yes | File path (static, or dynamic for destinations) |
+| `path` | `string \| (exchange) => string` | | Yes | File path (static, or dynamic for the send/fetch roles) |
 | `encoding` | `BufferEncoding` | `'utf-8'` | No | Text encoding |
-| `mode` | `'read' \| 'write' \| 'delete'` | `'read'` for source, `'write'` for destination | No | File operation mode (`read` returns the parsed object mid-route; `delete` removes the file, idempotently) |
-| `createDirs` | `boolean` | `false` | No | Create parent directories (write mode only) |
-| `format` | `boolean` | `false` | No | Pretty-print the written XML (write mode only) |
+| `delete` | `boolean` | `false` | No | Send role: delete the file instead of writing (idempotent) |
+| `createDirs` | `boolean` | `false` | No | Create parent directories (send role only) |
+| `format` | `boolean` | `false` | No | Pretty-print the written XML (send role only) |
 | `indentBy` | `string` | `'  '` | No | Indentation unit when `format` is true |
 | `suppressEmptyNode` | `boolean` | `false` | No | Collapse empty nodes to self-closing tags when building |
-| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | No | How to handle a parse failure (source only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | No | How to handle a parse failure (source role only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
 
 **Behavior:**
 - **Source**: Reads the file and emits the parsed object. Malformed XML is routed through the route's `.error()` handler by default (`onParseError: 'fail'`); `'abort'` fails the source; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
-- **Destination** (`write`, default): Builds the object body into an XML document and writes it. The body must be a plain object with exactly one root element (an optional `?xml` declaration key is allowed alongside it); arrays and multi-root objects are rejected because they would serialise to an invalid multiple-root document.
-- **Destination** (`read`): Reads, parses, and returns the object for `.enrich()` / `.to()`.
-- **Destination** (`delete`): Deletes the file (idempotent) and passes the body through unchanged.
+- **Destination** (default): Builds the object body into an XML document and writes it; the body flows through unchanged. The body must be a plain object with exactly one root element (an optional `?xml` declaration key is allowed alongside it); arrays and multi-root objects are rejected because they would serialise to an invalid multiple-root document.
+- **Destination** (`delete: true`): Deletes the file (idempotent) and passes the body through unchanged.
+- **Enricher**: Reads, parses, and returns the object for `.enrich()`.
 
 **Peer dependency:** Requires `fast-xml-parser` to be installed separately.
 
-**Exported symbols:** types `XmlAdapter`, `XmlReadAdapter`, `XmlOptions`, `XmlTransformerOptions`, `XmlFileOptions`, `XmlParseOptions`, `XmlBuildOptions`, `XmlData`
+**Exported symbols:** types `XmlAdapter`, `XmlOptions`, `XmlTransformerOptions`, `XmlFileOptions`, `XmlParseOptions`, `XmlBuildOptions`, `XmlData`

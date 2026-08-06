@@ -7,14 +7,14 @@ title: http
 `http()` is overloaded by option shape:
 
 - `http({ path, method?, public? })` returns a **Source**. Use with `.from(...)` to expose a route over HTTP. Requires `defineConfig({ http: {...} })` for the server config (port, host, global auth). Bun runtimes bind via `Bun.serve` natively; Node 22+ uses a thin `node:http` shim. Zero runtime dependencies.
-- `http({ url, ... })` returns a **Destination**. Use with `.to()` / `.enrich()` / `.tap()` to call a remote HTTP endpoint.
+- `http({ url, ... })` returns an **Enricher** (a pull-in). Use with `.to()` / `.enrich()` / `.tap()` to call a remote HTTP endpoint.
 
-The discriminator is the presence of `path` (source) vs `url` (destination).
+The discriminator is the presence of `path` (source) vs `url` (client).
 
 ## HTTP source (inbound)
 
 ```ts
-http(options: HttpSourceOptions): Source<HttpRequestBody>
+http(options: HttpServerOptions): Source<HttpRequestBody>
 ```
 
 The server, port, host, and global auth live on [`defineConfig({ http })`](/docs/reference/configuration#http), not on the source. Routes only declare which request they want.
@@ -300,18 +300,18 @@ The dispatcher resolves path/method before running auth, so unmatched paths retu
 
 See [HTTP plugin events](/docs/reference/events#http-plugin-events) on the events reference.
 
-## HTTP destination (outbound)
+## HTTP client (outbound)
 
 ```ts
-http<T, R>(options: HttpOptions<T>): Destination<T, HttpResult<R>>
+http<T, R>(options: HttpClientOptions<T>): Enricher<T, HttpResult<R>>
 ```
 
-Make HTTP requests. Returns a `Destination` that works with `.to()` and `.enrich()`.
+Make HTTP requests. Returns an `Enricher` (a pull-in) whose `fetch` produces an `HttpResult`; it works with `.to()`, `.enrich()`, and `.tap()`.
 
-**With `.enrich()` (merge result into body):**
+**With `.enrich()` (result replaces the body by default):**
 
 ```ts
-// Static GET request - result merged into body
+// Static GET request - the HttpResult replaces the body
 .enrich(http({
   method: 'GET',
   url: 'https://api.example.com/users'
@@ -323,6 +323,12 @@ Make HTTP requests. Returns a `Destination` that works with `.to()` and `.enrich
   url: (exchange) => `https://api.example.com/users/${exchange.body.userId}`
 }))
 
+// Merge instead of replace: pick a value with only()
+.enrich(
+  http({ url: (ex) => `https://api.example.com/users/${ex.body.userId}` }),
+  only((r) => r.body, 'user')
+)
+
 // Custom aggregator to control merge behavior
 .enrich(
   http({ url: 'https://api.example.com/profile' }),
@@ -333,9 +339,9 @@ Make HTTP requests. Returns a `Destination` that works with `.to()` and `.enrich
 )
 ```
 
-**With `.to()` (side-effect or body replacement):**
+**With `.to()` (body replacement) and `.tap()` (fire-and-forget):**
 
-`.to(http(...))` always invokes the `http()` adapter. When the adapter returns an `HttpResult`, `.to()` replaces the exchange body with that result. The first example below is a fire-and-forget pattern in intent only (the code does not read the response), but at runtime the body is still replaced by the `HttpResult`. To merge or preserve the original exchange body, use `.enrich()` with an aggregator instead.
+`.to(http(...))` invokes the client's `fetch` and replaces the exchange body with the `HttpResult`. To merge or preserve the original exchange body, use `.enrich()` with an aggregator instead; to call an endpoint purely for the side effect, use `.tap()` (the result is discarded).
 
 ```ts
 .to(http({
@@ -355,7 +361,7 @@ Make HTTP requests. Returns a `Destination` that works with `.to()` and `.enrich
 }))
 ```
 
-**Destination options:**
+**Client options:**
 
 | Field | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |

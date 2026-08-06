@@ -142,7 +142,7 @@ Adapters can expose structured metadata that is included in their operation even
 ```ts
 import { type Destination, type Exchange } from '@routecraft/routecraft'
 
-class HttpStorageAdapter implements Destination<any, void> {
+class HttpStorageAdapter implements Destination<unknown> {
   readonly adapterId = 'my.http-storage'
 
   async send(exchange: Exchange) {

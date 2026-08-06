@@ -98,7 +98,7 @@ craft()
   .enrich(
     (ex) => {
       const { result, ...request } = ex.body as { result: AgentResult }
-      return direct<JudgeEvidence, Judgement>('judge-agent-result').send(
+      return direct<JudgeEvidence, Judgement>('judge-agent-result').fetch(
         DefaultExchange.rewrap(ex, {
           body: {
             request,
@@ -139,7 +139,7 @@ agent({
   system: '...',
   tools: tools([/* ... */]),
   validate: async (result, { exchange }) => {
-    const verdict = (await direct('judge-agent-result').send(
+    const verdict = (await direct('judge-agent-result').fetch(
       DefaultExchange.rewrap(exchange, {
         body: {
           request: exchange.body,

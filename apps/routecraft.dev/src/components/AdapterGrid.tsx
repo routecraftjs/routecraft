@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { type Section } from '@/lib/sections'
 import { slug } from '@/lib/slug'
 
-type Role = 'Source' | 'Destination' | 'Transformer' | 'Processor'
+type Role = 'Source' | 'Destination' | 'Enricher' | 'Transformer' | 'Processor'
 
 interface Adapter {
   name: string
@@ -53,13 +53,13 @@ const adapters: Adapter[] = [
   {
     name: 'direct',
     category: 'Core',
-    roles: ['Source', 'Destination'],
+    roles: ['Source', 'Enricher'],
     description: 'Synchronous route-to-route plumbing with type safety.',
   },
   {
     name: 'http',
     category: 'Core',
-    roles: ['Source', 'Destination'],
+    roles: ['Source', 'Enricher'],
     description:
       'HTTP client for outbound requests and an HTTP server (via defineConfig({ http })) for exposing routes.',
   },
@@ -80,7 +80,7 @@ const adapters: Adapter[] = [
   {
     name: 'spy',
     category: 'Test',
-    roles: ['Destination', 'Processor'],
+    roles: ['Destination', 'Enricher', 'Processor'],
     description: 'Records exchanges and exposes them for test assertions.',
   },
 
@@ -88,7 +88,7 @@ const adapters: Adapter[] = [
   {
     name: 'file',
     category: 'File',
-    roles: ['Source', 'Destination'],
+    roles: ['Source', 'Destination', 'Enricher'],
     description: 'Read or write a single text file (per-line chunked reads).',
   },
   {
@@ -101,31 +101,31 @@ const adapters: Adapter[] = [
   {
     name: 'json',
     category: 'File',
-    roles: ['Source', 'Destination', 'Transformer'],
+    roles: ['Source', 'Destination', 'Enricher', 'Transformer'],
     description: 'Parse, write, or transform JSON files.',
   },
   {
     name: 'csv',
     category: 'File',
-    roles: ['Source', 'Destination'],
+    roles: ['Source', 'Destination', 'Enricher', 'Transformer'],
     description: 'Stream rows from a CSV file or write rows out.',
   },
   {
     name: 'jsonl',
     category: 'File',
-    roles: ['Source', 'Destination'],
-    description: 'Stream JSON Lines records or append to a JSONL file.',
+    roles: ['Source', 'Destination', 'Enricher', 'Transformer'],
+    description: 'Stream JSON Lines records or write a JSONL file.',
   },
   {
     name: 'html',
     category: 'File',
-    roles: ['Source', 'Destination', 'Transformer'],
+    roles: ['Source', 'Destination', 'Enricher', 'Transformer'],
     description: 'Parse or write HTML, with DOM-style selection helpers.',
   },
   {
     name: 'xml',
     category: 'File',
-    roles: ['Source', 'Destination', 'Transformer'],
+    roles: ['Source', 'Destination', 'Enricher', 'Transformer'],
     description: 'Parse, write, or transform XML as a plain object.',
   },
 
@@ -133,7 +133,7 @@ const adapters: Adapter[] = [
   {
     name: 'mail',
     category: 'Messaging',
-    roles: ['Source', 'Destination'],
+    roles: ['Source', 'Destination', 'Enricher'],
     description: 'Receive email via IMAP or send via SMTP.',
   },
 
@@ -141,7 +141,7 @@ const adapters: Adapter[] = [
   {
     name: 'carddav',
     category: 'Contacts',
-    roles: ['Source', 'Destination'],
+    roles: ['Source', 'Destination', 'Enricher'],
     description:
       'Read and write contacts over CardDAV. Defaults to Apple iCloud Contacts; works with any CardDAV server.',
   },
@@ -150,7 +150,7 @@ const adapters: Adapter[] = [
   {
     name: 'agentBrowser',
     category: 'Browser',
-    roles: ['Destination'],
+    roles: ['Enricher'],
     description: 'Drive a real browser session: navigate, click, snapshot.',
   },
 
@@ -158,25 +158,25 @@ const adapters: Adapter[] = [
   {
     name: 'mcp',
     category: 'AI',
-    roles: ['Source', 'Destination'],
+    roles: ['Source', 'Enricher'],
     description: 'Expose capabilities as MCP tools or call remote MCP servers.',
   },
   {
     name: 'llm',
     category: 'AI',
-    roles: ['Destination'],
+    roles: ['Enricher'],
     description: 'Call a language model for text or structured output.',
   },
   {
     name: 'agent',
     category: 'AI',
-    roles: ['Destination'],
+    roles: ['Enricher'],
     description: 'Run an LLM with a fixed system prompt and tool set.',
   },
   {
     name: 'embedding',
     category: 'AI',
-    roles: ['Destination'],
+    roles: ['Enricher'],
     description: 'Generate vector embeddings from text.',
   },
 
@@ -209,6 +209,7 @@ const categories = [
 const roleClassname: Record<Role, string> = {
   Source: 'border-cobalt-500/40 text-cobalt-600',
   Destination: 'border-ink/25 text-ink/65',
+  Enricher: 'border-ink/25 text-ink/65',
   Transformer: 'border-ink/25 text-ink/65',
   Processor: 'border-ink/25 text-ink/65',
 }

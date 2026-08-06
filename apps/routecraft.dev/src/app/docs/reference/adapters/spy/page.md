@@ -8,7 +8,7 @@ title: spy
 spy<T>(): SpyAdapter<T>
 ```
 
-Records all exchanges passing through it. Use as a destination, processor, or enricher to capture and assert on pipeline output.
+Records all exchanges passing through it. Use as a destination (`.to()` / `.tap()`, void send), enricher (`.enrich()`; the fetch face returns the current body, so a bare `.enrich(spy())` observes without changing it), or processor to capture and assert on pipeline output.
 
 ```ts
 import { spy } from '@routecraft/testing'

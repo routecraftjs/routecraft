@@ -9,21 +9,21 @@ title: direct
 // layer; schemas live on the route builder via `.input()` / `.output()`.
 direct(options?: Partial<DirectServerOptions>): Source<unknown>
 
-// Destination (registry-aware: body type resolves from DirectEndpointRegistry when populated)
-direct<K extends RegisteredDirectEndpoint>(endpoint: K): Destination<ResolveBody<DirectEndpointRegistry, K>, unknown>
+// Enricher (registry-aware: body type resolves from DirectEndpointRegistry when populated)
+direct<K extends RegisteredDirectEndpoint>(endpoint: K): Enricher<ResolveBody<DirectEndpointRegistry, K>, unknown>
 
-// Destination (names a target route)
-direct<T>(endpoint: string | ((exchange: Exchange<T>) => string)): Destination<T, T>
+// Enricher (names a target route)
+direct<T>(endpoint: string | ((exchange: Exchange<T>) => string)): Enricher<T, T>
 
-// Destination with explicit input != output (e.g. in-process agent call)
+// Enricher with explicit input != output (e.g. in-process agent call)
 direct<TIn, TOut>(
   endpoint: RegisteredDirectEndpoint | ((exchange: Exchange<TIn>) => string),
-): Destination<TIn, TOut>
+): Enricher<TIn, TOut>
 ```
 
 See [Type Registries](/docs/advanced/type-registries) for how to populate `DirectEndpointRegistry`.
 
-Enable synchronous inter-route communication. Perfect for composable route architectures where you need request-response patterns. The source form uses the route's `.id()` as the endpoint name; destinations address the target by id.
+Enable synchronous inter-route communication. Perfect for composable route architectures where you need request-response patterns. The source form uses the route's `.id()` as the endpoint name; the client form (a string or function endpoint) is an enricher that addresses the target by id: the call is a pull-in, so the target route's response body replaces the caller's body in `.to()` / bare `.enrich()`, feeds the aggregator in `.enrich(x, aggregator)`, and is discarded by `.tap()`.
 
 Discovery metadata (`.title()`, `.description()`) and schemas (`.input()`, `.output()`) live on the route builder, not the adapter. The framework validates `.input()` before the pipeline runs and `.output()` before the primary destination fires -- any source adapter (direct, mcp, future ones) inherits this validation automatically.
 
@@ -53,7 +53,7 @@ craft()
   .process(saveOrder)
   .transform(() => ({ status: 'created', orderId: '12345' }))
 
-// Dynamic endpoint based on message content (destination side)
+// Dynamic endpoint based on message content (caller side)
 craft()
   .id('dynamic-router')
   .from(source)
@@ -87,7 +87,7 @@ craft()
   .from(direct())
   .process(fetchSnippets)
 
-// Destination where the callee returns a different body shape than the caller sends.
+// Caller where the callee returns a different body shape than the caller sends.
 // Supply two type arguments to express the response shape (e.g. an in-process agent).
 craft()
   .id('agent-caller')
@@ -103,11 +103,11 @@ Route-level metadata lives on the builder: `.title('...')`, `.description('...')
 
 **Key characteristics:**
 - **Synchronous**: Calling route waits for response from the consuming route
-- **Endpoint = route id**: The direct source uses the route's `.id()` as its endpoint name. Destinations reference the consumer by that id.
+- **Endpoint = route id**: The direct source uses the route's `.id()` as its endpoint name. Callers reference the consumer by that id.
 - **Agent-only capabilities**: Omit `.id()` to register under a UUID the builder generates; agents can still discover the route via the registry, but it cannot be addressed as a string from code.
 - **Framework-enforced validation**: `.input()` and `.output()` schemas are validated by the engine, not the adapter. A validation failure throws `RC5002` and routes to the consumer route's error handler (both directions); unrecovered, it fails the exchange and rejects the sender.
 - **Automatic endpoint name sanitization**: URL-unsafe characters in the route id are URL-encoded for collision-free registry keys.
-- **Dynamic destinations**: Destination endpoints can be computed from the exchange; sources always use the route id.
+- **Dynamic endpoints**: Caller-side endpoints can be computed from the exchange; sources always use the route id.
 
 **Perfect for:**
 - Breaking large routes into smaller, composable pieces

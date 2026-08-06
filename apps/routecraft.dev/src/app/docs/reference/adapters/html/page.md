@@ -5,12 +5,13 @@ title: html
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-html(options: HtmlOptions): HtmlAdapter
+html(options: HtmlOptions): Transformer   // no path: extract from the HTML string in the body
+html(options: HtmlOptions & { path }): HtmlAdapter   // Source<HtmlResult> & Destination<unknown> & Enricher<unknown, HtmlResult>
 ```
 
-Extract data from HTML using CSS selectors (powered by cheerio), or read/write HTML files.
+Extract data from HTML using CSS selectors (powered by cheerio), or read/write HTML files. The presence of `path` selects the file roles; the operation keyword then picks one: `.from()` reads and extracts, `.to()` writes, `.enrich()` extracts mid-route. Without `path`, `html()` is a transformer over the body.
 
-**Transformer mode** (in-memory HTML parsing):
+**Transformer role** (in-memory HTML parsing):
 ```ts
 // Extract text from title
 .transform(html({ selector: 'title', extract: 'text' }))
@@ -37,7 +38,7 @@ Extract data from HTML using CSS selectors (powered by cheerio), or read/write H
 }))
 ```
 
-**Source mode** (read HTML files and extract):
+**Source role** (read HTML files and extract):
 ```ts
 // Read HTML file and extract title
 .from(html({
@@ -56,20 +57,20 @@ Extract data from HTML using CSS selectors (powered by cheerio), or read/write H
 // Emits array: ['https://example.com', '/about', ...]
 ```
 
-**Read mid-route** (extract from an HTML file partway through a route): In `read` mode the adapter is also a destination whose `send` reads the file, extracts via the selector, and returns the result, so `.enrich()` / `.to()` can pull it in, the same way an HTTP `GET` returns a body. Read-as-destination accepts dynamic (function) paths. Extraction failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to source mode only).
+**Read mid-route** (extract from an HTML file partway through a route): The adapter is also an enricher whose `fetch` reads the file and extracts via the selector, so `.enrich()` can pull the result in. The extracted value replaces the body; pass an aggregator such as `only()` to merge instead. The fetch role accepts dynamic (function) paths. Extraction failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to the source role only).
 
 ```ts
+// Replace the body with the extracted value
+.enrich(html({ path: './page.html', selector: 'title' }))
+
 // Enrich the body with a value extracted from a file, keeping existing fields
 .enrich(
-  html({ path: './page.html', selector: 'h1', mode: 'read' }),
+  html({ path: './page.html', selector: 'h1' }),
   only((title) => title, 'title'),
 )
-
-// Replace the body with the extracted value
-.to(html({ path: './page.html', selector: 'title', mode: 'read' }))
 ```
 
-**Destination mode** (write HTML files):
+**Destination role** (write HTML files). The send is void: the body flows through the `.to()` step unchanged.
 ```ts
 // Write HTML string to file
 .to(html({ path: './output.html' }))
@@ -83,11 +84,11 @@ Extract data from HTML using CSS selectors (powered by cheerio), or read/write H
 // Append to HTML file
 .to(html({
   path: './log.html',
-  mode: 'append'
+  append: true
 }))
 
 // Delete an HTML file (idempotent: an already-absent path is a no-op)
-.to(html({ path: (ex) => ex.body.processedPath, mode: 'delete' }))
+.to(html({ path: (ex) => ex.body.processedPath, delete: true }))
 ```
 
 **Transformer Options** (when no `path` provided):
@@ -102,27 +103,30 @@ Extract data from HTML using CSS selectors (powered by cheerio), or read/write H
 
 **File Options** (when `path` is provided):
 
-All transformer options above, plus:
+All transformer options above (except `from` / `to`, which only apply to the transformer role; `selector` is optional in the send role), plus:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `path` | `string \| (exchange) => string` | Required | File path (static or dynamic) |
-| `mode` | `'read' \| 'write' \| 'append' \| 'delete'` | `'read'` for source, `'write'` for destination | File operation mode (`read` extracts mid-route; `delete` removes the file, idempotently) |
+| `path` | `string \| (exchange) => string` | Required | File path (static for the source role; send/fetch also accept a function) |
+| `append` | `boolean` | `false` | Send role: append instead of overwriting; mutually exclusive with `delete` |
+| `delete` | `boolean` | `false` | Send role: delete the file instead of writing (idempotent); mutually exclusive with `append` |
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
-| `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
-| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle an extraction failure (source only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
+| `createDirs` | `boolean` | `false` | Create parent directories (send role only) |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle an extraction failure (source role only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
+
+Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 
 **Extract types:**
 - `text` / `innerText` / `textContent`: Plain text content (strips HTML tags, removes `<style>` and `<script>`)
 - `html`: Inner HTML content
-- `outerHtml`: Element including its tag
 - `attr`: Attribute value (requires `attr` option)
+- `outerHtml`: Element including its tag
 
 **Behavior:**
 - **Single match**: Returns string
 - **Multiple matches**: Returns array of strings
 - **No matches**: Returns empty string
-- **Source mode**: Reads HTML file and extracts data using selector
-- **Destination mode**: Writes HTML string (from `exchange.body` or `exchange.body.body`) to file
+- **Source role**: Reads HTML file and extracts data using selector
+- **Destination role**: Writes HTML string (from `exchange.body` or `exchange.body.body`) to file; the body flows through unchanged
 
-**Exported types:** `HtmlAdapter`, `HtmlReadAdapter`, `HtmlOptions`, `HtmlResult`
+**Exported types:** `HtmlAdapter`, `HtmlOptions`, `HtmlResult`

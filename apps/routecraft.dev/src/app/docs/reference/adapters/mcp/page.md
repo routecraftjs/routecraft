@@ -33,7 +33,9 @@ craft()
 
 A non-empty `.description()` is required for every MCP source route (surfaced as the tool description in `tools/list`); the route fails to subscribe otherwise. The tool name (route id) is validated against the MCP interop regex `^[A-Za-z0-9_-]{1,64}$`.
 
-**Destination mode -- call a remote MCP tool:**
+**Client mode -- call a remote MCP tool:**
+
+The client is an enricher: in `.to()` and bare `.enrich()` the tool result replaces the body (pass an aggregator such as `only()` to merge instead); `.tap()` discards it.
 
 ```ts
 // Recommended: by server id registered in mcpPlugin({ clients }).
@@ -44,7 +46,7 @@ A non-empty `.description()` is required for every MCP source route (surfaced as
 .enrich(mcp({ url: 'http://127.0.0.1:8089/mcp', tool: 'browser_navigate' }, { args: (ex) => ({ url: ex.body.url }) }))
 ```
 
-When using the `serverId` path (recommended), auth configured on the client in `mcpPlugin({ clients })` flows to the destination automatically. Inline `auth` on `McpClientOptions` is available as an escape hatch for the raw `url` path or to override registered config, but prefer centralizing credentials in the plugin config.
+When using the `serverId` path (recommended), auth configured on the client in `mcpPlugin({ clients })` flows to the tool call automatically. Inline `auth` on `McpClientOptions` is available as an escape hatch for the raw `url` path or to override registered config, but prefer centralizing credentials in the plugin config.
 
 **Options (McpServerOptions -- source, protocol extras only):**
 
