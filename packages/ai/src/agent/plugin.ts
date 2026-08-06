@@ -358,7 +358,7 @@ function validateToolPolicy(
   if (raw === undefined) return undefined;
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     throw rcError("RC5003", undefined, {
-      message: `agentPlugin: "toolPolicy" must be an object with optional "fn" / "direct" / "mcp" rules.`,
+      message: `agentPlugin: "toolPolicy" must be an object carrying a rule for each of "fn" / "direct" / "mcp".`,
     });
   }
   const known = AGENT_TOOL_POLICY_KINDS;
@@ -382,11 +382,13 @@ function validateToolPolicy(
       });
     }
     const rule = raw[key as AgentToolPolicyKind] as AgentToolRule | undefined;
-    if (
-      rule !== undefined &&
-      typeof rule !== "boolean" &&
-      typeof rule !== "function"
-    ) {
+    // An explicit `undefined` is rejected, not skipped. Owning the key
+    // with an undefined value satisfies the missing-key check above
+    // while `ruleAdmits` treats it as a denial at dispatch, which is
+    // precisely the silent strip that requiring every key exists to
+    // prevent. There is no reading of `mcp: undefined` where dropping
+    // every MCP tool with only a warn line is what the author meant.
+    if (typeof rule !== "boolean" && typeof rule !== "function") {
       throw rcError("RC5003", undefined, {
         message: `agentPlugin: "toolPolicy.${key}" must be a boolean or a (tool, ctx) => boolean predicate (got ${typeof rule}).`,
       });

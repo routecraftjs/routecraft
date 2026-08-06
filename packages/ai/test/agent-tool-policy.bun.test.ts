@@ -682,6 +682,32 @@ describe("agentPlugin({ toolPolicy }): construction-time validation", () => {
   });
 
   /**
+   * @case A kind present but explicitly undefined is rejected, not treated as an omission
+   * @preconditions toolPolicy owns all three keys but sets mcp to undefined
+   * @expectedResult agentPlugin throws RC5003, rather than silently denying every MCP tool at dispatch
+   */
+  test("rejects a kind whose rule is explicitly undefined", () => {
+    // Owning the key satisfies the missing-key check, so without an
+    // explicit rejection this would reach dispatch and be treated as a
+    // denial: the exact silent strip the required keys prevent.
+    let caught: unknown;
+    try {
+      agentPlugin({
+        toolPolicy: {
+          fn: true,
+          direct: true,
+          mcp: undefined,
+        } as unknown as AgentToolPolicy,
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isRoutecraftError(caught)).toBe(true);
+    expect((caught as Error).message).toMatch(/toolPolicy\.mcp/);
+    expect((caught as Error).message).toMatch(/got undefined/);
+  });
+
+  /**
    * @case An unknown tool kind is rejected at construction
    * @preconditions A complete policy plus an extra "block" key
    * @expectedResult agentPlugin throws RC5003 naming the valid keys
