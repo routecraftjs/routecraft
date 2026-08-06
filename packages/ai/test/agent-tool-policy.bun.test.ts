@@ -15,6 +15,7 @@ import {
   type McpToolAnnotations,
 } from "../src/mcp/types.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
+import { policiesAdmit } from "../src/agent/tools/policy.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 // Capture the tool map handed to the provider: it is the authoritative
@@ -598,6 +599,64 @@ describe("agentPlugin({ toolPolicy }): predicates and composition", () => {
     // The github tool declares destructiveHint only, so readOnlyHint is
     // absent on every dispatch unless a predicate leaked a write.
     expect(observed.every((v) => v === undefined)).toBe(true);
+  });
+
+  /**
+   * @case A tool with no resolver-set provenance is denied, not allowed to abort the dispatch
+   * @preconditions A hand-built ResolvedTool without `source` is injected into the resolved list
+   * @expectedResult The dispatch completes with that tool dropped, and the denial is reported as unknown-provenance
+   */
+  test("a tool with no provenance fails closed instead of throwing", () => {
+    // Reproduces what a JavaScript caller, or code written against 0.5
+    // typings, would hand in: a tool with no resolver-set `source`.
+    // An allowlist cannot admit what it cannot classify, and the
+    // alternative is a TypeError that takes down the whole dispatch.
+    const orphan = {
+      name: "orphan",
+      description: "No provenance.",
+      tags: [],
+      source: undefined,
+    } as unknown as Parameters<typeof policiesAdmit>[1];
+
+    const verdict = policiesAdmit(
+      [{ fn: true, direct: true, mcp: true }],
+      orphan,
+      { agentId: undefined },
+    );
+    expect(verdict.admitted).toBe(false);
+    // Not "reported": no predicate ran, so the caller still owns saying
+    // something about it.
+    expect(verdict.reported).toBe(false);
+  });
+
+  /**
+   * @case A throwing predicate with no reporter does not claim to have been reported
+   * @preconditions policiesAdmit called without an onRuleError callback
+   * @expectedResult The verdict denies but leaves `reported` false, so the caller still logs
+   */
+  test("a denial is only marked reported when a reporter actually ran", () => {
+    const tool = {
+      name: "localFn",
+      description: "A local fn.",
+      tags: [],
+      source: { kind: "fn", id: "localFn" },
+    } as unknown as Parameters<typeof policiesAdmit>[1];
+
+    const verdict = policiesAdmit(
+      [
+        {
+          fn: () => {
+            throw new Error("boom");
+          },
+          direct: true,
+          mcp: true,
+        },
+      ],
+      tool,
+      { agentId: undefined },
+    );
+    expect(verdict.admitted).toBe(false);
+    expect(verdict.reported).toBe(false);
   });
 
   /**

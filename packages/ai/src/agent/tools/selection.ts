@@ -179,6 +179,13 @@ export interface ToolSelection {
    * Resolve the selection against the live context. Throws RC5003 on
    * any unresolvable explicit reference (unknown name, deferred
    * resolution failure).
+   *
+   * One deliberate exception: an MCP client tool whose composed wire
+   * name is unusable is DROPPED with a warning rather than thrown, even
+   * when named explicitly. The remote owns that name, and resolution
+   * runs per dispatch, so throwing would turn a remote renaming a tool
+   * into a live route outage instead of a startup error. See
+   * {@link resolveMcpRefs}.
    */
   readonly resolve: (ctx: CraftContext) => ResolvedTool[];
 }
@@ -651,6 +658,15 @@ function parseMcpRef(ref: string): { clientName: string; toolName: string } {
  * Throws RC5003 when the registry is absent, the server is unknown,
  * the server is registered but has no tools, or the specific tool is
  * not registered.
+ *
+ * Does NOT throw when a registered tool's composed wire name is
+ * unusable: that tool is dropped with a warning, on both the wildcard
+ * and the explicit-reference path. The name comes from the remote
+ * rather than from this repository, and `resolve` runs per dispatch, so
+ * a throw would let a remote rename take down every dispatch of every
+ * agent bound to that server. Uniform dropping also keeps the two paths
+ * behaving the same, which is easier to reason about than a rule that
+ * depends on how the tool happened to be referenced.
  *
  * @internal
  */

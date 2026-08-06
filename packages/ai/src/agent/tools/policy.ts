@@ -266,10 +266,22 @@ function ruleAdmits(
   try {
     return { admitted: rule(tool, ctx) === true, reported: false };
   } catch (cause) {
-    onRuleError?.(tool, cause);
-    // Reported here, so the caller does not log a second, blander line
-    // for the same tool and the same outcome.
-    return { admitted: false, reported: true };
+    // Guarded: a thrown value whose inspection itself throws must not
+    // escape the catch that exists to keep one bad predicate from
+    // aborting the dispatch.
+    let reported = false;
+    if (onRuleError !== undefined) {
+      try {
+        onRuleError(tool, cause);
+        reported = true;
+      } catch {
+        reported = false;
+      }
+    }
+    // `reported` says the failure HAS been described elsewhere, so the
+    // caller may skip its own blander line. Claiming it without a
+    // reporter would suppress the only diagnostic there was.
+    return { admitted: false, reported };
   }
 }
 

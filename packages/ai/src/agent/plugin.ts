@@ -76,9 +76,10 @@ export interface AgentPluginOptions {
    * selection cannot widen what this admits.
    *
    * Omit it and nothing changes: every tool is admitted, exactly as
-   * before. Supply it and it becomes an allowlist, where a kind with no
-   * entry is denied. Denied tools are dropped from the agent's list and
-   * logged at warn; they never throw.
+   * before. Supply it and it becomes an allowlist in which every kind
+   * must be decided: a partial policy is rejected at construction, not
+   * quietly treated as denying the kinds you left out. Denied tools are
+   * dropped from the agent's list and logged; they never throw.
    *
    * This is admission control, not a security boundary. It converts a
    * failure of omission (a tool name appearing in markdown frontmatter,
