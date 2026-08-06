@@ -179,7 +179,9 @@ ex.headers["routecraft.mail.uid"]         // routing identity
 
 Attachments stay on `body` because they are message content (the same call the "What stays on `body`" section above makes for HTTP multipart files).
 
-The fetch destination (`.enrich(mail(...))`) is the one place the whole `MailMessage` (envelope + payload in one object) still appears: a batch fetch returns many messages and single-valued headers cannot hold N envelopes, so each element keeps its envelope inline. That is a result collection, not a per-message exchange, so the convention does not apply.
+The mail enricher (`.enrich(mail(...))`) is the one place the whole `MailMessage` (envelope + payload in one object) still appears: a batch fetch returns many messages and single-valued headers cannot hold N envelopes, so each element keeps its envelope inline. That is a result collection, not a per-message exchange, so the convention does not apply.
+
+Send receipts follow the same state rule: a destination's `send` is void, and receipt values (the SMTP `messageId`, a CardDAV `etag`/`url`) land on `routecraft.<adapter>.*` headers via the `SendContext` sink, never as a body replacement.
 
 ### Worked example: cookies
 

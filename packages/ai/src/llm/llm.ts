@@ -1,7 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { Destination } from "@routecraft/routecraft";
+import type { Enricher } from "@routecraft/routecraft";
 import { tagAdapter, factoryArgs } from "@routecraft/routecraft";
-import { LlmDestinationAdapter } from "./destination.ts";
+import { LlmEnricherAdapter } from "./enricher.ts";
 import type { LlmOptions, LlmResultWithOutput } from "./types.ts";
 import type { RegisteredLlmModelId } from "../registry.ts";
 
@@ -17,9 +17,9 @@ import type { RegisteredLlmModelId } from "../registry.ts";
 export function llm<S extends StandardSchemaV1 | undefined = undefined>(
   modelId: RegisteredLlmModelId,
   options?: LlmOptions & { output?: S },
-): Destination<unknown, LlmResultWithOutput<S>> {
+): Enricher<unknown, LlmResultWithOutput<S>> {
   return tagAdapter(
-    new LlmDestinationAdapter<S>(modelId, options),
+    new LlmEnricherAdapter<S>(modelId, options),
     llm,
     factoryArgs(modelId, options),
   );

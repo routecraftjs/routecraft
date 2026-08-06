@@ -204,7 +204,7 @@ Bob,25`;
           craft()
             .id("csv-write-headers")
             .from(simple(data))
-            .to(csv({ path: filePath, header: true, mode: "append" })),
+            .to(csv({ path: filePath, header: true, append: true })),
         )
         .build();
 
@@ -238,7 +238,7 @@ Bob,25`;
                 path: filePath,
                 header: true,
                 delimiter: "\t",
-                mode: "append",
+                append: true,
               }),
             ),
         )
@@ -270,7 +270,7 @@ Alice,30
           craft()
             .id("csv-append")
             .from(simple(data))
-            .to(csv({ path: filePath, header: true, mode: "append" })),
+            .to(csv({ path: filePath, header: true, append: true })),
         )
         .build();
 
@@ -326,7 +326,7 @@ Alice,30
               csv({
                 path: () => path.join(tmpDir, "dynamic-output.csv"),
                 header: true,
-                mode: "append",
+                append: true,
               }),
             ),
         )
@@ -380,7 +380,7 @@ Alice,30
           craft()
             .id("csv-no-body-change")
             .from(simple(data))
-            .to(csv({ path: filePath, header: true, mode: "append" }))
+            .to(csv({ path: filePath, header: true, append: true }))
             .to(s),
         )
         .build();
@@ -602,9 +602,9 @@ Alice,30
     });
   });
 
-  describe("read mode as destination (mid-route read)", () => {
+  describe("fetch role (mid-route read)", () => {
     /**
-     * @case csv({mode:'read'}) used with .enrich() reads + parses the file and
+     * @case .enrich(csv({ path })) reads + parses the file and
      *   merges the rows onto the body, preserving the incoming fields
      * @preconditions File holds a CSV with a header row
      * @expectedResult The matching record is found from the merged rows
@@ -621,7 +621,7 @@ Alice,30
             .id("csv-read-enrich")
             .from(simple<{ id: string }>({ id: "b" }))
             .enrich(
-              csv({ path: filePath, mode: "read" }),
+              csv({ path: filePath }),
               only((rows) => rows as Array<{ id: string; n: string }>, "rows"),
             )
             .transform(
@@ -638,7 +638,7 @@ Alice,30
     });
 
     /**
-     * @case Read-as-destination resolves a dynamic (function) path from the body
+     * @case The fetch role resolves a dynamic (function) path from the body
      * @preconditions Body carries the file name; path is a function of the body
      * @expectedResult The file selected by the body is read and parsed
      */
@@ -653,10 +653,9 @@ Alice,30
           craft()
             .id("csv-read-dynamic")
             .from(simple<{ file: string }>({ file: filePath }))
-            .to(
+            .enrich(
               csv({
                 path: (ex) => (ex.body as { file: string }).file,
-                mode: "read",
               }),
             )
             .to(s),
@@ -672,7 +671,7 @@ Alice,30
 
   describe("delete mode", () => {
     /**
-     * @case csv({mode:'delete'}) removes the file without formatting the body
+     * @case csv({ delete: true }) removes the file without formatting the body
      * @preconditions File exists
      * @expectedResult The file is gone and the body passes through unchanged
      */
@@ -687,7 +686,7 @@ Alice,30
           craft()
             .id("csv-delete")
             .from(simple({ keep: true }))
-            .to(csv({ path: filePath, mode: "delete" }))
+            .to(csv({ path: filePath, delete: true }))
             .to(s),
         )
         .build();
@@ -714,7 +713,7 @@ Alice,30
           craft()
             .id("csv-delete-missing")
             .from(simple("x"))
-            .to(csv({ path: missing, mode: "delete" }))
+            .to(csv({ path: missing, delete: true }))
             .to(s),
         )
         .build();

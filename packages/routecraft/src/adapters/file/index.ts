@@ -1,116 +1,84 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
+import type { Enricher } from "../../operations/enrich.ts";
+import { rcError } from "../../error.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type { FileOptions } from "./types.ts";
 import { FileSourceAdapter } from "./source.ts";
 import { FileDestinationAdapter } from "./destination.ts";
+import { FileEnricherAdapter } from "./enricher.ts";
 
-/** Combined file adapter type exposing both Source and Destination interfaces. */
+/**
+ * Combined file adapter type: all three roles on one honest type. The
+ * operation keyword selects the role (`.from()` subscribes, `.to()` sends,
+ * `.enrich()` fetches).
+ */
 export type FileAdapter = Source<string> &
-  Destination<unknown, void> & { readonly adapterId: string };
+  Destination<unknown> &
+  Enricher<unknown, string> & { readonly adapterId: string };
 
 /**
- * Read-mode file adapter. As a destination its `send` returns the file content
- * (string), so it works mid-route with `.enrich()` / `.to()`, like an HTTP GET
- * is a destination that returns the fetched body. It remains usable as a
- * `.from()` source too.
- */
-export type FileReadAdapter = Source<string> &
-  Destination<unknown, string> & { readonly adapterId: string };
-
-/**
- * Creates a file adapter in chunked source mode.
- * Emits one exchange per line with FILE_LINE and FILE_PATH headers.
+ * Creates a file adapter for plain text files. One factory, one type; the
+ * POSITION in the route selects the role:
  *
- * @param options - File options with chunked: true
- * @returns A Source-only adapter
- */
-export function file(
-  options: FileOptions & { chunked: true },
-): Source<string> & { readonly adapterId: string };
-/**
- * Creates a file adapter in read mode. Usable as a `.from()` source and,
- * because read mode returns the file content, mid-route via `.enrich()` /
- * `.to()`. Supports dynamic (function) paths when used as a destination.
+ * - **`.from(file({ path }))`** reads the file and emits its content
+ *   (`chunked: true` emits one exchange per line with FILE_LINE / FILE_PATH
+ *   headers). The source role needs a static string path.
+ * - **`.to(file({ path }))`** writes the exchange body to the file
+ *   (overwrite; `append: true` appends; `delete: true` removes the file).
+ *   The body flows through unchanged.
+ * - **`.enrich(file({ path }))`** reads the file mid-route and the content
+ *   replaces the body (pass an aggregator such as `only()` to merge
+ *   instead). Dynamic (function) paths resolve against the exchange.
  *
- * @param options - File options with mode: 'read'
- * @returns A combined Source and content-returning Destination adapter
- *
- * @example
- * ```typescript
- * // Pull a file into the body mid-route, alongside the existing data
- * .enrich(file({ path: './config.txt', mode: 'read' }), only((s: string) => s, 'config'))
- * ```
- */
-export function file(options: FileOptions & { mode: "read" }): FileReadAdapter;
-/**
- * Creates a file adapter for reading or writing plain text files.
- *
- * As a **source** (.from):
- * - Reads file content as a string
- *
- * As a **destination** (.to):
- * - Writes exchange body to file (write or append mode)
- * - Supports dynamic paths based on exchange content
- * - Can create parent directories automatically
- *
- * @param options - File path, mode, encoding, and createDirs options
- * @returns A combined Source and Destination adapter
+ * @param options - File path, encoding, createDirs, append/delete, chunked
+ * @returns The combined Source + Destination + Enricher adapter
  *
  * @example
  * ```typescript
  * // Read file as source
  * .from(file({ path: './input.txt' }))
  *
+ * // Read one exchange per line
+ * .from(file({ path: './input.txt', chunked: true }))
+ *
  * // Write to file
- * .to(file({ path: './output.txt', mode: 'write' }))
+ * .to(file({ path: './output.txt' }))
  *
  * // Append to log
- * .to(file({ path: './log.txt', mode: 'append' }))
+ * .to(file({ path: './log.txt', append: true }))
+ *
+ * // Pull a file into the body mid-route, alongside the existing data
+ * .enrich(file({ path: './config.txt' }), only((s: string) => s, 'config'))
  *
  * // Dynamic path with directory creation
  * .to(file({
  *   path: (ex) => `./data/${ex.body.date}.txt`,
- *   mode: 'write',
  *   createDirs: true
  * }))
  * ```
  */
-export function file(options: FileOptions): FileAdapter;
-export function file(
-  options: FileOptions,
-): Source<string> | FileAdapter | FileReadAdapter {
-  const args = factoryArgs(options);
-  const source = new FileSourceAdapter(options);
-  if (options.chunked) {
-    return tagAdapter(
-      {
-        adapterId: "routecraft.adapter.file",
-        subscribe: source.subscribe,
-      },
-      file,
-      args,
-    );
+export function file(options: FileOptions): FileAdapter {
+  if (options.append && options.delete) {
+    throw rcError("RC5003", undefined, {
+      message:
+        "file adapter: `append` and `delete` are mutually exclusive send behaviors",
+      suggestion: "Pass at most one of `append: true` / `delete: true`",
+    });
   }
+  const source = new FileSourceAdapter(options);
   const destination = new FileDestinationAdapter(options);
-  const adapter = tagAdapter(
+  const enricher = new FileEnricherAdapter(options);
+  return tagAdapter(
     {
       adapterId: "routecraft.adapter.file",
       subscribe: source.subscribe,
       send: destination.send,
+      fetch: enricher.fetch,
     },
     file,
-    args,
+    factoryArgs(options),
   );
-  // The single `send` resolves to the file content (string) in read mode and
-  // to nothing (void) when writing/appending. Narrow the public type per mode
-  // so callers infer the right body: a string in read mode, an unchanged body
-  // otherwise. The runtime object is identical; only its declared `send` return
-  // differs.
-  if (options.mode === "read") {
-    return adapter as unknown as FileReadAdapter;
-  }
-  return adapter as unknown as FileAdapter;
 }
 
 // Re-export types for public API
@@ -120,3 +88,4 @@ export { FileHeaders } from "./types.ts";
 // Re-export classes for internal use (e.g., by html and csv adapters)
 export { FileSourceAdapter } from "./source.ts";
 export { FileDestinationAdapter } from "./destination.ts";
+export { FileEnricherAdapter } from "./enricher.ts";

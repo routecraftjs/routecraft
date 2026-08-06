@@ -6,23 +6,62 @@ For user-facing adapter documentation, see the [adapters reference](https://rout
 
 ---
 
+## Adapter Roles
+
+Every adapter is built from up to four role slots. Each slot carries exactly one contract; a slot is never overloaded with a second meaning (issue #532 is the design record):
+
+```ts
+interface Source<T>      { subscribe(sub): Promise<void> } // stream IN: 0..N exchanges, batch/lifecycle semantics
+interface Destination<T> { send(exchange, ctx?): void }    // push OUT: per exchange, body unchanged, ALWAYS void
+interface Enricher<T, R> { fetch(exchange, ctx?): R }      // pull IN:  per exchange, produces a value
+interface Transformer    { transform(body): R }            // pure body mapping
+```
+
+The operation keyword resolves the role; no keyword was added or renamed for this model:
+
+| keyword | resolves to | body afterwards |
+|---|---|---|
+| `.from(x)` | `subscribe` | what the source emits |
+| `.to(x)` / `.tap(x)` | `send` if present, else `fetch` | send: unchanged; fetch: replaced by result (tap always discards) |
+| `.enrich(x, agg?)` | `fetch` | aggregator merges; aggregator omitted = replace |
+| `.transform(x)` / `.process(x)` | transformer | body-in-body-out vs exchange-in-exchange-out |
+
+Precedence, one line: when an adapter has both `send` and `fetch`, `.to()` picks `send` ("to a file means save to it"). Fetch-only adapters in `.to()` replace the body (this is what keeps `.to(http({ url }))` and `.to(direct("x"))` working). Function forms route by their inferred return type: `.to((ex) => void)` is a send, `.to((ex) => R)` replaces the body with `R`.
+
+`send` is strictly void. A send that produces a receipt (a message id, an etag, a created-resource URL) surfaces it via the `SendContext` header sink (`ctx?.setHeader(key, value)`); the `.to()` step merges the collected headers onto the continuing exchange. Receipts reuse the adapter's existing header namespace where one exists (mail sets `routecraft.mail.messageId`; carddav writes set the same `routecraft.carddav.url` / `.uid` / `.etag` keys the read side sets), so a written resource's identity lands where a read resource's identity lives.
+
+## The Option Laws
+
+1. **Bare factory, one honest type, all its roles present; POSITION selects the role.** `.from(file({ path }))` reads, `.to(file({ path }))` writes, `.enrich(file({ path }))` reads mid-route. No `mode` options.
+2. **Options never change the adapter's type**, with ONE sanctioned exception: `chunked: true` may change the Source item type (whole vs per-item). Exactly two overloads (literal `true` / absent-or-`false`); NO widened-boolean overload, so `chunked: someBool` is a compile error and dynamic chunking is an explicit branch at the call site. Destination/Enricher roles are identical under chunked.
+3. **Same type, different behavior = discriminated OPTIONS, never verbs**: `append: true`, `delete: true` (mutually exclusive, guarded with `RC5003` at construction), mail's `action` union (per-action required fields intact), carddav's `action`.
+4. **Key-presence overloads are permitted** (`http({ url })` client vs `http({ path })` server; `mail()` send vs `mail({ action })` operation vs `mail({ folder })` fetch) because the operation keyword is the category enforcer: `.from(http({ url }))` fails to compile because that shape has no `subscribe`. Key presence has no widening hazard (unlike boolean literals). Key-sniffing over OPTIONAL keys remains forbidden (see naming-policy.md).
+5. **True sends that produce receipts surface them via HEADERS**, never as a body replacement (see the `SendContext` sink above).
+6. **No new DSL keywords. No nested verb imports. No dot-notation factories.** The transformer family stays on the bare factory, discriminated by key presence (`path` present = file roles; absent = transformer) and enforced by `.transform()` requiring a `transform` slot. `path` always means a file path; a transformer's extraction key uses a different name (json's `pointer`), so the two option shapes never collide.
+
+What these laws forbid (all removed in the #532 refactor, do not reintroduce): `mode` options that change the adapter's kind, path-string sniffing, category inference from option VALUES, result-returning `send`, `Omit<Options, "path">` overload idioms, and per-mode type aliases (`FileReadAdapter` and friends).
+
+---
+
 ## Single-Factory Pattern
 
 Each adapter concept (direct, http, simple, etc.) exposes **one factory function** that returns the appropriate interface based on parameters; users think in concepts, not operations (source, destination). This is the cornerstone of DX. The pattern is documented user-facing in the custom-adapters guide (`apps/routecraft.dev/src/app/docs/advanced/custom-adapters/page.md`): one factory per concept with overloads and structural discrimination ("Factory function" section), `{Concept}{Operation}Adapter` class naming even for single-role adapters (same section), and the per-concept directory layout with one file per role ("File structure" section). Follow that guide for new adapters; the rule below is internal-only and has no docs equivalent.
 
 ### Factories return interfaces, not classes
 
-Factory return types must be interface types (`Source<T>`, `Destination<T, R>`), never class types.
+Factory return types must be interface types (`Source<T>`, `Destination<T>`, `Enricher<T, R>`, intersections of them), never class types.
 
 ```typescript
 // Good: returns interface type
-export function http<T, R>(options: HttpOptions): Destination<T, HttpResult<R>> {
-  return new HttpDestinationAdapter<T, R>(options);
+export function http<T, R>(options: HttpClientOptions<T>): Enricher<T, HttpResult<R>> {
+  return new HttpEnricherAdapter<T, R>(options);
 }
 
 // Bad: returns class type (exposes implementation)
-export function http<T, R>(options: HttpOptions): HttpDestinationAdapter<T, R> { ... }
+export function http<T, R>(options: HttpClientOptions<T>): HttpEnricherAdapter<T, R> { ... }
 ```
+
+The runtime object must agree with the declared type: expose only the slots the declared type carries (a read-shaped `carddav()` has no `send` on the returned object, so `.to(carddav())` resolves to fetch as the type promises). When a facade class implements several roles, the factory assembles a slot object rather than returning the class instance with extra slots attached.
 
 ---
 
@@ -57,8 +96,8 @@ export function http<T, R>(options: HttpOptions): HttpDestinationAdapter<T, R> {
 ### Goals
 
 - Keep adapters minimal, focused, and composable.
-- Implement only the operation interface(s) you need: `Source.subscribe`, `Destination.send`, `Processor.process`, `Transformer.transform`.
-- Use `Destination<T, R>` for `.to()`, `.enrich()`, and `.tap()`. Return the result from `send()` -- it will be ignored by `.to()` (default), merged by `.enrich()`, or ignored by `.tap()`.
+- Implement only the role slot(s) you need: `Source.subscribe`, `Destination.send`, `Enricher.fetch`, `Processor.process`, `Transformer.transform`.
+- `Destination<T>` pushes out and is strictly void (`.to()`, `.tap()`); `Enricher<T, R>` pulls in and produces a value (`.enrich()`, and the fetch fallback in `.to()` / `.tap()`). An adapter may carry both slots on one object; `.to()` prefers `send`.
 - Use `CraftContext` stores for shared state; merge options via `MergedOptions` when relevant.
 - Prefer pure functions for transform-like behavior; keep side effects in `.to(...)` destinations.
 
@@ -105,13 +144,16 @@ For naming conventions (Source/Destination vs Server/Client), see [naming-policy
 
 ### Destination adapters
 
-- Signature: `send(exchange): Promise<R>` where R is the result type (use `void` if no result).
-- Return meaningful data when possible (e.g., database IDs, HTTP status, API responses).
-- The same adapter works with `.to()`, `.enrich()`, and `.tap()`:
-  - `.to()` ignores the result by default (side-effect only) or replaces body if a value is returned
-  - `.enrich()` merges the result into the body by default
-  - `.tap()` receives a snapshot and runs fire-and-forget (result ignored)
+- Signature: `send(exchange, ctx?): Promise<void>`. Strictly void: the body flows through a `.to()` step unchanged.
+- Surface receipts (message ids, etags, created-resource URLs) via `ctx?.setHeader(key, value)` (the `SendContext` sink); the `.to()` step merges them onto the continuing exchange. Reuse the adapter's header namespace.
+- Works with `.to()` and `.tap()` (`.tap()` receives a snapshot and runs fire-and-forget; its receipt headers are discarded with the snapshot).
 - Pull context from `DefaultExchange.context` if needed for stores or loggers.
+
+### Enricher adapters
+
+- Signature: `fetch(exchange, ctx?): Promise<R>` where R is the produced value (an HTTP result, parsed file content, fetched messages).
+- Works with `.enrich()` (aggregator merges; aggregator omitted = the value replaces the body), `.to()` (fetch-only fallback: the value replaces the body), and `.tap()` (fetch and discard).
+- `ctx` is the abort surface ({@link StepSignalContext}); forward `ctx?.signal` into cancellation-aware IO.
 
 ### Processor/Transformer adapters
 
@@ -123,7 +165,9 @@ For naming conventions (Source/Destination vs Server/Client), see [naming-policy
 
 - `Transformer` for reusable, pure body mapping with options.
 - `Processor` only when you need headers, exchange replacement, or reusable read-IO with standard behavior.
-- `Destination<T, R>` when the adapter produces data for side-effects (`.to()`), enrichment (`.enrich()`), or fire-and-forget (`.tap()`).
+- `Destination<T>` when the adapter pushes the exchange OUT (side effects: writes, sends, deletes).
+- `Enricher<T, R>` when the adapter pulls a value IN (reads, lookups, calls that produce data).
+- Both slots on one object when the concept genuinely has both directions (file: send writes, fetch reads).
 
 ### Callable variants
 
@@ -207,31 +251,41 @@ export class MySourceAdapter<T = unknown> implements Source<T> {
 }
 ```
 
-### Destination adapter (void)
+### Destination adapter (push out, void)
 
 ```ts
-import { type Destination, type Exchange } from "@routecraft/routecraft";
+import {
+  type Destination,
+  type Exchange,
+  type SendContext,
+} from "@routecraft/routecraft";
 
 export interface MyDestinationOptions {
   url: string;
 }
 
-export class MyDestinationAdapter<T = unknown> implements Destination<T, void> {
+export class MyDestinationAdapter<T = unknown> implements Destination<T> {
   readonly adapterId = "routecraft.adapter.my-destination";
   constructor(private options: MyDestinationOptions) {}
 
-  async send(exchange: Exchange<T>): Promise<void> {
+  async send(exchange: Exchange<T>, ctx?: SendContext): Promise<void> {
     const { url } = this.options;
     exchange.logger.info("Sending message", { url });
-    // perform side-effect using exchange.body / headers
+    const response = await fetch(url, {
+      method: "POST",
+      body: JSON.stringify(exchange.body),
+    });
+    // Receipts ride headers, never the body.
+    ctx?.setHeader("routecraft.my-destination.requestId",
+      response.headers.get("x-request-id"));
   }
 }
 ```
 
-### Destination adapter (with return value)
+### Enricher adapter (pull in, produces a value)
 
 ```ts
-import { type Destination, type Exchange } from "@routecraft/routecraft";
+import { type Enricher, type Exchange } from "@routecraft/routecraft";
 
 export interface MyApiOptions {
   endpoint: string;
@@ -242,11 +296,14 @@ export interface ApiResult {
   status: number;
 }
 
-export class MyApiAdapter<T = unknown> implements Destination<T, ApiResult> {
+export class MyApiEnricherAdapter<T = unknown> implements Enricher<
+  T,
+  ApiResult
+> {
   readonly adapterId = "routecraft.adapter.my-api";
   constructor(private options: MyApiOptions) {}
 
-  async send(exchange: Exchange<T>): Promise<ApiResult> {
+  async fetch(exchange: Exchange<T>): Promise<ApiResult> {
     const { endpoint } = this.options;
     exchange.logger.info("Calling API", { endpoint });
 

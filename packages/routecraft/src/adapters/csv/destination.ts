@@ -1,46 +1,32 @@
 import * as fsp from "node:fs/promises";
 import type { Destination, CallableDestination } from "../../operations/to.ts";
-import type { CsvFileOptions, CsvData } from "./types.ts";
+import type { CsvFileOptions } from "./types.ts";
 import { file } from "../file/index.ts";
-import { ensurePapaparse, parseCsv } from "./shared.ts";
+import { ensurePapaparse } from "./shared.ts";
 
 /**
- * CsvDestinationAdapter handles CSV file I/O as a destination.
+ * CsvDestinationAdapter implements the Destination (send) role for CSV files.
  *
- * - `write` / `append` (default): format the exchange body (object or array of
- *   objects) as CSV and write it.
- * - `read`: read the file, parse it, and return the parsed rows, so the adapter
- *   works mid-route via `.enrich()` / `.to()` (like an HTTP GET). Parse failures
- *   throw; the route boundary surfaces them as `exchange:failed`. The
- *   `onParseError` lifecycle controls (`'abort'` / `'drop'`) remain source-only.
- * - `delete`: delete the file and pass the body through unchanged. Idempotent.
+ * `send` is strictly void: it formats the exchange body (object or array of
+ * objects) as CSV and writes it (overwrite by default, `append: true` to
+ * append with header handling, `delete: true` to remove the file). Reading
+ * lives on the fetch role (CsvEnricherAdapter).
  */
-export class CsvDestinationAdapter implements Destination<unknown, unknown> {
+export class CsvDestinationAdapter implements Destination<unknown> {
   readonly adapterId = "routecraft.adapter.csv";
 
   constructor(private readonly options: CsvFileOptions) {}
 
-  send: CallableDestination<unknown, unknown> = async (exchange) => {
+  send: CallableDestination<unknown> = async (exchange) => {
     const resolvedPath =
       typeof this.options.path === "function"
         ? this.options.path(exchange)
         : this.options.path;
 
-    // Read mode: read the file via the file adapter, then parse and return.
-    if (this.options.mode === "read") {
-      const readAdapter = file({
-        path: resolvedPath,
-        mode: "read",
-        encoding: this.options.encoding || "utf-8",
-      });
-      const content = await readAdapter.send(exchange);
-      return parseCsv(content, this.options) as CsvData;
-    }
-
-    // Delete mode: delegate to the file adapter (no format). Idempotent.
-    if (this.options.mode === "delete") {
-      const deleteAdapter = file({ path: resolvedPath, mode: "delete" });
-      return deleteAdapter.send(exchange);
+    // Delete behavior: delegate to the file adapter (no format). Idempotent.
+    if (this.options.delete) {
+      await file({ path: resolvedPath, delete: true }).send(exchange);
+      return;
     }
 
     const Papa = ensurePapaparse();
@@ -49,6 +35,7 @@ export class CsvDestinationAdapter implements Destination<unknown, unknown> {
       delimiter = ",",
       quoteChar = '"',
       skipEmptyLines = true,
+      append = false,
     } = this.options;
 
     // Extract data from exchange body
@@ -59,13 +46,13 @@ export class CsvDestinationAdapter implements Destination<unknown, unknown> {
       data = [exchange.body as Record<string, unknown>];
     } else {
       throw new Error(
-        "csv adapter: destination mode requires exchange body to be an object or array of objects",
+        "csv adapter: send role requires exchange body to be an object or array of objects",
       );
     }
 
-    // Check if file exists (for append mode header handling)
+    // Check if file exists (for append header handling)
     let fileExists = false;
-    if (this.options.mode === "append") {
+    if (append) {
       try {
         await fsp.access(resolvedPath);
         fileExists = true;
@@ -74,8 +61,7 @@ export class CsvDestinationAdapter implements Destination<unknown, unknown> {
       }
     }
 
-    const includeHeader =
-      header && !(this.options.mode === "append" && fileExists);
+    const includeHeader = header && !(append && fileExists);
     let csvContent: string;
     try {
       csvContent = Papa.unparse(data, {
@@ -93,7 +79,7 @@ export class CsvDestinationAdapter implements Destination<unknown, unknown> {
     const fileAdapter = file({
       path: resolvedPath,
       encoding: this.options.encoding || "utf-8",
-      mode: this.options.mode || "write",
+      append,
       createDirs: this.options.createDirs || false,
     });
 
@@ -102,7 +88,5 @@ export class CsvDestinationAdapter implements Destination<unknown, unknown> {
       body: csvContent,
     };
     await fileAdapter.send(fileExchange);
-
-    return undefined;
   };
 }

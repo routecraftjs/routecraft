@@ -1,14 +1,13 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
+import type { Enricher } from "../../operations/enrich.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import { CarddavAdapter } from "./adapter.ts";
 import type { VCardBody } from "./vcard.ts";
 import type {
   CarddavClientOptions,
-  CarddavDeleteResult,
   CarddavOptions,
   CarddavServerOptions,
-  CarddavWriteResult,
 } from "./types.ts";
 
 /**
@@ -26,15 +25,18 @@ import type {
  *
  * **Read (`.from()` / `.enrich()`):** call with no `action`. `.from(carddav())`
  * emits one {@link VCardBody} per address-book entry; `.enrich(carddav())`
- * fetches all cards (merged onto the exchange under numeric keys by default;
- * pass `replace()` as the aggregator to get a `VCardBody[]` body).
+ * fetches all cards and the `VCardBody[]` replaces the body (pass an
+ * aggregator such as `only()` to merge instead).
  *
  * **Write (`.to()`):** `action: 'save'` upserts (writes to the card's `url`,
  * else creates), `'create'` always inserts, `'update'` writes to the card's
- * `url` (else `RC5014`).
+ * `url` (else `RC5014`). The send is void: the card body flows through
+ * unchanged and the write receipt (`routecraft.carddav.url` / `.uid` /
+ * `.etag`) lands on the same headers the read side sets.
  *
  * **Delete (`.to()`):** `action: 'delete'` removes the contact resolved from the
- * body (`url`/`uid`), the read headers, or a custom `target` extractor.
+ * body (`url`/`uid`), the read headers, or a custom `target` extractor. The
+ * deleted resource's identity lands on the receipt headers.
  *
  * @example
  * ```typescript
@@ -55,33 +57,45 @@ import type {
  */
 export function carddav(
   options?: CarddavServerOptions,
-): Source<VCardBody> & Destination<unknown, VCardBody[]>;
+): Source<VCardBody> & Enricher<unknown, VCardBody[]>;
 export function carddav(
   options: CarddavClientOptions & { action: "save" | "create" | "update" },
-): Destination<VCardBody, CarddavWriteResult>;
+): Destination<VCardBody>;
 export function carddav(
   options: CarddavClientOptions & { action: "delete" },
-): Destination<unknown, CarddavDeleteResult>;
+): Destination<unknown>;
 export function carddav(
   options?: CarddavOptions,
 ):
-  | (Source<VCardBody> & Destination<unknown, VCardBody[]>)
-  | Destination<VCardBody, CarddavWriteResult>
-  | Destination<unknown, CarddavDeleteResult> {
-  const adapter = tagAdapter(
-    new CarddavAdapter(options),
-    carddav,
-    factoryArgs(options),
-  );
-  const action = options?.action;
-  if (action === "delete") {
-    return adapter as unknown as Destination<unknown, CarddavDeleteResult>;
+  | (Source<VCardBody> & Enricher<unknown, VCardBody[]>)
+  | Destination<VCardBody>
+  | Destination<unknown> {
+  const adapter = new CarddavAdapter(options);
+  const args = factoryArgs(options);
+  // Expose only the slots that match the configured action, so the runtime
+  // object agrees with the declared type: a read-shaped carddav() has no
+  // `send` (`.to(carddav())` resolves to fetch and replaces the body), and
+  // an action-shaped one has no `subscribe`/`fetch`.
+  if (options?.action) {
+    const destination: Destination<unknown> & {
+      getMetadata(result: unknown): Record<string, unknown>;
+    } = {
+      adapterId: adapter.adapterId,
+      send: (exchange, ctx) => adapter.send(exchange, ctx),
+      getMetadata: (result) => adapter.getMetadata(result),
+    };
+    return tagAdapter(destination, carddav, args) as Destination<VCardBody>;
   }
-  if (action) {
-    return adapter as unknown as Destination<VCardBody, CarddavWriteResult>;
-  }
-  return adapter as unknown as Source<VCardBody> &
-    Destination<unknown, VCardBody[]>;
+  const reader: Source<VCardBody> &
+    Enricher<unknown, VCardBody[]> & {
+      getMetadata(result: unknown): Record<string, unknown>;
+    } = {
+    adapterId: adapter.adapterId,
+    subscribe: (sub) => adapter.subscribe(sub),
+    fetch: adapter.fetch,
+    getMetadata: (result) => adapter.getMetadata(result),
+  };
+  return tagAdapter(reader, carddav, args);
 }
 
 export { CarddavAdapter } from "./adapter.ts";
@@ -114,6 +128,4 @@ export type {
   CarddavAccountConfig,
   CarddavAction,
   CarddavTargetExtractor,
-  CarddavWriteResult,
-  CarddavDeleteResult,
 } from "./types.ts";

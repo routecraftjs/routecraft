@@ -556,21 +556,7 @@ export interface MailSendPayload {
 }
 
 /**
- * Result returned after sending an email.
- */
-export interface MailSendResult {
-  /** Message-ID of the sent email */
-  messageId: string;
-  /** Accepted recipient addresses */
-  accepted: string[];
-  /** Rejected recipient addresses */
-  rejected: string[];
-  /** SMTP server response string */
-  response: string;
-}
-
-/**
- * Result returned by the fetch destination (array of messages).
+ * Result returned by the fetch role (array of messages).
  */
 export type MailFetchResult = MailMessage[];
 
@@ -624,5 +610,9 @@ declare module "@routecraft/routecraft" {
      * headers (e.g. multiple `Received` lines).
      */
     [MailHeaders.RAW_HEADERS]?: Readonly<Record<string, string | string[]>>;
+    /** SMTP send receipt: accepted recipient addresses (set by `.to(mail())`). */
+    [MailHeaders.ACCEPTED]?: string[];
+    /** SMTP send receipt: rejected recipient addresses (set by `.to(mail())`). */
+    [MailHeaders.REJECTED]?: string[];
   }
 }

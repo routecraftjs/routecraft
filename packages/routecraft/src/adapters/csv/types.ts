@@ -62,29 +62,29 @@ export interface CsvFileOptions extends CsvParseOptions {
   encoding?: BufferEncoding;
 
   /**
-   * Create parent directories if they don't exist (destination mode only).
+   * Create parent directories if they don't exist (send role only).
    * Default: false
    */
   createDirs?: boolean;
 
   /**
-   * File operation mode.
-   * - 'read': Read + parse the CSV file. Works as a source (`.from`) and,
-   *   because read mode returns the parsed rows, mid-route via `.enrich()` /
-   *   `.to()`. As a destination, parse failures throw (the route boundary
-   *   surfaces them as `exchange:failed`); the `onParseError` lifecycle controls
-   *   apply to source mode only.
-   * - 'write': Write/overwrite file (destination mode)
-   * - 'append': Append to file (destination mode)
-   * - 'delete': Delete the CSV file (destination mode). Idempotent: an already-
-   *   absent path is a no-op. The body is unchanged. Supports dynamic paths.
-   * Default: 'read' for source, 'write' for destination
+   * Send role behavior: append rows to the file instead of overwriting it
+   * (the header row is only written when the file does not exist yet).
+   * Mutually exclusive with `delete`. Default: false (overwrite)
    */
-  mode?: "read" | "write" | "append" | "delete";
+  append?: boolean;
 
   /**
-   * When true, emit one exchange per row instead of the entire parsed array.
-   * Only applies in source mode. Each exchange includes CSV_ROW and CSV_PATH headers.
+   * Send role behavior: delete the CSV file instead of writing it.
+   * Idempotent: an already-absent path is a no-op. The body is unchanged.
+   * Mutually exclusive with `append`. Default: false
+   */
+  delete?: boolean;
+
+  /**
+   * When true, the source emits one exchange per row instead of the entire
+   * parsed array. Source role only; the send/fetch roles are identical under
+   * chunked. Each chunked exchange includes CSV_ROW and CSV_PATH headers.
    * Default: false
    */
   chunked?: boolean;

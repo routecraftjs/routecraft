@@ -6,10 +6,11 @@ Naming conventions for Routecraft adapters, interfaces, and option types.
 
 ## Pipeline role (all adapters)
 
-- **Source** = where messages enter the route (`.from(...)`). Interface: `Source<T>`; method: `subscribe`.
-- **Destination** = where messages go (`.to()`, `.enrich()`, `.tap()`). Interface: `Destination<T, R>`; method: `send`.
+- **Source** = stream IN, 0..N exchanges (`.from(...)`). Interface: `Source<T>`; method: `subscribe`.
+- **Destination** = push OUT, per exchange, strictly void (`.to()`, `.tap()`). Interface: `Destination<T>`; method: `send`.
+- **Enricher** = pull IN, per exchange, produces a value (`.enrich()`; also accepted by `.to()` / `.tap()`). Interface: `Enricher<T, R>`; method: `fetch`.
 
-Keep **Source** and **Destination** for these interfaces. They are protocol-agnostic and apply to every adapter (timer, log, direct, mcp, http, etc.).
+Keep **Source**, **Destination**, and **Enricher** for these interfaces. They are protocol-agnostic and apply to every adapter (timer, log, direct, mcp, http, etc.). Class names follow the role: `{Concept}EnricherAdapter` for the fetch role (`HttpEnricherAdapter`, `MailEnricherAdapter`), `{Concept}DestinationAdapter` for the send role.
 
 ## Protocol config (two-sided adapters only)
 
@@ -30,11 +31,11 @@ Every call shape of a multiplexed factory must be distinguishable by a **require
 
 | Facade | Discrimination |
 |--------|----------------|
-| `http` | `path` (server) vs `url` (client), both required |
-| `mcp` | bare object (source) vs required `url` / `serverId` (client) |
-| `carddav` | bare object (read) vs required `action` (write) |
-| `direct` | bare/options object (source) vs endpoint string/function (destination) |
-| `mail` | bare object (send) vs required `folder` (fetch) vs required `action` (operations) |
+| `http` | `path` (server/source) vs `url` (client/enricher), both required |
+| `mcp` | bare object (source) vs required `url` / `serverId` (client/enricher) |
+| `carddav` | bare object (source + enricher) vs required `action` (destination) |
+| `direct` | bare/options object (source) vs endpoint string/function (enricher) |
+| `mail` | bare object (send) vs required `folder` (enricher) vs required `action` (operations) |
 
 Key-sniffing heuristics over *optional* keys are forbidden. TypeScript resolves overloads from arguments only (never from the `.to()` / `.enrich()` context), so when two sides are both all-optional the compiler silently picks the first structurally matching overload while the runtime guesses from whichever keys happen to be present -- the two drift apart and the types lie (issue #433 is the case study; the mail adapter's old `hasServerKeys()` shipped four keys out of sync). Optional phantom/brand fields do not fix this: they do not affect assignability of object literals.
 
@@ -100,33 +101,37 @@ established precedent across the codebase.
 
 ## File-family option pattern
 
-Adapters in the file family (file, json, jsonl, csv) expose ONE options
-type for file I/O, `XxxFileOptions`, discriminated by `mode`
-(`'read' | 'write' | 'append' | 'delete'`) plus `chunked` for per-record
-source emission, instead of separate `XxxSourceOptions` /
-`XxxDestinationOptions` types. Fields that only apply to one mode say so
-in their JSDoc (`createDirs` is destination-only, `onParseError` is
-source-only). Factory overloads narrow the same type per call shape
-(`XxxFileOptions & { chunked: true }`, `& { mode: 'read' }`); they never
-introduce new option types. Transformer mode (no `path`) keeps its own
-`XxxTransformerOptions`, and the adapter's `XxxOptions` is the union of
-the two.
+Adapters in the file family (file, json, jsonl, csv, xml, html) expose ONE
+options type for file I/O, `XxxFileOptions`, shared by all three roles.
+There is no `mode` option: the operation keyword selects the role
+(`.from()` subscribes, `.to()` sends, `.enrich()` fetches). Send behavior
+is tuned by same-type options (`append: true`, `delete: true`, mutually
+exclusive, guarded with `RC5003` at construction); `chunked: true` is the
+one sanctioned option that changes the Source item type (per-record
+emission) and requires the literal `true` (a widened boolean is a compile
+error). Fields that only apply to one role say so in their JSDoc
+(`createDirs` is send-only, `onParseError` is source-only). Factory
+overloads narrow the same type per call shape (`XxxFileOptions &
+{ chunked: true }`); they never introduce new option types. Transformer
+mode (no `path`) keeps its own `XxxTransformerOptions`, and the adapter's
+`XxxOptions` is the union of the two. `path` always means a file path;
+a transformer's extraction key uses a different name (json's `pointer`).
 
-Why: the file adapters are one behaviour with modes, not two adapters;
+Why: the file adapters are one behaviour across roles, not two adapters;
 split option types duplicated shared fields (`path`, `encoding`,
-`reviver`) and needed a third "combined" type for the source+destination
-overload. `JsonFileOptions` and `CsvFileOptions` set the pattern;
-`JsonlFileOptions` folded `JsonlSourceOptions` / `JsonlDestinationOptions`
-/ `JsonlCombinedOptions` into it.
+`reviver`) and needed a third "combined" type. The old `mode` option
+changed the adapter's TYPE from an option VALUE, which forced overload
+sprawl and widened-option holes (see issue #532); roles-on-slots removed
+it.
 
 ## Summary
 
 | What | Convention |
 |------|-----------|
-| Interfaces | `Source` / `Destination` (pipeline role; all adapters) |
+| Interfaces | `Source` / `Destination` / `Enricher` (pipeline role; all adapters) |
 | Option types (two-sided) | `XxxServerOptions` / `XxxClientOptions` |
 | Option types (single-role) | `XxxOptions` |
-| File-family file I/O | single `XxxFileOptions`, discriminated by `mode` / `chunked` |
+| File-family file I/O | single `XxxFileOptions`, shared by all roles; `chunked` / `append` / `delete` options |
 | Acronyms in identifiers | first-letter caps only (`Http`, `Carddav`, `Jsonl`) |
 | Schema fields | `input` / `output` (route builder and adapter options) |
 | Domain prompt source | `user` (chat) or `using` (embedding); not `input` |

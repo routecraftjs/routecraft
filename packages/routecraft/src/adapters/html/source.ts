@@ -40,10 +40,7 @@ export class HtmlSourceAdapter<
       );
     }
     const fileOpts: FileOptions = { path: options.path };
-    if (options.mode !== undefined) fileOpts.mode = options.mode;
     if (options.encoding !== undefined) fileOpts.encoding = options.encoding;
-    if (options.createDirs !== undefined)
-      fileOpts.createDirs = options.createDirs;
     this.fileAdapter = file(fileOpts);
   }
 

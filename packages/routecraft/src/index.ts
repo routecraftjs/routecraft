@@ -103,7 +103,12 @@ export {
 
 export { type Processor } from "./operations/process.ts";
 
-export { type Destination } from "./operations/to.ts";
+export {
+  type Destination,
+  type CallableDestination,
+  type SendContext,
+  type ToTarget,
+} from "./operations/to.ts";
 
 export {
   type Splitter,
@@ -192,10 +197,11 @@ export {
 } from "./operations/delegate.ts";
 
 export {
+  type Enricher,
+  type CallableEnricher,
   type DestinationAggregator,
   only,
   none,
-  replace,
 } from "./operations/enrich.ts";
 
 export { WrapperStep } from "./operations/wrapper.ts";
@@ -406,7 +412,6 @@ export {
 export {
   type FileOptions,
   type FileAdapter,
-  type FileReadAdapter,
   FileHeaders,
 } from "./adapters/file/index.ts";
 export {
@@ -418,14 +423,12 @@ export {
   type HtmlOptions,
   type HtmlResult,
   type HtmlAdapter,
-  type HtmlReadAdapter,
 } from "./adapters/html/index.ts";
 export {
   type JsonOptions,
   type JsonTransformerOptions,
   type JsonFileOptions,
   type JsonFileAdapterType,
-  type JsonReadAdapter,
 } from "./adapters/json/index.ts";
 export {
   type CsvOptions,
@@ -434,7 +437,7 @@ export {
   type CsvRow,
   type CsvData,
   type CsvAdapter,
-  type CsvReadAdapter,
+  type CsvChunkedAdapter,
   CsvHeaders,
 } from "./adapters/csv/index.ts";
 export {
@@ -445,13 +448,13 @@ export {
   type XmlBuildOptions,
   type XmlData,
   type XmlAdapter,
-  type XmlReadAdapter,
 } from "./adapters/xml/index.ts";
 export {
   type JsonlOptions,
   type JsonlFileOptions,
   type JsonlTransformerOptions,
-  type JsonlReadAdapter,
+  type JsonlAdapter,
+  type JsonlChunkedAdapter,
   JsonlHeaders,
 } from "./adapters/jsonl/index.ts";
 export { type GroupOptions } from "./adapters/group/index.ts";
@@ -488,7 +491,6 @@ export {
   type MailMessage,
   type MailAttachment,
   type MailSendPayload,
-  type MailSendResult,
   type MailFetchResult,
   type MailContextConfig,
   type MailAccountConfig,
@@ -533,8 +535,6 @@ export {
   type CarddavAccountConfig,
   type CarddavAction,
   type CarddavTargetExtractor,
-  type CarddavWriteResult,
-  type CarddavDeleteResult,
   type CarddavDriverClient,
   type DAVAddressBookLike,
   type DAVVCardLike,

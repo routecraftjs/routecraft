@@ -42,13 +42,12 @@ const findProductRoute = craft()
     "Read the product catalogue from disk and return one product by id",
   )
   .from<FindProduct>(direct())
-  // Read + parse the catalogue mid-route. json({ mode: "read" }) is a
-  // destination that returns the parsed file content (like an HTTP GET returns
-  // a body), so .enrich() can pull it in. The generic types the parsed value;
-  // only(..., "catalogue") places it at body.catalogue, so the builder infers
-  // the merged body as FindProduct & { catalogue: Product[] }.
+  // Read + parse the catalogue mid-route. With a `path`, json() carries the
+  // fetch role, so .enrich() pulls the parsed file in. The generic types the
+  // parsed value; only(..., "catalogue") places it at body.catalogue, so the
+  // builder infers the merged body as FindProduct & { catalogue: Product[] }.
   .enrich(
-    json<Product[]>({ path: CATALOGUE_PATH, mode: "read" }),
+    json<Product[]>({ path: CATALOGUE_PATH }),
     only((catalogue: Product[]) => catalogue, "catalogue"),
   )
   // Now the body is one value holding both the criteria and the array, so you

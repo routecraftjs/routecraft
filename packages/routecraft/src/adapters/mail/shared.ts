@@ -73,6 +73,10 @@ export const MailHeaders = {
   SENDER: "routecraft.mail.sender",
   /** Raw email headers (requested via `includeHeaders`). */
   RAW_HEADERS: "routecraft.mail.rawHeaders",
+  /** SMTP send receipt: accepted recipient addresses. */
+  ACCEPTED: "routecraft.mail.accepted",
+  /** SMTP send receipt: rejected recipient addresses. */
+  REJECTED: "routecraft.mail.rejected",
 } as const satisfies Record<string, `routecraft.mail.${string}`>;
 
 // ---------------------------------------------------------------------------

@@ -20,7 +20,7 @@ export type {
 } from "./registry.ts";
 
 // LLM adapter and plugin
-export { llm, LlmDestinationAdapter, llmPlugin } from "./llm/index.ts";
+export { llm, LlmEnricherAdapter, llmPlugin } from "./llm/index.ts";
 export type {
   CustomLanguageModel,
   LlmAnthropicProviderOptions,
@@ -123,7 +123,7 @@ export type {
 // For by-name use, register agents via `agentPlugin({ agents: { name: {...} } })`.
 export {
   agent,
-  AgentDestinationAdapter,
+  AgentEnricherAdapter,
   agentPlugin,
   agents,
   SuspendError,
@@ -204,7 +204,7 @@ export {
 // Embedding adapter and plugin
 export {
   embedding,
-  EmbeddingDestinationAdapter,
+  EmbeddingEnricherAdapter,
   embeddingPlugin,
   disposeEmbeddingPipelineCache,
 } from "./embedding/index.ts";

@@ -1,4 +1,9 @@
-import type { Source, Destination, Processor } from "@routecraft/routecraft";
+import type {
+  Source,
+  Destination,
+  Enricher,
+  Processor,
+} from "@routecraft/routecraft";
 import {
   createNoopSubscribe,
   type PseudoOptions,
@@ -12,7 +17,8 @@ import {
 export type PseudoAdapter<R> = {
   adapterId: string;
 } & Source<R> &
-  Destination<any, R> &
+  Destination<any> &
+  Enricher<any, R> &
   Processor<any, R>;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -34,11 +40,14 @@ function createAdapter<R>(
       `Pseudo adapter "${name}" is not implemented. Replace with a real adapter.`,
     );
   };
-  const noopSend = (): Promise<R> => Promise.resolve(undefined as unknown as R);
+  const noopSend = (): Promise<void> => Promise.resolve();
+  const noopFetch = (): Promise<R> =>
+    Promise.resolve(undefined as unknown as R);
   const noopProcess = (exchange: unknown): unknown => exchange;
   const noopSubscribe = createNoopSubscribe();
 
   type SendFn = PseudoAdapter<R>["send"];
+  type FetchFn = PseudoAdapter<R>["fetch"];
   type ProcessFn = PseudoAdapter<R>["process"];
   type SubscribeFn = Source<R>["subscribe"];
 
@@ -49,6 +58,7 @@ function createAdapter<R>(
         ? (noopSubscribe as SubscribeFn)
         : (fail as SubscribeFn),
     send: runtime === "noop" ? (noopSend as SendFn) : (fail as SendFn),
+    fetch: runtime === "noop" ? (noopFetch as FetchFn) : (fail as FetchFn),
     process:
       runtime === "noop" ? (noopProcess as ProcessFn) : (fail as ProcessFn),
   };

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   embedding,
   embeddingPlugin,
-  EmbeddingDestinationAdapter,
+  EmbeddingEnricherAdapter,
 } from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, noop } from "@routecraft/routecraft";
@@ -15,16 +15,16 @@ describe("embedding() DSL and adapter", () => {
   });
 
   /**
-   * @case embedding(modelId, options) returns an EmbeddingDestinationAdapter instance
+   * @case embedding(modelId, options) returns an EmbeddingEnricherAdapter instance
    * @preconditions None
    * @expectedResult Destination has adapterId routecraft.adapter.embedding
    */
-  test("embedding(providerId:modelName) returns an EmbeddingDestinationAdapter", () => {
+  test("embedding(providerId:modelName) returns an EmbeddingEnricherAdapter", () => {
     const dest = embedding("huggingface:all-MiniLM-L6-v2", {
       using: () => "hello",
     });
-    expect(dest).toBeInstanceOf(EmbeddingDestinationAdapter);
-    expect((dest as EmbeddingDestinationAdapter).adapterId).toBe(
+    expect(dest).toBeInstanceOf(EmbeddingEnricherAdapter);
+    expect((dest as EmbeddingEnricherAdapter).adapterId).toBe(
       "routecraft.adapter.embedding",
     );
   });

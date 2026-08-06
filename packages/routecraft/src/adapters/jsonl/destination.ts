@@ -1,47 +1,38 @@
 import type { Destination, CallableDestination } from "../../operations/to.ts";
 import type { JsonlFileOptions } from "./types.ts";
 import { file } from "../file/index.ts";
-import { parseJsonl } from "./shared.ts";
 
 /**
- * JsonlDestinationAdapter handles JSON Lines file I/O as a destination.
+ * JsonlDestinationAdapter implements the Destination (send) role for JSON
+ * Lines files.
  *
- * - `write` / `append` (default): stringify each body to a single line. Array
- *   bodies write one line per element.
- * - `read`: read the file, parse every line, and return the array, so the
- *   adapter works mid-route via `.enrich()` / `.to()` (like an HTTP GET). Parse
- *   failures throw; the route boundary surfaces them as `exchange:failed`.
- * - `delete`: delete the file and pass the body through unchanged. Idempotent.
+ * `send` is strictly void: it stringifies the body to JSONL (array bodies
+ * write one line per element) and writes it (overwrite by default,
+ * `append: true` to append, `delete: true` to remove the file). Reading
+ * lives on the fetch role (JsonlEnricherAdapter).
  */
-export class JsonlDestinationAdapter implements Destination<unknown, unknown> {
+export class JsonlDestinationAdapter implements Destination<unknown> {
   readonly adapterId = "routecraft.adapter.jsonl";
 
   constructor(private readonly options: JsonlFileOptions) {}
 
-  send: CallableDestination<unknown, unknown> = async (exchange) => {
+  send: CallableDestination<unknown> = async (exchange) => {
     const {
       path: filePath,
       encoding = "utf-8",
-      mode = "append",
+      append = false,
+      delete: remove = false,
       createDirs = false,
       replacer,
-      reviver,
     } = this.options;
 
     const resolvedPath =
       typeof filePath === "function" ? filePath(exchange) : filePath;
 
-    // Read mode: read the file via the file adapter, then parse and return.
-    if (mode === "read") {
-      const readAdapter = file({ path: resolvedPath, mode: "read", encoding });
-      const content = await readAdapter.send(exchange);
-      return parseJsonl(content, reviver);
-    }
-
-    // Delete mode: delegate to the file adapter (no stringify). Idempotent.
-    if (mode === "delete") {
-      const deleteAdapter = file({ path: resolvedPath, mode: "delete" });
-      return deleteAdapter.send(exchange);
+    // Delete behavior: delegate to the file adapter (no stringify). Idempotent.
+    if (remove) {
+      await file({ path: resolvedPath, delete: true }).send(exchange);
+      return;
     }
 
     const stringify = (value: unknown): string =>
@@ -62,12 +53,10 @@ export class JsonlDestinationAdapter implements Destination<unknown, unknown> {
     const fileAdapter = file({
       path: resolvedPath,
       encoding,
-      mode,
+      append,
       createDirs,
     });
 
     await fileAdapter.send({ ...exchange, body: output });
-
-    return undefined;
   };
 }

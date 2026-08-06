@@ -1,4 +1,4 @@
-export { EmbeddingDestinationAdapter } from "./destination.ts";
+export { EmbeddingEnricherAdapter } from "./enricher.ts";
 export { embedding } from "./embedding.ts";
 export { embeddingPlugin } from "./plugin.ts";
 export { disposeEmbeddingPipelineCache } from "./providers/index.ts";

@@ -29,10 +29,7 @@ import {
  *   .to(mail({ action: 'append', folder: 'Drafts', flags: ['\\Draft'] }))
  * ```
  */
-export class MailOperationDestinationAdapter implements Destination<
-  unknown,
-  void
-> {
+export class MailOperationDestinationAdapter implements Destination<unknown> {
   readonly adapterId = "routecraft.adapter.mail";
 
   constructor(private readonly action: MailAction) {}

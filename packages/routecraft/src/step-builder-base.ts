@@ -3,7 +3,8 @@ import type { Adapter, Step } from "./types.ts";
 import type { Exchange, HeaderValue, HeaderLiteral } from "./exchange.ts";
 import {
   type Destination,
-  type CallableDestination,
+  type SendContext,
+  type ToTarget,
   ToStep,
 } from "./operations/to.ts";
 import {
@@ -13,6 +14,8 @@ import {
 } from "./operations/transform.ts";
 import {
   EnrichStep,
+  type Enricher,
+  type CallableEnricher,
   type DestinationAggregator,
   type EnrichMergeShape,
   type EnrichAggregatorOption,
@@ -45,7 +48,7 @@ import {
   type CallableProcessor,
   ProcessStep,
 } from "./operations/process.ts";
-import { TapStep } from "./operations/tap.ts";
+import { TapStep, type TapTarget } from "./operations/tap.ts";
 import {
   type CallableFilter,
   type Filter,
@@ -491,19 +494,28 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   }
 
   /**
-   * Send the exchange to a destination. A destination that returns
-   * `undefined` leaves the body unchanged; a returned value replaces
-   * the body.
+   * Hand the exchange to a destination (push out) or enricher (pull in).
    *
-   * @param destination - Adapter or callable that processes the exchange
-   * @returns The subclass builder re-typed to the destination's output
-   * @template R - Result body type; defaults to `void` (body unchanged)
+   * Role resolution: an adapter with a `send` slot is a push-out, and the
+   * body continues unchanged (receipts surface via headers, see
+   * {@link SendContext}); when an adapter has both `send` and `fetch`,
+   * `send` wins ("to a file means save to it"). A fetch-only adapter (e.g.
+   * `http({ url })`, `direct("endpoint")`) is a pull-in, and the fetched
+   * value replaces the body. Function forms follow their inferred return
+   * type: `(ex) => void` is a send, `(ex) => R` replaces the body with `R`.
+   *
+   * @param target - Destination, Enricher, or callable
+   * @returns The subclass builder re-typed to the step's output body
+   * @template R - Fetched result body type for pull-in targets
    */
+  to(destination: Destination<S["body"]>): Retyped<this, S>;
+  to<R>(enricher: Enricher<S["body"], R>): Retyped<this, SetBody<S, R>>;
   to<R = void>(
-    destination: Destination<S["body"], R> | CallableDestination<S["body"], R>,
-  ): Retyped<this, SetBody<S, R extends void ? S["body"] : R>> {
-    this.pushStep(new ToStep<S["body"], R>(destination));
-    return this.retype<R extends void ? S["body"] : R>();
+    fn: (exchange: Exchange<S["body"]>, ctx?: SendContext) => Promise<R> | R,
+  ): Retyped<this, SetBody<S, R extends void ? S["body"] : R>>;
+  to(target: ToTarget<S["body"], unknown>): unknown {
+    this.pushStep(new ToStep<S["body"], unknown>(target));
+    return this.retype<unknown>();
   }
 
   /**
@@ -524,45 +536,45 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
   }
 
   /**
-   * Enrich the exchange with data from a destination (e.g. HTTP lookup).
-   * Uses the same Destination adapters as `.to()` but with a merge-by-default
-   * aggregator. Optional aggregator controls how data is combined; `only(...)`
-   * and similar helpers carry an `ENRICH_MERGE_TYPE` brand that drives the
-   * body-type inference.
+   * Enrich the exchange with data pulled in by an {@link Enricher} (e.g. an
+   * HTTP lookup or a file read). With no aggregator the fetched value
+   * REPLACES the body. Pass an aggregator to merge instead: `only(...)`
+   * carries an `ENRICH_MERGE_TYPE` brand that drives the body-type
+   * inference, `none()` keeps the body, and a custom aggregator returns the
+   * derived exchange itself.
    *
-   * @param destination - Adapter or callable that returns enrichment data
-   * @param aggregator - Optional merge strategy; defaults to spreading result onto body
-   * @returns The subclass builder re-typed with the merged body shape
-   * @template R - Body type returned by the destination
+   * @param enricher - Enricher adapter or callable that produces the data
+   * @param aggregator - Optional merge strategy; omitted = replace the body
+   * @returns The subclass builder re-typed to the resulting body shape
+   * @template R - Value type produced by the enricher
    * @template A - Aggregator type (drives body shape inference)
    */
+  enrich<R>(
+    enricher: Enricher<S["body"], R> | CallableEnricher<S["body"], R>,
+  ): Retyped<this, SetBody<S, R>>;
   enrich<
     R,
     A extends
       | DestinationAggregator<S["body"], R>
       | (DestinationAggregator<unknown, unknown> & {
           [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
-        })
-      | undefined = undefined,
+        }),
   >(
-    destination: Destination<S["body"], R> | CallableDestination<S["body"], R>,
-    aggregator?: A,
+    enricher: Enricher<S["body"], R> | CallableEnricher<S["body"], R>,
+    aggregator: A,
   ): Retyped<
     this,
     SetBody<
       S,
-      A extends { [ENRICH_MERGE_TYPE]: infer M } ? S["body"] & M : S["body"] & R
+      A extends { [ENRICH_MERGE_TYPE]: infer M } ? S["body"] & M : S["body"]
     >
-  > {
-    this.pushStep(
-      new EnrichStep<S["body"], R>(
-        destination,
-        aggregator as EnrichAggregatorOption<S["body"], R> | undefined,
-      ),
-    );
-    return this.retype<
-      A extends { [ENRICH_MERGE_TYPE]: infer M } ? S["body"] & M : S["body"] & R
-    >();
+  >;
+  enrich<R>(
+    enricher: Enricher<S["body"], R> | CallableEnricher<S["body"], R>,
+    aggregator?: EnrichAggregatorOption<S["body"], R>,
+  ): unknown {
+    this.pushStep(new EnrichStep<S["body"], R>(enricher, aggregator));
+    return this.retype<unknown>();
   }
 
   /**
@@ -689,17 +701,16 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * Execute a side effect without changing the data. Fire-and-forget --
    * the tap runs asynchronously (tracked for drain) while the main flow
    * continues. Tap receives a snapshot of the exchange (body/headers
-   * cloned). Errors are emitted as events and rethrown for observability,
-   * but do not stop the pipeline.
+   * cloned). Accepts a Destination (send), a fetch-only Enricher (fetch and
+   * discard, e.g. `.tap(http({ url }))` as a fire-and-forget call), or a
+   * function form. Errors are emitted as events and rethrown for
+   * observability, but do not stop the pipeline.
    *
-   * @param destination - Destination adapter or callable for the side effect
+   * @param target - Destination, Enricher, or callable for the side effect
    * @returns This builder (same subclass, same body type)
    */
-  tap(
-    destination:
-      Destination<S["body"], unknown> | CallableDestination<S["body"], unknown>,
-  ): this {
-    this.pushStep(new TapStep<S["body"]>(destination));
+  tap(target: TapTarget<S["body"]>): this {
+    this.pushStep(new TapStep<S["body"]>(target));
     return this;
   }
 

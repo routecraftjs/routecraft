@@ -3,7 +3,7 @@ import {
   tagAdapter,
   factoryArgs,
   type Source,
-  type Destination,
+  type Enricher,
 } from "@routecraft/routecraft";
 import type {
   McpArgsExtractor,
@@ -12,7 +12,7 @@ import type {
 } from "../../types.ts";
 import type { RegisteredMcpShorthand } from "../../../registry.ts";
 import { McpSourceAdapter } from "./source.ts";
-import { McpDestinationAdapter } from "./destination.ts";
+import { McpEnricherAdapter } from "./enricher.ts";
 import type { McpMessage } from "./types.ts";
 
 /**
@@ -24,7 +24,7 @@ import type { McpMessage } from "./types.ts";
  *   builder (`.description()`, `.title()`, `.input()`, `.output()`) and a
  *   non-empty `.description()` is required. Requires `mcpPlugin()`.
  *
- * - **Destination (for `.to()` / `.tap()`):** Call with client options:
+ * - **Enricher (for `.enrich()` / `.to()` / `.tap()`):** Call with client options:
  *   - `mcp({ url, tool })` - Direct HTTP URL to remote MCP server
  *   - `mcp({ serverId, tool })` - Server ID registered via mcpPlugin({ clients })
  *   - `mcp('server:tool', { args? })` - Shorthand for serverId:tool with optional args extractor
@@ -38,7 +38,7 @@ import type { McpMessage } from "./types.ts";
  *   .input({ body: mySchema })
  *   .from(mcp({ annotations: { readOnlyHint: true } }))
  *
- * // Destination (call remote MCP server)
+ * // Enricher (call remote MCP server)
  * .to(mcp({ url: 'http://localhost:3001/mcp', tool: 'search' }))
  * .to(mcp({ serverId: 'my-server', tool: 'search' }))
  * .to(mcp('my-server:search'))
@@ -48,15 +48,15 @@ import type { McpMessage } from "./types.ts";
 export function mcp(options?: McpServerOptions): Source<McpMessage<undefined>>;
 export function mcp(
   clientOptions: McpClientOptions,
-): Destination<unknown, unknown>;
+): Enricher<unknown, unknown>;
 export function mcp(
   shorthand: RegisteredMcpShorthand,
   options?: { args?: McpArgsExtractor },
-): Destination<unknown, unknown>;
+): Enricher<unknown, unknown>;
 export function mcp(
   arg?: McpServerOptions | McpClientOptions | RegisteredMcpShorthand,
   options?: { args?: McpArgsExtractor },
-): Source<McpMessage<undefined>> | Destination<unknown, unknown> {
+): Source<McpMessage<undefined>> | Enricher<unknown, unknown> {
   // Client (object): url or serverId present
   if (
     typeof arg === "object" &&
@@ -85,7 +85,7 @@ export function mcp(
       }
     }
     return tagAdapter(
-      new McpDestinationAdapter(clientOpts),
+      new McpEnricherAdapter(clientOpts),
       mcp,
       factoryArgs(arg, options),
     );
@@ -106,7 +106,7 @@ export function mcp(
       clientOptions.args = options.args as McpArgsExtractor;
     }
     return tagAdapter(
-      new McpDestinationAdapter(clientOptions),
+      new McpEnricherAdapter(clientOptions),
       mcp,
       factoryArgs(arg, options),
     );
@@ -138,4 +138,4 @@ export type {
   McpClientHttpConfig,
 } from "./types";
 export { BRAND_MCP_ADAPTER } from "./shared";
-export { defaultArgs } from "./destination";
+export { defaultArgs } from "./enricher";

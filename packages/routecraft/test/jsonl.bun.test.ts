@@ -585,11 +585,11 @@ describe("JSONL Adapter", () => {
     });
 
     /**
-     * @case Appends to file by default
-     * @preconditions File already has content, destination mode is default (append)
+     * @case Appends to file with append: true
+     * @preconditions File already has content, append: true is set
      * @expectedResult New content is appended after existing content
      */
-    test("appends to file by default", async () => {
+    test("appends to file with append: true", async () => {
       const filePath = path.join(tmpDir, "append.jsonl");
       await fsp.writeFile(filePath, '{"existing":true}\n', "utf-8");
 
@@ -598,7 +598,7 @@ describe("JSONL Adapter", () => {
           craft()
             .id("jsonl-append")
             .from(simple({ new: true }))
-            .to(jsonl({ path: filePath })),
+            .to(jsonl({ path: filePath, append: true })),
         )
         .build();
 
@@ -612,11 +612,11 @@ describe("JSONL Adapter", () => {
     });
 
     /**
-     * @case Overwrites file with mode write
-     * @preconditions File already has content, mode is write
+     * @case Overwrites the file by default (append is the explicit opt-in)
+     * @preconditions File already has content, no append option
      * @expectedResult File only contains new content
      */
-    test("overwrites file with mode write", async () => {
+    test("overwrites file by default", async () => {
       const filePath = path.join(tmpDir, "overwrite.jsonl");
       await fsp.writeFile(filePath, '{"old":true}\n', "utf-8");
 
@@ -625,7 +625,7 @@ describe("JSONL Adapter", () => {
           craft()
             .id("jsonl-overwrite")
             .from(simple({ new: true }))
-            .to(jsonl({ path: filePath, mode: "write" })),
+            .to(jsonl({ path: filePath })),
         )
         .build();
 
@@ -768,11 +768,11 @@ describe("JSONL Adapter", () => {
     /**
      * @case A dynamic (function) path read adapter rejects clearly when used as
      *   a source, rather than throwing an undefined-property TypeError
-     * @preconditions jsonl({ path: fn, mode: 'read' }) used via .subscribe
+     * @preconditions jsonl({ path: fn }) used via .subscribe
      * @expectedResult subscribe rejects with the "static string path" message
      */
     test("dynamic-path read adapter throws a clear error when used as a source", async () => {
-      const adapter = jsonl({ path: () => "x.jsonl", mode: "read" });
+      const adapter = jsonl({ path: () => "x.jsonl" });
 
       await expect(
         adapter.subscribe({
@@ -845,9 +845,9 @@ describe("JSONL Adapter", () => {
     });
   });
 
-  describe("read mode as destination (mid-route read)", () => {
+  describe("fetch role (mid-route read)", () => {
     /**
-     * @case jsonl({mode:'read'}) used with .enrich() reads + parses the file and
+     * @case .enrich(jsonl({ path })) reads + parses the file and
      *   merges the array onto the body, preserving the incoming fields
      * @preconditions File holds JSONL lines
      * @expectedResult The matching record is found from the merged array
@@ -870,7 +870,6 @@ describe("JSONL Adapter", () => {
             .enrich(
               jsonl<{ id: string; n: number }>({
                 path: filePath,
-                mode: "read",
               }),
               only((rows: { id: string; n: number }[]) => rows, "rows"),
             )
@@ -888,7 +887,7 @@ describe("JSONL Adapter", () => {
     });
 
     /**
-     * @case Read-as-destination resolves a dynamic (function) path from the body
+     * @case The fetch role resolves a dynamic (function) path from the body
      * @preconditions Body carries the file name; path is a function of the body
      * @expectedResult The file selected by the body is read and parsed
      */
@@ -903,10 +902,9 @@ describe("JSONL Adapter", () => {
           craft()
             .id("jsonl-read-dynamic")
             .from(simple<{ file: string }>({ file: filePath }))
-            .to(
+            .enrich(
               jsonl({
                 path: (ex) => (ex.body as { file: string }).file,
-                mode: "read",
               }),
             )
             .to(s),
@@ -922,7 +920,7 @@ describe("JSONL Adapter", () => {
 
   describe("delete mode", () => {
     /**
-     * @case jsonl({mode:'delete'}) removes the file without stringifying the body
+     * @case jsonl({ delete: true }) removes the file without stringifying the body
      * @preconditions File exists
      * @expectedResult The file is gone and the body passes through unchanged
      */
@@ -937,7 +935,7 @@ describe("JSONL Adapter", () => {
           craft()
             .id("jsonl-delete")
             .from(simple({ keep: true }))
-            .to(jsonl({ path: filePath, mode: "delete" }))
+            .to(jsonl({ path: filePath, delete: true }))
             .to(s),
         )
         .build();
@@ -964,7 +962,7 @@ describe("JSONL Adapter", () => {
           craft()
             .id("jsonl-delete-missing")
             .from(simple("x"))
-            .to(jsonl({ path: missing, mode: "delete" }))
+            .to(jsonl({ path: missing, delete: true }))
             .to(s),
         )
         .build();

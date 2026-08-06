@@ -6,11 +6,12 @@ import type { OnParseError } from "../shared/parse.ts";
  */
 export interface JsonTransformerOptions<T = unknown, R = unknown, V = unknown> {
   /**
-   * Dot-notation path to extract from the parsed JSON, e.g. "data.items[0].name".
-   * If omitted, the full parsed JSON is returned.
-   * NOTE: In transformer mode only. In file mode, this parameter is the file path.
+   * Dot-notation pointer to extract from the parsed JSON, e.g.
+   * "data.items[0].name". If omitted, the full parsed JSON is returned.
+   * Named `pointer` (not `path`) so file-role options and transformer
+   * options never collide: `path` always means a file path.
    */
-  path?: string;
+  pointer?: string;
   /** Pluck JSON string from body. If omitted: body is used when it's a string, or body.body when body is an object (e.g. after http()). */
   from?: (body: T) => string;
   /**
@@ -23,29 +24,17 @@ export interface JsonTransformerOptions<T = unknown, R = unknown, V = unknown> {
 }
 
 /**
- * Source/Destination mode options (new behavior).
+ * File-role options (`path` present): the adapter carries the source, send,
+ * and fetch roles for a JSON file; the operation keyword selects the role.
  */
 export interface JsonFileOptions {
   /**
-   * File path string or function that returns the path.
-   * Makes json() a source/destination adapter instead of a transformer.
+   * File path string or function that returns the path. Presence of `path`
+   * makes json() a file adapter instead of a transformer. The function form
+   * receives the exchange (send/fetch roles only; the source role requires
+   * a static string path).
    */
   path: string | ((exchange: Exchange) => string);
-
-  /**
-   * File operation mode.
-   * - 'read': Read + parse the JSON file. Works as a source (`.from`) and,
-   *   because read mode returns the parsed value, mid-route via `.enrich()` /
-   *   `.to()`. As a destination, parse failures throw (the route boundary
-   *   surfaces them as `exchange:failed`); the `onParseError` lifecycle controls
-   *   apply to source mode only.
-   * - 'write': Write/overwrite JSON file (destination mode)
-   * - 'append': Append to JSON file (destination mode)
-   * - 'delete': Delete the JSON file (destination mode). Idempotent: an already-
-   *   absent path is a no-op. The body is unchanged. Supports dynamic paths.
-   * Default: 'read' for source, 'write' for destination
-   */
-  mode?: "read" | "write" | "append" | "delete";
 
   /**
    * Text encoding. Default: 'utf-8'
@@ -53,13 +42,26 @@ export interface JsonFileOptions {
   encoding?: BufferEncoding;
 
   /**
-   * Create parent directories if they don't exist (destination mode only).
+   * Create parent directories if they don't exist (send role only).
    * Default: false
    */
   createDirs?: boolean;
 
   /**
-   * Number of spaces for JSON formatting (destination mode only).
+   * Send role behavior: append to the file instead of overwriting it.
+   * Mutually exclusive with `delete`. Default: false (overwrite)
+   */
+  append?: boolean;
+
+  /**
+   * Send role behavior: delete the JSON file instead of writing it.
+   * Idempotent: an already-absent path is a no-op. The body is unchanged.
+   * Mutually exclusive with `append`. Default: false
+   */
+  delete?: boolean;
+
+  /**
+   * Number of spaces for JSON formatting (send role only).
    * Default: 0 (compact JSON)
    * Alias: Can also use 'indent' for compatibility.
    */
@@ -71,17 +73,17 @@ export interface JsonFileOptions {
   indent?: number;
 
   /**
-   * JSON.parse reviver function (source mode only).
+   * JSON.parse reviver function (source/fetch roles).
    */
   reviver?: (key: string, value: unknown) => unknown;
 
   /**
-   * JSON.stringify replacer function (destination mode only).
+   * JSON.stringify replacer function (send role only).
    */
   replacer?: (key: string, value: unknown) => unknown;
 
   /**
-   * How to handle a `JSON.parse` failure on the file content (source mode
+   * How to handle a `JSON.parse` failure on the file content (source role
    * only).
    *
    * - `'fail'` (default): `exchange:failed` fires; the route's `.error()`

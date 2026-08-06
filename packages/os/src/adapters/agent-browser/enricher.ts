@@ -1,4 +1,4 @@
-import type { Destination, Exchange } from "@routecraft/routecraft";
+import type { Enricher, Exchange } from "@routecraft/routecraft";
 import type {
   AgentBrowserCommand,
   AgentBrowserResult,
@@ -15,13 +15,13 @@ import {
 } from "./shared.ts";
 
 /**
- * AgentBrowserDestinationAdapter implements the Destination interface for browser automation.
+ * AgentBrowserEnricherAdapter implements the Enricher (fetch) role for browser automation.
  * Uses the agent-browser library to execute commands against a browser session.
  */
-export class AgentBrowserDestinationAdapter<
+export class AgentBrowserEnricherAdapter<
   T = unknown,
   C extends AgentBrowserCommand = AgentBrowserCommand,
-> implements Destination<T, AgentBrowserResult> {
+> implements Enricher<T, AgentBrowserResult> {
   readonly adapterId = "routecraft.adapter.agent-browser";
 
   constructor(
@@ -32,7 +32,7 @@ export class AgentBrowserDestinationAdapter<
     > = {} as AgentBrowserOptionsMerged<T, C>,
   ) {}
 
-  async send(exchange: Exchange<T>): Promise<AgentBrowserResult> {
+  async fetch(exchange: Exchange<T>): Promise<AgentBrowserResult> {
     const session =
       resolve(this.options.session, exchange) ?? sanitizeSessionId(exchange.id);
     const headed = this.options.headed ?? false;

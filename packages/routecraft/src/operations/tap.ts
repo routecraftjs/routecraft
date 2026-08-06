@@ -1,4 +1,4 @@
-import type { Step, StepOutcome } from "../types.ts";
+import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
@@ -7,26 +7,46 @@ import {
   getExchangeRoute,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import type { Destination, CallableDestination } from "./to.ts";
+import type { Destination, SendContext } from "./to.ts";
+import type { Enricher, CallableEnricher } from "./enrich.ts";
 import {
   resolveAdapterOverride,
   invokeSendOverride,
 } from "../testing-hooks.ts";
 
 /**
- * Step that runs a destination as a side effect without changing the main exchange.
- * The tap runs asynchronously (route.trackTask); the main flow continues immediately.
- * Tap receives a snapshot of the exchange (body/headers cloned). Errors are emitted as `error` and rethrown for observability.
+ * Anything `.tap()` accepts: a Destination (send), an Enricher (fetch and
+ * discard), or a function form. Results are always discarded; a tap observes.
+ *
+ * @template T - Current body type
  */
-export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
+export type TapTarget<T = unknown> =
+  Destination<T> | Enricher<T, unknown> | CallableEnricher<T, unknown>;
+
+/**
+ * Step that runs a destination (or enricher) as a side effect without changing
+ * the main exchange. The tap runs asynchronously (route.trackTask); the main
+ * flow continues immediately. Tap receives a snapshot of the exchange
+ * (body/headers cloned). `send` is preferred when both slots exist; a
+ * fetch-only adapter is invoked and its result discarded. Receipt headers set
+ * through the {@link SendContext} sink are discarded with the snapshot.
+ * Errors are emitted as `error` and rethrown for observability.
+ */
+export class TapStep<T = unknown> implements Step<Adapter> {
   operation: OperationType = OperationType.TAP;
   label?: string;
-  adapter: Destination<T, unknown>;
+  adapter: Adapter;
+  /** Function form, when constructed from a bare callable. */
+  private readonly callable: CallableEnricher<T, unknown> | undefined;
 
-  constructor(
-    adapter: Destination<T, unknown> | CallableDestination<T, unknown>,
-  ) {
-    this.adapter = typeof adapter === "function" ? { send: adapter } : adapter;
+  constructor(target: TapTarget<T>) {
+    if (typeof target === "function") {
+      this.callable = target;
+      this.adapter = { send: target } as Adapter;
+    } else {
+      this.callable = undefined;
+      this.adapter = target;
+    }
   }
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {
@@ -51,22 +71,39 @@ export class TapStep<T = unknown> implements Step<Destination<T, unknown>> {
       try {
         // Adapter metadata (getMetadata) is intentionally NOT collected
         // here: the tap runs detached, so this exchange's step:completed
-        // event has already been emitted by the time send() resolves and
+        // event has already been emitted by the time the call resolves and
         // any metadata written now would be misattributed to a later
         // exchange's event.
         if (override) {
-          await invokeSendOverride(
-            snapshot,
-            this.adapter as unknown as Destination<unknown, unknown>,
-            override,
-          );
-        } else {
+          await invokeSendOverride(snapshot, this.adapter, override);
+        } else if (this.callable) {
+          await Promise.resolve(this.callable(snapshot, {}));
+        } else if (
+          typeof (this.adapter as Partial<Destination<T>>).send === "function"
+        ) {
           // Empty signal context on purpose: the tap runs detached from
           // the main flow (its outcome never gates the pipeline), so an
           // enclosing timeout abandoning the ATTEMPT must not cancel an
           // observation already in flight. Mirrors captureDownstream's
-          // no-inherited-abort-signal contract.
-          await this.adapter.send(snapshot, {});
+          // no-inherited-abort-signal contract. The header sink swallows
+          // receipts: they would only ever decorate the discarded snapshot.
+          const sink: SendContext = { setHeader: () => undefined };
+          await Promise.resolve(
+            (this.adapter as Destination<T>).send(snapshot, sink),
+          );
+        } else if (
+          typeof (this.adapter as Partial<Enricher<T, unknown>>).fetch ===
+          "function"
+        ) {
+          await Promise.resolve(
+            (this.adapter as Enricher<T, unknown>).fetch(snapshot, {}),
+          );
+        } else {
+          throw rcError("RC5003", undefined, {
+            message: "`.tap()` target implements neither `send` nor `fetch`",
+            suggestion:
+              "Pass a Destination (send), an Enricher (fetch), or a function form",
+          });
         }
       } catch (error: unknown) {
         const err = rcError("RC5001", error, {

@@ -1,7 +1,7 @@
 import {
   getExchangeContext,
   type CraftContext,
-  type Destination,
+  type Enricher,
   type Exchange,
   type MergedOptions,
 } from "@routecraft/routecraft";
@@ -71,8 +71,8 @@ function buildText<T>(
  * (e.g. huggingface:all-MiniLM-L6-v2), resolves the provider from the plugin store,
  * and returns { embedding: number[] }. Use with .enrich(embedding("provider:model", { using: ... })).
  */
-export class EmbeddingDestinationAdapter<T = unknown>
-  implements Destination<T, EmbeddingResult>, MergedOptions<EmbeddingOptions>
+export class EmbeddingEnricherAdapter<T = unknown>
+  implements Enricher<T, EmbeddingResult>, MergedOptions<EmbeddingOptions>
 {
   readonly adapterId = "routecraft.adapter.embedding";
 
@@ -90,7 +90,7 @@ export class EmbeddingDestinationAdapter<T = unknown>
     return { ...store, ...this.options } as EmbeddingOptions;
   }
 
-  async send(exchange: Exchange<T>): Promise<EmbeddingResult> {
+  async fetch(exchange: Exchange<T>): Promise<EmbeddingResult> {
     const context = getExchangeContext(exchange);
     const { config, modelName } = resolveProviderAndModel(
       this.modelId,

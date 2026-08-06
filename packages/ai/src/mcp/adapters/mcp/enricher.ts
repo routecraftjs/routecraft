@@ -1,4 +1,4 @@
-import type { Exchange, Destination } from "@routecraft/routecraft";
+import type { Exchange, Enricher } from "@routecraft/routecraft";
 import { getExchangeContext } from "@routecraft/routecraft";
 import type {
   McpClientOptions,
@@ -87,7 +87,7 @@ export const defaultArgs: McpArgsExtractor = (exchange) =>
     : { input: exchange.body };
 
 /**
- * McpDestinationAdapter implements the Destination interface for the MCP adapter.
+ * McpEnricherAdapter implements the Enricher (fetch) role for the MCP adapter.
  *
  * This adapter is used when mcp() is called with client options:
  * - `mcp({ url, tool })` - Direct HTTP URL
@@ -96,7 +96,7 @@ export const defaultArgs: McpArgsExtractor = (exchange) =>
  *
  * It makes HTTP calls to remote MCP servers using the MCP SDK.
  */
-export class McpDestinationAdapter implements Destination<unknown, unknown> {
+export class McpEnricherAdapter implements Enricher<unknown, unknown> {
   readonly adapterId: string = "routecraft.adapter.mcp";
 
   constructor(private readonly options: McpClientOptions) {
@@ -116,7 +116,7 @@ export class McpDestinationAdapter implements Destination<unknown, unknown> {
     }
   }
 
-  async send(exchange: Exchange<unknown>): Promise<unknown> {
+  async fetch(exchange: Exchange<unknown>): Promise<unknown> {
     const context = getExchangeContext(exchange);
     const toolName =
       this.options.tool ??

@@ -2,7 +2,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   getExchangeContext,
   type CraftContext,
-  type Destination,
+  type Enricher,
   type Exchange,
   type MergedOptions,
 } from "@routecraft/routecraft";
@@ -72,11 +72,11 @@ const DEFAULT_MAX_TOKENS = 1024;
  *
  * @template S - Output schema type when an `output` schema is provided; narrows result.output for downstream typing.
  */
-export class LlmDestinationAdapter<
+export class LlmEnricherAdapter<
   S extends StandardSchemaV1 | undefined = undefined,
 >
   implements
-    Destination<unknown, LlmResultWithOutput<S>>,
+    Enricher<unknown, LlmResultWithOutput<S>>,
     MergedOptions<LlmOptionsMerged>
 {
   readonly adapterId = "routecraft.adapter.llm";
@@ -100,7 +100,7 @@ export class LlmDestinationAdapter<
     } as LlmOptionsMerged;
   }
 
-  async send(exchange: Exchange<unknown>): Promise<LlmResultWithOutput<S>> {
+  async fetch(exchange: Exchange<unknown>): Promise<LlmResultWithOutput<S>> {
     const context = getExchangeContext(exchange);
     const { config, modelName } = resolveModel(this.modelId, context);
     const merged = this.mergedOptions(context!);

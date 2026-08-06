@@ -23,8 +23,8 @@ export class JsonTransformerAdapter<
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`json adapter: failed to parse JSON: ${message}`);
     }
-    const path = this.options.path?.trim();
-    const pathResult = path ? getByPath(parsed, path) : parsed;
+    const pointer = this.options.pointer?.trim();
+    const pathResult = pointer ? getByPath(parsed, pointer) : parsed;
     const result = this.options.getValue
       ? this.options.getValue(pathResult)
       : pathResult;

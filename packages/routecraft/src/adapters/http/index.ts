@@ -1,7 +1,7 @@
-import type { Destination } from "../../operations/to";
+import type { Enricher } from "../../operations/enrich.ts";
 import type { Source } from "../../operations/from";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag";
-import { HttpDestinationAdapter } from "./destination";
+import { HttpEnricherAdapter } from "./enricher";
 import { HttpSourceAdapter } from "./source";
 import type {
   HttpClientOptions,
@@ -39,34 +39,39 @@ function isSourceOptions(
  */
 export function http(options: HttpServerOptions): Source<HttpRequestBody>;
 /**
- * Create an HTTP client destination. Use with `.to()`, `.enrich()`, or `.tap()`.
- * Supports dynamic url, headers, query, and body from the exchange.
+ * Create an HTTP client enricher (a pull-in). Use with `.enrich()`, `.to()`
+ * (the result replaces the body), or `.tap()` (fire-and-forget). Supports
+ * dynamic url, headers, query, and body from the exchange.
+ *
+ * The client shape is selected by key presence (`url`), and the operation
+ * keyword enforces the category: `.from(http({ url }))` fails to compile
+ * because the client has no `subscribe`.
  *
  * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeoutMs, throwOnHttpError
- * @returns A Destination that returns { status, headers, body, url }
+ * @returns An Enricher whose fetch returns { status, headers, body, url }
  *
  * @example
  * ```typescript
  * .to(http({ url: 'https://api.example.com/ingest', method: 'POST', body: (ex) => ex.body }))
- * .enrich(http({ url: (ex) => `https://api.example.com/users/${ex.body.userId}` }))
+ * .enrich(http({ url: (ex) => `https://api.example.com/users/${ex.body.userId}` }), only((r) => r.body, 'user'))
  * ```
  */
 export function http<T = unknown, R = unknown>(
   options: HttpClientOptions<T>,
-): Destination<T, HttpResult<R>>;
+): Enricher<T, HttpResult<R>>;
 export function http(
   options: HttpServerOptions | HttpClientOptions<unknown>,
-): Source<HttpRequestBody> | Destination<unknown, HttpResult<unknown>> {
+): Source<HttpRequestBody> | Enricher<unknown, HttpResult<unknown>> {
   if (isSourceOptions(options)) {
     const adapter = new HttpSourceAdapter(options);
     return tagAdapter(adapter, http, factoryArgs(options));
   }
-  const adapter = new HttpDestinationAdapter<unknown, unknown>(options);
+  const adapter = new HttpEnricherAdapter<unknown, unknown>(options);
   return tagAdapter(adapter, http, factoryArgs(options));
 }
 
 // Re-export adapter classes and types for the public API surface.
-export { HttpDestinationAdapter } from "./destination";
+export { HttpEnricherAdapter } from "./enricher";
 export { HttpSourceAdapter } from "./source";
 export type {
   HttpMethod,

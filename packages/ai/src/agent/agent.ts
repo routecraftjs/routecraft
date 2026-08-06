@@ -1,5 +1,5 @@
 import {
-  type Destination,
+  type Enricher,
   factoryArgs,
   rcError,
   tagAdapter,
@@ -16,10 +16,7 @@ import {
 import { TOOL_NAME_MAX_LENGTH } from "../tool-name.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
 import { parseProviderModel } from "../llm/shared.ts";
-import {
-  AgentDestinationAdapter,
-  type AgentByNameOverrides,
-} from "./destination.ts";
+import { AgentEnricherAdapter, type AgentByNameOverrides } from "./enricher.ts";
 import { isToolSelection } from "./tools/selection.ts";
 import type { AgentOptions, AgentResult } from "./types.ts";
 
@@ -334,16 +331,16 @@ function validateBlocksLevel(
  *   .to(direct("reply"));
  * ```
  */
-export function agent(options: AgentOptions): Destination<unknown, AgentResult>;
-export function agent(name: string): Destination<unknown, AgentResult>;
+export function agent(options: AgentOptions): Enricher<unknown, AgentResult>;
+export function agent(name: string): Enricher<unknown, AgentResult>;
 export function agent(
   name: string,
   perCall: AgentByNameOverrides,
-): Destination<unknown, AgentResult>;
+): Enricher<unknown, AgentResult>;
 export function agent(
   arg: AgentOptions | string,
   perCall?: AgentByNameOverrides,
-): Destination<unknown, AgentResult> {
+): Enricher<unknown, AgentResult> {
   if (typeof arg === "string") {
     if (arg.trim() === "") {
       throw rcError("RC5003", undefined, {
@@ -351,7 +348,7 @@ export function agent(
       });
     }
     return tagAdapter(
-      new AgentDestinationAdapter({
+      new AgentEnricherAdapter({
         kind: "by-name",
         name: arg,
         ...(perCall ? { perCall } : {}),
@@ -365,7 +362,7 @@ export function agent(
   }
   validateAgentOptions(arg);
   return tagAdapter(
-    new AgentDestinationAdapter({ kind: "inline", options: arg }),
+    new AgentEnricherAdapter({ kind: "inline", options: arg }),
     agent,
     factoryArgs(arg),
   );

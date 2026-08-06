@@ -121,7 +121,7 @@ function resolveHttpConfig(
 /**
  * Open a one-shot MCP SDK client over Streamable HTTP, dispatch the
  * tool, then close. Used by `dispatchMcpCall` for the HTTP path and
- * by `McpDestinationAdapter` for inline-URL routes that bypass the
+ * by `McpEnricherAdapter` for inline-URL routes that bypass the
  * registry. Centralised here so transport setup, auth-header
  * building, and content extraction stay in one place.
  *

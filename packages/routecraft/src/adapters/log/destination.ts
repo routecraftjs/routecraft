@@ -4,10 +4,7 @@ import type { LogLevel, LogOptions } from "./types";
 
 const DEFAULT_LEVEL: LogLevel = "info";
 
-export class LogDestinationAdapter<T = unknown> implements Destination<
-  T,
-  void
-> {
+export class LogDestinationAdapter<T = unknown> implements Destination<T> {
   readonly adapterId = "routecraft.adapter.log";
 
   private readonly level: LogLevel;

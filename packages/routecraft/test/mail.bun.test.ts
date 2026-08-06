@@ -8,7 +8,7 @@ import {
   test,
 } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, simple, mail, replace } from "@routecraft/routecraft";
+import { craft, simple, mail } from "@routecraft/routecraft";
 import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
 import {
   buildSearchCriteriaSets,
@@ -21,7 +21,7 @@ import {
   parseAuthResults,
 } from "../src/adapters/mail/analysis.ts";
 import type { MailServerOptions } from "../src/adapters/mail/types.ts";
-import { MailFetchDestinationAdapter } from "../src/adapters/mail/fetch-destination.ts";
+import { MailEnricherAdapter } from "../src/adapters/mail/enricher.ts";
 import { MailSendDestinationAdapter } from "../src/adapters/mail/send-destination.ts";
 
 // Mock functions declared at module scope for mock.module hoisting
@@ -132,24 +132,25 @@ describe("Mail Adapter", () => {
     });
 
     /**
-     * @case mail('INBOX') returns a Fetch Destination
+     * @case mail('INBOX') returns an Enricher
      * @preconditions Single string argument
-     * @expectedResult Returns adapter with send method (Destination)
+     * @expectedResult Returns adapter with fetch method (Enricher), no send/subscribe
      */
-    test("mail(folder) returns a Fetch Destination", () => {
+    test("mail(folder) returns an Enricher", () => {
       const adapter = mail("INBOX");
-      expect(adapter).toHaveProperty("send");
+      expect(adapter).toHaveProperty("fetch");
+      expect(adapter).not.toHaveProperty("send");
       expect(adapter).not.toHaveProperty("subscribe");
     });
 
     /**
-     * @case mail({ folder: 'INBOX' }) returns a Fetch Destination
+     * @case mail({ folder: 'INBOX' }) returns an Enricher
      * @preconditions Object with server keys
-     * @expectedResult Returns adapter with send method (Destination) and adapterId
+     * @expectedResult Returns adapter with fetch method (Enricher) and adapterId
      */
-    test("mail({ folder }) returns a Fetch Destination", () => {
+    test("mail({ folder }) returns an Enricher", () => {
       const adapter = mail({ folder: "INBOX" });
-      expect(adapter).toHaveProperty("send");
+      expect(adapter).toHaveProperty("fetch");
       expect(adapter).toHaveProperty("adapterId", "routecraft.adapter.mail");
     });
 
@@ -211,7 +212,7 @@ describe("Mail Adapter", () => {
      * @case mail({ folder, ...serverKey }) dispatches to the Fetch Destination for every server-only key
      * @preconditions One mail({ folder, [key]: value }) call per key that
      *   exists on MailServerOptions but not MailClientOptions
-     * @expectedResult Each call returns a MailFetchDestinationAdapter
+     * @expectedResult Each call returns a MailEnricherAdapter
      */
     test("folder plus any server-only key dispatches to the Fetch Destination", () => {
       const probes: (MailServerOptions & { folder: string })[] = [
@@ -232,7 +233,7 @@ describe("Mail Adapter", () => {
         { folder: "INBOX", onParseError: "drop" },
       ];
       for (const opts of probes) {
-        expect(mail(opts)).toBeInstanceOf(MailFetchDestinationAdapter);
+        expect(mail(opts)).toBeInstanceOf(MailEnricherAdapter);
       }
     });
 
@@ -471,7 +472,6 @@ describe("Mail Adapter", () => {
                 auth: { user: "u", pass: "p" },
                 verify: "off",
               }),
-              replace(),
             )
             .to(s),
         )
@@ -527,7 +527,9 @@ describe("Mail Adapter", () => {
     /**
      * @case Sends email via SMTP with payload from exchange body
      * @preconditions Nodemailer mock accepts message
-     * @expectedResult sendMail called with correct options, returns MailSendResult
+     * @expectedResult sendMail called with correct options; the body flows
+     *   through unchanged and the receipt lands on the routecraft.mail.*
+     *   headers (messageId, accepted, rejected)
      */
     test("sends email via SMTP", async () => {
       mockSendMail.mockResolvedValue({
@@ -570,6 +572,21 @@ describe("Mail Adapter", () => {
           text: "World",
         }),
       );
+
+      // Send is void: the payload flows through, the receipt rides headers.
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual({
+        to: "recipient@example.com",
+        subject: "Hello",
+        text: "World",
+      });
+      expect(s.received[0].headers["routecraft.mail.messageId"]).toBe(
+        "<sent@example.com>",
+      );
+      expect(s.received[0].headers["routecraft.mail.accepted"]).toEqual([
+        "recipient@example.com",
+      ]);
+      expect(s.received[0].headers["routecraft.mail.rejected"]).toEqual([]);
     });
 
     /**
@@ -1162,7 +1179,7 @@ describe("Mail Adapter", () => {
         logger: console,
       } as any;
 
-      await expect((adapter as any).send(exchange)).rejects.toMatchObject({
+      await expect((adapter as any).fetch(exchange)).rejects.toMatchObject({
         rc: "RC5003",
       });
     });
@@ -1206,7 +1223,7 @@ describe("Mail Adapter", () => {
         logger: console,
       } as any;
 
-      await expect((adapter as any).send(exchange)).rejects.toMatchObject({
+      await expect((adapter as any).fetch(exchange)).rejects.toMatchObject({
         rc: "RC5010",
       });
     });
@@ -1231,7 +1248,7 @@ describe("Mail Adapter", () => {
         logger: console,
       } as any;
 
-      await expect((adapter as any).send(exchange)).rejects.toMatchObject({
+      await expect((adapter as any).fetch(exchange)).rejects.toMatchObject({
         rc: "RC5012",
       });
     });
@@ -2585,10 +2602,10 @@ describe("Mail Adapter", () => {
     });
   });
 
-  describe("replace() aggregator", () => {
+  describe("bare enrich (replace default)", () => {
     /**
-     * @case replace() replaces exchange body with enrichment result
-     * @preconditions Enrich destination returns an array, replace() aggregator used
+     * @case Bare .enrich(mail(...)) replaces the exchange body with the fetch result
+     * @preconditions Enricher returns an array; no aggregator passed
      * @expectedResult Exchange body is the raw enrichment result, not merged
      */
     test("replaces body with enrichment result", async () => {
@@ -2622,7 +2639,6 @@ describe("Mail Adapter", () => {
                 host: "imap.test.com",
                 auth: { user: "u", pass: "p" },
               }),
-              replace(),
             )
             .to(s),
         )
@@ -2632,7 +2648,7 @@ describe("Mail Adapter", () => {
 
       expect(s.received).toHaveLength(1);
       const body = s.received[0].body as any;
-      // With replace(), body is the raw MailMessage array
+      // With no aggregator, body is the raw MailMessage array
       expect(Array.isArray(body)).toBe(true);
       expect(body).toHaveLength(1);
       expect(body[0].uid).toBe(1);
@@ -2690,7 +2706,6 @@ describe("Mail Adapter", () => {
                 auth: { user: "u", pass: "p" },
                 includeHeaders: true,
               }),
-              replace(),
             )
             .to(s),
         )
@@ -2755,7 +2770,6 @@ describe("Mail Adapter", () => {
                 auth: { user: "u", pass: "p" },
                 includeHeaders: ["Reply-To", "X-Spam"],
               }),
-              replace(),
             )
             .to(s),
         )

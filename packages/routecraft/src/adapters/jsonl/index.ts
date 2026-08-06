@@ -1,20 +1,88 @@
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
+import type { Enricher } from "../../operations/enrich.ts";
 import type { Transformer } from "../../operations/transform.ts";
+import { rcError } from "../../error.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type { JsonlFileOptions, JsonlTransformerOptions } from "./types.ts";
 import { JsonlSourceAdapter } from "./source.ts";
 import { JsonlDestinationAdapter } from "./destination.ts";
+import { JsonlEnricherAdapter } from "./enricher.ts";
 import { JsonlTransformerAdapter } from "./transformer.ts";
 
 /**
- * Read-mode JSONL adapter. As a destination its `send` reads + parses the file
- * and returns the array, so it works mid-route via `.enrich()` / `.to()` (like
- * an HTTP GET). With a static path it also remains usable as a `.from()` source.
+ * Combined JSONL file adapter type: all three roles on one honest type. The
+ * operation keyword selects the role (`.from()` subscribes, `.to()` sends,
+ * `.enrich()` fetches).
+ *
+ * @template T - Element type of the parsed array (caller-asserted)
  */
-export type JsonlReadAdapter<T = unknown> = Source<T[]> &
-  Destination<unknown, T[]> & { readonly adapterId: string };
+export type JsonlAdapter<T = unknown> = Source<T[]> &
+  Destination<unknown> &
+  Enricher<unknown, T[]> & { readonly adapterId: string };
 
+/**
+ * Chunked JSONL adapter: identical to {@link JsonlAdapter} except the source
+ * emits one exchange per line (`T`) instead of one `T[]` array. The
+ * send/fetch roles are unchanged (the chunked option concerns the subscribe
+ * role only).
+ *
+ * @template T - Element type of each emitted line (caller-asserted)
+ */
+export type JsonlChunkedAdapter<T = unknown> = Source<T> &
+  Destination<unknown> &
+  Enricher<unknown, T[]> & { readonly adapterId: string };
+
+/**
+ * Creates a JSONL adapter in chunked source mode: one exchange per line with
+ * `JsonlHeaders.LINE` and `JsonlHeaders.PATH` headers. `chunked` must be the
+ * literal `true`; a widened boolean is a compile error, so dynamic chunking
+ * is an explicit branch at the call site.
+ *
+ * @param options - JSONL file options with chunked: true
+ * @returns The combined adapter with a per-line Source
+ */
+export function jsonl<T = unknown>(
+  options: JsonlFileOptions & { chunked: true },
+): JsonlChunkedAdapter<T>;
+/**
+ * Creates a JSONL adapter for a JSON Lines file. One factory, one type; the
+ * POSITION in the route selects the role:
+ *
+ * - **`.from(jsonl({ path }))`** reads + parses the file and emits the
+ *   array (`chunked: true` emits one exchange per line).
+ * - **`.to(jsonl({ path }))`** stringifies the body to JSONL and writes it
+ *   (overwrite; `append: true` appends; `delete: true` removes the file).
+ *   Array bodies write one line per element. The body flows through
+ *   unchanged.
+ * - **`.enrich(jsonl({ path }))`** reads + parses mid-route; the array
+ *   replaces the body (pass an aggregator such as `only()` to merge
+ *   instead).
+ *
+ * @param options - JSONL file path, encoding, append/delete, and parse options
+ * @returns The combined Source + Destination + Enricher adapter
+ *
+ * @example
+ * ```typescript
+ * // Read JSONL as array
+ * .from(jsonl({ path: './events.jsonl' }))
+ *
+ * // Read JSONL per-line
+ * .from(jsonl({ path: './events.jsonl', chunked: true }))
+ *
+ * // Read mid-route (the parsed array replaces the body)
+ * .enrich(jsonl({ path: './events.jsonl' }))
+ *
+ * // Append to JSONL (an event log)
+ * .to(jsonl({ path: './output.jsonl', append: true }))
+ *
+ * // Delete a JSONL file (idempotent)
+ * .to(jsonl({ path: (ex) => ex.body.processedPath, delete: true }))
+ * ```
+ */
+export function jsonl<T = unknown>(
+  options: JsonlFileOptions & { chunked?: false },
+): JsonlAdapter<T>;
 /**
  * Creates a JSONL transformer that parses a JSONL string already in the body.
  *
@@ -24,88 +92,18 @@ export type JsonlReadAdapter<T = unknown> = Source<T[]> &
 export function jsonl<T = unknown, R = unknown>(
   options?: JsonlTransformerOptions<T, R>,
 ): Transformer<T, R> & { readonly adapterId: string };
-/**
- * Creates a JSONL adapter in chunked source mode.
- * Emits one exchange per line with JSONL_LINE and JSONL_PATH headers.
- *
- * @param options - JSONL source options with chunked: true
- * @returns A Source-only adapter
- */
-export function jsonl<T = unknown>(
-  options: JsonlFileOptions & { path: string; chunked: true },
-): Source<T> & { readonly adapterId: string };
-/**
- * Creates a read-mode JSONL adapter (source, and destination that returns the
- * parsed array mid-route).
- *
- * @param options - JSONL options with mode: 'read'
- * @returns A Source + read Destination adapter
- */
-export function jsonl<T = unknown>(
-  options: JsonlFileOptions & { mode: "read" },
-): JsonlReadAdapter<T>;
-/**
- * Creates a JSONL adapter for reading or writing JSON Lines files.
- *
- * As a **source** (.from):
- * - Non-chunked (default): reads and parses all lines, emits a single T[] array
- * - Chunked: emits one exchange per line
- *
- * As a **destination** (.to):
- * - Stringifies exchange body to a single JSONL line
- * - Array bodies write one line per element
- * - Default mode is append
- * - `mode: 'read'` returns the parsed array mid-route; `mode: 'delete'` removes
- *   the file (idempotent) and passes the body through
- *
- * @param options - JSONL file path, encoding, mode, and parse options
- * @returns Combined Source and Destination adapter
- *
- * @example
- * ```typescript
- * // Parse a JSONL string already in the body (transformer mode)
- * .transform(jsonl({ from: (b) => b.body }))
- *
- * // Read JSONL as array
- * .from(jsonl({ path: './events.jsonl' }))
- *
- * // Read JSONL per-line
- * .from(jsonl({ path: './events.jsonl', chunked: true }))
- *
- * // Read mid-route (destination that returns the parsed array)
- * .enrich(jsonl({ path: './events.jsonl', mode: 'read' }), only((rows) => rows, 'rows'))
- *
- * // Write to JSONL (append by default)
- * .to(jsonl({ path: './output.jsonl' }))
- *
- * // Delete a JSONL file (idempotent)
- * .to(jsonl({ path: (ex) => ex.body.processedPath, mode: 'delete' }))
- * ```
- */
-export function jsonl<T = unknown>(
-  options: JsonlFileOptions & { path: string },
-): Source<T[]> & Destination<unknown, void> & { readonly adapterId: string };
-/**
- * Creates a JSONL destination-only adapter.
- *
- * @param options - JSONL destination options (with dynamic path or destination-only fields)
- * @returns A Destination-only adapter
- */
-export function jsonl(
-  options: JsonlFileOptions,
-): Destination<unknown, void> & { readonly adapterId: string };
 export function jsonl<T = unknown, R = unknown>(
   options: JsonlFileOptions | JsonlTransformerOptions<T, R> = {},
 ):
   | (Transformer<T, R> & { readonly adapterId: string })
-  | Source<T>
-  | Source<T[]>
-  | JsonlReadAdapter<T>
-  | Destination<unknown, void>
-  | (Source<T[]> & Destination<unknown, void>) {
+  | JsonlChunkedAdapter<T>
+  | JsonlAdapter<T> {
   const args = factoryArgs(options);
 
-  // Transformer mode: no path means parse a JSONL string already in the body.
+  // Transformer role: no path means parse a JSONL string already in the
+  // body. The `.transform()` keyword enforces the category, so dropping
+  // `path` fails loudly at `.from()` / `.to()` instead of silently changing
+  // the adapter's kind.
   if (
     !("path" in options) ||
     (options as JsonlFileOptions).path === undefined
@@ -123,65 +121,43 @@ export function jsonl<T = unknown, R = unknown>(
     ) as Transformer<T, R> & { readonly adapterId: string };
   }
 
-  // Destination-only: path is a function (not valid for source)
-  if (typeof (options as JsonlFileOptions).path === "function") {
-    const destOptions = options as JsonlFileOptions;
-    const destination = new JsonlDestinationAdapter(destOptions);
-    // A function path cannot be a source. Read mode returns JsonlReadAdapter
-    // (which includes Source); attach a subscribe that throws the same clear
-    // error lazily, mirroring csv/json/html, so `.from()` misuse fails with a
-    // message instead of an undefined-property TypeError.
-    const subscribe: CallableSource<T> = async () => {
-      throw new Error(
-        "jsonl adapter: source mode requires a static string path (dynamic paths are only supported for destinations)",
-      );
-    };
-    const tagged = tagAdapter(
-      {
-        adapterId: "routecraft.adapter.jsonl",
-        subscribe,
-        send: destination.send,
-      },
-      jsonl,
-      args,
-    );
-    if (destOptions.mode === "read") {
-      return tagged as unknown as JsonlReadAdapter<T>;
-    }
-    return tagged as unknown as Destination<unknown, void>;
+  const fileOptions = options as JsonlFileOptions;
+  if (fileOptions.append && fileOptions.delete) {
+    throw rcError("RC5003", undefined, {
+      message:
+        "jsonl adapter: `append` and `delete` are mutually exclusive send behaviors",
+      suggestion: "Pass at most one of `append: true` / `delete: true`",
+    });
   }
 
-  const fileOptions = options as JsonlFileOptions & { path: string };
-  const source = new JsonlSourceAdapter<T>(fileOptions);
-
-  if (fileOptions.chunked) {
-    return tagAdapter(
-      {
-        adapterId: "routecraft.adapter.jsonl",
-        subscribe: source.subscribe,
-      },
-      jsonl,
-      args,
-    ) as Source<T>;
-  }
-
-  // One options bag drives both sides; the destination ignores the
-  // source-only fields (chunked, onParseError).
   const destination = new JsonlDestinationAdapter(fileOptions);
+  const enricher = new JsonlEnricherAdapter<T>(fileOptions);
 
-  const tagged = tagAdapter(
+  // The source role requires a static string path (no exchange exists at
+  // subscribe time). A function path keeps the honest combined type; its
+  // subscribe throws the same clear error lazily so `.from()` misuse fails
+  // with a message instead of an undefined-property TypeError.
+  const subscribe: CallableSource<T | T[]> =
+    typeof fileOptions.path === "string"
+      ? new JsonlSourceAdapter<T>(
+          fileOptions as JsonlFileOptions & { path: string },
+        ).subscribe
+      : async () => {
+          throw new Error(
+            "jsonl adapter: the source role requires a static string path (dynamic paths resolve against an exchange, which does not exist at subscribe time)",
+          );
+        };
+
+  return tagAdapter(
     {
       adapterId: "routecraft.adapter.jsonl",
-      subscribe: source.subscribe,
+      subscribe,
       send: destination.send,
+      fetch: enricher.fetch,
     },
     jsonl,
     args,
-  );
-  if (fileOptions.mode === "read") {
-    return tagged as unknown as JsonlReadAdapter<T>;
-  }
-  return tagged as unknown as Source<T[]> & Destination<unknown, void>;
+  ) as unknown as JsonlChunkedAdapter<T> | JsonlAdapter<T>;
 }
 
 // Re-export types

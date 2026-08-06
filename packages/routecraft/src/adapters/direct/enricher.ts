@@ -1,26 +1,26 @@
 import type { Exchange } from "../../exchange";
-import type { Destination } from "../../operations/to";
+import type { Enricher } from "../../operations/enrich.ts";
 import type { DirectEndpoint, DirectClientOptions } from "./types";
 import { getDirectChannel, sanitizeEndpoint } from "./shared";
 
 /**
- * DirectDestinationAdapter implements the Destination interface for the direct adapter.
+ * DirectEnricherAdapter implements the Enricher (fetch) role for the direct
+ * adapter: an in-process request/response is a pull-in (the caller blocks on
+ * the target route and receives its response body).
  *
  * This adapter is used when direct() is called with one argument:
  * - `direct(endpoint)` where endpoint is a string
  * - `direct((exchange) => endpoint)` where endpoint is a function
  *
- * It sends messages to a specific endpoint (static or dynamic).
- *
  * The two generics model the in-process request/response shape: `TIn` is the
  * body type the caller sends, `TOut` is the body type the target route
  * returns. They default to being equal for backwards compatibility with the
- * symmetric `Destination<T, T>` overload of `direct()`.
+ * symmetric `Enricher<T, T>` overload of `direct()`.
  */
-export class DirectDestinationAdapter<
+export class DirectEnricherAdapter<
   TIn = unknown,
   TOut = TIn,
-> implements Destination<TIn, TOut> {
+> implements Enricher<TIn, TOut> {
   readonly adapterId: string = "routecraft.adapter.direct";
 
   private rawEndpoint: DirectEndpoint<TIn>;
@@ -35,12 +35,12 @@ export class DirectDestinationAdapter<
     this.options = options;
   }
 
-  async send(exchange: Exchange<TIn>): Promise<TOut> {
+  fetch = async (exchange: Exchange<TIn>): Promise<TOut> => {
     // Import dynamically to avoid circular dependency
     const { getExchangeContext } = await import("../../exchange");
     const context = getExchangeContext(exchange);
     if (!context) {
-      throw new Error("Exchange has no context; cannot send via direct");
+      throw new Error("Exchange has no context; cannot call direct endpoint");
     }
 
     // Resolve endpoint dynamically if needed
@@ -61,7 +61,7 @@ export class DirectDestinationAdapter<
     // produce a body whose shape differs from the caller's input. That shape
     // is opaque to this adapter at compile time, so we widen here.
     return result.body as unknown as TOut;
-  }
+  };
 
   /**
    * Extract metadata from Direct adapter execution.

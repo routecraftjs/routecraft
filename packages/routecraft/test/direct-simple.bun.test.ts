@@ -106,7 +106,11 @@ describe("Direct adapter", () => {
             ]),
           )
           .split()
-          .to(direct((ex) => `handler-${ex.body.type}`)),
+          .to(
+            direct<{ type: string; data: string }>(
+              (ex) => `handler-${ex.body.type}`,
+            ),
+          ),
         craft().id("handler-a").from(direct()).to(handlerA),
         craft().id("handler-b").from(direct()).to(handlerB),
       ])
@@ -187,7 +191,11 @@ describe("Direct adapter", () => {
         craft()
           .id("producer")
           .from(simple({ namespace: "com.example", action: "process" }))
-          .to(direct((ex) => `${ex.body.namespace}/${ex.body.action}`)),
+          .to(
+            direct<{ namespace: string; action: string }>(
+              (ex) => `${ex.body.namespace}/${ex.body.action}`,
+            ),
+          ),
         craft().id("com.example/process").from(direct()).to(consumer),
       ])
       .build();
@@ -207,14 +215,14 @@ describe("Direct adapter", () => {
    */
   test("throws error for dynamic endpoint as source", async () => {
     // With the refactored adapter, build() now throws RC1001 (invalid-consumer)
-    // because DirectDestinationAdapter doesn't have a subscribe method.
+    // because DirectEnricherAdapter doesn't have a subscribe method.
     // This is actually better - fail fast at build time rather than runtime.
     const builder = testContext()
       .routes([
         craft()
           .id("invalid-consumer")
           .from(direct(() => "dynamic-endpoint") as unknown as Source<unknown>)
-          .to(mock() as CallableDestination<unknown, void>),
+          .to(mock() as CallableDestination<unknown>),
       ])
       .build();
     await expect(builder).rejects.toThrow("invalid-consumer");
@@ -243,7 +251,11 @@ describe("Direct adapter", () => {
             ]),
           )
           .split()
-          .to(direct((ex) => `${ex.body.type}-handler`)),
+          .to(
+            direct<{ type: string; id: number }>(
+              (ex) => `${ex.body.type}-handler`,
+            ),
+          ),
         craft().id("order-handler").from(direct()).to(orderHandler),
         craft().id("user-handler").from(direct()).to(userHandler),
         craft().id("product-handler").from(direct()).to(productHandler),
@@ -314,11 +326,10 @@ describe("Direct adapter", () => {
   });
 
   /**
-   * @case A direct destination can be typed with distinct input and output bodies
+   * @case A direct client can be typed with distinct input and output bodies
    * @preconditions Caller route uses `.enrich(direct<TIn, TOut>("callee"))`
    *                where the callee returns a body shape different from the caller's
-   * @expectedResult The merged body downstream has both the caller's input fields
-   *                 and the callee's output fields, with runtime values intact
+   * @expectedResult The callee's output replaces the caller's body downstream
    */
   test("enriches with a typed direct destination where input != output", async () => {
     type AgentInput = { name: string; query: string };
@@ -348,8 +359,6 @@ describe("Direct adapter", () => {
     await t.test();
 
     expect(downstreamBody).toEqual({
-      name: "kb",
-      query: "hello",
       answer: "echo:hello",
       tokens: 42,
     });

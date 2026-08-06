@@ -26,7 +26,7 @@ export type DirectoryAdapter = Source<DirectoryEntry[]> & {
  *   .from(directory({ path: "./inbox", chunked: true }))
  *   .filter((ex) => ex.body.ext === ".json")
  *   .enrich(
- *     file({ path: (ex) => ex.body.path, mode: "read" }),
+ *     file({ path: (ex) => ex.body.path }),
  *     only((content: string) => content, "content"),
  *   )
  *   .to(log());
@@ -57,7 +57,7 @@ export function directory(
  *   .transform((entries) => entries.filter((e) => e.ext === ".json"))
  *   .split((ex) => ex.body)
  *   .enrich(
- *     file({ path: (ex) => ex.body.path, mode: "read" }),
+ *     file({ path: (ex) => ex.body.path }),
  *     only((content: string) => content, "content"),
  *   )
  *   .to(log());

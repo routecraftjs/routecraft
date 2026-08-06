@@ -3,7 +3,7 @@ import {
   getExchangeRoute,
   rcError,
   type CraftContext,
-  type Destination,
+  type Enricher,
   type Exchange,
   type Principal,
 } from "@routecraft/routecraft";
@@ -79,15 +79,12 @@ export type AgentBinding =
  * store (`ADAPTER_AGENT_REGISTRY`) at dispatch time, throwing a clear
  * error if the name is unknown.
  */
-export class AgentDestinationAdapter implements Destination<
-  unknown,
-  AgentResult
-> {
+export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
   readonly adapterId = "routecraft.adapter.agent";
 
   constructor(public readonly binding: AgentBinding) {}
 
-  async send(exchange: Exchange<unknown>): Promise<AgentResult> {
+  async fetch(exchange: Exchange<unknown>): Promise<AgentResult> {
     const context = getExchangeContext(exchange);
     const baseOptions = this.resolveOptions(context);
     const merged = mergeWithDefaults(baseOptions, context);

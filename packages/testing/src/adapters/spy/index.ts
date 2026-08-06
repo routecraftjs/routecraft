@@ -1,15 +1,17 @@
-import {
-  HeadersKeys,
-  type Destination,
-  type Processor,
-  type Exchange,
+import type {
+  Destination,
+  Enricher,
+  Processor,
+  Exchange,
 } from "@routecraft/routecraft";
 import { createSpyState } from "./shared.ts";
 
 /**
  * A spy adapter that records all exchanges passing through it.
- * Implements both {@link Destination} and {@link Processor} so it can be used
- * with `.to()`, `.enrich()`, `.tap()`, and `.process()`.
+ * Implements {@link Destination} (send), {@link Enricher} (fetch), and
+ * {@link Processor} so it can be used with `.to()`, `.tap()`, `.enrich()`,
+ * and `.process()`. The fetch face returns the current body, so a bare
+ * `.enrich(spy())` observes without changing the body.
  */
 export type SpyAdapter<T = unknown> = {
   /** Stable identifier for this adapter. */
@@ -29,8 +31,9 @@ export type SpyAdapter<T = unknown> = {
 
   /** Array of just the body values from received exchanges. */
   receivedBodies(): T[];
-  /* eslint-disable @typescript-eslint/no-explicit-any -- both positions use any: Destination so the spy is assignable regardless of body type, Processor so spy<unknown>() is assignable in typed pipelines */
-} & Destination<any, void> &
+  /* eslint-disable @typescript-eslint/no-explicit-any -- input positions use any: Destination/Enricher so the spy is assignable regardless of body type, Processor so spy<unknown>() is assignable in typed pipelines */
+} & Destination<any> &
+  Enricher<any, T> &
   Processor<any, T>;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -64,13 +67,15 @@ export function spy<T = unknown>(): SpyAdapter<T> {
 
     send(exchange: Exchange<T>): void {
       state.received.push(exchange);
+      state.calls.send++;
+    },
 
-      const operation = exchange.headers?.[HeadersKeys.OPERATION];
-      if (operation === "enrich") {
-        state.calls.enrich++;
-      } else {
-        state.calls.send++;
-      }
+    fetch(exchange: Exchange<T>): T {
+      state.received.push(exchange);
+      state.calls.enrich++;
+      // Return the current body: a bare `.enrich(spy())` replaces the body
+      // with itself, so the spy observes without altering the flow.
+      return exchange.body;
     },
 
     process(exchange: Exchange<T>): Exchange<T> {

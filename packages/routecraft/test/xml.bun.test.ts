@@ -275,7 +275,7 @@ describe("XML Adapter", () => {
             .id("xml-enrich")
             .from(simple({ trigger: true }))
             .enrich(
-              xml({ path: filePath, mode: "read" }),
+              xml({ path: filePath }),
               only((doc) => doc, "doc"),
             )
             .to(s),
@@ -308,7 +308,7 @@ describe("XML Adapter", () => {
           craft()
             .id("xml-delete")
             .from(simple({ keep: true }))
-            .to(xml({ path: filePath, mode: "delete" }))
+            .to(xml({ path: filePath, delete: true }))
             .to(s),
         )
         .build();

@@ -310,7 +310,6 @@ describe("Directory Adapter - Source", () => {
           .enrich(
             file({
               path: (ex) => (ex.body as DirectoryEntry).path,
-              mode: "read",
             }),
             only((content: string) => content, "content"),
           )
@@ -347,7 +346,6 @@ describe("Directory Adapter - Source", () => {
           .enrich(
             file({
               path: (ex) => (ex.body as DirectoryEntry).path,
-              mode: "read",
             }),
             only((content: string) => content, "content"),
           )

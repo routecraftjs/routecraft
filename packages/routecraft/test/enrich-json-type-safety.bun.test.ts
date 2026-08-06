@@ -53,12 +53,12 @@ describe("enrich() without aggregator type safety", () => {
    * @preconditions .from(simple({ userId: 1 })).enrich(async () => ({ links: [...] }))
    * @expectedResult RouteBuilder<{ body: { userId: number } & { links: string[] } }>
    */
-  test("enrich(destination) infers Current & R from destination result type", () => {
+  test("bare enrich(enricher) infers the replacement body R", () => {
     const route = craft()
       .from(simple({ userId: 1 }))
       .enrich(async () => ({ links: ["a", "b"] as string[] }));
     expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ body: { userId: number } & { links: string[] } }>
+      RouteBuilder<{ body: { links: string[] } }>
     >();
   });
 });

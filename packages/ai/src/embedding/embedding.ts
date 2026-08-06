@@ -1,6 +1,6 @@
-import type { Destination } from "@routecraft/routecraft";
+import type { Enricher } from "@routecraft/routecraft";
 import { tagAdapter, factoryArgs } from "@routecraft/routecraft";
-import { EmbeddingDestinationAdapter } from "./destination.ts";
+import { EmbeddingEnricherAdapter } from "./enricher.ts";
 import type {
   EmbeddingModelId,
   EmbeddingOptions,
@@ -18,9 +18,9 @@ import type {
 export function embedding<T = unknown>(
   modelId: EmbeddingModelId,
   options: EmbeddingOptions<T>,
-): Destination<T, EmbeddingResult> {
+): Enricher<T, EmbeddingResult> {
   return tagAdapter(
-    new EmbeddingDestinationAdapter<T>(modelId, options),
+    new EmbeddingEnricherAdapter<T>(modelId, options),
     embedding,
     factoryArgs(modelId, options),
   );

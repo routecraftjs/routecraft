@@ -9,76 +9,117 @@ import {
 } from "../types.ts";
 import {
   type Exchange,
+  type ExchangeHeaders,
+  type HeaderValue,
   OperationType,
   getExchangeContext,
   DefaultExchange,
 } from "../exchange.ts";
+import { rcError } from "../error.ts";
+import type { Enricher, CallableEnricher } from "./enrich.ts";
 import {
   resolveAdapterOverride,
   invokeSendOverride,
 } from "../testing-hooks.ts";
 
 /**
- * Function form of a destination: receives the exchange and optionally returns a new body.
- * Use with `.to(destination)` or adapters that implement Destination.
+ * Context handed to a destination's `send`. Extends the abort surface with a
+ * header sink: a send that produces a receipt (a message id, an etag, a
+ * created-resource URL) surfaces it by calling `setHeader`, and the `.to()`
+ * step merges the collected headers onto the continuing exchange. The body is
+ * never touched by a send; receipts ride headers, results ride `fetch`.
  *
- * - Return `undefined` (or void) to leave the exchange body unchanged.
- * - Return a value to replace `exchange.body` with that value (e.g. API response).
+ * `.tap()` also provides the sink, but the tap runs against a detached
+ * snapshot, so headers set there are discarded with it.
  *
- * The second argument carries the step's {@link StepSignalContext}: when an
- * enclosing `.timeout()` expires, `ctx.signal` aborts, so a destination doing
- * cancellation-aware IO can forward it (`fetch(url, { signal })`). Declaring
- * only the first parameter remains valid. `.tap()` deliberately does NOT
- * forward a signal: taps run detached from the main flow, so an abandoned
- * attempt must not cancel an observation already in flight.
- *
- * @template T - Current body type
- * @template R - Result body type (default void = no body change)
+ * The parameter is optional at the call site (adapters invoked directly in
+ * tests may omit it), so implementations should guard: `ctx?.setHeader(...)`.
  */
-export type CallableDestination<T = unknown, R = void> = (
-  exchange: Exchange<T>,
-  ctx?: StepSignalContext,
-) => Promise<R> | R;
-
-/**
- * Destination adapter: sends the exchange to an external system (e.g. HTTP, queue, DB).
- * Used with `.to()`, `.tap()`, or `.enrich()`. If `send` returns a value, the body is replaced.
- *
- * @template T - Current body type
- * @template R - Result body type (void = no body change)
- */
-export interface Destination<T = unknown, R = void> extends Adapter {
-  send: CallableDestination<T, R>;
+export interface SendContext extends StepSignalContext {
+  /** Record a receipt header to merge onto the continuing exchange. */
+  setHeader(key: string, value: HeaderValue): void;
 }
 
 /**
- * The body type that flows downstream from a `.to()` step.
+ * Function form of a destination: receives the exchange and performs a side
+ * effect. Strictly void: a returned value is not a body replacement (use an
+ * {@link Enricher} or `.enrich()` when the step should produce data).
  *
- * Destinations declared with `R = void` (the default) leave the body
- * untouched, so the queued exchange stays `Exchange<T>`. A destination
- * that returns a meaningful `R` replaces the body, so the queued
- * exchange becomes `Exchange<R>`. The `Extract<R, void>` distinction
- * (rather than `[R] extends [void]`) handles unions that include `void`:
- * for `R = string | void`, the result is `T | string` (the `void`
- * branch contributes the original `T`, the `string` branch contributes
- * the new body), instead of letting the `void` leak through into a
- * downstream `Exchange<string | void>`.
+ * The second argument carries the step's {@link SendContext}: `signal` aborts
+ * when an enclosing `.timeout()` expires (forward it into cancellation-aware
+ * IO), and `setHeader` records receipt headers for the continuing exchange.
+ * Declaring only the first parameter remains valid.
  *
- * @internal
+ * @template T - Current body type
  */
-export type ToResultBody<T, R> = [Extract<R, void>] extends [never]
-  ? R
-  : T | Exclude<R, void>;
+export type CallableDestination<T = unknown> = (
+  exchange: Exchange<T>,
+  ctx?: SendContext,
+) => Promise<void> | void;
 
 /**
- * Step that sends the exchange to a destination. If the destination returns a value, the body is replaced with it; otherwise the body is unchanged.
+ * Destination adapter: pushes the exchange OUT to an external system (HTTP
+ * call, queue, file write, SMTP send). Used with `.to()` and `.tap()`.
+ *
+ * `send` is strictly void: the body flows through a `.to()` step unchanged.
+ * A send that produces a receipt surfaces it via `ctx.setHeader` (see
+ * {@link SendContext}); an adapter whose purpose is to PRODUCE data
+ * implements {@link Enricher} instead (or additionally).
+ *
+ * @template T - Current body type
  */
-export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
-  operation: OperationType = OperationType.TO;
-  adapter: Destination<T, R>;
+export interface Destination<T = unknown> extends Adapter {
+  send: CallableDestination<T>;
+}
 
-  constructor(adapter: Destination<T, R> | CallableDestination<T, R>) {
-    this.adapter = typeof adapter === "function" ? { send: adapter } : adapter;
+/**
+ * Anything `.to()` accepts: a Destination (send wins when both slots exist),
+ * an Enricher (fetch-only pull-in; the result replaces the body), or a
+ * function form routed by its inferred return type.
+ *
+ * @template T - Current body type
+ * @template R - Fetch result type for the enricher / function forms
+ */
+export type ToTarget<T = unknown, R = unknown> =
+  | Destination<T>
+  | Enricher<T, R>
+  | CallableDestination<T>
+  | CallableEnricher<T, R>;
+
+/** Structural check for the send slot. @internal */
+function hasSend<T>(adapter: object): adapter is Destination<T> {
+  return typeof (adapter as Destination<T>).send === "function";
+}
+
+/** Structural check for the fetch slot. @internal */
+function hasFetch<T, R>(adapter: object): adapter is Enricher<T, R> {
+  return typeof (adapter as Enricher<T, R>).fetch === "function";
+}
+
+/**
+ * Step that hands the exchange to a destination or enricher.
+ *
+ * Resolution follows the role model: an adapter with `send` is invoked as a
+ * push-out and the body continues unchanged (receipt headers from the
+ * {@link SendContext} sink are merged on); an adapter with only `fetch` is
+ * invoked as a pull-in and the result replaces the body. Function forms are
+ * invoked directly: a returned value (other than `undefined`) replaces the
+ * body, mirroring the static send/fetch split on the inferred return type.
+ */
+export class ToStep<T = unknown, R = unknown> implements Step<Adapter> {
+  operation: OperationType = OperationType.TO;
+  adapter: Adapter;
+  /** Function form, when constructed from a bare callable. */
+  private readonly callable: CallableEnricher<T, R | void> | undefined;
+
+  constructor(target: ToTarget<T, R>) {
+    if (typeof target === "function") {
+      this.callable = target as CallableEnricher<T, R | void>;
+      this.adapter = { send: target } as Adapter;
+    } else {
+      this.callable = undefined;
+      this.adapter = target;
+    }
   }
 
   async execute(
@@ -86,42 +127,80 @@ export class ToStep<T = unknown, R = void> implements Step<Destination<T, R>> {
     ctx?: StepContext,
   ): Promise<StepOutcome> {
     // Resolve a test-time override (if any) registered on the context.
-    // When present, the mock handler stands in for adapter.send; if the mock
+    // When present, the mock handler stands in for the adapter; if the mock
     // has no handler, the call is silently swallowed (a noop destination).
     const override = resolveAdapterOverride(
       this.adapter,
       getExchangeContext(exchange),
     );
 
+    const receiptHeaders: Record<string, HeaderValue> = {};
+    const sendContext: SendContext = {
+      ...toSignalContext(ctx),
+      setHeader: (key, value) => {
+        receiptHeaders[key] = value;
+      },
+    };
+
     let result: unknown;
+    let sendResolved = false;
     if (override) {
-      result = await invokeSendOverride(
-        exchange,
-        this.adapter as unknown as Destination<unknown, unknown>,
-        override,
+      result = await invokeSendOverride(exchange, this.adapter, override);
+      // A mocked send stays a send: the body continues unchanged even if
+      // the mock returned a value. Only fetch-resolved calls replace it.
+      if (!this.callable && hasSend<T>(this.adapter)) {
+        result = undefined;
+      }
+    } else if (this.callable) {
+      result = await Promise.resolve(this.callable(exchange, sendContext));
+    } else if (hasSend<T>(this.adapter)) {
+      sendResolved = true;
+      await Promise.resolve(this.adapter.send(exchange, sendContext));
+      result = undefined;
+    } else if (hasFetch<T, R>(this.adapter)) {
+      result = await Promise.resolve(
+        this.adapter.fetch(exchange, toSignalContext(ctx)),
       );
     } else {
-      result = await Promise.resolve(
-        this.adapter.send(exchange, toSignalContext(ctx)),
-      );
+      throw rcError("RC5003", undefined, {
+        message: "`.to()` target implements neither `send` nor `fetch`",
+        suggestion:
+          "Pass a Destination (send), an Enricher (fetch), or a function form",
+      });
     }
 
     // The metadata rides the OUTCOME, not the step: Step instances are
-    // shared across exchanges.
-    const metadata = extractOutcomeMetadata(this.adapter, result, !!override);
+    // shared across exchanges. Send is void, so a send-resolved call hands
+    // its receipt-header record to the adapter's getMetadata hook instead
+    // of a result.
+    const metadata = extractOutcomeMetadata(
+      this.adapter,
+      sendResolved ? receiptHeaders : result,
+      !!override,
+    );
 
-    // If result is defined, replace body with result via a derived
-    // exchange (the original is frozen; constructing a new wrapper preserves
-    // identity and internals via rewrap). The next exchange is typed
-    // `Exchange<ToResultBody<T, R>>` so a non-void destination return
-    // type flows through to subsequent steps instead of being silently
-    // widened to `T`.
-    const next: Exchange<ToResultBody<T, R>> =
-      result !== undefined
-        ? DefaultExchange.rewrap<ToResultBody<T, R>>(exchange, {
-            body: result as ToResultBody<T, R>,
-          })
-        : (exchange as Exchange<ToResultBody<T, R>>);
+    const collectedHeaders = Object.keys(receiptHeaders).length
+      ? receiptHeaders
+      : undefined;
+
+    // A fetch result (or a value returned from a function form) replaces the
+    // body via a derived exchange; receipt headers from a send are merged the
+    // same way. The original is frozen, so a new wrapper preserves identity
+    // and internals via rewrap.
+    let next: Exchange<unknown> = exchange;
+    if (result !== undefined || collectedHeaders) {
+      next = DefaultExchange.rewrap<unknown>(exchange, {
+        ...(result !== undefined ? { body: result } : {}),
+        ...(collectedHeaders
+          ? {
+              headers: {
+                ...exchange.headers,
+                ...collectedHeaders,
+              } as ExchangeHeaders,
+            }
+          : {}),
+      });
+    }
 
     return {
       kind: "continue",

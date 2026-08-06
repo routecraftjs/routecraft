@@ -2,33 +2,18 @@ import type { Exchange } from "../../exchange.ts";
 import type { OnParseError } from "../shared/parse.ts";
 
 /**
- * Single options type for the jsonl file family (source AND destination),
- * discriminated by `mode` (plus `chunked` for the per-line source). This is
- * the file-family pattern shared with `JsonFileOptions` / `CsvFileOptions`:
- * one options shape per adapter, mode picks the behaviour.
+ * Single options type for the jsonl file family: one options shape per
+ * adapter, shared by all three roles (the file-family pattern shared with
+ * `JsonFileOptions` / `CsvFileOptions`). The operation keyword selects the
+ * role; options only tune behavior within a role.
  */
 export interface JsonlFileOptions {
   /**
    * File path string or function that returns the path. Function paths
-   * receive the exchange (dynamic paths) and are destination-only; source
-   * mode requires a static string path.
+   * receive the exchange (send/fetch roles only; the source role requires a
+   * static string path).
    */
   path: string | ((exchange: Exchange) => string);
-
-  /**
-   * File operation mode.
-   * - 'read': Read + parse the JSONL file and return the array. Works as a
-   *   source (`.from`) and, because read mode returns the parsed array,
-   *   mid-route via `.enrich()` / `.to()` (like an HTTP GET). As a
-   *   destination, parse failures throw (the route boundary surfaces them
-   *   as `exchange:failed`); the `onParseError` lifecycle controls apply to
-   *   source mode only.
-   * - 'write': Overwrite the file (destination mode)
-   * - 'append': Append to the file (destination mode, default)
-   * - 'delete': Delete the file (destination mode). Idempotent: an already-
-   *   absent path is a no-op. The body is unchanged. Supports dynamic paths.
-   */
-  mode?: "read" | "write" | "append" | "delete";
 
   /**
    * Text encoding. Default: 'utf-8'
@@ -36,26 +21,41 @@ export interface JsonlFileOptions {
   encoding?: BufferEncoding;
 
   /**
-   * When true, emit one exchange per line instead of a parsed array.
-   * Only applies in source mode. Each exchange includes `JsonlHeaders.LINE`
-   * and `JsonlHeaders.PATH` headers.
+   * When true, the source emits one exchange per line instead of a parsed
+   * array. Source role only; the send/fetch roles are identical under
+   * chunked. Each chunked exchange includes `JsonlHeaders.LINE` and
+   * `JsonlHeaders.PATH` headers.
    * Default: false
    */
   chunked?: boolean;
 
   /**
-   * Create parent directories if they don't exist (destination mode only).
+   * Send role behavior: append lines to the file instead of overwriting it.
+   * Mutually exclusive with `delete`. Default: false (overwrite; note this
+   * changed from the pre-role-model default, which appended)
+   */
+  append?: boolean;
+
+  /**
+   * Send role behavior: delete the file instead of writing it. Idempotent:
+   * an already-absent path is a no-op. The body is unchanged. Mutually
+   * exclusive with `append`. Default: false
+   */
+  delete?: boolean;
+
+  /**
+   * Create parent directories if they don't exist (send role only).
    * Default: false
    */
   createDirs?: boolean;
 
   /**
-   * Optional reviver function passed to JSON.parse (read/source mode).
+   * Optional reviver function passed to JSON.parse (source/fetch roles).
    */
   reviver?: (key: string, value: unknown) => unknown;
 
   /**
-   * Optional replacer passed to JSON.stringify (write modes).
+   * Optional replacer passed to JSON.stringify (send role).
    * Can be a function or an array of allowed keys.
    */
   replacer?:

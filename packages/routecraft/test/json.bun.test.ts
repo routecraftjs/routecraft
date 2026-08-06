@@ -106,7 +106,7 @@ describe("JSON Adapter", () => {
           craft()
             .id("json-path-nested")
             .from(simple(JSON.stringify(payload)))
-            .transform(json({ path: "data.user.name" }))
+            .transform(json({ pointer: "data.user.name" }))
             .to(s),
         )
         .build();
@@ -130,7 +130,7 @@ describe("JSON Adapter", () => {
           craft()
             .id("json-path-array")
             .from(simple(JSON.stringify(payload)))
-            .transform(json({ path: "items[0].id" }))
+            .transform(json({ pointer: "items[0].id" }))
             .to(s),
         )
         .build();
@@ -153,7 +153,7 @@ describe("JSON Adapter", () => {
           craft()
             .id("json-path-missing")
             .from(simple(JSON.stringify({ a: 1 })))
-            .transform(json({ path: "b.c" }))
+            .transform(json({ pointer: "b.c" }))
             .to(s),
         )
         .build();
@@ -208,7 +208,7 @@ describe("JSON Adapter", () => {
             .from(simple(JSON.stringify(payload)))
             .transform(
               json({
-                path: "data",
+                pointer: "data",
                 getValue: (p) =>
                   typeof p === "object" && p !== null && "name" in p
                     ? { extracted: (p as { name: string }).name }
@@ -435,7 +435,7 @@ describe("JSON Adapter", () => {
           craft()
             .id("json-dest-write")
             .from(simple(data))
-            .to(json({ path: testFilePath, mode: "write" })),
+            .to(json({ path: testFilePath })),
         )
         .build();
 
@@ -547,11 +547,11 @@ describe("JSON Adapter", () => {
 
   describe("mode detection", () => {
     /**
-     * @case Transformer mode when only path is dot-notation
-     * @preconditions path is string without file indicators, no file options
+     * @case Transformer mode with a dot-notation `pointer` (no `path`)
+     * @preconditions pointer is a dot-notation string; no path option
      * @expectedResult Uses transformer mode (dot-notation extraction)
      */
-    test("uses transformer mode for dot-notation path without file options", async () => {
+    test("uses transformer mode for a dot-notation pointer", async () => {
       const s = spy();
       const payload = { data: { items: [{ id: 1 }] } };
 
@@ -560,7 +560,7 @@ describe("JSON Adapter", () => {
           craft()
             .id("json-mode-transformer")
             .from(simple(JSON.stringify(payload)))
-            .transform(json({ path: "data.items" }))
+            .transform(json({ pointer: "data.items" }))
             .to(s),
         )
         .build();
@@ -586,12 +586,12 @@ describe("JSON Adapter", () => {
     });
 
     /**
-     * @case File mode when mode option present
-     * @preconditions mode: 'write' with path
-     * @expectedResult Uses file mode
+     * @case File mode whenever `path` is present, even a bare filename
+     * @preconditions path: "data.json" with no separators and no file options
+     * @expectedResult Uses file mode (key presence decides; no string sniffing)
      */
-    test("uses file mode when mode option present", () => {
-      const adapter = json({ path: "./data.json", mode: "write" });
+    test("uses file mode for a bare filename path", () => {
+      const adapter = json({ path: "data.json" });
       expect(adapter).toHaveProperty(
         "adapterId",
         "routecraft.adapter.json.file",
@@ -599,7 +599,7 @@ describe("JSON Adapter", () => {
     });
   });
 
-  describe("read mode as destination (mid-route read)", () => {
+  describe("fetch role (mid-route read)", () => {
     let tempDir: string;
     let testFilePath: string;
 
@@ -633,7 +633,7 @@ describe("JSON Adapter", () => {
             .id("json-read-enrich")
             .from(simple<{ id: string }>({ id: "b" }))
             .enrich(
-              json<typeof rows>({ path: testFilePath, mode: "read" }),
+              json<typeof rows>({ path: testFilePath }),
               only((parsed: typeof rows) => parsed, "rows"),
             )
             .transform(
@@ -650,12 +650,12 @@ describe("JSON Adapter", () => {
     });
 
     /**
-     * @case json({mode:'read'}) used with .to() replaces the body with the
-     *   parsed file content
-     * @preconditions File holds a JSON object; route reads it via .to()
+     * @case Bare .enrich(json({ path })) replaces the body with the parsed
+     *   file content (aggregator omitted = replace)
+     * @preconditions File holds a JSON object; route enriches with no aggregator
      * @expectedResult The body becomes the parsed object
      */
-    test("to() replaces the body with the parsed content", async () => {
+    test("bare enrich replaces the body with the parsed content", async () => {
       const data = { ok: true, items: [1, 2, 3] };
       await fs.writeFile(testFilePath, JSON.stringify(data));
 
@@ -666,7 +666,7 @@ describe("JSON Adapter", () => {
           craft()
             .id("json-read-to")
             .from(simple("ignored"))
-            .to(json({ path: testFilePath, mode: "read" }))
+            .enrich(json({ path: testFilePath }))
             .to(s),
         )
         .build();
@@ -678,8 +678,8 @@ describe("JSON Adapter", () => {
     });
 
     /**
-     * @case Read-as-destination resolves a dynamic (function) path from the
-     *   exchange, which source mode does not allow
+     * @case The fetch role resolves a dynamic (function) path from the
+     *   exchange, which the source role does not allow
      * @preconditions Body carries the file name; path is a function of the body
      * @expectedResult The file selected by the body is read and parsed
      */
@@ -694,10 +694,9 @@ describe("JSON Adapter", () => {
           craft()
             .id("json-read-dynamic")
             .from(simple<{ file: string }>({ file: testFilePath }))
-            .to(
+            .enrich(
               json({
                 path: (ex) => (ex.body as { file: string }).file,
-                mode: "read",
               }),
             )
             .to(s),
@@ -711,8 +710,8 @@ describe("JSON Adapter", () => {
     });
 
     /**
-     * @case A malformed JSON file read as a destination throws, surfacing as a
-     *   pipeline failure rather than a silent value
+     * @case A malformed JSON file read through the fetch role throws,
+     *   surfacing as a pipeline failure rather than a silent value
      * @preconditions File contains invalid JSON; route has no .error() handler
      * @expectedResult context:error fires and nothing reaches the downstream spy
      */
@@ -726,7 +725,7 @@ describe("JSON Adapter", () => {
           craft()
             .id("json-read-bad")
             .from(simple("ignored"))
-            .to(json({ path: testFilePath, mode: "read" }))
+            .enrich(json({ path: testFilePath }))
             .to(s),
         )
         .build();
@@ -755,7 +754,7 @@ describe("JSON Adapter", () => {
     });
 
     /**
-     * @case json({mode:'delete'}) removes the file without stringifying the body
+     * @case json({ delete: true }) removes the file without stringifying the body
      * @preconditions File exists
      * @expectedResult The file is gone and the body passes through unchanged
      */
@@ -769,7 +768,7 @@ describe("JSON Adapter", () => {
           craft()
             .id("json-delete")
             .from(simple({ keep: true }))
-            .to(json({ path: testFilePath, mode: "delete" }))
+            .to(json({ path: testFilePath, delete: true }))
             .to(s),
         )
         .build();
@@ -797,7 +796,7 @@ describe("JSON Adapter", () => {
           craft()
             .id("json-delete-missing")
             .from(simple("x"))
-            .to(json({ path: missing, mode: "delete" }))
+            .to(json({ path: missing, delete: true }))
             .to(s),
         )
         .build();

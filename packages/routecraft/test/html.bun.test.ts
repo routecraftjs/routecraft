@@ -460,7 +460,7 @@ describe("HTML Adapter", () => {
           craft()
             .id("html-dest-write")
             .from(simple(htmlContent))
-            .to(html({ path: testFile, mode: "write" })),
+            .to(html({ path: testFile })),
         )
         .build();
 
@@ -492,7 +492,7 @@ describe("HTML Adapter", () => {
           craft()
             .id("html-dest-body-body")
             .from(simple(httpLike))
-            .to(html({ path: testFile, mode: "write" })),
+            .to(html({ path: testFile })),
         )
         .build();
 
@@ -519,7 +519,7 @@ describe("HTML Adapter", () => {
           craft()
             .id("html-dest-createDirs")
             .from(simple(htmlContent))
-            .to(html({ path: testFile, mode: "write", createDirs: true })),
+            .to(html({ path: testFile, createDirs: true })),
         )
         .build();
 
@@ -703,7 +703,7 @@ describe("HTML Adapter", () => {
     });
 
     /**
-     * @case html({mode:'read'}) used with .enrich() reads the file, extracts via
+     * @case .enrich(html({ path, selector })) reads the file, extracts via
      *   the selector, and merges the result onto the body
      * @preconditions File holds HTML with a matching element
      * @expectedResult The extracted text is placed on the chosen field
@@ -724,7 +724,7 @@ describe("HTML Adapter", () => {
             .id("html-read-enrich")
             .from(simple<{ keep: boolean }>({ keep: true }))
             .enrich(
-              html({ path: testFile, selector: "h1", mode: "read" }),
+              html({ path: testFile, selector: "h1" }),
               only((title: HtmlResult) => title, "title"),
             )
             .to(s),
@@ -738,7 +738,7 @@ describe("HTML Adapter", () => {
     });
 
     /**
-     * @case Read-as-destination resolves a dynamic (function) path from the body
+     * @case The fetch role resolves a dynamic (function) path from the body
      * @preconditions Body carries the file name; path is a function of the body
      * @expectedResult The file selected by the body is read and extracted
      */
@@ -754,11 +754,10 @@ describe("HTML Adapter", () => {
           craft()
             .id("html-read-dynamic")
             .from(simple<{ file: string }>({ file: testFile }))
-            .to(
+            .enrich(
               html({
                 path: (ex) => (ex.body as { file: string }).file,
                 selector: "p",
-                mode: "read",
               }),
             )
             .to(s),
@@ -787,7 +786,7 @@ describe("HTML Adapter", () => {
     });
 
     /**
-     * @case html({mode:'delete'}) removes the file and passes the body through
+     * @case html({ delete: true }) removes the file and passes the body through
      * @preconditions File exists
      * @expectedResult The file is gone and the body is unchanged
      */
@@ -803,7 +802,7 @@ describe("HTML Adapter", () => {
           craft()
             .id("html-delete")
             .from(simple({ keep: true }))
-            .to(html({ path: testFile, mode: "delete" }))
+            .to(html({ path: testFile, delete: true }))
             .to(s),
         )
         .build();
@@ -835,7 +834,7 @@ describe("HTML Adapter", () => {
             .to(
               html({
                 path: (ex) => (ex.body as { file: string }).file,
-                mode: "delete",
+                delete: true,
               }),
             )
             .to(s),
@@ -883,7 +882,7 @@ describe("HTML Adapter", () => {
               }),
             )
             .transform((b) => b.html)
-            .to(html({ path: () => target, mode: "write" })),
+            .to(html({ path: () => target })),
         )
         .build();
 

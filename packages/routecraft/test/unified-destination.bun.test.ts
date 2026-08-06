@@ -6,7 +6,7 @@ import {
   http,
   log,
   only,
-  type Destination,
+  type Enricher,
   type Exchange,
   type HttpResult,
 } from "@routecraft/routecraft";
@@ -117,11 +117,11 @@ describe("Unified Destination Adapter", () => {
   });
 
   /**
-   * @case Verify .enrich() with default aggregator merges result
-   * @preconditions http returns result, no custom aggregator
-   * @expectedResult Result merged into body
+   * @case Verify bare .enrich() replaces the body with the fetched value
+   * @preconditions http fetch returns a result, no aggregator
+   * @expectedResult The HttpResult replaces the body
    */
-  test(".enrich() with result-returning adapter merges by default", async () => {
+  test(".enrich() with no aggregator replaces the body", async () => {
     const s = spy();
 
     fetchMock.mockResolvedValue({
@@ -146,12 +146,12 @@ describe("Unified Destination Adapter", () => {
 
     expect(s.received).toHaveLength(1);
     const finalBody = s.received[0].body;
-    // HttpResult is merged into body
+    // The HttpResult replaces the body (aggregator omitted = replace)
     expect(finalBody).toMatchObject({
-      userId: 1,
       body: { profile: "data", avatar: "url" },
       status: 200,
     });
+    expect(finalBody).not.toHaveProperty("userId");
   });
 
   /**
@@ -455,8 +455,8 @@ describe("Unified Destination Adapter", () => {
 
   /**
    * @case Verify mix of .to() and .enrich() calls
-   * @preconditions Mix of .to() and .enrich() operations
-   * @expectedResult .to() replaces body, .enrich() merges
+   * @preconditions Mix of .to() and bare .enrich() operations on a fetch-only adapter
+   * @expectedResult Both replace the body; the last fetch wins
    */
   test("mixing .to() and .enrich() works correctly", async () => {
     const s = spy();
@@ -489,9 +489,9 @@ describe("Unified Destination Adapter", () => {
         craft()
           .id("test-mixed-operations")
           .from(simple({ userId: 1 }))
-          .enrich(http({ url: "https://api.example.com/user" })) // Merges
-          .to(http({ url: "https://api.example.com/webhook" })) // Replaces body
-          .enrich(http({ url: "https://api.example.com/role" })) // Merges
+          .enrich(http({ url: "https://api.example.com/user" })) // Replaces body
+          .to(http({ url: "https://api.example.com/webhook" })) // Replaces body (fetch-only in .to)
+          .enrich(http({ url: "https://api.example.com/role" })) // Replaces body
           .to(s),
       )
       .build();
@@ -500,7 +500,7 @@ describe("Unified Destination Adapter", () => {
 
     expect(s.received).toHaveLength(1);
     const finalBody = s.received[0].body;
-    // Body flow: start with userId -> enrich merges user data -> .to() replaces with webhook result -> enrich merges role
+    // Body flow: userId -> user HttpResult -> webhook HttpResult -> role HttpResult
     expect(finalBody).toMatchObject({
       body: { role: "Admin" },
       status: 200,
@@ -514,8 +514,8 @@ describe("Unified Destination Adapter", () => {
    */
   test(".enrich() with undefined result returns original", async () => {
     const s = spy();
-    const undefinedAdapter: Destination<any, void> = {
-      async send() {
+    const undefinedAdapter: Enricher<any, undefined> = {
+      async fetch() {
         return undefined;
       },
     };
@@ -538,14 +538,14 @@ describe("Unified Destination Adapter", () => {
   });
 
   /**
-   * @case Verify .enrich() handles null result gracefully
-   * @preconditions Adapter returns null
-   * @expectedResult Body unchanged
+   * @case Verify bare .enrich() treats null as an explicit replacement value
+   * @preconditions Enricher fetch returns null, no aggregator
+   * @expectedResult Body becomes null (undefined means "no value", null is a value)
    */
-  test(".enrich() with null result returns original", async () => {
+  test(".enrich() with null result replaces the body with null", async () => {
     const s = spy();
-    const nullAdapter: Destination<any, null> = {
-      async send() {
+    const nullAdapter: Enricher<any, null> = {
+      async fetch() {
         return null;
       },
     };
@@ -563,8 +563,8 @@ describe("Unified Destination Adapter", () => {
     await t.test();
 
     expect(s.received).toHaveLength(1);
-    // Body should be unchanged when enrich returns null
-    expect(s.received[0].body).toEqual({ original: "data" });
+    // Null is an explicit value: it replaces the body
+    expect(s.received[0].body).toBeNull();
   });
 
   /**
@@ -594,9 +594,9 @@ describe("Unified Destination Adapter", () => {
   });
 
   /**
-   * @case Verify callable destination works with .enrich()
+   * @case Verify callable enricher works with .enrich()
    * @preconditions Using function instead of adapter object
-   * @expectedResult Function called, result merged
+   * @expectedResult Function called, result replaces the body
    */
   test(".enrich() with callable destination function", async () => {
     const callableEnricher = mock(async () => ({ enriched: "data" }));
@@ -616,6 +616,6 @@ describe("Unified Destination Adapter", () => {
 
     expect(callableEnricher).toHaveBeenCalledTimes(1);
     expect(s.received).toHaveLength(1);
-    expect(s.received[0].body).toEqual({ original: "value", enriched: "data" });
+    expect(s.received[0].body).toEqual({ enriched: "data" });
   });
 });
