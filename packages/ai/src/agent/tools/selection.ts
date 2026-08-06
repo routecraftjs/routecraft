@@ -666,7 +666,8 @@ function parseMcpRef(ref: string): { clientName: string; toolName: string } {
  * a throw would let a remote rename take down every dispatch of every
  * agent bound to that server. Uniform dropping also keeps the two paths
  * behaving the same, which is easier to reason about than a rule that
- * depends on how the tool happened to be referenced.
+ * depends on how the tool happened to be referenced. The warning is
+ * emitted once per registry version rather than once per dispatch.
  *
  * @internal
  */
@@ -695,7 +696,7 @@ function resolveMcpRefs(
   }
   if (toolName === "*") {
     return clientTools
-      .map((entry) => mcpEntryToResolvedTool(ctx, entry, guard))
+      .map((entry) => mcpEntryToResolvedTool(ctx, registry, entry, guard))
       .filter((tool): tool is ResolvedTool => tool !== undefined);
   }
   const entry = clientTools.find((t) => t.name === toolName);
@@ -707,7 +708,7 @@ function resolveMcpRefs(
         `Known tools on "${clientName}": ${knownTools.map((n) => `"${n}"`).join(", ")}.`,
     });
   }
-  const resolved = mcpEntryToResolvedTool(ctx, entry, guard);
+  const resolved = mcpEntryToResolvedTool(ctx, registry, entry, guard);
   return resolved === undefined ? [] : [resolved];
 }
 
@@ -740,9 +741,25 @@ function resolveMcpRefs(
  */
 function mcpEntryToResolvedTool(
   ctx: CraftContext,
+  registry: McpToolRegistry,
   entry: McpToolRegistryEntry,
   guard: ToolGuard | undefined,
 ): ResolvedTool | undefined {
+  // Both name problems below are properties of the registered tool, not
+  // of the dispatch being served, and `resolve()` runs per dispatch.
+  // Reporting them through the registry's once-per-version gate keeps a
+  // permanently broken remote tool from logging on every call of every
+  // agent bound to that server, while still re-reporting it if it is
+  // still broken after the registry refreshes. Same shape as the MCP
+  // server's `warnProxyOnce` for the same registry entries.
+  const dropOnce = (
+    key: string,
+    obj: Record<string, unknown>,
+    message: string,
+  ): undefined => {
+    if (registry.shouldReport(key)) ctx.logger.warn(obj, message);
+    return undefined;
+  };
   // A client name containing `__` makes the wire name unparseable.
   // `parseMcpRef` splits at the FIRST separator after the prefix, so a
   // server called `a__b` exposing `c` generates `mcp__a__b__c`, which
@@ -756,11 +773,13 @@ function mcpEntryToResolvedTool(
   // split is always correct and a remote may use `__` in its tool
   // names freely.
   if (entry.source.includes(TOOL_NAME_SEPARATOR)) {
-    ctx.logger.warn(
-      { server: entry.source, tool: entry.name },
+    // Keyed by server alone: every tool on it is dropped for the same
+    // reason, so one line names the fix rather than one line per tool.
+    return dropOnce(
+      `mcp-server-separator:${entry.source}`,
+      { server: entry.source },
       `MCP client name contains "${TOOL_NAME_SEPARATOR}", which makes the generated tool name ambiguous to parse; dropping its tools from the agent's tool list. Rename the client in mcpPlugin({ clients }) so it has no "${TOOL_NAME_SEPARATOR}".`,
     );
-    return undefined;
   }
   const name = `${MCP_TOOL_PREFIX}${entry.source}${TOOL_NAME_SEPARATOR}${entry.name}`;
   // The remote names its own tools, so this is the one composed name
@@ -773,11 +792,11 @@ function mcpEntryToResolvedTool(
   // would become a live route outage rather than a startup error.
   const violation = describeToolNameViolation(name);
   if (violation !== undefined) {
-    ctx.logger.warn(
+    return dropOnce(
+      `mcp-tool-name:${name}`,
       { server: entry.source, tool: entry.name, toolName: name },
       `MCP tool name is not usable as a provider tool name (${violation}); dropping it from the agent's tool list. Expose it through a capability under a tool-safe name if the agent needs it.`,
     );
-    return undefined;
   }
   const description =
     entry.description && entry.description.trim() !== ""

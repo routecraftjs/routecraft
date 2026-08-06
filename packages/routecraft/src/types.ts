@@ -865,7 +865,10 @@ export interface EventDetailsMap {
    *
    * `reason` distinguishes a rule that decided against the tool from a
    * rule that threw (denied to fail closed) and from provenance the
-   * resolver could not classify.
+   * resolver could not classify. `unknown-provenance` covers every tool
+   * whose `source` is missing or carries a kind the policy surface does
+   * not define, since no rule runs in either case; `toolKind` is
+   * reported as `"unknown"` for both.
    */
   "route:agent:tool:denied": ExchangeScoped & {
     agentName?: string;

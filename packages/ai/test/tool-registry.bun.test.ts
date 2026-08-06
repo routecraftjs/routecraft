@@ -358,4 +358,43 @@ describe("McpToolRegistry", () => {
     registry.removeSource("never-added");
     expect(registry.version).toBe(v0);
   });
+
+  /**
+   * @case A report key is claimable once per registry version
+   * @preconditions Repeated claims of the same key, then a no-op re-listing, then a real change
+   * @expectedResult Only the first claim of a version succeeds; a version bump re-opens the key, a no-op refresh does not
+   */
+  test("shouldReport gates a key until the registry actually changes", () => {
+    const tools = [
+      {
+        name: "tool1",
+        description: "Tool 1",
+        inputSchema: { type: "object" as const },
+      },
+    ];
+    registry.setToolsForSource("server-a", "http", tools);
+
+    expect(registry.shouldReport("bad-name")).toBe(true);
+    expect(registry.shouldReport("bad-name")).toBe(false);
+    // Distinct conditions are gated independently.
+    expect(registry.shouldReport("other")).toBe(true);
+
+    // A periodic refresh returning the same tools must not re-open it,
+    // or the gate degrades back to reporting on every refresh tick.
+    registry.setToolsForSource("server-a", "http", tools);
+    expect(registry.shouldReport("bad-name")).toBe(false);
+
+    // A real change re-opens it: the condition may be gone, and if it
+    // is not, it is worth saying again.
+    registry.setToolsForSource("server-a", "http", [
+      ...tools,
+      {
+        name: "tool2",
+        description: "Tool 2",
+        inputSchema: { type: "object" as const },
+      },
+    ]);
+    expect(registry.shouldReport("bad-name")).toBe(true);
+    expect(registry.shouldReport("bad-name")).toBe(false);
+  });
 });

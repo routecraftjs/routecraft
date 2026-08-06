@@ -242,6 +242,52 @@ describe("MCP client tool-name validation", () => {
   });
 
   /**
+   * @case A permanently broken remote name warns once, not once per dispatch
+   * @preconditions A client exposes one tool with an unusable name; resolve() is called three times
+   * @expectedResult One warning across the three resolutions, and a fresh one after the registry actually changes
+   */
+  test("warns once per registry version rather than once per resolve", async () => {
+    t = await testContext().build();
+    const registry = new McpToolRegistry();
+    const bad = {
+      name: "issues.create",
+      inputSchema: { type: "object" as const, properties: {} },
+    };
+    registry.setToolsForSource("github", "stdio", [bad]);
+    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
+
+    const warnCount = () =>
+      t!.logger.warn.mock.calls.filter(
+        (c: unknown[]) =>
+          typeof c[1] === "string" &&
+          c[1].includes("not usable as a provider tool name"),
+      ).length;
+
+    // `resolve()` runs per dispatch, so three resolutions stand in for
+    // three dispatches of an agent bound to this server.
+    for (let i = 0; i < 3; i++) tools(["MCP(github)"]).resolve(t.ctx);
+    expect(warnCount()).toBe(1);
+
+    // A re-listing that returns the same tools does not bump the
+    // registry version, so it must not re-open the report either.
+    registry.setToolsForSource("github", "stdio", [bad]);
+    tools(["MCP(github)"]).resolve(t.ctx);
+    expect(warnCount()).toBe(1);
+
+    // A real change does: the condition may have been fixed, and if it
+    // has not, an operator watching the logs should hear about it again.
+    registry.setToolsForSource("github", "stdio", [
+      bad,
+      {
+        name: "list_issues",
+        inputSchema: { type: "object" as const, properties: {} },
+      },
+    ]);
+    tools(["MCP(github)"]).resolve(t.ctx);
+    expect(warnCount()).toBe(2);
+  });
+
+  /**
    * @case A client name containing the separator is dropped, because its wire name cannot be parsed back
    * @preconditions A client registered as "a__b" exposing one tool
    * @expectedResult The tool is dropped with a warning naming the client, rather than exposed under an ambiguous name

@@ -15,7 +15,10 @@ import {
   type McpToolAnnotations,
 } from "../src/mcp/types.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
-import { policiesAdmit } from "../src/agent/tools/policy.ts";
+import {
+  isGovernableToolKind,
+  policiesAdmit,
+} from "../src/agent/tools/policy.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 // Capture the tool map handed to the provider: it is the authoritative
@@ -626,6 +629,41 @@ describe("agentPlugin({ toolPolicy }): predicates and composition", () => {
     expect(verdict.admitted).toBe(false);
     // Not "reported": no predicate ran, so the caller still owns saying
     // something about it.
+    expect(verdict.reported).toBe(false);
+  });
+
+  /**
+   * @case A tool whose provenance names an unknown kind is treated as unclassifiable, not as a rule denial
+   * @preconditions A hand-built ResolvedTool carrying `source: { kind: "bogus" }`
+   * @expectedResult It is denied with `reported` false, and the kind is not governable, so the caller reports unknown-provenance rather than `rule`
+   */
+  test("an unrecognised provenance kind is unclassifiable, not a rule denial", () => {
+    // The sibling of the no-`source` case: same defect (a tool from
+    // outside the type contract), so it has to reach the same reason.
+    // Reporting it as `rule` would claim a policy decided against a
+    // tool that no policy ever saw.
+    const bogus = {
+      name: "bogus",
+      description: "Provenance nobody defined.",
+      tags: [],
+      source: { kind: "bogus" },
+    } as unknown as Parameters<typeof policiesAdmit>[1];
+
+    expect(isGovernableToolKind("bogus")).toBe(false);
+    expect(isGovernableToolKind(undefined)).toBe(false);
+    // `block` is resolver-set but exempt rather than governable, which
+    // is why callers test for it separately.
+    expect(isGovernableToolKind("block")).toBe(false);
+    for (const kind of ["fn", "direct", "mcp"]) {
+      expect(isGovernableToolKind(kind)).toBe(true);
+    }
+
+    const verdict = policiesAdmit(
+      [{ fn: true, direct: true, mcp: true }],
+      bogus,
+      { agentId: undefined },
+    );
+    expect(verdict.admitted).toBe(false);
     expect(verdict.reported).toBe(false);
   });
 

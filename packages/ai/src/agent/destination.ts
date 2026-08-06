@@ -21,7 +21,7 @@ import {
   ADAPTER_AGENT_REGISTRY,
   ADAPTER_AGENT_TOOL_POLICIES,
 } from "./store.ts";
-import { policiesAdmit } from "./tools/policy.ts";
+import { isGovernableToolKind, policiesAdmit } from "./tools/policy.ts";
 import type {
   AgentToolDescriptor,
   AgentToolPolicyContext,
@@ -460,7 +460,7 @@ function applyToolPolicy(
       emitDenied(tool, "unknown-provenance");
       context.logger.warn(
         { agent: agentId ?? "<inline>", tool: tool.name, kind: "unknown" },
-        "Agent tool carries no resolver-set provenance, so no policy can classify it; dropping it from the agent's tool list",
+        "Agent tool carries no recognisable resolver-set provenance, so no policy can classify it; dropping it from the agent's tool list",
       );
       continue;
     }
@@ -543,8 +543,17 @@ function toDescriptor(tool: ResolvedTool): AgentToolDescriptor | undefined {
   // than dereferencing into a TypeError: an allowlist cannot admit what
   // it cannot classify, and crashing here would take down the dispatch
   // the policy is supposed to be quietly narrowing.
+  //
+  // An absent `kind` and an unrecognised one are the same defect and
+  // get the same answer. Accepting `{ kind: "bogus" }` here would still
+  // deny the tool, one layer down in `policiesAdmit`, but as an
+  // ordinary rule denial: the caller would then report reason `rule`
+  // and log that a policy decided against a tool no policy ever saw.
+  //
+  // `block` is not governable but IS resolver-set, so it is classified
+  // rather than rejected; `policiesAdmit` exempts it.
   const kind = (tool.source as AgentToolSource | undefined)?.kind;
-  if (kind === undefined) return undefined;
+  if (kind !== "block" && !isGovernableToolKind(kind)) return undefined;
   // The annotations copy is frozen too, not just `source`. One
   // descriptor is built per tool and handed to every composed policy in
   // turn, so a mutable nested object would let the first predicate

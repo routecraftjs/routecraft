@@ -81,6 +81,31 @@ export const AGENT_TOOL_POLICY_KINDS = Object.keys(
 ) as readonly AgentToolPolicyKind[];
 
 /**
+ * Whether `kind` is a provenance a policy can govern.
+ *
+ * Takes `unknown` because the callers are guarding exactly the case the
+ * type system does not cover: a `ResolvedTool` hand-built from
+ * JavaScript, or one written against older typings, whose `source.kind`
+ * may be absent or a string nobody here defined. Derived from
+ * {@link AGENT_TOOL_POLICY_KIND_PRESENCE}, so it cannot fall behind the
+ * type.
+ *
+ * Note `block` is deliberately NOT governable: it is a real
+ * resolver-set kind, so callers distinguishing "unclassifiable" from
+ * "exempt" must test for it separately.
+ *
+ * @internal
+ */
+export function isGovernableToolKind(
+  kind: unknown,
+): kind is AgentToolPolicyKind {
+  return (
+    typeof kind === "string" &&
+    Object.hasOwn(AGENT_TOOL_POLICY_KIND_PRESENCE, kind)
+  );
+}
+
+/**
  * The provenance arms a policy rule can actually be handed. Excludes
  * `block`: loader tools are merged in after policy evaluation, so no
  * predicate ever sees one, and leaving the arm in the union would force
@@ -310,7 +335,12 @@ export function policiesAdmit(
   // rather than dereferencing undefined and taking down the dispatch:
   // an allowlist cannot admit what it cannot classify. `reported` stays
   // false so the caller's denial line names the tool.
-  if (!AGENT_TOOL_POLICY_KINDS.includes(kind as AgentToolPolicyKind)) {
+  //
+  // Callers that report a reason are expected to classify first, so
+  // they can distinguish this from a rule deciding against the tool;
+  // `applyToolPolicy` does. This stays as the module's own guarantee,
+  // so `policiesAdmit` is safe to call with an unchecked descriptor.
+  if (!isGovernableToolKind(kind)) {
     return { admitted: false, reported: false };
   }
   for (const policy of policies) {
@@ -322,8 +352,7 @@ export function policiesAdmit(
     // the two-step cast is the honest way to state it. This is the only
     // cast in the policy path and it sits one line below the check that
     // justifies it.
-    const rule = policy[kind as AgentToolPolicyKind] as unknown as
-      AgentToolRule | undefined;
+    const rule = policy[kind] as unknown as AgentToolRule | undefined;
     const verdict = ruleAdmits(rule, tool, ctx, onRuleError);
     if (!verdict.admitted) return verdict;
   }
