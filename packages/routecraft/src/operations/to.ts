@@ -17,6 +17,7 @@ import {
 } from "../exchange.ts";
 import type { Enricher, CallableEnricher } from "./enrich.ts";
 import { hasSend, hasFetch, missingSlotError } from "./adapter-roles.ts";
+import { engineOwnedHeaderSuggestion } from "../engine-headers.ts";
 import {
   resolveAdapterOverride,
   invokeSendOverride,
@@ -128,6 +129,21 @@ export class ToStep<T = unknown, R = unknown> implements Step<Adapter> {
     const sendContext: SendContext = {
       ...toSignalContext(ctx),
       setHeader: (key, value) => {
+        // Receipts are merged onto the continuing exchange, so the sink has
+        // to respect the same engine-owned keys `.header()` rejects: a
+        // receipt landing on `routecraft.route` or `.split_hierarchy` would
+        // misattribute events or break split correlation. `.header()` can
+        // throw because it validates at construction; here the send has
+        // already happened, so failing the step would be worse than dropping
+        // the header. Warn loudly and ignore.
+        const suggestion = engineOwnedHeaderSuggestion(key);
+        if (suggestion !== undefined) {
+          exchange.logger.warn(
+            { header: key, adapter: this.adapter.adapterId, suggestion },
+            "Adapter tried to set a framework-owned header as a send receipt; ignoring",
+          );
+          return;
+        }
         receiptHeaders[key] = value;
       },
     };
@@ -170,8 +186,15 @@ export class ToStep<T = unknown, R = unknown> implements Step<Adapter> {
           collectedHeaders,
           !!override,
           "getSendMetadata",
+          exchange,
         )
-      : extractOutcomeMetadata(this.adapter, result, !!override);
+      : extractOutcomeMetadata(
+          this.adapter,
+          result,
+          !!override,
+          "getMetadata",
+          exchange,
+        );
 
     // A fetch result (or a value returned from a function form) replaces the
     // body via a derived exchange; receipt headers from a send are merged the

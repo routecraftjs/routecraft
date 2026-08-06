@@ -9,7 +9,11 @@ import {
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { COLLECT_STEPS } from "../dsl-symbol.ts";
-import { StepBuilderBase, type BuilderState } from "../step-builder-base.ts";
+import {
+  StepBuilderBase,
+  type BuilderState,
+  type FetchedBody,
+} from "../step-builder-base.ts";
 import type { Destination } from "./to.ts";
 import type { Enricher } from "./enrich.ts";
 
@@ -123,7 +127,7 @@ export function when<In = unknown>(
 export function when<In = unknown, R = unknown>(
   predicate: ChoicePredicate<In>,
   enricher: Enricher<In, R>,
-): WhenDescriptor<In, R>;
+): WhenDescriptor<In, FetchedBody<In, R>>;
 export function when(
   predicate: ChoicePredicate<unknown>,
   path: Path<unknown, unknown>,
@@ -150,7 +154,7 @@ export function otherwise<In = unknown>(
 ): OtherwiseDescriptor<In, In>;
 export function otherwise<In = unknown, R = unknown>(
   enricher: Enricher<In, R>,
-): OtherwiseDescriptor<In, R>;
+): OtherwiseDescriptor<In, FetchedBody<In, R>>;
 export function otherwise(
   path: Path<unknown, unknown>,
 ): OtherwiseDescriptor<unknown, unknown> {

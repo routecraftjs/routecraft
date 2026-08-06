@@ -166,4 +166,6 @@ export interface CarddavDeleteResult {
   uid?: string;
   /** DAV object URL of the deleted contact. */
   url: string;
+  /** ETag the delete was issued against, when one was known. */
+  etag?: string;
 }

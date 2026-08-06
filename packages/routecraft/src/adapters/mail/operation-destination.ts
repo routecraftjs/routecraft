@@ -110,9 +110,12 @@ export class MailOperationDestinationAdapter implements Destination<unknown> {
   }
 
   /**
-   * Extract metadata from the operation for observability.
+   * Observability metadata for the send role: describes the IMAP operation
+   * that ran. Named for the send slot (a `.to()` step resolving through
+   * `send` reads `getSendMetadata`, never `getMetadata`), and it ignores the
+   * receipt record because the operation itself is the interesting detail.
    */
-  getMetadata(): Record<string, unknown> {
+  getSendMetadata(): Record<string, unknown> {
     const { target, ...rest } = this.action;
     void target;
     return rest;

@@ -134,12 +134,19 @@ export type SetBody<S extends BuilderState, B> = {
  * should be an observable replacement value. Result types without
  * `undefined` collapse to plain `R`.
  *
+ * `void` is handled first and separately: an enricher declared to produce
+ * nothing never replaces the body, so the body carries through as `Current`
+ * rather than widening to `Current | void`. This mirrors the callable `.to()`
+ * overload, which collapses a `void`-returning function the same way.
+ *
  * @template Current - Body type entering the step
  * @template R - Value type the fetch produces
  */
-export type FetchedBody<Current, R> = undefined extends R
-  ? Current | Exclude<R, undefined>
-  : R;
+export type FetchedBody<Current, R> = R extends void
+  ? Current
+  : undefined extends R
+    ? Current | Exclude<R, undefined>
+    : R;
 
 /**
  * Maps the polymorphic `this` type of a `StepBuilderBase` call to the same

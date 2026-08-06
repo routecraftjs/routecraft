@@ -770,6 +770,9 @@ describe("CardDAV destination (delete)", () => {
     expect(driver.deleted[0]?.vCard.etag).toBe('"1"');
     expect(driver.calls.fetchVCards).toBe(0);
     expect(receipts[CarddavHeaders.URL]).toBe(`${BOOK_URL}abc-123.vcf`);
+    // The delete receipt carries the same identity keys the read side sets,
+    // etag included, so a downstream step sees what was deleted.
+    expect(receipts[CarddavHeaders.ETAG]).toBe('"1"');
     await ctx.stop();
   });
 

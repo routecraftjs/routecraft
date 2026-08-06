@@ -241,6 +241,7 @@ export class CarddavAdapter
       // side sets.
       ctx?.setHeader(CarddavHeaders.URL, result.url);
       if (result.uid) ctx?.setHeader(CarddavHeaders.UID, result.uid);
+      if (result.etag) ctx?.setHeader(CarddavHeaders.ETAG, result.etag);
       return;
     }
     const result = await this.write(exchange, action);
@@ -475,6 +476,9 @@ export class CarddavAdapter
     const result: CarddavDeleteResult = { url };
     const resolvedUid = uid ?? uidFromUrl(url);
     if (resolvedUid) result.uid = resolvedUid;
+    // A uid-only delete looks the card up to find its url; the lookup also
+    // yields the etag, so carry it out for the receipt instead of dropping it.
+    if (etag) result.etag = etag;
     return result;
   }
 

@@ -12,6 +12,7 @@ import { JsonTransformerAdapter } from "./transformer.ts";
 import { JsonSourceAdapter } from "./source.ts";
 import { JsonDestinationAdapter } from "./destination.ts";
 import { JsonEnricherAdapter } from "./enricher.ts";
+import { selectsFileRole } from "../shared/file-role-guards.ts";
 
 /**
  * Combined JSON file adapter type: all three roles on one honest type. The
@@ -80,7 +81,9 @@ export function json<T = unknown, R = unknown, V = unknown>(
 
   // File roles: `path` presence is the discriminator; `path` always means a
   // file path (the transformer's extraction key is `pointer`).
-  if ("path" in options && options.path !== undefined) {
+  // `path` is absent from the transformer half of the union, so read it
+  // through an `in` check before handing it to the shared guard.
+  if (selectsFileRole("json", "path" in options ? options.path : undefined)) {
     const fileOptions = options as JsonFileOptions;
     const destination = new JsonDestinationAdapter(fileOptions);
     const enricher = new JsonEnricherAdapter<T>(fileOptions);

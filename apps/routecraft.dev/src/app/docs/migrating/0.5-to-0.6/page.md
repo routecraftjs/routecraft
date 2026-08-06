@@ -792,14 +792,18 @@ Replace any `import { BranchBuilder } from "@routecraft/routecraft"` with `PathB
 
 Adapters now carry up to three role slots, and the operation keyword selects the role: `.from()` subscribes (`Source`), `.to()` / `.tap()` prefer `send` (`Destination`, strictly void) and fall back to `fetch` (`Enricher`), `.enrich()` fetches. Design record: [#532](https://github.com/routecraftjs/routecraft/issues/532).
 
-**`.enrich()` replaces by default.** The old default spread-merged the result onto the body; it now REPLACES the body with the fetched value. Keep the old shape with `only()`, or ignore the result with `none()`; the `replace()` helper is gone because replace is the default. A fetch resolving `undefined` means "no value" and leaves the body unchanged (return `null` when a miss should be observable). The aggregator type is renamed `DestinationAggregator` to `EnrichAggregator`.
+**`.enrich()` replaces by default.** The old default spread-merged the result onto the body; it now REPLACES the body with the fetched value. Restore merging with `only()`, or ignore the result with `none()`; the `replace()` helper is gone because replace is the default. A fetch resolving `undefined` means "no value" and leaves the body unchanged (return `null` when a miss should be observable). The aggregator type is renamed `DestinationAggregator` to `EnrichAggregator`.
 
 ```ts
 // before: HttpResult spread onto the body
 .enrich(http({ url }))
-// after: the body IS the HttpResult; merge explicitly when you need both
+// after, exact old shape: only() without `into` spreads a plain-object value
+.enrich(http({ url }), only((r) => r))
+// after, usually what you want: pick the field you need under a key
 .enrich(http({ url }), only((r) => r.body, "user"))
 ```
+
+The first form reproduces 0.5.x exactly. Prefer the second when you only need part of the result: it names what you took and leaves the rest of the body alone.
 
 **The file family drops `mode`.** Position selects the role; send behavior uses flags:
 

@@ -288,14 +288,19 @@ function validateBlocksLevel(
 }
 
 /**
- * Create an agent destination.
+ * Create an agent enricher.
+ *
+ * An agent run produces a value, so `agent()` fills the `fetch` slot: use it
+ * with `.enrich(agent(...))` to merge or replace the body with the
+ * `AgentResult`, with `.to(agent(...))` to replace the body outright, or with
+ * `.tap(agent(...))` to run it and discard the result.
  *
  * Two forms:
  *
- * - **Inline**: `agent({ model, system, user? })` -- destination constructed
+ * - **Inline**: `agent({ model, system, user? })` -- enricher constructed
  *   from inline options. Identity and description come from the enclosing
  *   route (`.id()`, `.description()`).
- * - **By name**: `agent("name")` -- destination resolved at dispatch time
+ * - **By name**: `agent("name")` -- enricher resolved at dispatch time
  *   against agents registered via `agentPlugin({ agents: { name: {...} } })`.
  *   Registered agents carry their own description.
  *

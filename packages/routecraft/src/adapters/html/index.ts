@@ -9,7 +9,10 @@ import { HtmlTransformerAdapter } from "./transformer.ts";
 import { HtmlSourceAdapter } from "./source.ts";
 import { HtmlDestinationAdapter } from "./destination.ts";
 import { HtmlEnricherAdapter } from "./enricher.ts";
-import { staticSourcePathError } from "../shared/file-role-guards.ts";
+import {
+  selectsFileRole,
+  staticSourcePathError,
+} from "../shared/file-role-guards.ts";
 
 /**
  * Combined HTML file adapter type: the file roles on one honest type. The
@@ -73,7 +76,7 @@ export function html<T = unknown, R = HtmlResult>(
   options: HtmlOptions<T, R>,
 ): (Transformer<T, R> & { readonly adapterId: string }) | HtmlAdapter {
   const args = factoryArgs(options);
-  if (options.path) {
+  if (selectsFileRole("html", options.path)) {
     const destination = new HtmlDestinationAdapter<T, R>(options);
     const enricher = new HtmlEnricherAdapter<T, R>(options);
 

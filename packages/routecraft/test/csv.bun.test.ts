@@ -282,6 +282,44 @@ Alice,30
     });
 
     /**
+     * @case Successive appends stay parseable (records are newline-terminated)
+     * @preconditions append: true, the adapter creates the file itself, several exchanges
+     * @expectedResult One header plus one line per record, no spliced rows
+     */
+    test("appends every exchange as its own row", async () => {
+      const filePath = path.join(tmpDir, "multi-append.csv");
+      const data = [
+        { name: "Alice", age: 30 },
+        { name: "Bob", age: 25 },
+        { name: "Carol", age: 41 },
+      ];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-multi-append")
+            .from(simple(data))
+            .split()
+            .to(csv({ path: filePath, header: true, append: true })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fsp.readFile(filePath, "utf-8");
+      const lines = written.split(/\r?\n/).filter((line) => line.length > 0);
+      // Papa.unparse emits no trailing newline, so an unterminated chunk
+      // would splice the next record onto the previous one ("Alice,30Bob,25")
+      // and collapse the line count.
+      expect(lines).toHaveLength(4);
+      // Exactly one header, written only by the exchange that created the file.
+      expect(lines.filter((line) => line === "name,age")).toHaveLength(1);
+      expect(lines).toContain("Alice,30");
+      expect(lines).toContain("Bob,25");
+      expect(lines).toContain("Carol,41");
+    });
+
+    /**
      * @case Creates parent directories when createDirs is true
      * @preconditions Parent directory doesn't exist, createDirs is true
      * @expectedResult Parent directory is created, CSV file is written

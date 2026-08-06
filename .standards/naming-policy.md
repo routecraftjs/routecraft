@@ -17,7 +17,7 @@ Keep **Source**, **Destination**, and **Enricher** for these interfaces. They ar
 For adapters that can both receive and send on a protocol (direct, mcp, http, websocket), use **Server** and **Client** in **option type names only**:
 
 - **XxxServerOptions** = options when the adapter is used as a source (we receive / we serve).
-- **XxxClientOptions** = options when the adapter is used as a destination (we send / we call).
+- **XxxClientOptions** = options when the adapter reaches out (we send / we call). Which pipeline role that is depends on the protocol: request/response clients (`http`, `mcp`, `direct`) call and get an answer back, so their client side is the **enricher** (`fetch`); a fire-and-forget client is a **destination** (`send`). The `Client` name describes which end of the protocol we are on, not which slot the adapter implements. Two-sided adapters whose client half does both name the slots, not the options.
 
 Examples: `DirectServerOptions` / `DirectClientOptions`, `McpServerOptions` / `McpClientOptions`, `HttpServerOptions` / `HttpClientOptions`.
 

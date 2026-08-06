@@ -224,6 +224,8 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<Adapter> {
       this.adapter,
       enrichmentData,
       !!override,
+      "getMetadata",
+      exchange,
     );
 
     // No aggregator: the fetched value replaces the body. `undefined` (e.g.

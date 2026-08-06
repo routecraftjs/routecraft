@@ -2,6 +2,7 @@ import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
+import { withAdapterIdentity } from "../shared/role-facade.ts";
 import { CarddavAdapter } from "./adapter.ts";
 import type { VCardBody } from "./vcard.ts";
 import type {
@@ -85,7 +86,11 @@ export function carddav(
       send: (exchange, ctx) => adapter.send(exchange, ctx),
       getSendMetadata: (receipts) => adapter.getSendMetadata(receipts),
     };
-    return tagAdapter(destination, carddav, args) as Destination<VCardBody>;
+    return tagAdapter(
+      withAdapterIdentity(destination, adapter),
+      carddav,
+      args,
+    ) as Destination<VCardBody>;
   }
   const reader: Source<VCardBody> &
     Enricher<unknown, VCardBody[]> & {
@@ -96,7 +101,7 @@ export function carddav(
     fetch: adapter.fetch,
     getMetadata: (result) => adapter.getMetadata(result),
   };
-  return tagAdapter(reader, carddav, args);
+  return tagAdapter(withAdapterIdentity(reader, adapter), carddav, args);
 }
 
 export { CarddavAdapter } from "./adapter.ts";

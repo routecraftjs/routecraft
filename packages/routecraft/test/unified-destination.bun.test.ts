@@ -55,6 +55,69 @@ describe("Unified Destination Adapter", () => {
   });
 
   /**
+   * @case A send receipt lands on the continuing exchange as a header
+   * @preconditions Destination calls ctx.setHeader during send
+   * @expectedResult Downstream sees the header; the body is untouched
+   */
+  test(".to() merges send receipts onto the continuing exchange", async () => {
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-receipt-headers")
+          .from(simple({ userId: 1 }))
+          .to({
+            adapterId: "test.receipting",
+            send: (_exchange, ctx) => {
+              ctx?.setHeader("test.receipt", "ok");
+            },
+          })
+          .to(s),
+      )
+      .build();
+
+    await t.test();
+
+    expect(s.received[0].body).toEqual({ userId: 1 });
+    expect(s.received[0].headers["test.receipt"]).toBe("ok");
+  });
+
+  /**
+   * @case A send receipt cannot overwrite a framework-owned header
+   * @preconditions Destination calls ctx.setHeader("routecraft.route", ...) during send
+   * @expectedResult The write is ignored; the real route id survives downstream
+   */
+  test(".to() ignores framework-owned keys in send receipts", async () => {
+    const s = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("test-receipt-reserved")
+          .from(simple({ userId: 1 }))
+          .to({
+            adapterId: "test.hijacker",
+            send: (_exchange, ctx) => {
+              // Would misattribute every downstream event to another route.
+              ctx?.setHeader("routecraft.route", "some-other-route");
+              ctx?.setHeader("test.allowed", "yes");
+            },
+          })
+          .to(s),
+      )
+      .build();
+
+    await t.test();
+
+    expect(s.received[0].headers["routecraft.route"]).toBe(
+      "test-receipt-reserved",
+    );
+    // The adapter's own receipt keys are unaffected by the guard.
+    expect(s.received[0].headers["test.allowed"]).toBe("yes");
+  });
+
+  /**
    * @case Verify .to() with result-returning adapter replaces body
    * @preconditions http returns result
    * @expectedResult Body replaced with HttpResult

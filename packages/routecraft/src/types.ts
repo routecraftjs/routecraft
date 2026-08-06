@@ -18,6 +18,42 @@ export interface Adapter {
    * adapters always set it.
    */
   adapterId?: string;
+
+  /**
+   * Observability hook for the FETCH slot: given the value the fetch
+   * produced, return details to attach to the step's completion event
+   * (`details.metadata`). Fires for `.enrich()` and for a fetch-only adapter
+   * in `.to()`.
+   *
+   * Derive the result from the arguments, never from state written during the
+   * call: one adapter instance serves every exchange on a route, so a field
+   * set by one call is routinely read back by another.
+   *
+   * @param result - Value the fetch resolved to
+   * @param exchange - Exchange the call ran against
+   */
+  getMetadata?(
+    result: unknown,
+    exchange?: Exchange<unknown>,
+  ): StepOutcomeMetadata;
+
+  /**
+   * Observability hook for the SEND slot: given the receipt headers the send
+   * recorded through {@link SendContext} (or `undefined` when it recorded
+   * none), return details to attach to the step's completion event. Fires for
+   * a send-resolved `.to()`.
+   *
+   * Named separately from {@link Adapter.getMetadata} so an adapter filling
+   * both slots never has to sniff which contract it was handed. The same
+   * no-instance-state rule applies.
+   *
+   * @param receipts - Receipt headers collected during the send
+   * @param exchange - Exchange the call ran against
+   */
+  getSendMetadata?(
+    receipts: unknown,
+    exchange?: Exchange<unknown>,
+  ): StepOutcomeMetadata;
 }
 
 /**
@@ -88,11 +124,17 @@ export type StepOutcomeMetadata = Record<string, unknown>;
  * The two role slots have distinct hooks, so an adapter never has to sniff
  * which contract it received:
  *
- * - `getMetadata(result)` fires for fetch-resolved steps (`.enrich()`, or
- *   a fetch-only adapter in `.to()`) with the fetched value.
- * - `getSendMetadata(receipts)` fires for send-resolved `.to()` steps with
- *   the receipt-header record collected from the {@link SendContext} sink,
- *   or `undefined` when the send set no receipts.
+ * - `getMetadata(result, exchange)` fires for fetch-resolved steps
+ *   (`.enrich()`, or a fetch-only adapter in `.to()`) with the fetched value.
+ * - `getSendMetadata(receipts, exchange)` fires for send-resolved `.to()`
+ *   steps with the receipt-header record collected from the
+ *   {@link SendContext} sink, or `undefined` when the send set no receipts.
+ *
+ * Both hooks also receive the exchange the call ran against. Step instances
+ * (and the adapters they hold) are shared across every exchange on a route,
+ * so an adapter must derive per-call metadata from this argument rather than
+ * stashing it on `this` during the call: with concurrent exchanges in flight,
+ * instance state written by one call is routinely read back by another.
  *
  * `.tap()` never collects metadata (it runs detached; see TapStep).
  *
@@ -103,11 +145,15 @@ export function extractOutcomeMetadata(
   result: unknown,
   skip: boolean,
   hook: "getMetadata" | "getSendMetadata" = "getMetadata",
+  exchange?: Exchange<unknown>,
 ): StepOutcomeMetadata | undefined {
   if (skip) return undefined;
   const extract = (
     adapter as Partial<
-      Record<typeof hook, (result: unknown) => StepOutcomeMetadata>
+      Record<
+        typeof hook,
+        (result: unknown, exchange?: Exchange<unknown>) => StepOutcomeMetadata
+      >
     >
   )[hook];
   if (!extract) return undefined;
@@ -115,7 +161,7 @@ export function extractOutcomeMetadata(
   // throwing hook must not turn an adapter operation that already
   // succeeded (and may have had side effects) into a route failure.
   try {
-    return extract.call(adapter, result);
+    return extract.call(adapter, result, exchange);
   } catch {
     return undefined;
   }

@@ -25,7 +25,6 @@ export class DirectEnricherAdapter<
 
   private rawEndpoint: DirectEndpoint<TIn>;
   public options: DirectClientOptions;
-  private lastResolvedEndpoint?: string;
 
   constructor(
     rawEndpoint: DirectEndpoint<TIn>,
@@ -45,7 +44,6 @@ export class DirectEnricherAdapter<
 
     // Resolve endpoint dynamically if needed
     const endpoint = this.resolveEndpoint(exchange);
-    this.lastResolvedEndpoint = endpoint; // Store for metadata
 
     exchange.logger.debug(
       { endpoint, adapter: "direct" },
@@ -64,13 +62,21 @@ export class DirectEnricherAdapter<
   };
 
   /**
-   * Extract metadata from Direct adapter execution.
-   * Includes the resolved endpoint.
+   * Observability metadata for the fetch role: the resolved endpoint.
+   *
+   * Resolved from the exchange rather than remembered from the `fetch` call.
+   * One adapter instance serves every exchange on the route, so a
+   * `lastResolvedEndpoint` field would report whichever concurrent exchange
+   * happened to resolve last, not the one this outcome belongs to. The
+   * endpoint selector is a pure function of the exchange, so re-running it
+   * here is exact.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  getMetadata(_result?: unknown): Record<string, unknown> {
+  getMetadata(
+    _result?: unknown,
+    exchange?: Exchange<TIn>,
+  ): Record<string, unknown> {
     return {
-      endpoint: this.lastResolvedEndpoint ?? "unknown",
+      endpoint: exchange ? this.resolveEndpoint(exchange) : "unknown",
     };
   }
 

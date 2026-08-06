@@ -139,11 +139,11 @@ describe("Direct adapter type safety", () => {
   });
 
   /**
-   * @case .enrich(direct<TIn, TOut>(...)) with only() merges TOut under a key
-   * @preconditions Builder chain: from(simple<TIn>(...)).enrich(direct<TIn, TOut>("ep"), only(...)).tap(...)
-   * @expectedResult The tap's exchange.body type is TIn & { answer: TOut }
+   * @case .enrich(direct<TIn, TOut>(...)) with the aggregator omitted replaces the body with TOut
+   * @preconditions Builder chain: from(simple<TIn>(...)).enrich(direct<TIn, TOut>("ep")).tap(...)
+   * @expectedResult The tap's exchange.body type is TOut, not TIn & TOut
    */
-  test(".enrich(direct<TIn, TOut>(string), only(...)) narrows downstream body", () => {
+  test(".enrich(direct<TIn, TOut>(string)) replaces downstream body with TOut", () => {
     type In = { query: string };
     type Out = { answer: string; tokens: number };
 

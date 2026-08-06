@@ -68,11 +68,15 @@ export type AgentBinding =
     };
 
 /**
- * Agent destination adapter. Resolves agent options (inline or
+ * Agent enricher adapter. Resolves agent options (inline or
  * registered), merges them with `agentPlugin({ defaultOptions })`,
  * resolves the agent's tool selection against the live context, and
- * dispatches the tool-calling loop via {@link AgentSession}. Replaces
- * the exchange body with `AgentResult { text, output?, reasoning?, usage? }`.
+ * dispatches the tool-calling loop via {@link AgentSession}.
+ *
+ * Fetch-only: an agent run PRODUCES a value, so it fills the `fetch` slot and
+ * implements no `send`. The resulting `AgentResult { text, output?,
+ * reasoning?, usage? }` becomes the body in `.to()` / bare `.enrich()`, feeds
+ * the aggregator in `.enrich(x, agg)`, and is discarded by `.tap()`.
  *
  * Resolution: when constructed inline, uses options directly. When
  * constructed by name, resolves the registered agent from the context

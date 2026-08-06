@@ -32,7 +32,10 @@ import type {
  * **Send Destination (for `.to()`):** Call with no arguments or client options
  * (no `folder`). Sends email via SMTP using the exchange body as the payload.
  * The send is void: the body flows through unchanged and the receipt
- * (`routecraft.mail.messageId`, `.accepted`, `.rejected`) lands on headers.
+ * (`routecraft.mail.sentMessageId`, `.accepted`, `.rejected`, `.response`)
+ * lands on headers. The sent id is deliberately its own key: an inbound
+ * `routecraft.mail.messageId` set by the source is left untouched so a
+ * mail-to-mail route keeps its correlation id.
  *
  * **Operation Destination (for `.to()`):** Call with a MailAction object.
  * Performs IMAP operations (move, copy, delete, flag, unflag, append) on messages.

@@ -11,10 +11,10 @@ For user-facing adapter documentation, see the [adapters reference](https://rout
 Every adapter is built from up to four role slots. Each slot carries exactly one contract; a slot is never overloaded with a second meaning (issue #532 is the design record):
 
 ```ts
-interface Source<T>      { subscribe(sub): Promise<void> } // stream IN: 0..N exchanges, batch/lifecycle semantics
-interface Destination<T> { send(exchange, ctx?): void }    // push OUT: per exchange, body unchanged, ALWAYS void
-interface Enricher<T, R> { fetch(exchange, ctx?): R }      // pull IN:  per exchange, produces a value
-interface Transformer    { transform(body): R }            // pure body mapping
+interface Source<T>      { subscribe(sub): Promise<void> }        // stream IN: 0..N exchanges, batch/lifecycle semantics
+interface Destination<T> { send(exchange, ctx?): void | Promise<void> } // push OUT: per exchange, body unchanged, ALWAYS void
+interface Enricher<T, R> { fetch(exchange, ctx?): R | Promise<R> }      // pull IN:  per exchange, produces a value
+interface Transformer    { transform(body): R | Promise<R> }            // pure body mapping
 ```
 
 The operation keyword resolves the role; no keyword was added or renamed for this model:

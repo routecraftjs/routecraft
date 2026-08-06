@@ -53,7 +53,7 @@ export async function extractHtml<T, R>(
 
   if (!selector) {
     throw new Error(
-      "html adapter: selector is required for transformer mode (use with .transform() or source mode)",
+      "html adapter: `selector` is required to extract from HTML. Every reading role extracts (`.transform(html())`, `.from(html({ path }))`, `.enrich(html({ path }))`); only the send role writes without a selector",
     );
   }
 

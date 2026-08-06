@@ -322,6 +322,6 @@ A `.to(mail())` send never touches the body. The receipt is surfaced through the
 | `routecraft.mail.accepted` (`MailHeaders.ACCEPTED`) | `string[]` | Accepted recipient addresses |
 | `routecraft.mail.rejected` (`MailHeaders.REJECTED`) | `string[]` | Rejected recipient addresses |
 
-**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailBody`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailFetchResult`, `MailContextConfig`, `MailAccountConfig`, `MailAction`, `MailSender`, `EmailAddress`, `ForwardHop`, `ForwardType`, `TrustLevel`, `MailClientManager`, `MAIL_CLIENT_MANAGER`. Header keys: the `MailHeaders` object (`UID`, `FOLDER`, `MESSAGE_ID`, `FROM`, `TO`, `CC`, `BCC`, `SUBJECT`, `DATE`, `REPLY_TO`, `FLAGS`, `SENDER`, `RAW_HEADERS`, `ACCEPTED`, `REJECTED`). Helpers: `analyzeHeaders`, `parseAuthResults`.
+**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailBody`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailFetchResult`, `MailContextConfig`, `MailAccountConfig`, `MailAction`, `MailSender`, `EmailAddress`, `ForwardHop`, `ForwardType`, `TrustLevel`, `MailClientManager`, `MAIL_CLIENT_MANAGER`. Header keys: the `MailHeaders` object (`UID`, `FOLDER`, `MESSAGE_ID`, `FROM`, `TO`, `CC`, `BCC`, `SUBJECT`, `DATE`, `REPLY_TO`, `FLAGS`, `SENDER`, `RAW_HEADERS`, `SENT_MESSAGE_ID`, `ACCEPTED`, `REJECTED`, `RESPONSE`). Helpers: `analyzeHeaders`, `parseAuthResults`.
 
 ---
