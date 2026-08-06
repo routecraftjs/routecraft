@@ -50,6 +50,8 @@ export const CarddavHeaders = {
   ETAG: "routecraft.carddav.etag",
   /** Named account a contact was read from. */
   ACCOUNT: "routecraft.carddav.account",
+  /** Write receipt: true when the write created a new contact, false when it updated one. */
+  CREATED: "routecraft.carddav.created",
 } as const satisfies Record<string, `routecraft.carddav.${string}`>;
 
 declare module "@routecraft/routecraft" {
@@ -62,6 +64,8 @@ declare module "@routecraft/routecraft" {
     [CarddavHeaders.ETAG]?: string;
     /** Named account a contact was read from. */
     [CarddavHeaders.ACCOUNT]?: string;
+    /** Write receipt: true when the write created a new contact, false when it updated one. */
+    [CarddavHeaders.CREATED]?: boolean;
   }
 }
 

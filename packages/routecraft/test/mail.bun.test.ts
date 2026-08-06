@@ -529,7 +529,8 @@ describe("Mail Adapter", () => {
      * @preconditions Nodemailer mock accepts message
      * @expectedResult sendMail called with correct options; the body flows
      *   through unchanged and the receipt lands on the routecraft.mail.*
-     *   headers (messageId, accepted, rejected)
+     *   headers (sentMessageId, accepted, rejected, response); the inbound
+     *   messageId key is NOT touched
      */
     test("sends email via SMTP", async () => {
       mockSendMail.mockResolvedValue({
@@ -574,19 +575,25 @@ describe("Mail Adapter", () => {
       );
 
       // Send is void: the payload flows through, the receipt rides headers.
+      // The sent message's id has its own key so a mail-to-mail route keeps
+      // the inbound routecraft.mail.messageId intact.
       expect(s.received).toHaveLength(1);
       expect(s.received[0].body).toEqual({
         to: "recipient@example.com",
         subject: "Hello",
         text: "World",
       });
-      expect(s.received[0].headers["routecraft.mail.messageId"]).toBe(
+      expect(s.received[0].headers["routecraft.mail.sentMessageId"]).toBe(
         "<sent@example.com>",
       );
+      expect(
+        s.received[0].headers["routecraft.mail.messageId"],
+      ).toBeUndefined();
       expect(s.received[0].headers["routecraft.mail.accepted"]).toEqual([
         "recipient@example.com",
       ]);
       expect(s.received[0].headers["routecraft.mail.rejected"]).toEqual([]);
+      expect(s.received[0].headers["routecraft.mail.response"]).toBe("250 OK");
     });
 
     /**

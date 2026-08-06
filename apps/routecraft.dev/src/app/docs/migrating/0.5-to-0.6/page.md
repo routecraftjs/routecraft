@@ -27,7 +27,9 @@ Architecture changes:
 14. **Naming sweeps.** `CardDAV*` exports become `Carddav*` (acronym casing, per the `Http` precedent); jsonl's `JsonlSourceOptions` / `JsonlDestinationOptions` / `JsonlCombinedOptions` fold into one `JsonlFileOptions`.
 15. **`authorize()` is delegation-aware, and delegation is rejected by default.** The `Principal` gains `actor` / `subjectProfile` / `mayAct` (RFC 8693 `act` semantics), a new `.delegate()` operation marks an agent as acting on a user's behalf, and `authorize()` gains `subject` / `actor` / `maxDelegationDepth` options. The `actor` default is `'none'`: existing routes behave identically for direct callers, but a delegated principal (minted by `.delegate()` or parsed from a token's `act` claim) is rejected with the new `RC5034` until the route declares its permitted actor(s). A missing scope now raises `RC5038` (recoverable insufficiency, with `missing.scopes` on the cause) instead of `RC5015`; role and predicate failures keep `RC5015`. Update any code or alerting that matches on `error.rc` for scope failures, and add `actor:` declarations to routes that agents should reach. `.delegate()` also fails closed on missing consent: a resolver returning `undefined` now STRIPS the subject's direct principal by default (the exchange continues anonymous and a downstream `authorize()` refuses with `RC5012`) instead of passing the caller's full authority onward. Anonymous exchanges, already-delegated principals, and `ai_agent` subjects are untouched. If a pipeline's continuation serves the caller directly and previously relied on the pass-through, add `{ otherwise: 'keep' }` to that `.delegate()` call. Note for Clerk users: Clerk's user-impersonation sessions carry a native `act` claim, so an impersonating admin who previously passed guarded routes as the impersonated user is now rejected with `RC5034` until the route admits an actor. That those sessions were previously indistinguishable from the real user is exactly what this change fixes; declare `actor: ['none', { issuer: '<your Clerk issuer>' }]` (or a narrower matcher) on routes where impersonation should keep working.
 
-Routes built only from the DSL (`craft().from(...).transform(...).to(...)`) with framework adapters need changes for the agent/tools/mail surface (1-4) where used, event subscriptions (5), builder call order that was already a runtime error (9), and adapter header constants (12). The rest affects adapter authors and advanced integrations.
+16. **The adapter role model: `Source` / `Destination` / `Enricher` (the option laws).** `Destination.send` is strictly void; the new `Enricher.fetch` slot owns mid-route reads. `.enrich()` with no aggregator now REPLACES the body, the file family drops `mode` (`append: true` / `delete: true` instead, and `.to(jsonl({ path }))` now overwrites by default), json's transformer extraction key is renamed `pointer`, and send receipts (mail, carddav) move from body replacement to `routecraft.<adapter>.*` headers. See [section 16](#16-the-adapter-role-model).
+
+Routes built only from the DSL (`craft().from(...).transform(...).to(...)`) with framework adapters need changes for the agent/tools/mail surface (1-4) where used, event subscriptions (5), builder call order that was already a runtime error (9), adapter header constants (12), and every `.enrich()` / file-family / mail-send call site (16). The rest affects adapter authors and advanced integrations.
 
 Three behavioural notes that are not API changes: context store seeding for `cron`/`direct`/`mail` config now happens in `initPlugins()` (called automatically by `start()`) instead of the `CraftContext` constructor; plugin teardown plus `registerTeardown` callbacks now unwind in reverse (LIFO) order; and `.input()` validation now runs inside the [filter chain](/docs/advanced/filter-chain) (position #4) instead of eagerly in the consumer handler, so an invalid message is routable through the route-scope `.error()` handler and an unrecovered failure emits `route:exchange:failed` (previously `route:exchange:dropped`) while still rejecting the sender.
 
@@ -755,7 +757,7 @@ Acronyms in identifiers are cased as words (`Http` precedent), so every `CardDAV
 
 The carddav option types also adopt the two-sided Server/Client naming (matching `MailServerOptions` / `MailClientOptions`): `CardDAVReadOptions` becomes `CarddavServerOptions`, and `CardDAVWriteOptions` / `CardDAVDeleteOptions` fold into a single `CarddavClientOptions` (their fields were identical; the `action` field still distinguishes writes from deletes). Call sites are unchanged; only type annotations need the new names.
 
-The jsonl adapter folds its file options into one type, matching `JsonFileOptions` / `CsvFileOptions`: `JsonlSourceOptions`, `JsonlDestinationOptions`, and `JsonlCombinedOptions` become `JsonlFileOptions` (discriminated by `mode`, plus `chunked`). Call sites are unchanged; only type annotations need the new name.
+The jsonl adapter folds its file options into one type, matching `JsonFileOptions` / `CsvFileOptions`: `JsonlSourceOptions`, `JsonlDestinationOptions`, and `JsonlCombinedOptions` become `JsonlFileOptions`. (The `mode` discriminant this fold originally used is itself removed by the role model; see [section 16](#16-the-adapter-role-model).) Call sites are unchanged; only type annotations need the new name.
 
 ## 15. `choice()` variadic `when` / `otherwise` {% #choice-variadic-when-otherwise %}
 
@@ -786,7 +788,49 @@ Each branch is a path: a bare destination or a sub-pipeline callback `(b) => b..
 
 Replace any `import { BranchBuilder } from "@routecraft/routecraft"` with `PathBuilder`. `ChoiceSubBuilder` has no replacement; the standalone `when` / `otherwise` helpers take its place.
 
-## 16. What is new in 0.6.0
+## 16. The adapter role model {% #16-the-adapter-role-model %}
+
+Adapters now carry up to three role slots, and the operation keyword selects the role: `.from()` subscribes (`Source`), `.to()` / `.tap()` prefer `send` (`Destination`, strictly void) and fall back to `fetch` (`Enricher`), `.enrich()` fetches. Design record: [#532](https://github.com/routecraftjs/routecraft/issues/532).
+
+**`.enrich()` replaces by default.** The old default spread-merged the result onto the body; it now REPLACES the body with the fetched value. Keep the old shape with `only()`, or ignore the result with `none()`; the `replace()` helper is gone because replace is the default. A fetch resolving `undefined` means "no value" and leaves the body unchanged (return `null` when a miss should be observable). The aggregator type is renamed `DestinationAggregator` to `EnrichAggregator`.
+
+```ts
+// before: HttpResult spread onto the body
+.enrich(http({ url }))
+// after: the body IS the HttpResult; merge explicitly when you need both
+.enrich(http({ url }), only((r) => r.body, "user"))
+```
+
+**The file family drops `mode`.** Position selects the role; send behavior uses flags:
+
+```ts
+// before                                        // after
+.from(file({ path }))                            .from(file({ path }))
+.enrich(json({ path, mode: "read" }), only(...)) .enrich(json({ path }), only(...))
+.to(csv({ path, mode: "append" }))               .to(csv({ path, append: true }))
+.to(file({ path, mode: "delete" }))              .to(file({ path, delete: true }))
+```
+
+`append` and `delete` are mutually exclusive (`RC5003` at construction). The per-mode aliases (`FileReadAdapter`, `CsvReadAdapter`, `JsonReadAdapter`, `JsonlReadAdapter`, `XmlReadAdapter`, `HtmlReadAdapter`) are removed; the combined types (`FileAdapter`, `CsvAdapter` / `CsvChunkedAdapter`, `JsonFileAdapterType`, `JsonlAdapter` / `JsonlChunkedAdapter`, `XmlAdapter`, `HtmlAdapter`) carry all roles.
+
+{% callout type="warning" title="jsonl now overwrites by default" %}
+`.to(jsonl({ path }))` previously appended; it now overwrites, matching the rest of the family. The source text compiles unchanged, so an event log that relied on the old default silently truncates. Add `append: true` to every jsonl send that should keep appending.
+{% /callout %}
+
+The same silent flip applies to `.tap()` on a file-family adapter: `.tap(json({ path, mode: "read" }))` used to read (and discard); after deleting `mode`, `.tap(json({ path }))` resolves to `send` and WRITES. A tap that should read is `.enrich()`'s job; a tap that should observe without touching disk should use a function form.
+
+**json: `pointer` replaces the transformer's `path`.** `path` now always means a file path, and its presence alone selects the file roles (the old slash-sniffing is gone: `json({ path: "config.json" })` is a file adapter now).
+
+```ts
+// before                                   // after
+.transform(json({ path: "data.items" }))   .transform(json({ pointer: "data.items" }))
+```
+
+**Send receipts ride headers, not the body.** `.to(mail())` no longer replaces the body with `MailSendResult` (the type is removed); the body flows through and the receipt lands on `routecraft.mail.sentMessageId`, `.accepted`, `.rejected`, and `.response`. (`routecraft.mail.messageId` remains the SOURCE message's id, so mail-to-mail routes keep their correlation key.) Carddav writes/deletes no longer replace the body with `CarddavWriteResult` / `CarddavDeleteResult` (both removed); the receipt lands on the same `routecraft.carddav.url` / `.uid` / `.etag` keys the read side sets, plus `.created` for insert-vs-update.
+
+**Pull-in adapters are `Enricher`s.** `http` (client), `direct` (client), `mail` (fetch), `carddav` (read), `llm`, `agent`, `embedding`, `mcp` (client), and `agentBrowser` now implement `fetch`; their classes are renamed `*EnricherAdapter` (e.g. `HttpDestinationAdapter` becomes `HttpEnricherAdapter`). Route-level behavior of `.to(http({ url }))` / `.to(direct("x"))` / `.to(llm(...))` is unchanged (the result still replaces the body). Custom destination authors: `send(exchange, ctx?)` must return void and surfaces receipts via `ctx?.setHeader(...)` (`SendContext`); data-producing adapters implement `fetch` instead. `ToResultBody` is removed.
+
+## 17. What is new in 0.6.0
 
 For context, no migration required:
 

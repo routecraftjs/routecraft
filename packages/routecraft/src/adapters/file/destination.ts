@@ -2,6 +2,7 @@ import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import type { Destination, CallableDestination } from "../../operations/to.ts";
 import type { FileOptions } from "./types.ts";
+import { assertExclusiveSendBehavior } from "../shared/file-role-guards.ts";
 
 /**
  * FileDestinationAdapter implements the Destination (send) role for file I/O.
@@ -14,7 +15,9 @@ import type { FileOptions } from "./types.ts";
 export class FileDestinationAdapter implements Destination<unknown> {
   readonly adapterId = "routecraft.adapter.file";
 
-  constructor(private readonly options: FileOptions) {}
+  constructor(private readonly options: FileOptions) {
+    assertExclusiveSendBehavior("file", options);
+  }
 
   /**
    * Send implementation. Deletes (delete: true) or writes/appends the

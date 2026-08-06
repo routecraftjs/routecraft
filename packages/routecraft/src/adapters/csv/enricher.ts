@@ -1,6 +1,6 @@
 import type { Enricher, CallableEnricher } from "../../operations/enrich.ts";
 import type { CsvFileOptions, CsvData } from "./types.ts";
-import { file } from "../file/index.ts";
+import { FileEnricherAdapter } from "../file/enricher.ts";
 import { parseCsv } from "./shared.ts";
 
 /**
@@ -21,9 +21,12 @@ export class CsvEnricherAdapter implements Enricher<unknown, CsvData> {
       typeof this.options.path === "function"
         ? this.options.path(exchange)
         : this.options.path;
-    const content = await file({
+    // Only the fetch slot is needed; constructing the full file() facade
+    // (three role instances plus tagging) per exchange would be waste on
+    // this hot path.
+    const content = await new FileEnricherAdapter({
       path: resolvedPath,
-      encoding: this.options.encoding || "utf-8",
+      encoding: this.options.encoding ?? "utf-8",
     }).fetch(exchange, ctx);
     return parseCsv(content, this.options) as CsvData;
   };

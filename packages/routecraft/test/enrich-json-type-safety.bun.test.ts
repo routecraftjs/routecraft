@@ -49,9 +49,9 @@ describe("validate() type safety", () => {
 
 describe("enrich() without aggregator type safety", () => {
   /**
-   * @case enrich(dest) with no aggregator infers Current & R from destination
+   * @case enrich(enricher) with no aggregator infers the replacement body R
    * @preconditions .from(simple({ userId: 1 })).enrich(async () => ({ links: [...] }))
-   * @expectedResult RouteBuilder<{ body: { userId: number } & { links: string[] } }>
+   * @expectedResult RouteBuilder<{ body: { links: string[] } }>
    */
   test("bare enrich(enricher) infers the replacement body R", () => {
     const route = craft()
@@ -59,6 +59,23 @@ describe("enrich() without aggregator type safety", () => {
       .enrich(async () => ({ links: ["a", "b"] as string[] }));
     expectTypeOf(route).toEqualTypeOf<
       RouteBuilder<{ body: { links: string[] } }>
+    >();
+  });
+
+  /**
+   * @case A fetch result type that includes undefined keeps the previous
+   *   body in the union (undefined means "no value, body unchanged" at
+   *   runtime, so the static claim must include the previous body)
+   * @preconditions Enricher typed to return { hit: string } | undefined (a cache miss)
+   * @expectedResult RouteBuilder<{ body: { userId: number } | { hit: string } }>
+   */
+  test("bare enrich with a nullable enricher unions the previous body", () => {
+    const cache = new Map<number, { hit: string }>();
+    const route = craft()
+      .from(simple({ userId: 1 }))
+      .enrich(async (ex) => cache.get(ex.body.userId));
+    expectTypeOf(route).toEqualTypeOf<
+      RouteBuilder<{ body: { userId: number } | { hit: string } }>
     >();
   });
 });

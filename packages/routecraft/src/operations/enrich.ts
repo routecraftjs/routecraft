@@ -15,6 +15,7 @@ import {
   DefaultExchange,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
+import { hasFetch } from "./adapter-roles.ts";
 import {
   resolveAdapterOverride,
   invokeSendOverride,
@@ -64,7 +65,7 @@ export interface Enricher<T = unknown, R = unknown> extends Adapter {
  * @template T - Current body type
  * @template R - Type produced by the enricher
  */
-export type DestinationAggregator<T = unknown, R = unknown> = (
+export type EnrichAggregator<T = unknown, R = unknown> = (
   original: Exchange<T>,
   enrichmentData: R,
 ) => Exchange<T>;
@@ -95,17 +96,17 @@ export type EnrichMergeShape = Record<string, unknown>;
 export function only<R, V, K extends string>(
   getValue: (enrichmentData: R) => V,
   into: K,
-): DestinationAggregator<unknown, unknown> & {
+): EnrichAggregator<unknown, unknown> & {
   [ENRICH_MERGE_TYPE]: Record<K, V>;
 };
 export function only<T = unknown, R = unknown, V = unknown>(
   getValue: (enrichmentData: R) => V,
   into?: string,
-): DestinationAggregator<T, R>;
+): EnrichAggregator<T, R>;
 export function only<T = unknown, R = unknown, V = unknown>(
   getValue: (enrichmentData: R) => V,
   into?: string,
-): DestinationAggregator<T, R> {
+): EnrichAggregator<T, R> {
   return (original: Exchange<T>, enrichmentData: R): Exchange<T> => {
     const value = getValue(enrichmentData);
     if (value === undefined || value === null) {
@@ -149,10 +150,7 @@ export function only<T = unknown, R = unknown, V = unknown>(
  * .enrich(http({ url: 'https://api.example.com/ping' }), none())
  * ```
  */
-export const none = <T = unknown, R = unknown>(): DestinationAggregator<
-  T,
-  R
-> => {
+export const none = <T = unknown, R = unknown>(): EnrichAggregator<T, R> => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- second param required by signature, intentionally unused
   return (original: Exchange<T>, _ignored: R): Exchange<T> => {
     return original;
@@ -163,8 +161,8 @@ export const none = <T = unknown, R = unknown>(): DestinationAggregator<
  * Aggregator type accepted by EnrichStep. Includes `only()` return type (with [ENRICH_MERGE_TYPE]) for body-type inference.
  */
 export type EnrichAggregatorOption<T, R> =
-  | DestinationAggregator<T, R>
-  | (DestinationAggregator<unknown, unknown> & {
+  | EnrichAggregator<T, R>
+  | (EnrichAggregator<unknown, unknown> & {
       [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
     });
 
@@ -208,8 +206,7 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<Adapter> {
         override,
       )) as R;
     } else {
-      const fetch = (this.adapter as Partial<Enricher<T, R>>).fetch;
-      if (typeof fetch !== "function") {
+      if (!hasFetch<T, R>(this.adapter)) {
         throw rcError("RC5003", undefined, {
           message: "`.enrich()` target does not implement `fetch`",
           suggestion:
@@ -217,7 +214,7 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<Adapter> {
         });
       }
       enrichmentData = await Promise.resolve(
-        fetch.call(this.adapter, exchange, toSignalContext(ctx)),
+        this.adapter.fetch(exchange, toSignalContext(ctx)),
       );
     }
 

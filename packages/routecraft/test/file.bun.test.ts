@@ -104,11 +104,11 @@ describe("File Adapter", () => {
     });
 
     /**
-     * @case Throws error when path is function in source mode
-     * @preconditions Source adapter with function path
-     * @expectedResult Error indicating dynamic paths only for destinations
+     * @case Throws error when path is a function in the source role
+     * @preconditions Source subscription with a function path
+     * @expectedResult The shared "static string path" error surfaces
      */
-    test("throws error when path is function in source mode", async () => {
+    test("throws error when path is function in the source role", async () => {
       const adapter = file({ path: () => "dynamic.txt" });
 
       await expect(
@@ -120,9 +120,7 @@ describe("File Adapter", () => {
           complete: () => {},
           emit: async () => ({}) as never,
         }),
-      ).rejects.toThrow(
-        /path must be a string for source mode.*dynamic paths are only supported for destinations/,
-      );
+      ).rejects.toThrow(/the source role requires a static string path/);
     });
   });
 

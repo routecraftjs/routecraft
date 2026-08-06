@@ -1,6 +1,6 @@
 import type { Enricher, CallableEnricher } from "../../operations/enrich.ts";
 import type { JsonlFileOptions } from "./types.ts";
-import { file } from "../file/index.ts";
+import { FileEnricherAdapter } from "../file/enricher.ts";
 import { parseJsonl } from "./shared.ts";
 
 /**
@@ -26,10 +26,12 @@ export class JsonlEnricherAdapter<T = unknown> implements Enricher<
     const { path: filePath, encoding = "utf-8", reviver } = this.options;
     const resolvedPath =
       typeof filePath === "function" ? filePath(exchange) : filePath;
-    const content = await file({ path: resolvedPath, encoding }).fetch(
-      exchange,
-      ctx,
-    );
+    // Only the fetch slot is needed; skip the full file() facade on the
+    // hot path.
+    const content = await new FileEnricherAdapter({
+      path: resolvedPath,
+      encoding,
+    }).fetch(exchange, ctx);
     return parseJsonl(content, reviver) as T[];
   };
 }

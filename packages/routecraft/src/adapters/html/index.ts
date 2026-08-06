@@ -3,13 +3,13 @@ import type { Destination } from "../../operations/to.ts";
 import type { Exchange } from "../../exchange.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import type { Transformer } from "../../operations/transform.ts";
-import { rcError } from "../../error.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type { HtmlOptions, HtmlResult } from "./types.ts";
 import { HtmlTransformerAdapter } from "./transformer.ts";
 import { HtmlSourceAdapter } from "./source.ts";
 import { HtmlDestinationAdapter } from "./destination.ts";
 import { HtmlEnricherAdapter } from "./enricher.ts";
+import { staticSourcePathError } from "../shared/file-role-guards.ts";
 
 /**
  * Combined HTML file adapter type: the file roles on one honest type. The
@@ -74,13 +74,6 @@ export function html<T = unknown, R = HtmlResult>(
 ): (Transformer<T, R> & { readonly adapterId: string }) | HtmlAdapter {
   const args = factoryArgs(options);
   if (options.path) {
-    if (options.append && options.delete) {
-      throw rcError("RC5003", undefined, {
-        message:
-          "html adapter: `append` and `delete` are mutually exclusive send behaviors",
-        suggestion: "Pass at most one of `append: true` / `delete: true`",
-      });
-    }
     const destination = new HtmlDestinationAdapter<T, R>(options);
     const enricher = new HtmlEnricherAdapter<T, R>(options);
 
@@ -91,9 +84,7 @@ export function html<T = unknown, R = HtmlResult>(
       typeof options.path === "string"
         ? new HtmlSourceAdapter<T, R>(options).subscribe
         : async () => {
-            throw new Error(
-              "html adapter: the source role requires a static string path (dynamic paths resolve against an exchange, which does not exist at subscribe time)",
-            );
+            throw staticSourcePathError("html");
           };
 
     return tagAdapter(

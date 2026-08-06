@@ -79,11 +79,22 @@ export interface Step<T extends Adapter> {
 export type StepOutcomeMetadata = Record<string, unknown>;
 
 /**
- * Read {@link StepOutcomeMetadata} from an adapter's optional
- * `getMetadata(result)` hook. Shared by the `to` and `enrich` steps so
- * the metadata contract has one implementation; `skip` short-circuits
- * when a test override replaced the adapter result (mock results are
- * typically primitives and carry no adapter metadata).
+ * Read {@link StepOutcomeMetadata} from an adapter's optional metadata
+ * hook. Shared by the `to` and `enrich` steps so the metadata contract has
+ * one implementation; `skip` short-circuits when a test override replaced
+ * the adapter result (mock results are typically primitives and carry no
+ * adapter metadata).
+ *
+ * The two role slots have distinct hooks, so an adapter never has to sniff
+ * which contract it received:
+ *
+ * - `getMetadata(result)` fires for fetch-resolved steps (`.enrich()`, or
+ *   a fetch-only adapter in `.to()`) with the fetched value.
+ * - `getSendMetadata(receipts)` fires for send-resolved `.to()` steps with
+ *   the receipt-header record collected from the {@link SendContext} sink,
+ *   or `undefined` when the send set no receipts.
+ *
+ * `.tap()` never collects metadata (it runs detached; see TapStep).
  *
  * @internal
  */
@@ -91,17 +102,20 @@ export function extractOutcomeMetadata(
   adapter: Adapter,
   result: unknown,
   skip: boolean,
+  hook: "getMetadata" | "getSendMetadata" = "getMetadata",
 ): StepOutcomeMetadata | undefined {
   if (skip) return undefined;
-  const getMetadata = (
-    adapter as { getMetadata?: (result: unknown) => StepOutcomeMetadata }
-  ).getMetadata;
-  if (!getMetadata) return undefined;
+  const extract = (
+    adapter as Partial<
+      Record<typeof hook, (result: unknown) => StepOutcomeMetadata>
+    >
+  )[hook];
+  if (!extract) return undefined;
   // Best-effort: metadata is advisory (event-payload enrichment only). A
   // throwing hook must not turn an adapter operation that already
   // succeeded (and may have had side effects) into a route failure.
   try {
-    return getMetadata.call(adapter, result);
+    return extract.call(adapter, result);
   } catch {
     return undefined;
   }

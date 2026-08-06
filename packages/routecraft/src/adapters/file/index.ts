@@ -1,7 +1,6 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { Enricher } from "../../operations/enrich.ts";
-import { rcError } from "../../error.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type { FileOptions } from "./types.ts";
 import { FileSourceAdapter } from "./source.ts";
@@ -59,13 +58,6 @@ export type FileAdapter = Source<string> &
  * ```
  */
 export function file(options: FileOptions): FileAdapter {
-  if (options.append && options.delete) {
-    throw rcError("RC5003", undefined, {
-      message:
-        "file adapter: `append` and `delete` are mutually exclusive send behaviors",
-      suggestion: "Pass at most one of `append: true` / `delete: true`",
-    });
-  }
   const source = new FileSourceAdapter(options);
   const destination = new FileDestinationAdapter(options);
   const enricher = new FileEnricherAdapter(options);

@@ -15,8 +15,8 @@ import {
   getExchangeContext,
   DefaultExchange,
 } from "../exchange.ts";
-import { rcError } from "../error.ts";
 import type { Enricher, CallableEnricher } from "./enrich.ts";
+import { hasSend, hasFetch, missingSlotError } from "./adapter-roles.ts";
 import {
   resolveAdapterOverride,
   invokeSendOverride,
@@ -86,16 +86,6 @@ export type ToTarget<T = unknown, R = unknown> =
   | CallableDestination<T>
   | CallableEnricher<T, R>;
 
-/** Structural check for the send slot. @internal */
-function hasSend<T>(adapter: object): adapter is Destination<T> {
-  return typeof (adapter as Destination<T>).send === "function";
-}
-
-/** Structural check for the fetch slot. @internal */
-function hasFetch<T, R>(adapter: object): adapter is Enricher<T, R> {
-  return typeof (adapter as Enricher<T, R>).fetch === "function";
-}
-
 /**
  * Step that hands the exchange to a destination or enricher.
  *
@@ -162,26 +152,26 @@ export class ToStep<T = unknown, R = unknown> implements Step<Adapter> {
         this.adapter.fetch(exchange, toSignalContext(ctx)),
       );
     } else {
-      throw rcError("RC5003", undefined, {
-        message: "`.to()` target implements neither `send` nor `fetch`",
-        suggestion:
-          "Pass a Destination (send), an Enricher (fetch), or a function form",
-      });
+      throw missingSlotError("`.to()`");
     }
-
-    // The metadata rides the OUTCOME, not the step: Step instances are
-    // shared across exchanges. Send is void, so a send-resolved call hands
-    // its receipt-header record to the adapter's getMetadata hook instead
-    // of a result.
-    const metadata = extractOutcomeMetadata(
-      this.adapter,
-      sendResolved ? receiptHeaders : result,
-      !!override,
-    );
 
     const collectedHeaders = Object.keys(receiptHeaders).length
       ? receiptHeaders
       : undefined;
+
+    // The metadata rides the OUTCOME, not the step: Step instances are
+    // shared across exchanges. The two slots have distinct hooks: a
+    // fetch-resolved call hands its result to `getMetadata`, a
+    // send-resolved call hands its receipt-header record (or undefined
+    // when no receipts were set) to `getSendMetadata`.
+    const metadata = sendResolved
+      ? extractOutcomeMetadata(
+          this.adapter,
+          collectedHeaders,
+          !!override,
+          "getSendMetadata",
+        )
+      : extractOutcomeMetadata(this.adapter, result, !!override);
 
     // A fetch result (or a value returned from a function form) replaces the
     // body via a derived exchange; receipt headers from a send are merged the

@@ -73,10 +73,19 @@ export const MailHeaders = {
   SENDER: "routecraft.mail.sender",
   /** Raw email headers (requested via `includeHeaders`). */
   RAW_HEADERS: "routecraft.mail.rawHeaders",
+  /**
+   * SMTP send receipt: `Message-ID` of the SENT email. Deliberately not
+   * {@link MailHeaders.MESSAGE_ID}: the inbound message and an outbound
+   * reply are different entities, so a `.from(mail(...))....to(mail())`
+   * route keeps the source message's id intact for correlation.
+   */
+  SENT_MESSAGE_ID: "routecraft.mail.sentMessageId",
   /** SMTP send receipt: accepted recipient addresses. */
   ACCEPTED: "routecraft.mail.accepted",
   /** SMTP send receipt: rejected recipient addresses. */
   REJECTED: "routecraft.mail.rejected",
+  /** SMTP send receipt: raw SMTP server response string. */
+  RESPONSE: "routecraft.mail.response",
 } as const satisfies Record<string, `routecraft.mail.${string}`>;
 
 // ---------------------------------------------------------------------------

@@ -85,7 +85,7 @@ craft()
   .to(log())
 ```
 
-**Send destination (SMTP):** Call with no arguments or client options (no `folder`) to send email. The exchange body must be a `MailSendPayload`. The send is void: the body flows through the `.to()` step unchanged, and the send receipt lands on headers (`routecraft.mail.messageId`, `routecraft.mail.accepted`, `routecraft.mail.rejected`; see [send receipt headers](#send-receipt-headers)).
+**Send destination (SMTP):** Call with no arguments or client options (no `folder`) to send email. The exchange body must be a `MailSendPayload`. The send is void: the body flows through the `.to()` step unchanged, and the send receipt lands on headers (`routecraft.mail.sentMessageId`, `routecraft.mail.accepted`, `routecraft.mail.rejected`, `routecraft.mail.response`; see [send receipt headers](#send-receipt-headers)). The inbound `routecraft.mail.messageId` (set by the source) is left untouched, so mail-to-mail routes keep their correlation id.
 
 ```ts
 craft()
@@ -317,7 +317,8 @@ A `.to(mail())` send never touches the body. The receipt is surfaced through the
 
 | Header | Type | Description |
 |--------|------|-------------|
-| `routecraft.mail.messageId` (`MailHeaders.MESSAGE_ID`) | `string` | Message-ID of the sent email |
+| `routecraft.mail.sentMessageId` (`MailHeaders.SENT_MESSAGE_ID`) | `string` | Message-ID of the SENT email (distinct from `routecraft.mail.messageId`, which stays the source message's id) |
+| `routecraft.mail.response` (`MailHeaders.RESPONSE`) | `string` | Raw SMTP server response string |
 | `routecraft.mail.accepted` (`MailHeaders.ACCEPTED`) | `string[]` | Accepted recipient addresses |
 | `routecraft.mail.rejected` (`MailHeaders.REJECTED`) | `string[]` | Rejected recipient addresses |
 

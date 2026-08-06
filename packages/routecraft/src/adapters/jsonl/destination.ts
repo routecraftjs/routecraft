@@ -1,6 +1,7 @@
 import type { Destination, CallableDestination } from "../../operations/to.ts";
 import type { JsonlFileOptions } from "./types.ts";
 import { file } from "../file/index.ts";
+import { assertExclusiveSendBehavior } from "../shared/file-role-guards.ts";
 
 /**
  * JsonlDestinationAdapter implements the Destination (send) role for JSON
@@ -14,7 +15,9 @@ import { file } from "../file/index.ts";
 export class JsonlDestinationAdapter implements Destination<unknown> {
   readonly adapterId = "routecraft.adapter.jsonl";
 
-  constructor(private readonly options: JsonlFileOptions) {}
+  constructor(private readonly options: JsonlFileOptions) {
+    assertExclusiveSendBehavior("jsonl", options);
+  }
 
   send: CallableDestination<unknown> = async (exchange) => {
     const {

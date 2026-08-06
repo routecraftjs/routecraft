@@ -3,6 +3,7 @@ import type { Destination, CallableDestination } from "../../operations/to.ts";
 import type { CsvFileOptions } from "./types.ts";
 import { file } from "../file/index.ts";
 import { ensurePapaparse } from "./shared.ts";
+import { assertExclusiveSendBehavior } from "../shared/file-role-guards.ts";
 
 /**
  * CsvDestinationAdapter implements the Destination (send) role for CSV files.
@@ -15,7 +16,9 @@ import { ensurePapaparse } from "./shared.ts";
 export class CsvDestinationAdapter implements Destination<unknown> {
   readonly adapterId = "routecraft.adapter.csv";
 
-  constructor(private readonly options: CsvFileOptions) {}
+  constructor(private readonly options: CsvFileOptions) {
+    assertExclusiveSendBehavior("csv", options);
+  }
 
   send: CallableDestination<unknown> = async (exchange) => {
     const resolvedPath =

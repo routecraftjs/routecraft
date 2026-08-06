@@ -17,7 +17,8 @@
  *   exchange body and writes it. A write replaces the card; it does not merge.
  *   Reading is lossless, so a read-modify-write keeps properties you did not
  *   touch; removing a property removes it. The write receipt (`url` / `uid` /
- *   `etag`) lands on the `routecraft.carddav.*` headers.
+ *   `etag`, plus `created` for insert-vs-update) lands on the
+ *   `routecraft.carddav.*` headers.
  * - `action: 'delete'`: deletes the contact resolved from the headers, the body,
  *   or a custom `target` extractor.
  *
@@ -244,24 +245,33 @@ export class CarddavAdapter
     }
     const result = await this.write(exchange, action);
     // A saved card's identity lands where a read card's identity lives, so
-    // downstream update/delete steps target it without a re-read.
+    // downstream update/delete steps target it without a re-read. `created`
+    // is receipt-only: it distinguishes an insert from an update for
+    // routes that branch on it.
     ctx?.setHeader(CarddavHeaders.URL, result.url);
     ctx?.setHeader(CarddavHeaders.UID, result.uid);
     if (result.etag) ctx?.setHeader(CarddavHeaders.ETAG, result.etag);
+    ctx?.setHeader(CarddavHeaders.CREATED, result.created);
+  }
+
+  /** Observability metadata for the fetch role: the fetched card array. */
+  getMetadata(result: unknown): Record<string, unknown> {
+    return { count: Array.isArray(result) ? result.length : 0 };
   }
 
   /**
-   * Observability metadata for the `.to()` / `.enrich()` step. A fetch hands
-   * the card array; a send hands the receipt-header record (send is void).
+   * Observability metadata for the send role: receives the receipt-header
+   * record collected by the `.to()` step (send is void).
    */
-  getMetadata(result: unknown): Record<string, unknown> {
-    if (Array.isArray(result)) return { count: result.length };
-    const receipts = (result ?? {}) as Record<string, unknown>;
+  getSendMetadata(receiptHeaders: unknown): Record<string, unknown> {
+    const receipts = (receiptHeaders ?? {}) as Record<string, unknown>;
     const meta: Record<string, unknown> = {};
     if (receipts[CarddavHeaders.UID] !== undefined)
       meta["uid"] = receipts[CarddavHeaders.UID];
     if (receipts[CarddavHeaders.URL] !== undefined)
       meta["url"] = receipts[CarddavHeaders.URL];
+    if (receipts[CarddavHeaders.CREATED] !== undefined)
+      meta["created"] = receipts[CarddavHeaders.CREATED];
     return meta;
   }
 
@@ -462,7 +472,7 @@ export class CarddavAdapter
       throwCarddavError(error, "delete contact");
     }
     assertResponseOk(response, "delete contact");
-    const result: CarddavDeleteResult = { url, deleted: true };
+    const result: CarddavDeleteResult = { url };
     const resolvedUid = uid ?? uidFromUrl(url);
     if (resolvedUid) result.uid = resolvedUid;
     return result;

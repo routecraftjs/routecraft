@@ -34,7 +34,7 @@ A destination pushes the exchange out to an external system. It goes in `.to()`.
 ```ts
 .to(log())
 .to(json({ path: './output.json' }))
-.to(jsonl({ path: './events.jsonl' }))
+.to(jsonl({ path: './events.jsonl', append: true }))
 .to(mail())
 ```
 

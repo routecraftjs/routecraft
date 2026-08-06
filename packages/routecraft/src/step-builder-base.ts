@@ -16,7 +16,7 @@ import {
   EnrichStep,
   type Enricher,
   type CallableEnricher,
-  type DestinationAggregator,
+  type EnrichAggregator,
   type EnrichMergeShape,
   type EnrichAggregatorOption,
 } from "./operations/enrich.ts";
@@ -123,6 +123,23 @@ export interface BuilderState {
 export type SetBody<S extends BuilderState, B> = {
   [K in keyof S]: K extends "body" ? B : S[K];
 };
+
+/**
+ * Body type after a bare pull-in step (`.enrich(x)` with no aggregator, or a
+ * fetch-only adapter in `.to()`). A fetch that resolves `undefined` means
+ * "no value" and leaves the body unchanged at runtime, so a result type that
+ * includes `undefined` yields the union of the previous body and the defined
+ * results; this keeps the static claim honest for nullable enrichers (a
+ * cache miss, `(ex) => map.get(k)`). Return `null` instead when a miss
+ * should be an observable replacement value. Result types without
+ * `undefined` collapse to plain `R`.
+ *
+ * @template Current - Body type entering the step
+ * @template R - Value type the fetch produces
+ */
+export type FetchedBody<Current, R> = undefined extends R
+  ? Current | Exclude<R, undefined>
+  : R;
 
 /**
  * Maps the polymorphic `this` type of a `StepBuilderBase` call to the same
@@ -501,15 +518,19 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * {@link SendContext}); when an adapter has both `send` and `fetch`,
    * `send` wins ("to a file means save to it"). A fetch-only adapter (e.g.
    * `http({ url })`, `direct("endpoint")`) is a pull-in, and the fetched
-   * value replaces the body. Function forms follow their inferred return
-   * type: `(ex) => void` is a send, `(ex) => R` replaces the body with `R`.
+   * value replaces the body; a fetch resolving `undefined` means "no value"
+   * and leaves the body unchanged (see {@link FetchedBody}). Function forms
+   * follow their inferred return type: `(ex) => void` is a send,
+   * `(ex) => R` replaces the body with `R`.
    *
    * @param target - Destination, Enricher, or callable
    * @returns The subclass builder re-typed to the step's output body
    * @template R - Fetched result body type for pull-in targets
    */
   to(destination: Destination<S["body"]>): Retyped<this, S>;
-  to<R>(enricher: Enricher<S["body"], R>): Retyped<this, SetBody<S, R>>;
+  to<R>(
+    enricher: Enricher<S["body"], R>,
+  ): Retyped<this, SetBody<S, FetchedBody<S["body"], R>>>;
   to<R = void>(
     fn: (exchange: Exchange<S["body"]>, ctx?: SendContext) => Promise<R> | R,
   ): Retyped<this, SetBody<S, R extends void ? S["body"] : R>>;
@@ -543,6 +564,10 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * inference, `none()` keeps the body, and a custom aggregator returns the
    * derived exchange itself.
    *
+   * A fetch resolving `undefined` means "no value" and leaves the body
+   * unchanged ({@link FetchedBody} reflects this in the inferred type);
+   * return `null` when a miss should be an observable replacement value.
+   *
    * @param enricher - Enricher adapter or callable that produces the data
    * @param aggregator - Optional merge strategy; omitted = replace the body
    * @returns The subclass builder re-typed to the resulting body shape
@@ -551,12 +576,12 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    */
   enrich<R>(
     enricher: Enricher<S["body"], R> | CallableEnricher<S["body"], R>,
-  ): Retyped<this, SetBody<S, R>>;
+  ): Retyped<this, SetBody<S, FetchedBody<S["body"], R>>>;
   enrich<
     R,
     A extends
-      | DestinationAggregator<S["body"], R>
-      | (DestinationAggregator<unknown, unknown> & {
+      | EnrichAggregator<S["body"], R>
+      | (EnrichAggregator<unknown, unknown> & {
           [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
         }),
   >(

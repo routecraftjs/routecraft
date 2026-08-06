@@ -3,6 +3,7 @@ import type { XmlData, XmlFileOptions } from "./types.ts";
 import { file } from "../file/index.ts";
 import { getFastXmlParser, parseXml } from "./shared.ts";
 import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
+import { staticSourcePathError } from "../shared/file-role-guards.ts";
 
 /**
  * XmlSourceAdapter reads XML files and parses them via fast-xml-parser.
@@ -36,9 +37,7 @@ export class XmlSourceAdapter implements Source<XmlData> {
 
     const filePath = this.options.path;
     if (typeof filePath !== "string") {
-      throw new Error(
-        "xml adapter: path must be a string for source mode (dynamic paths are only supported for destinations)",
-      );
+      throw staticSourcePathError("xml");
     }
 
     const fileAdapter = file({

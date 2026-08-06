@@ -199,7 +199,7 @@ export {
 export {
   type Enricher,
   type CallableEnricher,
-  type DestinationAggregator,
+  type EnrichAggregator,
   only,
   none,
 } from "./operations/enrich.ts";
@@ -268,6 +268,7 @@ export type {
   StepBuilderBase,
   BuilderState,
   SetBody,
+  FetchedBody,
   Retyped,
 } from "./step-builder-base.ts";
 

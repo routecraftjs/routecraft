@@ -1,7 +1,7 @@
 import type { Enricher, CallableEnricher } from "../../operations/enrich.ts";
 import type { Exchange } from "../../exchange.ts";
 import type { HtmlOptions, HtmlResult } from "./types.ts";
-import { file } from "../file/index.ts";
+import { FileEnricherAdapter } from "../file/enricher.ts";
 import { extractHtml } from "./shared.ts";
 
 /**
@@ -36,7 +36,9 @@ export class HtmlEnricherAdapter<
       typeof this.pathOption === "function"
         ? this.pathOption(exchange)
         : this.pathOption;
-    const content = await file({
+    // Only the fetch slot is needed; skip the full file() facade on the
+    // hot path.
+    const content = await new FileEnricherAdapter({
       path: resolvedPath,
       encoding: this.options.encoding ?? "utf-8",
     }).fetch(exchange, ctx);

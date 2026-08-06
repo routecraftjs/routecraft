@@ -19,6 +19,8 @@ Bare `.enrich(x)` replaces the body with the fetched value. Under the old role m
 
 **Note:** `.to()` and `.tap()` accept the same enrichers: `.to()` replaces the body with the result and takes no aggregator, `.tap()` discards it. Use `.enrich()` when you want control over how the result lands on the body.
 
+**`undefined` vs `null`:** a fetch resolving `undefined` means "no value" and leaves the body unchanged (the inferred body type becomes the union of the previous body and the defined results). Return `null` when a miss should be an observable replacement value, e.g. `(ex) => cache.get(key) ?? null`.
+
 **Default behavior (result replaces the body):**
 
 ```ts

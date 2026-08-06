@@ -3,6 +3,7 @@ import type { Exchange } from "../../exchange.ts";
 import type { HtmlOptions, HtmlResult } from "./types.ts";
 import { file } from "../file/index.ts";
 import { getHtml } from "./shared.ts";
+import { assertExclusiveSendBehavior } from "../shared/file-role-guards.ts";
 
 /**
  * HtmlDestinationAdapter implements the Destination (send) role for HTML
@@ -26,6 +27,7 @@ export class HtmlDestinationAdapter<
         "html adapter: the send role requires the path option to be provided",
       );
     }
+    assertExclusiveSendBehavior("html", options);
     this.pathOption = options.path;
   }
 

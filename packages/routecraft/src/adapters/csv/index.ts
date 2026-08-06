@@ -2,7 +2,6 @@ import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import type { Transformer } from "../../operations/transform.ts";
-import { rcError } from "../../error.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type {
   CsvOptions,
@@ -122,13 +121,6 @@ export function csv<T = unknown, R = unknown>(
   }
 
   const fileOptions = options as CsvFileOptions;
-  if (fileOptions.append && fileOptions.delete) {
-    throw rcError("RC5003", undefined, {
-      message:
-        "csv adapter: `append` and `delete` are mutually exclusive send behaviors",
-      suggestion: "Pass at most one of `append: true` / `delete: true`",
-    });
-  }
   const source = new CsvSourceAdapter(fileOptions);
   const destination = new CsvDestinationAdapter(fileOptions);
   const enricher = new CsvEnricherAdapter(fileOptions);

@@ -2,7 +2,6 @@ import type { Source, CallableSource } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import type { Transformer } from "../../operations/transform.ts";
-import { rcError } from "../../error.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type {
   JsonTransformerOptions,
@@ -83,14 +82,6 @@ export function json<T = unknown, R = unknown, V = unknown>(
   // file path (the transformer's extraction key is `pointer`).
   if ("path" in options && options.path !== undefined) {
     const fileOptions = options as JsonFileOptions;
-    if (fileOptions.append && fileOptions.delete) {
-      throw rcError("RC5003", undefined, {
-        message:
-          "json adapter: `append` and `delete` are mutually exclusive send behaviors",
-        suggestion: "Pass at most one of `append: true` / `delete: true`",
-      });
-    }
-
     const destination = new JsonDestinationAdapter(fileOptions);
     const enricher = new JsonEnricherAdapter<T>(fileOptions);
 

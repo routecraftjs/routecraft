@@ -3,6 +3,7 @@ import type { JsonFileOptions } from "./types.ts";
 import type { FileOptions } from "../file/types.ts";
 import { file } from "../file/index.ts";
 import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
+import { staticSourcePathError } from "../shared/file-role-guards.ts";
 
 /**
  * JsonSourceAdapter reads and parses JSON files.
@@ -25,9 +26,7 @@ export class JsonSourceAdapter implements Source<unknown> {
 
   constructor(private readonly options: JsonFileOptions) {
     if (typeof options.path !== "string") {
-      throw new Error(
-        "json adapter: the source role requires a static string path (dynamic paths resolve against an exchange, which does not exist at subscribe time)",
-      );
+      throw staticSourcePathError("json");
     }
     // Build options object, only including defined properties to satisfy exactOptionalPropertyTypes
     const fileOptions: FileOptions = { path: options.path };

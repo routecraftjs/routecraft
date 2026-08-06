@@ -2,7 +2,6 @@ import type { Source, CallableSource } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import type { Transformer } from "../../operations/transform.ts";
-import { rcError } from "../../error.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type { JsonlFileOptions, JsonlTransformerOptions } from "./types.ts";
 import { JsonlSourceAdapter } from "./source.ts";
@@ -122,13 +121,6 @@ export function jsonl<T = unknown, R = unknown>(
   }
 
   const fileOptions = options as JsonlFileOptions;
-  if (fileOptions.append && fileOptions.delete) {
-    throw rcError("RC5003", undefined, {
-      message:
-        "jsonl adapter: `append` and `delete` are mutually exclusive send behaviors",
-      suggestion: "Pass at most one of `append: true` / `delete: true`",
-    });
-  }
 
   const destination = new JsonlDestinationAdapter(fileOptions);
   const enricher = new JsonlEnricherAdapter<T>(fileOptions);
@@ -143,9 +135,7 @@ export function jsonl<T = unknown, R = unknown>(
           fileOptions as JsonlFileOptions & { path: string },
         ).subscribe
       : async () => {
-          throw new Error(
-            "jsonl adapter: the source role requires a static string path (dynamic paths resolve against an exchange, which does not exist at subscribe time)",
-          );
+          throw staticSourcePathError("jsonl");
         };
 
   return tagAdapter(
@@ -166,4 +156,5 @@ export type {
   JsonlTransformerOptions,
   JsonlOptions,
 } from "./types.ts";
+import { staticSourcePathError } from "../shared/file-role-guards.ts";
 export { JsonlHeaders } from "./types.ts";

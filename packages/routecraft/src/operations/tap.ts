@@ -8,20 +8,37 @@ import {
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import type { Destination, SendContext } from "./to.ts";
-import type { Enricher, CallableEnricher } from "./enrich.ts";
+import type { Enricher } from "./enrich.ts";
+import { hasSend, hasFetch, missingSlotError } from "./adapter-roles.ts";
 import {
   resolveAdapterOverride,
   invokeSendOverride,
 } from "../testing-hooks.ts";
 
 /**
+ * Function form of a tap. One signature covers both role shapes (a
+ * {@link CallableDestination} written for `.to()` and a
+ * {@link CallableEnricher}) so either drops into `.tap()` unchanged and the
+ * exchange parameter stays contextually typed: the `ctx` is a
+ * {@link SendContext} (its `setHeader` sink discards receipts with the
+ * snapshot), and any returned value is discarded.
+ *
+ * @template T - Current body type
+ */
+export type TapCallable<T = unknown> = (
+  exchange: Exchange<T>,
+  ctx?: SendContext,
+) => unknown;
+
+/**
  * Anything `.tap()` accepts: a Destination (send), an Enricher (fetch and
- * discard), or a function form. Results are always discarded; a tap observes.
+ * discard), or a function form. Results are always discarded; a tap
+ * observes.
  *
  * @template T - Current body type
  */
 export type TapTarget<T = unknown> =
-  Destination<T> | Enricher<T, unknown> | CallableEnricher<T, unknown>;
+  Destination<T> | Enricher<T, unknown> | TapCallable<T>;
 
 /**
  * Step that runs a destination (or enricher) as a side effect without changing
@@ -37,7 +54,7 @@ export class TapStep<T = unknown> implements Step<Adapter> {
   label?: string;
   adapter: Adapter;
   /** Function form, when constructed from a bare callable. */
-  private readonly callable: CallableEnricher<T, unknown> | undefined;
+  private readonly callable: TapCallable<T> | undefined;
 
   constructor(target: TapTarget<T>) {
     if (typeof target === "function") {
@@ -74,36 +91,24 @@ export class TapStep<T = unknown> implements Step<Adapter> {
         // event has already been emitted by the time the call resolves and
         // any metadata written now would be misattributed to a later
         // exchange's event.
+        // No signal on purpose: the tap runs detached from the main flow
+        // (its outcome never gates the pipeline), so an enclosing timeout
+        // abandoning the ATTEMPT must not cancel an observation already in
+        // flight. Mirrors captureDownstream's no-inherited-abort-signal
+        // contract. The header sink swallows receipts: they would only
+        // ever decorate the discarded snapshot. Function forms get the
+        // same sink so a callable written for `.to()` behaves identically.
+        const sink: SendContext = { setHeader: () => undefined };
         if (override) {
           await invokeSendOverride(snapshot, this.adapter, override);
         } else if (this.callable) {
-          await Promise.resolve(this.callable(snapshot, {}));
-        } else if (
-          typeof (this.adapter as Partial<Destination<T>>).send === "function"
-        ) {
-          // Empty signal context on purpose: the tap runs detached from
-          // the main flow (its outcome never gates the pipeline), so an
-          // enclosing timeout abandoning the ATTEMPT must not cancel an
-          // observation already in flight. Mirrors captureDownstream's
-          // no-inherited-abort-signal contract. The header sink swallows
-          // receipts: they would only ever decorate the discarded snapshot.
-          const sink: SendContext = { setHeader: () => undefined };
-          await Promise.resolve(
-            (this.adapter as Destination<T>).send(snapshot, sink),
-          );
-        } else if (
-          typeof (this.adapter as Partial<Enricher<T, unknown>>).fetch ===
-          "function"
-        ) {
-          await Promise.resolve(
-            (this.adapter as Enricher<T, unknown>).fetch(snapshot, {}),
-          );
+          await Promise.resolve(this.callable(snapshot, sink));
+        } else if (hasSend<T>(this.adapter)) {
+          await Promise.resolve(this.adapter.send(snapshot, sink));
+        } else if (hasFetch<T, unknown>(this.adapter)) {
+          await Promise.resolve(this.adapter.fetch(snapshot, {}));
         } else {
-          throw rcError("RC5003", undefined, {
-            message: "`.tap()` target implements neither `send` nor `fetch`",
-            suggestion:
-              "Pass a Destination (send), an Enricher (fetch), or a function form",
-          });
+          throw missingSlotError("`.tap()`");
         }
       } catch (error: unknown) {
         const err = rcError("RC5001", error, {

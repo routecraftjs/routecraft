@@ -32,7 +32,8 @@ import type {
  * else creates), `'create'` always inserts, `'update'` writes to the card's
  * `url` (else `RC5014`). The send is void: the card body flows through
  * unchanged and the write receipt (`routecraft.carddav.url` / `.uid` /
- * `.etag`) lands on the same headers the read side sets.
+ * `.etag`, plus `.created` for insert-vs-update) lands on the same headers
+ * the read side sets.
  *
  * **Delete (`.to()`):** `action: 'delete'` removes the contact resolved from the
  * body (`url`/`uid`), the read headers, or a custom `target` extractor. The
@@ -78,11 +79,11 @@ export function carddav(
   // an action-shaped one has no `subscribe`/`fetch`.
   if (options?.action) {
     const destination: Destination<unknown> & {
-      getMetadata(result: unknown): Record<string, unknown>;
+      getSendMetadata(receipts: unknown): Record<string, unknown>;
     } = {
       adapterId: adapter.adapterId,
       send: (exchange, ctx) => adapter.send(exchange, ctx),
-      getMetadata: (result) => adapter.getMetadata(result),
+      getSendMetadata: (receipts) => adapter.getSendMetadata(receipts),
     };
     return tagAdapter(destination, carddav, args) as Destination<VCardBody>;
   }

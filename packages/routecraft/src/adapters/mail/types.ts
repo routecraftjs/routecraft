@@ -610,9 +610,17 @@ declare module "@routecraft/routecraft" {
      * headers (e.g. multiple `Received` lines).
      */
     [MailHeaders.RAW_HEADERS]?: Readonly<Record<string, string | string[]>>;
+    /**
+     * SMTP send receipt: `Message-ID` of the SENT email (set by
+     * `.to(mail())`). Distinct from {@link MailHeaders.MESSAGE_ID}, which
+     * stays the SOURCE message's id.
+     */
+    [MailHeaders.SENT_MESSAGE_ID]?: string;
     /** SMTP send receipt: accepted recipient addresses (set by `.to(mail())`). */
     [MailHeaders.ACCEPTED]?: string[];
     /** SMTP send receipt: rejected recipient addresses (set by `.to(mail())`). */
     [MailHeaders.REJECTED]?: string[];
+    /** SMTP send receipt: raw SMTP server response string (set by `.to(mail())`). */
+    [MailHeaders.RESPONSE]?: string;
   }
 }
