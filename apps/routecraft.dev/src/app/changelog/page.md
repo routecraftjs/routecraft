@@ -46,6 +46,14 @@ This section tracks changes landing on `main` since the v0.5.0 release; release 
 - **Block-loader calls partitioned out of `toolCalls`** -- progressive loads surface on `AgentResult.blocksLoaded` and emit `agent:block:*` events instead of `agent:tool:*`.
 - **`skills:` frontmatter on `agents()` rejected** -- supply `blocks` through the per-agent overrides map instead.
 - **New error codes `AI1001`-`AI1003`** -- block resolution failure, name collision / reserved `_block_` prefix, and block misconfiguration.
+- **`direct_<routeId>` and `_block_load_<name>` tool names renamed** -- synthetic tool names now use `__` as their sole structural separator, so they become `direct__<routeId>` and `_block__load__<name>`. Fn ids and `mcp__<server>__<tool>` are unchanged, and the `Direct(...)` / `MCP(...)` authoring grammar does not change. Update anything pinning a generated name: tool-name guards, assertions on `toolCalls[].toolName` or `blocksLoaded[].toolName`, recorded transcripts, evals. See the [migration guide](/docs/migrating/0.5-to-0.6#tool-name-normalisation).
+- **`ResolvedTool.source` is a new required field** -- a resolver-set `fn` / `direct` / `mcp` / `block` discriminant. Affects only code that hand-constructs a `ResolvedTool`.
+- **`Direct(<routeId>)` and fn ids validated against the provider charset** -- a name that cannot survive as a provider tool name (`/^[A-Za-z0-9_-]{1,64}$/`) now raises `RC5003` naming the offending character or length, rather than being rejected by the provider later. Expose an unsafe route id under a tool-safe alias with `directTool(routeId)`. An MCP client tool whose remote name cannot form a valid wire name is dropped with a warning instead of failing the dispatch.
+
+### AI &amp; MCP
+
+- **`agentPlugin({ toolPolicy })`** -- repository-wide admission control for the agent tool surface, keyed by tool kind (`fn` / `direct` / `mcp`), each `true`, `false`, or a predicate over a read-only tool descriptor. Omit it and nothing changes; supply it and the surface becomes an allowlist where every kind must be decided. Enforced at the single point every agent form converges on, so inline, registered, markdown, and nested agents are all covered, and multiple installs compose with AND. See the [tool policy reference](/docs/reference/plugins/agentplugin#tool-policy).
+- **`route:agent:tool:denied` event** -- emitted once per tool refused admission by a policy, carrying `agentName`, `toolName`, `toolKind`, and a `reason` of `rule`, `rule-error`, or `unknown-provenance`, so denials are alertable and auditable rather than only logged.
 
 ### Internals
 

@@ -431,7 +431,15 @@ agentPlugin({
 
 `toolPolicy` sets repository-wide rules for which tools an agent may be given, independent of what any individual agent asks for.
 
-**Omitting `toolPolicy` changes nothing: every tool is admitted, exactly as before. Supplying it makes the tool surface an allowlist, and a kind with no entry is denied.** That asymmetry is deliberate. It is the only shape that leaves existing contexts untouched while failing closed for anyone who opts in.
+**Omitting `toolPolicy` changes nothing: every tool is admitted, exactly as before. Supplying it makes the tool surface an allowlist.** That asymmetry is deliberate: it is the only shape that leaves existing contexts untouched while failing closed for anyone who opts in.
+
+Once you supply a policy, **every kind is required**. Writing only the line you care about does not compile:
+
+```ts
+agentPlugin({ toolPolicy: { mcp: false } }) // Error: missing 'fn', 'direct'
+```
+
+That is on purpose. An optional key would read the way `?` reads everywhere else in TypeScript, "omit it and get the default", when the effective default here is denial. The partial form above would otherwise strip every fn and every capability from every agent in the repository, with no diff signal and nothing to notice but a warn line per dropped tool. It also means a future release adding a fourth tool kind breaks your build rather than silently narrowing a policy you already deployed.
 
 ```ts
 agentPlugin({
@@ -457,18 +465,22 @@ agentPlugin({
   toolPolicy: {
     fn: true,
     direct: (tool) => !tool.tags.includes('experimental'),
-    mcp: (tool) => tool.source.kind === 'mcp' && tool.source.server === 'docs',
+    mcp: (tool) => tool.source.server === 'docs',
   },
 })
 ```
 
-The predicate receives a read-only descriptor (`name`, `description`, `tags`, `source`) and a context carrying `agentId`. It does not receive the handler, so a rule cannot wrap or invoke what it is deciding about.
+The predicate receives a read-only descriptor (`name`, `description`, `tags`, `source`). `source` is narrowed to the kind whose rule is running, so an `mcp` rule reads `tool.source.server` directly with no `kind` guard. The descriptor does not carry the handler, so a rule cannot wrap or invoke what it is deciding about, and it is a frozen copy, so a rule cannot mutate registry state through it.
+
+A second argument carries `agentId` (the registered agent's name, or `undefined` for an inline agent). **It is for diagnostics only. Do not branch on it.** Inline agents have no id, so an identity-keyed rule has no defensible behaviour for them: denying breaks every inline agent, allowing creates a trivial bypass. If you want per-agent policy, the missing ingredient is provenance carried through agent registration, not this field.
 
 **Why `direct` and not `route`.** Only routes that register a capability are reachable as agent tools. A route sourced solely from `http()` or `mcp()` never registers one, so `Direct(...)` cannot resolve it. Naming the key `route` would imply governance over a set the policy cannot see.
 
 **Enforcement is total.** The check runs at the single point every agent form converges on, so inline agents, registered agents, markdown agents, and nested agents dispatched from inside a route are all covered. An agent's own `tools([...])` selection cannot widen what the policy admits.
 
-**Denial drops and logs; it never throws.** A denied tool is removed from the agent's list and a warning names the agent, the tool, and the kind. A silent drop would be undiagnosable when a model starts insisting it cannot do something; a throw would turn tightening a policy into an outage.
+**Denial drops, logs, and emits; it never throws.** A denied tool is removed from the agent's list, a warning names the agent, the tool, and the kind, and a `route:agent:tool:denied` event carries the same on the context bus with a `reason` of `rule`, `rule-error`, or `unknown-provenance`. The log is for someone reading text; the event is what you alert and audit on. A silent drop would be undiagnosable when a model starts insisting it cannot do something; a throw would turn tightening a policy into an outage.
+
+**A predicate that throws denies its tool rather than propagating.** The throw is reported at error level with its cause, and the routine denial warning is suppressed so one failure produces one line. A policy is meant to fail closed and a denial is meant never to abort a dispatch; letting the throw escape would do the opposite of both, turning one bad predicate into an outage for every agent listing a tool of that kind.
 
 **Multiple installs compose with AND.** A tool is admitted only when every installed policy admits it, so adding a plugin can only narrow the surface.
 

@@ -41,11 +41,37 @@ export type AgentToolSource =
     };
 
 /**
- * The tool kinds a {@link AgentToolPolicy} can govern. Excludes
- * `block`, which is framework machinery rather than a granted
- * capability.
+ * The tool kinds a {@link AgentToolPolicy} can govern. Derived from
+ * {@link AgentToolSource} rather than restated, so adding a source kind
+ * cannot silently leave the policy surface behind. Excludes `block`,
+ * which is framework machinery rather than a granted capability.
  */
-export type AgentToolPolicyKind = "fn" | "direct" | "mcp";
+export type AgentToolPolicyKind = Exclude<AgentToolSource["kind"], "block">;
+
+/**
+ * The governable kinds as a runtime value, for validators that need to
+ * enumerate them. Checked against {@link AgentToolPolicyKind}, so
+ * adding a kind to {@link AgentToolSource} fails to compile here until
+ * someone decides whether it is policy-governed.
+ *
+ * @internal
+ */
+export const AGENT_TOOL_POLICY_KINDS = [
+  "fn",
+  "direct",
+  "mcp",
+] as const satisfies readonly AgentToolPolicyKind[];
+
+/**
+ * The provenance arms a policy rule can actually be handed. Excludes
+ * `block`: loader tools are merged in after policy evaluation, so no
+ * predicate ever sees one, and leaving the arm in the union would force
+ * every predicate to carry a dead `kind` guard to reach its own fields.
+ */
+export type AgentToolPolicySource = Extract<
+  AgentToolSource,
+  { kind: AgentToolPolicyKind }
+>;
 
 /**
  * Read-only view of a tool handed to a policy rule.
@@ -55,15 +81,21 @@ export type AgentToolPolicyKind = "fn" | "direct" | "mcp";
  * it is deciding about. New metadata can arrive here as optional fields
  * without breaking existing predicates.
  */
-export interface AgentToolDescriptor {
+export interface AgentToolDescriptor<
+  K extends AgentToolPolicyKind = AgentToolPolicyKind,
+> {
   /** The LLM-facing tool name, already in its final wire form. */
   readonly name: string;
   /** Description the model would be shown. */
   readonly description: string;
   /** Tags from the underlying registration, empty when it carries none. */
   readonly tags: readonly Tag[];
-  /** Resolver-set provenance. */
-  readonly source: AgentToolSource;
+  /**
+   * Resolver-set provenance, narrowed to the kind whose rule is being
+   * evaluated. An `mcp` rule therefore reads `tool.source.server`
+   * directly, with no `kind` guard to satisfy the type checker.
+   */
+  readonly source: Extract<AgentToolPolicySource, { kind: K }>;
 }
 
 /**
@@ -88,22 +120,33 @@ export interface AgentToolPolicyContext {
  * `false` denies every tool of the kind, and a predicate decides per
  * tool.
  */
-export type AgentToolRule =
+export type AgentToolRule<K extends AgentToolPolicyKind = AgentToolPolicyKind> =
   | boolean
-  | ((tool: AgentToolDescriptor, ctx: AgentToolPolicyContext) => boolean);
+  | ((tool: AgentToolDescriptor<K>, ctx: AgentToolPolicyContext) => boolean);
 
 /**
  * Repository-wide admission rules for the agent tool surface, one entry
  * per tool kind.
  *
  * **Absent `toolPolicy` means no policy at all: every tool is
- * admitted.** Once `toolPolicy` is present it becomes an allowlist, and
- * a kind with no entry is denied. That asymmetry is deliberate: it is
- * the only shape that leaves existing contexts untouched while failing
- * closed for anyone who opts in. One consequence worth knowing: a
- * future framework release that adds a fourth tool kind narrows an
- * existing policy rather than widening it, which is the safe direction,
- * and is why denial always logs.
+ * admitted**, so existing contexts are untouched. Once `toolPolicy` is
+ * present it is an allowlist and every kind must be decided.
+ *
+ * Every key is required, deliberately. An optional key would read the
+ * way `?` reads everywhere else in TypeScript, "omit it and get the
+ * default", when the effective default here is total denial. Writing
+ * only the line you care about:
+ *
+ * ```ts
+ * agentPlugin({ toolPolicy: { mcp: false } }); // does not compile
+ * ```
+ *
+ * would otherwise strip every fn and every capability from every agent
+ * in the repository, with no diff signal and nothing to notice but a
+ * warn line per dropped tool. Requiring all three turns that into a
+ * compile error naming the kinds you forgot. It also means a future
+ * release adding a fourth kind breaks the build rather than silently
+ * narrowing what you already deployed.
  *
  * Multiple `agentPlugin` installs compose with AND. A tool is admitted
  * only when every installed policy admits it, so adding a plugin can
@@ -127,28 +170,27 @@ export type AgentToolRule =
  *   toolPolicy: {
  *     fn: true,
  *     direct: (tool) => !tool.tags.includes("experimental"),
- *     mcp: (tool) => tool.source.kind === "mcp" && tool.source.server === "docs",
+ *     mcp: (tool) => tool.source.server === "docs",
  *   },
  * });
  * ```
  */
-export interface AgentToolPolicy {
-  /** Rule for in-process fns registered via `agentPlugin({ functions })`. */
-  fn?: AgentToolRule;
+export type AgentToolPolicy = {
   /**
-   * Rule for capabilities in the capability registry, reached via
-   * `Direct(<routeId>)` or a `directTool` alias.
+   * Rule for the tools of this kind.
    *
-   * Named for the capability registry rather than for routes, because
-   * that registry is what the agent surface can actually reach. A route
-   * sourced only from `http()` or `mcp()` never registers a capability,
-   * so it is not addressable as an agent tool in the first place and a
-   * rule here would give a false impression of governing it.
+   * - `fn`: in-process fns registered via `agentPlugin({ functions })`.
+   * - `direct`: capabilities in the capability registry, reached via
+   *   `Direct(<routeId>)` or a `directTool` alias. Named for the
+   *   capability registry rather than for routes, because that registry
+   *   is what the agent surface can actually reach: a route sourced
+   *   only from `http()` or `mcp()` never registers a capability, so it
+   *   is not addressable as an agent tool and a rule here would give a
+   *   false impression of governing it.
+   * - `mcp`: tools discovered from external MCP clients.
    */
-  direct?: AgentToolRule;
-  /** Rule for tools discovered from external MCP clients. */
-  mcp?: AgentToolRule;
-}
+  [K in AgentToolPolicyKind]: AgentToolRule<K>;
+};
 
 /**
  * Reports a predicate that threw. Supplied by the caller so the failure
@@ -161,6 +203,20 @@ export type AgentToolRuleErrorReporter = (
   tool: AgentToolDescriptor,
   cause: unknown,
 ) => void;
+
+/**
+ * The outcome of evaluating a policy against one tool. `reported` says
+ * whether the denial has already been surfaced through
+ * {@link AgentToolRuleErrorReporter}, so the caller can log the routine
+ * denial line without duplicating a failure it has already described in
+ * more detail.
+ *
+ * @internal
+ */
+export interface AgentToolVerdict {
+  readonly admitted: boolean;
+  readonly reported: boolean;
+}
 
 /**
  * Evaluate one rule against one tool.
@@ -181,16 +237,21 @@ function ruleAdmits(
   tool: AgentToolDescriptor,
   ctx: AgentToolPolicyContext,
   onRuleError: AgentToolRuleErrorReporter | undefined,
-): boolean {
+): AgentToolVerdict {
   // A kind with no entry under a present policy is denied: the policy
-  // is an allowlist once it exists.
-  if (rule === undefined) return false;
-  if (typeof rule === "boolean") return rule;
+  // is an allowlist once it exists. The type requires every key, so
+  // this is only reachable from JavaScript or a cast.
+  if (rule === undefined) return { admitted: false, reported: false };
+  if (typeof rule === "boolean") {
+    return { admitted: rule, reported: false };
+  }
   try {
-    return rule(tool, ctx) === true;
+    return { admitted: rule(tool, ctx) === true, reported: false };
   } catch (cause) {
     onRuleError?.(tool, cause);
-    return false;
+    // Reported here, so the caller does not log a second, blander line
+    // for the same tool and the same outcome.
+    return { admitted: false, reported: true };
   }
 }
 
@@ -208,12 +269,33 @@ export function policiesAdmit(
   tool: AgentToolDescriptor,
   ctx: AgentToolPolicyContext,
   onRuleError?: AgentToolRuleErrorReporter,
-): boolean {
-  if (policies.length === 0) return true;
-  const kind = tool.source.kind;
-  if (kind === "block") return true;
-  for (const policy of policies) {
-    if (!ruleAdmits(policy[kind], tool, ctx, onRuleError)) return false;
+): AgentToolVerdict {
+  if (policies.length === 0) return { admitted: true, reported: false };
+  const kind = (tool.source as AgentToolSource | undefined)?.kind;
+  // Loader tools are exempt and are also merged in after this runs, so
+  // this arm is belt-and-braces rather than the primary guard.
+  if (kind === "block") return { admitted: true, reported: false };
+  // Provenance is resolver-set, so an absent or unrecognised kind means
+  // a hand-built `ResolvedTool` from outside the type contract. Deny it
+  // rather than dereferencing undefined and taking down the dispatch:
+  // an allowlist cannot admit what it cannot classify. `reported` stays
+  // false so the caller's denial line names the tool.
+  if (!AGENT_TOOL_POLICY_KINDS.includes(kind as AgentToolPolicyKind)) {
+    return { admitted: false, reported: false };
   }
-  return true;
+  for (const policy of policies) {
+    // The rule is typed for its own kind, so it declares a narrower
+    // descriptor than the wide one this function holds. The narrowing is
+    // real: `kind` was read off `tool.source`, so the descriptor being
+    // passed IS of that kind. TypeScript cannot see that link through
+    // the index access, and function parameters are contravariant, so
+    // the two-step cast is the honest way to state it. This is the only
+    // cast in the policy path and it sits one line below the check that
+    // justifies it.
+    const rule = policy[kind as AgentToolPolicyKind] as unknown as
+      AgentToolRule | undefined;
+    const verdict = ruleAdmits(rule, tool, ctx, onRuleError);
+    if (!verdict.admitted) return verdict;
+  }
+  return { admitted: true, reported: false };
 }

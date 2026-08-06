@@ -18,22 +18,64 @@
  */
 
 /**
+ * The one place the permitted characters are written down. Everything
+ * else in this module composes from it, so raising the limit or
+ * widening the set is a single edit rather than several that a reviewer
+ * has to notice are related.
+ *
+ * @internal
+ */
+const TOOL_NAME_CHARACTER_CLASS = "[A-Za-z0-9_-]";
+
+/**
+ * Matches a single permitted character. Used to name the offending
+ * characters in {@link describeToolNameViolation}. Stateless (no `g`
+ * flag), so repeated `.test` calls do not carry `lastIndex` between
+ * them.
+ *
+ * @internal
+ */
+const TOOL_NAME_CHARACTER = new RegExp(TOOL_NAME_CHARACTER_CLASS);
+
+/**
  * Characters permitted in a provider-facing tool name: ASCII letters,
  * digits, underscore, and hyphen. Unanchored to a length so callers
  * that build a name in parts can check the charset of a segment
  * separately from the length of the whole.
+ *
+ * @internal
  */
-export const TOOL_NAME_CHARSET = /^[A-Za-z0-9_-]+$/;
+export const TOOL_NAME_CHARSET = new RegExp(`^${TOOL_NAME_CHARACTER_CLASS}+$`);
 
-/** Maximum provider-facing tool-name length. */
+/**
+ * Maximum provider-facing tool-name length.
+ *
+ * @internal
+ */
 export const TOOL_NAME_MAX_LENGTH = 64;
 
 /**
- * The full constraint: charset plus length, anchored. Equivalent to
- * `TOOL_NAME_CHARSET` bounded by `TOOL_NAME_MAX_LENGTH`, kept as one
- * expression for the many call sites that validate a complete name.
+ * The full constraint: charset plus length, anchored. Built from
+ * {@link TOOL_NAME_CHARSET}'s character class and
+ * {@link TOOL_NAME_MAX_LENGTH} rather than restating either, so the
+ * three cannot disagree.
+ *
+ * @internal
  */
-export const TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+export const TOOL_NAME_PATTERN = new RegExp(
+  `^${TOOL_NAME_CHARACTER_CLASS}{1,${TOOL_NAME_MAX_LENGTH}}$`,
+);
+
+/**
+ * The constraint rendered for error messages and suggestions, in the
+ * anchored `/.../` form a developer would recognise as a regex.
+ *
+ * Derived so an error can never instruct someone to satisfy a rule the
+ * validator has stopped enforcing.
+ *
+ * @internal
+ */
+export const TOOL_NAME_PATTERN_SOURCE = `/${TOOL_NAME_PATTERN.source}/`;
 
 /**
  * The sole structural separator in a synthetic tool name.
@@ -47,12 +89,16 @@ export const TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
  *
  * Prefixes must not contain `__` internally, or the boundary they are
  * supposed to mark stops being findable.
+ *
+ * @internal
  */
 export const TOOL_NAME_SEPARATOR = "__";
 
 /**
  * True when `name` is usable as a provider-facing tool name, both in
  * charset and in length.
+ *
+ * @internal
  */
 export function isValidToolName(name: string): boolean {
   return TOOL_NAME_PATTERN.test(name);
@@ -67,6 +113,8 @@ export function isValidToolName(name: string): boolean {
  * Length is reported before charset when both are wrong, because a name
  * that is too long is usually a structural problem (a deeply nested
  * block group) while a bad character is usually a typo.
+ *
+ * @internal
  */
 export function describeToolNameViolation(name: string): string | undefined {
   if (name.length === 0) return "it is empty";
@@ -74,8 +122,11 @@ export function describeToolNameViolation(name: string): string | undefined {
     return `it is ${name.length} characters, over the provider limit of ${TOOL_NAME_MAX_LENGTH}`;
   }
   if (!TOOL_NAME_CHARSET.test(name)) {
+    // Iterate code points, not UTF-16 units: `split("")` would tear a
+    // non-BMP character into two lone surrogates and report them as two
+    // separate mystery characters rather than the one the author typed.
     const offending = [
-      ...new Set(name.split("").filter((c) => !/[A-Za-z0-9_-]/.test(c))),
+      ...new Set([...name].filter((c) => !TOOL_NAME_CHARACTER.test(c))),
     ];
     return `it contains ${offending.map((c) => `"${c}"`).join(", ")}, outside the allowed set of letters, digits, "_", and "-"`;
   }

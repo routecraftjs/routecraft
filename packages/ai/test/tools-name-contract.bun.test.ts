@@ -10,6 +10,8 @@ import {
   TOOL_NAME_SEPARATOR,
 } from "../src/tool-name.ts";
 import { BLOCK_LOADER_PREFIX } from "../src/block/resolve.ts";
+import { MCP_TOOL_REGISTRY } from "../src/mcp/types.ts";
+import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 import {
   DIRECT_TOOL_PREFIX,
   MCP_TOOL_PREFIX,
@@ -84,6 +86,9 @@ describe("tool-name contract: shared constants", () => {
     expect(describeToolNameViolation(tooLong)).toMatch(/characters, over/);
     expect(describeToolNameViolation("has:colon")).toMatch(/":"/);
     expect(describeToolNameViolation("")).toMatch(/empty/);
+    // A non-BMP character is one character to the author, so report it
+    // as one rather than as the two surrogate halves it is stored as.
+    expect(describeToolNameViolation("emoji\u{1F600}")).toMatch(/"\u{1F600}"/u);
     expect(describeToolNameViolation("fine-name_1")).toBeUndefined();
     expect(isValidToolName("fine-name_1")).toBe(true);
     expect(isValidToolName("has:colon")).toBe(false);
@@ -178,6 +183,85 @@ describe("Direct(<routeId>) tool-name validation", () => {
     expect(resolved.name).toBe("memoryGet");
     expect(resolved.description).toBe("A route.");
     expect(isValidToolName(resolved.name)).toBe(true);
+  });
+});
+
+describe("MCP client tool-name validation", () => {
+  let t: TestContext | undefined;
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case A remote tool whose composed wire name is invalid is dropped, not thrown
+   * @preconditions A client exposes one tool-safe name and one with a dot in it
+   * @expectedResult The safe tool resolves, the unsafe one is absent, and a warning names it
+   */
+  test("drops a remote tool whose wire name is unusable", async () => {
+    t = await testContext().build();
+    const registry = new McpToolRegistry();
+    registry.setToolsForSource("github", "stdio", [
+      { name: "list_issues", inputSchema: { type: "object", properties: {} } },
+      // A remote is free to name its tools anything; we are not.
+      {
+        name: "issues.create",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ]);
+    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
+
+    const resolved = tools(["MCP(github)"]).resolve(t.ctx);
+    expect(resolved.map((r) => r.name)).toEqual(["mcp__github__list_issues"]);
+
+    const warned = t.logger.warn.mock.calls.some(
+      (c: unknown[]) =>
+        typeof c[1] === "string" &&
+        c[1].includes("not usable as a provider tool name"),
+    );
+    expect(warned).toBe(true);
+  });
+
+  /**
+   * @case An explicitly named remote tool with an unusable name is also dropped, not thrown
+   * @preconditions The agent names the offending tool directly rather than via a wildcard
+   * @expectedResult Resolution returns no tool and does not throw, so one bad remote name cannot fail every dispatch
+   */
+  test("dropping applies to an explicit reference too", async () => {
+    t = await testContext().build();
+    const registry = new McpToolRegistry();
+    registry.setToolsForSource("github", "stdio", [
+      {
+        name: "issues.create",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ]);
+    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
+
+    expect(tools(["MCP(github:issues.create)"]).resolve(t.ctx)).toEqual([]);
+  });
+
+  /**
+   * @case The length ceiling applies to the composed mcp__ name, not the remote name alone
+   * @preconditions Server and tool names are individually legal but overrun 64 once joined
+   * @expectedResult The tool is dropped with a length-based reason
+   */
+  test("enforces the ceiling on the composed name", async () => {
+    t = await testContext().build();
+    const registry = new McpToolRegistry();
+    const longTool = "a".repeat(60);
+    registry.setToolsForSource("github", "stdio", [
+      { name: longTool, inputSchema: { type: "object", properties: {} } },
+    ]);
+    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
+
+    expect(tools(["MCP(github)"]).resolve(t.ctx)).toEqual([]);
+    const warned = t.logger.warn.mock.calls.some(
+      (c: unknown[]) =>
+        typeof c[1] === "string" &&
+        c[1].includes(`over the provider limit of ${TOOL_NAME_MAX_LENGTH}`),
+    );
+    expect(warned).toBe(true);
   });
 });
 

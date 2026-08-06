@@ -6,11 +6,7 @@ import {
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { FnOptions } from "../fn/types.ts";
 import type { ResolvedTool } from "../agent/tools/selection.ts";
-import {
-  TOOL_NAME_CHARSET,
-  TOOL_NAME_MAX_LENGTH,
-  TOOL_NAME_SEPARATOR,
-} from "../tool-name.ts";
+import { TOOL_NAME_CHARSET, TOOL_NAME_SEPARATOR } from "../tool-name.ts";
 import { makeBlockClient } from "./client.ts";
 import type {
   AgentBlockLoadSummary,
@@ -188,7 +184,7 @@ export function isBlockGroup(value: BlockBody | Blocks): value is Blocks {
  * Provider tool-name charset. Synthetic loader names are
  * `_block__load__<flattenedName>` and are sent to the model provider
  * verbatim, so the flattened block name must satisfy {@link
- * BLOCK_TOOL_NAME_CHARSET} and stay within {@link TOOL_NAME_MAX_LENGTH}
+ * BLOCK_TOOL_NAME_CHARSET} and stay within the provider length limit
  * once the loader prefix is added. Validated at construction so an
  * unsafe name fails at `agent()` rather than at the provider on the
  * first dispatch.
@@ -200,8 +196,6 @@ export function isBlockGroup(value: BlockBody | Blocks): value is Blocks {
  * @internal
  */
 export const BLOCK_TOOL_NAME_CHARSET = TOOL_NAME_CHARSET;
-
-export { TOOL_NAME_MAX_LENGTH };
 
 /**
  * AI1002 error for two blocks whose names collapse to the same

@@ -851,6 +851,25 @@ export interface EventDetailsMap {
     toolNames: string[];
     maxTurns: number;
   };
+  /**
+   * A tool was refused admission to an agent's tool list by
+   * `agentPlugin({ toolPolicy })` and never offered to the model.
+   *
+   * Emitted once per denied tool per dispatch, alongside the warn log.
+   * The two serve different consumers: the log is for someone reading
+   * text, the event is for alerting and audit, which is what a policy
+   * decision needs to be queryable from.
+   *
+   * `reason` distinguishes a rule that decided against the tool from a
+   * rule that threw (denied to fail closed) and from provenance the
+   * resolver could not classify.
+   */
+  "route:agent:tool:denied": ExchangeScoped & {
+    agentName?: string;
+    toolName: string;
+    toolKind: string;
+    reason: "rule" | "rule-error" | "unknown-provenance";
+  };
   "route:agent:tool:invoked": ExchangeScoped & {
     toolCallId: string;
     toolName: string;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { craft, direct, log } from "@routecraft/routecraft";
+import { craft, direct, isRoutecraftError, log } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { z } from "zod";
 import {
@@ -298,22 +298,14 @@ describe("agentPlugin({ toolPolicy }): admission control", () => {
   });
 
   /**
-   * @case A kind absent from a present policy is denied, not defaulted to allow
-   * @preconditions toolPolicy { fn: true } only; agent lists all four refs
-   * @expectedResult Only the fn survives; direct and mcp are denied by omission
+   * @case Denying every kind explicitly strips the whole surface
+   * @preconditions toolPolicy with all three kinds set to false
+   * @expectedResult No user tools reach the provider
    */
-  test("a kind with no entry is denied", async () => {
-    t = await buildCtx({ policies: [{ fn: true }] });
-    expect(await inlineAgentTools(t)).toEqual(["localFn"]);
-  });
-
-  /**
-   * @case An empty policy object denies every kind
-   * @preconditions toolPolicy {}; agent lists all four refs
-   * @expectedResult No tools reach the provider
-   */
-  test("an empty policy object denies everything", async () => {
-    t = await buildCtx({ policies: [{}] });
+  test("a policy denying every kind admits nothing", async () => {
+    t = await buildCtx({
+      policies: [{ fn: false, direct: false, mcp: false }],
+    });
     expect(await inlineAgentTools(t)).toEqual([]);
   });
 
@@ -454,15 +446,21 @@ describe("agentPlugin({ toolPolicy }): predicates and composition", () => {
       "direct__cancel-order",
       "localFn",
     ]);
+    // Per the boundary convention in .standards/error-and-logging-policy.md
+    // the thrown message becomes the log message, so match on that
+    // rather than on a framework-authored string.
     const errors = t.logger.error.mock.calls.filter(
-      (c: unknown[]) =>
-        typeof c[1] === "string" && c[1].includes("policy predicate threw"),
+      (c: unknown[]) => c[1] === "policy predicate blew up",
     );
     expect(errors.length).toBe(2);
-    expect((errors[0]?.[0] as Record<string, unknown>)["kind"]).toBe("mcp");
-    expect(
-      ((errors[0]?.[0] as Record<string, unknown>)["err"] as Error).message,
-    ).toBe("policy predicate blew up");
+    const fields = errors.map(
+      (c: unknown[]) => c[0] as Record<string, unknown>,
+    );
+    expect(fields.every((f) => f["kind"] === "mcp")).toBe(true);
+    expect(fields.every((f) => f["agent"] === "<inline>")).toBe(true);
+    expect((fields[0]?.["err"] as Error).message).toBe(
+      "policy predicate blew up",
+    );
   });
 
   /**
@@ -487,6 +485,119 @@ describe("agentPlugin({ toolPolicy }): predicates and composition", () => {
     expect(admitted).not.toContain("localFn");
     expect(admitted).toContain("direct__cancel-order");
     expect(admitted).toContain("mcp__docs__search");
+  });
+
+  /**
+   * @case A throwing predicate logs once, not twice, for the same tool
+   * @preconditions mcp predicate throws; both MCP tools are denied
+   * @expectedResult The error line is emitted and the routine denial warning is suppressed
+   */
+  test("a throwing predicate does not also emit the routine denial warning", async () => {
+    t = await buildCtx({
+      policies: [
+        {
+          fn: true,
+          direct: true,
+          mcp: () => {
+            throw new Error("boom");
+          },
+        },
+      ],
+    });
+    await inlineAgentTools(t);
+    const warns = t.logger.warn.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "string" && c[1].includes("denied by agentPlugin"),
+    );
+    expect(warns.length).toBe(0);
+  });
+
+  /**
+   * @case A denial is emitted on the context bus, not only logged
+   * @preconditions mcp: false; a subscriber listens for route:agent:tool:denied
+   * @expectedResult One event per denied tool, carrying agent, tool, kind, and reason
+   */
+  test("denials emit route:agent:tool:denied", async () => {
+    t = await buildCtx({
+      policies: [{ fn: true, direct: true, mcp: false }],
+      registerAgent: true,
+    });
+    const seen: Array<Record<string, unknown>> = [];
+    t.ctx.on("route:agent:tool:denied", ({ details }) => {
+      seen.push(details as unknown as Record<string, unknown>);
+    });
+    await registeredAgentTools(t);
+    expect(seen.length).toBe(2);
+    expect(seen.every((d) => d["agentName"] === "helper")).toBe(true);
+    expect(seen.every((d) => d["toolKind"] === "mcp")).toBe(true);
+    expect(seen.every((d) => d["reason"] === "rule")).toBe(true);
+    expect(seen.map((d) => d["toolName"]).sort()).toEqual([
+      "mcp__docs__search",
+      "mcp__github__create_issue",
+    ]);
+  });
+
+  /**
+   * @case A predicate that throws is reported with reason "rule-error"
+   * @preconditions mcp predicate throws
+   * @expectedResult The emitted event distinguishes a thrown rule from a rule that decided against the tool
+   */
+  test("a thrown predicate is reported as rule-error", async () => {
+    t = await buildCtx({
+      policies: [
+        {
+          fn: true,
+          direct: true,
+          mcp: () => {
+            throw new Error("boom");
+          },
+        },
+      ],
+    });
+    const seen: Array<Record<string, unknown>> = [];
+    t.ctx.on("route:agent:tool:denied", ({ details }) => {
+      seen.push(details as unknown as Record<string, unknown>);
+    });
+    await inlineAgentTools(t);
+    expect(seen.length).toBe(2);
+    expect(seen.every((d) => d["reason"] === "rule-error")).toBe(true);
+  });
+
+  /**
+   * @case The descriptor handed to a predicate cannot mutate registry state
+   * @preconditions A predicate attempts to write a default onto source.annotations
+   * @expectedResult The write does not reach the next dispatch's descriptor
+   */
+  test("the descriptor is a frozen copy, so a predicate cannot touch the registry", async () => {
+    const observed: Array<boolean | undefined> = [];
+    t = await buildCtx({
+      policies: [
+        {
+          fn: true,
+          direct: true,
+          mcp: (tool) => {
+            observed.push(tool.source.annotations?.readOnlyHint);
+            try {
+              // A plausible accident: applying an MCP spec default.
+              // Without the copy this would rewrite the registry entry
+              // that also feeds the MCP server's own tools/list.
+              const annotations = tool.source.annotations as
+                Record<string, unknown> | undefined;
+              if (annotations) annotations["readOnlyHint"] = true;
+            } catch {
+              // Frozen in strict mode; either outcome is acceptable so
+              // long as the registry is untouched.
+            }
+            return true;
+          },
+        },
+      ],
+    });
+    await inlineAgentTools(t);
+    await inlineAgentTools(t);
+    // The github tool declares destructiveHint only, so readOnlyHint is
+    // absent on every dispatch unless a predicate leaked a write.
+    expect(observed.every((v) => v === undefined)).toBe(true);
   });
 
   /**
@@ -534,7 +645,10 @@ describe("agentPlugin({ toolPolicy }): predicates and composition", () => {
    * @expectedResult The loader tool still reaches the provider; user tools do not
    */
   test("block loader tools are not policy-governed", async () => {
-    t = await buildCtx({ policies: [{}], withBlock: true });
+    t = await buildCtx({
+      policies: [{ fn: false, direct: false, mcp: false }],
+      withBlock: true,
+    });
     expect(await inlineAgentTools(t)).toEqual(["_block__load__research"]);
   });
 });
@@ -545,10 +659,42 @@ describe("agentPlugin({ toolPolicy }): construction-time validation", () => {
    * @preconditions toolPolicy carries a "block" key
    * @expectedResult agentPlugin throws RC5003 naming the valid keys
    */
+  /**
+   * @case A policy omitting a kind is rejected at construction, not silently applied
+   * @preconditions toolPolicy sets only "mcp" (the partial-adoption shape a developer reaches for first)
+   * @expectedResult agentPlugin throws RC5003 naming the two kinds that were left undecided
+   */
+  test("rejects a policy that omits a kind", () => {
+    // The type makes this a compile error; the cast reproduces what a
+    // JavaScript caller (or a `as any` escape) would actually pass, and
+    // proves the runtime refuses it rather than denying fn and direct
+    // by omission.
+    let caught: unknown;
+    try {
+      agentPlugin({ toolPolicy: { mcp: false } as unknown as AgentToolPolicy });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isRoutecraftError(caught)).toBe(true);
+    expect((caught as Error).message).toMatch(/missing a rule for/);
+    expect((caught as Error).message).toMatch(/"fn"/);
+    expect((caught as Error).message).toMatch(/"direct"/);
+  });
+
+  /**
+   * @case An unknown tool kind is rejected at construction
+   * @preconditions A complete policy plus an extra "block" key
+   * @expectedResult agentPlugin throws RC5003 naming the valid keys
+   */
   test("rejects an unknown tool kind", () => {
     expect(() =>
       agentPlugin({
-        toolPolicy: { block: true } as unknown as AgentToolPolicy,
+        toolPolicy: {
+          fn: true,
+          direct: true,
+          mcp: true,
+          block: true,
+        } as unknown as AgentToolPolicy,
       }),
     ).toThrow(/not a known tool kind/);
   });
@@ -561,7 +707,11 @@ describe("agentPlugin({ toolPolicy }): construction-time validation", () => {
   test("rejects a rule that is neither boolean nor predicate", () => {
     expect(() =>
       agentPlugin({
-        toolPolicy: { mcp: "yes" } as unknown as AgentToolPolicy,
+        toolPolicy: {
+          fn: true,
+          direct: true,
+          mcp: "yes",
+        } as unknown as AgentToolPolicy,
       }),
     ).toThrow(/must be a boolean or a \(tool, ctx\) => boolean predicate/);
   });

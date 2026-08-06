@@ -14,16 +14,18 @@ import {
   AgentSession,
   buildUserPrompt,
   dispatchIdentityFrom,
+  type AgentDispatchIdentity,
 } from "./session.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
   ADAPTER_AGENT_TOOL_POLICIES,
 } from "./store.ts";
-import { policiesAdmit } from "./tools/policy.ts";
+import { AGENT_TOOL_POLICY_KINDS, policiesAdmit } from "./tools/policy.ts";
 import type {
   AgentToolDescriptor,
   AgentToolPolicyContext,
+  AgentToolPolicyKind,
 } from "./tools/policy.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
@@ -106,7 +108,19 @@ export class AgentDestinationAdapter implements Destination<
     // undefined and the consumer falls back to routeId.
     const agentName =
       this.binding.kind === "by-name" ? this.binding.name : undefined;
-    const userTools = resolveAgentTools(merged, context, agentName);
+    // Resolved before tools so a tool-policy denial can be emitted as an
+    // exchange-scoped event, not just logged.
+    const route = getExchangeRoute(exchange);
+    const dispatchIdentity = dispatchIdentityFrom(
+      exchange,
+      route?.definition.id,
+    );
+    const userTools = resolveAgentTools(
+      merged,
+      context,
+      agentName,
+      dispatchIdentity,
+    );
     const user = buildUserPrompt(merged, exchange);
     // System accepts the same string-or-function shape as `llm({ system })`,
     // so resolve it against the exchange here. The session then receives a
@@ -137,12 +151,6 @@ export class AgentDestinationAdapter implements Destination<
       merged.principal,
       exchange.principal,
       exchange,
-    );
-
-    const route = getExchangeRoute(exchange);
-    const dispatchIdentity = dispatchIdentityFrom(
-      exchange,
-      route?.definition.id,
     );
 
     const session = new AgentSession({
@@ -360,6 +368,7 @@ function resolveAgentTools(
   options: AgentOptions | AgentRegisteredOptions,
   context: CraftContext | undefined,
   agentId: string | undefined,
+  dispatchIdentity: AgentDispatchIdentity | undefined,
 ): ResolvedTool[] {
   if (options.tools === undefined) return [];
   if (!context) {
@@ -367,7 +376,12 @@ function resolveAgentTools(
       message: `Agent: cannot resolve tools without a CraftContext.`,
     });
   }
-  return applyToolPolicy(options.tools.resolve(context), context, agentId);
+  return applyToolPolicy(
+    options.tools.resolve(context),
+    context,
+    agentId,
+    dispatchIdentity,
+  );
 }
 
 /**
@@ -393,11 +407,30 @@ function applyToolPolicy(
   resolved: ResolvedTool[],
   context: CraftContext,
   agentId: string | undefined,
+  dispatchIdentity: AgentDispatchIdentity | undefined,
 ): ResolvedTool[] {
   const policies = context.getStore(ADAPTER_AGENT_TOOL_POLICIES);
   if (!policies || policies.length === 0) return resolved;
   const policyContext: AgentToolPolicyContext = { agentId };
   const admitted: ResolvedTool[] = [];
+  // A denial is a decision, so it goes on the bus as well as into the
+  // log. Alerting on "a tool was silently dropped from an agent" needs
+  // something queryable; a log line is not that.
+  const emitDenied = (
+    tool: ResolvedTool,
+    reason: "rule" | "rule-error" | "unknown-provenance",
+  ): void => {
+    if (!dispatchIdentity) return;
+    context.emit("route:agent:tool:denied", {
+      routeId: dispatchIdentity.routeId,
+      exchangeId: dispatchIdentity.exchangeId,
+      correlationId: dispatchIdentity.correlationId,
+      ...(agentId !== undefined && { agentName: agentId }),
+      toolName: tool.name,
+      toolKind: tool.source?.kind ?? "unknown",
+      reason,
+    });
+  };
   // A predicate that throws is a bug in the policy, not a verdict, so
   // it is reported at error level. The tool is still denied rather than
   // letting the throw abort the dispatch; see `ruleAdmits`.
@@ -409,16 +442,39 @@ function applyToolPolicy(
         kind: tool.source.kind,
         err: cause,
       },
-      "Agent tool policy predicate threw; denying the tool. Fix the predicate in agentPlugin({ toolPolicy })",
+      // Boundary convention: the thrown message is the log message, with
+      // a boundary-specific fallback when the predicate threw something
+      // that carries none (it may throw any value at all).
+      messageOf(cause) ??
+        "Agent tool policy predicate threw; denying the tool. Fix the predicate in agentPlugin({ toolPolicy })",
     );
   };
   for (const tool of resolved) {
-    if (
-      policiesAdmit(policies, toDescriptor(tool), policyContext, onRuleError)
-    ) {
+    const verdict = policiesAdmit(
+      policies,
+      toDescriptor(tool),
+      policyContext,
+      onRuleError,
+    );
+    if (verdict.admitted) {
       admitted.push(tool);
       continue;
     }
+    emitDenied(
+      tool,
+      verdict.reported
+        ? "rule-error"
+        : AGENT_TOOL_POLICY_KINDS.includes(
+              tool.source?.kind as AgentToolPolicyKind,
+            )
+          ? "rule"
+          : "unknown-provenance",
+    );
+    // A denial already reported through `onRuleError` has been logged at
+    // error level with its cause. Repeating it at warn would say less
+    // about the same tool and the same outcome, and would bury the line
+    // that actually explains what went wrong.
+    if (verdict.reported) continue;
     context.logger.warn(
       {
         agent: agentId ?? "<inline>",
@@ -432,20 +488,53 @@ function applyToolPolicy(
 }
 
 /**
+ * Pull a log message out of a thrown value, preferring a
+ * `RoutecraftError`'s `meta.message` over the plain `message`, per the
+ * boundary convention in `.standards/error-and-logging-policy.md`.
+ * Returns undefined when the value carries no usable message, since a
+ * predicate may throw anything.
+ *
+ * @internal
+ */
+function messageOf(cause: unknown): string | undefined {
+  if (typeof cause !== "object" || cause === null) return undefined;
+  const meta = (cause as { meta?: { message?: unknown } }).meta;
+  if (typeof meta?.message === "string" && meta.message !== "") {
+    return meta.message;
+  }
+  const message = (cause as { message?: unknown }).message;
+  return typeof message === "string" && message !== "" ? message : undefined;
+}
+
+/**
  * Narrow a `ResolvedTool` to the read-only view policy rules receive.
  * Drops `handler` so a rule cannot wrap or invoke the tool it is
  * deciding about, and normalises absent tags to an empty array so
  * predicates can call `.includes` without a guard.
  *
+ * Copied and frozen, following the same convention `buildCatalog` uses
+ * for the `tools((catalog) => ...)` builder and `snapshotCapability`
+ * uses for the capability registry. Without it, `tags` for a fn tool is
+ * the array held in the fn registry and `source.annotations` is the
+ * object the MCP client refresh wrote, so a predicate assigning a
+ * default (`annotations.destructiveHint ??= true` is the plausible
+ * accident) would rewrite shared registry state seen by every later
+ * policy, every later dispatch, and the MCP server's own `tools/list`.
+ * The `readonly` modifiers are compile-time only and do not stop it.
+ *
  * @internal
  */
 function toDescriptor(tool: ResolvedTool): AgentToolDescriptor {
-  return {
+  const source =
+    tool.source.kind === "mcp" && tool.source.annotations
+      ? { ...tool.source, annotations: { ...tool.source.annotations } }
+      : { ...tool.source };
+  return Object.freeze({
     name: tool.name,
     description: tool.description,
-    tags: tool.tags ?? [],
-    source: tool.source,
-  };
+    tags: Object.freeze(tool.tags ? [...tool.tags] : []),
+    source: Object.freeze(source),
+  }) as AgentToolDescriptor;
 }
 
 /**

@@ -169,6 +169,7 @@ export {
   type AgentToolPolicy,
   type AgentToolPolicyContext,
   type AgentToolPolicyKind,
+  type AgentToolPolicySource,
   type AgentToolRule,
   type AgentToolSource,
   type DeferredFn,

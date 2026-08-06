@@ -359,6 +359,8 @@ In 0.5.x, `Direct(memory:get)` produced the tool name `direct_memory:get` and pa
 
 The ceiling is checked on the final name, not the bare route id, so a 57-character route id now fails because `direct__` pushes it to 65.
 
+An MCP client tool whose remote name cannot form a valid wire name is handled differently: it is dropped from the agent's tool list with a warning rather than throwing. The remote owns that name, so a throw would let one malformed tool fail every dispatch of every agent bound to that server, and because tool selection resolves per dispatch, a remote renaming a tool would become a live outage rather than a startup error. This matches what `mcpPlugin({ proxy })` already does for the same registry entries.
+
 **Fix:** expose the route under a tool-safe alias.
 
 ```ts
@@ -795,7 +797,7 @@ For context, no migration required:
 - `agent:block:loaded` / `agent:block:error` context events.
 - `AgentResult.blocksLoaded`.
 - `tools((catalog) => [...])` builder form with `ToolsCatalog` shape.
-- **`agentPlugin({ toolPolicy })`**: repository-wide admission rules for the agent tool surface, keyed by tool kind (`fn` / `direct` / `mcp`), each `true`, `false`, or a predicate. Omitting it admits everything, so existing contexts are unaffected; supplying it makes the surface an allowlist. Enforced at the single point every agent form converges on, so no agent can opt out. See [tool policy](/docs/reference/plugins/agentplugin#tool-policy).
+- **`agentPlugin({ toolPolicy })`**: repository-wide admission rules for the agent tool surface, keyed by tool kind (`fn` / `direct` / `mcp`), each `true`, `false`, or a predicate. Omitting it admits everything, so existing contexts are unaffected; supplying it makes the surface an allowlist in which every kind must be decided explicitly (a partial policy is a compile error, because an omitted key would mean denial). Enforced at the single point every agent form converges on, so no agent can opt out. Denials emit `route:agent:tool:denied`. See [tool policy](/docs/reference/plugins/agentplugin#tool-policy).
 - New error codes (`RC5018`, `RC5019` for HTTP; `AI1001`-`AI1003` for agent blocks, see [section 8](#8-error-codes-ai-namespace); `RC1003` for error-code registration).
 - **Recovery directives**: `.error()` handlers (route scope and step scope) may return `recovery.drop(reason?)` to discard the failing exchange (emits `route:exchange:dropped`) or `recovery.rethrow()` to decline recovery, instead of recovering with a body or throwing manually.
 - **`rcError` retryable override**: `rcError(code, cause, { retryable })` flips the retry classification for one occurrence.

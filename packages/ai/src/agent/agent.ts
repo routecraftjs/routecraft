@@ -12,8 +12,8 @@ import {
   blockCollisionError,
   blockCycleError,
   isBlockGroup,
-  TOOL_NAME_MAX_LENGTH,
 } from "../block/resolve.ts";
+import { TOOL_NAME_MAX_LENGTH } from "../tool-name.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
 import { parseProviderModel } from "../llm/shared.ts";
 import {

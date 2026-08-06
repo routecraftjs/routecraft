@@ -10,14 +10,22 @@ import {
   ADAPTER_AGENT_REGISTRY,
   ADAPTER_AGENT_TOOL_POLICIES,
 } from "./store.ts";
-import type { AgentToolPolicy, AgentToolRule } from "./tools/policy.ts";
+import { AGENT_TOOL_POLICY_KINDS } from "./tools/policy.ts";
+import type {
+  AgentToolPolicy,
+  AgentToolPolicyKind,
+  AgentToolRule,
+} from "./tools/policy.ts";
 import { validateFnOptions } from "../fn/fn.ts";
 import { ADAPTER_FN_REGISTRY } from "../fn/store.ts";
 import { parseProviderModel } from "../llm/shared.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 import { isDeferredFn, type FnEntry } from "./tools/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
-import { describeToolNameViolation } from "../tool-name.ts";
+import {
+  describeToolNameViolation,
+  TOOL_NAME_PATTERN_SOURCE,
+} from "../tool-name.ts";
 
 export interface AgentPluginOptions {
   /**
@@ -190,7 +198,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
         if (idViolation !== undefined) {
           throw rcError("RC5003", undefined, {
             message: `agentPlugin: fn id "${id}" is not usable as a tool name: ${idViolation}.`,
-            suggestion: `A fn id reaches the model provider verbatim as the tool name, so it must match /^[A-Za-z0-9_-]{1,64}$/. Rename the fn.`,
+            suggestion: `A fn id reaches the model provider verbatim as the tool name, so it must match ${TOOL_NAME_PATTERN_SOURCE}. Rename the fn.`,
           });
         }
         if (entry === null || typeof entry !== "object") {
@@ -353,15 +361,27 @@ function validateToolPolicy(
       message: `agentPlugin: "toolPolicy" must be an object with optional "fn" / "direct" / "mcp" rules.`,
     });
   }
-  const known: Array<keyof AgentToolPolicy> = ["fn", "direct", "mcp"];
+  const known = AGENT_TOOL_POLICY_KINDS;
+  const missing = known.filter(
+    (k) => !Object.prototype.hasOwnProperty.call(raw, k),
+  );
+  if (missing.length > 0) {
+    throw rcError("RC5003", undefined, {
+      message: `agentPlugin: "toolPolicy" is missing a rule for ${missing.map((k) => `"${k}"`).join(", ")}.`,
+      suggestion:
+        `A policy is an allowlist, so an unlisted kind is denied. Decide each kind explicitly ` +
+        `(\`true\`, \`false\`, or a predicate) rather than omitting it, so a partial policy cannot ` +
+        `silently strip tools you meant to keep.`,
+    });
+  }
   for (const key of Object.keys(raw)) {
-    if (!known.includes(key as keyof AgentToolPolicy)) {
+    if (!known.includes(key as AgentToolPolicyKind)) {
       throw rcError("RC5003", undefined, {
         message: `agentPlugin: "toolPolicy.${key}" is not a known tool kind. Valid keys: ${known.join(", ")}.`,
         suggestion: `Block loader tools are framework machinery and are deliberately not policy-governed, so there is no "block" key.`,
       });
     }
-    const rule = raw[key as keyof AgentToolPolicy] as AgentToolRule | undefined;
+    const rule = raw[key as AgentToolPolicyKind] as AgentToolRule | undefined;
     if (
       rule !== undefined &&
       typeof rule !== "boolean" &&

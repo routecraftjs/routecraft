@@ -12,6 +12,7 @@ import { directTool } from "./builders.ts";
 import { isDeferredFn, type FnEntry } from "./types.ts";
 import {
   describeToolNameViolation,
+  TOOL_NAME_PATTERN_SOURCE,
   TOOL_NAME_SEPARATOR,
 } from "../../tool-name.ts";
 import type { AgentToolSource } from "./policy.ts";
@@ -76,12 +77,6 @@ function assertValidDirectToolName(
       `then reference "yourToolName" in tools([...]).`,
   });
 }
-
-/**
- * Rendered form of the tool-name constraint, for error suggestions.
- * @internal
- */
-const TOOL_NAME_PATTERN_SOURCE = `/^[A-Za-z0-9_-]{1,64}$/`;
 
 /**
  * Re-exported from `fn/types.ts`, where the guard type lives so both the
@@ -537,14 +532,30 @@ function resolveFnEntry(
 ): ResolvedTool {
   if (isDeferredFn(entry)) {
     const fn = entry.resolve(ctx, name);
-    // A `directTool(routeId)` registered under a fn id is still a
-    // capability: it reaches the same route, only under a different
-    // name. Reporting it as `fn` would let an alias slip past a policy
-    // that denies `direct`.
-    return toResolvedTool(name, fn, guard, {
-      kind: "direct",
-      routeId: entry.targetId,
-    });
+    // Derived from `entry.kind`, never asserted. `isDeferredFn` is a
+    // brand check only, so hardcoding "direct" here would silently
+    // classify a future deferred kind (a sub-agent tool is the named
+    // candidate) as a capability, admitting it under any policy that
+    // sets `direct: true`. The exhaustive default turns adding a kind
+    // into a compile error, which is the whole point of the allowlist
+    // narrowing rather than widening.
+    switch (entry.kind) {
+      case "direct":
+        // A `directTool(routeId)` registered under a fn id is still a
+        // capability: it reaches the same route, only under a different
+        // name. Reporting it as `fn` would let an alias slip past a
+        // policy that denies `direct`.
+        return toResolvedTool(name, fn, guard, {
+          kind: "direct",
+          routeId: entry.targetId,
+        });
+      default: {
+        const exhaustive: never = entry.kind;
+        throw rcError("RC5003", undefined, {
+          message: `tools(): fn "${name}" has an unsupported deferred kind "${String(exhaustive)}", so it carries no tool-policy provenance and cannot be resolved.`,
+        });
+      }
+    }
   }
   return toResolvedTool(name, entry, guard, { kind: "fn", id: name });
 }
@@ -667,9 +678,9 @@ function resolveMcpRefs(
     });
   }
   if (toolName === "*") {
-    return clientTools.map((entry) =>
-      mcpEntryToResolvedTool(ctx, entry, guard),
-    );
+    return clientTools
+      .map((entry) => mcpEntryToResolvedTool(ctx, entry, guard))
+      .filter((tool): tool is ResolvedTool => tool !== undefined);
   }
   const entry = clientTools.find((t) => t.name === toolName);
   if (!entry) {
@@ -680,7 +691,8 @@ function resolveMcpRefs(
         `Known tools on "${clientName}": ${knownTools.map((n) => `"${n}"`).join(", ")}.`,
     });
   }
-  return [mcpEntryToResolvedTool(ctx, entry, guard)];
+  const resolved = mcpEntryToResolvedTool(ctx, entry, guard);
+  return resolved === undefined ? [] : [resolved];
 }
 
 /**
@@ -714,8 +726,24 @@ function mcpEntryToResolvedTool(
   ctx: CraftContext,
   entry: McpToolRegistryEntry,
   guard: ToolGuard | undefined,
-): ResolvedTool {
+): ResolvedTool | undefined {
   const name = `${MCP_TOOL_PREFIX}${entry.source}${TOOL_NAME_SEPARATOR}${entry.name}`;
+  // The remote names its own tools, so this is the one composed name
+  // built from input nobody in this repository authored. An unusable
+  // name is dropped with a warning rather than thrown, matching what
+  // the MCP proxy already does for the same registry entries
+  // (`mcp/proxy.ts`): a throw here would let one malformed remote tool
+  // fail every dispatch of every agent bound to that server, and
+  // because `resolve()` runs per dispatch, a remote renaming a tool
+  // would become a live route outage rather than a startup error.
+  const violation = describeToolNameViolation(name);
+  if (violation !== undefined) {
+    ctx.logger.warn(
+      { server: entry.source, tool: entry.name, toolName: name },
+      `MCP tool name is not usable as a provider tool name (${violation}); dropping it from the agent's tool list. Expose it through a capability under a tool-safe name if the agent needs it.`,
+    );
+    return undefined;
+  }
   const description =
     entry.description && entry.description.trim() !== ""
       ? entry.description
