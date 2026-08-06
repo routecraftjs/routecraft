@@ -371,6 +371,12 @@ agentPlugin({
 
 Fn ids reach the provider verbatim with no prefix, so the same constraint now applies to them and is checked when `agentPlugin` registers, rather than surfacing as an opaque provider error on the first dispatch.
 
+### 2.4 `ResolvedTool` gains a required `source` field
+
+`ResolvedTool` now carries `source`, a discriminated union of `{ kind: "fn" | "direct" | "mcp" | "block" }` set by the resolver. This only affects code that hand-constructs a `ResolvedTool` (test fixtures, custom bridges); resolution through `tools([...])` populates it for you.
+
+A `directTool` alias registered under a fn id reports `kind: "direct"`, not `"fn"`. It reaches the same route under a different name, so classifying it as a fn would make aliasing a way around [`toolPolicy`](/docs/reference/plugins/agentplugin#tool-policy).
+
 ---
 
 ## 3. HTTP: option type renamed for the two-sided adapter
@@ -789,6 +795,7 @@ For context, no migration required:
 - `agent:block:loaded` / `agent:block:error` context events.
 - `AgentResult.blocksLoaded`.
 - `tools((catalog) => [...])` builder form with `ToolsCatalog` shape.
+- **`agentPlugin({ toolPolicy })`**: repository-wide admission rules for the agent tool surface, keyed by tool kind (`fn` / `direct` / `mcp`), each `true`, `false`, or a predicate. Omitting it admits everything, so existing contexts are unaffected; supplying it makes the surface an allowlist. Enforced at the single point every agent form converges on, so no agent can opt out. See [tool policy](/docs/reference/plugins/agentplugin#tool-policy).
 - New error codes (`RC5018`, `RC5019` for HTTP; `AI1001`-`AI1003` for agent blocks, see [section 8](#8-error-codes-ai-namespace); `RC1003` for error-code registration).
 - **Recovery directives**: `.error()` handlers (route scope and step scope) may return `recovery.drop(reason?)` to discard the failing exchange (emits `route:exchange:dropped`) or `recovery.rethrow()` to decline recovery, instead of recovering with a body or throwing manually.
 - **`rcError` retryable override**: `rcError(code, cause, { retryable })` flips the retry classification for one occurrence.

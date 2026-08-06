@@ -446,6 +446,11 @@ function buildLoaderTool(
     name: `${BLOCK_LOADER_PREFIX}${name}`,
     description,
     input: EMPTY_OBJECT_SCHEMA,
+    // Loader tools declare their provenance like every other resolved
+    // tool, but are never shown to `toolPolicy`: they are merged in
+    // after policy evaluation, because assembling context is not the
+    // same act as granting reach.
+    source: { kind: "block", name },
     handler,
     [BLOCK_LOADER_TOOL]: true,
     blockName: name,

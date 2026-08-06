@@ -14,6 +14,7 @@ import {
   describeToolNameViolation,
   TOOL_NAME_SEPARATOR,
 } from "../../tool-name.ts";
+import type { AgentToolSource } from "./policy.ts";
 
 /**
  * Wire-form prefix for a direct capability exposed as an agent tool.
@@ -202,6 +203,12 @@ export interface ResolvedTool {
   tags?: Tag[];
   /** Optional guard run after validation, before the handler. */
   guard?: ToolGuard;
+  /**
+   * Where this tool came from. Set by the resolver, never by user
+   * config, so `agentPlugin({ toolPolicy })` can treat it as trusted
+   * provenance when deciding admission.
+   */
+  source: AgentToolSource;
   /** The function the LLM ultimately invokes. */
   handler: FnOptions["handler"];
 }
@@ -509,7 +516,7 @@ function resolveByName(
     assertValidDirectToolName(name, routeId, toolName);
     const wrapper = directTool(routeId);
     const fn = wrapper.resolve(ctx, toolName);
-    return toResolvedTool(toolName, fn, guard);
+    return toResolvedTool(toolName, fn, guard, { kind: "direct", routeId });
   }
 
   const known = listKnownNames(ctx);
@@ -530,15 +537,23 @@ function resolveFnEntry(
 ): ResolvedTool {
   if (isDeferredFn(entry)) {
     const fn = entry.resolve(ctx, name);
-    return toResolvedTool(name, fn, guard);
+    // A `directTool(routeId)` registered under a fn id is still a
+    // capability: it reaches the same route, only under a different
+    // name. Reporting it as `fn` would let an alias slip past a policy
+    // that denies `direct`.
+    return toResolvedTool(name, fn, guard, {
+      kind: "direct",
+      routeId: entry.targetId,
+    });
   }
-  return toResolvedTool(name, entry, guard);
+  return toResolvedTool(name, entry, guard, { kind: "fn", id: name });
 }
 
 function toResolvedTool(
   name: string,
   fn: FnOptions,
   guard: ToolGuard | undefined,
+  source: AgentToolSource,
 ): ResolvedTool {
   return {
     name,
@@ -546,6 +561,7 @@ function toResolvedTool(
     input: fn.input as StandardSchemaV1<unknown, unknown>,
     ...(fn.tags && fn.tags.length > 0 ? { tags: fn.tags } : {}),
     ...(guard ? { guard } : {}),
+    source,
     handler: fn.handler as FnOptions["handler"],
   };
 }
@@ -727,6 +743,16 @@ function mcpEntryToResolvedTool(
     name,
     description,
     input,
+    // Raw annotations ride along beside the derived tags. `tags` cannot
+    // distinguish "the server declared this safe" from "the server said
+    // nothing", because tag derivation only fires on a truthy hint, and
+    // the MCP defaults for an absent hint are not uniformly false.
+    source: {
+      kind: "mcp",
+      server: entry.source,
+      tool: entry.name,
+      ...(entry.annotations ? { annotations: entry.annotations } : {}),
+    },
     handler,
   };
   if (entry.tags && entry.tags.length > 0) {

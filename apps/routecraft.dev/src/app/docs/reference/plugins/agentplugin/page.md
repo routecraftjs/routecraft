@@ -52,6 +52,7 @@ craft()
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
 | `agents` | `Record<string, AgentRegisteredOptions>` | No | Agents keyed by id. Duplicate ids across installs throw at context init. Defaults to `{}`. |
+| `toolPolicy` | `AgentToolPolicy` | No | Repository-wide admission rules for the agent tool surface. Omit for no policy (everything is admitted). Not part of `defaultOptions`, because an agent must not be able to override it. See [tool policy](#tool-policy). |
 
 **Entry shape (`AgentRegisteredOptions`):**
 
@@ -425,6 +426,65 @@ agentPlugin({
   },
 })
 ```
+
+### Tool policy
+
+`toolPolicy` sets repository-wide rules for which tools an agent may be given, independent of what any individual agent asks for.
+
+**Omitting `toolPolicy` changes nothing: every tool is admitted, exactly as before. Supplying it makes the tool surface an allowlist, and a kind with no entry is denied.** That asymmetry is deliberate. It is the only shape that leaves existing contexts untouched while failing closed for anyone who opts in.
+
+```ts
+agentPlugin({
+  agents: await agents('./agents'),
+  toolPolicy: {
+    fn: true,
+    direct: true,
+    mcp: false, // client MCPs reach agents only by wrapping one in a capability
+  },
+})
+```
+
+| Key | Governs |
+|-----|---------|
+| `fn` | In-process fns registered via `agentPlugin({ functions })` |
+| `direct` | Capabilities in the capability registry, reached via `Direct(<routeId>)` or a `directTool` alias |
+| `mcp` | Tools discovered from external MCP clients |
+
+Each value is `true`, `false`, or a predicate:
+
+```ts
+agentPlugin({
+  toolPolicy: {
+    fn: true,
+    direct: (tool) => !tool.tags.includes('experimental'),
+    mcp: (tool) => tool.source.kind === 'mcp' && tool.source.server === 'docs',
+  },
+})
+```
+
+The predicate receives a read-only descriptor (`name`, `description`, `tags`, `source`) and a context carrying `agentId`. It does not receive the handler, so a rule cannot wrap or invoke what it is deciding about.
+
+**Why `direct` and not `route`.** Only routes that register a capability are reachable as agent tools. A route sourced solely from `http()` or `mcp()` never registers one, so `Direct(...)` cannot resolve it. Naming the key `route` would imply governance over a set the policy cannot see.
+
+**Enforcement is total.** The check runs at the single point every agent form converges on, so inline agents, registered agents, markdown agents, and nested agents dispatched from inside a route are all covered. An agent's own `tools([...])` selection cannot widen what the policy admits.
+
+**Denial drops and logs; it never throws.** A denied tool is removed from the agent's list and a warning names the agent, the tool, and the kind. A silent drop would be undiagnosable when a model starts insisting it cannot do something; a throw would turn tightening a policy into an outage.
+
+**Multiple installs compose with AND.** A tool is admitted only when every installed policy admits it, so adding a plugin can only narrow the surface.
+
+**Block loader tools are not governed.** `_block__load__*` tools assemble context rather than granting reach: `skills()` sets a static body, `fromFile()` returns a file's contents, and `BlockClient.forward` reaches only registered capabilities, which the policy already covers.
+
+#### Raw MCP annotations, not just tags
+
+For `mcp` rules, `tool.source.annotations` carries the remote's hints verbatim. Prefer it over `tags` when the distinction matters, because tag derivation only fires on a truthy hint and therefore cannot tell "the server declared this safe" from "the server said nothing". The MCP specification assigns per-hint defaults for an absent hint, and `destructiveHint` defaults to **true**. A tags-only rule reads silence as "not destructive", inverting the safe reading on the hint where being wrong costs most.
+
+Prefer allowlist form across trust boundaries. A denylist predicate (`server !== 'untrusted'`) silently admits whatever a remote adds at its next refresh. Within your own repository, where fns and capabilities are under code review, denylist refinement is reasonable.
+
+#### This is admission control, not a security boundary
+
+It is a filter against accidental exposure. Its value is converting a failure of omission (a tool name appearing in markdown frontmatter, with no diff signal and nothing to notice) into a failure of commission (someone must author a capability, name it, and write an authorization line a reviewer can read).
+
+It does not stop a developer who deliberately wraps a client tool in a capability, and it is not a substitute for reviewing agent files. Treat it as one layer alongside `.authorize()` and tool guards, which remain the actual enforcement points.
 
 #### Soft dependency on `llmPlugin`
 

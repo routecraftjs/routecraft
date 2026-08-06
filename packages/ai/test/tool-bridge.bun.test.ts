@@ -30,6 +30,7 @@ describe("buildVercelTools: execute path", () => {
     );
     const resolved: ResolvedTool = {
       name: "echo",
+      source: { kind: "fn", id: "echo" },
       description: "Echoes the input.",
       input: z.object({ msg: z.string() }),
       handler: handler as ResolvedTool["handler"],
@@ -80,6 +81,7 @@ describe("buildVercelTools: execute path", () => {
     });
     const resolved: ResolvedTool = {
       name: "guarded",
+      source: { kind: "fn", id: "guarded" },
       description: "Has a guard.",
       input: z.object({}),
       guard: guard as NonNullable<ResolvedTool["guard"]>,
@@ -108,6 +110,7 @@ describe("buildVercelTools: execute path", () => {
     const handler = mock(async () => "done");
     const resolved: ResolvedTool = {
       name: "needs-auth",
+      source: { kind: "fn", id: "needs-auth" },
       description: "Needs auth.",
       input: z.object({}),
       handler: handler as ResolvedTool["handler"],
@@ -151,6 +154,7 @@ describe("buildVercelTools: execute path", () => {
     );
     const resolved: ResolvedTool = {
       name: "auth-probe",
+      source: { kind: "fn", id: "auth-probe" },
       description: "Auth probe.",
       input: z.object({}),
       handler: handler as ResolvedTool["handler"],
@@ -211,6 +215,7 @@ describe("buildVercelTools: execute path", () => {
     });
     const resolved: ResolvedTool = {
       name: "snapshot-check",
+      source: { kind: "fn", id: "snapshot-check" },
       description: "Snapshot check.",
       input: z.object({}),
       handler: handler as unknown as ResolvedTool["handler"],
@@ -268,6 +273,7 @@ describe("buildVercelTools: execute path", () => {
     });
     const resolved: ResolvedTool = {
       name: "userinfo-check",
+      source: { kind: "fn", id: "userinfo-check" },
       description: "Userinfo check.",
       input: z.object({}),
       handler: handler as unknown as ResolvedTool["handler"],
@@ -320,6 +326,7 @@ describe("buildVercelTools: execute path", () => {
     });
     const resolved: ResolvedTool = {
       name: "actor-check",
+      source: { kind: "fn", id: "actor-check" },
       description: "Actor chain check.",
       input: z.object({}),
       handler: handler as unknown as ResolvedTool["handler"],
@@ -387,6 +394,7 @@ describe("buildVercelTools: execute path", () => {
     });
     const resolved: ResolvedTool = {
       name: "nested-claims",
+      source: { kind: "fn", id: "nested-claims" },
       description: "Nested claims.",
       input: z.object({}),
       handler: handler as unknown as ResolvedTool["handler"],
@@ -447,6 +455,7 @@ describe("buildVercelTools: execute path", () => {
     });
     const resolved: ResolvedTool = {
       name: "binary-claim",
+      source: { kind: "fn", id: "binary-claim" },
       description: "Binary claim.",
       input: z.object({}),
       handler: handler as unknown as ResolvedTool["handler"],
@@ -481,6 +490,7 @@ describe("buildVercelTools: execute path", () => {
     const guard = mock(async () => undefined);
     const resolved: ResolvedTool = {
       name: "ok-guard",
+      source: { kind: "fn", id: "ok-guard" },
       description: "Guard then run.",
       input: z.object({}),
       guard: guard as NonNullable<ResolvedTool["guard"]>,

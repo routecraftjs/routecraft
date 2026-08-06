@@ -18,7 +18,13 @@ import {
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
+  ADAPTER_AGENT_TOOL_POLICIES,
 } from "./store.ts";
+import { policiesAdmit } from "./tools/policy.ts";
+import type {
+  AgentToolDescriptor,
+  AgentToolPolicyContext,
+} from "./tools/policy.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
@@ -94,7 +100,13 @@ export class AgentDestinationAdapter implements Destination<
     const model = merged.model;
 
     const { config, modelName } = resolveModel(model, context);
-    const userTools = resolveAgentTools(merged, context);
+    // Registered agents carry their own id (used to attribute runs in
+    // observability, and to name the agent in a tool-policy denial);
+    // inline agents are identified by their route, so agentName stays
+    // undefined and the consumer falls back to routeId.
+    const agentName =
+      this.binding.kind === "by-name" ? this.binding.name : undefined;
+    const userTools = resolveAgentTools(merged, context, agentName);
     const user = buildUserPrompt(merged, exchange);
     // System accepts the same string-or-function shape as `llm({ system })`,
     // so resolve it against the exchange here. The session then receives a
@@ -132,12 +144,6 @@ export class AgentDestinationAdapter implements Destination<
       exchange,
       route?.definition.id,
     );
-
-    // Registered agents carry their own id (used to attribute runs in
-    // observability); inline agents are identified by their route, so
-    // agentName stays undefined and the consumer falls back to routeId.
-    const agentName =
-      this.binding.kind === "by-name" ? this.binding.name : undefined;
 
     const session = new AgentSession({
       options: merged,
@@ -353,6 +359,7 @@ function mergeUserAndLoaderTools(
 function resolveAgentTools(
   options: AgentOptions | AgentRegisteredOptions,
   context: CraftContext | undefined,
+  agentId: string | undefined,
 ): ResolvedTool[] {
   if (options.tools === undefined) return [];
   if (!context) {
@@ -360,7 +367,69 @@ function resolveAgentTools(
       message: `Agent: cannot resolve tools without a CraftContext.`,
     });
   }
-  return options.tools.resolve(context);
+  return applyToolPolicy(options.tools.resolve(context), context, agentId);
+}
+
+/**
+ * Filter a resolved tool list through every `agentPlugin({ toolPolicy })`
+ * installed on the context.
+ *
+ * This runs at the single point both agent forms converge on. Inline
+ * options and by-name registry lookups (which is what a markdown agent
+ * becomes) both arrive here through `resolveOptions`, and a nested
+ * agent dispatched from inside a route re-enters the same
+ * `AgentDestinationAdapter.send`. Enforcement is therefore total by
+ * construction rather than by discipline, and stays that way for any
+ * future agent form routed through this destination.
+ *
+ * A denied tool is dropped and logged at warn, not thrown. A silent
+ * drop would be undiagnosable when a model starts claiming it cannot do
+ * something; a throw would turn tightening a policy into an outage for
+ * every agent that happened to list the tool.
+ *
+ * @internal
+ */
+function applyToolPolicy(
+  resolved: ResolvedTool[],
+  context: CraftContext,
+  agentId: string | undefined,
+): ResolvedTool[] {
+  const policies = context.getStore(ADAPTER_AGENT_TOOL_POLICIES);
+  if (!policies || policies.length === 0) return resolved;
+  const policyContext: AgentToolPolicyContext = { agentId };
+  const admitted: ResolvedTool[] = [];
+  for (const tool of resolved) {
+    if (policiesAdmit(policies, toDescriptor(tool), policyContext)) {
+      admitted.push(tool);
+      continue;
+    }
+    context.logger.warn(
+      {
+        agent: agentId ?? "<inline>",
+        tool: tool.name,
+        kind: tool.source.kind,
+      },
+      "Agent tool denied by agentPlugin({ toolPolicy }) and dropped from the agent's tool list",
+    );
+  }
+  return admitted;
+}
+
+/**
+ * Narrow a `ResolvedTool` to the read-only view policy rules receive.
+ * Drops `handler` so a rule cannot wrap or invoke the tool it is
+ * deciding about, and normalises absent tags to an empty array so
+ * predicates can call `.includes` without a guard.
+ *
+ * @internal
+ */
+function toDescriptor(tool: ResolvedTool): AgentToolDescriptor {
+  return {
+    name: tool.name,
+    description: tool.description,
+    tags: tool.tags ?? [],
+    source: tool.source,
+  };
 }
 
 /**

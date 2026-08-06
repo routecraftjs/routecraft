@@ -22,3 +22,11 @@ export {
   type ToolsCatalog,
   type ToolsItem,
 } from "./selection.ts";
+export {
+  type AgentToolDescriptor,
+  type AgentToolPolicy,
+  type AgentToolPolicyContext,
+  type AgentToolPolicyKind,
+  type AgentToolRule,
+  type AgentToolSource,
+} from "./policy.ts";
