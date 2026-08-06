@@ -372,7 +372,12 @@ function validateToolPolicy(
       });
     }
   }
-  return raw;
+  // Shallow-copied so a caller holding a reference cannot add or
+  // remove kinds after the context installed the policy. Predicates
+  // stay caller-owned by design; this only closes the key-level
+  // mutation path, which would otherwise contradict the promise that
+  // a policy is not overridable once set.
+  return { ...raw };
 }
 
 /**

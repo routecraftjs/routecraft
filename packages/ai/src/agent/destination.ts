@@ -398,8 +398,24 @@ function applyToolPolicy(
   if (!policies || policies.length === 0) return resolved;
   const policyContext: AgentToolPolicyContext = { agentId };
   const admitted: ResolvedTool[] = [];
+  // A predicate that throws is a bug in the policy, not a verdict, so
+  // it is reported at error level. The tool is still denied rather than
+  // letting the throw abort the dispatch; see `ruleAdmits`.
+  const onRuleError = (tool: AgentToolDescriptor, cause: unknown): void => {
+    context.logger.error(
+      {
+        agent: agentId ?? "<inline>",
+        tool: tool.name,
+        kind: tool.source.kind,
+        err: cause,
+      },
+      "Agent tool policy predicate threw; denying the tool. Fix the predicate in agentPlugin({ toolPolicy })",
+    );
+  };
   for (const tool of resolved) {
-    if (policiesAdmit(policies, toDescriptor(tool), policyContext)) {
+    if (
+      policiesAdmit(policies, toDescriptor(tool), policyContext, onRuleError)
+    ) {
       admitted.push(tool);
       continue;
     }

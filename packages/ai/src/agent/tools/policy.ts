@@ -151,7 +151,28 @@ export interface AgentToolPolicy {
 }
 
 /**
+ * Reports a predicate that threw. Supplied by the caller so the failure
+ * can be logged with the context's logger; the policy module itself
+ * stays free of logging concerns.
+ *
+ * @internal
+ */
+export type AgentToolRuleErrorReporter = (
+  tool: AgentToolDescriptor,
+  cause: unknown,
+) => void;
+
+/**
  * Evaluate one rule against one tool.
+ *
+ * A predicate that throws denies the tool rather than propagating. The
+ * alternative would contradict the documented contract twice over: a
+ * policy is meant to fail closed, and a denial is meant never to abort
+ * a dispatch. Letting the throw escape would do the opposite of both,
+ * turning one bad predicate into a total outage for every agent that
+ * lists a tool of that kind. The throw is still surfaced through
+ * `onRuleError` at error level, because a throwing predicate is a bug
+ * in the policy, not a decision.
  *
  * @internal
  */
@@ -159,12 +180,18 @@ function ruleAdmits(
   rule: AgentToolRule | undefined,
   tool: AgentToolDescriptor,
   ctx: AgentToolPolicyContext,
+  onRuleError: AgentToolRuleErrorReporter | undefined,
 ): boolean {
   // A kind with no entry under a present policy is denied: the policy
   // is an allowlist once it exists.
   if (rule === undefined) return false;
   if (typeof rule === "boolean") return rule;
-  return rule(tool, ctx) === true;
+  try {
+    return rule(tool, ctx) === true;
+  } catch (cause) {
+    onRuleError?.(tool, cause);
+    return false;
+  }
 }
 
 /**
@@ -180,12 +207,13 @@ export function policiesAdmit(
   policies: readonly AgentToolPolicy[],
   tool: AgentToolDescriptor,
   ctx: AgentToolPolicyContext,
+  onRuleError?: AgentToolRuleErrorReporter,
 ): boolean {
   if (policies.length === 0) return true;
   const kind = tool.source.kind;
   if (kind === "block") return true;
   for (const policy of policies) {
-    if (!ruleAdmits(policy[kind], tool, ctx)) return false;
+    if (!ruleAdmits(policy[kind], tool, ctx, onRuleError)) return false;
   }
   return true;
 }

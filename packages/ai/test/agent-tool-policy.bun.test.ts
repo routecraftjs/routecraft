@@ -432,6 +432,64 @@ describe("agentPlugin({ toolPolicy }): predicates and composition", () => {
   });
 
   /**
+   * @case A predicate that throws denies its tools instead of aborting the dispatch
+   * @preconditions mcp rule throws; fn and direct admit
+   * @expectedResult The dispatch completes, MCP tools are dropped, and the throw is logged at error
+   */
+  test("a throwing predicate denies rather than failing the dispatch", async () => {
+    t = await buildCtx({
+      policies: [
+        {
+          fn: true,
+          direct: true,
+          mcp: () => {
+            throw new Error("policy predicate blew up");
+          },
+        },
+      ],
+    });
+    const admitted = await inlineAgentTools(t);
+    expect(admitted).toEqual([
+      "aliasedCapability",
+      "direct__cancel-order",
+      "localFn",
+    ]);
+    const errors = t.logger.error.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "string" && c[1].includes("policy predicate threw"),
+    );
+    expect(errors.length).toBe(2);
+    expect((errors[0]?.[0] as Record<string, unknown>)["kind"]).toBe("mcp");
+    expect(
+      ((errors[0]?.[0] as Record<string, unknown>)["err"] as Error).message,
+    ).toBe("policy predicate blew up");
+  });
+
+  /**
+   * @case A throwing predicate under AND composition still denies only its own kind
+   * @preconditions One policy throws on fn; a second admits everything
+   * @expectedResult fn tools are denied, other kinds survive, and the dispatch completes
+   */
+  test("a throwing predicate under AND denies only its own kind", async () => {
+    t = await buildCtx({
+      policies: [
+        {
+          fn: () => {
+            throw new Error("boom");
+          },
+          direct: true,
+          mcp: true,
+        },
+        { fn: true, direct: true, mcp: true },
+      ],
+    });
+    const admitted = await inlineAgentTools(t);
+    expect(admitted).not.toContain("localFn");
+    expect(admitted).toContain("direct__cancel-order");
+    expect(admitted).toContain("mcp__docs__search");
+  });
+
+  /**
    * @case The predicate receives the agent id for diagnostics
    * @preconditions Registered agent "helper"; rule records the ctx it was handed
    * @expectedResult agentId is the registered name

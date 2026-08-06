@@ -472,7 +472,9 @@ The predicate receives a read-only descriptor (`name`, `description`, `tags`, `s
 
 **Multiple installs compose with AND.** A tool is admitted only when every installed policy admits it, so adding a plugin can only narrow the surface.
 
-**Block loader tools are not governed.** `_block__load__*` tools assemble context rather than granting reach: `skills()` sets a static body, `fromFile()` returns a file's contents, and `BlockClient.forward` reaches only registered capabilities, which the policy already covers.
+**Block loader tools are not governed.** `_block__load__*` tools assemble context rather than granting reach: `skills()` sets a static body and `fromFile()` returns a file's contents, both inert.
+
+The exception to keep in mind is `BlockClient.forward`. A block resolver can dispatch to any registered capability, and that call does **not** pass through `toolPolicy`: loader tools are built after policy filtering, and `forward` dispatches in your code rather than through the agent's tool list. `toolPolicy` governs what the *model* may call, not what a resolver you wrote may reach. A capability reached that way is still subject to the target route's `.authorize()` and any guards on it, which remain the enforcement points.
 
 #### Raw MCP annotations, not just tags
 
