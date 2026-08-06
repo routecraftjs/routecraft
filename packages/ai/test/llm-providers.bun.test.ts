@@ -189,22 +189,24 @@ describe("copilot LLM provider", () => {
    * @case A denying permission handler is registered when none is configured
    * @preconditions copilot config without onPermissionRequest and without
    *   approveAllTools
-   * @expectedResult A handler is always present and denies by default. It
-   *   cannot be omitted: Copilot SDK 0.1.32 and later throw when creating a
-   *   session without one, which would break plain generation as well as
-   *   tool calls
+   * @expectedResult A handler is always present and denies by default, with
+   *   the `rules` array the SDK's denied-by-rules arm requires. It cannot be
+   *   omitted: Copilot SDK 0.1.32 and later throw when creating a session
+   *   without one, which would break plain generation as well as tool calls
    */
   test("registers a denying permission handler by default (fail closed)", async () => {
     const model = (await resolveLanguageModel(
       { provider: "copilot" },
       "gpt-5",
     )) as {
-      settings?: { onPermissionRequest?: (...args: unknown[]) => unknown };
+      settings?: {
+        onPermissionRequest?: (...args: unknown[]) => Promise<unknown>;
+      };
     };
 
     const handler = model.settings?.onPermissionRequest;
     expect(typeof handler).toBe("function");
-    expect(handler?.()).toEqual({ kind: "denied-by-rules" });
+    expect(await handler?.()).toEqual({ kind: "denied-by-rules", rules: [] });
   });
 
   /**
@@ -218,29 +220,69 @@ describe("copilot LLM provider", () => {
       { provider: "copilot", approveAllTools: true },
       "gpt-5",
     )) as {
-      settings?: { onPermissionRequest?: (...args: unknown[]) => unknown };
+      settings?: {
+        onPermissionRequest?: (...args: unknown[]) => Promise<unknown>;
+      };
     };
 
     const handler = model.settings?.onPermissionRequest;
     expect(typeof handler).toBe("function");
-    expect(handler?.()).toEqual({ kind: "approved" });
+    expect(await handler?.()).toEqual({ kind: "approved" });
   });
 
   /**
    * @case A configured onPermissionRequest wins over approveAllTools
    * @preconditions copilot config supplies a deny handler and also sets
    *   approveAllTools true
-   * @expectedResult The caller's handler is registered unchanged, so an
-   *   explicit policy is never silently widened by the opt-in flag
+   * @expectedResult The caller's decision is what reaches the SDK, so an
+   *   explicit policy is never silently widened by the opt-in flag. The
+   *   caller's own `rules` value is preserved rather than overwritten
    */
   test("a configured handler takes precedence over approveAllTools", async () => {
-    const deny = () => ({ kind: "denied-by-rules" as const });
+    const deny = () => ({
+      kind: "denied-by-rules" as const,
+      rules: ["no-shell"],
+    });
     const model = (await resolveLanguageModel(
       { provider: "copilot", onPermissionRequest: deny, approveAllTools: true },
       "gpt-5",
-    )) as { settings?: { onPermissionRequest?: unknown } };
+    )) as {
+      settings?: {
+        onPermissionRequest?: (...args: unknown[]) => Promise<unknown>;
+      };
+    };
 
-    expect(model.settings?.onPermissionRequest).toBe(deny);
+    expect(await model.settings?.onPermissionRequest?.()).toEqual({
+      kind: "denied-by-rules",
+      rules: ["no-shell"],
+    });
+  });
+
+  /**
+   * @case An async handler returning a bare denial is completed, not rejected
+   * @preconditions onPermissionRequest is async and returns
+   *   { kind: "denied-by-rules" } with no rules array
+   * @expectedResult The forwarded result carries rules: [], satisfying the
+   *   SDK contract whose denied-by-rules arm requires the field, so the
+   *   denial is honoured rather than treated as malformed
+   */
+  test("completes a bare denial with an empty rules array", async () => {
+    const model = (await resolveLanguageModel(
+      {
+        provider: "copilot",
+        onPermissionRequest: async () => ({ kind: "denied-by-rules" as const }),
+      },
+      "gpt-5",
+    )) as {
+      settings?: {
+        onPermissionRequest?: (...args: unknown[]) => Promise<unknown>;
+      };
+    };
+
+    expect(await model.settings?.onPermissionRequest?.()).toEqual({
+      kind: "denied-by-rules",
+      rules: [],
+    });
   });
 
   /**

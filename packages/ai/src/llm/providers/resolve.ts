@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { loadOptionalPeer } from "@routecraft/routecraft";
 import { assertLanguageModelShape, PROVIDER_DEFAULTS } from "./llm-utils.ts";
-import type { LlmModelConfig } from "../types.ts";
+import type {
+  CopilotPermissionHandler,
+  CopilotPermissionResult,
+  LlmModelConfig,
+} from "../types.ts";
 
 /**
  * Resolve the AI SDK `LanguageModel` for a given provider config.
@@ -277,6 +281,32 @@ export function resetCopilotClientHolders(): void {
   copilotClientHolders = 0;
 }
 
+/**
+ * Complete a permission decision so it satisfies the Copilot SDK's wire
+ * contract, where the `denied-by-rules` arm carries a required `rules` array.
+ * Routecraft leaves `rules` optional on its own type, so a handler returning
+ * a bare `{ kind: "denied-by-rules" }` would otherwise be rejected as
+ * malformed rather than honoured as a denial.
+ */
+function normalisePermissionResult(
+  result: CopilotPermissionResult,
+): { kind: "approved" } | { kind: "denied-by-rules"; rules: unknown[] } {
+  return result.kind === "approved"
+    ? { kind: "approved" }
+    : { kind: "denied-by-rules", rules: result.rules ?? [] };
+}
+
+/**
+ * Resolve a Copilot model, driven by the local `copilot` CLI through the
+ * optional peer provider.
+ *
+ * Two details are not obvious. Client-level options (`cliPath`, `cliUrl`,
+ * `githubToken`) only take effect through `createGitHubCopilot`, since the
+ * model settings bag silently ignores them, so one provider is built and
+ * cached per distinct client config; each owns a spawned CLI process, and
+ * `resolveCopilot` runs on every dispatch. A permission handler is always
+ * forwarded, because the SDK refuses to open a session without one.
+ */
 async function resolveCopilot(
   config: import("../types.ts").LlmModelConfigCopilot,
   modelId: string,
@@ -321,12 +351,16 @@ async function resolveCopilot(
   // The unconfigured default denies, which keeps the fail-closed behaviour
   // without depending on the SDK's own missing-handler path; approving
   // everything stays an explicit opt-in via approveAllTools.
+  const decide: CopilotPermissionHandler =
+    config.onPermissionRequest ??
+    (config.approveAllTools === true
+      ? () => ({ kind: "approved" })
+      : () => ({ kind: "denied-by-rules" }));
   const settings: Record<string, unknown> = {
-    onPermissionRequest:
-      config.onPermissionRequest ??
-      (config.approveAllTools === true
-        ? () => ({ kind: "approved" })
-        : () => ({ kind: "denied-by-rules" })),
+    onPermissionRequest: async (
+      request: import("../types.ts").CopilotPermissionRequest,
+      invocation: { sessionId: string },
+    ) => normalisePermissionResult(await decide(request, invocation)),
   };
   if (config.workingDirectory !== undefined) {
     settings["workingDirectory"] = config.workingDirectory;

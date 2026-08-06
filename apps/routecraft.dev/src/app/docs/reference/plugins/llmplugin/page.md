@@ -91,7 +91,9 @@ llmPlugin({ providers: { copilot: { approveAllTools: true } } })
 
 Requires the `@nomomon/ai-sdk-provider-github-copilot` peer (`bun add @nomomon/ai-sdk-provider-github-copilot`); a missing peer raises a clear install error.
 
-Version note: provider release 0.2.0 accepts `onPermissionRequest` and silently drops it, so neither a custom handler nor `approveAllTools` reaches the Copilot SDK on that version and every approval-gated tool call is denied. Both take effect on a release that forwards the handler ([upstream repository](https://github.com/nomomon/ai-sdk-provider-github-copilot)). Everything else in this provider works on 0.2.0.
+Version note, worth reading before you rely on this provider: release 0.2.0 of `@nomomon/ai-sdk-provider-github-copilot` accepts `onPermissionRequest` and silently drops it before creating the session, so neither a custom handler nor `approveAllTools` reaches the Copilot SDK. On `@github/copilot-sdk` 0.1.32 and later that is fatal rather than limiting: `createSession` throws when no handler is present, so every Copilot call fails, not just the ones that reach for a tool. The provider was built against SDK 0.1.20, where a missing handler only meant tool requests were denied.
+
+Until a release forwards the handler ([upstream repository](https://github.com/nomomon/ai-sdk-provider-github-copilot)), use a patched install: `bun patch @nomomon/ai-sdk-provider-github-copilot`, add `onPermissionRequest: this.settings.onPermissionRequest` to the object `buildSessionConfig` returns in `dist/index.js` and `dist/index.cjs`, then `bun patch --commit`. Routecraft needs no change; it already passes the handler through.
 
 `cliPath` and `cliUrl` are mutually exclusive: `cliPath` spawns a CLI, `cliUrl` connects to one that is already running. `githubToken` cannot be combined with `cliUrl` either, because an already-running server manages its own authentication. Both combinations are rejected when the plugin is built rather than on the first dispatch.
 

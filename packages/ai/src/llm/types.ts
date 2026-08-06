@@ -130,10 +130,14 @@ export interface CopilotPermissionRequest {
  * Decision returned by a permission handler. Narrowed to the two outcomes a
  * programmatic policy can produce: the SDK's remaining `denied-*` kinds
  * describe interactive or absent-handler situations that it raises itself.
+ *
+ * The SDK's wire contract requires a `rules` array alongside a
+ * `denied-by-rules` decision. It is optional here and defaulted to empty
+ * before the decision is forwarded, so a handler that just returns
+ * `{ kind: "denied-by-rules" }` still produces a well-formed result.
  */
-export interface CopilotPermissionResult {
-  kind: "approved" | "denied-by-rules";
-}
+export type CopilotPermissionResult =
+  { kind: "approved" } | { kind: "denied-by-rules"; rules?: unknown[] };
 
 /**
  * Handler invoked before each Copilot tool execution. Return
@@ -175,9 +179,11 @@ export interface LlmModelConfigCopilot {
    * policy per call.
    *
    * Forwarding depends on the installed provider package: version 0.2.0
-   * accepts the option and silently drops it, so the handler only takes
-   * effect on a version that passes it to the Copilot SDK session. Routes
-   * that never trigger an approval-gated tool are unaffected either way.
+   * accepts the option and silently drops it before creating the session.
+   * On Copilot SDK 0.1.32 and later that breaks every call, because the SDK
+   * refuses to open a session with no handler, so a patched or fixed
+   * provider release is required for this provider to work at all. See the
+   * version note on the llmPlugin reference page.
    */
   onPermissionRequest?: CopilotPermissionHandler;
   /**
