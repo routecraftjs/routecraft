@@ -5,20 +5,22 @@ import type {
   ValidatorAuthOptions,
 } from "@routecraft/routecraft";
 import type { ToolGuard } from "../fn/types.ts";
+import { TOOL_NAME_PATTERN } from "../tool-name.ts";
 import type { McpCorsOptions } from "./cors.ts";
 import type { McpToolRegistry } from "./tool-registry.ts";
 import type { UserinfoOption } from "./userinfo.ts";
 
 /**
- * Characters allowed in an MCP tool name. Matches OpenAI's function-calling
- * constraint (the strictest mainstream LLM client), which all major MCP
- * client implementations respect: ASCII letters, digits, underscore, and
- * hyphen, with a 1-64 length bound. Keeping tool names in this set ensures
- * the `tool.name` field survives `tools/list` -> LLM function-calling
- * without further mangling. Enforced on route ids by the `mcp()` source and
- * on exposed proxied-tool names by the proxy resolver.
+ * Characters allowed in an MCP tool name. Enforced on route ids by the
+ * `mcp()` source and on exposed proxied-tool names by the proxy
+ * resolver.
+ *
+ * An alias for the package-wide {@link TOOL_NAME_PATTERN}: the MCP
+ * surface and the agent surface answer to the same provider constraint,
+ * so they share one definition rather than restating it. Kept under the
+ * MCP name because it is part of this module's published surface.
  */
-export const MCP_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+export const MCP_TOOL_NAME_PATTERN = TOOL_NAME_PATTERN;
 
 /**
  * The tool-calling surface of a managed stdio client, as stored under

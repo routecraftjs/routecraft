@@ -64,7 +64,7 @@ describe("tools() resolver - bare references", () => {
   /**
    * @case Direct(routeId) ref resolves via the direct registry
    * @preconditions Direct route "fetch-order" registered with description + input
-   * @expectedResult Single ResolvedTool whose LLM-facing name is "direct_fetch-order"
+   * @expectedResult Single ResolvedTool whose LLM-facing name is "direct__fetch-order"
    */
   test("Direct(routeId) ref resolves via the direct registry", async () => {
     const inputSchema = z.object({ orderId: z.string() });
@@ -82,15 +82,15 @@ describe("tools() resolver - bare references", () => {
 
     const resolved = tools(["Direct(fetch-order)"]).resolve(t.ctx);
     expect(resolved).toHaveLength(1);
-    expect(resolved[0].name).toBe("direct_fetch-order");
+    expect(resolved[0].name).toBe("direct__fetch-order");
     expect(resolved[0].description).toBe("Fetch an order by id.");
     expect(resolved[0].input).toBe(inputSchema);
   });
 
   /**
-   * @case A bare "direct_x" is a plain fn id; the route form is "Direct(x)"
+   * @case A bare "direct_x" is a plain fn id; the route form is "Direct(x)", and the two no longer collide
    * @preconditions Route "x" registered AND a fn registry entry literally named "direct_x"
-   * @expectedResult tools(["direct_x"]) resolves the fn; tools(["Direct(x)"]) resolves the route
+   * @expectedResult tools(["direct_x"]) resolves the fn as "direct_x"; tools(["Direct(x)"]) resolves the route as "direct__x", so both can be bound to one agent
    */
   test("bare direct_ name is a plain fn id; Direct(id) is the route", async () => {
     t = await testContext()
@@ -120,11 +120,18 @@ describe("tools() resolver - bare references", () => {
     await t.startAndWaitReady();
 
     const [asFn] = tools(["direct_x"]).resolve(t.ctx);
+    expect(asFn.name).toBe("direct_x");
     expect(asFn.description).toBe("Explicit fn registry entry.");
 
     const [asRoute] = tools(["Direct(x)"]).resolve(t.ctx);
-    expect(asRoute.name).toBe("direct_x");
+    expect(asRoute.name).toBe("direct__x");
     expect(asRoute.description).toBe("Route description.");
+
+    // The single-underscore fn id and the double-underscore wire form
+    // are distinct names, so binding both to one agent exposes two
+    // tools rather than silently deduplicating to one.
+    const both = tools(["direct_x", "Direct(x)"]).resolve(t.ctx);
+    expect(both.map((r) => r.name)).toEqual(["direct_x", "direct__x"]);
   });
 
   /**
@@ -360,7 +367,7 @@ describe("tools() resolver - builder form", () => {
   /**
    * @case Builder can walk catalog.routes and reference them via Direct(<id>)
    * @preconditions One direct route tagged "read-only"
-   * @expectedResult The route surfaces as `direct_<id>` in the resolved list
+   * @expectedResult The route surfaces as `direct__<id>` in the resolved list
    */
   test("builder maps catalog.routes to Direct(...) references", async () => {
     t = await testContext()
@@ -380,7 +387,7 @@ describe("tools() resolver - builder form", () => {
         .filter((r) => r.tags?.includes("read-only"))
         .map((r) => `Direct(${r.id})`),
     ).resolve(t.ctx);
-    expect(resolved.map((r) => r.name)).toEqual(["direct_read-thing"]);
+    expect(resolved.map((r) => r.name)).toEqual(["direct__read-thing"]);
   });
 
   /**

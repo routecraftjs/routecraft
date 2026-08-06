@@ -183,7 +183,7 @@ export interface AgentOptions {
    * Inject blocks are concatenated onto the agent's `system` prompt
    * as `## <name>\n\n<content>` in insertion order (defaults first,
    * then per-agent entries). Progressive blocks are exposed as
-   * synthetic `_block_load_<name>` tools the model can invoke on
+   * synthetic `_block__load__<name>` tools the model can invoke on
    * demand, matching Claude Code's default progressive-disclosure
    * behaviour.
    *
@@ -395,7 +395,7 @@ export interface AgentResult {
    * `route:agent:tool:invoked` / `:result` / `:error`. This
    * summary is the synchronous post-hoc view of the same calls.
    *
-   * Synthetic block-loader calls (`_block_load_<name>`) are excluded
+   * Synthetic block-loader calls (`_block__load__<name>`) are excluded
    * from this list and surface separately on {@link AgentResult.blocksLoaded}
    * so post-dispatch assertions on the agent's user-tool usage are
    * not polluted by framework bookkeeping.

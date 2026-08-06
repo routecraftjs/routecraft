@@ -380,7 +380,7 @@ This also fires when `client.forward()` is invoked from a resolver running on an
 Agent block / tool name collision with the reserved `_block_` prefix
 
 **Why it happens**  
-A block name or a user tool (fn id, direct route id, MCP tool name) starts with the framework-reserved `_block_` prefix used by synthetic block-loader tools. The reservation covers the whole `_block_` namespace, not just `_block_load_`, so future synthetic-tool kinds can land without another breaking reservation.
+A block name or a user tool (fn id, direct route id, MCP tool name) starts with the framework-reserved `_block_` prefix used by synthetic block-loader tools. The reservation covers the whole `_block_` namespace, not just `_block__load__`, so future synthetic-tool kinds can land without another breaking reservation.
 
 Also fires on duplicate block keys, empty-string block keys, or any other block-name collision detected at construction or dispatch.
 

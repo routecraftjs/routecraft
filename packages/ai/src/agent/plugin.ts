@@ -15,6 +15,7 @@ import { parseProviderModel } from "../llm/shared.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 import { isDeferredFn, type FnEntry } from "./tools/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
+import { describeToolNameViolation } from "../tool-name.ts";
 
 export interface AgentPluginOptions {
   /**
@@ -152,6 +153,18 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
         if (id.trim() === "") {
           throw rcError("RC5003", undefined, {
             message: `agentPlugin: fn id must be a non-empty string.`,
+          });
+        }
+        // A fn id IS the tool name the model sees, with no prefix and no
+        // encoding in between, so the provider charset applies to it
+        // directly. Checking at registration turns what was an opaque
+        // provider-side rejection on the first dispatch into a startup
+        // error naming the offending id.
+        const idViolation = describeToolNameViolation(id);
+        if (idViolation !== undefined) {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: fn id "${id}" is not usable as a tool name: ${idViolation}.`,
+            suggestion: `A fn id reaches the model provider verbatim as the tool name, so it must match /^[A-Za-z0-9_-]{1,64}$/. Rename the fn.`,
           });
         }
         if (entry === null || typeof entry !== "object") {

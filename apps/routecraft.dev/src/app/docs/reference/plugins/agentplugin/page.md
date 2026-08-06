@@ -63,7 +63,7 @@ craft()
 | `user` | `string \| (exchange) => string` | No | User prompt override. Static string or a function that derives it from the exchange. Defaults to `exchange.body` (string as-is, JSON for objects) when omitted |
 | `tools` | `ToolSelection` | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
 | `maxTurns` | `number` | No | Cap on tool-calling turns. Inherits `defaultOptions.maxTurns` when omitted |
-| `blocks` | `Blocks` (`Record<string, BlockBody \| false>`) | No | Contributions to the agent's system context, keyed by name. Each block has a `mode` (`"inject"` to concatenate into the system prompt as `## <name>\n\n<content>`, or `"progressive"` to surface as a synthetic `_block_load_<name>` tool the model invokes on demand) and an optional `lifetime` (`"dispatch"` re-runs the resolver every call, `"context"` caches once per `CraftContext`). Set an entry to `false` to remove a default inherited from `agentPlugin({ defaultOptions: { blocks } })`. Use `skills({ source })` to load markdown skills. See the [blocks reference](#agent-blocks) |
+| `blocks` | `Blocks` (`Record<string, BlockBody \| false>`) | No | Contributions to the agent's system context, keyed by name. Each block has a `mode` (`"inject"` to concatenate into the system prompt as `## <name>\n\n<content>`, or `"progressive"` to surface as a synthetic `_block__load__<name>` tool the model invokes on demand) and an optional `lifetime` (`"dispatch"` re-runs the resolver every call, `"context"` caches once per `CraftContext`). Set an entry to `false` to remove a default inherited from `agentPlugin({ defaultOptions: { blocks } })`. Use `skills({ source })` to load markdown skills. See the [blocks reference](#agent-blocks) |
 | `principal` | `boolean \| (principal, exchange) => string` | No | Append a `## Caller` section describing `exchange.principal`. `true` for the built-in block, a function to render it yourself. Inherits `defaultOptions.principal` when omitted; a per-agent value (including `false`) overrides it. See [Telling the agent who the caller is](/docs/reference/adapters/agent#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | No | Schema for structured output. The agent requests provider-level structured output, validates the response, and parses it onto `AgentResult.output` |
 
@@ -113,7 +113,7 @@ agent({
 | Field         | Type                                                                                                     | Required | Description                                                                                                                                       |
 | ------------- | -------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `description` | `string`                                                                                                 | Yes\*    | Required when `mode === "progressive"` so the model can decide whether to load. Ignored for inject blocks.                                        |
-| `mode`        | `"inject" \| "progressive"`                                                                              | Yes      | `"inject"` concatenates into the system prompt as `## <name>\n\n<content>`. `"progressive"` registers a `_block_load_<name>` tool the model invokes on demand. |
+| `mode`        | `"inject" \| "progressive"`                                                                              | Yes      | `"inject"` concatenates into the system prompt as `## <name>\n\n<content>`. `"progressive"` registers a `_block__load__<name>` tool the model invokes on demand. |
 | `lifetime`    | `"dispatch" \| "context"`                                                                                | No       | Defaults to `"dispatch"` (re-run resolver each call). `"context"` runs the resolver once per `CraftContext` and caches the result (cache key is the body's object identity, so concurrent dispatches share one resolution). |
 | `value`       | `string \| (exchange, context, events, client) => string \| Promise<string>`                             | Yes      | Static string used verbatim, or a function. `client.forward(routeId, payload)` is the same callable route `.error()` handlers receive. `events` is reserved (always `[]`) for a forthcoming exchange-event log. |
 
@@ -130,7 +130,7 @@ blocks: {
 }
 ```
 
-Groups flatten depth-first into a single canonical name joined by `__`. A leaf `onboarding` under group `skills` resolves to `skills__onboarding` for its system-prompt heading (`## skills__onboarding`), its loader tool (`_block_load_skills__onboarding`), and its `blocksLoaded` summary. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`. A leaf is distinguished from a group by the presence of a string `mode` field; any other object value is a group.
+Groups flatten depth-first into a single canonical name joined by `__`. A leaf `onboarding` under group `skills` resolves to `skills__onboarding` for its system-prompt heading (`## skills__onboarding`), its loader tool (`_block__load__skills__onboarding`), and its `blocksLoaded` summary. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`. A leaf is distinguished from a group by the presence of a string `mode` field; any other object value is a group.
 
 These rules are enforced at `agent()` / `agentPlugin()` construction, not deferred to dispatch: two blocks that flatten to the same name are rejected with `AI1002`; a flattened name that lands in the reserved `_block_` namespace (including combinations like a group `_block` with a leaf `x` resolving to `_block__x`) is rejected with `AI1002`; and a progressive block whose flattened loader-tool name would break the provider charset or exceed 64 characters is rejected with `AI1003`. A blocks tree that contains a cycle is also rejected rather than recursed without bound.
 
@@ -161,7 +161,7 @@ A `false` for a name not present in defaults is silently ignored, so adding or r
 
 **Loader tools and observability:**
 
-Progressive blocks register one synthetic tool per block named `_block_load_<blockName>` with no input schema. The handler runs the resolver against the dispatch's live exchange and returns the resolved string back to the model. Loader invocations are excluded from `AgentResult.toolCalls` and surface on `AgentResult.blocksLoaded?: AgentBlockLoadSummary[]` instead, so post-dispatch user-tool assertions stay clean. On the context bus they emit `route:agent:block:loaded` and `:agent:block:error` rather than the `:agent:tool:*` events.
+Progressive blocks register one synthetic tool per block named `_block__load__<blockName>` with no input schema. The handler runs the resolver against the dispatch's live exchange and returns the resolved string back to the model. Loader invocations are excluded from `AgentResult.toolCalls` and surface on `AgentResult.blocksLoaded?: AgentBlockLoadSummary[]` instead, so post-dispatch user-tool assertions stay clean. On the context bus they emit `route:agent:block:loaded` and `:agent:block:error` rather than the `:agent:tool:*` events.
 
 **Defaults merging:**
 
@@ -287,8 +287,33 @@ agentPlugin({
 
 Flat array of items. Each item is one of:
 
-- **Bare string**: name lookup. Plain ids resolve against the fn registry; `Direct(<routeId>)` wraps a direct route via `directTool` (the LLM-facing tool name stays `direct_<routeId>`); `MCP(server:tool)` resolves against `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` / `mcpPlugin({ clients })`), and `MCP(server)` (or the raw `mcp__server__tool` / `mcp__server` / `mcp__server__*` forms) expands at dispatch time to every tool the named server exposed. The raw `mcp__server__tool` form is the string Claude Code agent files carry, so they resolve unchanged.
+- **Bare string**: name lookup. Plain ids resolve against the fn registry; `Direct(<routeId>)` wraps a direct route via `directTool` (the LLM-facing tool name becomes `direct__<routeId>`); `MCP(server:tool)` resolves against `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` / `mcpPlugin({ clients })`), and `MCP(server)` (or the raw `mcp__server__tool` / `mcp__server` / `mcp__server__*` forms) expands at dispatch time to every tool the named server exposed. The raw `mcp__server__tool` form is the string Claude Code agent files carry, so they resolve unchanged.
 - **`{ name, guard?, description? }`**: same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding for fn-style names. MCP references reject `description` (the MCP server is the source of truth for description and schema; do not override).
+
+#### Authoring grammar vs wire names
+
+`Direct(<routeId>)` and `MCP(server:tool)` are the grammar you write, here and in markdown agent frontmatter. They are not what the model sees. Tool names cannot carry parentheses or colons, so resolution normalises each reference to a wire name:
+
+| Kind | You write | The model sees |
+|------|-----------|----------------|
+| fn | `fetchOrder` | `fetchOrder` |
+| capability | `Direct(cancel-order)` | `direct__cancel-order` |
+| MCP client tool | `MCP(github:create_issue)` | `mcp__github__create_issue` |
+| block loader | (declared via `blocks`) | `_block__load__<name>` |
+
+`__` is the only structural separator, which is what keeps a single underscore inside a segment unambiguous: a server named `my_company_api` and a route named `fetch_order` both survive the prefix boundary intact.
+
+Wire names must match `/^[A-Za-z0-9_-]{1,64}$/`, the charset every mainstream provider enforces. Route ids are deliberately not constrained that way, so `Direct(memory:get)` is rejected at resolution rather than encoded into something the model has to read. Expose such a route under a tool-safe alias instead:
+
+```ts
+agentPlugin({
+  functions: {
+    memoryGet: directTool('memory:get'), // clean name, same capability
+  },
+})
+```
+
+Fn ids reach the provider verbatim, with no prefix, so the same constraint applies to them and is checked when the plugin registers.
 
 Examples:
 
@@ -296,7 +321,7 @@ Examples:
 agent({
   tools: tools([
     'CurrentTime',                                  // fn
-    'Direct(orders/fetch)',                         // direct route
+    'Direct(orders-fetch)',                         // direct capability
     'MCP(Nuclino:list_teams)',                      // one MCP tool
     'MCP(Stripe)',                                  // all tools from one MCP server
     {

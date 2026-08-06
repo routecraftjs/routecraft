@@ -10,6 +10,77 @@ import {
 import type { McpToolRegistry } from "../../mcp/tool-registry.ts";
 import { directTool } from "./builders.ts";
 import { isDeferredFn, type FnEntry } from "./types.ts";
+import {
+  describeToolNameViolation,
+  TOOL_NAME_SEPARATOR,
+} from "../../tool-name.ts";
+
+/**
+ * Wire-form prefix for a direct capability exposed as an agent tool.
+ * `Direct(<routeId>)` is the authoring grammar; `direct__<routeId>` is
+ * what the model sees, because a tool name cannot carry parentheses.
+ *
+ * `__` is the structural separator throughout (see
+ * {@link TOOL_NAME_SEPARATOR}), so a route id containing a single
+ * underscore stays unambiguous against the prefix boundary.
+ *
+ * @internal
+ */
+export const DIRECT_TOOL_PREFIX = `direct${TOOL_NAME_SEPARATOR}`;
+
+/**
+ * Wire-form prefix for an external MCP client tool. Already used the
+ * `__` separator before the rest of the surface was normalised onto it,
+ * and matches the `mcp__<server>__<tool>` names Claude Code agent files
+ * carry, so those files resolve unchanged.
+ *
+ * @internal
+ */
+export const MCP_TOOL_PREFIX = `mcp${TOOL_NAME_SEPARATOR}`;
+
+/**
+ * Reject a `Direct(<routeId>)` reference whose route id cannot survive
+ * as a provider-facing tool name.
+ *
+ * Route ids are deliberately unconstrained in core: `memory:get` and
+ * `orders/cancel` are legitimate and are used as such by
+ * `CraftClient.sendDirect` and `BlockClient.forward`. Only the agent
+ * tool surface has to satisfy the provider charset, so the constraint
+ * is enforced here, at the point of exposure, rather than pushed back
+ * onto every route id in the codebase.
+ *
+ * We reject rather than transliterate on purpose. Any encoding that
+ * maps the full route-id space into `[A-Za-z0-9_-]` produces names the
+ * model has to read (`direct__memory_x3A_get`), and tool names are part
+ * of the prompt: degrading them degrades tool selection. Rejecting
+ * keeps every generated name legible and leaves the developer with the
+ * better escape hatch, which already exists and is named in the error:
+ * register the route under a clean fn id with `directTool(routeId)`.
+ *
+ * @internal
+ */
+function assertValidDirectToolName(
+  ref: string,
+  routeId: string,
+  toolName: string,
+): void {
+  const violation = describeToolNameViolation(toolName);
+  if (violation === undefined) return;
+  throw rcError("RC5003", undefined, {
+    message: `tools(): "${ref}" resolves to the tool name "${toolName}", which the model provider will reject: ${violation}.`,
+    suggestion:
+      `Route ids are unconstrained, but tool names must match ${TOOL_NAME_PATTERN_SOURCE}. ` +
+      `Expose this route under a tool-safe name instead: ` +
+      `agentPlugin({ functions: { yourToolName: directTool("${routeId}") } }), ` +
+      `then reference "yourToolName" in tools([...]).`,
+  });
+}
+
+/**
+ * Rendered form of the tool-name constraint, for error suggestions.
+ * @internal
+ */
+const TOOL_NAME_PATTERN_SOURCE = `/^[A-Za-z0-9_-]{1,64}$/`;
 
 /**
  * Re-exported from `fn/types.ts`, where the guard type lives so both the
@@ -121,7 +192,7 @@ export interface ToolSelection {
  * `ToolSelection.resolve()`.
  */
 export interface ResolvedTool {
-  /** Tool name presented to the LLM: the registered fn id, `direct_<routeId>` for routes, or `mcp__<server>__<tool>` for MCP tools. */
+  /** Tool name presented to the LLM: the registered fn id, `direct__<routeId>` for capabilities, or `mcp__<server>__<tool>` for MCP tools. */
   name: string;
   /** Description shown to the LLM. */
   description: string;
@@ -170,9 +241,17 @@ export function isToolSelection(value: unknown): value is ToolSelection {
  *
  * - Bare names look up exact matches in the fn registry first.
  *   `Direct(<routeId>)` wraps a direct route via `directTool` (the
- *   LLM-facing tool name stays `direct_<routeId>`). `MCP(server:tool)`
- *   / `MCP(server)` and the raw `mcp__server__tool` / `mcp__server` /
- *   `mcp__server__*` forms resolve against `MCP_TOOL_REGISTRY`.
+ *   LLM-facing tool name becomes `direct__<routeId>`).
+ *   `MCP(server:tool)` / `MCP(server)` and the raw `mcp__server__tool`
+ *   / `mcp__server` / `mcp__server__*` forms resolve against
+ *   `MCP_TOOL_REGISTRY`.
+ *
+ * Two grammars, deliberately distinct. `Direct(<routeId>)` and
+ * `MCP(server:tool)` are what a developer writes, here and in markdown
+ * agent frontmatter. `direct__<routeId>` and `mcp__<server>__<tool>`
+ * are the wire names the model sees, because tool names carry neither
+ * parentheses nor colons. Normalisation happens at resolution; nothing
+ * outside this module should construct a wire name by hand.
  * - Final list is deduplicated by tool name; later refs to the same
  *   name win (so a user's builder can override a tag-derived entry
  *   simply by listing it explicitly).
@@ -415,7 +494,7 @@ function resolveByName(
   }
 
   // `Direct(<routeId>)` wraps a registered direct route as a tool. The
-  // LLM-facing tool name stays the valid `direct_<routeId>` form (tool
+  // LLM-facing tool name is the `direct__<routeId>` wire form (tool
   // names cannot contain parentheses); `Direct(...)` is only the
   // reference grammar a developer writes in `tools([...])`.
   const directMatch = /^Direct\((.*)\)$/.exec(name);
@@ -426,7 +505,8 @@ function resolveByName(
         message: `tools(): "${name}" has an empty route id; use "Direct(<routeId>)".`,
       });
     }
-    const toolName = `direct_${routeId}`;
+    const toolName = `${DIRECT_TOOL_PREFIX}${routeId}`;
+    assertValidDirectToolName(name, routeId, toolName);
     const wrapper = directTool(routeId);
     const fn = wrapper.resolve(ctx, toolName);
     return toResolvedTool(toolName, fn, guard);
@@ -482,7 +562,7 @@ function toResolvedTool(
  * @internal
  */
 function isMcpRefName(name: string): boolean {
-  if (name.startsWith("mcp__")) return true;
+  if (name.startsWith(MCP_TOOL_PREFIX)) return true;
   return name.startsWith("MCP(") && name.endsWith(")");
 }
 
@@ -518,11 +598,12 @@ function parseMcpRef(ref: string): { clientName: string; toolName: string } {
     }
     return { clientName, toolName };
   }
-  if (ref.startsWith("mcp__")) {
-    const rest = ref.slice("mcp__".length);
-    const sep = rest.indexOf("__");
+  if (ref.startsWith(MCP_TOOL_PREFIX)) {
+    const rest = ref.slice(MCP_TOOL_PREFIX.length);
+    const sep = rest.indexOf(TOOL_NAME_SEPARATOR);
     const clientName = sep === -1 ? rest : rest.slice(0, sep);
-    const toolName = sep === -1 ? "*" : rest.slice(sep + 2);
+    const toolName =
+      sep === -1 ? "*" : rest.slice(sep + TOOL_NAME_SEPARATOR.length);
     if (clientName.trim() === "" || toolName.trim() === "") {
       throw rcError("RC5003", undefined, {
         message: `tools(): MCP reference "${ref}" must use "mcp__server__tool" or "mcp__server"; got an empty server or tool segment.`,
@@ -618,7 +699,7 @@ function mcpEntryToResolvedTool(
   entry: McpToolRegistryEntry,
   guard: ToolGuard | undefined,
 ): ResolvedTool {
-  const name = `mcp__${entry.source}__${entry.name}`;
+  const name = `${MCP_TOOL_PREFIX}${entry.source}${TOOL_NAME_SEPARATOR}${entry.name}`;
   const description =
     entry.description && entry.description.trim() !== ""
       ? entry.description

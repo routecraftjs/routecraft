@@ -68,7 +68,7 @@ export type BlockResolver =
  * - `mode: "inject"` blocks are concatenated into the system prompt
  *   on every dispatch as `## <name>\n\n<content>`.
  * - `mode: "progressive"` blocks are exposed as a loader tool named
- *   `_block_load_<name>`; the description is shown to the model,
+ *   `_block__load__<name>`; the description is shown to the model,
  *   and the body is fetched only when the model invokes the loader.
  *
  * A `BlockBody` is the leaf of a {@link Blocks} tree. A record value
@@ -145,7 +145,7 @@ export interface AgentBlockLoadSummary {
    * not the bare leaf name. See {@link Blocks}.
    */
   blockName: string;
-  /** Loader tool name (`_block_load_<blockName>`, using the flattened name). */
+  /** Loader tool name (`_block__load__<blockName>`, using the flattened name). */
   toolName: string;
   /** Stable id assigned by the SDK to correlate invoked → result. */
   toolCallId: string;

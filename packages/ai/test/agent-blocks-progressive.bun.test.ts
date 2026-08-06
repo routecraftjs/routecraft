@@ -5,7 +5,7 @@ import { agent, llmPlugin, type AgentResult } from "../src/index.ts";
 import type { LlmResult, LlmToolCallSummary } from "../src/llm/types.ts";
 
 // Captures the tool map the LLM provider received so the test can
-// assert that a synthetic `_block_load_<name>` tool was registered.
+// assert that a synthetic `_block__load__<name>` tool was registered.
 let capturedTools: Record<string, unknown> | undefined;
 
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -24,7 +24,7 @@ mock.module("../src/llm/providers/index.ts", () => ({
         },
         {
           toolCallId: "loader-1",
-          toolName: "_block_load_research",
+          toolName: "_block__load__research",
           input: {},
           output: "research notes for the model",
         },
@@ -55,7 +55,7 @@ describe('agent blocks: mode: "progressive" surfaces as a loader tool', () => {
   });
 
   /**
-   * @case Progressive blocks register one `_block_load_<name>` tool per block; the model can invoke it
+   * @case Progressive blocks register one `_block__load__<name>` tool per block; the model can invoke it
    * @preconditions Single progressive block declared on the agent
    * @expectedResult The captured tools map contains the loader; AgentResult.blocksLoaded reports the load
    */
@@ -91,11 +91,11 @@ describe('agent blocks: mode: "progressive" surfaces as a loader tool', () => {
     await t.test();
     expect(capturedTools).toBeDefined();
     expect(Object.keys(capturedTools!).sort()).toEqual([
-      "_block_load_research",
+      "_block__load__research",
     ]);
     const result = sink.received[0]!.body as AgentResult;
     expect(result.blocksLoaded?.map((b) => b.blockName)).toEqual(["research"]);
-    expect(result.blocksLoaded?.[0]?.toolName).toBe("_block_load_research");
+    expect(result.blocksLoaded?.[0]?.toolName).toBe("_block__load__research");
     expect(result.toolCalls?.map((c) => c.toolName)).toEqual(["fetchOrder"]);
   });
 });

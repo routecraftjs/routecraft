@@ -262,7 +262,7 @@ Emitted by `agent()` destinations. These are the **coarse decision events**: bro
 
 Tool input/output (and block-load output) ride in a `_snapshot` envelope. So does the thrown error on `:tool:error` / `:block:error`: error messages routinely echo the rejected input (schema validation, guards), so they are gated the same way. In-process subscribers always receive the envelope, but the SQLite telemetry sink persists it only when `captureSnapshots` is enabled (`telemetry({ sqlite: { captureSnapshots: true } })`), mirroring how exchange bodies are gated. The non-sensitive fields (`toolName`, `toolCallId`, `errorName`, `duration`) are always persisted.
 
-Synthetic block-loader invocations (`_block_load_<blockName>` tools) emit on the `:agent:block:*` channel, not `:agent:tool:*`. Subscribe to the right family for what you care about: `:agent:tool:*` covers user-declared tools only, `:agent:block:*` covers framework-synthesised block loads. This split keeps post-dispatch user-tool assertions (`AgentResult.toolCalls`) clean.
+Synthetic block-loader invocations (`_block__load__<blockName>` tools) emit on the `:agent:block:*` channel, not `:agent:tool:*`. Subscribe to the right family for what you care about: `:agent:tool:*` covers user-declared tools only, `:agent:block:*` covers framework-synthesised block loads. This split keeps post-dispatch user-tool assertions (`AgentResult.toolCalls`) clean.
 
 Subscribe to the exact names (`route:agent:tool:invoked`, `route:agent:block:loaded`, `route:agent:finished`, ...) and filter by `details.routeId` (or `forRoute(routeId, handler)`) for cross-cutting telemetry, dashboards, and TUIs.
 
