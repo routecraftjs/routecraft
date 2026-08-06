@@ -727,6 +727,25 @@ function mcpEntryToResolvedTool(
   entry: McpToolRegistryEntry,
   guard: ToolGuard | undefined,
 ): ResolvedTool | undefined {
+  // A client name containing `__` makes the wire name unparseable.
+  // `parseMcpRef` splits at the FIRST separator after the prefix, so a
+  // server called `a__b` exposing `c` generates `mcp__a__b__c`, which
+  // reads back as server `a` with tool `b__c`: a valid-looking name
+  // that resolves to the wrong thing, or to nothing.
+  //
+  // Constraining the server rather than the tool is what makes the
+  // grammar unambiguous, and it is the half we own: client names are
+  // chosen locally in `mcpPlugin({ clients })`, while tool names come
+  // from the remote. With no `__` in the server, the first-separator
+  // split is always correct and a remote may use `__` in its tool
+  // names freely.
+  if (entry.source.includes(TOOL_NAME_SEPARATOR)) {
+    ctx.logger.warn(
+      { server: entry.source, tool: entry.name },
+      `MCP client name contains "${TOOL_NAME_SEPARATOR}", which makes the generated tool name ambiguous to parse; dropping its tools from the agent's tool list. Rename the client in mcpPlugin({ clients }) so it has no "${TOOL_NAME_SEPARATOR}".`,
+    );
+    return undefined;
+  }
   const name = `${MCP_TOOL_PREFIX}${entry.source}${TOOL_NAME_SEPARATOR}${entry.name}`;
   // The remote names its own tools, so this is the one composed name
   // built from input nobody in this repository authored. An unusable

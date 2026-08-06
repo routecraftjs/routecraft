@@ -242,6 +242,53 @@ describe("MCP client tool-name validation", () => {
   });
 
   /**
+   * @case A client name containing the separator is dropped, because its wire name cannot be parsed back
+   * @preconditions A client registered as "a__b" exposing one tool
+   * @expectedResult The tool is dropped with a warning naming the client, rather than exposed under an ambiguous name
+   */
+  test("drops tools from a client whose name contains the separator", async () => {
+    t = await testContext().build();
+    const registry = new McpToolRegistry();
+    // `mcp__a__b__c` would read back as server "a", tool "b__c".
+    registry.setToolsForSource("a__b", "stdio", [
+      { name: "c", inputSchema: { type: "object", properties: {} } },
+    ]);
+    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
+
+    expect(tools(["MCP(a__b)"]).resolve(t.ctx)).toEqual([]);
+    const warned = t.logger.warn.mock.calls.some(
+      (c: unknown[]) =>
+        typeof c[1] === "string" &&
+        c[1].includes("makes the generated tool name ambiguous"),
+    );
+    expect(warned).toBe(true);
+  });
+
+  /**
+   * @case A tool name containing the separator is fine once the client name cannot
+   * @preconditions Client "github" exposing a tool named "issues__create"
+   * @expectedResult The tool resolves, and its wire name parses back to the same server and tool
+   */
+  test("allows the separator inside a remote tool name", async () => {
+    t = await testContext().build();
+    const registry = new McpToolRegistry();
+    registry.setToolsForSource("github", "stdio", [
+      {
+        name: "issues__create",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ]);
+    t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
+
+    const [resolved] = tools(["MCP(github)"]).resolve(t.ctx);
+    expect(resolved?.name).toBe("mcp__github__issues__create");
+    // Splitting at the first separator is unambiguous now that the
+    // server half cannot contain one, so the raw form round-trips.
+    const [byRawName] = tools(["mcp__github__issues__create"]).resolve(t.ctx);
+    expect(byRawName?.name).toBe("mcp__github__issues__create");
+  });
+
+  /**
    * @case The length ceiling applies to the composed mcp__ name, not the remote name alone
    * @preconditions Server and tool names are individually legal but overrun 64 once joined
    * @expectedResult The tool is dropped with a length-based reason

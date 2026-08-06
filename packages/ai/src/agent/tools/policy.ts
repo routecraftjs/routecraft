@@ -49,18 +49,36 @@ export type AgentToolSource =
 export type AgentToolPolicyKind = Exclude<AgentToolSource["kind"], "block">;
 
 /**
- * The governable kinds as a runtime value, for validators that need to
- * enumerate them. Checked against {@link AgentToolPolicyKind}, so
- * adding a kind to {@link AgentToolSource} fails to compile here until
- * someone decides whether it is policy-governed.
+ * Presence map over the governable kinds, existing purely so the
+ * compiler enforces completeness.
+ *
+ * `satisfies Record<AgentToolPolicyKind, true>` fails when a key is
+ * MISSING, which a `satisfies readonly AgentToolPolicyKind[]` on an
+ * array does not: an array of valid kinds satisfies that constraint
+ * whether or not it lists them all. Adding a kind to
+ * {@link AgentToolSource} therefore breaks the build here, which is the
+ * point, because the alternative is a validator that silently stops
+ * recognising a kind the type system already governs.
  *
  * @internal
  */
-export const AGENT_TOOL_POLICY_KINDS = [
-  "fn",
-  "direct",
-  "mcp",
-] as const satisfies readonly AgentToolPolicyKind[];
+const AGENT_TOOL_POLICY_KIND_PRESENCE = {
+  fn: true,
+  direct: true,
+  mcp: true,
+} as const satisfies Record<AgentToolPolicyKind, true>;
+
+/**
+ * The governable kinds as a runtime value, for validators that need to
+ * enumerate them. Derived from
+ * {@link AGENT_TOOL_POLICY_KIND_PRESENCE} so it cannot drift from the
+ * type.
+ *
+ * @internal
+ */
+export const AGENT_TOOL_POLICY_KINDS = Object.keys(
+  AGENT_TOOL_POLICY_KIND_PRESENCE,
+) as readonly AgentToolPolicyKind[];
 
 /**
  * The provenance arms a policy rule can actually be handed. Excludes

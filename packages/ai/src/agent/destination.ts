@@ -525,9 +525,17 @@ function messageOf(cause: unknown): string | undefined {
  * @internal
  */
 function toDescriptor(tool: ResolvedTool): AgentToolDescriptor {
+  // The annotations copy is frozen too, not just `source`. One
+  // descriptor is built per tool and handed to every composed policy in
+  // turn, so a mutable nested object would let the first predicate
+  // change what the second one sees, making an AND composition depend
+  // on the order its policies happen to be installed in.
   const source =
     tool.source.kind === "mcp" && tool.source.annotations
-      ? { ...tool.source, annotations: { ...tool.source.annotations } }
+      ? {
+          ...tool.source,
+          annotations: Object.freeze({ ...tool.source.annotations }),
+        }
       : { ...tool.source };
   return Object.freeze({
     name: tool.name,

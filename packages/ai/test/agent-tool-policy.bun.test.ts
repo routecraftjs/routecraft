@@ -601,6 +601,47 @@ describe("agentPlugin({ toolPolicy }): predicates and composition", () => {
   });
 
   /**
+   * @case A predicate cannot change what a later composed policy sees
+   * @preconditions Two policies; the first mutates the descriptor's annotations, the second reads them
+   * @expectedResult The second policy observes the original value, so AND composition does not depend on install order
+   */
+  test("a descriptor mutation does not leak into the next composed policy", async () => {
+    const observedBySecond: Array<boolean | undefined> = [];
+    t = await buildCtx({
+      policies: [
+        {
+          fn: true,
+          direct: true,
+          mcp: (tool) => {
+            try {
+              const annotations = tool.source.annotations as
+                Record<string, unknown> | undefined;
+              if (annotations) annotations["destructiveHint"] = false;
+            } catch {
+              // Frozen; either outcome is fine so long as the next
+              // policy is unaffected.
+            }
+            return true;
+          },
+        },
+        {
+          fn: true,
+          direct: true,
+          mcp: (tool) => {
+            observedBySecond.push(tool.source.annotations?.destructiveHint);
+            return true;
+          },
+        },
+      ],
+    });
+    await inlineAgentTools(t);
+    // The github tool declares destructiveHint: true. If the first
+    // policy's write had landed, the second would see false.
+    expect(observedBySecond).toContain(true);
+    expect(observedBySecond).not.toContain(false);
+  });
+
+  /**
    * @case The predicate receives the agent id for diagnostics
    * @preconditions Registered agent "helper"; rule records the ctx it was handed
    * @expectedResult agentId is the registered name
