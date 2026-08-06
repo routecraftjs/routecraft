@@ -170,9 +170,9 @@ export interface LlmModelConfigCopilot {
   modelId?: string;
   /**
    * Approve or deny each Copilot tool execution. Optional: with no handler
-   * and no `approveAllTools`, the Copilot SDK denies every request that
-   * needs approval, which is the safe default. Supply a handler to enforce
-   * a real allow/deny policy per call.
+   * and no `approveAllTools`, every request needing approval is denied,
+   * which is the safe default. Supply a handler to enforce a real allow/deny
+   * policy per call.
    *
    * Forwarding depends on the installed provider package: version 0.2.0
    * accepts the option and silently drops it, so the handler only takes

@@ -315,16 +315,19 @@ async function resolveCopilot(
     copilotProviderCache.set(cacheKey, provider);
   }
   const name = config.modelId ?? modelId;
-  // Forward a permission handler only when the caller asked for one. With no
-  // handler registered the Copilot SDK denies each request that needs
-  // approval, so doing nothing here is the fail-closed default; approving
-  // everything is an explicit opt-in via approveAllTools.
-  const settings: Record<string, unknown> = {};
-  if (config.onPermissionRequest !== undefined) {
-    settings["onPermissionRequest"] = config.onPermissionRequest;
-  } else if (config.approveAllTools === true) {
-    settings["onPermissionRequest"] = () => ({ kind: "approved" });
-  }
+  // Always forward a handler. Copilot SDK 0.1.32 and later refuse to create a
+  // session without one ("An onPermissionRequest handler is required"), so
+  // leaving it unset would break plain generation too, not just tool calls.
+  // The unconfigured default denies, which keeps the fail-closed behaviour
+  // without depending on the SDK's own missing-handler path; approving
+  // everything stays an explicit opt-in via approveAllTools.
+  const settings: Record<string, unknown> = {
+    onPermissionRequest:
+      config.onPermissionRequest ??
+      (config.approveAllTools === true
+        ? () => ({ kind: "approved" })
+        : () => ({ kind: "denied-by-rules" })),
+  };
   if (config.workingDirectory !== undefined) {
     settings["workingDirectory"] = config.workingDirectory;
   }

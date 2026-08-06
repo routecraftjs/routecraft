@@ -68,7 +68,7 @@ llmPlugin({ providers: { copilot: {} } })
 // llm("copilot:gpt-5")
 ```
 
-Some Copilot tool executions need approval before the CLI will run them. With no handler configured the Copilot SDK denies those requests, which is the safe default: a route that never triggers an approval-gated tool is unaffected, and one that does gets a refusal rather than an unattended shell command. Supply `onPermissionRequest` to apply a real policy. The request carries a `kind` of `shell`, `write`, `mcp`, `read`, or `url`:
+Some Copilot tool executions need approval before the CLI will run them. With no handler configured those requests are denied, which is the safe default: a route that never triggers an approval-gated tool is unaffected, and one that does gets a refusal rather than an unattended shell command. Supply `onPermissionRequest` to apply a real policy. The request carries a `kind` of `shell`, `write`, `mcp`, `read`, or `url`:
 
 ```ts
 llmPlugin({

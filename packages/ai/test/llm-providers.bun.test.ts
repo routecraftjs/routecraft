@@ -186,20 +186,25 @@ describe("copilot LLM provider", () => {
   });
 
   /**
-   * @case No permission handler is registered when the caller configures none
+   * @case A denying permission handler is registered when none is configured
    * @preconditions copilot config without onPermissionRequest and without
    *   approveAllTools
-   * @expectedResult The model settings carry no onPermissionRequest, so the
-   *   Copilot SDK applies its own fail-closed default and denies each request
-   *   needing approval rather than Routecraft silently approving them
+   * @expectedResult A handler is always present and denies by default. It
+   *   cannot be omitted: Copilot SDK 0.1.32 and later throw when creating a
+   *   session without one, which would break plain generation as well as
+   *   tool calls
    */
-  test("registers no permission handler by default (fail closed)", async () => {
+  test("registers a denying permission handler by default (fail closed)", async () => {
     const model = (await resolveLanguageModel(
       { provider: "copilot" },
       "gpt-5",
-    )) as { settings?: Record<string, unknown> };
+    )) as {
+      settings?: { onPermissionRequest?: (...args: unknown[]) => unknown };
+    };
 
-    expect(model.settings?.["onPermissionRequest"]).toBeUndefined();
+    const handler = model.settings?.onPermissionRequest;
+    expect(typeof handler).toBe("function");
+    expect(handler?.()).toEqual({ kind: "denied-by-rules" });
   });
 
   /**
