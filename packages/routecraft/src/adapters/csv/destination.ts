@@ -1,10 +1,84 @@
 import * as fsp from "node:fs/promises";
+import * as nodePath from "node:path";
 import type { Destination, CallableDestination } from "../../operations/to.ts";
 import type { Exchange } from "../../exchange.ts";
 import type { CsvFileOptions } from "./types.ts";
 import { file } from "../file/index.ts";
 import { ensurePapaparse } from "./shared.ts";
 import { assertExclusiveSendBehavior } from "../shared/file-role-guards.ts";
+
+/**
+ * Record separator Papa emits between rows. `CsvFileOptions` exposes no
+ * newline setting, so every chunk this adapter formats uses Papa's default
+ * (CRLF, per RFC 4180). Appends to a file that already uses LF follow the
+ * file instead, so a given file never ends up mixing the two.
+ */
+const DEFAULT_RECORD_SEPARATOR = "\r\n";
+
+/**
+ * Tail of the in-flight append chain per resolved path, shared across every
+ * `CsvDestinationAdapter` in the process.
+ *
+ * An append is a read-then-write (does the file have content? then write the
+ * header or not, and does it end mid-record?), so two concurrent appends to
+ * one file could both observe "empty" and both emit a header. Keying the lock
+ * on the path rather than on the adapter covers the case where two routes,
+ * each with their own `csv()` instance, target the same file. A writer in
+ * another process is still outside our reach.
+ *
+ * Entries are removed once their chain drains, so a route with per-exchange
+ * dynamic paths does not accumulate one entry per path forever.
+ */
+const appendLocks = new Map<string, Promise<void>>();
+
+/**
+ * What the append target looks like at its tail, read before formatting so
+ * the chunk can be terminated (and if needed prefixed) to keep row boundaries
+ * intact.
+ */
+interface AppendTail {
+  /** File exists and is non-empty (so a header would be a duplicate). */
+  hasContent: boolean;
+  /** File ends mid-record, so the new chunk needs a leading separator. */
+  needsSeparator: boolean;
+  /** Separator the file already uses, when its last record is terminated. */
+  separator: string | undefined;
+}
+
+/**
+ * Read the last two bytes of the append target to classify its tail. Reads
+ * two bytes rather than the file so appending to a large log stays cheap.
+ */
+async function inspectAppendTail(filePath: string): Promise<AppendTail> {
+  let handle;
+  try {
+    handle = await fsp.open(filePath, "r");
+  } catch {
+    return { hasContent: false, needsSeparator: false, separator: undefined };
+  }
+  try {
+    const { size } = await handle.stat();
+    if (size === 0) {
+      return { hasContent: false, needsSeparator: false, separator: undefined };
+    }
+    const length = Math.min(2, size);
+    const tail = new Uint8Array(length);
+    await handle.read(tail, 0, length, size - length);
+    const LF = 0x0a;
+    const CR = 0x0d;
+    if (tail[length - 1] !== LF) {
+      // Ends mid-record: whoever wrote it left the row unterminated.
+      return { hasContent: true, needsSeparator: true, separator: undefined };
+    }
+    return {
+      hasContent: true,
+      needsSeparator: false,
+      separator: length === 2 && tail[0] === CR ? "\r\n" : "\n",
+    };
+  } finally {
+    await handle.close();
+  }
+}
 
 /**
  * CsvDestinationAdapter implements the Destination (send) role for CSV files.
@@ -16,15 +90,6 @@ import { assertExclusiveSendBehavior } from "../shared/file-role-guards.ts";
  */
 export class CsvDestinationAdapter implements Destination<unknown> {
   readonly adapterId = "routecraft.adapter.csv";
-
-  /**
-   * Tail of the in-flight append chain per resolved path. An append is a
-   * read-then-write (does the file exist? then write the header or not), so
-   * two concurrent sends to the same file could both observe "missing" and
-   * both emit a header. Chaining serialises them within this process; a
-   * second writer in another process is still outside our reach.
-   */
-  private readonly appendQueues = new Map<string, Promise<void>>();
 
   constructor(private readonly options: CsvFileOptions) {
     assertExclusiveSendBehavior("csv", options);
@@ -48,19 +113,26 @@ export class CsvDestinationAdapter implements Destination<unknown> {
     }
 
     // Serialise appends to this path: the previous append must have landed
-    // before the next one probes for the file's existence.
-    const previous = this.appendQueues.get(resolvedPath) ?? Promise.resolve();
+    // before the next one inspects the file's tail. Keyed on the absolute
+    // path so two adapters pointed at the same file share one chain.
+    const lockKey = nodePath.resolve(resolvedPath);
+    const previous = appendLocks.get(lockKey) ?? Promise.resolve();
     const current = previous
-      // A failed append must not poison the queue for the next writer, so the
-      // chain swallows the rejection; `current` below still rethrows it to
-      // this caller.
+      // A failed append must not poison the chain for the next writer, so the
+      // link the chain holds swallows the rejection; `current` below still
+      // rethrows it to this caller.
       .catch(() => undefined)
       .then(() => this.write(exchange, resolvedPath));
-    this.appendQueues.set(
-      resolvedPath,
-      current.catch(() => undefined),
-    );
-    await current;
+    const queued = current.catch(() => undefined);
+    appendLocks.set(lockKey, queued);
+    try {
+      await current;
+    } finally {
+      // Drop the entry only when nothing queued behind this append, so a
+      // route writing per-exchange dynamic paths keeps the map at the size of
+      // the in-flight set rather than of every path it has ever written.
+      if (appendLocks.get(lockKey) === queued) appendLocks.delete(lockKey);
+    }
   };
 
   private async write(
@@ -88,18 +160,13 @@ export class CsvDestinationAdapter implements Destination<unknown> {
       );
     }
 
-    // Check if file exists (for append header handling)
-    let fileExists = false;
-    if (append) {
-      try {
-        await fsp.access(resolvedPath);
-        fileExists = true;
-      } catch {
-        fileExists = false;
-      }
-    }
+    // Inspect the tail once: it decides both whether a header would duplicate
+    // an existing one and whether the file's last record is terminated.
+    const tail: AppendTail = append
+      ? await inspectAppendTail(resolvedPath)
+      : { hasContent: false, needsSeparator: false, separator: undefined };
 
-    const includeHeader = header && !(append && fileExists);
+    const includeHeader = header && !(append && tail.hasContent);
     let csvContent: string;
     try {
       csvContent = Papa.unparse(data, {
@@ -116,11 +183,14 @@ export class CsvDestinationAdapter implements Destination<unknown> {
 
     // Papa.unparse emits no trailing newline, so an append would splice the
     // new first record onto the previous last one ("a,b" + "c,d" =>
-    // "a,bc,d"). Terminate the chunk so repeated appends stay parseable,
-    // reusing the record separator Papa just emitted (CRLF by default, per
-    // RFC 4180) so one file never mixes the two.
-    if (append && csvContent.length > 0 && !csvContent.endsWith("\n")) {
-      csvContent += csvContent.includes("\r\n") ? "\r\n" : "\n";
+    // "a,bc,d"). Two boundaries need a separator: the one this chunk leaves
+    // behind for the NEXT append, and the one an already-unterminated file
+    // left behind for this one. Follow the separator the file already uses so
+    // it never ends up mixing CRLF and LF.
+    if (append && csvContent.length > 0) {
+      const separator = tail.separator ?? DEFAULT_RECORD_SEPARATOR;
+      if (tail.needsSeparator) csvContent = separator + csvContent;
+      if (!csvContent.endsWith("\n")) csvContent += separator;
     }
 
     const fileAdapter = file({

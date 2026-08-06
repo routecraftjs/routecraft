@@ -320,6 +320,34 @@ Alice,30
     });
 
     /**
+     * @case Appending to a file whose last record is unterminated
+     * @preconditions Existing CSV ends mid-record (no trailing newline), append: true
+     * @expectedResult A separator is inserted so the existing row is not spliced
+     */
+    test("appends after an unterminated final record", async () => {
+      const filePath = path.join(tmpDir, "unterminated.csv");
+      // No trailing newline: whatever wrote this left the row open.
+      await fsp.writeFile(filePath, "name,age\r\nAlice,30", "utf-8");
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-unterminated")
+            .from(simple([{ name: "Bob", age: 25 }]))
+            .to(csv({ path: filePath, header: true, append: true })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fsp.readFile(filePath, "utf-8");
+      const lines = written.split(/\r?\n/).filter((line) => line.length > 0);
+      expect(lines).toEqual(["name,age", "Alice,30", "Bob,25"]);
+      // The file already used CRLF, so the inserted separator matches it.
+      expect(written).not.toContain("Alice,30Bob");
+    });
+
+    /**
      * @case Creates parent directories when createDirs is true
      * @preconditions Parent directory doesn't exist, createDirs is true
      * @expectedResult Parent directory is created, CSV file is written

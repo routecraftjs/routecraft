@@ -108,6 +108,57 @@ describe("adapter metadata hooks", () => {
   });
 
   /**
+   * @case A hook named for the other slot is not called
+   * @preconditions Send-only Destination implements getMetadata; Enricher implements getSendMetadata
+   * @expectedResult Neither step attaches metadata, rather than reading the wrong hook
+   */
+  test("a hook named for the other slot never fires", async () => {
+    const events: Array<{ event: string; details: Record<string, unknown> }> =
+      [];
+    let sendHookCalls = 0;
+    let fetchHookCalls = 0;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("meta-mismatch")
+          .from(simple({ id: 1 }))
+          .to({
+            adapterId: "test.mismatched-sender",
+            send: () => undefined,
+            // Wrong slot: a send-resolved `.to()` reads getSendMetadata.
+            getMetadata: () => {
+              fetchHookCalls++;
+              return { wrong: true };
+            },
+          })
+          .enrich({
+            adapterId: "test.mismatched-fetcher",
+            fetch: () => ({ ok: true }),
+            // Wrong slot: a fetch-resolved step reads getMetadata.
+            getSendMetadata: () => {
+              sendHookCalls++;
+              return { wrong: true };
+            },
+          }),
+      )
+      .build();
+
+    t.ctx.on("route:step:completed", (e) => {
+      events.push({
+        event: "route:step:completed",
+        details: e.details as Record<string, unknown>,
+      });
+    });
+    await t.test();
+
+    expect(fetchHookCalls).toBe(0);
+    expect(sendHookCalls).toBe(0);
+    expect(metadataFor(events, "to")).toBeUndefined();
+    expect(metadataFor(events, "enrich")).toBeUndefined();
+  });
+
+  /**
    * @case Both hooks receive the exchange the call ran against
    * @preconditions Adapter derives its metadata from the exchange, not from instance state
    * @expectedResult Each exchange's event reports its own value, with several in flight

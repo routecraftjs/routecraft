@@ -25,6 +25,14 @@ export class DirectEnricherAdapter<
 
   private rawEndpoint: DirectEndpoint<TIn>;
   public options: DirectClientOptions;
+  /**
+   * Endpoint each in-flight fetch resolved, keyed by the exchange it ran
+   * against so `getMetadata` reports that call's endpoint. One adapter
+   * instance serves every exchange on the route, so a single "last resolved"
+   * field would report whichever concurrent exchange finished resolving last.
+   * Weak keys: entries go when the exchange does.
+   */
+  private readonly resolvedEndpoints = new WeakMap<Exchange<TIn>, string>();
 
   constructor(
     rawEndpoint: DirectEndpoint<TIn>,
@@ -44,6 +52,7 @@ export class DirectEnricherAdapter<
 
     // Resolve endpoint dynamically if needed
     const endpoint = this.resolveEndpoint(exchange);
+    this.resolvedEndpoints.set(exchange, endpoint);
 
     exchange.logger.debug(
       { endpoint, adapter: "direct" },
@@ -62,21 +71,28 @@ export class DirectEnricherAdapter<
   };
 
   /**
-   * Observability metadata for the fetch role: the resolved endpoint.
+   * Observability metadata for the fetch role: the endpoint THIS exchange's
+   * fetch resolved, read back from {@link resolvedEndpoints}.
    *
-   * Resolved from the exchange rather than remembered from the `fetch` call.
-   * One adapter instance serves every exchange on the route, so a
-   * `lastResolvedEndpoint` field would report whichever concurrent exchange
-   * happened to resolve last, not the one this outcome belongs to. The
-   * endpoint selector is a pure function of the exchange, so re-running it
-   * here is exact.
+   * Deliberately not re-running the endpoint selector: a dynamic
+   * `direct((ex) => ...)` is user code, so calling it a second time would
+   * double any side effect it has and could name a different route than the
+   * one that actually handled the exchange. A static endpoint has no such
+   * hazard, so it falls back to resolving.
    */
   getMetadata(
     _result?: unknown,
     exchange?: Exchange<TIn>,
   ): Record<string, unknown> {
+    const recorded = exchange
+      ? this.resolvedEndpoints.get(exchange)
+      : undefined;
+    if (recorded !== undefined) return { endpoint: recorded };
     return {
-      endpoint: exchange ? this.resolveEndpoint(exchange) : "unknown",
+      endpoint:
+        typeof this.rawEndpoint === "string"
+          ? sanitizeEndpoint(this.rawEndpoint)
+          : "unknown",
     };
   }
 
