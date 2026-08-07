@@ -1,5 +1,6 @@
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { DirectoryEntry, DirectoryOptions } from "./types.ts";
+import { staticSourcePathError } from "../shared/file-role-guards.ts";
 import { scanDirectory } from "./scan.ts";
 
 /**
@@ -43,9 +44,7 @@ export class DirectorySourceAdapter implements Source<
     } = this.options;
 
     if (typeof dir !== "string") {
-      throw new Error(
-        "directory adapter: the source role requires a static string path (dynamic paths are only supported by the enricher role, which runs per exchange)",
-      );
+      throw staticSourcePathError("directory");
     }
 
     // Ready means "wired and able to produce", so signal before scanning
