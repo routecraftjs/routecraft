@@ -1,6 +1,7 @@
 import type { Enricher, CallableEnricher } from "../../operations/enrich.ts";
 import type { DirectoryEntry, DirectoryOptions } from "./types.ts";
 import { getExchangeContext } from "../../exchange.ts";
+import { rcError } from "../../error.ts";
 import { scanDirectory } from "./scan.ts";
 
 /**
@@ -59,9 +60,15 @@ export class DirectoryEnricherAdapter implements Enricher<
     // never be mistaken for the real contents of the directory. Correctness
     // must not depend on the caller discarding the value.
     if (ctx?.signal?.aborted) {
-      throw new Error(
-        `directory adapter: listing aborted before completion: ${resolvedDir}`,
-      );
+      // RC5011 is what the timeout wrapper throws when its own deadline
+      // fires, so classifying this the same way keeps `.error()` handlers
+      // and retry policy treating a cut-short listing as the timeout it is,
+      // rather than as an opaque adapter failure.
+      throw rcError("RC5011", undefined, {
+        message: `directory adapter: listing aborted before completion: ${resolvedDir}`,
+        suggestion:
+          "Increase the enclosing .timeout() so the scan can finish, or narrow the scan (drop recursive, or point at a smaller directory)",
+      });
     }
 
     return entries;

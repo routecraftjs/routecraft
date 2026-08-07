@@ -686,8 +686,8 @@ describe("Directory Adapter - Enricher (list mid-route)", () => {
    * @case An aborted scan throws instead of returning a partial listing
    * @preconditions Directory has files; fetch runs with an already-aborted
    *   signal, as an enclosing .timeout() would supply
-   * @expectedResult fetch rejects rather than resolving with a truncated
-   *   listing that is indistinguishable from a complete one
+   * @expectedResult fetch rejects with the RC5011 timeout code rather than
+   *   resolving with a truncated listing indistinguishable from a complete one
    */
   test("throws when the scan is aborted rather than returning a partial listing", async () => {
     await fsp.writeFile(path.join(tmpDir, "a.txt"), "a", "utf-8");
@@ -697,11 +697,15 @@ describe("Directory Adapter - Enricher (list mid-route)", () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(
-      adapter.fetch({ body: undefined, headers: {} } as unknown as Exchange, {
-        signal: controller.signal,
-      }),
-    ).rejects.toThrow(/aborted before completion/);
+    const fetching = adapter.fetch(
+      { body: undefined, headers: {} } as unknown as Exchange,
+      { signal: controller.signal },
+    );
+
+    await expect(fetching).rejects.toThrow(/aborted before completion/);
+    // Classified as a timeout, matching what the timeout wrapper itself
+    // throws, so .error() handlers and retry policy can act on the code.
+    await expect(fetching).rejects.toMatchObject({ rc: "RC5011" });
   });
 
   /**
