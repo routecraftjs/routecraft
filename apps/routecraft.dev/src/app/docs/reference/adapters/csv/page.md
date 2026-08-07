@@ -12,6 +12,8 @@ csv(options: CsvFileOptions): CsvAdapter   // Source<CsvData> & Destination<unkn
 
 Read and write CSV files with automatic parsing/formatting. One factory, one type; the operation keyword selects the role: `.from()` reads, `.to()` writes, `.enrich()` reads mid-route. **Requires `papaparse` as a peer dependency.**
 
+"Presence" means the key was **supplied**, not that it holds something truthy. Only an omitted `path` selects the transformer role; a supplied `path` that is empty or `undefined` is refused with `RC5003` rather than silently demoted to a transformer that would ignore every file option passed alongside it.
+
 ```bash
 bun add papaparse
 ```

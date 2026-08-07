@@ -11,6 +11,8 @@ json<T>(options: JsonFileOptions): JsonFileAdapterType<T> // Source<T> & Destina
 
 Parse and format JSON data, or read/write JSON files. The mere presence of `path` selects the file roles: `path` always means a file path, and the transformer's extraction key is `pointer`. With `path`, the operation keyword selects the role: `.from()` reads, `.to()` writes, `.enrich()` reads mid-route.
 
+"Presence" means the key was **supplied**, not that it holds something truthy. Only an omitted `path` selects the transformer role; a supplied `path` that is empty or `undefined` is refused with `RC5003` rather than silently demoted to a transformer that would ignore every file option passed alongside it.
+
 **Transformer role** (in-memory JSON parsing):
 ```ts
 // Parse JSON string from body

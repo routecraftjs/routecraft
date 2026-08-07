@@ -12,6 +12,8 @@ jsonl<T>(options: JsonlFileOptions): JsonlAdapter<T> // Source<T[]> & Destinatio
 
 Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per line). One factory, one type; the operation keyword selects the role: `.from()` reads, `.to()` writes, `.enrich()` reads mid-route.
 
+"Presence" means the key was **supplied**, not that it holds something truthy. Only an omitted `path` selects the transformer role; a supplied `path` that is empty or `undefined` is refused with `RC5003` rather than silently demoted to a transformer that would ignore every file option passed alongside it.
+
 **Transformer role** (parse a JSONL string already in the body):
 ```ts
 // Parse a JSONL string (e.g. an http() response body) into an array
