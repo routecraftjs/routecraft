@@ -834,6 +834,33 @@ The same silent flip applies to `.tap()` on a file-family adapter: `.tap(json({ 
 
 **Pull-in adapters are `Enricher`s.** `http` (client), `direct` (client), `mail` (fetch), `carddav` (read), `llm`, `agent`, `embedding`, `mcp` (client), and `agentBrowser` now implement `fetch`; their classes are renamed `*EnricherAdapter` (e.g. `HttpDestinationAdapter` becomes `HttpEnricherAdapter`). Route-level behavior of `.to(http({ url }))` / `.to(direct("x"))` / `.to(llm(...))` is unchanged (the result still replaces the body). Custom destination authors: `send(exchange, ctx?)` must return void and surfaces receipts via `ctx?.setHeader(...)` (`SendContext`); data-producing adapters implement `fetch` instead. `ToResultBody` is removed.
 
+### Writing a custom adapter against the role model
+
+**Rename `getMetadata` to `getSendMetadata` on any send-only adapter.** This is the one change in this section with no compiler signal at all. A step reads only the hook that matches the slot it resolved, so a `getMetadata` left on a `Destination` is never called and its `route:step:completed` events quietly lose their `details.metadata`. (This is not hypothetical: the framework's own mail IMAP operations regressed exactly this way before a test caught it.)
+
+```ts
+// before                                  // after (send-only destination)
+getMetadata() {                            getSendMetadata(receipts?) {
+  return { statusCode: this.lastStatus }     return { statusCode: receipts?.["my.status"] }
+}                                          }
+```
+
+Both hooks are now declared on the public `Adapter` type, so an object-literal adapter can implement them without a type error, and both receive the exchange as a second argument:
+
+- `getMetadata(result, exchange)` fires for fetch-resolved steps.
+- `getSendMetadata(receipts, exchange)` fires for send-resolved `.to()` steps, where `receipts` is the record collected from `ctx.setHeader(...)` (or `undefined` when the send set none).
+
+Derive per-call metadata from those arguments, never from a field written during the call. One adapter instance serves every exchange on a route, so with concurrent exchanges in flight a `this.lastStatus` written by one call is routinely read back by another.
+
+**The receipt sink refuses framework-owned keys.** `ctx.setHeader()` merges onto the continuing exchange, so it enforces the same rule `.header()` does: `routecraft.id`, `routecraft.operation`, `routecraft.route`, and `routecraft.split_hierarchy` are ignored with a warning rather than applied. Adapter-owned `routecraft.<adapter>.*` receipt keys are unaffected.
+
+### Smaller breaking details
+
+- **An empty `path` is rejected.** `json({ path: "" })` and `html({ path: "" })` now throw `RC5003` at construction instead of silently falling back to the transformer role and ignoring every file option passed with them.
+- **Mail receipt arrays are `readonly`.** `routecraft.mail.accepted` / `.rejected` are typed `readonly string[]`, matching the frozen `ExchangeHeaders`. Code that pushed onto them compiled and then threw at runtime; it is now a compile error.
+- **Peer floor raised.** `@routecraft/ai`, `@routecraft/os`, and `@routecraft/testing` require `@routecraft/routecraft >=0.6.0`, because their declarations reference the role-model types. Upgrade core together with them.
+- **`@routecraft/testing`.** `spy()` gains a `fetch` face (recording into `calls.enrich` and returning the current body), and a `mockAdapter` `send` handler's return value now follows the step's slot resolution: used by a fetch-resolved step, discarded by a send-resolved `.to()`.
+
 ## 17. What is new in 0.6.0
 
 For context, no migration required:
