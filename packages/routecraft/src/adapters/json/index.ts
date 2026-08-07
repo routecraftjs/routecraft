@@ -80,10 +80,10 @@ export function json<T = unknown, R = unknown, V = unknown>(
   const args = factoryArgs(options);
 
   // File roles: `path` presence is the discriminator; `path` always means a
-  // file path (the transformer's extraction key is `pointer`).
-  // `path` is absent from the transformer half of the union, so read it
-  // through an `in` check before handing it to the shared guard.
-  if (selectsFileRole("json", "path" in options ? options.path : undefined)) {
+  // file path (the transformer's extraction key is `pointer`). The guard
+  // tests for the key itself, so a supplied-but-empty path is refused rather
+  // than silently demoted to the transformer role.
+  if (selectsFileRole("json", options)) {
     const fileOptions = options as JsonFileOptions;
     const destination = new JsonDestinationAdapter(fileOptions);
     const enricher = new JsonEnricherAdapter<T>(fileOptions);

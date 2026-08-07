@@ -46,19 +46,33 @@ export function staticSourcePathError(adapter: string): Error {
  * whose call shapes are discriminated by its presence (`json`, `html`: a
  * transformer without a path, file roles with one).
  *
- * Presence means "the key was supplied", so an empty string is a supplied
- * path, not an absent one. Left to truthiness, `path: ""` would silently
- * hand back a transformer that ignores every file option the caller passed;
- * a template that resolved to nothing would fail as a confusing type error
- * downstream instead of at the call. Reject it here.
+ * Presence means "the key was SUPPLIED", never "the key holds something
+ * truthy". Two shapes are supplied-but-empty and both are refused:
+ *
+ * - `path: ""`, from a template that resolved to nothing.
+ * - `path: undefined`, from options built programmatically
+ *   (`json({ ...cfg })` where `cfg.path` is `string | undefined`).
+ *
+ * The second is the absence-axis twin of the widened-boolean hazard that
+ * bans `chunked: someBoolean`: the call means "file adapter, path from
+ * config", and silently demoting it to a transformer would produce an
+ * adapter that ignores every file option alongside it and fails far from the
+ * cause. Only an OMITTED key selects the transformer role.
  *
  * @param adapter - Factory name, for the error message
- * @param path - The `path` option as supplied
+ * @param options - Options object as supplied, tested for the key itself
  * @returns `true` when the file roles apply, `false` for the transformer role
  * @internal
  */
-export function selectsFileRole(adapter: string, path: unknown): boolean {
-  if (path === undefined) return false;
+export function selectsFileRole(adapter: string, options: object): boolean {
+  if (!("path" in options)) return false;
+  const path = (options as { path?: unknown }).path;
+  if (path === undefined) {
+    throw rcError("RC5003", undefined, {
+      message: `${adapter} adapter: \`path\` was supplied but is undefined`,
+      suggestion: `Omit \`path\` entirely for the transformer role, or resolve it before the call (e.g. cfg.path ?? throwIfMissing()) to use the file roles`,
+    });
+  }
   if (typeof path === "string" && path.length === 0) {
     throw rcError("RC5003", undefined, {
       message: `${adapter} adapter: \`path\` is an empty string`,

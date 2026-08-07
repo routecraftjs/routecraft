@@ -854,6 +854,17 @@ Derive per-call metadata from those arguments, never from a field written during
 
 **The receipt sink refuses framework-owned keys.** `ctx.setHeader()` merges onto the continuing exchange, so it enforces the same rule `.header()` does: `routecraft.id`, `routecraft.operation`, `routecraft.route`, and `routecraft.split_hierarchy` are ignored with a warning rather than applied. Adapter-owned `routecraft.<adapter>.*` receipt keys are unaffected.
 
+**Mail's read side no longer splits on argument count.** `mail(folder)` and `mail(folder, options)` used to return different roles (an `Enricher` and a `Source` respectively), which made the argument count a role selector and left one table to memorise. Both now return the same read adapter carrying `subscribe` and `fetch`, and the keyword picks:
+
+```ts
+.from(mail('INBOX'))                        // now valid: subscribe with defaults
+.from(mail('INBOX', { markSeen: true }))    // unchanged
+.enrich(mail('INBOX'))                      // unchanged
+.enrich(mail('INBOX', { unseen: true }))    // now valid: fetch with options
+```
+
+This is additive: every call that compiled before still compiles and behaves identically. Two shapes that were previously compile errors now work. The exported type is `MailFolderAdapter`.
+
 ### Smaller breaking details
 
 - **An empty `path` is rejected.** `json({ path: "" })` and `html({ path: "" })` now throw `RC5003` at construction instead of silently falling back to the transformer role and ignoring every file option passed with them.

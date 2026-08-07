@@ -7,7 +7,12 @@ import {
   spyOn,
   test,
 } from "bun:test";
-import { testContext, spy, type TestContext } from "@routecraft/testing";
+import {
+  testContext,
+  spy,
+  mockAdapter,
+  type TestContext,
+} from "@routecraft/testing";
 import { craft, simple, mail } from "@routecraft/routecraft";
 import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
 import {
@@ -121,26 +126,48 @@ describe("Mail Adapter", () => {
 
   describe("Factory overloads", () => {
     /**
-     * @case mail('INBOX', options) returns a Source
-     * @preconditions Two string + object arguments
-     * @expectedResult Returns adapter with subscribe method (Source)
+     * @case The read facade keeps the enricher's constructor for class-based mocking
+     * @preconditions mockAdapter targets MailEnricherAdapter; route enriches via mail(folder)
+     * @expectedResult The mock intercepts, so no IMAP connection is attempted
      */
-    test("mail(folder, options) returns a Source", () => {
-      const adapter = mail("INBOX", { markSeen: true });
-      expect(adapter).toHaveProperty("subscribe");
-      expect(adapter).not.toHaveProperty("send");
+    test("class-based mockAdapter still intercepts the read facade", async () => {
+      // The factory returns a role facade rather than a class instance, so
+      // `withAdapterIdentity` is the only thing keeping this contract alive.
+      const mockEnricher = mockAdapter(MailEnricherAdapter, {
+        send: async () => ({ messages: [], count: 0 }),
+      });
+
+      t = await testContext()
+        .override(mockEnricher)
+        .routes(
+          craft()
+            .id("mail-class-mock")
+            .from(simple({ trigger: true }))
+            .enrich(mail("INBOX")),
+        )
+        .build();
+      await t.test();
+
+      expect(mockEnricher.calls.send).toHaveLength(1);
+      expect(t.errors).toHaveLength(0);
     });
 
     /**
-     * @case mail('INBOX') returns an Enricher
-     * @preconditions Single string argument
-     * @expectedResult Returns adapter with fetch method (Enricher), no send/subscribe
+     * @case Naming a folder carries both read roles regardless of arity
+     * @preconditions mail(folder) and mail(folder, options), the two call shapes
+     * @expectedResult Both expose subscribe and fetch, and neither exposes send
      */
-    test("mail(folder) returns an Enricher", () => {
-      const adapter = mail("INBOX");
-      expect(adapter).toHaveProperty("fetch");
-      expect(adapter).not.toHaveProperty("send");
-      expect(adapter).not.toHaveProperty("subscribe");
+    test("mail(folder) and mail(folder, options) both carry subscribe and fetch", () => {
+      // Argument count configures the read; it must not select the role. The
+      // keyword does that: .from() subscribes, .enrich() fetches.
+      for (const adapter of [
+        mail("INBOX"),
+        mail("INBOX", { markSeen: true }),
+      ]) {
+        expect(adapter).toHaveProperty("subscribe");
+        expect(adapter).toHaveProperty("fetch");
+        expect(adapter).not.toHaveProperty("send");
+      }
     });
 
     /**
@@ -212,7 +239,7 @@ describe("Mail Adapter", () => {
      * @case mail({ folder, ...serverKey }) dispatches to the Fetch Destination for every server-only key
      * @preconditions One mail({ folder, [key]: value }) call per key that
      *   exists on MailServerOptions but not MailClientOptions
-     * @expectedResult Each call returns a MailEnricherAdapter
+     * @expectedResult Each call returns the read-side adapter (subscribe + fetch, no send)
      */
     test("folder plus any server-only key dispatches to the Fetch Destination", () => {
       const probes: (MailServerOptions & { folder: string })[] = [
@@ -233,7 +260,12 @@ describe("Mail Adapter", () => {
         { folder: "INBOX", onParseError: "drop" },
       ];
       for (const opts of probes) {
-        expect(mail(opts)).toBeInstanceOf(MailEnricherAdapter);
+        const adapter = mail(opts);
+        // The factory returns a role facade, so assert the slots rather than
+        // the class; identity is covered by the mockAdapter test below.
+        expect(adapter).toHaveProperty("fetch");
+        expect(adapter).toHaveProperty("subscribe");
+        expect(adapter).not.toHaveProperty("send");
       }
     });
 

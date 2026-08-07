@@ -111,6 +111,36 @@ describe("path-presence role selection", () => {
   });
 
   /**
+   * @case A supplied-but-undefined path is refused rather than selecting the transformer
+   * @preconditions Options carrying an explicit `path: undefined`, reached past
+   *   the overloads by cast (with exactOptionalPropertyTypes the type system
+   *   already refuses this shape; the guard backstops untyped JS and casts)
+   * @expectedResult RC5003 naming the supplied-but-undefined path
+   */
+  test.each([
+    ["json", (o: object) => json(o as { path: string })],
+    ["html", (o: object) => html(o as { path: string })],
+  ] as ReadonlyArray<readonly [name: string, build: (o: object) => unknown]>)(
+    "%s: path: undefined throws RC5003",
+    (_name, build) => {
+      // The absence-axis twin of the widened-boolean hazard: the caller means
+      // "file adapter, path from config", so silently handing back a
+      // transformer would ignore every file option passed alongside it.
+      let thrown: unknown;
+      try {
+        build({ path: undefined });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toMatch(
+        /`path` was supplied but is undefined/,
+      );
+      expect((thrown as { rc?: string }).rc).toBe("RC5003");
+    },
+  );
+
+  /**
    * @case Omitting path entirely still selects the transformer role
    * @preconditions Factory called with no path key
    * @expectedResult A transformer (transform slot, no send/fetch/subscribe)
