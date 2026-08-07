@@ -1,8 +1,13 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { formatSchemaIssues } from "@routecraft/routecraft";
+import { formatSchemaIssues, rcError } from "@routecraft/routecraft";
 import { exposedNameFor, parseProxyRef } from "./proxy.ts";
 import { MCP_TOOL_NAME_PATTERN } from "./types.ts";
 import type { McpPluginOptions } from "./types.ts";
+import {
+  isSplittableNameHead,
+  TOOL_NAME_PATTERN_SOURCE,
+  TOOL_NAME_SEPARATOR,
+} from "../tool-name.ts";
 
 /** Standard Schema validate result: success has value, failure has issues. */
 type ValidateResult<T = unknown> =
@@ -82,6 +87,43 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
   // Validate stdio client configs
   if (options.clients) {
     for (const [name, config] of Object.entries(options.clients)) {
+      // A client name is one segment of the `mcp__<server>__<tool>` wire
+      // name an agent sees, and resolution splits that at the FIRST
+      // separator after the prefix. A client called `a__b` exposing `c`
+      // therefore generates `mcp__a__b__c`, which reads back as server
+      // `a`, tool `b__c`: a valid-looking name pointing at nothing, and
+      // two distinct pairs could collapse onto one name.
+      //
+      // Rejected here rather than only at resolution because this is
+      // the half we own. Client names are chosen locally in this very
+      // option; tool names come from the remote. Resolution still drops
+      // such tools with a warning for a registry populated directly,
+      // but reaching that path through `mcpPlugin` meant every tool on
+      // the client vanished at dispatch with nothing failing at
+      // startup. Constraining the server alone is enough to make the
+      // grammar unambiguous, so a remote may keep using `__` in its own
+      // tool names freely.
+      //
+      // The exact shapes that break the split, and why a trailing
+      // underscore is one of them, live with the separator in
+      // `isSplittableNameHead`. Both this throw and the resolution-time
+      // drop in `agent/tools/selection.ts` call it, so the two layers
+      // cannot disagree about what they reject.
+      if (!isSplittableNameHead(name)) {
+        // Collapse runs and trim the edges, so the name offered back is
+        // one the check above actually accepts. Naively splitting on
+        // the separator does not: `a____b` would yield `a__b` and `a__`
+        // would yield `a_`, both rejected again by the very error that
+        // suggested them. A name with nothing left after trimming
+        // (`""`, `"___"`) still gets a concrete placeholder, so every
+        // rejection carries something copyable.
+        const salvaged = name.replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+        const suggested = salvaged === "" ? "client" : salvaged;
+        throw rcError("RC5003", undefined, {
+          message: `mcpPlugin: client name "${name}" must not be empty, contain "${TOOL_NAME_SEPARATOR}", or end with "_". It becomes the server segment of the generated "mcp__<server>__<tool>" tool name, which is split at the first "${TOOL_NAME_SEPARATOR}" after the prefix, so any of those makes the name ambiguous or collides with another client.`,
+          suggestion: `Rename the client to something without "${TOOL_NAME_SEPARATOR}" (a single underscore inside the name is fine, e.g. "${suggested}").`,
+        });
+      }
       if (
         typeof config === "object" &&
         config !== null &&
@@ -146,7 +188,7 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
           !MCP_TOOL_NAME_PATTERN.test(entry.name))
       ) {
         throw new TypeError(
-          `mcpPlugin: proxy name override "${String(entry.name)}" must be a string matching [A-Za-z0-9_-]{1,64}`,
+          `mcpPlugin: proxy name override "${String(entry.name)}" must be a string matching ${TOOL_NAME_PATTERN_SOURCE}`,
         );
       }
       if (entry.guard !== undefined && typeof entry.guard !== "function") {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, direct, noop } from "@routecraft/routecraft";
+import { craft, direct, isRoutecraftError, noop } from "@routecraft/routecraft";
 import { mcp, mcpPlugin } from "@routecraft/ai";
 import { MCP_TOOL_REGISTRY } from "../src/mcp/types.ts";
 import type { McpToolRegistry } from "@routecraft/ai";
@@ -212,6 +212,120 @@ describe("MCP Plugin Integration", () => {
   });
 
   describe("validation", () => {
+    /**
+     * @case A client name containing the wire separator fails at registration
+     * @preconditions Client registered as "a__b"
+     * @expectedResult RC5003 at mcpPlugin() naming the separator, rather than every tool on the client vanishing at dispatch
+     */
+    test("rejects a client name containing the tool-name separator", () => {
+      let caught: unknown;
+      try {
+        mcpPlugin({
+          clients: { a__b: { transport: "stdio", command: "echo" } },
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(isRoutecraftError(caught)).toBe(true);
+      expect((caught as { rc?: string }).rc).toBe("RC5003");
+      expect((caught as Error).message).toMatch(/contain "__"/);
+      // The suggestion names a concrete replacement, because the fix is
+      // always "use one underscore" and the developer owns this name.
+      expect(
+        (caught as { meta?: { suggestion?: string } }).meta?.suggestion,
+      ).toMatch(/"a_b"/);
+    });
+
+    /**
+     * @case A single underscore in a client name is still accepted
+     * @preconditions Client registered as "my_company_api"
+     * @expectedResult Registration succeeds, pinning the case the first-separator split exists to handle
+     */
+    test("accepts a client name containing a single underscore", () => {
+      expect(() =>
+        mcpPlugin({
+          clients: { my_company_api: { transport: "stdio", command: "echo" } },
+        }),
+      ).not.toThrow();
+    });
+
+    /**
+     * @case A client name ending in a single underscore is rejected, because it collides
+     * @preconditions Client registered as "foo_"
+     * @expectedResult RC5003, since "foo_" + "bar" and "foo" + "_bar" both compose mcp__foo___bar
+     */
+    test("rejects a client name ending in an underscore", () => {
+      // Not merely unresolvable: joining `foo_` to `bar` with `__`
+      // gives `mcp__foo___bar`, the exact name `foo` exposing `_bar`
+      // composes. The resolved tool map is keyed by name with
+      // later-wins, so one client silently shadows the other.
+      let caught: unknown;
+      try {
+        mcpPlugin({
+          clients: { foo_: { transport: "stdio", command: "echo" } },
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(isRoutecraftError(caught)).toBe(true);
+      expect((caught as { rc?: string }).rc).toBe("RC5003");
+      expect((caught as Error).message).toMatch(/end with "_"/);
+    });
+
+    /**
+     * @case An empty client name is rejected
+     * @preconditions Client registered under ""
+     * @expectedResult RC5003 rather than a composed name with an empty server segment
+     */
+    test("rejects an empty client name", () => {
+      let caught: unknown;
+      try {
+        mcpPlugin({
+          clients: { "": { transport: "stdio", command: "echo" } },
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(isRoutecraftError(caught)).toBe(true);
+      expect((caught as { rc?: string }).rc).toBe("RC5003");
+      expect((caught as Error).message).toMatch(/must not be empty/);
+    });
+
+    /**
+     * @case The suggested replacement name satisfies the rule that rejected the original
+     * @preconditions Client names that a naive separator-split suggestion would fix incorrectly
+     * @expectedResult Every suggested name is one the validator accepts, so following the error works first time
+     */
+    test("the suggested replacement is itself a valid client name", () => {
+      // A naive `split("__").join("_")` yields "a__b" for "a____b" and
+      // "a_" for "a__", both of which this same error would reject
+      // again. The suggestion is the one line whose whole job is to be
+      // copy-pasteable.
+      // Includes the degenerate names that leave nothing to salvage, so
+      // "every rejection carries a copyable name" is pinned rather than
+      // true only for the easy cases.
+      for (const bad of ["a____b", "a__", "foo__bar__baz", "", "___"]) {
+        let suggestion: string | undefined;
+        try {
+          mcpPlugin({
+            clients: { [bad]: { transport: "stdio", command: "echo" } },
+          });
+        } catch (err) {
+          suggestion = (err as { meta?: { suggestion?: string } }).meta
+            ?.suggestion;
+        }
+        const quoted = suggestion?.match(/e\.g\. "([^"]+)"/)?.[1];
+        expect(quoted).toBeDefined();
+        expect(() =>
+          mcpPlugin({
+            clients: {
+              [quoted as string]: { transport: "stdio", command: "echo" },
+            },
+          }),
+        ).not.toThrow();
+      }
+    });
+
     /**
      * @case Validation rejects empty command for stdio client
      * @preconditions Stdio client with empty command

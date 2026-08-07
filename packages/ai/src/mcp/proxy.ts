@@ -1,5 +1,6 @@
 import type { CraftContext } from "@routecraft/routecraft";
 import { mergeAnnotations } from "./annotation-tags.ts";
+import { TOOL_NAME_PATTERN_SOURCE } from "../tool-name.ts";
 import { MCP_TOOL_NAME_PATTERN, MCP_TOOL_REGISTRY } from "./types.ts";
 import type {
   McpProxyToolConfig,
@@ -140,7 +141,7 @@ export function resolveProxiedTools(
     if (!MCP_TOOL_NAME_PATTERN.test(exposedName)) {
       warn(
         `proxy:invalid-name:${exposedName}`,
-        `mcpPlugin proxy: remote tool "${entry.source}:${entry.name}" has a name that does not match [A-Za-z0-9_-]{1,64} and is skipped. Proxy it with an exact ref and a "name" override to expose it.`,
+        `mcpPlugin proxy: remote tool "${entry.source}:${entry.name}" has a name that does not match ${TOOL_NAME_PATTERN_SOURCE} and is skipped. Proxy it with an exact ref and a "name" override to expose it.`,
       );
       return;
     }

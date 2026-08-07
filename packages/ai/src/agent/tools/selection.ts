@@ -12,6 +12,7 @@ import { directTool } from "./builders.ts";
 import { isDeferredFn, type FnEntry } from "./types.ts";
 import {
   describeToolNameViolation,
+  isSplittableNameHead,
   TOOL_NAME_PATTERN_SOURCE,
   TOOL_NAME_SEPARATOR,
 } from "../../tool-name.ts";
@@ -772,13 +773,27 @@ function mcpEntryToResolvedTool(
   // from the remote. With no `__` in the server, the first-separator
   // split is always correct and a remote may use `__` in its tool
   // names freely.
-  if (entry.source.includes(TOOL_NAME_SEPARATOR)) {
+  //
+  // A server ending in a single `_` fails the same way: joining `foo_`
+  // to a tool with `__` yields `mcp__foo___bar`, whose first separator
+  // sits a character early. That case also collides, since `foo_` +
+  // `bar` and `foo` + `_bar` compose one name and this map is keyed by
+  // it. `mcpPlugin` rejects those shapes at registration; this stays
+  // for a registry populated directly, and shares the predicate so the
+  // two layers cannot disagree about what they reject.
+  //
+  // The predicate also rejects an empty head, which cannot arrive here:
+  // `parseMcpRef` throws on an empty server segment, and every entry
+  // reaching this function came from `getToolsByServer(clientName)` for
+  // that already-validated name. It is reachable at the registration
+  // site, which is where it earns its place.
+  if (!isSplittableNameHead(entry.source)) {
     // Keyed by server alone: every tool on it is dropped for the same
     // reason, so one line names the fix rather than one line per tool.
     return dropOnce(
       `mcp-server-separator:${entry.source}`,
       { server: entry.source },
-      `MCP client name contains "${TOOL_NAME_SEPARATOR}", which makes the generated tool name ambiguous to parse; dropping its tools from the agent's tool list. Rename the client in mcpPlugin({ clients }) so it has no "${TOOL_NAME_SEPARATOR}".`,
+      `MCP client name is empty, contains "${TOOL_NAME_SEPARATOR}", or ends with "_", which makes the generated tool name ambiguous to parse and able to collide with another client; dropping its tools from the agent's tool list. Rename the client in mcpPlugin({ clients }).`,
     );
   }
   const name = `${MCP_TOOL_PREFIX}${entry.source}${TOOL_NAME_SEPARATOR}${entry.name}`;

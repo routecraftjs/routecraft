@@ -95,6 +95,48 @@ export const TOOL_NAME_PATTERN_SOURCE = `/${TOOL_NAME_PATTERN.source}/`;
 export const TOOL_NAME_SEPARATOR = "__";
 
 /**
+ * True when `segment` can be the leading part of a composed name that
+ * a reader splits at the FIRST separator, `mcp__<server>__<tool>` being
+ * the one such name today.
+ *
+ * Three shapes break that split, and the two that are not obvious are
+ * the reason this is a function rather than an inline `includes`:
+ *
+ * - an internal `__` moves the boundary left (`a__b` + `c` composes
+ *   `mcp__a__b__c`, read back as server `a`, tool `b__c`)
+ * - a TRAILING single `_` does the same, because the segment's own
+ *   underscore joins the separator (`foo_` + `bar` composes
+ *   `mcp__foo___bar`, read back as server `foo`, tool `_bar`). Worse,
+ *   that is the name `foo` + `_bar` composes, so two distinct pairs
+ *   collapse onto one and whichever resolves last wins
+ * - an empty segment leaves nothing between the separators
+ *
+ * Testing the segment with one separator-half appended catches the
+ * first two in a single condition.
+ *
+ * Deliberately NOT a general "is this a valid name segment" predicate.
+ * `_block__load__<name>` is composed from the same separator but is
+ * never split this way (the prefix is fixed and everything after it is
+ * the block name), so block names may and do contain `__`. Only names
+ * whose reader searches for the first separator are in scope.
+ *
+ * Callers choose their own reaction: `mcpPlugin({ clients })` throws
+ * RC5003, because the name is chosen locally and can be fixed; agent
+ * resolution drops the tool with a warning, because the registry can be
+ * populated without going through the plugin.
+ *
+ * @internal
+ */
+export function isSplittableNameHead(segment: string): boolean {
+  if (segment === "") return false;
+  const separatorHalf = TOOL_NAME_SEPARATOR.slice(
+    0,
+    TOOL_NAME_SEPARATOR.length / 2,
+  );
+  return !`${segment}${separatorHalf}`.includes(TOOL_NAME_SEPARATOR);
+}
+
+/**
  * True when `name` is usable as a provider-facing tool name, both in
  * charset and in length.
  *
