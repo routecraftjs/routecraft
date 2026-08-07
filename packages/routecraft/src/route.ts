@@ -639,6 +639,7 @@ export class DefaultRoute implements Route {
           const sourceOverride = resolveAdapterOverride(
             definitionSource,
             this.context,
+            "source",
           );
           const activeSource =
             sourceOverride && sourceOverride.source

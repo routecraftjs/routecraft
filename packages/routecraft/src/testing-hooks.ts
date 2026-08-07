@@ -165,16 +165,29 @@ function snapshotBody(body: unknown): unknown {
 }
 
 /**
+ * Which role slot an override is being resolved for. `.enrich()` and a
+ * fetch-resolved `.to()` both draw on the `send` behaviour, so the axis is
+ * subscribe-versus-call rather than one member per operation keyword.
+ *
+ * @internal
+ */
+export type OverrideRole = "source" | "send";
+
+/**
  * Look up an override registered on the given context for the adapter.
  * Matches by tagged factory first (if the adapter was stamped via
  * `tagAdapter`); falls back to matching by adapter constructor class so
  * any adapter can be mocked without opt-in tagging.
  *
+ * @param adapter - Adapter instance or role facade the step is about to use
+ * @param context - Context whose registered overrides to search
+ * @param role - Role slot being resolved, used to break a multi-identity tie
  * @internal
  */
 export function resolveAdapterOverride(
   adapter: unknown,
   context: CraftContext | undefined,
+  role: OverrideRole,
 ): AdapterOverride | undefined {
   if (!context) return undefined;
   const overrides = context.getStore(RC_ADAPTER_OVERRIDES);
@@ -184,11 +197,21 @@ export function resolveAdapterOverride(
   // `constructor` names only one of them; match against every identity it
   // declares so mocking either delegate intercepts.
   const identities = adapterIdentities(adapter);
-  return overrides.find(
+  const matches = overrides.filter(
     (o) =>
       (factory !== undefined && o.target === factory) ||
       identities.has(o.target),
   );
+  if (matches.length <= 1) return matches[0];
+
+  // A multi-identity facade (mail's read side) can match one override per
+  // delegate, and both are legitimate registrations aimed at different roles.
+  // Taking the first match would let a source mock answer `.enrich()` (the
+  // handler is absent, so the body silently becomes undefined) or an enricher
+  // mock answer `.from()` (no `source` behaviour, so the route falls through
+  // to the real service in a test that reads as mocked). Prefer the match
+  // that actually carries behaviour for the role being resolved.
+  return matches.find((o) => o[role] !== undefined) ?? matches[0];
 }
 
 /**

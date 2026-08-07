@@ -3,6 +3,7 @@ import type { Destination } from "../../operations/to.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import type { Transformer } from "../../operations/transform.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
+import { selectsFileRole } from "../shared/file-role-guards.ts";
 import type { JsonlFileOptions, JsonlTransformerOptions } from "./types.ts";
 import { JsonlSourceAdapter } from "./source.ts";
 import { JsonlDestinationAdapter } from "./destination.ts";
@@ -103,10 +104,7 @@ export function jsonl<T = unknown, R = unknown>(
   // body. The `.transform()` keyword enforces the category, so dropping
   // `path` fails loudly at `.from()` / `.to()` instead of silently changing
   // the adapter's kind.
-  if (
-    !("path" in options) ||
-    (options as JsonlFileOptions).path === undefined
-  ) {
+  if (!selectsFileRole("jsonl", options)) {
     const transformer = new JsonlTransformerAdapter<T, R>(
       options as JsonlTransformerOptions<T, R>,
     );

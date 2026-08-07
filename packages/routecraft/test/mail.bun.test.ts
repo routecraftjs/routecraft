@@ -177,6 +177,57 @@ describe("Mail Adapter", () => {
     });
 
     /**
+     * @case Both read-role class mocks registered on ONE context each serve
+     *   their own role
+     * @preconditions A context overriding MailSourceAdapter and
+     *   MailEnricherAdapter at once, with a route that both subscribes and
+     *   enriches through the same multi-identity facade
+     * @expectedResult The source mock feeds .from() and the enricher mock
+     *   answers .enrich(); neither shadows the other
+     *
+     * The companion to the load-bearing test above, which registers each mock
+     * on its OWN context and so cannot see this. One facade declaring two
+     * identities matches two overrides, and resolution has to pick by the role
+     * being resolved rather than by registration order. First-match-wins fails
+     * silently in both directions: an enricher mock answering `.from()` has no
+     * `source` behaviour, so the route falls through to real IMAP in a test
+     * that reads as mocked, and a source mock answering `.enrich()` has no
+     * handler, so the body quietly becomes undefined.
+     */
+    test("both read-role class mocks on one context serve their own role", async () => {
+      const mockSource = mockAdapter(MailSourceAdapter, {
+        source: [{ subject: "one" }, { subject: "two" }],
+      });
+      const mockEnricher = mockAdapter(MailEnricherAdapter, {
+        send: async () => ({ messages: [{ subject: "fetched" }], count: 1 }),
+      });
+      const s = spy();
+
+      t = await testContext()
+        .override(mockSource)
+        .override(mockEnricher)
+        .routes(
+          craft()
+            .id("mail-both-read-mocks")
+            .from(mail("INBOX"))
+            .enrich(mail("Archive"))
+            .to(s),
+        )
+        .build();
+      await t.test();
+
+      expect(t.errors).toHaveLength(0);
+      expect(mockSource.calls.source).toHaveLength(1);
+      expect(mockEnricher.calls.send).toHaveLength(2);
+      expect(s.received).toHaveLength(2);
+      // The enricher mock's result reached the body, so `.enrich()` resolved
+      // through the enricher override and not the source one.
+      for (const body of s.receivedBodies()) {
+        expect(body).toMatchObject({ count: 1 });
+      }
+    });
+
+    /**
      * @case Naming a folder carries both read roles regardless of arity
      * @preconditions mail(folder) and mail(folder, options), the two call shapes
      * @expectedResult Both expose subscribe and fetch, and neither exposes send
