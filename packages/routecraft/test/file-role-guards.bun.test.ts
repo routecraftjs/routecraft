@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { csv, file, html, json, jsonl } from "@routecraft/routecraft";
+import { csv, file, html, json, jsonl, xml } from "@routecraft/routecraft";
 
 /**
  * The mutually-exclusive send-behavior law for the file family:
@@ -81,12 +81,12 @@ describe("file-family append/delete guard", () => {
 
 /**
  * The presence law for every factory discriminated by `path` (`json`, `html`,
- * `csv`, `jsonl`: transformer without one, file roles with one). "Presence"
+ * `csv`, `jsonl`, `xml`: transformer without one, file roles with one). "Presence"
  * means the key was supplied, so an empty string is a supplied path and not an
  * absent one; left to truthiness it would hand back a transformer that
  * silently ignores every file option passed alongside it.
  *
- * All four factories are listed in every table on purpose. The law is stated
+ * All five factories are listed in every table on purpose. The law is stated
  * generally in `.standards/adapter-architecture.md`, so a factory that skips
  * the shared `selectsFileRole` guard makes the documented rule false rather
  * than merely untested.
@@ -98,6 +98,7 @@ describe("path-presence role selection", () => {
       ["html", () => html({ path: "" })],
       ["csv", () => csv({ path: "" })],
       ["jsonl", () => jsonl({ path: "" })],
+      ["xml", () => xml({ path: "" })],
     ];
 
   /**
@@ -129,6 +130,7 @@ describe("path-presence role selection", () => {
     ["html", (o: object) => html(o as { path: string })],
     ["csv", (o: object) => csv(o as { path: string })],
     ["jsonl", (o: object) => jsonl(o as { path: string })],
+    ["xml", (o: object) => xml(o as { path: string })],
   ] as ReadonlyArray<readonly [name: string, build: (o: object) => unknown]>)(
     "%s: path: undefined throws RC5003",
     (_name, build) => {
@@ -159,6 +161,7 @@ describe("path-presence role selection", () => {
     ["html", () => html({ selector: "h1" })],
     ["csv", () => csv({ delimiter: ";" })],
     ["jsonl", () => jsonl({ reviver: (_k: string, v: unknown) => v })],
+    ["xml", () => xml({ ignoreAttributes: true })],
   ] as ReadonlyArray<readonly [name: string, build: () => unknown]>)(
     "%s: no path selects the transformer role",
     (_name, build) => {

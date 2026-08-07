@@ -56,6 +56,25 @@ function plainSource<M = unknown>(label: string): PlainSource<M> {
   return new PlainSource<M>(label);
 }
 
+/**
+ * A class carrying BOTH read roles, standing in for a real two-role adapter
+ * (mail's folder facade) without needing its transport. Used to pin which
+ * role a registered override is allowed to answer.
+ */
+class PlainReader {
+  constructor(public readonly label: string) {}
+  async subscribe(sub: Subscription<string>): Promise<void> {
+    sub.ready();
+  }
+  async fetch(): Promise<{ real: true }> {
+    return { real: true };
+  }
+}
+
+function plainReader(label: string): PlainReader {
+  return new PlainReader(label);
+}
+
 describe("mockAdapter", () => {
   let t: TestContext;
 
@@ -366,6 +385,40 @@ describe("mockAdapter", () => {
       expect(mock.calls.send).toHaveLength(1);
       expect(mock.calls.send[0].result).toBeUndefined();
       expect(t.errors).toHaveLength(0);
+    });
+
+    /**
+     * @case A source-only mock does not intercept the fetch role
+     * @preconditions mockAdapter registered with `source` only, on an adapter
+     *   carrying both read roles, reached through .enrich()
+     * @expectedResult The real fetch runs; the mock records no send call and
+     *   the body is the real value rather than undefined
+     *
+     * The companion to the no-op test directly above, and the reason that one
+     * cannot simply be widened into "any match intercepts". A mock declaring
+     * ONLY `source` has no handler to answer a fetch with, so letting it match
+     * would replace every fetched value with undefined silently. A mock
+     * declaring NEITHER behaviour is the documented recording no-op and must
+     * still match, which is why eligibility keys on the declared role rather
+     * than on the presence of a handler.
+     */
+    test("source-only mock does not intercept the fetch role", async () => {
+      const mock = mockAdapter(PlainReader, {
+        source: [{ text: "from-the-mock" }],
+      });
+      const s = spy();
+
+      const route = craft()
+        .from(simple({ payload: 1 }))
+        .enrich(plainReader("reader"))
+        .to(s);
+
+      t = await testContext().override(mock).routes(route).build();
+      await t.test();
+
+      expect(t.errors).toHaveLength(0);
+      expect(mock.calls.send).toHaveLength(0);
+      expect(s.receivedBodies()[0]).toEqual({ real: true });
     });
   });
 

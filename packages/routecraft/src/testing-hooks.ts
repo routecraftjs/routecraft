@@ -202,16 +202,24 @@ export function resolveAdapterOverride(
       (factory !== undefined && o.target === factory) ||
       identities.has(o.target),
   );
-  if (matches.length <= 1) return matches[0];
 
-  // A multi-identity facade (mail's read side) can match one override per
-  // delegate, and both are legitimate registrations aimed at different roles.
-  // Taking the first match would let a source mock answer `.enrich()` (the
-  // handler is absent, so the body silently becomes undefined) or an enricher
-  // mock answer `.from()` (no `source` behaviour, so the route falls through
-  // to the real service in a test that reads as mocked). Prefer the match
-  // that actually carries behaviour for the role being resolved.
-  return matches.find((o) => o[role] !== undefined) ?? matches[0];
+  // Resolve by ROLE, not by registration order. A mock that declares only the
+  // OTHER role must not answer this one: a source-only mock reached through
+  // `.enrich()` has no handler, so the fetched value would silently become
+  // undefined, and an enricher-only mock reached through `.from()` has no
+  // `source` behaviour, so the route would fall through to the real service in
+  // a test that reads as mocked. This bites on a multi-identity facade (mail's
+  // read side, where each delegate can carry its own override) and equally on
+  // a lone mock registered for one role and reached through the other.
+  //
+  // A mock declaring NEITHER behaviour is a different thing: the documented
+  // recording no-op, which must keep intercepting so `.to()` stays mocked
+  // rather than reaching the real destination. Hence the second pass instead
+  // of a single `o[role] !== undefined` filter.
+  return (
+    matches.find((o) => o[role] !== undefined) ??
+    matches.find((o) => o.source === undefined && o.send === undefined)
+  );
 }
 
 /**
