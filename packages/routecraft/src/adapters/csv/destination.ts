@@ -46,34 +46,51 @@ interface AppendTail {
 }
 
 /**
- * Read the last two bytes of the append target to classify its tail. Reads
- * two bytes rather than the file so appending to a large log stays cheap.
+ * Read the end of the append target to classify its tail. Reads a handful of
+ * bytes rather than the file so appending to a large log stays cheap.
+ *
+ * The tail is decoded with the file's own encoding before the newline check:
+ * in `utf16le` / `ucs2` a newline is two bytes (`0A 00`), so a raw byte
+ * comparison would read the trailing NUL as "unterminated" and splice a blank
+ * row into every append. Four bytes cover a CRLF in either width.
+ *
+ * @param filePath - Resolved path of the file about to be appended to
+ * @param encoding - Encoding the adapter writes with
  */
-async function inspectAppendTail(filePath: string): Promise<AppendTail> {
+async function inspectAppendTail(
+  filePath: string,
+  encoding: BufferEncoding,
+): Promise<AppendTail> {
+  const missing: AppendTail = {
+    hasContent: false,
+    needsSeparator: false,
+    separator: undefined,
+  };
   let handle;
   try {
     handle = await fsp.open(filePath, "r");
-  } catch {
-    return { hasContent: false, needsSeparator: false, separator: undefined };
+  } catch (error) {
+    // Only a genuinely absent file means "start fresh". Anything else
+    // (permissions, a directory in the way) must surface: treating it as
+    // missing would write a second header into a file that already has one.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return missing;
   }
   try {
     const { size } = await handle.stat();
-    if (size === 0) {
-      return { hasContent: false, needsSeparator: false, separator: undefined };
-    }
-    const length = Math.min(2, size);
-    const tail = new Uint8Array(length);
-    await handle.read(tail, 0, length, size - length);
-    const LF = 0x0a;
-    const CR = 0x0d;
-    if (tail[length - 1] !== LF) {
+    if (size === 0) return missing;
+    const length = Math.min(4, size);
+    const bytes = Buffer.alloc(length);
+    await handle.read(bytes, 0, length, size - length);
+    const tail = bytes.toString(encoding);
+    if (!tail.endsWith("\n")) {
       // Ends mid-record: whoever wrote it left the row unterminated.
       return { hasContent: true, needsSeparator: true, separator: undefined };
     }
     return {
       hasContent: true,
       needsSeparator: false,
-      separator: length === 2 && tail[0] === CR ? "\r\n" : "\n",
+      separator: tail.endsWith("\r\n") ? "\r\n" : "\n",
     };
   } finally {
     await handle.close();
@@ -146,6 +163,7 @@ export class CsvDestinationAdapter implements Destination<unknown> {
       quoteChar = '"',
       skipEmptyLines = true,
       append = false,
+      encoding = "utf-8",
     } = this.options;
 
     // Extract data from exchange body
@@ -163,7 +181,7 @@ export class CsvDestinationAdapter implements Destination<unknown> {
     // Inspect the tail once: it decides both whether a header would duplicate
     // an existing one and whether the file's last record is terminated.
     const tail: AppendTail = append
-      ? await inspectAppendTail(resolvedPath)
+      ? await inspectAppendTail(resolvedPath, encoding)
       : { hasContent: false, needsSeparator: false, separator: undefined };
 
     const includeHeader = header && !(append && tail.hasContent);
@@ -195,7 +213,7 @@ export class CsvDestinationAdapter implements Destination<unknown> {
 
     const fileAdapter = file({
       path: resolvedPath,
-      encoding: this.options.encoding || "utf-8",
+      encoding,
       append,
       createDirs: this.options.createDirs || false,
     });

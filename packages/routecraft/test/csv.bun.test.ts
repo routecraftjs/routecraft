@@ -348,6 +348,41 @@ Alice,30
     });
 
     /**
+     * @case Appending to a utf16le file does not insert a blank row
+     * @preconditions Existing CSV written as utf16le and terminated, append: true
+     * @expectedResult The new row follows directly; no empty record between them
+     */
+    test("appends to a utf16le file without a blank row", async () => {
+      const filePath = path.join(tmpDir, "utf16.csv");
+      // In utf16le a newline is two bytes (0A 00), so a raw last-byte check
+      // reads the trailing NUL as "unterminated" and prepends a separator.
+      await fsp.writeFile(filePath, "name,age\r\nAlice,30\r\n", "utf16le");
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-utf16-append")
+            .from(simple([{ name: "Bob", age: 25 }]))
+            .to(
+              csv({
+                path: filePath,
+                header: true,
+                append: true,
+                encoding: "utf16le",
+              }),
+            ),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fsp.readFile(filePath, "utf16le");
+      const lines = written.split(/\r?\n/).filter((line) => line.length > 0);
+      expect(lines).toEqual(["name,age", "Alice,30", "Bob,25"]);
+      expect(written).not.toContain("\r\n\r\n");
+    });
+
+    /**
      * @case Creates parent directories when createDirs is true
      * @preconditions Parent directory doesn't exist, createDirs is true
      * @expectedResult Parent directory is created, CSV file is written

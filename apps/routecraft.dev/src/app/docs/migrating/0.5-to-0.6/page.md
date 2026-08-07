@@ -803,7 +803,7 @@ Adapters now carry up to three role slots, and the operation keyword selects the
 .enrich(http({ url }), only((r) => r.body, "user"))
 ```
 
-The first form reproduces 0.5.x exactly. Prefer the second when you only need part of the result: it names what you took and leaves the rest of the body alone.
+The first form reproduces 0.5.x at runtime, but only at runtime: `only()` without `into` returns an unbranded aggregator, so the builder cannot infer the merged shape and the downstream body keeps its pre-enrich type. Reads of the merged-in fields will not type-check. Prefer the second form: passing `into` brands the aggregator, so the body becomes `Current & { user: ... }` and stays type-safe, which is the point of the model.
 
 **The file family drops `mode`.** Position selects the role; send behavior uses flags:
 
