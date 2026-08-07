@@ -68,6 +68,10 @@ export default config
 | `restartBackoffMultiplier` | `number` | `2` | Multiplier applied to delay on each successive restart |
 | `toolRefreshIntervalMs` | `number` | `60000` | Polling interval for HTTP client tool lists (0 = no polling) |
 
+**Client names may not contain `__`:**
+
+The key you register a client under becomes the server segment of the `mcp__<server>__<tool>` name agents see, and that name is split at the first `__` after the prefix. A client called `a__b` exposing `c` would produce `mcp__a__b__c`, which reads back as server `a`, tool `b__c`. `mcpPlugin` rejects such a key with RC5003 at startup. A single underscore is fine (`my_company_api`), and because only the server half is constrained, a remote may still expose tools whose own names contain `__`.
+
 **Logging when `transport` is `'stdio'`:**
 
 The stdio transport uses stdout as the protocol channel. Routecraft's logger defaults to stdout, so logs will corrupt the protocol stream unless you redirect them. When running an MCP server over stdio, always pass one of:

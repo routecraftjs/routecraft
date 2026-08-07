@@ -304,6 +304,10 @@ Flat array of items. Each item is one of:
 
 `__` is the only structural separator, which is what keeps a single underscore inside a segment unambiguous: a server named `my_company_api` and a route named `fetch_order` both survive the prefix boundary intact.
 
+**An MCP client name may not itself contain `__`.** Resolution splits `mcp__<server>__<tool>` at the first separator after the prefix, so a client called `a__b` exposing `c` would generate `mcp__a__b__c` and read back as server `a`, tool `b__c`. `mcpPlugin({ clients })` rejects such a name with RC5003 at startup. Constraining the server half is what makes the grammar unambiguous, and it is the half you own: client names are configured locally, while tool names come from the remote. With no `__` in the server, a remote is free to use `__` in its own tool names, and `mcp__github__issues__create` resolves correctly.
+
+`Direct(<routeId>)` needs no equivalent rule. A direct wire name carries exactly one separator by construction, and everything after it is the route id, so there is nothing to disambiguate.
+
 Wire names must match `/^[A-Za-z0-9_-]{1,64}$/`, the charset every mainstream provider enforces. Route ids are deliberately not constrained that way, so `Direct(memory:get)` is rejected at resolution rather than encoded into something the model has to read. Expose such a route under a tool-safe alias instead:
 
 ```ts

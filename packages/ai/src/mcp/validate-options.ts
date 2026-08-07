@@ -1,8 +1,9 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { formatSchemaIssues } from "@routecraft/routecraft";
+import { formatSchemaIssues, rcError } from "@routecraft/routecraft";
 import { exposedNameFor, parseProxyRef } from "./proxy.ts";
 import { MCP_TOOL_NAME_PATTERN } from "./types.ts";
 import type { McpPluginOptions } from "./types.ts";
+import { TOOL_NAME_SEPARATOR } from "../tool-name.ts";
 
 /** Standard Schema validate result: success has value, failure has issues. */
 type ValidateResult<T = unknown> =
@@ -82,6 +83,28 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
   // Validate stdio client configs
   if (options.clients) {
     for (const [name, config] of Object.entries(options.clients)) {
+      // A client name is one segment of the `mcp__<server>__<tool>` wire
+      // name an agent sees, and resolution splits that at the FIRST
+      // separator after the prefix. A client called `a__b` exposing `c`
+      // therefore generates `mcp__a__b__c`, which reads back as server
+      // `a`, tool `b__c`: a valid-looking name pointing at nothing, and
+      // two distinct pairs could collapse onto one name.
+      //
+      // Rejected here rather than only at resolution because this is
+      // the half we own. Client names are chosen locally in this very
+      // option; tool names come from the remote. Resolution still drops
+      // such tools with a warning for a registry populated directly,
+      // but reaching that path through `mcpPlugin` meant every tool on
+      // the client vanished at dispatch with nothing failing at
+      // startup. Constraining the server alone is enough to make the
+      // grammar unambiguous, so a remote may keep using `__` in its own
+      // tool names freely.
+      if (name.includes(TOOL_NAME_SEPARATOR)) {
+        throw rcError("RC5003", undefined, {
+          message: `mcpPlugin: client name "${name}" must not contain "${TOOL_NAME_SEPARATOR}", which is the separator in the generated "mcp__<server>__<tool>" tool name and would make it ambiguous to parse.`,
+          suggestion: `Rename the client to something without "${TOOL_NAME_SEPARATOR}" (a single underscore is fine, e.g. "${name.split(TOOL_NAME_SEPARATOR).join("_")}").`,
+        });
+      }
       if (
         typeof config === "object" &&
         config !== null &&
