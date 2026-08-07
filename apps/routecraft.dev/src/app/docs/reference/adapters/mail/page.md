@@ -5,16 +5,24 @@ title: mail
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-mail(folder: string, options: MailServerOptions): Source<MailBody>
-mail(folder: string): Enricher<unknown, MailFetchResult>
+mail(folder: string, options?: MailServerOptions): MailFolderAdapter
+mail(options: MailServerOptions & { folder: string }): MailFolderAdapter
 mail(action: MailAction): Destination<unknown>
-mail(options: MailServerOptions & { folder: string }): Enricher<unknown, MailFetchResult>
 mail(options?: MailClientOptions): Destination<MailSendPayload>
 ```
 
-Read email via IMAP, send via SMTP, or perform IMAP operations. The adapter has four roles determined by the arguments you pass.
+Read email via IMAP, send via SMTP, or perform IMAP operations. Which role you get is selected by the operation keyword and by which keys you supply, never by how many arguments you pass.
 
-**Source role (IMAP push):** Pass a folder and options to receive new messages via IMAP IDLE or polling. Each new email becomes a separate exchange.
+Naming a folder returns one read adapter, `MailFolderAdapter`, that carries both read roles. The operation keyword picks between them: `.from()` subscribes over IMAP IDLE or polling, `.enrich()` fetches a batch mid-route. The second argument only fills in options, so all four combinations below are valid:
+
+```ts
+.from(mail('INBOX'))                     // subscribe with defaults
+.from(mail('INBOX', { markSeen: true }))
+.enrich(mail('INBOX'))                   // fetch with defaults
+.enrich(mail('INBOX', { unseen: true }))
+```
+
+**Source role (IMAP push):** reached with `.from()`. Each new email becomes a separate exchange, delivered via IMAP IDLE or polling.
 
 The source follows the payload-on-`body`, envelope-on-`headers` convention shared with the HTTP source: the parsed message content (`text`, `html`, `attachments`) lands on `exchange.body` (a [`MailBody`](#mailbody-source-exchange-body)), and the envelope (from, to, subject, date, flags, sender, ...) lands on [`routecraft.mail.*` headers](#source-headers). This means `.input({ body })` validates against the message content alone, and the same `.transform()` / `.filter()` operators compose whether the payload arrived over mail or HTTP.
 

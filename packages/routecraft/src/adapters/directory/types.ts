@@ -1,3 +1,5 @@
+import type { Exchange } from "../../exchange.ts";
+
 /**
  * One file (or directory) discovered while scanning a directory. This is the
  * body shape the directory source emits, one exchange per entry.
@@ -44,12 +46,21 @@ export interface DirectoryEntry {
 }
 
 /**
- * Options for the directory source. The directory adapter is source-only: it scans
- * a directory and emits one exchange per entry.
+ * Options for the directory adapter, in both of its roles. As a source
+ * (`.from()`) it scans a directory and emits the listing; as an enricher
+ * (`.enrich()` / `.to()`) its `fetch` returns the listing, so a directory can
+ * be listed mid-route (a listing is a read, like the file adapter's fetch).
+ * `recursive`, `includeDirs`, and the deterministic ordering behave
+ * identically in either role; `chunked` is a source-only emission shape.
  */
 export interface DirectoryOptions {
-  /** Directory to scan. Must be a string (a source is not per-exchange). */
-  path: string;
+  /**
+   * Directory to scan: a path string, or a function that returns one.
+   * The source role requires a static string (a source is not per-exchange);
+   * the enricher role also accepts the function form, which receives the
+   * exchange when the scan runs.
+   */
+  path: string | ((exchange: Exchange) => string);
   /**
    * Descend into subdirectories. When false, only the immediate children of
    * `path` are emitted. Default: false.

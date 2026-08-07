@@ -1,23 +1,37 @@
 import type { Source } from "../../operations/from.ts";
+import type { Enricher } from "../../operations/enrich.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import type { DirectoryEntry, DirectoryOptions } from "./types.ts";
 import { DirectorySourceAdapter } from "./source.ts";
+import { DirectoryEnricherAdapter } from "./enricher.ts";
 
 /**
- * Directory adapter type: a source that emits the directory listing as a single
- * `DirectoryEntry[]` exchange (the default, non-chunked shape).
+ * Directory adapter type: source and enricher on one honest type. The
+ * operation keyword selects the role (`.from()` subscribes and emits the
+ * listing, `.enrich()` fetches it mid-route). There is no `send`: a listing
+ * is a read, so `.to(directory({ path }))` resolves to the fetch and the
+ * listing replaces the body.
  */
-export type DirectoryAdapter = Source<DirectoryEntry[]> & {
-  readonly adapterId: string;
-};
+export type DirectoryAdapter = Source<DirectoryEntry[]> &
+  Enricher<unknown, DirectoryEntry[]> & { readonly adapterId: string };
 
 /**
- * Creates a directory source in chunked mode: one exchange per entry, each body a
- * {@link DirectoryEntry}. Filter by metadata or name with `.filter()`, then read
- * content with the file adapter.
+ * Directory adapter type in chunked mode: the source emits one
+ * {@link DirectoryEntry} per exchange. The enricher role is unaffected by
+ * `chunked` (a fetch produces one value) and still returns the full listing.
+ */
+export type DirectoryChunkedAdapter = Source<DirectoryEntry> &
+  Enricher<unknown, DirectoryEntry[]> & { readonly adapterId: string };
+
+/**
+ * Creates a directory adapter in chunked mode: the source emits one exchange
+ * per entry, each body a {@link DirectoryEntry}. Filter by metadata or name
+ * with `.filter()`, then read content with the file adapter. Chunked is a
+ * source-only emission shape, so the path must be a static string.
  *
  * @param options - Directory options with `chunked: true`
- * @returns A Source emitting one {@link DirectoryEntry} per entry
+ * @returns A Source emitting one {@link DirectoryEntry} per entry (plus the
+ *   unchanged enricher role)
  *
  * @example
  * ```typescript
@@ -33,13 +47,23 @@ export type DirectoryAdapter = Source<DirectoryEntry[]> & {
  * ```
  */
 export function directory(
-  options: DirectoryOptions & { chunked: true },
-): Source<DirectoryEntry> & { readonly adapterId: string };
+  options: Omit<DirectoryOptions, "path"> & { path: string; chunked: true },
+): DirectoryChunkedAdapter;
 /**
- * Creates a directory source that scans a directory and emits a single exchange
- * whose body is the full {@link DirectoryEntry}`[]` listing (sorted by relative
- * path). This is the default shape, mirroring the non-chunked `csv` / `jsonl`
- * adapters; pass `chunked: true` to emit one exchange per entry instead.
+ * Creates a directory adapter that scans a directory and produces the full
+ * {@link DirectoryEntry}`[]` listing (sorted by relative path). One factory,
+ * one type; the POSITION in the route selects the role:
+ *
+ * - **`.from(directory({ path }))`** emits a single exchange whose body is the
+ *   listing, mirroring the non-chunked `csv` / `jsonl` adapters; pass
+ *   `chunked: true` to emit one exchange per entry instead. The source role
+ *   needs a static string path.
+ * - **`.enrich(directory({ path }))`** scans the directory mid-route and the
+ *   listing replaces the body (pass an aggregator such as `only()` to merge
+ *   instead). Dynamic (function) paths resolve against the exchange.
+ * - **`.to(directory({ path }))`** has no `send` to prefer, so it resolves to
+ *   the same fetch and the listing becomes the body. This is what makes the
+ *   adapter usable inside a `direct()` capability.
  *
  * Filtering is not built in by design: list the entries, then narrow with the
  * normal operations (`.filter()` per-entry in chunked mode, or `.split()` /
@@ -47,7 +71,7 @@ export function directory(
  * keeps "find the files" and "decide which ones" composable.
  *
  * @param options - Directory path plus `recursive`, `includeDirs`, `chunked`
- * @returns A Source usable with `.from(directory(...))`
+ * @returns The combined Source + Enricher adapter
  *
  * @example
  * ```typescript
@@ -61,16 +85,25 @@ export function directory(
  *     only((content: string) => content, "content"),
  *   )
  *   .to(log());
+ *
+ * // List a directory mid-route, e.g. inside a direct() capability
+ * craft()
+ *   .from(direct("search-notes"))
+ *   .to(directory({ path: "./notes", recursive: true }))
+ *   .transform((entries) => entries.filter((e) => e.ext === ".md"))
+ *   .to(log());
  * ```
  */
 export function directory(options: DirectoryOptions): DirectoryAdapter;
 export function directory(
   options: DirectoryOptions,
-): Source<DirectoryEntry | DirectoryEntry[]> & { readonly adapterId: string } {
+): (Source<DirectoryEntry | DirectoryEntry[]> &
+  Enricher<unknown, DirectoryEntry[]>) & { readonly adapterId: string } {
   return tagAdapter(
     {
       adapterId: "routecraft.adapter.directory",
       subscribe: new DirectorySourceAdapter(options).subscribe,
+      fetch: new DirectoryEnricherAdapter(options).fetch,
     },
     directory,
     factoryArgs(options),
@@ -79,3 +112,7 @@ export function directory(
 
 // Re-export types for the public API.
 export type { DirectoryEntry, DirectoryOptions } from "./types.ts";
+
+// Re-export role classes for internal use, matching the file adapter.
+export { DirectorySourceAdapter } from "./source.ts";
+export { DirectoryEnricherAdapter } from "./enricher.ts";

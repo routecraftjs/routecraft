@@ -11,6 +11,8 @@ html(options: HtmlOptions & { path }): HtmlAdapter   // Source<HtmlResult> & Des
 
 Extract data from HTML using CSS selectors (powered by cheerio), or read/write HTML files. The presence of `path` selects the file roles; the operation keyword then picks one: `.from()` reads and extracts, `.to()` writes, `.enrich()` extracts mid-route. Without `path`, `html()` is a transformer over the body.
 
+"Presence" means the key was **supplied**, not that it holds something truthy. Only an omitted `path` selects the transformer role; a supplied `path` that is empty or `undefined` is refused with `RC5003` rather than silently demoted to a transformer that would ignore every file option passed alongside it.
+
 **Transformer role** (in-memory HTML parsing):
 ```ts
 // Extract text from title
