@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { csv, file, html, json, jsonl } from "@routecraft/routecraft";
+import { csv, file, html, json, jsonl, xml } from "@routecraft/routecraft";
 
 /**
  * The mutually-exclusive send-behavior law for the file family:
@@ -80,17 +80,25 @@ describe("file-family append/delete guard", () => {
 });
 
 /**
- * The presence law for the factories discriminated by `path` (`json` and
- * `html`: transformer without one, file roles with one). "Presence" means the
- * key was supplied, so an empty string is a supplied path and not an absent
- * one; left to truthiness it would hand back a transformer that silently
- * ignores every file option passed alongside it.
+ * The presence law for every factory discriminated by `path` (`json`, `html`,
+ * `csv`, `jsonl`, `xml`: transformer without one, file roles with one). "Presence"
+ * means the key was supplied, so an empty string is a supplied path and not an
+ * absent one; left to truthiness it would hand back a transformer that
+ * silently ignores every file option passed alongside it.
+ *
+ * All five factories are listed in every table on purpose. The law is stated
+ * generally in `.standards/adapter-architecture.md`, so a factory that skips
+ * the shared `selectsFileRole` guard makes the documented rule false rather
+ * than merely untested.
  */
 describe("path-presence role selection", () => {
   const empties: ReadonlyArray<readonly [name: string, build: () => unknown]> =
     [
       ["json", () => json({ path: "" })],
       ["html", () => html({ path: "" })],
+      ["csv", () => csv({ path: "" })],
+      ["jsonl", () => jsonl({ path: "" })],
+      ["xml", () => xml({ path: "" })],
     ];
 
   /**
@@ -111,6 +119,39 @@ describe("path-presence role selection", () => {
   });
 
   /**
+   * @case A supplied-but-undefined path is refused rather than selecting the transformer
+   * @preconditions Options carrying an explicit `path: undefined`, reached past
+   *   the overloads by cast (with exactOptionalPropertyTypes the type system
+   *   already refuses this shape; the guard backstops untyped JS and casts)
+   * @expectedResult RC5003 naming the supplied-but-undefined path
+   */
+  test.each([
+    ["json", (o: object) => json(o as { path: string })],
+    ["html", (o: object) => html(o as { path: string })],
+    ["csv", (o: object) => csv(o as { path: string })],
+    ["jsonl", (o: object) => jsonl(o as { path: string })],
+    ["xml", (o: object) => xml(o as { path: string })],
+  ] as ReadonlyArray<readonly [name: string, build: (o: object) => unknown]>)(
+    "%s: path: undefined throws RC5003",
+    (_name, build) => {
+      // The absence-axis twin of the widened-boolean hazard: the caller means
+      // "file adapter, path from config", so silently handing back a
+      // transformer would ignore every file option passed alongside it.
+      let thrown: unknown;
+      try {
+        build({ path: undefined });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toMatch(
+        /`path` was supplied but is undefined/,
+      );
+      expect((thrown as { rc?: string }).rc).toBe("RC5003");
+    },
+  );
+
+  /**
    * @case Omitting path entirely still selects the transformer role
    * @preconditions Factory called with no path key
    * @expectedResult A transformer (transform slot, no send/fetch/subscribe)
@@ -118,6 +159,9 @@ describe("path-presence role selection", () => {
   test.each([
     ["json", () => json({ pointer: "data" })],
     ["html", () => html({ selector: "h1" })],
+    ["csv", () => csv({ delimiter: ";" })],
+    ["jsonl", () => jsonl({ reviver: (_k: string, v: unknown) => v })],
+    ["xml", () => xml({ ignoreAttributes: true })],
   ] as ReadonlyArray<readonly [name: string, build: () => unknown]>)(
     "%s: no path selects the transformer role",
     (_name, build) => {

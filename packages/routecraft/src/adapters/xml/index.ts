@@ -3,6 +3,7 @@ import type { Destination } from "../../operations/to.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import type { Transformer } from "../../operations/transform.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
+import { selectsFileRole } from "../shared/file-role-guards.ts";
 import type {
   XmlData,
   XmlFileOptions,
@@ -73,7 +74,7 @@ export function xml<T = unknown, R = unknown>(
   const args = factoryArgs(options);
 
   // Transformer role: no path means parse an XML string already in the body.
-  if (!("path" in options) || options.path === undefined) {
+  if (!selectsFileRole("xml", options)) {
     const transformer = new XmlTransformerAdapter<T, R>(
       options as XmlTransformerOptions<T, R>,
     );

@@ -76,7 +76,7 @@ export function html<T = unknown, R = HtmlResult>(
   options: HtmlOptions<T, R>,
 ): (Transformer<T, R> & { readonly adapterId: string }) | HtmlAdapter {
   const args = factoryArgs(options);
-  if (selectsFileRole("html", options.path)) {
+  if (selectsFileRole("html", options)) {
     const destination = new HtmlDestinationAdapter<T, R>(options);
     const enricher = new HtmlEnricherAdapter<T, R>(options);
 

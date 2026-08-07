@@ -7,6 +7,7 @@ import {
   getAdapterArgs,
   tagAdapter,
 } from "./adapters/shared/factory-tag.ts";
+import { adapterIdentities } from "./adapters/shared/role-facade.ts";
 
 /**
  * Store key under which test-time adapter overrides are registered.
@@ -164,29 +165,60 @@ function snapshotBody(body: unknown): unknown {
 }
 
 /**
+ * Which role slot an override is being resolved for. `.enrich()` and a
+ * fetch-resolved `.to()` both draw on the `send` behaviour, so the axis is
+ * subscribe-versus-call rather than one member per operation keyword.
+ *
+ * @internal
+ */
+export type OverrideRole = "source" | "send";
+
+/**
  * Look up an override registered on the given context for the adapter.
  * Matches by tagged factory first (if the adapter was stamped via
  * `tagAdapter`); falls back to matching by adapter constructor class so
  * any adapter can be mocked without opt-in tagging.
  *
+ * @param adapter - Adapter instance or role facade the step is about to use
+ * @param context - Context whose registered overrides to search
+ * @param role - Role slot being resolved, used to break a multi-identity tie
  * @internal
  */
 export function resolveAdapterOverride(
   adapter: unknown,
   context: CraftContext | undefined,
+  role: OverrideRole,
 ): AdapterOverride | undefined {
   if (!context) return undefined;
   const overrides = context.getStore(RC_ADAPTER_OVERRIDES);
   if (!overrides || overrides.length === 0) return undefined;
   const factory = getAdapterFactory(adapter);
-  const ctor =
-    adapter !== null && typeof adapter === "object"
-      ? (adapter as { constructor?: unknown }).constructor
-      : undefined;
-  return overrides.find(
+  // A role facade can front more than one implementation class, and
+  // `constructor` names only one of them; match against every identity it
+  // declares so mocking either delegate intercepts.
+  const identities = adapterIdentities(adapter);
+  const matches = overrides.filter(
     (o) =>
       (factory !== undefined && o.target === factory) ||
-      (ctor !== undefined && o.target === ctor),
+      identities.has(o.target),
+  );
+
+  // Resolve by ROLE, not by registration order. A mock that declares only the
+  // OTHER role must not answer this one: a source-only mock reached through
+  // `.enrich()` has no handler, so the fetched value would silently become
+  // undefined, and an enricher-only mock reached through `.from()` has no
+  // `source` behaviour, so the route would fall through to the real service in
+  // a test that reads as mocked. This bites on a multi-identity facade (mail's
+  // read side, where each delegate can carry its own override) and equally on
+  // a lone mock registered for one role and reached through the other.
+  //
+  // A mock declaring NEITHER behaviour is a different thing: the documented
+  // recording no-op, which must keep intercepting so `.to()` stays mocked
+  // rather than reaching the real destination. Hence the second pass instead
+  // of a single `o[role] !== undefined` filter.
+  return (
+    matches.find((o) => o[role] !== undefined) ??
+    matches.find((o) => o.source === undefined && o.send === undefined)
   );
 }
 

@@ -3,6 +3,7 @@ import type { Destination } from "../../operations/to.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import { rcError } from "../../error.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
+import { withAdapterIdentity } from "../shared/role-facade.ts";
 import { MailSourceAdapter } from "./source.ts";
 import { MailEnricherAdapter } from "./enricher.ts";
 import { MailSendDestinationAdapter } from "./send-destination.ts";
@@ -17,17 +18,66 @@ import type {
 } from "./types.ts";
 
 /**
+ * The read side of the mail adapter: one object carrying both read roles, so
+ * the operation keyword picks between them instead of the call shape.
+ * `.from()` subscribes (IDLE / polling), `.enrich()` fetches the folder as a
+ * batch.
+ */
+export type MailFolderAdapter = Source<MailBody> &
+  Enricher<unknown, MailFetchResult>;
+
+/**
+ * Build the read-side facade from the two role implementations, which keep
+ * genuinely different machinery (IDLE / polling versus a batch fetch).
+ *
+ * Three things the facade must carry beyond the two slots:
+ *
+ * - `getMetadata`, forwarded from the enricher. A facade that lists only its
+ *   role slots silently drops the hook, and a fetch-resolved step then
+ *   attaches no metadata to its completion event with nothing to catch it.
+ * - Both implementation constructors as override identities, so class-based
+ *   `mockAdapter(MailEnricherAdapter, ...)` AND
+ *   `mockAdapter(MailSourceAdapter, ...)` keep intercepting. Before the
+ *   arity collapse those were two separate returned objects.
+ * - A lazily built source, because subscribing is the rarer role and
+ *   constructing it eagerly would allocate IDLE state for every
+ *   `.enrich(mail(...))`. The identity set names the CLASS rather than an
+ *   instance precisely so the delegate can stay unbuilt.
+ */
+function folderAdapter(
+  options: MailServerOptions & { folder: string },
+): MailFolderAdapter {
+  const enricher = new MailEnricherAdapter(options);
+  let source: MailSourceAdapter | undefined;
+  return withAdapterIdentity(
+    {
+      adapterId: enricher.adapterId,
+      subscribe: (sub) => {
+        source ??= new MailSourceAdapter(options.folder, options);
+        return source.subscribe(sub);
+      },
+      fetch: enricher.fetch,
+      getMetadata: (result: unknown) => enricher.getMetadata(result),
+    } satisfies MailFolderAdapter & {
+      getMetadata(result: unknown): Record<string, unknown>;
+    },
+    enricher,
+    MailSourceAdapter,
+  );
+}
+
+/**
  * Creates a mail adapter for reading email via IMAP, sending via SMTP,
  * or performing IMAP operations (move, copy, delete, flag, unflag, append).
  *
- * **Source (for `.from()`):** Call with two arguments: `mail(folder, options)`.
- * Uses IMAP IDLE or polling to push new messages to the route.
- *
- * **Enricher (for `.enrich()`):** Call with a folder string or server options
- * containing `folder`. The required `folder` key is what distinguishes a
- * fetch from a send (the object-form counterpart of the `mail('INBOX')`
- * shorthand, mirroring `http`'s `path` vs `url` split). Fetches messages from
- * IMAP through the fetch role and returns them as the enrichment result.
+ * **Reading a folder (`.from()` / `.enrich()`):** name a folder, either as
+ * `mail(folder, options?)` or as `mail({ folder, ...options })`. Both carry
+ * BOTH read roles and the operation keyword picks between them: `.from()`
+ * subscribes (IMAP IDLE or polling, pushing new messages into the route) and
+ * `.enrich()` fetches the folder as a batch. The `folder` key is what
+ * distinguishes a read from a send (mirroring `http`'s `path` vs `url`
+ * split); passing options does not change the role, so `mail('INBOX')` and
+ * `mail('INBOX', { markSeen: true })` differ only in configuration.
  *
  * **Send Destination (for `.to()`):** Call with no arguments or client options
  * (no `folder`). Sends email via SMTP using the exchange body as the payload.
@@ -82,39 +132,28 @@ import type {
  */
 export function mail(
   folder: string,
-  options: MailServerOptions,
-): Source<MailBody>;
-export function mail(folder: string): Enricher<unknown, MailFetchResult>;
+  options?: MailServerOptions,
+): MailFolderAdapter;
 export function mail(action: MailAction): Destination<unknown>;
 export function mail(
   options: MailServerOptions & { folder: string },
-): Enricher<unknown, MailFetchResult>;
+): MailFolderAdapter;
 export function mail(options?: MailClientOptions): Destination<MailSendPayload>;
 export function mail(
   folderOrOptions?: string | MailServerOptions | MailClientOptions | MailAction,
   options?: MailServerOptions,
-):
-  | Source<MailBody>
-  | Enricher<unknown, MailFetchResult>
-  | Destination<MailSendPayload>
-  | Destination<unknown> {
+): MailFolderAdapter | Destination<MailSendPayload> | Destination<unknown> {
   const args = factoryArgs(folderOrOptions, options);
 
-  // 2 args: string + object -> Source (matches direct(endpoint, options) pattern)
-  if (typeof folderOrOptions === "string" && options !== undefined) {
-    const adapter = new MailSourceAdapter(folderOrOptions, options);
-    return tagAdapter(adapter, mail, args) as Source<MailBody>;
-  }
-
-  // 1 arg string -> Enricher (folder shorthand for .enrich())
+  // A folder string names a folder to READ; whether that read streams
+  // (`.from()`) or batches (`.enrich()`) is the keyword's call, not the
+  // argument count's. Options configure the read, they do not select it.
   if (typeof folderOrOptions === "string") {
-    const adapter = new MailEnricherAdapter({
-      folder: folderOrOptions,
-    });
-    return tagAdapter(adapter, mail, args) as Enricher<
-      unknown,
-      MailFetchResult
-    >;
+    return tagAdapter(
+      folderAdapter({ ...options, folder: folderOrOptions }),
+      mail,
+      args,
+    );
   }
 
   // Action discriminator -> Operation Destination (checked before `folder`:
@@ -130,13 +169,11 @@ export function mail(
   // the mail('INBOX') shorthand). Key presence declares the intent; an
   // undefined value still resolves through the context-level folder default.
   if (folderOrOptions && "folder" in folderOrOptions) {
-    const adapter = new MailEnricherAdapter(
-      folderOrOptions as MailServerOptions,
+    return tagAdapter(
+      folderAdapter(folderOrOptions as MailServerOptions & { folder: string }),
+      mail,
+      args,
     );
-    return tagAdapter(adapter, mail, args) as Enricher<
-      unknown,
-      MailFetchResult
-    >;
   }
 
   // Fetch-only keys without `folder` mean the intent is ambiguous (fetch

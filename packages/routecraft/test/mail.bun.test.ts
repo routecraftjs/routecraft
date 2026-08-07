@@ -7,7 +7,12 @@ import {
   spyOn,
   test,
 } from "bun:test";
-import { testContext, spy, type TestContext } from "@routecraft/testing";
+import {
+  testContext,
+  spy,
+  mockAdapter,
+  type TestContext,
+} from "@routecraft/testing";
 import { craft, simple, mail } from "@routecraft/routecraft";
 import { EXCHANGE_INTERNALS } from "../src/exchange.ts";
 import {
@@ -22,6 +27,7 @@ import {
 } from "../src/adapters/mail/analysis.ts";
 import type { MailServerOptions } from "../src/adapters/mail/types.ts";
 import { MailEnricherAdapter } from "../src/adapters/mail/enricher.ts";
+import { MailSourceAdapter } from "../src/adapters/mail/source.ts";
 import { MailSendDestinationAdapter } from "../src/adapters/mail/send-destination.ts";
 
 // Mock functions declared at module scope for mock.module hoisting
@@ -121,26 +127,122 @@ describe("Mail Adapter", () => {
 
   describe("Factory overloads", () => {
     /**
-     * @case mail('INBOX', options) returns a Source
-     * @preconditions Two string + object arguments
-     * @expectedResult Returns adapter with subscribe method (Source)
+     * @case The read facade answers to BOTH implementation classes for class-based mocking
+     * @preconditions mockAdapter targets MailEnricherAdapter, then MailSourceAdapter
+     * @expectedResult Each mock intercepts its own role; no IMAP connection is attempted
+     *
+     * LOAD-BEARING, do not delete as redundant. The factory returns a role
+     * facade, not a class instance, so nothing about `mail()`'s runtime shape
+     * implies these constructors any more: the contract rests entirely on the
+     * identity stamp in `withAdapterIdentity`. If that stamp regresses, class
+     * mocks stop intercepting SILENTLY and the route reaches real IMAP. These
+     * two assertions are the only thing standing between that and a green
+     * suite.
      */
-    test("mail(folder, options) returns a Source", () => {
-      const adapter = mail("INBOX", { markSeen: true });
-      expect(adapter).toHaveProperty("subscribe");
-      expect(adapter).not.toHaveProperty("send");
+    test("class-based mockAdapter intercepts through either delegate", async () => {
+      const mockEnricher = mockAdapter(MailEnricherAdapter, {
+        send: async () => ({ messages: [], count: 0 }),
+      });
+
+      t = await testContext()
+        .override(mockEnricher)
+        .routes(
+          craft()
+            .id("mail-class-mock-fetch")
+            .from(simple({ trigger: true }))
+            .enrich(mail("INBOX")),
+        )
+        .build();
+      await t.test();
+
+      expect(mockEnricher.calls.send).toHaveLength(1);
+      expect(t.errors).toHaveLength(0);
+      await t.stop();
+
+      // The source delegate is built lazily, so its identity is declared by
+      // CLASS rather than by instance; this covers that path.
+      const mockSource = mockAdapter(MailSourceAdapter, {
+        source: [{ subject: "one" }, { subject: "two" }],
+      });
+      const s = spy();
+
+      t = await testContext()
+        .override(mockSource)
+        .routes(craft().id("mail-class-mock-source").from(mail("INBOX")).to(s))
+        .build();
+      await t.test();
+
+      expect(s.received).toHaveLength(2);
+      expect(t.errors).toHaveLength(0);
     });
 
     /**
-     * @case mail('INBOX') returns an Enricher
-     * @preconditions Single string argument
-     * @expectedResult Returns adapter with fetch method (Enricher), no send/subscribe
+     * @case Both read-role class mocks registered on ONE context each serve
+     *   their own role
+     * @preconditions A context overriding MailSourceAdapter and
+     *   MailEnricherAdapter at once, with a route that both subscribes and
+     *   enriches through the same multi-identity facade
+     * @expectedResult The source mock feeds .from() and the enricher mock
+     *   answers .enrich(); neither shadows the other
+     *
+     * The companion to the load-bearing test above, which registers each mock
+     * on its OWN context and so cannot see this. One facade declaring two
+     * identities matches two overrides, and resolution has to pick by the role
+     * being resolved rather than by registration order. First-match-wins fails
+     * silently in both directions: an enricher mock answering `.from()` has no
+     * `source` behaviour, so the route falls through to real IMAP in a test
+     * that reads as mocked, and a source mock answering `.enrich()` has no
+     * handler, so the body quietly becomes undefined.
      */
-    test("mail(folder) returns an Enricher", () => {
-      const adapter = mail("INBOX");
-      expect(adapter).toHaveProperty("fetch");
-      expect(adapter).not.toHaveProperty("send");
-      expect(adapter).not.toHaveProperty("subscribe");
+    test("both read-role class mocks on one context serve their own role", async () => {
+      const mockSource = mockAdapter(MailSourceAdapter, {
+        source: [{ subject: "one" }, { subject: "two" }],
+      });
+      const mockEnricher = mockAdapter(MailEnricherAdapter, {
+        send: async () => ({ messages: [{ subject: "fetched" }], count: 1 }),
+      });
+      const s = spy();
+
+      t = await testContext()
+        .override(mockSource)
+        .override(mockEnricher)
+        .routes(
+          craft()
+            .id("mail-both-read-mocks")
+            .from(mail("INBOX"))
+            .enrich(mail("Archive"))
+            .to(s),
+        )
+        .build();
+      await t.test();
+
+      expect(t.errors).toHaveLength(0);
+      expect(mockSource.calls.source).toHaveLength(1);
+      expect(mockEnricher.calls.send).toHaveLength(2);
+      expect(s.received).toHaveLength(2);
+      // The enricher mock's result reached the body, so `.enrich()` resolved
+      // through the enricher override and not the source one.
+      for (const body of s.receivedBodies()) {
+        expect(body).toMatchObject({ count: 1 });
+      }
+    });
+
+    /**
+     * @case Naming a folder carries both read roles regardless of arity
+     * @preconditions mail(folder) and mail(folder, options), the two call shapes
+     * @expectedResult Both expose subscribe and fetch, and neither exposes send
+     */
+    test("mail(folder) and mail(folder, options) both carry subscribe and fetch", () => {
+      // Argument count configures the read; it must not select the role. The
+      // keyword does that: .from() subscribes, .enrich() fetches.
+      for (const adapter of [
+        mail("INBOX"),
+        mail("INBOX", { markSeen: true }),
+      ]) {
+        expect(adapter).toHaveProperty("subscribe");
+        expect(adapter).toHaveProperty("fetch");
+        expect(adapter).not.toHaveProperty("send");
+      }
     });
 
     /**
@@ -212,7 +314,7 @@ describe("Mail Adapter", () => {
      * @case mail({ folder, ...serverKey }) dispatches to the Fetch Destination for every server-only key
      * @preconditions One mail({ folder, [key]: value }) call per key that
      *   exists on MailServerOptions but not MailClientOptions
-     * @expectedResult Each call returns a MailEnricherAdapter
+     * @expectedResult Each call returns the read-side adapter (subscribe + fetch, no send)
      */
     test("folder plus any server-only key dispatches to the Fetch Destination", () => {
       const probes: (MailServerOptions & { folder: string })[] = [
@@ -233,7 +335,12 @@ describe("Mail Adapter", () => {
         { folder: "INBOX", onParseError: "drop" },
       ];
       for (const opts of probes) {
-        expect(mail(opts)).toBeInstanceOf(MailEnricherAdapter);
+        const adapter = mail(opts);
+        // The factory returns a role facade, so assert the slots rather than
+        // the class; identity is covered by the mockAdapter test below.
+        expect(adapter).toHaveProperty("fetch");
+        expect(adapter).toHaveProperty("subscribe");
+        expect(adapter).not.toHaveProperty("send");
       }
     });
 

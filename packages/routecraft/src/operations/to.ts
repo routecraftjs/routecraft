@@ -123,6 +123,7 @@ export class ToStep<T = unknown, R = unknown> implements Step<Adapter> {
     const override = resolveAdapterOverride(
       this.adapter,
       getExchangeContext(exchange),
+      "send",
     );
 
     const receiptHeaders: Record<string, HeaderValue> = {};

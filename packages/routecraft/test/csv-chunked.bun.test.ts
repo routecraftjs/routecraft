@@ -5,7 +5,7 @@ import {
   type TestContext,
   testSubscription,
 } from "@routecraft/testing";
-import { craft, csv, CsvHeaders } from "@routecraft/routecraft";
+import { craft, csv, simple, CsvHeaders } from "@routecraft/routecraft";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -289,5 +289,74 @@ describe("CSV Adapter - Chunked Mode", () => {
     expect(s.received.length).toBe(2);
     expect(dropped.length).toBeGreaterThanOrEqual(1);
     expect(dropped[0].reason).toBe("parse-failed");
+  });
+
+  /**
+   * `chunked` concerns the SUBSCRIBE role only: it splits the stream into one
+   * exchange per row. The send and fetch roles are identical to the
+   * non-chunked adapter, so a chunked adapter still writes through `.to()`
+   * and still reads the whole file through `.enrich()`. The type says so
+   * (`CsvChunkedAdapter = Source<CsvRow> & Destination & Enricher<_, CsvData>`);
+   * these cover the runtime.
+   */
+  describe("chunked keeps the send and fetch roles", () => {
+    /**
+     * @case A chunked adapter still writes through .to()
+     * @preconditions .to(csv({ path, chunked: true })) with a row body
+     * @expectedResult The file is written; chunking does not remove the send role
+     */
+    test(".to(csv({ chunked: true })) writes the file", async () => {
+      const filePath = path.join(tmpDir, "chunked-write.csv");
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-chunked-send")
+            .from(simple([{ name: "Alice", age: 30 }]))
+            .to(csv({ path: filePath, header: true, chunked: true })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fsp.readFile(filePath, "utf-8");
+      const lines = written.split(/\r?\n/).filter((l) => l.length > 0);
+      expect(lines).toEqual(["name,age", "Alice,30"]);
+    });
+
+    /**
+     * @case A chunked adapter still fetches the whole file through .enrich()
+     * @preconditions .enrich(csv({ path, chunked: true })) over a two-row file
+     * @expectedResult The body is the whole CsvData array, not a single row
+     */
+    test(".enrich(csv({ chunked: true })) fetches every row at once", async () => {
+      const filePath = path.join(tmpDir, "chunked-read.csv");
+      await fsp.writeFile(
+        filePath,
+        "name,age\r\nAlice,30\r\nBob,25\r\n",
+        "utf-8",
+      );
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-chunked-fetch")
+            .from(simple({ trigger: true }))
+            .enrich(csv({ path: filePath, header: true, chunked: true }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      // One exchange carrying both rows: the fetch role is unaffected by
+      // chunking, which would otherwise have produced two exchanges.
+      expect(s.received).toHaveLength(1);
+      expect(s.received[0].body).toEqual([
+        { name: "Alice", age: "30" },
+        { name: "Bob", age: "25" },
+      ]);
+    });
   });
 });

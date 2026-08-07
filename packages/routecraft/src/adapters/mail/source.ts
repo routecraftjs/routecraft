@@ -109,9 +109,9 @@ function throwFailFast(error: unknown): never {
 export class MailSourceAdapter implements Source<MailBody> {
   readonly adapterId = "routecraft.adapter.mail";
   private readonly adapterOptions: MailServerOptions;
-  private readonly folder: string;
+  private readonly folder: string | undefined;
 
-  constructor(folder: string, options: MailServerOptions) {
+  constructor(folder: string | undefined, options: MailServerOptions) {
     this.folder = folder;
     this.adapterOptions = options;
   }
@@ -134,14 +134,23 @@ export class MailSourceAdapter implements Source<MailBody> {
     const manager = getClientManager(context);
     const account = this.adapterOptions.account;
 
+    // Only contribute `folder` when this adapter actually carries one:
+    // spreading an explicit `undefined` would mask the context default that
+    // `mail({ folder: undefined })` exists to reach.
+    const folderOption =
+      this.folder !== undefined ? { folder: this.folder } : {};
     const resolved: MailServerOptions = manager
       ? manager.resolveImapOptions(account, {
           ...this.adapterOptions,
-          folder: this.folder,
+          ...folderOption,
         })
-      : ({ ...this.adapterOptions, folder: this.folder } as MailServerOptions);
+      : ({ ...this.adapterOptions, ...folderOption } as MailServerOptions);
 
-    const folder = resolved.folder ?? this.folder;
+    // Same ladder the fetch role uses (adapter option, then context default,
+    // then INBOX). `mail({ folder: undefined })` deliberately means "take the
+    // folder from context config", so both read roles must agree on what
+    // happens when the context has none either.
+    const folder = resolved.folder ?? this.folder ?? "INBOX";
     const hasConnectionOverride =
       this.adapterOptions.host !== undefined ||
       this.adapterOptions.port !== undefined ||

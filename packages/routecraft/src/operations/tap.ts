@@ -82,7 +82,7 @@ export class TapStep<T = unknown> implements Step<Adapter> {
 
     // Resolve a test-time override (if any) so `.tap(adapter)` is intercepted
     // the same way `.to()` and `.enrich()` are.
-    const override = resolveAdapterOverride(this.adapter, context);
+    const override = resolveAdapterOverride(this.adapter, context, "send");
 
     const promise = (async () => {
       try {

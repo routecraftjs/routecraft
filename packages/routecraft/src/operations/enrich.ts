@@ -194,6 +194,7 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<Adapter> {
     const override = resolveAdapterOverride(
       this.adapter,
       getExchangeContext(exchange),
+      "send",
     );
 
     // Pull the enrichment data through the fetch slot (or the mock handler

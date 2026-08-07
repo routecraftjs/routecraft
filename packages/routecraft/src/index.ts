@@ -493,6 +493,7 @@ export {
   type MailAttachment,
   type MailSendPayload,
   type MailFetchResult,
+  type MailFolderAdapter,
   type MailContextConfig,
   type MailAccountConfig,
   type MailAccountImapConfig,
