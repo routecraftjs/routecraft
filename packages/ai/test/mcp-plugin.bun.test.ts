@@ -301,7 +301,10 @@ describe("MCP Plugin Integration", () => {
       // "a_" for "a__", both of which this same error would reject
       // again. The suggestion is the one line whose whole job is to be
       // copy-pasteable.
-      for (const bad of ["a____b", "a__", "foo__bar__baz"]) {
+      // Includes the degenerate names that leave nothing to salvage, so
+      // "every rejection carries a copyable name" is pinned rather than
+      // true only for the easy cases.
+      for (const bad of ["a____b", "a__", "foo__bar__baz", "", "___"]) {
         let suggestion: string | undefined;
         try {
           mcpPlugin({

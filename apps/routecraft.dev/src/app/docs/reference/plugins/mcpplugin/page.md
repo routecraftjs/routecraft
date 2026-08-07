@@ -74,7 +74,7 @@ The key you register a client under becomes the server segment of the `mcp__<ser
 
 | Key | Composes | Reads back as | Problem |
 |-----|----------|---------------|---------|
-| `a__b` | `mcp__a__b__c` | server `a`, tool `b__c` | Points at nothing |
+| `a__b` | `mcp__a__b__c` | server `a`, tool `b__c` | Wrong tool if a client `a` exposes `b__c`, otherwise unresolved |
 | `foo_` | `mcp__foo___bar` | server `foo`, tool `_bar` | **Collides** with key `foo` exposing `_bar` |
 | `""` | `mcp____bar` | empty server | Unresolvable |
 

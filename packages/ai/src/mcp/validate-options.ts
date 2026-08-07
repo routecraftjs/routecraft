@@ -3,7 +3,11 @@ import { formatSchemaIssues, rcError } from "@routecraft/routecraft";
 import { exposedNameFor, parseProxyRef } from "./proxy.ts";
 import { MCP_TOOL_NAME_PATTERN } from "./types.ts";
 import type { McpPluginOptions } from "./types.ts";
-import { TOOL_NAME_PATTERN_SOURCE, TOOL_NAME_SEPARATOR } from "../tool-name.ts";
+import {
+  isSplittableNameHead,
+  TOOL_NAME_PATTERN_SOURCE,
+  TOOL_NAME_SEPARATOR,
+} from "../tool-name.ts";
 
 /** Standard Schema validate result: success has value, failure has issues. */
 type ValidateResult<T = unknown> =
@@ -100,39 +104,24 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       // grammar unambiguous, so a remote may keep using `__` in its own
       // tool names freely.
       //
-      // A trailing single underscore is rejected for the same reason a
-      // contained separator is: the name is joined to the tool with
-      // `__`, so `foo_` composes `mcp__foo___bar`, whose first
-      // separator sits one character early and reads back as server
-      // `foo`, tool `_bar`. That is not merely unresolvable, it
-      // COLLIDES: `foo_` + `bar` and `foo` + `_bar` produce the same
-      // wire name, and the resolved tool map is keyed by that name with
-      // later-wins, so one silently replaces the other and a model's
-      // call reaches the wrong client. Testing the name with a single
-      // `_` appended catches a contained separator and a trailing one
-      // in a single condition.
-      const separatorHalf = TOOL_NAME_SEPARATOR.slice(
-        0,
-        TOOL_NAME_SEPARATOR.length / 2,
-      );
-      if (
-        name === "" ||
-        `${name}${separatorHalf}`.includes(TOOL_NAME_SEPARATOR)
-      ) {
+      // The exact shapes that break the split, and why a trailing
+      // underscore is one of them, live with the separator in
+      // `isSplittableNameHead`. Both this throw and the resolution-time
+      // drop in `agent/tools/selection.ts` call it, so the two layers
+      // cannot disagree about what they reject.
+      if (!isSplittableNameHead(name)) {
         // Collapse runs and trim the edges, so the name offered back is
         // one the check above actually accepts. Naively splitting on
         // the separator does not: `a____b` would yield `a__b` and `a__`
         // would yield `a_`, both rejected again by the very error that
-        // suggested them.
-        const suggested = name
-          .replace(/_+/g, separatorHalf)
-          .replace(/^_+|_+$/g, "");
+        // suggested them. A name with nothing left after trimming
+        // (`""`, `"___"`) still gets a concrete placeholder, so every
+        // rejection carries something copyable.
+        const salvaged = name.replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+        const suggested = salvaged === "" ? "client" : salvaged;
         throw rcError("RC5003", undefined, {
-          message: `mcpPlugin: client name "${name}" must not be empty, contain "${TOOL_NAME_SEPARATOR}", or end with "${separatorHalf}". It becomes the server segment of the generated "mcp__<server>__<tool>" tool name, which is split at the first "${TOOL_NAME_SEPARATOR}" after the prefix, so any of those makes the name ambiguous or collides with another client.`,
-          suggestion:
-            suggested === ""
-              ? `Rename the client to a non-empty name without "${TOOL_NAME_SEPARATOR}" (a single underscore inside the name is fine).`
-              : `Rename the client to something without "${TOOL_NAME_SEPARATOR}" (a single underscore inside the name is fine, e.g. "${suggested}").`,
+          message: `mcpPlugin: client name "${name}" must not be empty, contain "${TOOL_NAME_SEPARATOR}", or end with "_". It becomes the server segment of the generated "mcp__<server>__<tool>" tool name, which is split at the first "${TOOL_NAME_SEPARATOR}" after the prefix, so any of those makes the name ambiguous or collides with another client.`,
+          suggestion: `Rename the client to something without "${TOOL_NAME_SEPARATOR}" (a single underscore inside the name is fine, e.g. "${suggested}").`,
         });
       }
       if (
