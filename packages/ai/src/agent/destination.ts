@@ -416,9 +416,19 @@ function applyToolPolicy(
   // A denial is a decision, so it goes on the bus as well as into the
   // log. Alerting on "a tool was silently dropped from an agent" needs
   // something queryable; a log line is not that.
+  //
+  // `toolKind` is passed in rather than read off the tool, so it is
+  // always a kind the policy surface defines. An unclassifiable tool
+  // reports `"unknown"`: its raw `source.kind` is whatever a caller
+  // outside the type contract put there, so echoing it would hand an
+  // audit consumer an unbounded set of kind values that look
+  // authoritative while carrying nothing the `reason` does not already
+  // say. It also keeps this off the raw `source`, which the
+  // unknown-provenance path has deliberately not dereferenced.
   const emitDenied = (
     tool: ResolvedTool,
     reason: "rule" | "rule-error" | "unknown-provenance",
+    toolKind: string,
   ): void => {
     if (!dispatchIdentity) return;
     context.emit("route:agent:tool:denied", {
@@ -427,7 +437,7 @@ function applyToolPolicy(
       correlationId: dispatchIdentity.correlationId,
       ...(agentId !== undefined && { agentName: agentId }),
       toolName: tool.name,
-      toolKind: tool.source?.kind ?? "unknown",
+      toolKind,
       reason,
     });
   };
@@ -457,7 +467,7 @@ function applyToolPolicy(
     // `policiesAdmit` unreachable for the case it exists to handle.
     const descriptor = toDescriptor(tool);
     if (descriptor === undefined) {
-      emitDenied(tool, "unknown-provenance");
+      emitDenied(tool, "unknown-provenance", "unknown");
       context.logger.warn(
         { agent: agentId ?? "<inline>", tool: tool.name, kind: "unknown" },
         "Agent tool carries no recognisable resolver-set provenance, so no policy can classify it; dropping it from the agent's tool list",
@@ -474,7 +484,11 @@ function applyToolPolicy(
       admitted.push(tool);
       continue;
     }
-    emitDenied(tool, verdict.reported ? "rule-error" : "rule");
+    emitDenied(
+      tool,
+      verdict.reported ? "rule-error" : "rule",
+      descriptor.source.kind,
+    );
     // A denial already reported through `onRuleError` has been logged at
     // error level with its cause. Repeating it at warn would say less
     // about the same tool and the same outcome, and would bury the line
