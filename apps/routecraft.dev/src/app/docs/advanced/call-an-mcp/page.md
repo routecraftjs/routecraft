@@ -103,7 +103,7 @@ import { mcp } from '@routecraft/ai'
 import { craft, direct } from '@routecraft/routecraft'
 
 export default craft()
-  .id('github.create-issue')
+  .id('github-create-issue')
   .from(direct())
   .authorize({ roles: ['maintainer'] }) // per-call principal check
   .to(mcp('github:create_issue'))
@@ -114,7 +114,7 @@ Hand the agent the governed route instead of the raw tool. The same underlying t
 ```ts
 agent({
   tools: tools([
-    'Direct(github.create-issue)', // governed: authorized and auditable
+    'Direct(github-create-issue)', // governed: authorized and auditable
     'MCP(github:list_issues)',     // raw: read-only, fine ungoverned
   ]),
 })

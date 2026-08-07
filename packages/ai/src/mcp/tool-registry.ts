@@ -25,6 +25,12 @@ export class McpToolRegistry {
   /** Per-source fingerprint of the last stored tool list. */
   private fingerprints = new Map<string, string>();
 
+  /** Keys already reported by a consumer for {@link reportedVersion}. */
+  private reported = new Set<string>();
+
+  /** Registry version {@link reported} was accumulated against. */
+  private reportedVersion = -1;
+
   /**
    * Monotonically increasing version, bumped whenever a source's tools
    * actually change (a periodic re-listing that returns the same tools does
@@ -90,6 +96,38 @@ export class McpToolRegistry {
       this.fingerprints.set(source, fingerprint);
       this.changeVersion++;
     }
+  }
+
+  /**
+   * Claim the right to report `key` once for the registry's current
+   * {@link version}. Returns true the first time a key is claimed and
+   * false for every later claim, until the registry actually changes.
+   *
+   * For consumers that diagnose a persistent property of a registered
+   * tool rather than an event of the call they are serving. The agent
+   * tool resolver is the motivating case: it runs per dispatch, so a
+   * remote tool whose name cannot be used as a provider tool name would
+   * otherwise log the same warning on every dispatch of every agent
+   * bound to that server, forever.
+   *
+   * Scoped to the version rather than to the registry's lifetime so a
+   * condition that survives a refresh is re-reported rather than
+   * silenced by its first occurrence. A periodic re-listing that
+   * returns an unchanged tool set does not bump the version, so it does
+   * not re-open the reports either.
+   *
+   * @param key - Stable identity of the condition being reported
+   * @returns Whether the caller should report it
+   * @internal
+   */
+  shouldReport(key: string): boolean {
+    if (this.reportedVersion !== this.changeVersion) {
+      this.reportedVersion = this.changeVersion;
+      this.reported.clear();
+    }
+    if (this.reported.has(key)) return false;
+    this.reported.add(key);
+    return true;
   }
 
   /**

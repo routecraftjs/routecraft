@@ -14,11 +14,19 @@ import {
   AgentSession,
   buildUserPrompt,
   dispatchIdentityFrom,
+  type AgentDispatchIdentity,
 } from "./session.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
+  ADAPTER_AGENT_TOOL_POLICIES,
 } from "./store.ts";
+import { isGovernableToolKind, policiesAdmit } from "./tools/policy.ts";
+import type {
+  AgentToolDescriptor,
+  AgentToolPolicyContext,
+  AgentToolSource,
+} from "./tools/policy.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
@@ -94,7 +102,25 @@ export class AgentDestinationAdapter implements Destination<
     const model = merged.model;
 
     const { config, modelName } = resolveModel(model, context);
-    const userTools = resolveAgentTools(merged, context);
+    // Registered agents carry their own id (used to attribute runs in
+    // observability, and to name the agent in a tool-policy denial);
+    // inline agents are identified by their route, so agentName stays
+    // undefined and the consumer falls back to routeId.
+    const agentName =
+      this.binding.kind === "by-name" ? this.binding.name : undefined;
+    // Resolved before tools so a tool-policy denial can be emitted as an
+    // exchange-scoped event, not just logged.
+    const route = getExchangeRoute(exchange);
+    const dispatchIdentity = dispatchIdentityFrom(
+      exchange,
+      route?.definition.id,
+    );
+    const userTools = resolveAgentTools(
+      merged,
+      context,
+      agentName,
+      dispatchIdentity,
+    );
     const user = buildUserPrompt(merged, exchange);
     // System accepts the same string-or-function shape as `llm({ system })`,
     // so resolve it against the exchange here. The session then receives a
@@ -126,18 +152,6 @@ export class AgentDestinationAdapter implements Destination<
       exchange.principal,
       exchange,
     );
-
-    const route = getExchangeRoute(exchange);
-    const dispatchIdentity = dispatchIdentityFrom(
-      exchange,
-      route?.definition.id,
-    );
-
-    // Registered agents carry their own id (used to attribute runs in
-    // observability); inline agents are identified by their route, so
-    // agentName stays undefined and the consumer falls back to routeId.
-    const agentName =
-      this.binding.kind === "by-name" ? this.binding.name : undefined;
 
     const session = new AgentSession({
       options: merged,
@@ -353,6 +367,8 @@ function mergeUserAndLoaderTools(
 function resolveAgentTools(
   options: AgentOptions | AgentRegisteredOptions,
   context: CraftContext | undefined,
+  agentId: string | undefined,
+  dispatchIdentity: AgentDispatchIdentity | undefined,
 ): ResolvedTool[] {
   if (options.tools === undefined) return [];
   if (!context) {
@@ -360,7 +376,216 @@ function resolveAgentTools(
       message: `Agent: cannot resolve tools without a CraftContext.`,
     });
   }
-  return options.tools.resolve(context);
+  return applyToolPolicy(
+    options.tools.resolve(context),
+    context,
+    agentId,
+    dispatchIdentity,
+  );
+}
+
+/**
+ * Filter a resolved tool list through every `agentPlugin({ toolPolicy })`
+ * installed on the context.
+ *
+ * This runs at the single point both agent forms converge on. Inline
+ * options and by-name registry lookups (which is what a markdown agent
+ * becomes) both arrive here through `resolveOptions`, and a nested
+ * agent dispatched from inside a route re-enters the same
+ * `AgentDestinationAdapter.send`. Enforcement is therefore total by
+ * construction rather than by discipline, and stays that way for any
+ * future agent form routed through this destination.
+ *
+ * A denied tool is dropped and logged at warn, not thrown. A silent
+ * drop would be undiagnosable when a model starts claiming it cannot do
+ * something; a throw would turn tightening a policy into an outage for
+ * every agent that happened to list the tool.
+ *
+ * @internal
+ */
+function applyToolPolicy(
+  resolved: ResolvedTool[],
+  context: CraftContext,
+  agentId: string | undefined,
+  dispatchIdentity: AgentDispatchIdentity | undefined,
+): ResolvedTool[] {
+  const policies = context.getStore(ADAPTER_AGENT_TOOL_POLICIES);
+  if (!policies || policies.length === 0) return resolved;
+  const policyContext: AgentToolPolicyContext = { agentId };
+  const admitted: ResolvedTool[] = [];
+  // A denial is a decision, so it goes on the bus as well as into the
+  // log. Alerting on "a tool was silently dropped from an agent" needs
+  // something queryable; a log line is not that.
+  //
+  // `toolKind` is passed in rather than read off the tool, so it is
+  // always a kind the policy surface defines. An unclassifiable tool
+  // reports `"unknown"`: its raw `source.kind` is whatever a caller
+  // outside the type contract put there, so echoing it would hand an
+  // audit consumer an unbounded set of kind values that look
+  // authoritative while carrying nothing the `reason` does not already
+  // say. It also keeps this off the raw `source`, which the
+  // unknown-provenance path has deliberately not dereferenced.
+  const emitDenied = (
+    tool: ResolvedTool,
+    reason: "rule" | "rule-error" | "unknown-provenance",
+    toolKind: string,
+  ): void => {
+    if (!dispatchIdentity) return;
+    context.emit("route:agent:tool:denied", {
+      routeId: dispatchIdentity.routeId,
+      exchangeId: dispatchIdentity.exchangeId,
+      correlationId: dispatchIdentity.correlationId,
+      ...(agentId !== undefined && { agentName: agentId }),
+      toolName: tool.name,
+      toolKind,
+      reason,
+    });
+  };
+  // A predicate that throws is a bug in the policy, not a verdict, so
+  // it is reported at error level. The tool is still denied rather than
+  // letting the throw abort the dispatch; see `ruleAdmits`.
+  const onRuleError = (tool: AgentToolDescriptor, cause: unknown): void => {
+    context.logger.error(
+      {
+        agent: agentId ?? "<inline>",
+        tool: tool.name,
+        kind: tool.source.kind,
+        err: cause,
+      },
+      // Boundary convention: the thrown message is the log message, with
+      // a boundary-specific fallback when the predicate threw something
+      // that carries none (it may throw any value at all).
+      messageOf(cause) ??
+        "Agent tool policy predicate threw; denying the tool. Fix the predicate in agentPlugin({ toolPolicy })",
+    );
+  };
+  for (const tool of resolved) {
+    // Classified before the descriptor is built, because building one
+    // reads `tool.source` and a malformed tool would throw there,
+    // aborting the dispatch. That is the opposite of failing closed,
+    // and it would make the `unknown-provenance` arm inside
+    // `policiesAdmit` unreachable for the case it exists to handle.
+    const descriptor = toDescriptor(tool);
+    if (descriptor === undefined) {
+      emitDenied(tool, "unknown-provenance", "unknown");
+      context.logger.warn(
+        { agent: agentId ?? "<inline>", tool: tool.name, kind: "unknown" },
+        "Agent tool carries no recognisable resolver-set provenance, so no policy can classify it; dropping it from the agent's tool list",
+      );
+      continue;
+    }
+    const verdict = policiesAdmit(
+      policies,
+      descriptor,
+      policyContext,
+      onRuleError,
+    );
+    if (verdict.admitted) {
+      admitted.push(tool);
+      continue;
+    }
+    emitDenied(
+      tool,
+      verdict.reported ? "rule-error" : "rule",
+      descriptor.source.kind,
+    );
+    // A denial already reported through `onRuleError` has been logged at
+    // error level with its cause. Repeating it at warn would say less
+    // about the same tool and the same outcome, and would bury the line
+    // that actually explains what went wrong.
+    if (verdict.reported) continue;
+    context.logger.warn(
+      {
+        agent: agentId ?? "<inline>",
+        tool: tool.name,
+        kind: descriptor.source.kind,
+      },
+      "Agent tool denied by agentPlugin({ toolPolicy }) and dropped from the agent's tool list",
+    );
+  }
+  return admitted;
+}
+
+/**
+ * Pull a log message out of a thrown value, preferring a
+ * `RoutecraftError`'s `meta.message` over the plain `message`, per the
+ * boundary convention in `.standards/error-and-logging-policy.md`.
+ * Returns undefined when the value carries no usable message, since a
+ * predicate may throw anything.
+ *
+ * @internal
+ */
+function messageOf(cause: unknown): string | undefined {
+  if (typeof cause !== "object" || cause === null) return undefined;
+  // A predicate may throw anything, including an object whose `meta` or
+  // `message` is a getter that itself throws. Reading it must not be
+  // able to abort the dispatch the surrounding catch exists to protect.
+  try {
+    const meta = (cause as { meta?: { message?: unknown } }).meta;
+    if (typeof meta?.message === "string" && meta.message !== "") {
+      return meta.message;
+    }
+    const message = (cause as { message?: unknown }).message;
+    return typeof message === "string" && message !== "" ? message : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Narrow a `ResolvedTool` to the read-only view policy rules receive.
+ * Drops `handler` so a rule cannot wrap or invoke the tool it is
+ * deciding about, and normalises absent tags to an empty array so
+ * predicates can call `.includes` without a guard.
+ *
+ * Copied and frozen, following the same convention `buildCatalog` uses
+ * for the `tools((catalog) => ...)` builder and `snapshotCapability`
+ * uses for the capability registry. Without it, `tags` for a fn tool is
+ * the array held in the fn registry and `source.annotations` is the
+ * object the MCP client refresh wrote, so a predicate assigning a
+ * default (`annotations.destructiveHint ??= true` is the plausible
+ * accident) would rewrite shared registry state seen by every later
+ * policy, every later dispatch, and the MCP server's own `tools/list`.
+ * The `readonly` modifiers are compile-time only and do not stop it.
+ *
+ * @internal
+ */
+function toDescriptor(tool: ResolvedTool): AgentToolDescriptor | undefined {
+  // `source` is resolver-set, so a tool without a recognisable one came
+  // from outside the type contract (a hand-built `ResolvedTool`, or one
+  // written against 0.5 typings). Report that as unclassifiable rather
+  // than dereferencing into a TypeError: an allowlist cannot admit what
+  // it cannot classify, and crashing here would take down the dispatch
+  // the policy is supposed to be quietly narrowing.
+  //
+  // An absent `kind` and an unrecognised one are the same defect and
+  // get the same answer. Accepting `{ kind: "bogus" }` here would still
+  // deny the tool, one layer down in `policiesAdmit`, but as an
+  // ordinary rule denial: the caller would then report reason `rule`
+  // and log that a policy decided against a tool no policy ever saw.
+  //
+  // `block` is not governable but IS resolver-set, so it is classified
+  // rather than rejected; `policiesAdmit` exempts it.
+  const kind = (tool.source as AgentToolSource | undefined)?.kind;
+  if (kind !== "block" && !isGovernableToolKind(kind)) return undefined;
+  // The annotations copy is frozen too, not just `source`. One
+  // descriptor is built per tool and handed to every composed policy in
+  // turn, so a mutable nested object would let the first predicate
+  // change what the second one sees, making an AND composition depend
+  // on the order its policies happen to be installed in.
+  const source =
+    tool.source.kind === "mcp" && tool.source.annotations
+      ? {
+          ...tool.source,
+          annotations: Object.freeze({ ...tool.source.annotations }),
+        }
+      : { ...tool.source };
+  return Object.freeze({
+    name: tool.name,
+    description: tool.description,
+    tags: Object.freeze(tool.tags ? [...tool.tags] : []),
+    source: Object.freeze(source),
+  }) as AgentToolDescriptor;
 }
 
 /**

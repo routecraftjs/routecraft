@@ -250,6 +250,7 @@ Emitted by `agent()` destinations. These are the **coarse decision events**: bro
 | Event | When it fires | Details |
 | --- | --- | --- |
 | `route:agent:started` | Agent dispatch began, before the first model call | `{ routeId, exchangeId, correlationId, agentName?, model, toolNames, maxTurns }` |
+| `route:agent:tool:denied` | [`toolPolicy`](/docs/reference/plugins/agentplugin#tool-policy) refused a tool admission, so it was never offered to the model | `{ routeId, exchangeId, correlationId, agentName?, toolName, toolKind, reason }` |
 | `route:agent:tool:invoked` | Agent decided to call a tool (input validated, before guard) | `{ routeId, exchangeId, correlationId, toolCallId, toolName, _snapshot: { input } }` |
 | `route:agent:tool:result` | Tool handler returned a value | `{ routeId, exchangeId, correlationId, toolCallId, toolName, _snapshot: { output }, duration }` |
 | `route:agent:tool:error` | Tool handler / guard / input validation threw | `{ routeId, exchangeId, correlationId, toolCallId, toolName, errorName, _snapshot: { error }, duration }` |
@@ -262,7 +263,9 @@ Emitted by `agent()` destinations. These are the **coarse decision events**: bro
 
 Tool input/output (and block-load output) ride in a `_snapshot` envelope. So does the thrown error on `:tool:error` / `:block:error`: error messages routinely echo the rejected input (schema validation, guards), so they are gated the same way. In-process subscribers always receive the envelope, but the SQLite telemetry sink persists it only when `captureSnapshots` is enabled (`telemetry({ sqlite: { captureSnapshots: true } })`), mirroring how exchange bodies are gated. The non-sensitive fields (`toolName`, `toolCallId`, `errorName`, `duration`) are always persisted.
 
-Synthetic block-loader invocations (`_block_load_<blockName>` tools) emit on the `:agent:block:*` channel, not `:agent:tool:*`. Subscribe to the right family for what you care about: `:agent:tool:*` covers user-declared tools only, `:agent:block:*` covers framework-synthesised block loads. This split keeps post-dispatch user-tool assertions (`AgentResult.toolCalls`) clean.
+`route:agent:tool:denied` fires before any model call, once per tool the policy refused, and carries no `toolCallId` because the tool was never invoked. `reason` is `rule` (a policy decided against it), `rule-error` (a predicate threw, so the tool was denied to fail closed), or `unknown-provenance` (the tool's `source` is missing or names a kind the policy surface does not define, which means a hand-built `ResolvedTool` from outside the type contract; `toolKind` is `unknown`).
+
+Synthetic block-loader invocations (`_block__load__<blockName>` tools) emit on the `:agent:block:*` channel, not `:agent:tool:*`. Subscribe to the right family for what you care about: `:agent:tool:*` covers user-declared tools only, `:agent:block:*` covers framework-synthesised block loads. This split keeps post-dispatch user-tool assertions (`AgentResult.toolCalls`) clean.
 
 Subscribe to the exact names (`route:agent:tool:invoked`, `route:agent:block:loaded`, `route:agent:finished`, ...) and filter by `details.routeId` (or `forRoute(routeId, handler)`) for cross-cutting telemetry, dashboards, and TUIs.
 

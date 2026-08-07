@@ -56,6 +56,7 @@ Each boundary handles the error (does not re-throw it to another boundary). Do n
 | **Timer adapter** | Handler error | error | `{ adapter: "timer", err }` |
 | **route.trackTask** | Background task (e.g., tap) rejection | error | `{ err, route }` |
 | **AI server tool handler** | Tool call errors | error | `{ tool, err }` |
+| **Agent tool policy predicate** | An `agentPlugin({ toolPolicy })` predicate threw | error | `{ agent, tool, kind, err }` |
 
 The auth surface adds four more boundaries (source credential verification, route `.authorize()`, userinfo enrichment, HTTP transport), specified in [security.md](./security.md) § Boundaries; they follow the same handle-once rule and their log levels follow security.md's rejection-level policy.
 

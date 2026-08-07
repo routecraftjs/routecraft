@@ -12,8 +12,8 @@ import {
   blockCollisionError,
   blockCycleError,
   isBlockGroup,
-  TOOL_NAME_MAX_LENGTH,
 } from "../block/resolve.ts";
+import { TOOL_NAME_MAX_LENGTH } from "../tool-name.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
 import { parseProviderModel } from "../llm/shared.ts";
 import {
@@ -254,7 +254,7 @@ function validateBlocksLevel(
       });
     }
     // Progressive blocks become the synthetic loader tool
-    // `_block_load_<flattenedName>`, which the provider constrains to
+    // `_block__load__<flattenedName>`, which the provider constrains to
     // `^[A-Za-z0-9_-]{1,64}$`. Check the flattened name here so an
     // unsafe or over-long name fails at construction, not at the
     // provider on first dispatch.

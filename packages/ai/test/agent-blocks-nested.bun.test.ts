@@ -31,7 +31,7 @@ mock.module("../src/llm/providers/index.ts", () => ({
     }): Promise<LlmResult> => {
       captured = { system: params.system, tools: params.tools };
       const toolCalls: LlmToolCallSummary[] = Object.keys(params.tools ?? {})
-        .filter((n) => n.startsWith("_block_load_"))
+        .filter((n) => n.startsWith("_block__load__"))
         .map((toolName, i) => ({
           toolCallId: `loader-${i}`,
           toolName,
@@ -92,9 +92,9 @@ describe("agent blocks: nested named groups", () => {
   /**
    * @case A progressive group surfaces one loader tool per leaf, named with the flattened path
    * @preconditions Agent declares a `skills` group of two progressive leaves
-   * @expectedResult Captured tools carry `_block_load_skills__onboarding` / `__refunds`; blocksLoaded reports the flattened names
+   * @expectedResult Captured tools carry `_block__load__skills__onboarding` / `__refunds`; blocksLoaded reports the flattened names
    */
-  test("progressive group flattens into _block_load_<group>__<leaf> tools", async () => {
+  test("progressive group flattens into _block__load__<group>__<leaf> tools", async () => {
     const sink = spy();
     t = await testContext()
       .with({
@@ -132,8 +132,8 @@ describe("agent blocks: nested named groups", () => {
 
     await t.test();
     expect(Object.keys(captured.tools ?? {}).sort()).toEqual([
-      "_block_load_skills__onboarding",
-      "_block_load_skills__refunds",
+      "_block__load__skills__onboarding",
+      "_block__load__skills__refunds",
     ]);
     const result = sink.received[0]!.body as AgentResult;
     expect(result.blocksLoaded?.map((b) => b.blockName).sort()).toEqual([
@@ -222,8 +222,8 @@ describe("agent blocks: nested named groups", () => {
 
       await t.test();
       expect(Object.keys(captured.tools ?? {}).sort()).toEqual([
-        "_block_load_skills__onboarding",
-        "_block_load_skills__refunds",
+        "_block__load__skills__onboarding",
+        "_block__load__skills__refunds",
       ]);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -315,7 +315,7 @@ describe("agent blocks: nested named groups", () => {
 
     await t.test();
     expect(Object.keys(captured.tools ?? {})).toEqual([
-      "_block_load_skills__fresh",
+      "_block__load__skills__fresh",
     ]);
   });
 
@@ -363,7 +363,7 @@ describe("agent blocks: nested named groups", () => {
     await t.test();
     expect(
       Object.keys(captured.tools ?? {}).filter((n) =>
-        n.startsWith("_block_load_"),
+        n.startsWith("_block__load__"),
       ),
     ).toEqual([]);
   });
@@ -436,7 +436,7 @@ describe("agent blocks: nested named groups", () => {
 
   /**
    * @case A progressive loader-tool name over 64 characters is rejected at construction
-   * @preconditions A group + leaf whose flattened `_block_load_<name>` exceeds the provider limit
+   * @preconditions A group + leaf whose flattened `_block__load__<name>` exceeds the provider limit
    * @expectedResult agent() throws AI1003 naming the length, instead of failing at the provider on dispatch
    */
   test("rejects a progressive block whose loader tool name exceeds 64 chars", () => {

@@ -8,13 +8,24 @@ import { validateAgentOptions, validateBlocks } from "./agent.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
+  ADAPTER_AGENT_TOOL_POLICIES,
 } from "./store.ts";
+import { AGENT_TOOL_POLICY_KINDS } from "./tools/policy.ts";
+import type {
+  AgentToolPolicy,
+  AgentToolPolicyKind,
+  AgentToolRule,
+} from "./tools/policy.ts";
 import { validateFnOptions } from "../fn/fn.ts";
 import { ADAPTER_FN_REGISTRY } from "../fn/store.ts";
 import { parseProviderModel } from "../llm/shared.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 import { isDeferredFn, type FnEntry } from "./tools/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
+import {
+  describeToolNameViolation,
+  TOOL_NAME_PATTERN_SOURCE,
+} from "../tool-name.ts";
 
 export interface AgentPluginOptions {
   /**
@@ -56,6 +67,30 @@ export interface AgentPluginOptions {
    * field throw at context init.
    */
   defaultOptions?: AgentDefaultOptions;
+
+  /**
+   * Repository-wide admission rules for the agent tool surface.
+   *
+   * Deliberately NOT part of `defaultOptions`: defaults are per-agent
+   * overridable and a policy must not be. An agent's own `tools([...])`
+   * selection cannot widen what this admits.
+   *
+   * Omit it and nothing changes: every tool is admitted, exactly as
+   * before. Supply it and it becomes an allowlist in which every kind
+   * must be decided: a partial policy is rejected at construction, not
+   * quietly treated as denying the kinds you left out. Denied tools are
+   * dropped from the agent's list and logged; they never throw.
+   *
+   * This is admission control, not a security boundary. It converts a
+   * failure of omission (a tool name appearing in markdown frontmatter,
+   * with no diff signal and nothing to notice) into a failure of
+   * commission (someone must author a capability, name it, and write an
+   * authorization line a reviewer can read). It does not stop a
+   * developer who deliberately wraps a client tool in a capability.
+   *
+   * @see {@link AgentToolPolicy} for semantics and examples.
+   */
+  toolPolicy?: AgentToolPolicy;
 }
 
 function validateRegisteredAgent(
@@ -111,6 +146,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
   const agents = options.agents ?? {};
   const functions = options.functions ?? {};
   const defaultOptions = validatePluginDefaults(options.defaultOptions);
+  const toolPolicy = validateToolPolicy(options.toolPolicy);
   return {
     apply(ctx: CraftContext) {
       // Merge into an existing registry when present so multiple
@@ -154,6 +190,18 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
             message: `agentPlugin: fn id must be a non-empty string.`,
           });
         }
+        // A fn id IS the tool name the model sees, with no prefix and no
+        // encoding in between, so the provider charset applies to it
+        // directly. Checking at registration turns what was an opaque
+        // provider-side rejection on the first dispatch into a startup
+        // error naming the offending id.
+        const idViolation = describeToolNameViolation(id);
+        if (idViolation !== undefined) {
+          throw rcError("RC5003", undefined, {
+            message: `agentPlugin: fn id "${id}" is not usable as a tool name: ${idViolation}.`,
+            suggestion: `A fn id reaches the model provider verbatim as the tool name, so it must match ${TOOL_NAME_PATTERN_SOURCE}. Rename the fn.`,
+          });
+        }
         if (entry === null || typeof entry !== "object") {
           throw rcError("RC5003", undefined, {
             message: `agentPlugin: fn "${id}" entry must be an object with description, input, and handler.`,
@@ -177,6 +225,18 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
         const existing = ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
         const merged = mergePluginDefaults(existing, defaultOptions);
         ctx.setStore(ADAPTER_AGENT_DEFAULT_OPTIONS, merged);
+      }
+
+      if (toolPolicy !== undefined) {
+        // Appended, never merged. Policies compose with AND at
+        // evaluation time, so two installs that disagree narrow rather
+        // than conflict, and neither needs to know about the other.
+        const existingPolicies = ctx.getStore(ADAPTER_AGENT_TOOL_POLICIES);
+        if (existingPolicies) {
+          existingPolicies.push(toolPolicy);
+        } else {
+          ctx.setStore(ADAPTER_AGENT_TOOL_POLICIES, [toolPolicy]);
+        }
       }
 
       emitRegistrations(ctx, agents, functions);
@@ -279,6 +339,68 @@ function validatePluginDefaults(
     validateBlocks(raw.blocks, "defaultOptions.blocks");
   }
   return raw;
+}
+
+/**
+ * Validate the shape of `agentPlugin({ toolPolicy })` at plugin
+ * construction. Every entry must be a boolean or a function; anything
+ * else is a config mistake that would otherwise surface as a silent
+ * denial on the first dispatch (a non-callable rule cannot admit
+ * anything), which is exactly the failure mode a policy must not have.
+ *
+ * An empty object is accepted and is meaningful: it denies every kind,
+ * because a present policy is an allowlist.
+ *
+ * @internal
+ */
+function validateToolPolicy(
+  raw: AgentToolPolicy | undefined,
+): AgentToolPolicy | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw rcError("RC5003", undefined, {
+      message: `agentPlugin: "toolPolicy" must be an object carrying a rule for each of "fn" / "direct" / "mcp".`,
+    });
+  }
+  const known = AGENT_TOOL_POLICY_KINDS;
+  const missing = known.filter(
+    (k) => !Object.prototype.hasOwnProperty.call(raw, k),
+  );
+  if (missing.length > 0) {
+    throw rcError("RC5003", undefined, {
+      message: `agentPlugin: "toolPolicy" is missing a rule for ${missing.map((k) => `"${k}"`).join(", ")}.`,
+      suggestion:
+        `A policy is an allowlist, so an unlisted kind is denied. Decide each kind explicitly ` +
+        `(\`true\`, \`false\`, or a predicate) rather than omitting it, so a partial policy cannot ` +
+        `silently strip tools you meant to keep.`,
+    });
+  }
+  for (const key of Object.keys(raw)) {
+    if (!known.includes(key as AgentToolPolicyKind)) {
+      throw rcError("RC5003", undefined, {
+        message: `agentPlugin: "toolPolicy.${key}" is not a known tool kind. Valid keys: ${known.join(", ")}.`,
+        suggestion: `Block loader tools are framework machinery and are deliberately not policy-governed, so there is no "block" key.`,
+      });
+    }
+    const rule = raw[key as AgentToolPolicyKind] as AgentToolRule | undefined;
+    // An explicit `undefined` is rejected, not skipped. Owning the key
+    // with an undefined value satisfies the missing-key check above
+    // while `ruleAdmits` treats it as a denial at dispatch, which is
+    // precisely the silent strip that requiring every key exists to
+    // prevent. There is no reading of `mcp: undefined` where dropping
+    // every MCP tool with only a warn line is what the author meant.
+    if (typeof rule !== "boolean" && typeof rule !== "function") {
+      throw rcError("RC5003", undefined, {
+        message: `agentPlugin: "toolPolicy.${key}" must be a boolean or a (tool, ctx) => boolean predicate (got ${typeof rule}).`,
+      });
+    }
+  }
+  // Shallow-copied so a caller holding a reference cannot add or
+  // remove kinds after the context installed the policy. Predicates
+  // stay caller-owned by design; this only closes the key-level
+  // mutation path, which would otherwise contradict the promise that
+  // a policy is not overridable once set.
+  return { ...raw };
 }
 
 /**

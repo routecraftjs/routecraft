@@ -52,6 +52,7 @@ craft()
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
 | `agents` | `Record<string, AgentRegisteredOptions>` | No | Agents keyed by id. Duplicate ids across installs throw at context init. Defaults to `{}`. |
+| `toolPolicy` | `AgentToolPolicy` | No | Repository-wide admission rules for the agent tool surface. Omit for no policy (everything is admitted). Not part of `defaultOptions`, because an agent must not be able to override it. See [tool policy](#tool-policy). |
 
 **Entry shape (`AgentRegisteredOptions`):**
 
@@ -63,7 +64,7 @@ craft()
 | `user` | `string \| (exchange) => string` | No | User prompt override. Static string or a function that derives it from the exchange. Defaults to `exchange.body` (string as-is, JSON for objects) when omitted |
 | `tools` | `ToolSelection` | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
 | `maxTurns` | `number` | No | Cap on tool-calling turns. Inherits `defaultOptions.maxTurns` when omitted |
-| `blocks` | `Blocks` (`Record<string, BlockBody \| false>`) | No | Contributions to the agent's system context, keyed by name. Each block has a `mode` (`"inject"` to concatenate into the system prompt as `## <name>\n\n<content>`, or `"progressive"` to surface as a synthetic `_block_load_<name>` tool the model invokes on demand) and an optional `lifetime` (`"dispatch"` re-runs the resolver every call, `"context"` caches once per `CraftContext`). Set an entry to `false` to remove a default inherited from `agentPlugin({ defaultOptions: { blocks } })`. Use `skills({ source })` to load markdown skills. See the [blocks reference](#agent-blocks) |
+| `blocks` | `Blocks` (`Record<string, BlockBody \| false>`) | No | Contributions to the agent's system context, keyed by name. Each block has a `mode` (`"inject"` to concatenate into the system prompt as `## <name>\n\n<content>`, or `"progressive"` to surface as a synthetic `_block__load__<name>` tool the model invokes on demand) and an optional `lifetime` (`"dispatch"` re-runs the resolver every call, `"context"` caches once per `CraftContext`). Set an entry to `false` to remove a default inherited from `agentPlugin({ defaultOptions: { blocks } })`. Use `skills({ source })` to load markdown skills. See the [blocks reference](#agent-blocks) |
 | `principal` | `boolean \| (principal, exchange) => string` | No | Append a `## Caller` section describing `exchange.principal`. `true` for the built-in block, a function to render it yourself. Inherits `defaultOptions.principal` when omitted; a per-agent value (including `false`) overrides it. See [Telling the agent who the caller is](/docs/reference/adapters/agent#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | No | Schema for structured output. The agent requests provider-level structured output, validates the response, and parses it onto `AgentResult.output` |
 
@@ -113,7 +114,7 @@ agent({
 | Field         | Type                                                                                                     | Required | Description                                                                                                                                       |
 | ------------- | -------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `description` | `string`                                                                                                 | Yes\*    | Required when `mode === "progressive"` so the model can decide whether to load. Ignored for inject blocks.                                        |
-| `mode`        | `"inject" \| "progressive"`                                                                              | Yes      | `"inject"` concatenates into the system prompt as `## <name>\n\n<content>`. `"progressive"` registers a `_block_load_<name>` tool the model invokes on demand. |
+| `mode`        | `"inject" \| "progressive"`                                                                              | Yes      | `"inject"` concatenates into the system prompt as `## <name>\n\n<content>`. `"progressive"` registers a `_block__load__<name>` tool the model invokes on demand. |
 | `lifetime`    | `"dispatch" \| "context"`                                                                                | No       | Defaults to `"dispatch"` (re-run resolver each call). `"context"` runs the resolver once per `CraftContext` and caches the result (cache key is the body's object identity, so concurrent dispatches share one resolution). |
 | `value`       | `string \| (exchange, context, events, client) => string \| Promise<string>`                             | Yes      | Static string used verbatim, or a function. `client.forward(routeId, payload)` is the same callable route `.error()` handlers receive. `events` is reserved (always `[]`) for a forthcoming exchange-event log. |
 
@@ -130,7 +131,7 @@ blocks: {
 }
 ```
 
-Groups flatten depth-first into a single canonical name joined by `__`. A leaf `onboarding` under group `skills` resolves to `skills__onboarding` for its system-prompt heading (`## skills__onboarding`), its loader tool (`_block_load_skills__onboarding`), and its `blocksLoaded` summary. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`. A leaf is distinguished from a group by the presence of a string `mode` field; any other object value is a group.
+Groups flatten depth-first into a single canonical name joined by `__`. A leaf `onboarding` under group `skills` resolves to `skills__onboarding` for its system-prompt heading (`## skills__onboarding`), its loader tool (`_block__load__skills__onboarding`), and its `blocksLoaded` summary. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`. A leaf is distinguished from a group by the presence of a string `mode` field; any other object value is a group.
 
 These rules are enforced at `agent()` / `agentPlugin()` construction, not deferred to dispatch: two blocks that flatten to the same name are rejected with `AI1002`; a flattened name that lands in the reserved `_block_` namespace (including combinations like a group `_block` with a leaf `x` resolving to `_block__x`) is rejected with `AI1002`; and a progressive block whose flattened loader-tool name would break the provider charset or exceed 64 characters is rejected with `AI1003`. A blocks tree that contains a cycle is also rejected rather than recursed without bound.
 
@@ -161,7 +162,7 @@ A `false` for a name not present in defaults is silently ignored, so adding or r
 
 **Loader tools and observability:**
 
-Progressive blocks register one synthetic tool per block named `_block_load_<blockName>` with no input schema. The handler runs the resolver against the dispatch's live exchange and returns the resolved string back to the model. Loader invocations are excluded from `AgentResult.toolCalls` and surface on `AgentResult.blocksLoaded?: AgentBlockLoadSummary[]` instead, so post-dispatch user-tool assertions stay clean. On the context bus they emit `route:agent:block:loaded` and `:agent:block:error` rather than the `:agent:tool:*` events.
+Progressive blocks register one synthetic tool per block named `_block__load__<blockName>` with no input schema. The handler runs the resolver against the dispatch's live exchange and returns the resolved string back to the model. Loader invocations are excluded from `AgentResult.toolCalls` and surface on `AgentResult.blocksLoaded?: AgentBlockLoadSummary[]` instead, so post-dispatch user-tool assertions stay clean. On the context bus they emit `route:agent:block:loaded` and `:agent:block:error` rather than the `:agent:tool:*` events.
 
 **Defaults merging:**
 
@@ -287,8 +288,33 @@ agentPlugin({
 
 Flat array of items. Each item is one of:
 
-- **Bare string**: name lookup. Plain ids resolve against the fn registry; `Direct(<routeId>)` wraps a direct route via `directTool` (the LLM-facing tool name stays `direct_<routeId>`); `MCP(server:tool)` resolves against `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` / `mcpPlugin({ clients })`), and `MCP(server)` (or the raw `mcp__server__tool` / `mcp__server` / `mcp__server__*` forms) expands at dispatch time to every tool the named server exposed. The raw `mcp__server__tool` form is the string Claude Code agent files carry, so they resolve unchanged.
+- **Bare string**: name lookup. Plain ids resolve against the fn registry; `Direct(<routeId>)` wraps a direct route via `directTool` (the LLM-facing tool name becomes `direct__<routeId>`); `MCP(server:tool)` resolves against `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` / `mcpPlugin({ clients })`), and `MCP(server)` (or the raw `mcp__server__tool` / `mcp__server` / `mcp__server__*` forms) expands at dispatch time to every tool the named server exposed. The raw `mcp__server__tool` form is the string Claude Code agent files carry, so they resolve unchanged.
 - **`{ name, guard?, description? }`**: same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding for fn-style names. MCP references reject `description` (the MCP server is the source of truth for description and schema; do not override).
+
+#### Authoring grammar vs wire names
+
+`Direct(<routeId>)` and `MCP(server:tool)` are the grammar you write, here and in markdown agent frontmatter. They are not what the model sees. Tool names cannot carry parentheses or colons, so resolution normalises each reference to a wire name:
+
+| Kind | You write | The model sees |
+|------|-----------|----------------|
+| fn | `fetchOrder` | `fetchOrder` |
+| capability | `Direct(cancel-order)` | `direct__cancel-order` |
+| MCP client tool | `MCP(github:create_issue)` | `mcp__github__create_issue` |
+| block loader | (declared via `blocks`) | `_block__load__<name>` |
+
+`__` is the only structural separator, which is what keeps a single underscore inside a segment unambiguous: a server named `my_company_api` and a route named `fetch_order` both survive the prefix boundary intact.
+
+Wire names must match `/^[A-Za-z0-9_-]{1,64}$/`, the charset every mainstream provider enforces. Route ids are deliberately not constrained that way, so `Direct(memory:get)` is rejected at resolution rather than encoded into something the model has to read. Expose such a route under a tool-safe alias instead:
+
+```ts
+agentPlugin({
+  functions: {
+    memoryGet: directTool('memory:get'), // clean name, same capability
+  },
+})
+```
+
+Fn ids reach the provider verbatim, with no prefix, so the same constraint applies to them and is checked when the plugin registers.
 
 Examples:
 
@@ -296,7 +322,7 @@ Examples:
 agent({
   tools: tools([
     'CurrentTime',                                  // fn
-    'Direct(orders/fetch)',                         // direct route
+    'Direct(orders-fetch)',                         // direct capability
     'MCP(Nuclino:list_teams)',                      // one MCP tool
     'MCP(Stripe)',                                  // all tools from one MCP server
     {
@@ -400,6 +426,79 @@ agentPlugin({
   },
 })
 ```
+
+### Tool policy
+
+`toolPolicy` sets repository-wide rules for which tools an agent may be given, independent of what any individual agent asks for.
+
+**Omitting `toolPolicy` changes nothing: every tool is admitted, exactly as before. Supplying it makes the tool surface an allowlist.** That asymmetry is deliberate: it is the only shape that leaves existing contexts untouched while failing closed for anyone who opts in.
+
+Once you supply a policy, **every kind is required**. Writing only the line you care about does not compile:
+
+```ts
+agentPlugin({ toolPolicy: { mcp: false } }) // Error: missing 'fn', 'direct'
+```
+
+That is on purpose. An optional key would read the way `?` reads everywhere else in TypeScript, "omit it and get the default", when the effective default here is denial. The partial form above would otherwise strip every fn and every capability from every agent in the repository, with no diff signal and nothing to notice but a warn line per dropped tool. It also means a future release adding a fourth tool kind breaks your build rather than silently narrowing a policy you already deployed.
+
+```ts
+agentPlugin({
+  agents: await agents('./agents'),
+  toolPolicy: {
+    fn: true,
+    direct: true,
+    mcp: false, // client MCPs reach agents only by wrapping one in a capability
+  },
+})
+```
+
+| Key | Governs |
+|-----|---------|
+| `fn` | In-process fns registered via `agentPlugin({ functions })` |
+| `direct` | Capabilities in the capability registry, reached via `Direct(<routeId>)` or a `directTool` alias |
+| `mcp` | Tools discovered from external MCP clients |
+
+Each value is `true`, `false`, or a predicate:
+
+```ts
+agentPlugin({
+  toolPolicy: {
+    fn: true,
+    direct: (tool) => !tool.tags.includes('experimental'),
+    mcp: (tool) => tool.source.server === 'docs',
+  },
+})
+```
+
+The predicate receives a read-only descriptor (`name`, `description`, `tags`, `source`). `source` is narrowed to the kind whose rule is running, so an `mcp` rule reads `tool.source.server` directly with no `kind` guard. The descriptor does not carry the handler, so a rule cannot wrap or invoke what it is deciding about, and it is a frozen copy, so a rule cannot mutate registry state through it.
+
+A second argument carries `agentId` (the registered agent's name, or `undefined` for an inline agent). **It is for diagnostics only. Do not branch on it.** Inline agents have no id, so an identity-keyed rule has no defensible behaviour for them: denying breaks every inline agent, allowing creates a trivial bypass. If you want per-agent policy, the missing ingredient is provenance carried through agent registration, not this field.
+
+**Why `direct` and not `route`.** Only routes that register a capability are reachable as agent tools. A route sourced solely from `http()` or `mcp()` never registers one, so `Direct(...)` cannot resolve it. Naming the key `route` would imply governance over a set the policy cannot see.
+
+**Enforcement is total.** The check runs at the single point every agent form converges on, so inline agents, registered agents, markdown agents, and nested agents dispatched from inside a route are all covered. An agent's own `tools([...])` selection cannot widen what the policy admits.
+
+**Denial drops, logs, and emits; it never throws.** A denied tool is removed from the agent's list, a warning names the agent, the tool, and the kind, and a `route:agent:tool:denied` event carries the same on the context bus with a `reason` of `rule`, `rule-error`, or `unknown-provenance`. The log is for someone reading text; the event is what you alert and audit on. A silent drop would be undiagnosable when a model starts insisting it cannot do something; a throw would turn tightening a policy into an outage.
+
+**A predicate that throws denies its tool rather than propagating.** The throw is reported at error level with its cause, and the routine denial warning is suppressed so one failure produces one line. A policy is meant to fail closed and a denial is meant never to abort a dispatch; letting the throw escape would do the opposite of both, turning one bad predicate into an outage for every agent listing a tool of that kind.
+
+**Multiple installs compose with AND.** A tool is admitted only when every installed policy admits it, so adding a plugin can only narrow the surface.
+
+**Block loader tools are not governed.** `_block__load__*` tools assemble context rather than granting reach: `skills()` sets a static body and `fromFile()` returns a file's contents, both inert.
+
+The exception to keep in mind is `BlockClient.forward`. A block resolver can dispatch to any registered capability, and that call does **not** pass through `toolPolicy`: loader tools are built after policy filtering, and `forward` dispatches in your code rather than through the agent's tool list. `toolPolicy` governs what the *model* may call, not what a resolver you wrote may reach. A capability reached that way is still subject to the target route's `.authorize()` and any guards on it, which remain the enforcement points.
+
+#### Raw MCP annotations, not just tags
+
+For `mcp` rules, `tool.source.annotations` carries the remote's hints verbatim. Prefer it over `tags` when the distinction matters, because tag derivation only fires on a truthy hint and therefore cannot tell "the server declared this safe" from "the server said nothing". The MCP specification assigns per-hint defaults for an absent hint, and `destructiveHint` defaults to **true**. A tags-only rule reads silence as "not destructive", inverting the safe reading on the hint where being wrong costs most.
+
+Prefer allowlist form across trust boundaries. A denylist predicate (`server !== 'untrusted'`) silently admits whatever a remote adds at its next refresh. Within your own repository, where fns and capabilities are under code review, denylist refinement is reasonable.
+
+#### This is admission control, not a security boundary
+
+It is a filter against accidental exposure. Its value is converting a failure of omission (a tool name appearing in markdown frontmatter, with no diff signal and nothing to notice) into a failure of commission (someone must author a capability, name it, and write an authorization line a reviewer can read).
+
+It does not stop a developer who deliberately wraps a client tool in a capability, and it is not a substitute for reviewing agent files. Treat it as one layer alongside `.authorize()` and tool guards, which remain the actual enforcement points.
 
 #### Soft dependency on `llmPlugin`
 

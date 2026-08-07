@@ -239,7 +239,7 @@ describe("AgentResult.toolCalls: post-dispatch tool-call summary", () => {
 
   /**
    * @case Block-loader tool invocations are partitioned out of AgentResult.toolCalls
-   * @preconditions Mocked LLM returns a mix of a user-tool call and a `_block_load_<name>` call
+   * @preconditions Mocked LLM returns a mix of a user-tool call and a `_block__load__<name>` call
    * @expectedResult AgentResult.toolCalls only contains the user-tool entry; the loader call surfaces on AgentResult.blocksLoaded
    */
   test("block-loader calls are excluded from toolCalls and listed in blocksLoaded", async () => {
@@ -257,7 +257,7 @@ describe("AgentResult.toolCalls: post-dispatch tool-call summary", () => {
         },
         {
           toolCallId: "loader-1",
-          toolName: "_block_load_memory",
+          toolName: "_block__load__memory",
           input: {},
           output: "remembered text",
         },
@@ -283,7 +283,7 @@ describe("AgentResult.toolCalls: post-dispatch tool-call summary", () => {
     const r = sink.received[0]!.body as AgentResult;
     expect(r.toolCalls?.map((c) => c.toolName)).toEqual(["fetchOrder"]);
     expect(r.blocksLoaded?.map((b) => b.blockName)).toEqual(["memory"]);
-    expect(r.blocksLoaded?.[0]?.toolName).toBe("_block_load_memory");
+    expect(r.blocksLoaded?.[0]?.toolName).toBe("_block__load__memory");
     expect(r.blocksLoaded?.[0]?.output).toBe("remembered text");
   });
 });

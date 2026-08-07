@@ -141,7 +141,7 @@ agent({
 });
 ```
 
-Groups flatten depth-first into a single canonical name joined by `__`. A skill `onboarding` under the `skills` group resolves to `skills__onboarding` for its system-prompt heading, its loader tool (`_block_load_skills__onboarding`), and its `AgentResult.blocksLoaded` entry. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`.
+Groups flatten depth-first into a single canonical name joined by `__`. A skill `onboarding` under the `skills` group resolves to `skills__onboarding` for its system-prompt heading, its loader tool (`_block__load__skills__onboarding`), and its `AgentResult.blocksLoaded` entry. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`.
 
 Grouping isolates collisions (a skill named `tone` resolves to `skills__tone`, distinct from a top-level `tone` block) and lets you remove or replace the whole collection by its top-level key. Two blocks that flatten to the same name are rejected with `AI1002`. The empty-name and reserved-`_block_`-prefix rules apply at every nesting level. Per-member merge inside a group is not supported in 0.6.0: a per-agent group replaces a default group of the same name wholesale, and `skills: false` removes the whole group.
 
@@ -240,11 +240,11 @@ A resolver that needs nothing more than the `CraftContext` can ignore the client
 
 ### 1.5 Loader tool naming reservation
 
-Progressive blocks are exposed to the model as synthetic tools named `_block_load_<blockName>`. Any user tool (fn id, direct route id, or block name) starting with `_block_` is rejected at construction or dispatch time with `AI1002`. Rename the offending tool or block.
+Progressive blocks are exposed to the model as synthetic tools named `_block__load__<blockName>`. Any user tool (fn id, direct route id, or block name) starting with `_block_` is rejected at construction or dispatch time with `AI1002`. Rename the offending tool or block.
 
 ### 1.6 `AgentResult`: tool-call partitioning and `blocksLoaded`
 
-Synthetic block-loader invocations no longer appear on `AgentResult.toolCalls`. They surface on a new `AgentResult.blocksLoaded?: AgentBlockLoadSummary[]` so post-dispatch assertions on the agent's user-tool usage stay clean. Each entry carries `blockName`, `toolName` (the `_block_load_<name>` form), `toolCallId`, and either `output` or `error`.
+Synthetic block-loader invocations no longer appear on `AgentResult.toolCalls`. They surface on a new `AgentResult.blocksLoaded?: AgentBlockLoadSummary[]` so post-dispatch assertions on the agent's user-tool usage stay clean. Each entry carries `blockName`, `toolName` (the `_block__load__<name>` form), `toolCallId`, and either `output` or `error`.
 
 Observability follows the same split: loader calls emit `route:<id>:agent:block:loaded` and `:agent:block:error` instead of the `:agent:tool:*` events.
 
@@ -333,6 +333,51 @@ The builder receives `{ fns, routes, mcp }`, each a readonly frozen array of `{ 
 ### 2.1 `directTool({ tags })` override removed
 
 The `tags` option on `ToolBuilderOverrides` was only meaningful for the now-removed tag selectors. `directTool(routeId, { description, input })` still works for per-binding overrides.
+
+### 2.2 Synthetic tool names normalise on `__` {% #tool-name-normalisation %}
+
+Every name the framework composes from parts now uses `__` as its only structural separator. Two of the four forms change:
+
+| Kind | 0.5.x | 0.6.0 |
+|------|-------|-------|
+| fn | `<fnId>` | unchanged |
+| capability | `direct_<routeId>` | `direct__<routeId>` |
+| MCP client tool | `mcp__<server>__<tool>` | unchanged |
+| block loader | `_block_load_<name>` | `_block__load__<name>` |
+
+This is what makes a single underscore inside a segment unambiguous against the prefix boundary. The MCP form already reasoned about this (splitting on the first `__` so a server named `my_company_api` survives); `direct_` had no such boundary, and the block form used single underscores between its own prefix words while using double underscores between name segments, so one name carried two meanings for the same character sequence.
+
+**What to update:** anything that pins a generated tool name. Guards keyed on tool name, assertions on `AgentResult.toolCalls[].toolName` or `blocksLoaded[].toolName`, recorded transcripts, and evals. The authoring grammar is unchanged: keep writing `Direct(<routeId>)` and `MCP(server:tool)`. Markdown agent frontmatter carrying the raw `mcp__server__tool` form still resolves unchanged.
+
+The reserved block namespace stays at the single-underscore `_block_`, one character shorter than what today's names start with, so names in the old shape remain unclaimable.
+
+### 2.3 `Direct(<routeId>)` rejects route ids that are not valid tool names
+
+Tool names must match `/^[A-Za-z0-9_-]{1,64}$/`, the charset every mainstream provider enforces. Route ids are deliberately not constrained that way, and colon-bearing ids are an established convention (`client.forward("memory:get", payload)`).
+
+In 0.5.x, `Direct(memory:get)` produced the tool name `direct_memory:get` and passed it to the provider unsanitised, where it was rejected with an error that named neither the route nor the reference. In 0.6.0 it throws `RC5003` at resolution, naming both.
+
+The ceiling is checked on the final name, not the bare route id, so a 57-character route id now fails because `direct__` pushes it to 65.
+
+An MCP client tool whose remote name cannot form a valid wire name is handled differently: it is dropped from the agent's tool list with a warning rather than throwing. The remote owns that name, so a throw would let one malformed tool fail every dispatch of every agent bound to that server, and because tool selection resolves per dispatch, a remote renaming a tool would become a live outage rather than a startup error. This matches what `mcpPlugin({ proxy })` already does for the same registry entries.
+
+**Fix:** expose the route under a tool-safe alias.
+
+```ts
+agentPlugin({
+  functions: {
+    memoryGet: directTool("memory:get"), // clean name, same capability
+  },
+});
+```
+
+Fn ids reach the provider verbatim with no prefix, so the same constraint now applies to them and is checked when `agentPlugin` registers, rather than surfacing as an opaque provider error on the first dispatch.
+
+### 2.4 `ResolvedTool` gains a required `source` field
+
+`ResolvedTool` now carries `source`, a discriminated union of `{ kind: "fn" | "direct" | "mcp" | "block" }` set by the resolver. This only affects code that hand-constructs a `ResolvedTool` (test fixtures, custom bridges); resolution through `tools([...])` populates it for you.
+
+A `directTool` alias registered under a fn id reports `kind: "direct"`, not `"fn"`. It reaches the same route under a different name, so classifying it as a fn would make aliasing a way around [`toolPolicy`](/docs/reference/plugins/agentplugin#tool-policy).
 
 ---
 
@@ -752,6 +797,7 @@ For context, no migration required:
 - `agent:block:loaded` / `agent:block:error` context events.
 - `AgentResult.blocksLoaded`.
 - `tools((catalog) => [...])` builder form with `ToolsCatalog` shape.
+- **`agentPlugin({ toolPolicy })`**: repository-wide admission rules for the agent tool surface, keyed by tool kind (`fn` / `direct` / `mcp`), each `true`, `false`, or a predicate. Omitting it admits everything, so existing contexts are unaffected; supplying it makes the surface an allowlist in which every kind must be decided explicitly (a partial policy is a compile error, because an omitted key would mean denial). Enforced at the single point every agent form converges on, so no agent can opt out. Denials emit `route:agent:tool:denied`. See [tool policy](/docs/reference/plugins/agentplugin#tool-policy).
 - New error codes (`RC5018`, `RC5019` for HTTP; `AI1001`-`AI1003` for agent blocks, see [section 8](#8-error-codes-ai-namespace); `RC1003` for error-code registration).
 - **Recovery directives**: `.error()` handlers (route scope and step scope) may return `recovery.drop(reason?)` to discard the failing exchange (emits `route:exchange:dropped`) or `recovery.rethrow()` to decline recovery, instead of recovering with a body or throwing manually.
 - **`rcError` retryable override**: `rcError(code, cause, { retryable })` flips the retry classification for one occurrence.

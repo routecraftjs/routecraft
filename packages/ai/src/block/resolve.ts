@@ -6,6 +6,7 @@ import {
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { FnOptions } from "../fn/types.ts";
 import type { ResolvedTool } from "../agent/tools/selection.ts";
+import { TOOL_NAME_CHARSET, TOOL_NAME_SEPARATOR } from "../tool-name.ts";
 import { makeBlockClient } from "./client.ts";
 import type {
   AgentBlockLoadSummary,
@@ -27,7 +28,7 @@ import type {
  *
  * @internal
  */
-export const BLOCK_NAME_SEPARATOR = "__";
+export const BLOCK_NAME_SEPARATOR = TOOL_NAME_SEPARATOR;
 
 /**
  * Symbol stamped on `ResolvedTool` entries produced by
@@ -48,8 +49,14 @@ export const BLOCK_LOADER_TOOL = Symbol.for("routecraft.ai.block.loader-tool");
  * (resolved tool names via `mergeUserAndLoaderTools`) with AI1002.
  *
  * The framework reserves the broader `_block_` namespace (not just
- * `_block_load_`) so future synthetic-tool kinds (e.g. unloaders or
+ * `_block__load__`) so future synthetic-tool kinds (e.g. unloaders or
  * state probes) can land without a separate breaking reservation.
+ *
+ * Deliberately kept at the single-underscore `_block_`, one character
+ * shorter than the `_block__` that today's names actually start with.
+ * The reservation is about what users may not claim, so the wider net
+ * is the right one: it also catches names in the pre-`__` shape, which
+ * would otherwise become claimable the moment the loader prefix moved.
  *
  * @internal
  */
@@ -60,9 +67,15 @@ export const BLOCK_RESERVED_PREFIX = "_block_";
  * Always starts with {@link BLOCK_RESERVED_PREFIX}; user names are
  * validated against the broader reservation, not this specific kind.
  *
+ * Shaped as `_<namespace>__<kind>__`, so the generated name is
+ * `_block__load__<name>`: `__` is the only structural separator, and
+ * the leading `_` marks the framework-reserved namespace. The kind
+ * segment leaves room for future synthetic tools (unloaders, state
+ * probes) under the same namespace without another breaking rename.
+ *
  * @internal
  */
-export const BLOCK_LOADER_PREFIX = "_block_load_";
+export const BLOCK_LOADER_PREFIX = `_block${TOOL_NAME_SEPARATOR}load${TOOL_NAME_SEPARATOR}`;
 
 /**
  * Internal extension carried on a synthetic loader-tool `ResolvedTool`.
@@ -109,7 +122,7 @@ export interface ResolvedBlocks {
  * - `mode: "inject"` blocks: run the resolver (respecting `lifetime`)
  *   and append the result to `systemAppend` as `## <name>\n\n<body>`.
  * - `mode: "progressive"` blocks: emit one synthetic
- *   `_block_load_<name>` tool whose handler runs the resolver on
+ *   `_block__load__<name>` tool whose handler runs the resolver on
  *   demand against the captured exchange and context.
  *
  * Caching for `lifetime: "context"` is keyed by the block object
@@ -169,20 +182,20 @@ export function isBlockGroup(value: BlockBody | Blocks): value is Blocks {
 
 /**
  * Provider tool-name charset. Synthetic loader names are
- * `_block_load_<flattenedName>` and are sent to the model provider
- * verbatim, which constrains them to `^[A-Za-z0-9_-]{1,64}$`. The
- * flattened block name must therefore satisfy {@link
- * BLOCK_TOOL_NAME_CHARSET} and stay within {@link TOOL_NAME_MAX_LENGTH}
+ * `_block__load__<flattenedName>` and are sent to the model provider
+ * verbatim, so the flattened block name must satisfy {@link
+ * BLOCK_TOOL_NAME_CHARSET} and stay within the provider length limit
  * once the loader prefix is added. Validated at construction so an
  * unsafe name fails at `agent()` rather than at the provider on the
  * first dispatch.
  *
+ * Aliases of the package-wide constants in `tool-name.ts`; the block
+ * surface answers to the same provider contract as every other tool
+ * name, so it consumes that definition rather than restating it.
+ *
  * @internal
  */
-export const BLOCK_TOOL_NAME_CHARSET = /^[A-Za-z0-9_-]+$/;
-
-/** Maximum provider tool-name length. @internal */
-export const TOOL_NAME_MAX_LENGTH = 64;
+export const BLOCK_TOOL_NAME_CHARSET = TOOL_NAME_CHARSET;
 
 /**
  * AI1002 error for two blocks whose names collapse to the same
@@ -401,7 +414,7 @@ const EMPTY_OBJECT_SCHEMA: StandardSchemaV1<unknown, Record<string, never>> = {
 };
 
 /**
- * Build the synthetic `_block_load_<name>` tool for a progressive
+ * Build the synthetic `_block__load__<name>` tool for a progressive
  * block. The handler closes over the dispatch's exchange / context /
  * client so the resolver runs against live per-dispatch state when
  * the model invokes the loader. Errors are rethrown so the standard
@@ -427,6 +440,11 @@ function buildLoaderTool(
     name: `${BLOCK_LOADER_PREFIX}${name}`,
     description,
     input: EMPTY_OBJECT_SCHEMA,
+    // Loader tools declare their provenance like every other resolved
+    // tool, but are never shown to `toolPolicy`: they are merged in
+    // after policy evaluation, because assembling context is not the
+    // same act as granting reach.
+    source: { kind: "block", name },
     handler,
     [BLOCK_LOADER_TOOL]: true,
     blockName: name,
