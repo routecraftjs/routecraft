@@ -418,6 +418,7 @@ export {
 export {
   type DirectoryOptions,
   type DirectoryAdapter,
+  type DirectoryChunkedAdapter,
   type DirectoryEntry,
 } from "./adapters/directory/index.ts";
 export {

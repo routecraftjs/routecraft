@@ -94,7 +94,7 @@ const adapters: Adapter[] = [
   {
     name: 'directory',
     category: 'File',
-    roles: ['Source'],
+    roles: ['Source', 'Enricher'],
     description:
       'Scan a directory for files, with metadata to filter on; list or per-file.',
   },
