@@ -27,6 +27,7 @@ import {
 } from "../src/adapters/mail/analysis.ts";
 import type { MailServerOptions } from "../src/adapters/mail/types.ts";
 import { MailEnricherAdapter } from "../src/adapters/mail/enricher.ts";
+import { MailSourceAdapter } from "../src/adapters/mail/source.ts";
 import { MailSendDestinationAdapter } from "../src/adapters/mail/send-destination.ts";
 
 // Mock functions declared at module scope for mock.module hoisting
@@ -126,13 +127,19 @@ describe("Mail Adapter", () => {
 
   describe("Factory overloads", () => {
     /**
-     * @case The read facade keeps the enricher's constructor for class-based mocking
-     * @preconditions mockAdapter targets MailEnricherAdapter; route enriches via mail(folder)
-     * @expectedResult The mock intercepts, so no IMAP connection is attempted
+     * @case The read facade answers to BOTH implementation classes for class-based mocking
+     * @preconditions mockAdapter targets MailEnricherAdapter, then MailSourceAdapter
+     * @expectedResult Each mock intercepts its own role; no IMAP connection is attempted
+     *
+     * LOAD-BEARING, do not delete as redundant. The factory returns a role
+     * facade, not a class instance, so nothing about `mail()`'s runtime shape
+     * implies these constructors any more: the contract rests entirely on the
+     * identity stamp in `withAdapterIdentity`. If that stamp regresses, class
+     * mocks stop intercepting SILENTLY and the route reaches real IMAP. These
+     * two assertions are the only thing standing between that and a green
+     * suite.
      */
-    test("class-based mockAdapter still intercepts the read facade", async () => {
-      // The factory returns a role facade rather than a class instance, so
-      // `withAdapterIdentity` is the only thing keeping this contract alive.
+    test("class-based mockAdapter intercepts through either delegate", async () => {
       const mockEnricher = mockAdapter(MailEnricherAdapter, {
         send: async () => ({ messages: [], count: 0 }),
       });
@@ -141,7 +148,7 @@ describe("Mail Adapter", () => {
         .override(mockEnricher)
         .routes(
           craft()
-            .id("mail-class-mock")
+            .id("mail-class-mock-fetch")
             .from(simple({ trigger: true }))
             .enrich(mail("INBOX")),
         )
@@ -149,6 +156,23 @@ describe("Mail Adapter", () => {
       await t.test();
 
       expect(mockEnricher.calls.send).toHaveLength(1);
+      expect(t.errors).toHaveLength(0);
+      await t.stop();
+
+      // The source delegate is built lazily, so its identity is declared by
+      // CLASS rather than by instance; this covers that path.
+      const mockSource = mockAdapter(MailSourceAdapter, {
+        source: [{ subject: "one" }, { subject: "two" }],
+      });
+      const s = spy();
+
+      t = await testContext()
+        .override(mockSource)
+        .routes(craft().id("mail-class-mock-source").from(mail("INBOX")).to(s))
+        .build();
+      await t.test();
+
+      expect(s.received).toHaveLength(2);
       expect(t.errors).toHaveLength(0);
     });
 

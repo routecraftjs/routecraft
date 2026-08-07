@@ -14,6 +14,7 @@ import { CsvSourceAdapter } from "./source.ts";
 import { CsvDestinationAdapter } from "./destination.ts";
 import { CsvEnricherAdapter } from "./enricher.ts";
 import { CsvTransformerAdapter } from "./transformer.ts";
+import { selectsFileRole } from "../shared/file-role-guards.ts";
 
 /**
  * Combined CSV file adapter type: all three roles on one honest type. The
@@ -106,7 +107,7 @@ export function csv<T = unknown, R = unknown>(
   // The `.transform()` keyword enforces the category, so dropping `path`
   // fails loudly at `.from()` / `.to()` (no subscribe/send slot) instead of
   // silently changing the adapter's kind.
-  if (!("path" in options) || options.path === undefined) {
+  if (!selectsFileRole("csv", options)) {
     const transformer = new CsvTransformerAdapter<T, R>(
       options as CsvTransformerOptions<T, R>,
     );

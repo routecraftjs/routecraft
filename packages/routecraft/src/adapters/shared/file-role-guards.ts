@@ -65,7 +65,10 @@ export function staticSourcePathError(adapter: string): Error {
  * @internal
  */
 export function selectsFileRole(adapter: string, options: object): boolean {
-  if (!("path" in options)) return false;
+  // Own property, not `in`: an inherited `path` (a class instance, an object
+  // built with Object.create) was not supplied by this caller and must not
+  // reclassify the adapter.
+  if (!Object.prototype.hasOwnProperty.call(options, "path")) return false;
   const path = (options as { path?: unknown }).path;
   if (path === undefined) {
     throw rcError("RC5003", undefined, {

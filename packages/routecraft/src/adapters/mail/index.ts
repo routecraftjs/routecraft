@@ -30,10 +30,19 @@ export type MailFolderAdapter = Source<MailBody> &
  * Build the read-side facade from the two role implementations, which keep
  * genuinely different machinery (IDLE / polling versus a batch fetch).
  *
- * Identity is stamped onto the enricher so class-based
- * `mockAdapter(MailEnricherAdapter, ...)` keeps intercepting; the source is
- * constructed lazily because subscribing is the rarer role and building it
- * eagerly would allocate IDLE state for every `.enrich(mail(...))`.
+ * Three things the facade must carry beyond the two slots:
+ *
+ * - `getMetadata`, forwarded from the enricher. A facade that lists only its
+ *   role slots silently drops the hook, and a fetch-resolved step then
+ *   attaches no metadata to its completion event with nothing to catch it.
+ * - Both implementation constructors as override identities, so class-based
+ *   `mockAdapter(MailEnricherAdapter, ...)` AND
+ *   `mockAdapter(MailSourceAdapter, ...)` keep intercepting. Before the
+ *   arity collapse those were two separate returned objects.
+ * - A lazily built source, because subscribing is the rarer role and
+ *   constructing it eagerly would allocate IDLE state for every
+ *   `.enrich(mail(...))`. The identity set names the CLASS rather than an
+ *   instance precisely so the delegate can stay unbuilt.
  */
 function folderAdapter(
   options: MailServerOptions & { folder: string },
@@ -48,8 +57,12 @@ function folderAdapter(
         return source.subscribe(sub);
       },
       fetch: enricher.fetch,
-    } satisfies MailFolderAdapter,
+      getMetadata: (result: unknown) => enricher.getMetadata(result),
+    } satisfies MailFolderAdapter & {
+      getMetadata(result: unknown): Record<string, unknown>;
+    },
     enricher,
+    MailSourceAdapter,
   );
 }
 

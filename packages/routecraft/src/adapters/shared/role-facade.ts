@@ -23,6 +23,7 @@
 export function withAdapterIdentity<F extends object>(
   facade: F,
   delegate: object,
+  ...alsoStandsFor: readonly AdapterConstructor[]
 ): F {
   Object.defineProperty(facade, "constructor", {
     value: delegate.constructor,
@@ -30,5 +31,57 @@ export function withAdapterIdentity<F extends object>(
     writable: true,
     configurable: true,
   });
+  if (alsoStandsFor.length > 0) {
+    // Constructors, not instances: a facade may front a delegate it builds
+    // lazily, and naming the class keeps that delegate unconstructed until
+    // its role is actually used.
+    Object.defineProperty(facade, RC_ADAPTER_IDENTITIES, {
+      value: new Set<unknown>([delegate.constructor, ...alsoStandsFor]),
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    });
+  }
   return facade;
+}
+
+/**
+ * An adapter implementation class, as named for override matching. `never[]`
+ * params make every concrete constructor assignable regardless of its own
+ * signature; `abstract new` additionally admits abstract bases.
+ *
+ * @internal
+ */
+export type AdapterConstructor = abstract new (...args: never[]) => unknown;
+
+/**
+ * Every constructor a facade stands in for, when one facade fronts more than
+ * one implementation class.
+ *
+ * `constructor` can only name one of them, but a facade that merges two role
+ * implementations (mail's read side: an IDLE/polling source and a batch
+ * enricher) is a legitimate target for a class-based mock of EITHER. Without
+ * this, mocking the un-named class silently fails to intercept and the test
+ * reaches the real service.
+ *
+ * @internal
+ */
+export const RC_ADAPTER_IDENTITIES: unique symbol = Symbol.for(
+  "routecraft.adapter.identities",
+);
+
+/**
+ * The constructors an adapter answers to for class-based override matching:
+ * the full set when it is a multi-delegate facade, otherwise just its own.
+ *
+ * @internal
+ */
+export function adapterIdentities(adapter: unknown): ReadonlySet<unknown> {
+  if (adapter === null || typeof adapter !== "object") return new Set();
+  const declared = (
+    adapter as { [RC_ADAPTER_IDENTITIES]?: ReadonlySet<unknown> }
+  )[RC_ADAPTER_IDENTITIES];
+  return (
+    declared ?? new Set([(adapter as { constructor?: unknown }).constructor])
+  );
 }

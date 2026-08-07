@@ -7,6 +7,7 @@ import {
   getAdapterArgs,
   tagAdapter,
 } from "./adapters/shared/factory-tag.ts";
+import { adapterIdentities } from "./adapters/shared/role-facade.ts";
 
 /**
  * Store key under which test-time adapter overrides are registered.
@@ -179,14 +180,14 @@ export function resolveAdapterOverride(
   const overrides = context.getStore(RC_ADAPTER_OVERRIDES);
   if (!overrides || overrides.length === 0) return undefined;
   const factory = getAdapterFactory(adapter);
-  const ctor =
-    adapter !== null && typeof adapter === "object"
-      ? (adapter as { constructor?: unknown }).constructor
-      : undefined;
+  // A role facade can front more than one implementation class, and
+  // `constructor` names only one of them; match against every identity it
+  // declares so mocking either delegate intercepts.
+  const identities = adapterIdentities(adapter);
   return overrides.find(
     (o) =>
       (factory !== undefined && o.target === factory) ||
-      (ctor !== undefined && o.target === ctor),
+      identities.has(o.target),
   );
 }
 
