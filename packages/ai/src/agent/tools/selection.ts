@@ -772,13 +772,28 @@ function mcpEntryToResolvedTool(
   // from the remote. With no `__` in the server, the first-separator
   // split is always correct and a remote may use `__` in its tool
   // names freely.
-  if (entry.source.includes(TOOL_NAME_SEPARATOR)) {
+  //
+  // An empty server, or one ending in a single `_`, fails the same way:
+  // joining `foo_` to a tool with `__` yields `mcp__foo___bar`, whose
+  // first separator sits a character early. That case also collides,
+  // since `foo_` + `bar` and `foo` + `_bar` compose one name and this
+  // map is keyed by it. `mcpPlugin` now rejects all three shapes at
+  // registration; this stays for a registry populated directly, so it
+  // has to cover the same set or the two layers disagree.
+  const separatorHalf = TOOL_NAME_SEPARATOR.slice(
+    0,
+    TOOL_NAME_SEPARATOR.length / 2,
+  );
+  if (
+    entry.source === "" ||
+    `${entry.source}${separatorHalf}`.includes(TOOL_NAME_SEPARATOR)
+  ) {
     // Keyed by server alone: every tool on it is dropped for the same
     // reason, so one line names the fix rather than one line per tool.
     return dropOnce(
       `mcp-server-separator:${entry.source}`,
       { server: entry.source },
-      `MCP client name contains "${TOOL_NAME_SEPARATOR}", which makes the generated tool name ambiguous to parse; dropping its tools from the agent's tool list. Rename the client in mcpPlugin({ clients }) so it has no "${TOOL_NAME_SEPARATOR}".`,
+      `MCP client name is empty, contains "${TOOL_NAME_SEPARATOR}", or ends with "${separatorHalf}", which makes the generated tool name ambiguous to parse and able to collide with another client; dropping its tools from the agent's tool list. Rename the client in mcpPlugin({ clients }).`,
     );
   }
   const name = `${MCP_TOOL_PREFIX}${entry.source}${TOOL_NAME_SEPARATOR}${entry.name}`;

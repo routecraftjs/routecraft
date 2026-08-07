@@ -68,9 +68,21 @@ export default config
 | `restartBackoffMultiplier` | `number` | `2` | Multiplier applied to delay on each successive restart |
 | `toolRefreshIntervalMs` | `number` | `60000` | Polling interval for HTTP client tool lists (0 = no polling) |
 
-**Client names may not contain `__`:**
+**Client names may not be empty, contain `__`, or end in `_`:**
 
-The key you register a client under becomes the server segment of the `mcp__<server>__<tool>` name agents see, and that name is split at the first `__` after the prefix. A client called `a__b` exposing `c` would produce `mcp__a__b__c`, which reads back as server `a`, tool `b__c`. `mcpPlugin` rejects such a key with RC5003 at startup. A single underscore is fine (`my_company_api`), and because only the server half is constrained, a remote may still expose tools whose own names contain `__`.
+The key you register a client under becomes the server segment of the `mcp__<server>__<tool>` name agents see, and that name is split at the first `__` after the prefix. Three shapes break that split, and `mcpPlugin` rejects all of them with RC5003 at startup:
+
+| Key | Composes | Reads back as | Problem |
+|-----|----------|---------------|---------|
+| `a__b` | `mcp__a__b__c` | server `a`, tool `b__c` | Points at nothing |
+| `foo_` | `mcp__foo___bar` | server `foo`, tool `_bar` | **Collides** with key `foo` exposing `_bar` |
+| `""` | `mcp____bar` | empty server | Unresolvable |
+
+The collision is the reason this is rejected rather than merely warned about: two different clients can compose the same tool name, the resolved tool map is keyed by that name with later-wins, so one silently replaces the other and the model's call reaches the wrong client.
+
+A single underscore inside the name is fine (`my_company_api`), and because only the server half is constrained, a remote may still expose tools whose own names contain `__` (`mcp__github__issues__create` resolves correctly).
+
+The rule applies whenever the client is registered, including contexts with no agent in them. `mcpPlugin()` validates its options at construction, before it can know whether an agent will later join the same context, so the constraint is namespace-wide rather than conditional on how the client is consumed.
 
 **Logging when `transport` is `'stdio'`:**
 
