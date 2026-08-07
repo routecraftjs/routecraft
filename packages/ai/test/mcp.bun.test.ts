@@ -7,7 +7,7 @@ import {
   type McpLocalToolEntry,
 } from "../src/index.ts";
 import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
-import { McpDestinationAdapter } from "../src/mcp/adapters/mcp/destination.ts";
+import { McpEnricherAdapter } from "../src/mcp/adapters/mcp/enricher.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, direct, DefaultExchange } from "@routecraft/routecraft";
 
@@ -398,17 +398,17 @@ describe("mcp() DSL function", () => {
    * @preconditions Call mcp({ url, tool })
    * @expectedResult Returns adapter with adapterId routecraft.adapter.mcp and send method
    */
-  test("mcp({ url, tool }) returns McpAdapter with send", () => {
+  test("mcp({ url, tool }) returns McpAdapter with fetch", () => {
     const adapter = mcp({
       url: "http://localhost:3001/mcp",
       tool: "my-remote-tool",
     });
     expect(adapter).toBeDefined();
-    expect(adapter).toBeInstanceOf(McpDestinationAdapter);
-    expect((adapter as McpDestinationAdapter).adapterId).toBe(
+    expect(adapter).toBeInstanceOf(McpEnricherAdapter);
+    expect((adapter as McpEnricherAdapter).adapterId).toBe(
       "routecraft.adapter.mcp",
     );
-    expect(typeof adapter.send).toBe("function");
+    expect(typeof adapter.fetch).toBe("function");
   });
 
   /**

@@ -1,4 +1,4 @@
-import type { Destination } from "@routecraft/routecraft";
+import type { Enricher } from "@routecraft/routecraft";
 import type {
   AgentBrowserCommand,
   AgentBrowserBaseOptions,
@@ -6,7 +6,7 @@ import type {
   AgentBrowserResult,
   AgentBrowserOptionsMerged,
 } from "./types.ts";
-import { AgentBrowserDestinationAdapter } from "./destination.ts";
+import { AgentBrowserEnricherAdapter } from "./enricher.ts";
 
 /**
  * Creates a browser destination adapter using the agent-browser library.
@@ -15,7 +15,7 @@ import { AgentBrowserDestinationAdapter } from "./destination.ts";
  *
  * @param command - Agent-browser command (e.g. `open`, `click`, `snapshot`, `get`)
  * @param options - Command-specific options plus base options (session, headed, timeout, json)
- * @returns A Destination that runs the command and returns `{ stdout, parsed?, exitCode }`
+ * @returns An Enricher that runs the command and returns `{ stdout, parsed?, exitCode }`
  *
  * @example
  * ```typescript
@@ -30,8 +30,8 @@ export function agentBrowser<
 >(
   command: C,
   options?: AgentBrowserCommandMap<T>[C] & AgentBrowserBaseOptions<T>,
-): Destination<T, AgentBrowserResult> {
-  return new AgentBrowserDestinationAdapter<T, C>(
+): Enricher<T, AgentBrowserResult> {
+  return new AgentBrowserEnricherAdapter<T, C>(
     command,
     (options ?? {}) as AgentBrowserOptionsMerged<T, C>,
   );

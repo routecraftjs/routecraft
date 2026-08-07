@@ -563,12 +563,12 @@ describe("choice operation", () => {
   });
 
   /**
-   * @case enrich() inside a branch merges destination result into the body before convergence
-   * @preconditions Branch uses enrich() with a destination that returns an object; default aggregator spreads result onto body
-   * @expectedResult Downstream sink sees the body with the enrichment merged in
+   * @case enrich() inside a branch replaces the body with the fetched value before convergence
+   * @preconditions Branch uses bare enrich() with an enricher that returns an object
+   * @expectedResult Downstream sink sees the fetched value as the body
    */
-  test("enrich() inside a branch merges result into the body", async () => {
-    const shared = spy<Order & { reviewReason: string }>();
+  test("enrich() inside a branch replaces the body", async () => {
+    const shared = spy<{ reviewReason: string }>();
 
     t = await testContext()
       .routes(
@@ -589,19 +589,17 @@ describe("choice operation", () => {
 
     expect(shared.received).toHaveLength(1);
     expect(shared.received[0].body).toEqual({
-      priority: "normal",
-      amount: 5000,
       reviewReason: "high-value",
     });
   });
 
   /**
-   * @case enrich() inside a branch awaits async destinations
-   * @preconditions Branch uses enrich() with an async destination that resolves after a tick
-   * @expectedResult Downstream sink sees the merged body, proving the await is honoured inside inlined branch steps
+   * @case enrich() inside a branch awaits async enrichers
+   * @preconditions Branch uses bare enrich() with an async enricher that resolves after a tick
+   * @expectedResult Downstream sink sees the fetched body, proving the await is honoured inside inlined branch steps
    */
   test("enrich() inside a branch awaits async destinations", async () => {
-    const sink = spy<Order & { fetched: number }>();
+    const sink = spy<{ fetched: number }>();
 
     t = await testContext()
       .routes(
@@ -624,8 +622,6 @@ describe("choice operation", () => {
 
     expect(sink.received).toHaveLength(1);
     expect(sink.received[0].body).toEqual({
-      priority: "urgent",
-      amount: 1,
       fetched: 42,
     });
   });
@@ -676,16 +672,14 @@ describe("choice operation", () => {
   });
 
   /**
-   * @case Type-level: PathBuilder.enrich propagates merged body type (Current & R) to the next builder stage
-   * @preconditions A PathBuilder<{ body: { a: number } }> enriches with a destination returning { b: string }
-   * @expectedResult The resulting builder is PathBuilder<{ body: { a: number } & { b: string } }>
+   * @case Type-level: PathBuilder.enrich (no aggregator) replaces the body type with R
+   * @preconditions A PathBuilder<{ body: { a: number } }> enriches with an enricher returning { b: string }
+   * @expectedResult The resulting builder is PathBuilder<{ body: { b: string } }>
    */
-  test("type-level: PathBuilder.enrich propagates merged body type", () => {
+  test("type-level: PathBuilder.enrich propagates the replacement body type", () => {
     const b = new PathBuilder<{ body: { a: number } }>();
     const b2 = b.enrich(() => ({ b: "x" }));
-    expectTypeOf(b2).toEqualTypeOf<
-      PathBuilder<{ body: { a: number } & { b: string } }>
-    >();
+    expectTypeOf(b2).toEqualTypeOf<PathBuilder<{ body: { b: string } }>>();
   });
 
   /**

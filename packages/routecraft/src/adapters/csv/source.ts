@@ -15,6 +15,7 @@ import {
   isParseError,
   type OnParseError,
 } from "../shared/parse.ts";
+import { staticSourcePathError } from "../shared/file-role-guards.ts";
 
 /**
  * CsvSourceAdapter reads CSV files and parses them via PapaParse.
@@ -63,9 +64,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
 
     const filePath = this.options.path;
     if (typeof filePath !== "string") {
-      throw new Error(
-        "csv adapter: path must be a string for source mode (dynamic paths are only supported for destinations)",
-      );
+      throw staticSourcePathError("csv");
     }
 
     const fileAdapter = file({
@@ -126,9 +125,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
 
     const filePath = this.options.path;
     if (typeof filePath !== "string") {
-      throw new Error(
-        "csv adapter: path must be a string for source mode (dynamic paths are only supported for destinations)",
-      );
+      throw staticSourcePathError("csv");
     }
 
     const encoding = this.options.encoding || "utf-8";

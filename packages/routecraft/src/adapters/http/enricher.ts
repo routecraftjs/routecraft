@@ -1,29 +1,30 @@
-import type { Destination } from "../../operations/to";
+import type { Enricher } from "../../operations/enrich.ts";
 import type { Exchange } from "../../exchange";
 import type { StepSignalContext } from "../../types.ts";
 import type { HttpClientOptions, HttpResult, QueryParams } from "./types";
 
 /**
- * HttpDestinationAdapter performs HTTP requests and returns the result.
- * Can be used with both .to() and .enrich() operations.
- * - With .to(): result available via custom aggregator
- * - With .enrich(): result merged into body by default
+ * HttpEnricherAdapter performs HTTP requests and returns the result: a pure
+ * pull-in, so it implements the fetch role only.
+ * - With `.enrich()`: the result replaces the body (or feeds the aggregator)
+ * - With `.to()`: fetch-only fallback, the result replaces the body
+ * - With `.tap()`: fire-and-forget, the result is discarded
  */
-export class HttpDestinationAdapter<
-  T = unknown,
-  R = unknown,
-> implements Destination<T, HttpResult<R>> {
+export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
+  T,
+  HttpResult<R>
+> {
   readonly adapterId = "routecraft.adapter.http";
 
   constructor(private readonly options: HttpClientOptions<T>) {}
 
-  async send(
+  fetch = async (
     exchange: Exchange<T>,
     ctx: StepSignalContext = {},
-  ): Promise<HttpResult<R>> {
+  ): Promise<HttpResult<R>> => {
     const result = await this.performFetch(exchange, ctx.signal);
     return result as HttpResult<R>;
-  }
+  };
 
   /**
    * Extract metadata from HTTP result for observability.

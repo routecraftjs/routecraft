@@ -556,21 +556,7 @@ export interface MailSendPayload {
 }
 
 /**
- * Result returned after sending an email.
- */
-export interface MailSendResult {
-  /** Message-ID of the sent email */
-  messageId: string;
-  /** Accepted recipient addresses */
-  accepted: string[];
-  /** Rejected recipient addresses */
-  rejected: string[];
-  /** SMTP server response string */
-  response: string;
-}
-
-/**
- * Result returned by the fetch destination (array of messages).
+ * Result returned by the fetch role (array of messages).
  */
 export type MailFetchResult = MailMessage[];
 
@@ -624,5 +610,24 @@ declare module "@routecraft/routecraft" {
      * headers (e.g. multiple `Received` lines).
      */
     [MailHeaders.RAW_HEADERS]?: Readonly<Record<string, string | string[]>>;
+    /**
+     * SMTP send receipt: `Message-ID` of the SENT email (set by
+     * `.to(mail())`). Distinct from {@link MailHeaders.MESSAGE_ID}, which
+     * stays the SOURCE message's id.
+     */
+    [MailHeaders.SENT_MESSAGE_ID]?: string;
+    /**
+     * SMTP send receipt: accepted recipient addresses (set by `.to(mail())`).
+     * `readonly` because exchange headers are frozen: a typed consumer that
+     * pushed onto this array would compile and then throw.
+     */
+    [MailHeaders.ACCEPTED]?: readonly string[];
+    /**
+     * SMTP send receipt: rejected recipient addresses (set by `.to(mail())`).
+     * `readonly` for the same reason as {@link MailHeaders.ACCEPTED}.
+     */
+    [MailHeaders.REJECTED]?: readonly string[];
+    /** SMTP send receipt: raw SMTP server response string (set by `.to(mail())`). */
+    [MailHeaders.RESPONSE]?: string;
   }
 }

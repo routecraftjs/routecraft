@@ -118,17 +118,18 @@ export interface XmlTransformerOptions<
 }
 
 /**
- * Source / Destination mode options (with `path`).
+ * File-role options (with `path`): the adapter carries the source, send, and
+ * fetch roles for an XML file; the operation keyword selects the role.
  *
- * Note: XML has no `append` mode. Appending serialized fragments to an XML
- * document produces multiple root elements and an invalid document, so the
- * adapter deliberately omits it. Read the file, mutate the parsed object, and
- * write it back instead.
+ * Note: XML has no `append` behavior. Appending serialized fragments to an
+ * XML document produces multiple root elements and an invalid document, so
+ * the adapter deliberately omits it. Read the file, mutate the parsed
+ * object, and write it back instead.
  */
 export interface XmlFileOptions extends XmlParseOptions, XmlBuildOptions {
   /**
-   * File path for source / destination mode. A function form (resolved per
-   * exchange) is only valid for destinations.
+   * File path. The function form (resolved per exchange) is valid for the
+   * send/fetch roles only; the source role requires a static string path.
    */
   path: string | ((exchange: Exchange) => string);
 
@@ -138,28 +139,20 @@ export interface XmlFileOptions extends XmlParseOptions, XmlBuildOptions {
   encoding?: BufferEncoding;
 
   /**
-   * Create parent directories if they don't exist (write mode only).
+   * Create parent directories if they don't exist (send role only).
    * Default: false
    */
   createDirs?: boolean;
 
   /**
-   * File operation mode.
-   * - 'read': Read + parse the XML file. Works as a source (`.from`) and,
-   *   because read mode returns the parsed object, mid-route via `.enrich()` /
-   *   `.to()`. As a destination, parse failures throw (the route boundary
-   *   surfaces them as `exchange:failed`); the `onParseError` lifecycle controls
-   *   apply to source mode only.
-   * - 'write': Build the body object into an XML document and write / overwrite
-   *   the file (destination mode).
-   * - 'delete': Delete the XML file (destination mode). Idempotent: an already-
-   *   absent path is a no-op. The body is unchanged. Supports dynamic paths.
-   * Default: 'read' for source, 'write' for destination
+   * Send role behavior: delete the XML file instead of writing it.
+   * Idempotent: an already-absent path is a no-op. The body is unchanged.
+   * Default: false
    */
-  mode?: "read" | "write" | "delete";
+  delete?: boolean;
 
   /**
-   * How to handle a parse failure on the file content (source mode only).
+   * How to handle a parse failure on the file content (source role only).
    *
    * - `'fail'` (default): `exchange:failed` fires; the route's `.error()`
    *   handler can recover.

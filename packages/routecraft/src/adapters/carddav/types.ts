@@ -139,7 +139,11 @@ export type CarddavOptions = CarddavServerOptions | CarddavClientOptions;
 // Results
 // ---------------------------------------------------------------------------
 
-/** Result returned by the destination after creating or updating a contact. */
+/**
+ * Internal result of a write; surfaced to routes as the receipt headers
+ * `routecraft.carddav.url` / `.uid` / `.etag` / `.created`.
+ * @internal
+ */
 export interface CarddavWriteResult {
   /** UID of the written contact. */
   uid: string;
@@ -151,12 +155,17 @@ export interface CarddavWriteResult {
   created: boolean;
 }
 
-/** Result returned by the destination after deleting a contact. */
+/**
+ * Internal result of a delete; surfaced to routes as the receipt headers
+ * `routecraft.carddav.url` / `.uid`. A failed delete throws, so success
+ * needs no flag.
+ * @internal
+ */
 export interface CarddavDeleteResult {
   /** UID of the deleted contact, when known. */
   uid?: string;
   /** DAV object URL of the deleted contact. */
   url: string;
-  /** Always true on success. */
-  deleted: boolean;
+  /** ETag the delete was issued against, when one was known. */
+  etag?: string;
 }

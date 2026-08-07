@@ -139,24 +139,29 @@ Any subscriber using the exact name `plugin:auth:capability:secured` (declared v
 
 Adapters can expose structured metadata that is included in their operation events. This is useful for enriching traces or logs with adapter-specific context like HTTP status codes, response sizes, or queue depths.
 
-```ts
-import { type Destination, type Exchange } from '@routecraft/routecraft'
+Which hook fires depends on the role the step resolved. A send-resolved `.to()` calls `getSendMetadata(receipts)` and hands it the receipt headers the send recorded; a fetch-resolved step (`.enrich()`, or a fetch-only adapter in `.to()`) calls `getMetadata(result)` and hands it the fetched value.
 
-class HttpStorageAdapter implements Destination<any, void> {
+```ts
+import { type Destination, type Exchange, type SendContext } from '@routecraft/routecraft'
+
+class HttpStorageAdapter implements Destination<unknown> {
   readonly adapterId = 'my.http-storage'
 
-  async send(exchange: Exchange) {
+  async send(exchange: Exchange, ctx?: SendContext) {
     const res = await fetch(this.url, { method: 'POST', body: JSON.stringify(exchange.body) })
-    this.lastStatus = res.status
+    // Receipts ride headers, never the body: a send is void.
+    ctx?.setHeader('my.http-storage.status', res.status)
   }
 
-  getMetadata(): Record<string, unknown> {
-    return { statusCode: this.lastStatus }
+  getSendMetadata(receipts?: Record<string, unknown>): Record<string, unknown> {
+    return { statusCode: receipts?.['my.http-storage.status'] }
   }
 }
 ```
 
 The metadata appears under `details.metadata` in the corresponding `operation:to:{adapterId}:stopped` event.
+
+One adapter instance serves every exchange on the route, so derive metadata from the arguments the hook receives, never from a field written during the call: with concurrent exchanges in flight, a `this.lastStatus` written by one call is routinely read back by another.
 
 ## Common patterns
 

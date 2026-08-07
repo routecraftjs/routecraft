@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { llm, llmPlugin, LlmDestinationAdapter } from "../src/index.ts";
+import { llm, llmPlugin, LlmEnricherAdapter } from "../src/index.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, noop } from "@routecraft/routecraft";
 
@@ -11,14 +11,14 @@ describe("llm() DSL and adapter", () => {
   });
 
   /**
-   * @case llm(modelId) returns an LlmDestinationAdapter instance
+   * @case llm(modelId) returns an LlmEnricherAdapter instance
    * @preconditions None
    * @expectedResult Destination has adapterId routecraft.adapter.llm
    */
-  test("llm(providerId:modelName) returns an LlmDestinationAdapter", () => {
+  test("llm(providerId:modelName) returns an LlmEnricherAdapter", () => {
     const dest = llm("ollama:my-model");
-    expect(dest).toBeInstanceOf(LlmDestinationAdapter);
-    expect((dest as LlmDestinationAdapter).adapterId).toBe(
+    expect(dest).toBeInstanceOf(LlmEnricherAdapter);
+    expect((dest as LlmEnricherAdapter).adapterId).toBe(
       "routecraft.adapter.llm",
     );
   });
@@ -33,8 +33,8 @@ describe("llm() DSL and adapter", () => {
       system: "You are helpful.",
       temperature: 0.5,
     });
-    expect(dest).toBeInstanceOf(LlmDestinationAdapter);
-    const adapter = dest as LlmDestinationAdapter;
+    expect(dest).toBeInstanceOf(LlmEnricherAdapter);
+    const adapter = dest as LlmEnricherAdapter;
     expect(adapter.options.system).toBe("You are helpful.");
     expect(adapter.options.temperature).toBe(0.5);
   });

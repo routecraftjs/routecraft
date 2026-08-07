@@ -52,9 +52,13 @@ export interface MockAdapterBehavior<M = unknown> {
    */
   source?: SourceOverrideBehavior<M>;
   /**
-   * Destination-role behaviour. Used when the adapter is passed to `.to()`,
-   * `.enrich()`, or `.tap()`. Receives the exchange and a meta object with
-   * the construction args; returning a value replaces the body upstream.
+   * Destination/enricher-role behaviour. Used when the adapter is passed to
+   * `.to()`, `.enrich()`, or `.tap()`. Receives the exchange and a meta
+   * object with the construction args. The handler's return value follows
+   * the step's slot resolution: a fetch-resolved step (`.enrich()`, or a
+   * fetch-only adapter in `.to()`) uses it as the fetched value (replacing
+   * the body by default), while a send-resolved `.to()` discards it (send
+   * is void) and `.tap()` always discards.
    */
   send?: SendOverrideHandler;
 }
@@ -100,7 +104,7 @@ export function isAdapterMock(
  * - An adapter factory (e.g. `mail`, `http`, `mcp`). The mock matches every
  *   adapter instance produced by that factory. Requires the factory to stamp
  *   its adapters via `tagAdapter()`.
- * - An adapter class (e.g. `MailSourceAdapter`, `HttpDestinationAdapter`).
+ * - An adapter class (e.g. `MailSourceAdapter`, `HttpEnricherAdapter`).
  *   The mock matches any adapter whose `constructor === target`. Works for
  *   every adapter without opt-in tagging, including third-party ones.
  *
@@ -124,7 +128,7 @@ export function isAdapterMock(
  *
  * const mailMock = mockAdapter(mail, {
  *   source: [{ uid: 1, from: "a@b", subject: "hi", ... }],
- *   send: async () => ({ messageId: "<fake>" }),
+ *   send: async () => undefined,
  * });
  *
  * // Class form (works for any adapter, including third-party ones)

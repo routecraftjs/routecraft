@@ -5,16 +5,16 @@ title: mail
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-mail(folder: string, options: Partial<MailServerOptions>): Source<MailBody>
-mail(folder: string): Destination<unknown, MailFetchResult>
-mail(action: MailAction): Destination<unknown, void>
-mail(options: MailServerOptions & { folder: string }): Destination<unknown, MailFetchResult>
-mail(options?: Partial<MailClientOptions>): Destination<MailSendPayload, MailSendResult>
+mail(folder: string, options: MailServerOptions): Source<MailBody>
+mail(folder: string): Enricher<unknown, MailFetchResult>
+mail(action: MailAction): Destination<unknown>
+mail(options: MailServerOptions & { folder: string }): Enricher<unknown, MailFetchResult>
+mail(options?: MailClientOptions): Destination<MailSendPayload>
 ```
 
-Read email via IMAP, send via SMTP, or perform IMAP operations. The adapter has four modes determined by the arguments you pass.
+Read email via IMAP, send via SMTP, or perform IMAP operations. The adapter has four roles determined by the arguments you pass.
 
-**Source mode (IMAP push):** Pass a folder and options to receive new messages via IMAP IDLE or polling. Each new email becomes a separate exchange.
+**Source role (IMAP push):** Pass a folder and options to receive new messages via IMAP IDLE or polling. Each new email becomes a separate exchange.
 
 The source follows the payload-on-`body`, envelope-on-`headers` convention shared with the HTTP source: the parsed message content (`text`, `html`, `attachments`) lands on `exchange.body` (a [`MailBody`](#mailbody-source-exchange-body)), and the envelope (from, to, subject, date, flags, sender, ...) lands on [`routecraft.mail.*` headers](#source-headers). This means `.input({ body })` validates against the message content alone, and the same `.transform()` / `.filter()` operators compose whether the payload arrived over mail or HTTP.
 
@@ -68,7 +68,7 @@ craft()
   .to(processMessage())
 ```
 
-**Fetch destination (IMAP pull):** Pass a folder string, or server options containing `folder`, to fetch messages. Use with `.enrich()` to pull mail on demand. The `folder` key is required in the object form: it is what distinguishes a fetch from a send, the same way `http` splits on `path` vs `url`.
+**Enricher (IMAP pull):** Pass a folder string, or server options containing `folder`, to fetch messages. Use with `.enrich()` to pull mail on demand: the fetched `MailMessage[]` replaces the body by default (pass an aggregator such as `only()` to merge instead). The `folder` key is required in the object form: it is what distinguishes a fetch from a send, the same way `http` splits on `path` vs `url`.
 
 ```ts
 craft()
@@ -85,7 +85,7 @@ craft()
   .to(log())
 ```
 
-**Send destination (SMTP):** Call with no arguments or client options (no `folder`) to send email. The exchange body must be a `MailSendPayload`.
+**Send destination (SMTP):** Call with no arguments or client options (no `folder`) to send email. The exchange body must be a `MailSendPayload`. The send is void: the body flows through the `.to()` step unchanged, and the send receipt lands on headers (`routecraft.mail.sentMessageId`, `routecraft.mail.accepted`, `routecraft.mail.rejected`, `routecraft.mail.response`; see [send receipt headers](#send-receipt-headers)). The inbound `routecraft.mail.messageId` (set by the source) is left untouched, so mail-to-mail routes keep their correlation id.
 
 ```ts
 craft()
@@ -241,9 +241,9 @@ In source mode the envelope is attached to `exchange.headers` under the `routecr
 | `routecraft.mail.sender` | `MailSender?` | Computed effective sender and forward chain (see below). Absent when `verify: 'off'`. |
 | `routecraft.mail.rawHeaders` | `Record<string, string \| string[]>?` | Raw email headers (when `includeHeaders` is set) |
 
-**`MailMessage` (fetch destination result):**
+**`MailMessage` (fetch result):**
 
-In fetch mode (`.enrich(mail(...))`) the result body is a `MailMessage[]`. Because a batch fetch returns many messages, each one keeps its whole envelope together in a single object rather than splitting across single-valued headers.
+In the fetch role (`.enrich(mail(...))`) the fetched `MailMessage[]` replaces the body by default. Because a batch fetch returns many messages, each one keeps its whole envelope together in a single object rather than splitting across single-valued headers.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -311,15 +311,17 @@ craft()
 | `headers` | `Record<string, string>?` | Custom RFC 5322 headers on the outgoing message (e.g. `X-Auto-Response-Suppress`). The threading fields above win over the same keys given here |
 | `attachments` | `Array<{ filename, content, contentType? }>?` | File attachments |
 
-**`MailSendResult`:**
+**Send receipt headers:** {% #send-receipt-headers %}
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `messageId` | `string` | Message-ID of the sent email |
-| `accepted` | `string[]` | Accepted recipient addresses |
-| `rejected` | `string[]` | Rejected recipient addresses |
-| `response` | `string` | SMTP server response string |
+A `.to(mail())` send never touches the body. The receipt is surfaced through the step's `SendContext` and merged onto the continuing exchange's headers:
 
-**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailBody`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailSendResult`, `MailFetchResult`, `MailContextConfig`, `MailAccountConfig`, `MailAction`, `MailSender`, `EmailAddress`, `ForwardHop`, `ForwardType`, `TrustLevel`, `MailClientManager`, `MAIL_CLIENT_MANAGER`. Header keys: the `MailHeaders` object (`UID`, `FOLDER`, `MESSAGE_ID`, `FROM`, `TO`, `CC`, `BCC`, `SUBJECT`, `DATE`, `REPLY_TO`, `FLAGS`, `SENDER`, `RAW_HEADERS`). Helpers: `analyzeHeaders`, `parseAuthResults`.
+| Header | Type | Description |
+|--------|------|-------------|
+| `routecraft.mail.sentMessageId` (`MailHeaders.SENT_MESSAGE_ID`) | `string` | Message-ID of the SENT email (distinct from `routecraft.mail.messageId`, which stays the source message's id) |
+| `routecraft.mail.response` (`MailHeaders.RESPONSE`) | `string` | Raw SMTP server response string |
+| `routecraft.mail.accepted` (`MailHeaders.ACCEPTED`) | `string[]` | Accepted recipient addresses |
+| `routecraft.mail.rejected` (`MailHeaders.REJECTED`) | `string[]` | Rejected recipient addresses |
+
+**Exported types:** `MailAuth`, `MailServerOptions`, `MailClientOptions`, `MailOptions`, `MailBody`, `MailMessage`, `MailAttachment`, `MailSendPayload`, `MailFetchResult`, `MailContextConfig`, `MailAccountConfig`, `MailAction`, `MailSender`, `EmailAddress`, `ForwardHop`, `ForwardType`, `TrustLevel`, `MailClientManager`, `MAIL_CLIENT_MANAGER`. Header keys: the `MailHeaders` object (`UID`, `FOLDER`, `MESSAGE_ID`, `FROM`, `TO`, `CC`, `BCC`, `SUBJECT`, `DATE`, `REPLY_TO`, `FLAGS`, `SENDER`, `RAW_HEADERS`, `SENT_MESSAGE_ID`, `ACCEPTED`, `REJECTED`, `RESPONSE`). Helpers: `analyzeHeaders`, `parseAuthResults`.
 
 ---

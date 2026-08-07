@@ -11,12 +11,14 @@
  * `action` flag on the options:
  *
  * - no action (read): `.from(carddav())` emits one `VCardBody` per address-book
- *   entry; `.enrich(carddav())` fetches all cards (merged onto the exchange under
- *   numeric keys by default; pass `replace()` for a `VCardBody[]` body).
+ *   entry; `.enrich(carddav())` fetches all cards as a `VCardBody[]` body
+ *   (pass an aggregator such as `only()` to merge instead of replacing).
  * - `action: 'save' | 'create' | 'update'`: `.to(carddav(...))` serializes the
  *   exchange body and writes it. A write replaces the card; it does not merge.
  *   Reading is lossless, so a read-modify-write keeps properties you did not
- *   touch; removing a property removes it.
+ *   touch; removing a property removes it. The write receipt (`url` / `uid` /
+ *   `etag`, plus `created` for insert-vs-update) lands on the
+ *   `routecraft.carddav.*` headers.
  * - `action: 'delete'`: deletes the contact resolved from the headers, the body,
  *   or a custom `target` extractor.
  *
@@ -35,7 +37,8 @@ import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { getExchangeContext } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
 import type { Source, Subscription } from "../../operations/from.ts";
-import type { Destination } from "../../operations/to.ts";
+import type { Destination, SendContext } from "../../operations/to.ts";
+import type { Enricher } from "../../operations/enrich.ts";
 import type { CarddavClientManager } from "./client-manager.ts";
 import { VCard, type VCardBody } from "./vcard.ts";
 import {
@@ -55,9 +58,6 @@ import type {
   CarddavTargetExtractor,
   CarddavWriteResult,
 } from "./types.ts";
-
-/** Result body produced by `send`, depending on the configured action. */
-type CarddavSendResult = VCardBody[] | CarddavWriteResult | CarddavDeleteResult;
 
 /** Identifies a contact resource for update/delete. */
 interface ContactTarget {
@@ -133,12 +133,17 @@ function joinUrl(base: string, filename: string): string {
 }
 
 /**
- * CardDAV source + destination adapter.
+ * CardDAV facade: source (read all, one exchange each), enricher (fetch all
+ * as an array), and destination (write / delete with receipt headers). The
+ * factory exposes the role slots that match the configured `action`.
  *
  * @experimental
  */
 export class CarddavAdapter
-  implements Source<VCardBody>, Destination<unknown, CarddavSendResult>
+  implements
+    Source<VCardBody>,
+    Destination<unknown>,
+    Enricher<unknown, VCardBody[]>
 {
   readonly adapterId = "routecraft.adapter.carddav";
   private readonly options: NormalizedOptions;
@@ -208,29 +213,66 @@ export class CarddavAdapter
   }
 
   // -------------------------------------------------------------------------
-  // Destination: read (enrich) / write / delete, selected by `action`
+  // Enricher: fetch all cards as an array (used by `.enrich(carddav())`)
   // -------------------------------------------------------------------------
 
-  async send(exchange: Exchange<unknown>): Promise<CarddavSendResult> {
+  fetch = async (exchange: Exchange<unknown>): Promise<VCardBody[]> => {
+    return this.fetchAll(getExchangeContext(exchange));
+  };
+
+  // -------------------------------------------------------------------------
+  // Destination: write / delete, selected by `action`; receipts via headers
+  // -------------------------------------------------------------------------
+
+  async send(exchange: Exchange<unknown>, ctx?: SendContext): Promise<void> {
     const action = this.options.action;
     if (action === undefined) {
-      return this.fetchAll(getExchangeContext(exchange));
+      throw rcError("RC5003", undefined, {
+        message:
+          "carddav adapter: the send role requires an `action` (save / create / update / delete)",
+        suggestion:
+          "Use `.enrich(carddav())` (or `.from(carddav())`) to read; pass an action to write",
+      });
     }
     if (action === "delete") {
-      return this.remove(exchange);
+      const result = await this.remove(exchange);
+      // Receipt headers, not a body replacement: identity of the deleted
+      // resource lands on the same routecraft.carddav.* keys the read
+      // side sets.
+      ctx?.setHeader(CarddavHeaders.URL, result.url);
+      if (result.uid) ctx?.setHeader(CarddavHeaders.UID, result.uid);
+      if (result.etag) ctx?.setHeader(CarddavHeaders.ETAG, result.etag);
+      return;
     }
-    return this.write(exchange, action);
+    const result = await this.write(exchange, action);
+    // A saved card's identity lands where a read card's identity lives, so
+    // downstream update/delete steps target it without a re-read. `created`
+    // is receipt-only: it distinguishes an insert from an update for
+    // routes that branch on it.
+    ctx?.setHeader(CarddavHeaders.URL, result.url);
+    ctx?.setHeader(CarddavHeaders.UID, result.uid);
+    if (result.etag) ctx?.setHeader(CarddavHeaders.ETAG, result.etag);
+    ctx?.setHeader(CarddavHeaders.CREATED, result.created);
   }
 
-  /** Observability metadata for the `.to()` / `.enrich()` step. */
+  /** Observability metadata for the fetch role: the fetched card array. */
   getMetadata(result: unknown): Record<string, unknown> {
-    if (Array.isArray(result)) return { count: result.length };
-    const r = result as Partial<CarddavWriteResult & CarddavDeleteResult>;
+    return { count: Array.isArray(result) ? result.length : 0 };
+  }
+
+  /**
+   * Observability metadata for the send role: receives the receipt-header
+   * record collected by the `.to()` step (send is void).
+   */
+  getSendMetadata(receiptHeaders: unknown): Record<string, unknown> {
+    const receipts = (receiptHeaders ?? {}) as Record<string, unknown>;
     const meta: Record<string, unknown> = {};
-    if (r.uid !== undefined) meta["uid"] = r.uid;
-    if (r.url !== undefined) meta["url"] = r.url;
-    if (r.created !== undefined) meta["created"] = r.created;
-    if (r.deleted !== undefined) meta["deleted"] = r.deleted;
+    if (receipts[CarddavHeaders.UID] !== undefined)
+      meta["uid"] = receipts[CarddavHeaders.UID];
+    if (receipts[CarddavHeaders.URL] !== undefined)
+      meta["url"] = receipts[CarddavHeaders.URL];
+    if (receipts[CarddavHeaders.CREATED] !== undefined)
+      meta["created"] = receipts[CarddavHeaders.CREATED];
     return meta;
   }
 
@@ -431,9 +473,12 @@ export class CarddavAdapter
       throwCarddavError(error, "delete contact");
     }
     assertResponseOk(response, "delete contact");
-    const result: CarddavDeleteResult = { url, deleted: true };
+    const result: CarddavDeleteResult = { url };
     const resolvedUid = uid ?? uidFromUrl(url);
     if (resolvedUid) result.uid = resolvedUid;
+    // A uid-only delete looks the card up to find its url; the lookup also
+    // yields the etag, so carry it out for the receipt instead of dropping it.
+    if (etag) result.etag = etag;
     return result;
   }
 

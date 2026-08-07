@@ -18,10 +18,6 @@ import type {
   DAVAddressBookLike,
   DAVVCardLike,
 } from "../src/adapters/carddav/shared.ts";
-import type {
-  CarddavDeleteResult,
-  CarddavWriteResult,
-} from "../src/adapters/carddav/types.ts";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -505,7 +501,8 @@ describe("CardDAV destination (write)", () => {
   /**
    * @case save with no url creates a new card and injects a UID
    * @preconditions Empty book; a fresh body without url or UID
-   * @expectedResult createVCard runs with a UID-bearing card; result.created is true
+   * @expectedResult createVCard runs with a UID-bearing card; the body flows
+   *   through unchanged and the receipt lands on the carddav headers
    */
   test("save creates when there is no url", async () => {
     const driver = fakeDriver([]);
@@ -528,7 +525,9 @@ describe("CardDAV destination (write)", () => {
     expect(driver.created).toHaveLength(1);
     expect(driver.created[0]?.vCardString).toContain("FN:Sam Lee");
     expect(driver.created[0]?.vCardString).toContain("UID:");
-    expect((s.received[0]?.body as CarddavWriteResult).created).toBe(true);
+    expect(s.received[0]?.body).toEqual(body);
+    expect(s.received[0]?.headers[CarddavHeaders.URL]).toContain(".vcf");
+    expect(s.received[0]?.headers[CarddavHeaders.UID]).toBeDefined();
     expect(driver.calls.fetchVCards).toBe(0);
   });
 
@@ -650,7 +649,8 @@ describe("CardDAV destination (write)", () => {
 
     const body = VCard.parse(ICLOUD_VCARD).set("NOTE", "updated").data;
     const adapter = new CarddavAdapter({ action: "update" });
-    const result = (await adapter.send(
+    const receipts: Record<string, unknown> = {};
+    await adapter.send(
       exchangeWith(
         {
           [CarddavHeaders.URL]: `${BOOK_URL}abc-123.vcf`,
@@ -659,7 +659,12 @@ describe("CardDAV destination (write)", () => {
         body,
         ctx,
       ),
-    )) as CarddavWriteResult;
+      {
+        setHeader: (key, value) => {
+          receipts[key] = value;
+        },
+      },
+    );
 
     expect(driver.updated).toHaveLength(1);
     expect(driver.updated[0]?.vCard.url).toBe(`${BOOK_URL}abc-123.vcf`);
@@ -667,7 +672,7 @@ describe("CardDAV destination (write)", () => {
     expect(driver.updated[0]?.vCard.data).toContain("NOTE:updated");
     expect(driver.calls.fetchVCards).toBe(0);
     expect(driver.calls.fetchBooks).toBe(0);
-    expect(result.created).toBe(false);
+    expect(receipts[CarddavHeaders.URL]).toBe(`${BOOK_URL}abc-123.vcf`);
     await ctx.stop();
   });
 
@@ -744,7 +749,8 @@ describe("CardDAV destination (delete)", () => {
     const ctx = await carddavCtx();
 
     const adapter = new CarddavAdapter({ action: "delete" });
-    const result = (await adapter.send(
+    const receipts: Record<string, unknown> = {};
+    await adapter.send(
       exchangeWith(
         {
           [CarddavHeaders.URL]: `${BOOK_URL}abc-123.vcf`,
@@ -753,12 +759,20 @@ describe("CardDAV destination (delete)", () => {
         VCard.create().data,
         ctx,
       ),
-    )) as CarddavDeleteResult;
+      {
+        setHeader: (key, value) => {
+          receipts[key] = value;
+        },
+      },
+    );
 
     expect(driver.deleted[0]?.vCard.url).toBe(`${BOOK_URL}abc-123.vcf`);
     expect(driver.deleted[0]?.vCard.etag).toBe('"1"');
     expect(driver.calls.fetchVCards).toBe(0);
-    expect(result.deleted).toBe(true);
+    expect(receipts[CarddavHeaders.URL]).toBe(`${BOOK_URL}abc-123.vcf`);
+    // The delete receipt carries the same identity keys the read side sets,
+    // etag included, so a downstream step sees what was deleted.
+    expect(receipts[CarddavHeaders.ETAG]).toBe('"1"');
     await ctx.stop();
   });
 

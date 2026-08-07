@@ -1,4 +1,4 @@
-import type { Destination } from "../../operations/to.ts";
+import type { Enricher } from "../../operations/enrich.ts";
 import type { Exchange } from "../../exchange.ts";
 import { getExchangeContext } from "../../exchange.ts";
 import type { MailFetchResult, MailServerOptions } from "./types.ts";
@@ -12,8 +12,9 @@ import {
 } from "./shared.ts";
 
 /**
- * Destination adapter that fetches email messages from IMAP.
- * Designed for use with `.enrich()` to pull messages into the exchange body.
+ * Enricher adapter that fetches email messages from IMAP (a pull-in, so it
+ * implements the fetch role). Designed for use with `.enrich()` to pull
+ * messages into the exchange body.
  *
  * When a MailClientManager is available (via context mail config), uses pooled
  * connections. Otherwise falls back to standalone connections.
@@ -26,10 +27,7 @@ import {
  *   .to(processMessages())
  * ```
  */
-export class MailFetchDestinationAdapter implements Destination<
-  unknown,
-  MailFetchResult
-> {
+export class MailEnricherAdapter implements Enricher<unknown, MailFetchResult> {
   readonly adapterId = "routecraft.adapter.mail";
   private readonly adapterOptions: MailServerOptions;
 
@@ -37,7 +35,7 @@ export class MailFetchDestinationAdapter implements Destination<
     this.adapterOptions = options;
   }
 
-  async send(exchange: Exchange<unknown>): Promise<MailFetchResult> {
+  fetch = async (exchange: Exchange<unknown>): Promise<MailFetchResult> => {
     const context = getExchangeContext(exchange);
     const manager = getClientManager(context);
     const account = this.adapterOptions.account;
@@ -84,9 +82,9 @@ export class MailFetchDestinationAdapter implements Destination<
         : undefined;
       const messages = await fetchMessages(client, resolved, folder, logger);
 
-      // Destination has no post-commit hook, so mark Seen here. Best-effort:
-      // a flag failure must not fail the enrichment since messages have
-      // already been fetched.
+      // The fetch role has no post-commit hook, so mark Seen here.
+      // Best-effort: a flag failure must not fail the enrichment since
+      // messages have already been fetched.
       if (resolved.markSeen !== false && messages.length > 0) {
         await markMessagesSeen(
           client,
@@ -103,7 +101,7 @@ export class MailFetchDestinationAdapter implements Destination<
         await client.logout().catch(() => {});
       }
     }
-  }
+  };
 
   /**
    * Extract metadata from fetch result for observability.

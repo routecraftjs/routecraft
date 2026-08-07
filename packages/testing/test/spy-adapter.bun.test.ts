@@ -70,16 +70,17 @@ describe("SpyAdapter", () => {
   });
 
   /**
-   * @case send() via enrich increments calls.enrich
-   * @preconditions SpyAdapter receives exchange with routecraft.operation header set to "enrich"
-   * @expectedResult calls.enrich is 1, calls.send is 0
+   * @case fetch() increments calls.enrich and returns the current body
+   * @preconditions SpyAdapter receives an exchange through its fetch slot
+   * @expectedResult calls.enrich is 1, calls.send is 0, fetch returns the body
    */
-  test("send() with enrich operation header increments calls.enrich", () => {
+  test("fetch() increments calls.enrich and returns the body", () => {
     const s = spy();
     const exchange = mockExchange("data", "enrich");
 
-    s.send(exchange);
+    const result = s.fetch(exchange);
 
+    expect(result).toBe("data");
     expect(s.calls.enrich).toBe(1);
     expect(s.calls.send).toBe(0);
     expect(s.received).toHaveLength(1);

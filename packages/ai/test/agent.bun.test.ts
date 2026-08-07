@@ -3,7 +3,7 @@ import { craft, simple, type Exchange } from "@routecraft/routecraft";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import {
   agent,
-  AgentDestinationAdapter,
+  AgentEnricherAdapter,
   agentPlugin,
   llmPlugin,
   type AgentRegisteredOptions,
@@ -36,17 +36,17 @@ describe("agent() destination", () => {
   });
 
   /**
-   * @case agent({...}) returns an AgentDestinationAdapter with the expected adapterId
+   * @case agent({...}) returns an AgentEnricherAdapter with the expected adapterId
    * @preconditions Valid options
-   * @expectedResult Returned destination is an AgentDestinationAdapter instance with adapterId "routecraft.adapter.agent"
+   * @expectedResult Returned destination is an AgentEnricherAdapter instance with adapterId "routecraft.adapter.agent"
    */
-  test("returns AgentDestinationAdapter with stable adapterId", () => {
+  test("returns AgentEnricherAdapter with stable adapterId", () => {
     const dest = agent({
       model: "anthropic:claude-opus-4-7",
       system: "You answer concisely.",
     });
-    expect(dest).toBeInstanceOf(AgentDestinationAdapter);
-    expect((dest as AgentDestinationAdapter).adapterId).toBe(
+    expect(dest).toBeInstanceOf(AgentEnricherAdapter);
+    expect((dest as AgentEnricherAdapter).adapterId).toBe(
       "routecraft.adapter.agent",
     );
   });
@@ -95,7 +95,7 @@ describe("agent() destination", () => {
    */
   test("accepts agent without model at construction", () => {
     const dest = agent({ system: "ok" });
-    expect(dest).toBeInstanceOf(AgentDestinationAdapter);
+    expect(dest).toBeInstanceOf(AgentEnricherAdapter);
   });
 
   /**
@@ -111,7 +111,7 @@ describe("agent() destination", () => {
       system: "Be helpful.",
       output: schema,
     });
-    expect(dest).toBeInstanceOf(AgentDestinationAdapter);
+    expect(dest).toBeInstanceOf(AgentEnricherAdapter);
 
     expect(() =>
       agent({
@@ -150,14 +150,14 @@ describe("agent() destination", () => {
       system: "Be helpful.",
       principal: true,
     });
-    expect(boolForm).toBeInstanceOf(AgentDestinationAdapter);
+    expect(boolForm).toBeInstanceOf(AgentEnricherAdapter);
 
     const fnForm = agent({
       model: "anthropic:claude-opus-4-7",
       system: "Be helpful.",
       principal: (p) => (p ? `## Caller\n\n${p.subject}` : ""),
     });
-    expect(fnForm).toBeInstanceOf(AgentDestinationAdapter);
+    expect(fnForm).toBeInstanceOf(AgentEnricherAdapter);
 
     expect(() =>
       agent({

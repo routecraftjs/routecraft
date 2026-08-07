@@ -1,9 +1,9 @@
 export { agent } from "./agent.ts";
 export {
-  AgentDestinationAdapter,
+  AgentEnricherAdapter,
   type AgentBinding,
   type AgentByNameOverrides,
-} from "./destination.ts";
+} from "./enricher.ts";
 export type { AgentDelta, AgentDeltaListener } from "./events.ts";
 export { agents, type AgentMarkdownOverride } from "./loader.ts";
 export { agentPlugin, type AgentPluginOptions } from "./plugin.ts";

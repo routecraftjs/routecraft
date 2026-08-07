@@ -19,7 +19,7 @@ craft()
   .from(directory({ path: './inbox', chunked: true }))
   .filter((ex) => ex.body.ext === '.json')
   .enrich(
-    file({ path: (ex) => ex.body.path, mode: 'read' }),
+    file({ path: (ex) => ex.body.path }),
     only((content: string) => content, 'content'),
   )
   .to(log())
@@ -30,7 +30,7 @@ craft()
   .transform((entries) => entries.filter((e) => e.ext === '.json'))
   .split((ex) => ex.body)
   .enrich(
-    file({ path: (ex) => ex.body.path, mode: 'read' }),
+    file({ path: (ex) => ex.body.path }),
     only((content: string) => content, 'content'),
   )
   .to(log())

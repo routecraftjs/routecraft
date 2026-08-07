@@ -164,8 +164,9 @@ const ops: Op[] = [
   {
     name: 'enrich',
     category: 'Transform',
-    signature: '.enrich(fn)',
-    description: 'Merge extra data into the current body.',
+    signature: '.enrich(enricher, aggregator?)',
+    description:
+      'Pull data in; the result replaces the body unless an aggregator merges it.',
   },
 
   // Flow Control
@@ -269,7 +270,7 @@ const ops: Op[] = [
     category: 'Side Effects',
     signature: '.to(destination)',
     description:
-      'Send to a destination, optionally replacing the body with its return.',
+      'Push out via a destination (body unchanged) or pull in via an enricher (body replaced).',
   },
 ]
 

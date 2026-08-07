@@ -6,8 +6,8 @@ export type HtmlResult = string | string[];
 export interface HtmlOptions<T = unknown, R = unknown> {
   /**
    * CSS selector to match elements.
-   * Optional when using file destination mode (path + mode: "write"/"append").
-   * Required for transformer mode and source mode.
+   * Optional for the send role (writing needs no extraction).
+   * Required for the transformer, source, and fetch roles.
    */
   selector?: string;
   /**
@@ -28,37 +28,39 @@ export interface HtmlOptions<T = unknown, R = unknown> {
   /** Where to put the extracted result. If omitted, result replaces the entire body (same default as from). Use e.g. (body, result) => ({ ...body, field: result }) to write to a sub-field. */
   to?: (body: T, result: HtmlResult) => R;
 
-  // File options (when path is provided, html becomes a source/destination)
+  // File options (when path is provided, html carries the file roles)
   /**
-   * File path for source/destination mode.
-   * When provided, html() reads/writes HTML files using file() adapter.
-   * For sources, the HTML is read from file and parsed.
-   * For destinations, the exchange body (HTML string) is written to file.
+   * File path. Presence of `path` gives html() the file roles (source /
+   * send / fetch) instead of the transformer role. The source and fetch
+   * roles read the file and extract via the selector; the send role writes
+   * the exchange body (HTML string) to the file. The function form receives
+   * the exchange (send/fetch roles only; the source role needs a static
+   * string).
    */
   path?: string | ((exchange: Exchange) => string);
   /**
-   * File operation mode (only when path is provided).
-   * - 'read': Read file. Works as a source (`.from`) and, because read mode
-   *   returns the extracted result, mid-route via `.enrich()` / `.to()`.
-   * - 'write': Write/overwrite file (destination mode)
-   * - 'append': Append to file (destination mode)
-   * - 'delete': Delete the file (destination mode). Idempotent: an already-
-   *   absent path is a no-op. The body is unchanged. Supports dynamic paths.
-   * Default: 'read' for source, 'write' for destination
+   * Send role behavior: append to the file instead of overwriting it.
+   * Mutually exclusive with `delete`. Default: false (overwrite)
    */
-  mode?: "read" | "write" | "append" | "delete";
+  append?: boolean;
+  /**
+   * Send role behavior: delete the file instead of writing it. Idempotent:
+   * an already-absent path is a no-op. The body is unchanged. Mutually
+   * exclusive with `append`. Default: false
+   */
+  delete?: boolean;
   /**
    * Text encoding (only when path is provided). Default: 'utf-8'
    */
   encoding?: BufferEncoding;
   /**
-   * Create parent directories if they don't exist (destination mode only, only when path is provided).
+   * Create parent directories if they don't exist (send role only, only when path is provided).
    * Default: false
    */
   createDirs?: boolean;
 
   /**
-   * How to handle an `extractHtml` failure on the file content (source mode
+   * How to handle an `extractHtml` failure on the file content (source role
    * only).
    *
    * - `'fail'` (default): `exchange:failed` fires; the route's `.error()`

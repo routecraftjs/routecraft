@@ -131,7 +131,7 @@ declare module '@routecraft/routecraft' {
 ```ts
 import { type MergedOptions, type CraftContext } from '@routecraft/routecraft'
 
-class MyAdapter implements Destination<unknown, void>, MergedOptions<MyAdapterOptions> {
+class MyAdapter implements Destination<unknown>, MergedOptions<MyAdapterOptions> {
   readonly adapterId = 'acme.adapter.my-adapter'
   public options: Partial<MyAdapterOptions>
 
@@ -188,7 +188,7 @@ export { myAdapterPlugin, MY_ADAPTER_OPTIONS }
 {% quick-links %}
 
 {% quick-link title="Configuration" icon="presets" href="/docs/reference/configuration" description="Full CraftConfig reference including cron and direct fields." /%}
-{% quick-link title="Creating adapters" icon="plugins" href="/docs/advanced/custom-adapters" description="Build your own source, destination, or processor adapter." /%}
+{% quick-link title="Creating adapters" icon="plugins" href="/docs/advanced/custom-adapters" description="Build your own source, destination, enricher, or processor adapter." /%}
 {% quick-link title="Plugins reference" icon="presets" href="/docs/reference/plugins" description="Full API for built-in plugin options." /%}
 
 {% /quick-links %}

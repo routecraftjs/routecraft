@@ -104,11 +104,11 @@ describe("File Adapter", () => {
     });
 
     /**
-     * @case Throws error when path is function in source mode
-     * @preconditions Source adapter with function path
-     * @expectedResult Error indicating dynamic paths only for destinations
+     * @case Throws error when path is a function in the source role
+     * @preconditions Source subscription with a function path
+     * @expectedResult The shared "static string path" error surfaces
      */
-    test("throws error when path is function in source mode", async () => {
+    test("throws error when path is function in the source role", async () => {
       const adapter = file({ path: () => "dynamic.txt" });
 
       await expect(
@@ -120,9 +120,7 @@ describe("File Adapter", () => {
           complete: () => {},
           emit: async () => ({}) as never,
         }),
-      ).rejects.toThrow(
-        /path must be a string for source mode.*dynamic paths are only supported for destinations/,
-      );
+      ).rejects.toThrow(/the source role requires a static string path/);
     });
   });
 
@@ -143,7 +141,7 @@ describe("File Adapter", () => {
           craft()
             .id("file-write")
             .from(simple(content))
-            .to(file({ path: filePath, mode: "write" }))
+            .to(file({ path: filePath }))
             .to(s),
         )
         .build();
@@ -169,7 +167,7 @@ describe("File Adapter", () => {
           craft()
             .id("file-write-object")
             .from(simple(content))
-            .to(file({ path: filePath, mode: "write" })),
+            .to(file({ path: filePath })),
         )
         .build();
 
@@ -196,7 +194,7 @@ describe("File Adapter", () => {
           craft()
             .id("file-append")
             .from(simple(appended))
-            .to(file({ path: filePath, mode: "append" })),
+            .to(file({ path: filePath, append: true })),
         )
         .build();
 
@@ -220,7 +218,7 @@ describe("File Adapter", () => {
           craft()
             .id("file-create-dirs")
             .from(simple(content))
-            .to(file({ path: filePath, mode: "write", createDirs: true })),
+            .to(file({ path: filePath, createDirs: true })),
         )
         .build();
 
@@ -244,7 +242,7 @@ describe("File Adapter", () => {
           craft()
             .id("file-no-create-dirs")
             .from(simple(content))
-            .to(file({ path: filePath, mode: "write", createDirs: false })),
+            .to(file({ path: filePath, createDirs: false })),
         )
         .build();
 
@@ -280,7 +278,6 @@ describe("File Adapter", () => {
                     tmpDir,
                     `output-${(ex.body as { id: string }).id}.txt`,
                   ),
-                mode: "write",
               }),
             ),
         )
@@ -315,7 +312,6 @@ describe("File Adapter", () => {
                     (ex.body as { date: string }).date,
                     "output.txt",
                   ),
-                mode: "write",
                 createDirs: true,
               }),
             ),
@@ -344,7 +340,7 @@ describe("File Adapter", () => {
           craft()
             .id("file-no-body-change")
             .from(simple(content))
-            .to(file({ path: filePath, mode: "write" }))
+            .to(file({ path: filePath }))
             .to(s),
         )
         .build();
@@ -355,14 +351,14 @@ describe("File Adapter", () => {
     });
   });
 
-  describe("read mode as destination (mid-route read)", () => {
+  describe("fetch role (mid-route read)", () => {
     /**
-     * @case file({mode:'read'}) used with .to() returns the file content,
-     *   replacing the body, so a file can be read mid-route (not just at .from)
+     * @case Bare .enrich(file({ path })) reads the file and the content
+     *   replaces the body, so a file can be read mid-route (not just at .from)
      * @preconditions File exists with text content
      * @expectedResult The body becomes the file content
      */
-    test("to() returns the file content as the new body", async () => {
+    test("bare enrich replaces the body with the file content", async () => {
       const filePath = path.join(tmpDir, "read-dest.txt");
       const content = "read me mid-route";
       await fsp.writeFile(filePath, content, "utf-8");
@@ -374,7 +370,7 @@ describe("File Adapter", () => {
           craft()
             .id("file-read-dest")
             .from(simple("ignored"))
-            .to(file({ path: filePath, mode: "read" }))
+            .enrich(file({ path: filePath }))
             .to(s),
         )
         .build();
@@ -386,8 +382,8 @@ describe("File Adapter", () => {
     });
 
     /**
-     * @case Read-as-destination resolves a dynamic (function) path from the
-     *   exchange, which source mode rejects
+     * @case The fetch role resolves a dynamic (function) path from the
+     *   exchange, which the source role rejects
      * @preconditions Body carries the file name; path is a function of the body
      * @expectedResult The file selected by the body is read
      */
@@ -403,10 +399,9 @@ describe("File Adapter", () => {
           craft()
             .id("file-read-dynamic")
             .from(simple<{ file: string }>({ file: filePath }))
-            .to(
+            .enrich(
               file({
                 path: (ex) => (ex.body as { file: string }).file,
-                mode: "read",
               }),
             )
             .to(s),
@@ -422,7 +417,7 @@ describe("File Adapter", () => {
 
   describe("delete mode", () => {
     /**
-     * @case file({mode:'delete'}) removes the file and leaves the body unchanged
+     * @case file({ delete: true }) removes the file and leaves the body unchanged
      * @preconditions File exists
      * @expectedResult The file is gone and the body passes through untouched
      */
@@ -437,7 +432,7 @@ describe("File Adapter", () => {
           craft()
             .id("file-delete")
             .from(simple("keep-me"))
-            .to(file({ path: filePath, mode: "delete" }))
+            .to(file({ path: filePath, delete: true }))
             .to(s),
         )
         .build();
@@ -465,7 +460,7 @@ describe("File Adapter", () => {
           craft()
             .id("file-delete-missing")
             .from(simple("x"))
-            .to(file({ path: filePath, mode: "delete" }))
+            .to(file({ path: filePath, delete: true }))
             .to(s),
         )
         .build();
@@ -495,7 +490,7 @@ describe("File Adapter", () => {
             .to(
               file({
                 path: (ex) => (ex.body as { file: string }).file,
-                mode: "delete",
+                delete: true,
               }),
             ),
         )

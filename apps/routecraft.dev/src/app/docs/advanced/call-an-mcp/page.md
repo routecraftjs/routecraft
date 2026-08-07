@@ -55,15 +55,19 @@ export default craft()
   .to(log())
 ```
 
-Or use `.enrich()` to merge the result into the exchange body instead of replacing it:
+Or use `.enrich()` with an aggregator such as `only()` to merge the result into the exchange body instead of replacing it:
 
 ```ts
+import { only } from '@routecraft/routecraft'
+
 export default craft()
   .id('orders.enrich')
   .from(http({ path: '/orders/:id', method: 'GET' }))
-  .enrich(mcp('search:lookup_customer'))
+  .enrich(mcp('search:lookup_customer'), only((customer) => customer, 'customer'))
   .to(http({ method: 'POST', url: 'https://crm.example.com/orders' }))
 ```
+
+Bare `.enrich(mcp(...))` behaves like `.to()`: the tool result replaces the body.
 
 ## Custom argument mapping
 

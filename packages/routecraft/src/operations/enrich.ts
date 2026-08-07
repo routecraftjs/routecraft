@@ -1,8 +1,10 @@
 import { ENRICH_MERGE_TYPE } from "../brand.ts";
 import {
+  type Adapter,
   type Step,
   type StepContext,
   type StepOutcome,
+  type StepSignalContext,
   extractOutcomeMetadata,
   toSignalContext,
 } from "../types.ts";
@@ -12,20 +14,58 @@ import {
   getExchangeContext,
   DefaultExchange,
 } from "../exchange.ts";
-import type { Destination, CallableDestination } from "./to.ts";
+import { rcError } from "../error.ts";
+import { hasFetch } from "./adapter-roles.ts";
 import {
   resolveAdapterOverride,
   invokeSendOverride,
 } from "../testing-hooks.ts";
 
 /**
- * Aggregator used by `.enrich()` to merge the destination result with the current exchange.
- * Receives the original exchange and the enrichment result; returns the (possibly mutated) exchange.
+ * Function form of an enricher: receives the exchange and produces a value
+ * (a lookup result, a file's parsed content, an API response). Used with
+ * `.enrich()`, and accepted by `.to()` / `.tap()` where the returned value
+ * replaces the body / is discarded respectively.
+ *
+ * The second argument carries the step's {@link StepSignalContext}: when an
+ * enclosing `.timeout()` expires, `ctx.signal` aborts, so an enricher doing
+ * cancellation-aware IO can forward it (`fetch(url, { signal })`). Declaring
+ * only the first parameter remains valid.
  *
  * @template T - Current body type
- * @template R - Type returned by the enrichment destination
+ * @template R - Produced value type
  */
-export type DestinationAggregator<T = unknown, R = unknown> = (
+export type CallableEnricher<T = unknown, R = unknown> = (
+  exchange: Exchange<T>,
+  ctx?: StepSignalContext,
+) => Promise<R> | R;
+
+/**
+ * Enricher adapter: pulls a value IN per exchange (HTTP GET, file read, IMAP
+ * fetch, LLM call). Used with `.enrich()`; also accepted by `.to()` (the
+ * result replaces the body) and `.tap()` (the result is discarded).
+ *
+ * The pull-in counterpart of {@link Destination}: `send` pushes out and is
+ * void, `fetch` pulls in and produces a value. An adapter may implement both
+ * roles on one object (e.g. `file()`: send writes, fetch reads); the
+ * operation keyword selects the role, and `.to()` prefers `send`.
+ *
+ * @template T - Current body type
+ * @template R - Produced value type
+ */
+export interface Enricher<T = unknown, R = unknown> extends Adapter {
+  fetch: CallableEnricher<T, R>;
+}
+
+/**
+ * Aggregator used by `.enrich()` to merge the fetched value with the current
+ * exchange. Receives the original exchange and the enrichment result; returns
+ * the (derived) exchange.
+ *
+ * @template T - Current body type
+ * @template R - Type produced by the enricher
+ */
+export type EnrichAggregator<T = unknown, R = unknown> = (
   original: Exchange<T>,
   enrichmentData: R,
 ) => Exchange<T>;
@@ -37,47 +77,6 @@ export type DestinationAggregator<T = unknown, R = unknown> = (
 export type EnrichMergeShape = Record<string, unknown>;
 
 /**
- * Default aggregator for `.enrich()`: merges the enrichment result into the exchange body.
- *
- * - undefined/null: exchange unchanged.
- * - Object: spread onto body.
- * - Primitive/array: set at body.stdout or body.array; non-object bodies are wrapped as { stdout } first.
- *
- * Aggregators are pure: they return a new exchange (typically via spread).
- * The framework re-wraps the returned plain object back into a proper
- * exchange instance.
- *
- * @example
- * ```typescript
- * .enrich(http({ url: 'https://api.example.com/user' }))
- * // Response body is spread onto exchange.body; no need to pass aggregator.
- * ```
- */
-export const defaultEnrichAggregator = <T = unknown, R = unknown>(
-  original: Exchange<T>,
-  enrichmentData: R,
-): Exchange<T> => {
-  if (enrichmentData === undefined || enrichmentData === null) {
-    return original;
-  }
-
-  const isEnrichmentObject =
-    typeof enrichmentData === "object" && enrichmentData !== null;
-  const isBodyObject =
-    typeof original.body === "object" && original.body !== null;
-
-  const originalBody = isBodyObject ? original.body : { stdout: original.body };
-  const enrichmentObject = isEnrichmentObject
-    ? (enrichmentData as Record<string, unknown>)
-    : { stdout: enrichmentData };
-
-  return {
-    ...original,
-    body: { ...originalBody, ...enrichmentObject } as T,
-  };
-};
-
-/**
  * Returns an aggregator for `.enrich()` that merges a single value from the enrichment result into the body.
  *
  * - `getValue(enrichmentData)` extracts the value; null/undefined are not merged.
@@ -86,7 +85,7 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
  *
  * @param getValue - Function to extract the value from the enrichment result
  * @param into - Optional key to set on body (enables type inference when a string literal)
- * @returns An aggregator usable with `.enrich(destination, aggregator)`
+ * @returns An aggregator usable with `.enrich(enricher, aggregator)`
  *
  * @example
  * ```typescript
@@ -97,17 +96,17 @@ export const defaultEnrichAggregator = <T = unknown, R = unknown>(
 export function only<R, V, K extends string>(
   getValue: (enrichmentData: R) => V,
   into: K,
-): DestinationAggregator<unknown, unknown> & {
+): EnrichAggregator<unknown, unknown> & {
   [ENRICH_MERGE_TYPE]: Record<K, V>;
 };
 export function only<T = unknown, R = unknown, V = unknown>(
   getValue: (enrichmentData: R) => V,
   into?: string,
-): DestinationAggregator<T, R>;
+): EnrichAggregator<T, R>;
 export function only<T = unknown, R = unknown, V = unknown>(
   getValue: (enrichmentData: R) => V,
   into?: string,
-): DestinationAggregator<T, R> {
+): EnrichAggregator<T, R> {
   return (original: Exchange<T>, enrichmentData: R): Exchange<T> => {
     const value = getValue(enrichmentData);
     if (value === undefined || value === null) {
@@ -144,17 +143,14 @@ export function only<T = unknown, R = unknown, V = unknown>(
 
 /**
  * No-op aggregator for `.enrich()`: returns the original exchange unchanged (enrichment is ignored).
- * Use when you only need the side effect of calling the destination (e.g. logging or triggering an API).
+ * Use when you only need the side effect of the fetch (e.g. warming a cache) while gating the pipeline on it.
  *
  * @example
  * ```typescript
  * .enrich(http({ url: 'https://api.example.com/ping' }), none())
  * ```
  */
-export const none = <T = unknown, R = unknown>(): DestinationAggregator<
-  T,
-  R
-> => {
+export const none = <T = unknown, R = unknown>(): EnrichAggregator<T, R> => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- second param required by signature, intentionally unused
   return (original: Exchange<T>, _ignored: R): Exchange<T> => {
     return original;
@@ -162,49 +158,31 @@ export const none = <T = unknown, R = unknown>(): DestinationAggregator<
 };
 
 /**
- * Aggregator for `.enrich()` that replaces the exchange body with the enrichment result instead of merging.
- * Use when the enrichment returns the data you want as the new body (e.g. an array of messages).
- *
- * @example
- * ```typescript
- * .enrich(mail({ folder: 'INBOX', unseen: true }), replace())
- * // body becomes MailMessage[] (the raw enrichment result)
- * ```
- */
-export const replace = <R>(): DestinationAggregator<unknown, R> => {
-  return (
-    original: Exchange<unknown>,
-    enrichmentData: R,
-  ): Exchange<unknown> => {
-    return { ...original, body: enrichmentData };
-  };
-};
-
-/**
  * Aggregator type accepted by EnrichStep. Includes `only()` return type (with [ENRICH_MERGE_TYPE]) for body-type inference.
  */
 export type EnrichAggregatorOption<T, R> =
-  | DestinationAggregator<T, R>
-  | (DestinationAggregator<unknown, unknown> & {
+  | EnrichAggregator<T, R>
+  | (EnrichAggregator<unknown, unknown> & {
       [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
     });
 
 /**
- * Step that enriches the exchange with data from a destination (e.g. HTTP lookup).
- * Uses the same Destination adapters as `.to()`; by default merges the result into the body. Optional aggregator (e.g. `only()`, `none()`) controls how the result is merged.
+ * Step that enriches the exchange with data pulled in by an {@link Enricher}
+ * (e.g. HTTP lookup, file read). With no aggregator the fetched value
+ * REPLACES the body; pass an aggregator (`only()`, `none()`, or a custom
+ * function) to merge instead.
  */
-export class EnrichStep<T = unknown, R = unknown> implements Step<
-  Destination<T, R>
-> {
+export class EnrichStep<T = unknown, R = unknown> implements Step<Adapter> {
   operation: OperationType = OperationType.ENRICH;
-  adapter: Destination<T, R>;
+  adapter: Adapter;
   aggregator: EnrichAggregatorOption<T, R> | undefined;
 
   constructor(
-    adapter: Destination<T, R> | CallableDestination<T, R>,
+    enricher: Enricher<T, R> | CallableEnricher<T, R>,
     aggregator?: EnrichAggregatorOption<T, R>,
   ) {
-    this.adapter = typeof adapter === "function" ? { send: adapter } : adapter;
+    this.adapter =
+      typeof enricher === "function" ? { fetch: enricher } : enricher;
     this.aggregator = aggregator;
   }
 
@@ -218,18 +196,25 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
       getExchangeContext(exchange),
     );
 
-    // Get the enrichment data by calling the destination's send method
-    // (or the mock handler when an override is registered).
+    // Pull the enrichment data through the fetch slot (or the mock handler
+    // when an override is registered).
     let enrichmentData: R;
     if (override) {
       enrichmentData = (await invokeSendOverride(
         exchange,
-        this.adapter as unknown as Destination<unknown, unknown>,
+        this.adapter,
         override,
       )) as R;
     } else {
+      if (!hasFetch<T, R>(this.adapter)) {
+        throw rcError("RC5003", undefined, {
+          message: "`.enrich()` target does not implement `fetch`",
+          suggestion:
+            "Enrichment pulls data in; pass an Enricher (fetch) or a function form. Push-out sends belong in `.to()` / `.tap()`",
+        });
+      }
       enrichmentData = await Promise.resolve(
-        this.adapter.send(exchange, toSignalContext(ctx)),
+        this.adapter.fetch(exchange, toSignalContext(ctx)),
       );
     }
 
@@ -239,10 +224,25 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
       this.adapter,
       enrichmentData,
       !!override,
+      "getMetadata",
+      exchange,
     );
 
-    // Use the provided aggregator or the default one
-    const aggregator = this.aggregator || defaultEnrichAggregator;
+    // No aggregator: the fetched value replaces the body. `undefined` (e.g.
+    // a mock override with no handler) leaves the exchange unchanged.
+    if (this.aggregator === undefined) {
+      const next =
+        enrichmentData === undefined
+          ? (exchange as Exchange<unknown>)
+          : DefaultExchange.rewrap<unknown>(exchange, {
+              body: enrichmentData,
+            });
+      return {
+        kind: "continue",
+        exchange: next,
+        ...(metadata ? { metadata } : {}),
+      };
+    }
 
     // Aggregator returns a (possibly new) exchange. The fast-path is
     // identity equality (aggregator returned the same input); anything
@@ -251,7 +251,7 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<
     // exchange's internals so route binding / context survive the
     // aggregator and principal sticky-set semantics stay consistent.
     const result = (await Promise.resolve(
-      aggregator(exchange, enrichmentData),
+      this.aggregator(exchange, enrichmentData),
     )) as Exchange<T>;
 
     const next: Exchange<T> =

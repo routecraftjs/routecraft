@@ -138,7 +138,7 @@ it("moves spam and replies to friends", async () => {
 ### Anatomy of a mock
 
 - **`source`** -- an array of fixtures, a (sync or async) iterable, or `(args) => iterable`. Each item is delivered to `.from(factory(...))` as one exchange. For polling sources this models one poll cycle.
-- **`send`** -- `(exchange, { args }) => result`. Called for every `.to(factory(...))`, `.enrich(factory(...))`, and `.tap(factory(...))` in the route. Accepts a `vi.fn()` too, so `mockResolvedValueOnce` / `mockRejectedValueOnce` chains work as expected.
+- **`send`** -- `(exchange, { args }) => result`. Called for every `.to(factory(...))`, `.enrich(factory(...))`, and `.tap(factory(...))` in the route. What happens to `result` follows the step's slot resolution: a fetch-resolved step (`.enrich()`, or a fetch-only enricher such as `http()` in `.to()`) uses it as the fetched value (replacing the body by default), while a send-resolved `.to()` discards it -- a mocked send stays a void send, the body continues unchanged. Accepts a `vi.fn()` too, so `mockResolvedValueOnce` / `mockRejectedValueOnce` chains work as expected.
 - **`args`** -- whatever the route passed to the factory at that call site. Use it to discriminate when the same factory is used in multiple positions (e.g. `mail("INBOX")` as source vs `mail({ action: "move" })` as destination).
 
 ### Inspecting recorded calls
@@ -160,7 +160,7 @@ A mock stands in for the adapter's `send` / `subscribe`, nothing more. These sid
 - **Tracking ids and correlation data** that specific adapters attach to exchanges.
 - **Timing and I/O side effects** (connection pooling, retries, backoff) that the real adapter performs around the call.
 
-If your route asserts on something the real adapter would have added, shape your mock's `send` return value to match the body the real adapter would have produced and assert on `exchange.body` downstream. The mock cannot mutate the incoming exchange (exchanges are immutable: frozen wrapper, headers, and principal), and the override path bypasses `getMetadata`, so any metadata-style fields the real adapter would have stamped onto headers must instead be carried through the result body in the mock.
+If your route asserts on something the real adapter would have added at a fetch-resolved call site, shape your mock's `send` return value to match the body the real adapter would have produced and assert on `exchange.body` downstream. (At a send-resolved `.to()` the result is discarded, matching the real adapter's void send; receipt headers from the real adapter's `SendContext` are not reproduced either.) The mock cannot mutate the incoming exchange (exchanges are immutable: frozen wrapper, headers, and principal), and the override path bypasses `getMetadata`, so any metadata-style fields the real adapter would have stamped onto headers must instead be carried through the result body in the mock.
 
 ```ts
 const httpMock = mockAdapter(http, {
@@ -190,7 +190,7 @@ const httpMock = mockAdapter(http, {
 
 `mockAdapter(target, behavior)` accepts two kinds of target:
 
-- **A factory function** -- e.g. `mockAdapter(mail, ...)`, `mockAdapter(http, ...)`. Matches every adapter instance that factory produced. Requires the factory to stamp its adapters via `tagAdapter()` internally. The first-party factories that do this today are `mail()`, `http()`, `mcp()`, `file()`, `csv()`, `json()` (file mode), `jsonl()` (every return path), and `html()` (file mode). The transformer-only return paths of `json()` and `html()` are intentionally not tagged because the override resolver only fires on `subscribe`/`send`.
+- **A factory function** -- e.g. `mockAdapter(mail, ...)`, `mockAdapter(http, ...)`. Matches every adapter instance that factory produced. Requires the factory to stamp its adapters via `tagAdapter()` internally. The first-party factories that do this today are `mail()`, `http()`, `mcp()`, `file()`, `csv()`, `json()` (file mode), `jsonl()` (every return path), and `html()` (file mode). The transformer-only return paths of `json()` and `html()` are intentionally not tagged because the override resolver only fires on `subscribe`/`send`/`fetch`.
 - **An adapter class** -- e.g. `mockAdapter(SomeAdapterClass, ...)`. Matches any adapter whose `constructor === target`. Works for every adapter, first-party or third-party, without opt-in tagging. Useful when a third-party adapter exports its class but not a tagged factory, or when you want to mock a specific role of a multi-role factory.
 
 The factory form is nicer when the factory covers a single role. The class form is required when the factory has no tag or when you want to target one specific role of a multi-role factory. Both forms can be mixed on the same `testContext()`.
@@ -201,10 +201,10 @@ In-process adapters like `direct()`, `simple()`, `log()`, and `noop()` do not ta
 
 ### Using the spy adapter
 
-The `spy()` adapter is purpose-built for testing. It records all interactions and provides convenient assertion methods:
+The `spy()` adapter is purpose-built for testing. It records all interactions and provides convenient assertion methods. It carries a `send` face (void, for `.to()` / `.tap()`), a `fetch` face that returns the current body (so a bare `.enrich(spy())` observes without changing the body), and a `process` face:
 
 ```ts
-import { spy } from "@routecraft/routecraft";
+import { spy } from "@routecraft/testing";
 
 const spyAdapter = spy();
 
@@ -212,7 +212,7 @@ const spyAdapter = spy();
 spyAdapter.received         // Array of exchanges received
 spyAdapter.calls.send       // Number of send() calls
 spyAdapter.calls.process    // Number of process() calls (if used as processor)
-spyAdapter.calls.enrich     // Number of enrich() calls (if used as enricher)
+spyAdapter.calls.enrich     // Number of fetch() calls (if used as enricher)
 
 // Methods:
 spyAdapter.reset()          // Clear all recorded data
@@ -223,8 +223,8 @@ spyAdapter.receivedBodies() // Get array of just the body values
 ### Spy on destinations to assert outputs
 
 ```ts
-import { testContext } from "@routecraft/testing";
-import { craft, simple, spy } from "@routecraft/routecraft";
+import { testContext, spy } from "@routecraft/testing";
+import { craft, simple } from "@routecraft/routecraft";
 import { expect } from "vitest";
 
 const spyAdapter = spy();

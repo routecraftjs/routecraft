@@ -29,10 +29,7 @@ import {
  *   .to(mail({ action: 'append', folder: 'Drafts', flags: ['\\Draft'] }))
  * ```
  */
-export class MailOperationDestinationAdapter implements Destination<
-  unknown,
-  void
-> {
+export class MailOperationDestinationAdapter implements Destination<unknown> {
   readonly adapterId = "routecraft.adapter.mail";
 
   constructor(private readonly action: MailAction) {}
@@ -113,9 +110,12 @@ export class MailOperationDestinationAdapter implements Destination<
   }
 
   /**
-   * Extract metadata from the operation for observability.
+   * Observability metadata for the send role: describes the IMAP operation
+   * that ran. Named for the send slot (a `.to()` step resolving through
+   * `send` reads `getSendMetadata`, never `getMetadata`), and it ignores the
+   * receipt record because the operation itself is the interesting detail.
    */
-  getMetadata(): Record<string, unknown> {
+  getSendMetadata(): Record<string, unknown> {
     const { target, ...rest } = this.action;
     void target;
     return rest;

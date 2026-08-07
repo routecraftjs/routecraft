@@ -22,7 +22,8 @@ craft()
     user: (ex) => ex.body.content,
   }))
   .to(log())
-// Result merged into body: { ..., text: '...', usage: { inputTokens, outputTokens } }
+// Result replaces the body: { text: '...', usage: { inputTokens, outputTokens } }
+// (use only() to merge instead, e.g. .enrich(llm(...), only((r) => r.text, 'summary')))
 
 // Structured output with Zod schema
 import { z } from 'zod'
@@ -61,7 +62,7 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 | `frequencyPenalty` | `number` | -- | Frequency penalty |
 | `presencePenalty` | `number` | -- | Presence penalty |
 
-**Result shape (merged into body by `.enrich()`):**
+**Result shape (replaces the body in bare `.enrich()` / `.to()`; pass an aggregator such as `only()` to merge):**
 
 | Field | Type | Description |
 |-------|------|-------------|

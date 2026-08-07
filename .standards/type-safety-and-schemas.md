@@ -19,7 +19,7 @@ Routecraft must be **100% type safe**. The exchange body (or destination result)
 ### Rules
 
 1. **No unnecessary `unknown`.** Prefer inferring types from schemas, callbacks, or literal options so that `unknown` is only used when there is no type information.
-2. **Generics must flow.** Every public API that accepts or produces a body/result type must use generics (`Source<T>`, `Destination<T, R>`, `Transformer<T, R>`, `DestinationAggregator<T, R>`) and the builder must propagate `Current` through the chain.
+2. **Generics must flow.** Every public API that accepts or produces a body/result type must use generics (`Source<T>`, `Destination<T>`, `Enricher<T, R>`, `Transformer<T, R>`, `EnrichAggregator<T, R>`) and the builder must propagate `Current` through the chain.
 3. **New operations and adapters:** Declare input and output types; ensure the route builder's `Current` is updated after the step so downstream steps stay typed.
 4. **Tests:** Add type-level tests (e.g., `expectTypeOf`) where new type inference or propagation is added, so regressions are caught.
 
@@ -40,7 +40,7 @@ export interface EmbeddingOptions<T = unknown> {
 export function embedding<T>(
   modelId: EmbeddingModelId,
   options: EmbeddingOptions<T>, // not Partial<EmbeddingOptions<T>>
-): Destination<T, EmbeddingResult> { ... }
+): Enricher<T, EmbeddingResult> { ... }
 ```
 
 ```ts
@@ -49,7 +49,7 @@ export function embedding<T>(
 export function embedding<T>(
   modelId: EmbeddingModelId,
   options?: Partial<EmbeddingOptions<T>>,
-): Destination<T, EmbeddingResult> { ... }
+): Enricher<T, EmbeddingResult> { ... }
 ```
 
 If every field on the option interface is optional, the factory parameter itself can be optional (`options?: HttpOptions`). The interface stays the source of truth for what is required.

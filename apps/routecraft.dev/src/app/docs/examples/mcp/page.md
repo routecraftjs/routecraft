@@ -44,7 +44,7 @@ and [Securing capabilities](/docs/advanced/securing-capabilities) when you serve
 ## Call an external MCP server
 
 Register the remote servers on `mcpPlugin({ clients })`, then call any tool with the
-`server:tool` shorthand. `.to()` replaces the body with the tool result; `.enrich()` merges it.
+`server:tool` shorthand. `.to()` and bare `.enrich()` replace the body with the tool result; pass an aggregator such as `only()` to `.enrich()` to merge it instead.
 
 ```ts
 // craft.config.ts

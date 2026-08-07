@@ -73,9 +73,9 @@ Authoring rules to keep in mind:
 - **Typed bodies**: declare `.input({ body: Schema })` before `.from(...)`; the chain is retyped from the schema's inferred output, so no `.from<Input>(...)` generic is needed. An explicit `.from<T>(...)` still overrides the inferred type when you need to
 - **No mutation**: pure transforms return new objects via spread. Side effects belong in `.tap(destination)`
 - **Choose the right destination operator**:
-  - `.to(dest)` -- send and ignore the destination's result body (terminal or pass-through with original body)
-  - `.enrich(dest)` -- merge the destination's result into the body
-  - `.tap(dest)` -- fire and forget; do not wait, do not change the body
+  - `.to(target)` -- a destination's `send` is void (the body flows through unchanged; receipts land on headers); an enricher's `fetch` result replaces the body
+  - `.enrich(enricher)` -- pull data in; the fetched value replaces the body, or pass an aggregator (`only(...)`, `none()`) to merge or ignore it
+  - `.tap(target)` -- fire and forget; do not wait, do not change the body, results discarded
 - **Split or aggregate** belongs together. After `.split()` you can chain operations on each item; close with `.aggregate()` to fan back in
 - **Resilience wrappers** stack outside-in. `.error(handler)` at route scope catches anything that escapes the pipeline; at step scope, attach it to a single step
 - **Schemas as the contract**: prefer Standard Schema (`@standard-schema/spec`). Zod and Valibot both work because both implement Standard Schema. Use `@routecraft/routecraft`'s helpers in shared code, not Zod directly

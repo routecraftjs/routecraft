@@ -30,18 +30,15 @@ import {
  * A handwritten destination class with a stable constructor. Used to
  * exercise the class-based override path where no factory tagging exists.
  */
-class PlainDestination<R = { ok: true }> implements Destination<unknown, R> {
+class PlainDestination implements Destination<unknown> {
   constructor(public readonly label: string) {}
-  async send(exchange: Exchange): Promise<R> {
+  async send(exchange: Exchange): Promise<void> {
     void exchange;
-    return { ok: true } as R;
   }
 }
 
-function plainDestination<R = { ok: true }>(
-  label: string,
-): PlainDestination<R> {
-  return new PlainDestination<R>(label);
+function plainDestination(label: string): PlainDestination {
+  return new PlainDestination(label);
 }
 
 /**
@@ -512,7 +509,7 @@ describe("mockAdapter", () => {
       // `unknown[]` (function parameter contravariance). `any[]` is the
       // only annotation that accepts the heterogenous factories below.
       factory: (...args: any[]) => unknown,
-      build: () => Destination<unknown, unknown>,
+      build: () => Destination<unknown>,
     ];
 
     const taggedDestinationCases: readonly TaggedDestinationCase[] = [
@@ -520,37 +517,33 @@ describe("mockAdapter", () => {
         "file",
         file,
         () =>
-          file({ path: "/tmp/__never__.txt" }) as unknown as Destination<
-            unknown,
-            unknown
-          >,
+          file({
+            path: "/tmp/__never__.txt",
+          }) as unknown as Destination<unknown>,
       ],
       [
         "csv",
         csv,
         () =>
-          csv({ path: "/tmp/__never__.csv" }) as unknown as Destination<
-            unknown,
-            unknown
-          >,
+          csv({
+            path: "/tmp/__never__.csv",
+          }) as unknown as Destination<unknown>,
       ],
       [
         "json (file mode)",
         json,
         () =>
-          json({ path: "/tmp/__never__.json" }) as unknown as Destination<
-            unknown,
-            unknown
-          >,
+          json({
+            path: "/tmp/__never__.json",
+          }) as unknown as Destination<unknown>,
       ],
       [
         "jsonl (combined)",
         jsonl,
         () =>
-          jsonl({ path: "/tmp/__never__.jsonl" }) as unknown as Destination<
-            unknown,
-            unknown
-          >,
+          jsonl({
+            path: "/tmp/__never__.jsonl",
+          }) as unknown as Destination<unknown>,
       ],
       [
         "jsonl (destination-only)",
@@ -558,7 +551,7 @@ describe("mockAdapter", () => {
         () =>
           jsonl({
             path: () => "/tmp/__never__.jsonl",
-          }) as unknown as Destination<unknown, unknown>,
+          }) as unknown as Destination<unknown>,
       ],
       [
         "html (file mode)",
@@ -568,7 +561,7 @@ describe("mockAdapter", () => {
             path: "/tmp/__never__.html",
             selector: "title",
             extract: "text",
-          }) as unknown as Destination<unknown, unknown>,
+          }) as unknown as Destination<unknown>,
       ],
     ];
 

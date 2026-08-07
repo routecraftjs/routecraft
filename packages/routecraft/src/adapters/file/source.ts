@@ -5,6 +5,7 @@ import type { ExchangeHeaders } from "../../exchange.ts";
 import { FileHeaders } from "./types.ts";
 import { forEachLine } from "../shared/line-reader.ts";
 import { throwFileError } from "../shared/fs-errors.ts";
+import { staticSourcePathError } from "../shared/file-role-guards.ts";
 
 /**
  * FileSourceAdapter implements the Source interface for reading files.
@@ -31,9 +32,7 @@ export class FileSourceAdapter implements Source<string> {
     } = this.options;
 
     if (typeof filePath !== "string") {
-      throw new Error(
-        "file adapter: path must be a string for source mode (dynamic paths are only supported for destinations)",
-      );
+      throw staticSourcePathError("file");
     }
 
     // Ready means "wired and able to produce", so signal before reading

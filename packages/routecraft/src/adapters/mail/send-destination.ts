@@ -1,21 +1,26 @@
-import type { Destination } from "../../operations/to.ts";
+import type { Destination, SendContext } from "../../operations/to.ts";
 import type { Exchange } from "../../exchange.ts";
 import { getExchangeContext } from "../../exchange.ts";
-import type {
-  MailSendPayload,
-  MailSendResult,
-  MailClientOptions,
-} from "./types.ts";
+import type { MailSendPayload, MailClientOptions } from "./types.ts";
 import {
   getClientManager,
   createSmtpTransport,
   buildMessageOptions,
   throwMailConnectionError,
+  MailHeaders,
 } from "./shared.ts";
 
 /**
  * Destination adapter that sends email via SMTP.
  * Used with `.to(mail())` to send messages.
+ *
+ * A true push-out: `send` is void and the body flows through unchanged. The
+ * send receipt surfaces via headers on the continuing exchange:
+ * `routecraft.mail.sentMessageId` ({@link MailHeaders.SENT_MESSAGE_ID}),
+ * the `routecraft.mail.accepted` / `routecraft.mail.rejected` recipient
+ * lists, and the raw SMTP response on `routecraft.mail.response`. The
+ * inbound `routecraft.mail.messageId` (set by the mail source) is left
+ * untouched, so mail-to-mail routes keep their correlation id.
  *
  * When a MailClientManager is available (via context mail config), uses the
  * shared SMTP transporter. Otherwise falls back to standalone transporter.
@@ -32,10 +37,7 @@ import {
  *   .to(mail())
  * ```
  */
-export class MailSendDestinationAdapter implements Destination<
-  MailSendPayload,
-  MailSendResult
-> {
+export class MailSendDestinationAdapter implements Destination<MailSendPayload> {
   readonly adapterId = "routecraft.adapter.mail";
   private readonly adapterOptions: MailClientOptions;
   private cachedTransporter?: Awaited<ReturnType<typeof createSmtpTransport>>;
@@ -45,7 +47,10 @@ export class MailSendDestinationAdapter implements Destination<
     this.adapterOptions = options ?? {};
   }
 
-  async send(exchange: Exchange<MailSendPayload>): Promise<MailSendResult> {
+  async send(
+    exchange: Exchange<MailSendPayload>,
+    ctx?: SendContext,
+  ): Promise<void> {
     const context = getExchangeContext(exchange);
     const manager = getClientManager(context);
     const account = this.adapterOptions.account;
@@ -80,26 +85,39 @@ export class MailSendDestinationAdapter implements Destination<
     try {
       const info = await transporter.sendMail(mailOptions);
 
-      return {
-        messageId: info.messageId ?? "",
-        accepted: Array.isArray(info.accepted) ? info.accepted.map(String) : [],
-        rejected: Array.isArray(info.rejected) ? info.rejected.map(String) : [],
-        response: info.response ?? "",
-      };
+      // Receipt headers, not a body replacement: the body flows through
+      // unchanged and downstream steps read the receipt off the headers.
+      // The sent message's id gets its OWN key so a mail-to-mail route
+      // (`.from(mail(...))....to(mail())`) keeps the inbound
+      // routecraft.mail.messageId intact for correlation.
+      ctx?.setHeader(MailHeaders.SENT_MESSAGE_ID, info.messageId ?? "");
+      ctx?.setHeader(
+        MailHeaders.ACCEPTED,
+        Array.isArray(info.accepted) ? info.accepted.map(String) : [],
+      );
+      ctx?.setHeader(
+        MailHeaders.REJECTED,
+        Array.isArray(info.rejected) ? info.rejected.map(String) : [],
+      );
+      ctx?.setHeader(MailHeaders.RESPONSE, info.response ?? "");
     } catch (error) {
       throwMailConnectionError(error, "SMTP");
     }
   }
 
   /**
-   * Extract metadata from send result for observability.
+   * Extract send metadata for observability: receives the receipt-header
+   * record collected by the `.to()` step (send is void).
    */
-  getMetadata(result: unknown): Record<string, unknown> {
-    const sendResult = result as MailSendResult;
-    return {
-      messageId: sendResult.messageId,
-      accepted: sendResult.accepted,
-      rejected: sendResult.rejected,
-    };
+  getSendMetadata(receiptHeaders: unknown): Record<string, unknown> {
+    const receipts = (receiptHeaders ?? {}) as Record<string, unknown>;
+    const meta: Record<string, unknown> = {};
+    if (receipts[MailHeaders.SENT_MESSAGE_ID] !== undefined)
+      meta["messageId"] = receipts[MailHeaders.SENT_MESSAGE_ID];
+    if (receipts[MailHeaders.ACCEPTED] !== undefined)
+      meta["accepted"] = receipts[MailHeaders.ACCEPTED];
+    if (receipts[MailHeaders.REJECTED] !== undefined)
+      meta["rejected"] = receipts[MailHeaders.REJECTED];
+    return meta;
   }
 }

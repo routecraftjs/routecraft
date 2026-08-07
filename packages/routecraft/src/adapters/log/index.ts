@@ -22,7 +22,7 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
 export function log<T = unknown>(
   formatter?: (exchange: Exchange<T>) => unknown,
   options?: LogOptions,
-): Destination<T, void> {
+): Destination<T> {
   return tagAdapter(
     new LogDestinationAdapter<T>(formatter, options),
     log,
@@ -41,7 +41,7 @@ export function log<T = unknown>(
 export function debug<T = unknown>(
   formatter?: (exchange: Exchange<T>) => unknown,
   options?: Omit<LogOptions, "level">,
-): Destination<T, void> {
+): Destination<T> {
   return tagAdapter(
     new LogDestinationAdapter<T>(formatter, {
       ...options,

@@ -1,9 +1,10 @@
 import type { Source } from "../../operations/from.ts";
 import type { Destination } from "../../operations/to.ts";
+import type { Enricher } from "../../operations/enrich.ts";
 import { rcError } from "../../error.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
 import { MailSourceAdapter } from "./source.ts";
-import { MailFetchDestinationAdapter } from "./fetch-destination.ts";
+import { MailEnricherAdapter } from "./enricher.ts";
 import { MailSendDestinationAdapter } from "./send-destination.ts";
 import { MailOperationDestinationAdapter } from "./operation-destination.ts";
 import type {
@@ -12,7 +13,6 @@ import type {
   MailBody,
   MailFetchResult,
   MailSendPayload,
-  MailSendResult,
   MailAction,
 } from "./types.ts";
 
@@ -23,14 +23,19 @@ import type {
  * **Source (for `.from()`):** Call with two arguments: `mail(folder, options)`.
  * Uses IMAP IDLE or polling to push new messages to the route.
  *
- * **Fetch Destination (for `.enrich()`):** Call with a folder string or server
- * options containing `folder`. The required `folder` key is what distinguishes
- * a fetch from a send (the object-form counterpart of the `mail('INBOX')`
+ * **Enricher (for `.enrich()`):** Call with a folder string or server options
+ * containing `folder`. The required `folder` key is what distinguishes a
+ * fetch from a send (the object-form counterpart of the `mail('INBOX')`
  * shorthand, mirroring `http`'s `path` vs `url` split). Fetches messages from
- * IMAP and returns them as the enrichment result.
+ * IMAP through the fetch role and returns them as the enrichment result.
  *
  * **Send Destination (for `.to()`):** Call with no arguments or client options
  * (no `folder`). Sends email via SMTP using the exchange body as the payload.
+ * The send is void: the body flows through unchanged and the receipt
+ * (`routecraft.mail.sentMessageId`, `.accepted`, `.rejected`, `.response`)
+ * lands on headers. The sent id is deliberately its own key: an inbound
+ * `routecraft.mail.messageId` set by the source is left untouched so a
+ * mail-to-mail route keeps its correlation id.
  *
  * **Operation Destination (for `.to()`):** Call with a MailAction object.
  * Performs IMAP operations (move, copy, delete, flag, unflag, append) on messages.
@@ -73,28 +78,26 @@ import type {
  *
  * @param folder - IMAP mailbox folder name (e.g. 'INBOX')
  * @param options - Server options for IMAP connection and fetch behavior
- * @returns Source, Fetch Destination, Send Destination, or Operation Destination depending on arguments
+ * @returns Source, Enricher, Send Destination, or Operation Destination depending on arguments
  */
 export function mail(
   folder: string,
   options: MailServerOptions,
 ): Source<MailBody>;
-export function mail(folder: string): Destination<unknown, MailFetchResult>;
-export function mail(action: MailAction): Destination<unknown, void>;
+export function mail(folder: string): Enricher<unknown, MailFetchResult>;
+export function mail(action: MailAction): Destination<unknown>;
 export function mail(
   options: MailServerOptions & { folder: string },
-): Destination<unknown, MailFetchResult>;
-export function mail(
-  options?: MailClientOptions,
-): Destination<MailSendPayload, MailSendResult>;
+): Enricher<unknown, MailFetchResult>;
+export function mail(options?: MailClientOptions): Destination<MailSendPayload>;
 export function mail(
   folderOrOptions?: string | MailServerOptions | MailClientOptions | MailAction,
   options?: MailServerOptions,
 ):
   | Source<MailBody>
-  | Destination<unknown, MailFetchResult>
-  | Destination<MailSendPayload, MailSendResult>
-  | Destination<unknown, void> {
+  | Enricher<unknown, MailFetchResult>
+  | Destination<MailSendPayload>
+  | Destination<unknown> {
   const args = factoryArgs(folderOrOptions, options);
 
   // 2 args: string + object -> Source (matches direct(endpoint, options) pattern)
@@ -103,12 +106,12 @@ export function mail(
     return tagAdapter(adapter, mail, args) as Source<MailBody>;
   }
 
-  // 1 arg string -> Fetch Destination (folder shorthand for .enrich())
+  // 1 arg string -> Enricher (folder shorthand for .enrich())
   if (typeof folderOrOptions === "string") {
-    const adapter = new MailFetchDestinationAdapter({
+    const adapter = new MailEnricherAdapter({
       folder: folderOrOptions,
     });
-    return tagAdapter(adapter, mail, args) as Destination<
+    return tagAdapter(adapter, mail, args) as Enricher<
       unknown,
       MailFetchResult
     >;
@@ -120,17 +123,17 @@ export function mail(
     const adapter = new MailOperationDestinationAdapter(
       folderOrOptions as MailAction,
     );
-    return tagAdapter(adapter, mail, args) as Destination<unknown, void>;
+    return tagAdapter(adapter, mail, args) as Destination<unknown>;
   }
 
   // `folder` is the required fetch discriminator (object-form counterpart of
   // the mail('INBOX') shorthand). Key presence declares the intent; an
   // undefined value still resolves through the context-level folder default.
   if (folderOrOptions && "folder" in folderOrOptions) {
-    const adapter = new MailFetchDestinationAdapter(
+    const adapter = new MailEnricherAdapter(
       folderOrOptions as MailServerOptions,
     );
-    return tagAdapter(adapter, mail, args) as Destination<
+    return tagAdapter(adapter, mail, args) as Enricher<
       unknown,
       MailFetchResult
     >;
@@ -154,10 +157,7 @@ export function mail(
   const adapter = new MailSendDestinationAdapter(
     folderOrOptions as MailClientOptions | undefined,
   );
-  return tagAdapter(adapter, mail, args) as Destination<
-    MailSendPayload,
-    MailSendResult
-  >;
+  return tagAdapter(adapter, mail, args) as Destination<MailSendPayload>;
 }
 
 /**
@@ -215,7 +215,6 @@ export type {
   MailMessage,
   MailAttachment,
   MailSendPayload,
-  MailSendResult,
   MailFetchResult,
   MailContextConfig,
   MailAccountConfig,

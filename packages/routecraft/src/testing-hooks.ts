@@ -1,7 +1,7 @@
 import type { CraftContext } from "./context.ts";
 import type { Exchange, ExchangeHeaders } from "./exchange.ts";
+import type { Adapter } from "./types.ts";
 import type { Source } from "./operations/from.ts";
-import type { Destination } from "./operations/to.ts";
 import {
   getAdapterFactory,
   getAdapterArgs,
@@ -264,14 +264,16 @@ export function wrapSourceWithOverride<M = unknown>(
 }
 
 /**
- * Invoke an overridden destination adapter and record the call.
- * Returns the mock's result (which the caller may use to replace the body).
+ * Invoke an overridden destination/enricher adapter and record the call.
+ * Returns the mock's result. For a fetch-resolved step (`.enrich()`, or a
+ * fetch-only adapter in `.to()`) the caller uses it to replace the body; for
+ * a send-resolved `.to()` the result is discarded (send is void).
  *
  * @internal
  */
 export async function invokeSendOverride(
   exchange: Exchange,
-  adapter: Destination<unknown, unknown>,
+  adapter: Adapter,
   override: AdapterOverride,
 ): Promise<unknown> {
   const args = getAdapterArgs(adapter) ?? [];

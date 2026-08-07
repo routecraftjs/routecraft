@@ -204,7 +204,7 @@ Bob,25`;
           craft()
             .id("csv-write-headers")
             .from(simple(data))
-            .to(csv({ path: filePath, header: true, mode: "append" })),
+            .to(csv({ path: filePath, header: true, append: true })),
         )
         .build();
 
@@ -238,7 +238,7 @@ Bob,25`;
                 path: filePath,
                 header: true,
                 delimiter: "\t",
-                mode: "append",
+                append: true,
               }),
             ),
         )
@@ -270,7 +270,7 @@ Alice,30
           craft()
             .id("csv-append")
             .from(simple(data))
-            .to(csv({ path: filePath, header: true, mode: "append" })),
+            .to(csv({ path: filePath, header: true, append: true })),
         )
         .build();
 
@@ -279,6 +279,107 @@ Alice,30
       const written = await fsp.readFile(filePath, "utf-8");
       expect(written).toContain("Alice,30");
       expect(written).toContain("Bob,25");
+    });
+
+    /**
+     * @case Successive appends stay parseable (records are newline-terminated)
+     * @preconditions append: true, the adapter creates the file itself, several exchanges
+     * @expectedResult One header plus one line per record, no spliced rows
+     */
+    test("appends every exchange as its own row", async () => {
+      const filePath = path.join(tmpDir, "multi-append.csv");
+      const data = [
+        { name: "Alice", age: 30 },
+        { name: "Bob", age: 25 },
+        { name: "Carol", age: 41 },
+      ];
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-multi-append")
+            .from(simple(data))
+            .split()
+            .to(csv({ path: filePath, header: true, append: true })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fsp.readFile(filePath, "utf-8");
+      const lines = written.split(/\r?\n/).filter((line) => line.length > 0);
+      // Papa.unparse emits no trailing newline, so an unterminated chunk
+      // would splice the next record onto the previous one ("Alice,30Bob,25")
+      // and collapse the line count.
+      expect(lines).toHaveLength(4);
+      // Exactly one header, written only by the exchange that created the file.
+      expect(lines.filter((line) => line === "name,age")).toHaveLength(1);
+      expect(lines).toContain("Alice,30");
+      expect(lines).toContain("Bob,25");
+      expect(lines).toContain("Carol,41");
+    });
+
+    /**
+     * @case Appending to a file whose last record is unterminated
+     * @preconditions Existing CSV ends mid-record (no trailing newline), append: true
+     * @expectedResult A separator is inserted so the existing row is not spliced
+     */
+    test("appends after an unterminated final record", async () => {
+      const filePath = path.join(tmpDir, "unterminated.csv");
+      // No trailing newline: whatever wrote this left the row open.
+      await fsp.writeFile(filePath, "name,age\r\nAlice,30", "utf-8");
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-unterminated")
+            .from(simple([{ name: "Bob", age: 25 }]))
+            .to(csv({ path: filePath, header: true, append: true })),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fsp.readFile(filePath, "utf-8");
+      const lines = written.split(/\r?\n/).filter((line) => line.length > 0);
+      expect(lines).toEqual(["name,age", "Alice,30", "Bob,25"]);
+      // The file already used CRLF, so the inserted separator matches it.
+      expect(written).not.toContain("Alice,30Bob");
+    });
+
+    /**
+     * @case Appending to a utf16le file does not insert a blank row
+     * @preconditions Existing CSV written as utf16le and terminated, append: true
+     * @expectedResult The new row follows directly; no empty record between them
+     */
+    test("appends to a utf16le file without a blank row", async () => {
+      const filePath = path.join(tmpDir, "utf16.csv");
+      // In utf16le a newline is two bytes (0A 00), so a raw last-byte check
+      // reads the trailing NUL as "unterminated" and prepends a separator.
+      await fsp.writeFile(filePath, "name,age\r\nAlice,30\r\n", "utf16le");
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("csv-utf16-append")
+            .from(simple([{ name: "Bob", age: 25 }]))
+            .to(
+              csv({
+                path: filePath,
+                header: true,
+                append: true,
+                encoding: "utf16le",
+              }),
+            ),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const written = await fsp.readFile(filePath, "utf16le");
+      const lines = written.split(/\r?\n/).filter((line) => line.length > 0);
+      expect(lines).toEqual(["name,age", "Alice,30", "Bob,25"]);
+      expect(written).not.toContain("\r\n\r\n");
     });
 
     /**
@@ -326,7 +427,7 @@ Alice,30
               csv({
                 path: () => path.join(tmpDir, "dynamic-output.csv"),
                 header: true,
-                mode: "append",
+                append: true,
               }),
             ),
         )
@@ -380,7 +481,7 @@ Alice,30
           craft()
             .id("csv-no-body-change")
             .from(simple(data))
-            .to(csv({ path: filePath, header: true, mode: "append" }))
+            .to(csv({ path: filePath, header: true, append: true }))
             .to(s),
         )
         .build();
@@ -602,9 +703,9 @@ Alice,30
     });
   });
 
-  describe("read mode as destination (mid-route read)", () => {
+  describe("fetch role (mid-route read)", () => {
     /**
-     * @case csv({mode:'read'}) used with .enrich() reads + parses the file and
+     * @case .enrich(csv({ path })) reads + parses the file and
      *   merges the rows onto the body, preserving the incoming fields
      * @preconditions File holds a CSV with a header row
      * @expectedResult The matching record is found from the merged rows
@@ -621,7 +722,7 @@ Alice,30
             .id("csv-read-enrich")
             .from(simple<{ id: string }>({ id: "b" }))
             .enrich(
-              csv({ path: filePath, mode: "read" }),
+              csv({ path: filePath }),
               only((rows) => rows as Array<{ id: string; n: string }>, "rows"),
             )
             .transform(
@@ -638,7 +739,7 @@ Alice,30
     });
 
     /**
-     * @case Read-as-destination resolves a dynamic (function) path from the body
+     * @case The fetch role resolves a dynamic (function) path from the body
      * @preconditions Body carries the file name; path is a function of the body
      * @expectedResult The file selected by the body is read and parsed
      */
@@ -653,10 +754,9 @@ Alice,30
           craft()
             .id("csv-read-dynamic")
             .from(simple<{ file: string }>({ file: filePath }))
-            .to(
+            .enrich(
               csv({
                 path: (ex) => (ex.body as { file: string }).file,
-                mode: "read",
               }),
             )
             .to(s),
@@ -672,7 +772,7 @@ Alice,30
 
   describe("delete mode", () => {
     /**
-     * @case csv({mode:'delete'}) removes the file without formatting the body
+     * @case csv({ delete: true }) removes the file without formatting the body
      * @preconditions File exists
      * @expectedResult The file is gone and the body passes through unchanged
      */
@@ -687,7 +787,7 @@ Alice,30
           craft()
             .id("csv-delete")
             .from(simple({ keep: true }))
-            .to(csv({ path: filePath, mode: "delete" }))
+            .to(csv({ path: filePath, delete: true }))
             .to(s),
         )
         .build();
@@ -714,7 +814,7 @@ Alice,30
           craft()
             .id("csv-delete-missing")
             .from(simple("x"))
-            .to(csv({ path: missing, mode: "delete" }))
+            .to(csv({ path: missing, delete: true }))
             .to(s),
         )
         .build();

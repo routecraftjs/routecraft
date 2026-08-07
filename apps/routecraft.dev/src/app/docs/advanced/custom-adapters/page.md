@@ -2,9 +2,16 @@
 title: Creating adapters
 ---
 
-Build your own source, destination, or processor adapter. {% .lead %}
+Build your own source, destination, enricher, or processor adapter. {% .lead %}
 
-When the built-in adapters do not cover a use case, you can write your own. Adapters are plain TypeScript classes that implement one of three interfaces.
+When the built-in adapters do not cover a use case, you can write your own. Adapters are plain TypeScript classes (or objects) that implement one or more of a small set of role interfaces. The role model is directional:
+
+- **Source** streams data IN and starts the pipeline (`.from()`).
+- **Destination** pushes the exchange OUT, per exchange (`.to()` / `.tap()`). `send` is strictly void; the body flows through unchanged.
+- **Enricher** pulls a value IN, per exchange (`.enrich()`, also accepted by `.to()` and `.tap()`). `fetch` produces a value.
+- **Processor** / **Transformer** reshape the exchange in the middle.
+
+The operation keyword selects the role: `.from()` resolves `subscribe`, `.to()` and `.tap()` prefer `send` and fall back to `fetch`, `.enrich()` resolves `fetch`.
 
 ## Source
 
@@ -13,7 +20,7 @@ A source produces data and starts the pipeline. Implement the `Source` interface
 ```ts
 import { type Source, type Subscription } from '@routecraft/routecraft'
 
-class MyQueueAdapter implements Source<Message> {
+class MyQueueSourceAdapter implements Source<Message> {
   readonly adapterId = 'acme.adapter.my-queue'
 
   async subscribe(sub: Subscription<Message>) {
@@ -28,12 +35,12 @@ class MyQueueAdapter implements Source<Message> {
 
 ## Destination
 
-A destination receives the final exchange. Implement the `Destination` interface:
+A destination pushes the exchange out to an external system (a queue publish, a database insert, an SMTP send). Implement the `Destination` interface:
 
 ```ts
 import { type Destination } from '@routecraft/routecraft'
 
-class MyStorageAdapter implements Destination<Record<string, unknown>, void> {
+class MyStorageDestinationAdapter implements Destination<Record<string, unknown>> {
   readonly adapterId = 'acme.adapter.my-storage'
 
   async send(exchange) {
@@ -42,22 +49,49 @@ class MyStorageAdapter implements Destination<Record<string, unknown>, void> {
 }
 ```
 
-If `send` returns a value, the exchange body is replaced with it. If it returns nothing, the body is unchanged.
-
-Use a `Destination` with `.enrich()` when you need to fetch external data and merge it into the body:
+`send` is strictly void: the body always flows through a `.to()` step unchanged. A send that produces a *receipt* (a message id, an etag, a created-resource URL) surfaces it through the second argument, a `SendContext` with a `setHeader` sink; the `.to()` step merges the collected headers onto the continuing exchange. `.tap()` provides the same sink but discards the headers along with its snapshot.
 
 ```ts
-class MyEnricherAdapter implements Destination<InputType, ExtraFields> {
-  readonly adapterId = 'acme.adapter.my-enricher'
+import { type Destination, type SendContext } from '@routecraft/routecraft'
 
-  async send(exchange) {
+class MyStorageDestinationAdapter implements Destination<Record<string, unknown>> {
+  readonly adapterId = 'acme.adapter.my-storage'
+
+  async send(exchange, ctx?: SendContext) {
+    const receipt = await storage.write(exchange.body)
+    ctx?.setHeader('acme.storage.id', receipt.id)
+  }
+}
+```
+
+The `ctx` parameter is optional at the call site (adapters invoked directly in tests may omit it), so always guard with `ctx?.setHeader(...)`. `ctx.signal` aborts when an enclosing `.timeout()` expires; forward it into cancellation-aware IO.
+
+## Enricher
+
+An adapter whose purpose is to *produce* data implements `Enricher` instead (or additionally). `fetch` receives the exchange and returns a value:
+
+```ts
+import { type Enricher } from '@routecraft/routecraft'
+
+class MyLookupEnricherAdapter implements Enricher<InputType, ExtraFields> {
+  readonly adapterId = 'acme.adapter.my-lookup'
+
+  async fetch(exchange) {
     return fetchExtra(exchange.body.id)
   }
 }
 
-// The returned value is merged into the body
-.enrich(myEnricher({ apiKey: process.env.ENRICH_KEY }))
+// Bare .enrich(): the fetched value REPLACES the body
+.enrich(myLookup({ apiKey: process.env.ENRICH_KEY }))
+
+// Merge instead: pass an aggregator such as only()
+.enrich(myLookup({ apiKey: process.env.ENRICH_KEY }), only((extra) => extra, 'extra'))
+
+// .to() accepts a fetch-only enricher too: the result replaces the body
+.to(myLookup({ apiKey: process.env.ENRICH_KEY }))
 ```
+
+Do not return data from `send` to simulate an enricher: `.to()` ignores anything a `send` returns. If an adapter both pushes out and can report data back, give it both slots; `.to()` prefers `send`, `.enrich()` uses `fetch`.
 
 ## Processor
 
@@ -83,7 +117,7 @@ Expose your adapter as a factory function so it reads naturally in the DSL. The 
 ```ts
 // adapters/my-storage.ts
 export function myStorage(options?: MyStorageOptions) {
-  return new MyStorageAdapter(options)
+  return new MyStorageDestinationAdapter(options)
 }
 
 // Usage -- destination
@@ -93,29 +127,19 @@ export function myStorage(options?: MyStorageOptions) {
 ```ts
 // adapters/my-queue.ts
 export function myQueue(options?: MyQueueOptions) {
-  return new MyQueueAdapter(options)
+  return new MyQueueSourceAdapter(options)
 }
 
 // Usage -- source
 .from(myQueue({ queue: 'orders' }))
 ```
 
-```ts
-// adapters/my-enricher.ts
-export function myEnricher(options?: MyEnricherOptions) {
-  return new MyEnricherAdapter(options)
-}
+Keeping one factory per adapter makes imports predictable and avoids a proliferation of role-suffixed exports (`myQueueSource`, `myQueueDestination`, etc.). The adapter carries the role slots -- the factory just wires up the options, and the position in the route selects the role.
 
-// Usage -- enricher (merges result into body)
-.enrich(myEnricher({ apiKey: process.env.ENRICH_KEY }))
-```
-
-Keeping one factory per adapter makes imports predictable and avoids a proliferation of role-suffixed exports (`myQueueSource`, `myQueueDestination`, etc.). The adapter class itself handles the role -- the factory just wires up the options.
-
-An adapter class can implement multiple interfaces when it makes sense. A queue adapter, for example, may work as both a source and a destination:
+An adapter can carry multiple role slots on one honest combined type when it makes sense. The built-in `file()` is the canonical example: `Source<string> & Destination<unknown> & Enricher<unknown, string>`, where `.from()` reads, `.to()` writes, and `.enrich()` reads mid-route. A queue adapter may combine source and destination the same way:
 
 ```ts
-class MyQueueAdapter implements Source<Message>, Destination<Message, void> {
+class MyQueueAdapter implements Source<Message>, Destination<Message> {
   readonly adapterId = 'acme.adapter.my-queue'
 
   async subscribe(sub: Subscription<Message>) {
@@ -140,7 +164,17 @@ export function myQueue(options: MyQueueOptions) {
 .to(myQueue({ queue: 'results' }))
 ```
 
-Discriminate the role structurally -- by `arguments.length`, `typeof`, or the shape of the options (`'consumerGroup' in options`) -- never by inspecting an option's *value*. Class names carry the role, `{Concept}{Role}Adapter` (`MyQueueSourceAdapter`, `MyQueueDestinationAdapter`), even for single-role adapters, so growing a role later stays additive.
+## Option laws
+
+When a factory returns different shapes for different call forms, a few rules keep the surface predictable:
+
+- **The operation keyword selects the role.** Never make an option choose between roles that both exist on the returned adapter: `.from()` subscribes, `.to()` sends, `.enrich()` fetches. There is no `mode: 'read' | 'write'` option and no per-role type alias (`MyThingReadAdapter`); the combined type plus the keyword is the whole story.
+- **Overload by key *presence*, never by an option's value.** `http()` splits on `path` (server) vs `url` (client); `json()` becomes a file adapter because `path` is present; `mail()` fetches because `folder` is present. Discriminate structurally -- `arguments.length`, `typeof`, `'key' in options` -- so the returned type is knowable at compile time.
+- **Behavior variants are boolean flags, not an enum.** A send that can also append or delete takes `append?: boolean` / `delete?: boolean`, defaulting to the primary behavior (overwrite). Validate mutually exclusive flags at construction and throw `RC5003` with a suggestion, so misconfiguration fails at the call site rather than mid-route.
+- **Shape-changing flags demand a literal.** When a flag changes the emitted type (like `chunked: true` switching a source from `T[]` to per-item `T`), type the overload against the literal `true` so a widened `boolean` is a compile error and dynamic switching is an explicit branch at the call site.
+- **A slot that cannot work in some configuration still fails loudly.** The source role of a file-family adapter needs a static string path; a dynamic (function) path keeps the honest combined type but its `subscribe` throws a clear error lazily instead of surfacing an undefined-property TypeError.
+
+Class names carry the role, `{Concept}{Role}Adapter` (`MyQueueSourceAdapter`, `MyQueueDestinationAdapter`, `MyLookupEnricherAdapter`), even for single-role adapters, so growing a role later stays additive.
 
 ## File structure
 
@@ -153,22 +187,23 @@ adapters/
     types.ts          # exported option and result types
     source.ts         # MyQueueSourceAdapter -- present because it can be a .from() source
     destination.ts    # MyQueueDestinationAdapter -- present because it can be a .to() destination
+    enricher.ts       # MyQueueEnricherAdapter -- present because it can be an .enrich() pull-in
     shared.ts         # option parsing / helpers shared between the role files
 ```
 
-The files present are the documentation: a folder with both `source.ts` and `destination.ts` is visibly a two-role adapter, while one with only `source.ts` is source-only. Adding a role later means adding a file, not reshaping the existing ones.
+The files present are the documentation: a folder with `source.ts`, `destination.ts`, and `enricher.ts` is visibly a three-role adapter, while one with only `source.ts` is source-only. Adding a role later means adding a file, not reshaping the existing ones.
 
 A trivial single-role adapter with no shared helpers can stay a single file (`adapters/my-queue.ts`), the same shorthand the examples above use. Reach for the folder once the adapter grows a second role, shared helpers, or a types module.
 
 ## Options naming
 
-When an adapter plays two roles with different options for each, name the option types so the role is readable from the type alone. Interfaces use Source/Destination; option *types* use Server/Client:
+When an adapter plays two sides with different options for each, name the option types so the side is readable from the type alone. Interfaces use Source/Destination/Enricher; option *types* use Server/Client:
 
 | Type | Role |
 | --- | --- |
-| `MyQueueBaseOptions` | fields shared by both roles |
+| `MyQueueBaseOptions` | fields shared by both sides |
 | `MyQueueServerOptions extends MyQueueBaseOptions` | the source / `.from()` side |
-| `MyQueueClientOptions extends MyQueueBaseOptions` | the destination / `.to()` side |
+| `MyQueueClientOptions extends MyQueueBaseOptions` | the client / `.to()` / `.enrich()` side |
 | `MyQueueOptions` | the exported union `MyQueueServerOptions \| MyQueueClientOptions`, used as the factory parameter type |
 
 Both role types carry the base. A role that adds nothing of its own can alias it (`type MyQueueClientOptions = MyQueueBaseOptions`). If the roles share no fields at all, declare each independently and drop the base. A single-role adapter needs only `MyQueueOptions`, plus an optional `MyQueueResult`.
@@ -189,7 +224,7 @@ export function myQueue(options: MyQueueOptions) {
 
 `factoryArgs(...)` builds the args tuple and trims trailing `undefined` so `call.args.length` reflects what the user actually typed. Use it rather than hand-building an array so your adapter behaves consistently with the framework's built-in adapters.
 
-For a multi-interface factory, tag at every return path:
+For a multi-role factory, tag at every return path:
 
 ```ts
 export function myQueue(options: MyQueueOptions) {
@@ -208,7 +243,6 @@ const queueMock = mockAdapter(myQueue, {
   send: async (exchange, { args }) => {
     // args[0] is whatever the user passed to myQueue() at this call site,
     // so you can assert on it or branch behaviour per call site.
-    return { ok: true }
   },
 })
 ```
@@ -232,7 +266,7 @@ declare module '@routecraft/routecraft' {
   }
 }
 
-class MyAdapter implements Destination<unknown, void>, MergedOptions<MyOptions> {
+class MyAdapter implements Destination<unknown>, MergedOptions<MyOptions> {
   readonly adapterId = 'acme.adapter.my-adapter'
   public options: Partial<MyOptions>
 

@@ -6,56 +6,69 @@ title: to
 
 ```ts
 to<R = void>(
-  destination: Destination<Current, R> | CallableDestination<Current, R>
-): RouteBuilder<R>
+  target: Destination<Current> | Enricher<Current, R> | CallableDestination<Current> | CallableEnricher<Current, R>
+): RouteBuilder<...>
 ```
 
-Send the exchange to a destination. If the destination returns `undefined`, the exchange continues unchanged. If it returns a value, the exchange body is replaced with that value.
+Hand the exchange to a destination or enricher. Resolution follows the role model: an adapter with `send` is invoked as a push-out and the body continues unchanged; an adapter with only `fetch` is invoked as a pull-in and the result replaces the body. When both slots exist, `send` wins.
 
-**Destinations returning void (side-effect only):**
+**Destinations (push out, body unchanged):**
+
+A destination's `send` is strictly void: the body flows through the `.to()` step untouched. A send that produces a receipt (a message id, an etag, a created-resource URL) surfaces it via the `SendContext` header sink, and the step merges the collected headers onto the continuing exchange.
 
 ```ts
-.to(log()) // Log the final result
-.to(saveToDB) // Insert into database, returns void
+.to(log()) // Log the final result; body unchanged
+.to(file({ path: './out.txt' })) // Write the body to a file; body unchanged
+.to(mail()) // SMTP send; receipt lands on routecraft.mail.* headers
 .to(async (exchange) => {
   await sendToWebhook(exchange);
-  // No return = undefined = body unchanged
+  // Function form with no return value = a send = body unchanged
 })
 ```
 
-**Destinations returning data (body replacement):**
+**Enrichers (pull in, body replaced):**
 
-When a destination returns a value (not `undefined`), the exchange body is **replaced** with that value.
+An enricher's `fetch` produces a value; in `.to()` that value **replaces** the body.
 
 ```ts
-// http returns HttpResult - body becomes HttpResult
+// http's client is an enricher - body becomes HttpResult
 .to(http({ url: 'https://api.example.com/transform' }))
 
-// Custom adapter returns ID - body becomes the ID
-.to(saveToDBReturnID)
+// direct's client is an enricher - body becomes the target route's response
+.to(direct('fetch-order'))
 
-// Custom transformation
+// Function form that returns a value acts as a fetch
 .to(async (exchange) => {
   const result = await processData(exchange.body);
   return result; // Body replaced with result
 })
 ```
 
+**Custom send receipts (function form):**
+
+The function form receives the `SendContext` as its second argument; use `ctx.setHeader` to attach a receipt to the continuing exchange.
+
+```ts
+.to(async (exchange, ctx) => {
+  const id = await insertRow(exchange.body);
+  ctx?.setHeader('myapp.db.id', id);
+})
+```
+
 **Chaining .to() calls:**
 
 ```ts
-// Each .to() can transform the body if it returns a value
+// Each .to() with a fetch (or value-returning function) replaces the body
 .to(async (ex) => ({ ...ex.body, step: 1 }))
 .to(async (ex) => ({ ...ex.body, step: 2 }))
-// Body accumulates changes from each .to() that returns data
 
-// Mix side-effects and transformations
-.to(saveToDB) // Returns void, body unchanged
-.to(http({ url: 'https://api.example.com/enrich' })) // Body becomes HttpResult
-.to(log()) // Logs the HttpResult
+// Mix sends and fetches
+.to(saveToDB) // Send: void, body unchanged
+.to(http({ url: 'https://api.example.com/enrich' })) // Fetch: body becomes HttpResult
+.to(log()) // Send: logs the HttpResult, body unchanged
 ```
 
-**Note:** Unlike `.enrich()`, `.to()` does not merge results. If the destination returns a value, it completely replaces the body.
+**Note:** Unlike `.enrich()`, `.to()` takes no aggregator. A fetch result completely replaces the body; use `.enrich()` with `only()` or a custom aggregator when you want to merge.
 
 {% callout type="warning" title="Multiple .to() per route not recommended" %}
 While technically possible, using multiple `.to()` operations in a single route is not advised. We recommend one `.to()` per route for clarity. Consider using `.enrich()` for intermediate data fetching or `.tap()` for side effects.

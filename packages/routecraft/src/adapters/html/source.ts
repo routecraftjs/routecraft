@@ -31,19 +31,11 @@ export class HtmlSourceAdapter<
   constructor(private readonly options: HtmlOptions<T, R>) {
     if (!options.path) {
       throw new Error(
-        "html adapter: source mode requires path option to be provided",
-      );
-    }
-    if (typeof options.path !== "string") {
-      throw new Error(
-        "html adapter: source mode requires a static string path (dynamic paths are only supported for destinations)",
+        "html adapter: the source role requires the path option to be provided",
       );
     }
     const fileOpts: FileOptions = { path: options.path };
-    if (options.mode !== undefined) fileOpts.mode = options.mode;
     if (options.encoding !== undefined) fileOpts.encoding = options.encoding;
-    if (options.createDirs !== undefined)
-      fileOpts.createDirs = options.createDirs;
     this.fileAdapter = file(fileOpts);
   }
 

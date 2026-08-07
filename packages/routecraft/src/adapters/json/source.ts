@@ -3,6 +3,7 @@ import type { JsonFileOptions } from "./types.ts";
 import type { FileOptions } from "../file/types.ts";
 import { file } from "../file/index.ts";
 import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
+import { staticSourcePathError } from "../shared/file-role-guards.ts";
 
 /**
  * JsonSourceAdapter reads and parses JSON files.
@@ -25,16 +26,11 @@ export class JsonSourceAdapter implements Source<unknown> {
 
   constructor(private readonly options: JsonFileOptions) {
     if (typeof options.path !== "string") {
-      throw new Error(
-        "json adapter: dynamic paths (path as function) are only supported for destination mode",
-      );
+      throw staticSourcePathError("json");
     }
     // Build options object, only including defined properties to satisfy exactOptionalPropertyTypes
     const fileOptions: FileOptions = { path: options.path };
-    if (options.mode !== undefined) fileOptions.mode = options.mode;
     if (options.encoding !== undefined) fileOptions.encoding = options.encoding;
-    if (options.createDirs !== undefined)
-      fileOptions.createDirs = options.createDirs;
     this.fileAdapter = file(fileOptions);
   }
 

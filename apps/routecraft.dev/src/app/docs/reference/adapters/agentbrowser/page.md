@@ -8,7 +8,7 @@ title: agentBrowser
 import { agentBrowser } from '@routecraft/os'
 ```
 
-Automate a browser session using the [agent-browser](https://www.npmjs.com/package/agent-browser) library. Each exchange gets an isolated session (derived from `exchange.id`), so `split()`/`aggregate()` flows work correctly. Use with `.to()`, `.enrich()`, or `.tap()`. Requires `agent-browser` as a peer dependency.
+Automate a browser session using the [agent-browser](https://www.npmjs.com/package/agent-browser) library. Each exchange gets an isolated session (derived from `exchange.id`), so `split()`/`aggregate()` flows work correctly. The adapter is an enricher: use with `.to()` or bare `.enrich()` (the `AgentBrowserResult` replaces the body; pass an aggregator such as `only()` to merge), or `.tap()` (result discarded). Requires `agent-browser` as a peer dependency.
 
 **Navigate and take a snapshot:**
 
@@ -21,7 +21,7 @@ craft()
   .to(agentBrowser('open', { url: (ex) => ex.body.url }))
   .enrich(agentBrowser('snapshot', { json: true }))
   .to(log())
-// Result merged into body: { stdout: '...', parsed: { snapshot: '...', refs: {...} }, exitCode: 0 }
+// Result replaces the body: { stdout: '...', parsed: { snapshot: '...', refs: {...} }, exitCode: 0 }
 ```
 
 **Click an element and get text:**

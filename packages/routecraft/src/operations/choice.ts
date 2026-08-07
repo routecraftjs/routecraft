@@ -9,8 +9,13 @@ import {
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { COLLECT_STEPS } from "../dsl-symbol.ts";
-import { StepBuilderBase, type BuilderState } from "../step-builder-base.ts";
-import type { Destination, ToResultBody } from "./to.ts";
+import {
+  StepBuilderBase,
+  type BuilderState,
+  type FetchedBody,
+} from "../step-builder-base.ts";
+import type { Destination } from "./to.ts";
+import type { Enricher } from "./enrich.ts";
 
 /**
  * Predicate that decides whether a choice branch matches an exchange.
@@ -37,7 +42,8 @@ export type ChoicePredicate<T = unknown> = (exchange: Exchange<T>) => boolean;
  * @template Out - Body type the path produces (defaults to `In`)
  */
 export type Path<In = unknown, Out = In> =
-  | Destination<In, unknown>
+  | Destination<In>
+  | Enricher<In, unknown>
   | ((b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>);
 
 /**
@@ -92,12 +98,12 @@ export type ChoiceDescriptor<In = unknown, Out = In> =
  * true. Branches are evaluated in registration order and the first match
  * wins.
  *
- * Two overloads, so the branch's OUTPUT type is checked against the choice's
+ * Three overloads, so the branch's OUTPUT type is checked against the choice's
  * converged `Out` either way: a sub-pipeline callback `(b) => b...` produces
- * the body type its chain ends on, and a bare destination produces its
- * `.to()` result body ({@link ToResultBody}: a void-returning sink leaves the
- * body unchanged, a value-returning destination replaces it). When the
- * branches differ, set the choice output to the union and narrow downstream:
+ * the body type its chain ends on, and a bare adapter follows `.to()`
+ * semantics (a Destination's send leaves the body unchanged, a fetch-only
+ * Enricher replaces it with the fetched value). When the branches differ, set
+ * the choice output to the union and narrow downstream:
  * `.choice<Report | Audit>(when(p, b => b.transform(toReport)), otherwise(...))`.
  *
  * When `when(...)` is passed directly as a `.choice(...)` argument, the body
@@ -114,10 +120,14 @@ export function when<In = unknown, Out = In>(
   predicate: ChoicePredicate<In>,
   branch: (b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>,
 ): WhenDescriptor<In, Out>;
-export function when<In = unknown, R = void>(
+export function when<In = unknown>(
   predicate: ChoicePredicate<In>,
-  destination: Destination<In, R>,
-): WhenDescriptor<In, ToResultBody<In, R>>;
+  destination: Destination<In>,
+): WhenDescriptor<In, In>;
+export function when<In = unknown, R = unknown>(
+  predicate: ChoicePredicate<In>,
+  enricher: Enricher<In, R>,
+): WhenDescriptor<In, FetchedBody<In, R>>;
 export function when(
   predicate: ChoicePredicate<unknown>,
   path: Path<unknown, unknown>,
@@ -131,17 +141,20 @@ export function when(
  * branch matches, the exchange is dropped with `reason: "unmatched"`. At most
  * one `otherwise` may be passed to a single `.choice(...)`.
  *
- * Like {@link when}, two overloads: a sub-pipeline callback or a bare
- * destination, both with their output checked against the choice's `Out`.
+ * Like {@link when}, the overloads accept a sub-pipeline callback or a bare
+ * adapter, both with their output checked against the choice's `Out`.
  *
- * @param branch - Sub-pipeline callback (overload 1) or bare destination (overload 2)
+ * @param branch - Sub-pipeline callback (overload 1) or bare adapter (overloads 2 and 3)
  */
 export function otherwise<In = unknown, Out = In>(
   branch: (b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>,
 ): OtherwiseDescriptor<In, Out>;
-export function otherwise<In = unknown, R = void>(
-  destination: Destination<In, R>,
-): OtherwiseDescriptor<In, ToResultBody<In, R>>;
+export function otherwise<In = unknown>(
+  destination: Destination<In>,
+): OtherwiseDescriptor<In, In>;
+export function otherwise<In = unknown, R = unknown>(
+  enricher: Enricher<In, R>,
+): OtherwiseDescriptor<In, FetchedBody<In, R>>;
 export function otherwise(
   path: Path<unknown, unknown>,
 ): OtherwiseDescriptor<unknown, unknown> {
@@ -160,7 +173,9 @@ export function compilePath(path: Path<unknown, unknown>): Step<Adapter>[] {
   if (typeof path === "function") {
     path(builder);
   } else {
-    builder.to(path);
+    // The union collapses at runtime: ToStep resolves send/fetch
+    // structurally, so the compile-time overload split is irrelevant here.
+    builder.to(path as Destination<unknown>);
   }
   return builder[COLLECT_STEPS]();
 }

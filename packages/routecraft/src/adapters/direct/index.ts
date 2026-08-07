@@ -1,13 +1,13 @@
 import type { Exchange } from "../../exchange";
 import type { Source } from "../../operations/from";
-import type { Destination } from "../../operations/to";
+import type { Enricher } from "../../operations/enrich.ts";
 import type {
   RegisteredDirectEndpoint,
   DirectEndpointRegistry,
   ResolveBody,
 } from "../../registry";
 import { DirectSourceAdapter } from "./source";
-import { DirectDestinationAdapter } from "./destination";
+import { DirectEnricherAdapter } from "./enricher";
 import type { DirectEndpoint, DirectServerOptions } from "./types";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag";
 
@@ -18,10 +18,13 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  *   `channelType`) or with no arguments. The endpoint is always the route id;
  *   discoverable metadata (title, description, input, output) lives on the
  *   route via `.title()`, `.description()`, `.input()`, `.output()`.
- * - **Destination (for `.to()` / `.tap()`):** Call with a string or function
- *   naming the target route: `direct("fetch-order")` or
- *   `direct((exchange) => exchange.headers["x-endpoint"] as string)`.
- * - **Destination with explicit input/output types:** Supply two type
+ * - **Enricher (for `.to()` / `.enrich()` / `.tap()`):** Call with a string
+ *   or function naming the target route: `direct("fetch-order")` or
+ *   `direct((exchange) => exchange.headers["x-endpoint"] as string)`. The
+ *   call is a pull-in: the target route's response body replaces the body in
+ *   `.to()` / bare `.enrich()`, feeds the aggregator in `.enrich(x, agg)`,
+ *   and is discarded by `.tap()`.
+ * - **Enricher with explicit input/output types:** Supply two type
  *   arguments to express a route whose response body shape differs from
  *   the caller's input shape, e.g. `direct<ChatInput, AgentResult>("agent")`.
  *   Works with both string and function endpoints. When
@@ -60,12 +63,12 @@ export function direct(options: DirectServerOptions): Source<unknown>;
 export function direct(): Source<unknown>;
 export function direct<K extends RegisteredDirectEndpoint>(
   endpoint: K,
-): Destination<ResolveBody<DirectEndpointRegistry, K>, unknown>;
+): Enricher<ResolveBody<DirectEndpointRegistry, K>, unknown>;
 export function direct<T = unknown>(
   endpoint: DirectEndpoint<T>,
-): Destination<T, T>;
+): Enricher<T, T>;
 /**
- * Destination with explicit input and output body types. Use when the
+ * Enricher with explicit input and output body types. Use when the
  * target route's response body shape differs from the caller's input
  * shape (e.g. an in-process agent or RPC-style call). Accepts a string
  * endpoint (constrained to registered keys when `DirectEndpointRegistry`
@@ -79,14 +82,14 @@ export function direct<T = unknown>(
  */
 export function direct<TIn, TOut>(
   endpoint: RegisteredDirectEndpoint | ((exchange: Exchange<TIn>) => string),
-): Destination<TIn, TOut>;
+): Enricher<TIn, TOut>;
 export function direct<TIn = unknown, TOut = TIn>(
   arg?: DirectEndpoint<TIn> | DirectServerOptions,
-): Source<unknown> | Destination<TIn, TOut> {
-  // String or function first-arg -> Destination (names a target route).
+): Source<unknown> | Enricher<TIn, TOut> {
+  // String or function first-arg -> Enricher (names a target route).
   if (typeof arg === "string" || typeof arg === "function") {
     return tagAdapter(
-      new DirectDestinationAdapter<TIn, TOut>(arg),
+      new DirectEnricherAdapter<TIn, TOut>(arg),
       direct,
       factoryArgs(arg),
     );

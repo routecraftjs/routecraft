@@ -62,33 +62,29 @@ describe("Pseudo adapter", () => {
     });
 
     /**
-     * @case Pseudo in .enrich() is accepted and the body type merges Current & R
+     * @case Pseudo in .enrich() is accepted and the body type becomes R
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<{ body: string & EnrichedData }> (enrich merges, it does not replace)
+     * @expectedResult RouteBuilder<{ body: EnrichedData }> (aggregator omitted = replace)
      */
-    test("enrich() with pseudo merges RouteBuilder<{ body: Current & R }>", () => {
+    test("enrich() with pseudo replaces RouteBuilder<{ body: R }>", () => {
       const mcp = pseudo<McpOpts>("mcp");
       const route = craft()
         .from(simple("hello"))
         .enrich(mcp<EnrichedData>({ server: "x", tool: "y" }));
-      expectTypeOf(route).toEqualTypeOf<
-        RouteBuilder<{ body: string & EnrichedData }>
-      >();
+      expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: EnrichedData }>>();
     });
 
     /**
-     * @case Pseudo in .to() is accepted and RouteBuilder type is R
+     * @case Pseudo in .to() is accepted; send wins, so the body is unchanged
      * @preconditions pseudo factory and options
-     * @expectedResult RouteBuilder<{ body: { id: string } }>
+     * @expectedResult RouteBuilder<{ body: string }>
      */
-    test("to() with pseudo sets RouteBuilder<{ body: R }>", () => {
+    test("to() with pseudo preserves the body type (send wins)", () => {
       const db = pseudo<{ table: string }>("db");
       const route = craft()
         .from(simple("data"))
         .to(db<{ id: string }>({ table: "events" }));
-      expectTypeOf(route).toEqualTypeOf<
-        RouteBuilder<{ body: { id: string } }>
-      >();
+      expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: string }>>();
     });
 
     /**
@@ -123,8 +119,8 @@ describe("Pseudo adapter", () => {
 
     /**
      * @case Chained pseudo enrich then split then to composes types
-     * @preconditions src, mcp, and db pseudo factories; a typed pseudo source so the enrich merge has an object body
-     * @expectedResult RouteBuilder<{ body: { id: string } }>
+     * @preconditions src, mcp, and db pseudo factories; bare enrich replaces the body
+     * @expectedResult RouteBuilder<{ body: string }> (send wins in .to, body flows on)
      */
     test("chained pseudo adapters compose types correctly", () => {
       const src = pseudo<{ poll: number }>("src");
@@ -135,9 +131,7 @@ describe("Pseudo adapter", () => {
         .enrich(mcp<{ messages: string[] }>({ server: "gmail", tool: "list" }))
         .split<string>((ex) => ex.body.messages)
         .to(db<{ id: string }>({ table: "emails" }));
-      expectTypeOf(route).toEqualTypeOf<
-        RouteBuilder<{ body: { id: string } }>
-      >();
+      expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: string }>>();
     });
 
     /**

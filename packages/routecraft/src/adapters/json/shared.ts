@@ -1,4 +1,3 @@
-import type { JsonOptions, JsonFileOptions } from "./types.ts";
 import { getBodyText } from "../shared/body-text.ts";
 
 export function getText<T>(
@@ -35,41 +34,4 @@ export function getByPath(obj: unknown, path: string): unknown {
     }
   }
   return current;
-}
-
-/**
- * Detect if options indicate file mode vs transformer mode.
- */
-export function isFileMode<T = unknown, R = unknown, V = unknown>(
-  options: JsonOptions<T, R, V>,
-): options is JsonFileOptions {
-  if (!("path" in options) || options.path === undefined) {
-    return false;
-  }
-
-  // If path is a function, it's definitely file mode
-  if (typeof options.path === "function") {
-    return true;
-  }
-
-  // Check for file-specific options - if any are present, it's file mode
-  const fileOptions = options as JsonFileOptions;
-  if (
-    fileOptions.mode ||
-    fileOptions.createDirs ||
-    fileOptions.encoding ||
-    fileOptions.space !== undefined ||
-    fileOptions.indent !== undefined ||
-    fileOptions.reviver ||
-    fileOptions.replacer
-  ) {
-    return true;
-  }
-
-  // If path is a string, check if it looks like a file path
-  const pathStr = options.path as string;
-  const hasPathSeparator = pathStr.includes("/") || pathStr.includes("\\");
-  const hasWindowsDrive = /^[a-z]:/i.test(pathStr);
-
-  return hasPathSeparator || hasWindowsDrive;
 }

@@ -6,18 +6,17 @@ title: csv
 
 ```ts
 csv(options?: CsvTransformerOptions): Transformer   // no path: parse a CSV string in the body
-csv(options: CsvFileOptions & { chunked: true }): Source<CsvRow>
-csv(options: CsvFileOptions & { mode: 'read' }): CsvReadAdapter
-csv(options: CsvFileOptions): CsvAdapter   // Source<CsvData> & Destination<unknown, void>
+csv(options: CsvFileOptions & { chunked: true }): CsvChunkedAdapter // Source<CsvRow> & Destination<unknown> & Enricher<unknown, CsvData>
+csv(options: CsvFileOptions): CsvAdapter   // Source<CsvData> & Destination<unknown> & Enricher<unknown, CsvData>
 ```
 
-Read and write CSV files with automatic parsing/formatting. **Requires `papaparse` as a peer dependency.**
+Read and write CSV files with automatic parsing/formatting. One factory, one type; the operation keyword selects the role: `.from()` reads, `.to()` writes, `.enrich()` reads mid-route. **Requires `papaparse` as a peer dependency.**
 
 ```bash
 bun add papaparse
 ```
 
-**Transformer mode** (parse a CSV string already in the body):
+**Transformer role** (parse a CSV string already in the body):
 ```ts
 // Parse a CSV string (e.g. an http() response body) into rows
 .transform(csv())
@@ -29,7 +28,7 @@ bun add papaparse
 }))
 ```
 
-**Source mode** (read CSV files):
+**Source role** (read CSV files):
 ```ts
 // Read CSV with headers
 .from(csv({ path: './data.csv', header: true }))
@@ -48,20 +47,20 @@ bun add papaparse
 }))
 ```
 
-**Read mid-route** (read + parse a CSV file partway through a route): In `read` mode the adapter is also a destination whose `send` reads and parses the file and returns the rows, so `.enrich()` / `.to()` can pull them in, the same way an HTTP `GET` returns a body. Read-as-destination accepts dynamic (function) paths. Parse failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to source mode only).
+**Read mid-route** (read + parse a CSV file partway through a route): The adapter is also an enricher whose `fetch` reads and parses the file, so `.enrich()` can pull the rows in. The rows replace the body; pass an aggregator such as `only()` to merge instead. The fetch role accepts dynamic (function) paths. Parse failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to the source role only).
 
 ```ts
+// Replace the body with the parsed rows
+.enrich(csv({ path: './data.csv' }))
+
 // Enrich the body with the parsed rows, keeping the existing fields
 .enrich(
-  csv({ path: './catalogue.csv', mode: 'read' }),
+  csv({ path: './catalogue.csv' }),
   only((rows) => rows, 'rows'),
 )
-
-// Replace the body with the parsed rows
-.to(csv({ path: './data.csv', mode: 'read' }))
 ```
 
-**Destination mode** (write CSV files):
+**Destination role** (write CSV files). The send is void: the body flows through the `.to()` step unchanged.
 ```ts
 // Write array of objects to CSV
 .to(csv({
@@ -84,15 +83,15 @@ bun add papaparse
   header: true
 }))
 
-// Append to existing CSV (skips header if file exists)
+// Append to existing CSV (header only written when the file does not exist yet)
 .to(csv({
   path: './log.csv',
-  mode: 'append',
+  append: true,
   header: true
 }))
 
 // Delete a CSV file (idempotent: an already-absent path is a no-op)
-.to(csv({ path: (ex) => ex.body.processedPath, mode: 'delete' }))
+.to(csv({ path: (ex) => ex.body.processedPath, delete: true }))
 ```
 
 **Transformer Options** (when no `path` provided):
@@ -107,21 +106,24 @@ bun add papaparse
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `path` | `string \| (exchange) => string` | Required | File path (static or dynamic) |
-| `header` | `boolean` | `true` | Use first row as headers (source), include headers (destination) |
+| `path` | `string \| (exchange) => string` | Required | File path (static for the source role; send/fetch also accept a function) |
+| `header` | `boolean` | `true` | Use first row as headers (read), include headers (write) |
 | `delimiter` | `string` | `','` | Field separator |
 | `quoteChar` | `string` | `'"'` | Quote character |
 | `skipEmptyLines` | `boolean` | `true` | Skip empty lines during parsing |
 | `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
-| `mode` | `'read' \| 'write' \| 'append' \| 'delete'` | `'read'` for source, `'write'` for destination | File operation mode (`read` returns parsed rows mid-route; `delete` removes the file, idempotently) |
-| `createDirs` | `boolean` | `false` | Create parent directories (destination only) |
-| `chunked` | `boolean` | `false` | Emit one exchange per row instead of entire array (source only) |
-| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a row parse failure (source only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
+| `append` | `boolean` | `false` | Send role: append rows instead of overwriting; mutually exclusive with `delete` |
+| `delete` | `boolean` | `false` | Send role: delete the file instead of writing (idempotent); mutually exclusive with `append` |
+| `createDirs` | `boolean` | `false` | Create parent directories (send role only) |
+| `chunked` | `true` | `false` | Emit one exchange per row instead of entire array (source role only). Must be the literal `true`: a widened `boolean` is a compile error, so dynamic chunking is an explicit branch at the call site |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a row parse failure (source role only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
+
+Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 
 **Behavior:**
 - **Source** (default): Emits entire CSV as array of records (objects if `header: true`, arrays if `header: false`)
-- **Source** (`chunked: true`): Emits one exchange per row with `CsvHeaders.ROW` (1-based row number) and `CsvHeaders.PATH` headers. Returns `Source` only (no `Destination`). With `onParseError: 'fail'` (default) malformed rows are routed through the route's `.error()` handler and the stream continues; `'abort'` reverts to fail-fast on the first bad row; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
-- **Destination**: Writes exchange body (array of objects/arrays) as CSV. For `mode: 'append'`, skips header row if file exists
+- **Source** (`chunked: true`): Emits one exchange per row with `CsvHeaders.ROW` (1-based row number) and `CsvHeaders.PATH` headers. Chunking concerns the source role only; the send/fetch roles are unchanged. With `onParseError: 'fail'` (default) malformed rows are routed through the route's `.error()` handler and the stream continues; `'abort'` reverts to fail-fast on the first bad row; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
+- **Destination**: Writes exchange body (array of objects/arrays) as CSV; overwrite by default. With `append: true`, the header row is only written when the file does not exist yet
 
 ```ts
 // Per-row emission
@@ -130,4 +132,4 @@ bun add papaparse
 
 **Peer dependency:** Requires `papaparse` to be installed separately.
 
-**Exported symbols:** `CsvHeaders` (the header key object used above, e.g. `CsvHeaders.ROW` / `CsvHeaders.PATH`); types `CsvAdapter`, `CsvReadAdapter`, `CsvOptions`, `CsvTransformerOptions`, `CsvFileOptions`, `CsvRow`, `CsvData`
+**Exported symbols:** `CsvHeaders` (the header key object used above, e.g. `CsvHeaders.ROW` / `CsvHeaders.PATH`); types `CsvAdapter`, `CsvChunkedAdapter`, `CsvOptions`, `CsvTransformerOptions`, `CsvFileOptions`, `CsvRow`, `CsvData`

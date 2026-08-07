@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, test } from "bun:test";
 import {
   direct,
-  type Destination,
+  type Enricher,
   type ForwardFn,
   type RegisteredDirectEndpoint,
   type ResolveKey,
@@ -46,16 +46,16 @@ describe("Declaration merging: DirectEndpointRegistry", () => {
   });
 
   /**
-   * @case direct(endpoint) as destination constrains to registered keys
+   * @case direct(endpoint) as a pull-in client constrains to registered keys
    * @preconditions DirectEndpointRegistry augmented
-   * @expectedResult direct('/payments') compiles, return type is Destination
+   * @expectedResult direct('/payments') compiles, return type is Enricher
    */
   test("direct() constrains endpoint to registered keys", () => {
     expectTypeOf(direct("/payments")).toEqualTypeOf<
-      Destination<{ amount: number }, unknown>
+      Enricher<{ amount: number }, unknown>
     >();
     expectTypeOf(direct("/orders")).toEqualTypeOf<
-      Destination<{ id: string }, unknown>
+      Enricher<{ id: string }, unknown>
     >();
   });
 

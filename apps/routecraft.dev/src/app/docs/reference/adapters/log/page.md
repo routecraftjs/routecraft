@@ -5,10 +5,10 @@ title: log
 [← All adapters](/docs/reference/adapters) {% .lead %}
 
 ```ts
-log<T>(formatter?: (exchange: Exchange<T>) => unknown, options?: LogOptions): Destination<T, void>
+log<T>(formatter?: (exchange: Exchange<T>) => unknown, options?: LogOptions): Destination<T>
 ```
 
-Log messages to the console. Can be used as a destination with `.to()` or for side effects with `.tap()`.
+Log messages to the console. Can be used as a destination with `.to()` or for side effects with `.tap()`. The send is void: the body flows through a `.to(log())` step unchanged.
 
 ```ts
 // Log final result (default: logs exchange ID, body, and headers at info level)
