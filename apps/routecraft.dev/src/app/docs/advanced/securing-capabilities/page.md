@@ -86,7 +86,7 @@ auth: jwks({
 
 ## Custom validator
 
-For API keys, opaque tokens, or any other scheme, pass a `validator` function. Throw to reject (any thrown error returns 401); return a `Principal` to accept:
+For API keys, opaque tokens, or any other scheme, pass a `validator` function. Throw to reject; return a `Principal` to accept. A rejected credential answers `401`, but a throw that names an infrastructure failure (an unreachable JWKS endpoint, a failed `userinfo` fetch) answers `500` on every auth mode, so a client retries rather than discarding a credential that is probably valid:
 
 ```ts
 auth: {
@@ -143,6 +143,7 @@ auth: oauth({
   verify: async (token) => {
     const info = await myIntrospectionCall(token)
     if (!info.active) throw new Error('token inactive')
+    if (typeof info.exp !== 'number') throw new Error('token has no exp')
     return {
       kind: 'oauth',
       scheme: 'bearer',
@@ -226,7 +227,7 @@ See the [mcpPlugin reference](/docs/reference/plugins/mcpplugin) for the full `P
 
 ## Protected-resource metadata (RFC 9728)
 
-Auto-discovering MCP clients (Claude.ai custom connectors, MCP Inspector, `mcp-remote`, Claude Desktop) probe `/mcp`, receive a 401, then fetch `/.well-known/oauth-protected-resource` to find out which authorization server to use. The framework serves this RFC 9728 metadata document in both validator and OAuth-proxy auth modes, and appends a `resource_metadata="..."` parameter to the 401 `WWW-Authenticate` header so clients know where the document lives.
+Auto-discovering MCP clients (Claude.ai custom connectors, MCP Inspector, `mcp-remote`, Claude Desktop) probe `/mcp`, receive a 401, then fetch `/.well-known/oauth-protected-resource` to find out which authorization server to use. The framework serves this RFC 9728 metadata document whichever auth helper you use, and appends a `resource_metadata="..."` parameter to the 401 `WWW-Authenticate` header so clients know where the document lives.
 
 Protected-resource identity is configured on the plugin, not on the auth helper. It is orthogonal to the auth mode: the same `resource: {...}` block works whether you use `jwt()` / `jwks()` directly or via `oauth()`.
 

@@ -279,10 +279,15 @@ export function authorize(
       // `clockToleranceSec` would make every `>` comparison false and
       // silently bypass the check, so treat that as expired rather than
       // valid.
+      //
+      // Floored, because `jwt()` and jose both compare against
+      // `Math.floor(Date.now() / 1000)`. A fractional `now` would put this
+      // boundary up to a second ahead of the verifier's and reject a token
+      // the verifier had just accepted.
       if (
         !Number.isFinite(principal.expiresAt) ||
         !Number.isFinite(clockToleranceSec) ||
-        Date.now() / 1000 > principal.expiresAt + clockToleranceSec
+        Math.floor(Date.now() / 1000) > principal.expiresAt + clockToleranceSec
       ) {
         throw rcError("RC5020", new Error("Token expired"), {
           message: "Authorization failed: token expired during processing",

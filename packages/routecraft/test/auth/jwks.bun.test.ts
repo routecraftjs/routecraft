@@ -369,7 +369,9 @@ describe("jwks()", () => {
       });
       expect(result.issuer).toEqual(issuers);
     });
+  });
 
+  describe("clock tolerance propagation", () => {
     /**
      * @case jwks() surfaces its clock tolerance so a downstream expiry check can match it
      * @preconditions jwks({ clockToleranceSec: 45, ... }), and a second call omitting the option

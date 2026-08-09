@@ -401,7 +401,7 @@ describe("McpServer", () => {
   });
 
   describe("HTTP transport", () => {
-    /** Start HTTP server with given route builders; returns post helper and port. Call initHandshake() to get session id. */
+    /** Start HTTP server with given route builders; returns post helper and port. Call initHandshake() to run the 2025-era handshake. */
     async function startHttpServer(
       routes: AnyRouteBuilder[],
       serverOptions: {

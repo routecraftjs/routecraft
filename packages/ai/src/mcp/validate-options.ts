@@ -74,7 +74,8 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
     if (
       "provider" in auth ||
       "endpoints" in auth ||
-      "verifyAccessToken" in auth
+      "verifyAccessToken" in auth ||
+      "getClient" in auth
     ) {
       throw new TypeError(
         "mcpPlugin: auth uses the removed OAuth authorization-server proxy shape " +

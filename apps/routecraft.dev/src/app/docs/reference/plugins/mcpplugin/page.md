@@ -134,10 +134,19 @@ import { mcpPlugin, jwt } from '@routecraft/ai'
 **HMAC (HS256 / HS384 / HS512):**
 
 ```ts
-auth: jwt({ secret: process.env.JWT_SECRET! })
+auth: jwt({
+  secret: process.env.JWT_SECRET!,
+  issuer: 'https://idp.example.com',
+  audience: 'https://mcp.example.com',
+})
 
 // Explicit algorithm
-auth: jwt({ algorithm: 'HS384', secret: process.env.JWT_SECRET! })
+auth: jwt({
+  algorithm: 'HS384',
+  secret: process.env.JWT_SECRET!,
+  issuer: 'https://idp.example.com',
+  audience: 'https://mcp.example.com',
+})
 ```
 
 **RSA (RS256):**
@@ -148,8 +157,12 @@ import fs from 'node:fs'
 auth: jwt({
   algorithm: 'RS256',
   publicKey: fs.readFileSync('./public.pem', 'utf-8'),
+  issuer: 'https://idp.example.com',
+  audience: 'https://mcp.example.com',
 })
 ```
+
+`issuer` and `audience` are required on every `jwt()` / `jwks()` call: without them the server would accept a token minted by a different IdP, or for a different resource.
 
 **Custom validator:**
 
@@ -157,7 +170,7 @@ auth: jwt({
 auth: {
   validator: async (token) => {
     const user = await db.verifyApiKey(token)
-    if (!user) return null
+    if (!user) throw new Error('unknown key')
     return {
       kind: 'api-key',
       scheme: 'api-key',
@@ -215,6 +228,7 @@ auth: oauth({
       issuer: 'https://idp.example.com',
       audience: 'https://mcp.example.com',
     })
+    if (typeof payload.exp !== 'number') throw new Error('token has no exp')
     return {
       kind: 'oauth',
       scheme: 'bearer',

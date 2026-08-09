@@ -263,7 +263,12 @@ describe("MCP Plugin Integration", () => {
      * @expectedResult validateMcpPluginOptions throws. The gate fails closed on a non-finite tolerance, so any of these would otherwise refuse every authenticated request at runtime
      */
     test("rejects a clockToleranceSec the expiry gate cannot apply", () => {
-      for (const clockToleranceSec of [Number.NaN, -1, "30"]) {
+      for (const clockToleranceSec of [
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        -1,
+        "30",
+      ]) {
         expect(() =>
           mcpPlugin({
             transport: "http",

@@ -1025,7 +1025,11 @@ export class McpServer {
       // the same reason `authorize()` does: `> NaN` is always false, which
       // would turn the check into a no-op.
       if (result.expiresAt !== undefined) {
-        const nowSeconds = Date.now() / 1000;
+        // Floored, because `jwt()` and jose both compare against
+        // `Math.floor(Date.now() / 1000)`. A fractional `now` here would put
+        // the gate's boundary up to a second ahead of the verifier's and
+        // refuse a token the verifier had just accepted.
+        const nowSeconds = Math.floor(Date.now() / 1000);
         const clockToleranceSec = this.options.auth?.clockToleranceSec ?? 0;
         if (
           !Number.isFinite(result.expiresAt) ||

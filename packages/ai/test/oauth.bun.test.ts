@@ -153,6 +153,27 @@ describe("oauth() factory", () => {
   });
 
   /**
+   * @case An issuer that is present but blank is rejected at construction
+   * @preconditions Options pass an empty string, a whitespace-only string, an empty array, and an array with a blank member
+   * @expectedResult oauth() throws in every case. A blank issuer is as undiscoverable as a missing one: it would publish an unusable `authorization_servers` entry rather than failing loudly
+   */
+  test("requires the issuer to be non-empty", () => {
+    for (const issuer of ["", "   ", [], ["https://idp.example.com", "  "]]) {
+      expect(() =>
+        oauth({
+          issuer,
+          verify: async (): Promise<OAuthPrincipal> => ({
+            kind: "custom",
+            scheme: "bearer",
+            subject: "u",
+            expiresAt: 9999999999,
+          }),
+        }),
+      ).toThrow(TypeError);
+    }
+  });
+
+  /**
    * @case requiredScopes are carried through, and omitted when empty
    * @preconditions One call passes requiredScopes, another passes an empty array
    * @expectedResult The populated array is carried verbatim; the empty array is treated as unset so no scope gate is installed
