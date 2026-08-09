@@ -179,6 +179,7 @@ The MCP server is an OAuth 2.0 **Resource Server**. `oauth()` verifies bearer to
 | `verify` | `OAuthValidatorAuthOptions \| OAuthTokenVerifier` | Yes | `jwks(...)`, `jwt(...)`, or a raw `(token) => OAuthPrincipal` for opaque tokens and introspection. Runs on every request |
 | `issuer` | `string \| string[]` | Only for a raw `verify` | Authorization Server issuer advertised as `authorization_servers`. Supplied automatically by `jwks()` / `jwt()` |
 | `requiredScopes` | `string[]` | No | Every request must carry all of them; a token missing any is refused with `403 insufficient_scope` |
+| `clockToleranceSec` | `number` | No | Skew allowed when the server re-checks the verified principal's `expiresAt`. Supplied automatically by `jwks()` / `jwt()`; pass it only when `verify` is a raw function that tolerates skew of its own. Defaults to `0` |
 
 **JWKS-backed verification (recommended):**
 

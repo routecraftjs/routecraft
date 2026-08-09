@@ -1018,11 +1018,19 @@ export class McpServer {
       // but a custom validator may not, and the gate is the last checkpoint
       // before the route runs. Absent `expiresAt` is left alone: a credential
       // with no expiry concept (an API key) is a legitimate validator result.
+      //
+      // The tolerance is the one the verifier itself applied (surfaced by
+      // `jwks()` / `jwt()` / `oauth()`), so the gate cannot refuse a token the
+      // verifier just accepted within skew. Non-finite inputs fail closed for
+      // the same reason `authorize()` does: `> NaN` is always false, which
+      // would turn the check into a no-op.
       if (result.expiresAt !== undefined) {
         const nowSeconds = Date.now() / 1000;
+        const clockToleranceSec = this.options.auth?.clockToleranceSec ?? 0;
         if (
           !Number.isFinite(result.expiresAt) ||
-          nowSeconds > result.expiresAt
+          !Number.isFinite(clockToleranceSec) ||
+          nowSeconds > result.expiresAt + clockToleranceSec
         ) {
           const detail = {
             reason: "expired",

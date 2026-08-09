@@ -358,5 +358,11 @@ export function jwt(options: JwtAuthOptions): OAuthValidatorAuthOptions {
     ? createHmacValidator(options)
     : createRsaValidator(options);
 
-  return { validator, issuer: options.issuer };
+  return {
+    validator,
+    issuer: options.issuer,
+    ...(options.clockToleranceSec !== undefined && {
+      clockToleranceSec: options.clockToleranceSec,
+    }),
+  };
 }

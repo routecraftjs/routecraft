@@ -262,6 +262,13 @@ export interface OAuthValidatorAuthOptions {
    * pass an explicit userinfo URL or function.
    */
   issuer?: string | string[];
+  /**
+   * Clock skew the underlying helper allowed when it checked `exp`, surfaced
+   * so a downstream expiry check can apply the same tolerance. Without it a
+   * consumer re-checking `expiresAt` would refuse the very token `jwt()` /
+   * `jwks()` just accepted within skew.
+   */
+  clockToleranceSec?: number;
 }
 
 // See .standards/type-safety-and-schemas.md#module-augmentation for why this

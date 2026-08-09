@@ -50,6 +50,13 @@ export interface OAuthFactoryOptions {
    * refused with `403 insufficient_scope`.
    */
   requiredScopes?: string[];
+  /**
+   * Clock skew allowed when the server re-checks the verified principal's
+   * `expiresAt`. Taken from `jwks()` / `jwt()` automatically; pass it here
+   * when `verify` is a raw function that tolerates skew of its own, so the
+   * gate does not refuse a token the function accepted.
+   */
+  clockToleranceSec?: number;
 }
 
 /** True when the issuer is a non-empty string, or an array of them. */
@@ -167,12 +174,21 @@ export function oauth(options: OAuthFactoryOptions): McpHttpAuthOptions {
     );
   }
 
+  const clockToleranceSec =
+    options.clockToleranceSec ??
+    (typeof options.verify === "function"
+      ? undefined
+      : options.verify.clockToleranceSec);
+
   const resolved: McpHttpAuthOptions = {
     validator: buildVerifier(options.verify),
     issuer,
   };
   if (options.requiredScopes && options.requiredScopes.length > 0) {
     resolved.requiredScopes = options.requiredScopes;
+  }
+  if (clockToleranceSec !== undefined) {
+    resolved.clockToleranceSec = clockToleranceSec;
   }
   return resolved;
 }

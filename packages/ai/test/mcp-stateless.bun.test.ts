@@ -549,6 +549,47 @@ describe("MCP 2026-07-28 stateless revision", () => {
     });
 
     /**
+     * @case A token accepted within the configured clock skew still authenticates
+     * @preconditions oauth({ clockToleranceSec: 120 }) and a verifier returning a principal whose expiresAt elapsed 60s ago
+     * @expectedResult The request succeeds. The gate must apply the same tolerance the verifier did, or a jwt()/jwks() clockToleranceSec would be silently defeated on the HTTP path
+     */
+    test("honours the configured clock tolerance at the expiry gate", async () => {
+      const sink: { principal?: Principal | undefined } = {};
+      const { oauth } = await import("../src/mcp/oauth.ts");
+      const { url } = await start([capturingRoute(sink)], {
+        auth: oauth({
+          issuer: ISSUER,
+          clockToleranceSec: 120,
+          verify: async () => ({
+            kind: "custom" as const,
+            scheme: "bearer" as const,
+            subject: "skewed-user",
+            expiresAt: Math.floor(Date.now() / 1000) - 60,
+          }),
+        }),
+        resource: { url: "https://mcp.test.example/mcp" },
+      });
+
+      const res = await post(
+        url,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "whoami", arguments: {}, _meta: MODERN_META },
+        },
+        {
+          Authorization: "Bearer anything",
+          "Mcp-Method": "tools/call",
+          "Mcp-Name": "whoami",
+        },
+      );
+
+      expect(res.status).toBe(200);
+      expect(sink.principal?.subject).toBe("skewed-user");
+    });
+
+    /**
      * @case A credential-less discovery probe gets a bare challenge, not invalid_token
      * @preconditions jwt() validator auth; tools/list posted with no Authorization header, then one with a bad token
      * @expectedResult The probe's challenge carries no error code (RFC 6750 §3), so a client reads it as "authenticate here" rather than "your credential was rejected"; the bad token does get error="invalid_token"

@@ -119,6 +119,20 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
         }
       }
     }
+
+    // The expiry gate fails closed on a non-finite tolerance, so a NaN or
+    // negative value would refuse every request at runtime. Say so at startup.
+    const clockToleranceSec = auth["clockToleranceSec"];
+    if (
+      clockToleranceSec !== undefined &&
+      (typeof clockToleranceSec !== "number" ||
+        !Number.isFinite(clockToleranceSec) ||
+        clockToleranceSec < 0)
+    ) {
+      throw new TypeError(
+        "mcpPlugin: auth.clockToleranceSec must be a finite, non-negative number of seconds",
+      );
+    }
   }
 
   // Validate stdio client configs

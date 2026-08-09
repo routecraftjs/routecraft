@@ -247,6 +247,14 @@ export type McpHttpAuthOptions = ValidatorAuthOptions & {
    * for via `mcpPlugin({ resource: { scopesSupported } })`.
    */
   requiredScopes?: string[];
+  /**
+   * Clock skew allowed when the server re-checks the verified principal's
+   * `expiresAt`. Surfaced automatically by `jwks()` / `jwt()` / `oauth()` from
+   * the tolerance the verifier itself applied, so the gate does not refuse a
+   * token the verifier accepted within skew. Defaults to `0`, matching
+   * `authorize({ clockToleranceSec })`.
+   */
+  clockToleranceSec?: number;
 };
 
 /**

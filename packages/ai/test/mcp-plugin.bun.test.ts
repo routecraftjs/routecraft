@@ -258,6 +258,29 @@ describe("MCP Plugin Integration", () => {
     });
 
     /**
+     * @case A clock tolerance the expiry gate cannot use is refused at construction
+     * @preconditions auth.clockToleranceSec is NaN, negative, or not a number
+     * @expectedResult validateMcpPluginOptions throws. The gate fails closed on a non-finite tolerance, so any of these would otherwise refuse every authenticated request at runtime
+     */
+    test("rejects a clockToleranceSec the expiry gate cannot apply", () => {
+      for (const clockToleranceSec of [Number.NaN, -1, "30"]) {
+        expect(() =>
+          mcpPlugin({
+            transport: "http",
+            auth: {
+              validator: async () => ({
+                kind: "custom" as const,
+                scheme: "bearer" as const,
+                subject: "u",
+              }),
+              clockToleranceSec,
+            } as never,
+          }),
+        ).toThrow(/clockToleranceSec/);
+      }
+    });
+
+    /**
      * @case A client name containing the wire separator fails at registration
      * @preconditions Client registered as "a__b"
      * @expectedResult RC5003 at mcpPlugin() naming the separator, rather than every tool on the client vanishing at dispatch
