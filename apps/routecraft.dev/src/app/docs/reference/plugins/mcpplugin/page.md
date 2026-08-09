@@ -21,7 +21,11 @@ const config: CraftConfig = {
     mcpPlugin({
       transport: 'http',
       port: 3001,
-      auth: jwt({ secret: process.env.JWT_SECRET! }),
+      auth: jwt({
+        secret: process.env.JWT_SECRET!,
+        issuer: 'https://idp.example.com',
+        audience: 'https://mcp.example.com',
+      }),
       clients: {
         browser: {
           url: 'http://127.0.0.1:8089/mcp',

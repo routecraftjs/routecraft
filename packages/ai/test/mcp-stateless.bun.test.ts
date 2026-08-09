@@ -590,46 +590,6 @@ describe("MCP 2026-07-28 stateless revision", () => {
     });
 
     /**
-     * @case A token expiring in the current second is not refused mid-second
-     * @preconditions A verifier returning expiresAt exactly equal to the current floored epoch second, no clock tolerance
-     * @expectedResult The request succeeds. jwt() and jose compare against a floored now, so an unfloored gate would refuse this token for the fractional remainder of the second the verifier accepted it in
-     */
-    test("matches the verifier's second-resolution expiry boundary", async () => {
-      const sink: { principal?: Principal | undefined } = {};
-      const { oauth } = await import("../src/mcp/oauth.ts");
-      const { url } = await start([capturingRoute(sink)], {
-        auth: oauth({
-          issuer: ISSUER,
-          verify: async () => ({
-            kind: "custom" as const,
-            scheme: "bearer" as const,
-            subject: "boundary-user",
-            expiresAt: Math.floor(Date.now() / 1000),
-          }),
-        }),
-        resource: { url: "https://mcp.test.example/mcp" },
-      });
-
-      const res = await post(
-        url,
-        {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: { name: "whoami", arguments: {}, _meta: MODERN_META },
-        },
-        {
-          Authorization: "Bearer anything",
-          "Mcp-Method": "tools/call",
-          "Mcp-Name": "whoami",
-        },
-      );
-
-      expect(res.status).toBe(200);
-      expect(sink.principal?.subject).toBe("boundary-user");
-    });
-
-    /**
      * @case A credential-less discovery probe gets a bare challenge, not invalid_token
      * @preconditions jwt() validator auth; tools/list posted with no Authorization header, then one with a bad token
      * @expectedResult The probe's challenge carries no error code (RFC 6750 §3), so a client reads it as "authenticate here" rather than "your credential was rejected"; the bad token does get error="invalid_token"

@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, expectTypeOf, test } from "bun:test";
+import {
+  afterEach,
+  describe,
+  expect,
+  expectTypeOf,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   authorize,
@@ -911,6 +918,41 @@ describe("authorize() expiresAt enforcement", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
+  });
+
+  /**
+   * @case A token expiring in the current second is admitted for the whole of that second
+   * @preconditions System clock pinned to the middle of a second; principal expiresAt equals that floored second; no clock tolerance
+   * @expectedResult Validator passes through. jwt() and jose compare against a floored now, so an unfloored comparison here would reject a token those verifiers had just accepted
+   */
+  test("admits a token expiring in the current second", async () => {
+    const second = 1_800_000_000;
+    setSystemTime(new Date(second * 1000 + 500));
+    try {
+      const s = spy<string>();
+      const principal: Principal = {
+        kind: "custom",
+        scheme: "bearer",
+        subject: "user-1",
+        expiresAt: second,
+      };
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("exp-current-second")
+            .from(simple("hello"))
+            .authenticate(() => principal)
+            .validate(authorize({}))
+            .to(s),
+        )
+        .build();
+      await t.test();
+
+      expect(s.receivedBodies()).toEqual(["hello"]);
+    } finally {
+      setSystemTime();
+    }
   });
 
   /**
