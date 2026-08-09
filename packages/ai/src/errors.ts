@@ -23,10 +23,6 @@ type McpToolProvenance =
 
 declare module "@routecraft/routecraft" {
   interface EventDetailsMap {
-    /** MCP HTTP transport opened a session. */
-    "plugin:mcp:session:created": { sessionId: string };
-    /** MCP HTTP transport closed a session. */
-    "plugin:mcp:session:closed": { sessionId: string };
     /** MCP HTTP server bound its port. */
     "plugin:mcp:server:listening": { host: string; port: number; path: string };
     /** Tool list assembled and exposed to clients. */

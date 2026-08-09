@@ -27,6 +27,24 @@ const INIT_PARAMS = {
   clientInfo: { name: "test", version: "1.0.0" },
 };
 
+/**
+ * Reduce a Streamable HTTP response body to its JSON-RPC payload.
+ *
+ * A single exchange may come back either as a plain JSON body (the modern
+ * path) or as one SSE frame (`event: message` + `data:`, which the 2025-era
+ * stateless fallback uses). Both are valid Streamable HTTP; tests care about
+ * the payload, not the framing.
+ */
+function rpcBody(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.includes("data: ")) return trimmed;
+  return trimmed
+    .split("\n")
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => line.slice("data: ".length))
+    .join("");
+}
+
 describe("McpServer", () => {
   let t: TestContext;
   let server: McpServer;
@@ -480,7 +498,7 @@ describe("McpServer", () => {
               res.on("end", () =>
                 resolve({
                   statusCode: res.statusCode ?? 0,
-                  body: data,
+                  body: rpcBody(data),
                   headers: res.headers as Record<
                     string,
                     string | string[] | undefined
@@ -572,9 +590,16 @@ describe("McpServer", () => {
         });
       }
 
+      /**
+       * Perform the 2025-era `initialize` handshake and assert the server
+       * answers it without minting a session. Protocol revision 2026-07-28
+       * removed `Mcp-Session-Id`, and the SDK's stateless serving of 2025-era
+       * traffic mints none either, so callers thread `undefined` onward and
+       * every later request stands alone.
+       */
       async function initSession(
         authHeaders?: Record<string, string>,
-      ): Promise<string> {
+      ): Promise<undefined> {
         const initBody = JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
@@ -583,9 +608,8 @@ describe("McpServer", () => {
         });
         const res = await post(initBody, undefined, authHeaders);
         expect(res.statusCode).toBe(200);
-        const sid = res.headers["mcp-session-id"];
-        expect(sid).toBeDefined();
-        return Array.isArray(sid) ? sid[0] : (sid as string);
+        expect(res.headers["mcp-session-id"]).toBeUndefined();
+        return undefined;
       }
 
       return { post, get, options, port, initSession };
@@ -1909,11 +1933,11 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case `initialize` response exposes Mcp-Session-Id so a browser-side follow-up can echo it
-       * @preconditions Default cors policy; loopback Origin; the SDK runs in stateful mode (sessionIdGenerator set in createSession), so Mcp-Session-Id is emitted on `initialize`
-       * @expectedResult Access-Control-Expose-Headers contains "Mcp-Session-Id" (and "WWW-Authenticate", and "Last-Event-ID"). Without this, browser MCP clients read Mcp-Session-Id as undefined and the second request fails with 400 from the SDK transport.
+       * @case `initialize` mints no session and exposes only WWW-Authenticate
+       * @preconditions Default cors policy; loopback Origin; serving is stateless, so no Mcp-Session-Id is emitted on any request
+       * @expectedResult No Mcp-Session-Id header, and Access-Control-Expose-Headers lists WWW-Authenticate but neither the removed Mcp-Session-Id nor Last-Event-ID
        */
-      test("initialize exposes Mcp-Session-Id for browser clients", async () => {
+      test("initialize mints no session and exposes only WWW-Authenticate", async () => {
         const { post } = await startHttpServer([]);
         const res = await post(
           JSON.stringify({
@@ -1926,32 +1950,28 @@ describe("McpServer", () => {
           { Origin: LOOPBACK_ORIGIN },
         );
         expect(res.statusCode).toBe(200);
-        // Sanity: the SDK actually emitted a session id.
-        expect(res.headers["mcp-session-id"]).toBeDefined();
-        // And the CORS exposure listing tells the browser it can read it.
+        expect(res.headers["mcp-session-id"]).toBeUndefined();
         const expose = res.headers["access-control-expose-headers"];
         const exposeStr = Array.isArray(expose) ? expose.join(", ") : expose;
         expect(exposeStr).toBeDefined();
-        expect(exposeStr).toContain("Mcp-Session-Id");
         expect(exposeStr!.toLowerCase()).toContain("www-authenticate");
-        expect(exposeStr).toContain("Last-Event-ID");
+        expect(exposeStr).not.toContain("Mcp-Session-Id");
+        expect(exposeStr).not.toContain("Last-Event-ID");
       });
 
       /**
-       * @case Two-request flow: a follow-up tools/list with the echoed Mcp-Session-Id succeeds with CORS headers intact
-       * @preconditions Default cors policy; loopback Origin; valid initialize then a subsequent tools/list with the captured Mcp-Session-Id
-       * @expectedResult Both responses are 200; the second response also carries Access-Control-Allow-Origin -- proving the CORS contract holds across the stateful session lifecycle, not just on initialize
+       * @case A standalone tools/list carries CORS headers with no prior handshake
+       * @preconditions Default cors policy; loopback Origin; tools/list posted as the very first request, with no initialize before it
+       * @expectedResult 200 with Access-Control-Allow-Origin -- proving the CORS contract holds on any request in isolation, which is what a stateless endpoint behind a load balancer actually serves
        */
-      test("two-step session: tools/list after initialize keeps CORS headers", async () => {
-        const { post, initSession } = await startHttpServer([
+      test("standalone tools/list keeps CORS headers without a handshake", async () => {
+        const { post } = await startHttpServer([
           craft()
             .id("two-step-tool")
-            .description("Tool for the two-step CORS test")
+            .description("Tool for the standalone CORS test")
             .from(mcp())
             .to(noop()),
         ]);
-        const sessionId = await initSession({ Origin: LOOPBACK_ORIGIN });
-        expect(sessionId).toBeDefined();
         const res = await post(
           JSON.stringify({
             jsonrpc: "2.0",
@@ -1959,7 +1979,7 @@ describe("McpServer", () => {
             method: "tools/list",
             params: {},
           }),
-          sessionId,
+          undefined,
           { Origin: LOOPBACK_ORIGIN },
         );
         expect(res.statusCode).toBe(200);
@@ -2519,6 +2539,48 @@ describe("McpServer", () => {
       });
 
       /**
+       * @case OAuth provider mode still mounts the authorization-server endpoints
+       * @preconditions McpServer with oauth() auth and a fixed resource url; GET the RFC 8414 authorization-server metadata document
+       * @expectedResult 200 with a document naming the mounted authorize and token endpoints, proving the AS router still mounts after it moved to @modelcontextprotocol/server-legacy
+       */
+      test("serves authorization-server metadata in oauth mode", async () => {
+        const { oauth } = await import("../src/mcp/oauth.ts");
+        const authConfig = oauth({
+          endpoints: {
+            authorizationUrl: "http://localhost:9999/authorize",
+            tokenUrl: "http://localhost:9999/token",
+          },
+          verify: async () => ({
+            kind: "oauth" as const,
+            scheme: "bearer" as const,
+            subject: "s",
+            clientId: "c",
+            scopes: [],
+            expiresAt: Math.floor(Date.now() / 1000) + 600,
+          }),
+          client: async (clientId) => ({
+            client_id: clientId,
+            redirect_uris: ["http://localhost:3000/callback"],
+          }),
+        });
+
+        const { get } = await startHttpServer([], {
+          auth: authConfig,
+          resource: { url: "http://localhost:9999" },
+        });
+
+        const res = await get("/.well-known/oauth-authorization-server");
+        expect(res.statusCode).toBe(200);
+        const doc = JSON.parse(res.body) as {
+          issuer: string;
+          authorization_endpoint: string;
+          token_endpoint: string;
+        };
+        expect(doc.authorization_endpoint).toContain("/authorize");
+        expect(doc.token_endpoint).toContain("/token");
+      });
+
+      /**
        * @case Minimal Principal carries only the fields verify returned; absent fields stay undefined on the principal
        * @preconditions McpServer with oauth(); verify returns only required fields (kind, scheme, subject, clientId, scopes)
        * @expectedResult ex.principal has subject, clientId, scheme, scopes set; email/name/issuer/audience are undefined on the structured object
@@ -3036,83 +3098,6 @@ describe("McpServer", () => {
     });
 
     /**
-     * @case session:created event is emitted when HTTP session initializes
-     * @preconditions McpServer with HTTP transport; send initialize request
-     * @expectedResult Event emitted with sessionId string
-     */
-    test("emits plugin:mcp:session:created on initialize", async () => {
-      t = await testContext()
-        .routes([
-          craft().id("evt-tool").description("test").from(mcp()).to(noop()),
-        ])
-        .store(MCP_STORE_KEY, true)
-        .build();
-      server = new McpServer(t.ctx, {
-        transport: "http",
-        port: 0,
-        host: "127.0.0.1",
-      });
-
-      const sessions: string[] = [];
-      t.ctx.on("plugin:mcp:session:created", (payload) => {
-        const d = payload.details as { sessionId: string };
-        sessions.push(d.sessionId);
-      });
-
-      const total = t.ctx.getRoutes().length;
-      const routesReady = new Promise<void>((resolve, reject) => {
-        let ready = 0;
-        const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
-        t.ctx.on("route:started", () => {
-          ready++;
-          if (ready >= total) {
-            clearTimeout(timeout);
-            resolve();
-          }
-        });
-      });
-      void t.ctx.start();
-      await routesReady;
-      await server.start();
-      const port = server.getHttpPort()!;
-
-      // Send initialize to trigger session creation
-      await new Promise<void>((resolve, reject) => {
-        const req = http.request(
-          {
-            host: "127.0.0.1",
-            port,
-            path: "/mcp",
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json, text/event-stream",
-            },
-          },
-          (res) => {
-            let data = "";
-            res.on("data", (chunk) => (data += chunk));
-            res.on("end", () => resolve());
-          },
-        );
-        req.on("error", reject);
-        req.write(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
-            params: INIT_PARAMS,
-          }),
-        );
-        req.end();
-      });
-
-      expect(sessions).toHaveLength(1);
-      expect(sessions[0]).toBeTypeOf("string");
-      expect(sessions[0]!.length).toBeGreaterThan(0);
-    });
-
-    /**
      * @case tools:exposed event is emitted with tool names and count
      * @preconditions McpServer with one mcp() route; request tools/list
      * @expectedResult Event emitted with tools array and count
@@ -3209,7 +3194,7 @@ describe("McpServer", () => {
       const port = server.getHttpPort()!;
 
       // Initialize session
-      const initRes = await new Promise<{
+      await new Promise<{
         statusCode: number;
         headers: Record<string, string | string[] | undefined>;
       }>((resolve, reject) => {
@@ -3247,8 +3232,6 @@ describe("McpServer", () => {
         req.end();
       });
 
-      const sessionId = initRes.headers["mcp-session-id"] as string;
-
       // Call the tool
       await new Promise<void>((resolve, reject) => {
         const req = http.request(
@@ -3260,7 +3243,6 @@ describe("McpServer", () => {
             headers: {
               "Content-Type": "application/json",
               Accept: "application/json, text/event-stream",
-              "mcp-session-id": sessionId,
             },
           },
           (res) => {
@@ -3329,7 +3311,7 @@ describe("McpServer", () => {
       const port = server.getHttpPort()!;
 
       // Initialize session
-      const initRes = await new Promise<{
+      await new Promise<{
         headers: Record<string, string | string[] | undefined>;
       }>((resolve, reject) => {
         const req = http.request(
@@ -3361,8 +3343,6 @@ describe("McpServer", () => {
         req.end();
       });
 
-      const sessionId = initRes.headers["mcp-session-id"] as string;
-
       // Call a tool that does not exist
       await new Promise<void>((resolve, reject) => {
         const req = http.request(
@@ -3374,7 +3354,6 @@ describe("McpServer", () => {
             headers: {
               "Content-Type": "application/json",
               Accept: "application/json, text/event-stream",
-              "mcp-session-id": sessionId,
             },
           },
           (res) => {
@@ -3453,7 +3432,7 @@ describe("McpServer", () => {
       const port = server.getHttpPort()!;
 
       // Initialize session
-      const initRes = await new Promise<{
+      await new Promise<{
         headers: Record<string, string | string[] | undefined>;
       }>((resolve, reject) => {
         const req = http.request(
@@ -3485,8 +3464,6 @@ describe("McpServer", () => {
         req.end();
       });
 
-      const sessionId = initRes.headers["mcp-session-id"] as string;
-
       // Call the tool
       await new Promise<void>((resolve, reject) => {
         const req = http.request(
@@ -3498,7 +3475,6 @@ describe("McpServer", () => {
             headers: {
               "Content-Type": "application/json",
               Accept: "application/json, text/event-stream",
-              "mcp-session-id": sessionId,
             },
           },
           (res) => {

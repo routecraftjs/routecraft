@@ -58,12 +58,19 @@ const MockClient = mock().mockImplementation(function (
   };
 });
 
-mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
-  Client: MockClient,
-}));
+// `mock.module` is process-global, so mock Routecraft's own SDK-loader seam
+// rather than `@modelcontextprotocol/client` itself: mocking the shared package
+// would hand the mock `Client` to every other suite in the run, including the
+// interop tests that must drive the real SDK. Only the stdio loaders are
+// overridden; the HTTP loader keeps its real implementation.
+const realSdk = await import("../src/mcp/sdk.ts");
 
-mock.module("@modelcontextprotocol/sdk/client/stdio.js", () => ({
-  StdioClientTransport: MockTransport,
+mock.module("../src/mcp/sdk.ts", () => ({
+  ...realSdk,
+  loadMcpClientSdk: mock().mockResolvedValue({ Client: MockClient }),
+  loadMcpClientStdioSdk: mock().mockResolvedValue({
+    StdioClientTransport: MockTransport,
+  }),
 }));
 
 function createLogger() {

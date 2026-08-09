@@ -108,7 +108,7 @@ This is enforced informally by review. When adding a new internal package that o
 
 ## 6. Optional peer dependencies (provider SDKs)
 
-External SDKs that a package only needs when a specific feature is used (Vercel AI SDK adapters, `@huggingface/transformers`, `@modelcontextprotocol/sdk`, `croner`, `cheerio`, etc.) live in `peerDependencies` AND `peerDependenciesMeta.<name>.optional = true`. The adapter dynamically imports them via `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`) and throws **`RC5017`** with an install hint when the import fails. Don't add such deps to `dependencies`; that bloats every install.
+External SDKs that a package only needs when a specific feature is used (Vercel AI SDK adapters, `@huggingface/transformers`, `@modelcontextprotocol/server`, `croner`, `cheerio`, etc.) live in `peerDependencies` AND `peerDependenciesMeta.<name>.optional = true`. The adapter dynamically imports them via `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`) and throws **`RC5017`** with an install hint when the import fails. Don't add such deps to `dependencies`; that bloats every install.
 
 **New code MUST use `loadOptionalPeer`.** The cron source (`packages/routecraft/src/adapters/cron/source.ts`) and the html adapter (`packages/routecraft/src/adapters/html/shared.ts`) are the canonical references; copy the shape (lazy import via the thunk, RC5017 message, type-only `import type` at the top of the file).
 

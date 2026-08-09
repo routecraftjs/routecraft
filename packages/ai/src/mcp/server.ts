@@ -6,10 +6,18 @@ import {
   loadOptionalPeer,
   markAuthentic,
 } from "@routecraft/routecraft";
-import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import type {
+  AuthInfo,
+  CallToolResult,
+  ListToolsResult,
+  McpHttpHandler,
+  McpRequestContext,
+  Server as SdkServer,
+} from "@modelcontextprotocol/server";
+import type { NodeIncomingMessageLike } from "@modelcontextprotocol/node";
+import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 import type {
   OAuthPrincipal,
   OAuthValidatorAuthOptions,
@@ -46,6 +54,12 @@ import {
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { buildEnrichedVerifier } from "./userinfo.ts";
 import { classifyRejectionReason, isExpiredTokenError } from "./auth-errors.ts";
+import {
+  loadMcpLegacyAuthSdk,
+  loadMcpNodeSdk,
+  loadMcpServerSdk,
+  loadMcpServerStdioSdk,
+} from "./sdk.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -55,11 +69,13 @@ import { classifyRejectionReason, isExpiredTokenError } from "./auth-errors.ts";
 type SdkAuthInfo = AuthInfo;
 
 /**
- * Request-scoped storage for the authenticated principal.
- * Set in the HTTP request handler after auth validation;
- * read in handleToolCall to populate exchange headers.
+ * A Node request after the auth gate has run. Both HTTP paths stash the
+ * verified {@link SdkAuthInfo} here (the validator path directly, the OAuth
+ * path via the SDK's bearer middleware) because `toNodeHandler` forwards
+ * `req.auth` to the handler as its pass-through `authInfo` -- which is how the
+ * principal reaches a per-request server instance without ambient state.
  */
-const principalStore = new AsyncLocalStorage<Principal | undefined>();
+type AuthenticatedRequest = IncomingMessage & { auth?: SdkAuthInfo };
 
 /**
  * Shared never-aborted signal for guard contexts on the proxied-call path,
@@ -161,12 +177,6 @@ type SdkServerOptions = {
   instructions?: string;
 };
 
-/** The MCP SDK `Server` constructor as we consume it via dynamic import. */
-type SdkServerCtor = new (
-  info: SdkServerInfo,
-  options: SdkServerOptions,
-) => unknown;
-
 /**
  * RFC 9728 OAuth 2.0 Protected Resource Metadata payload returned by
  * `GET /.well-known/oauth-protected-resource`. Optional fields are omitted
@@ -184,27 +194,34 @@ interface ProtectedResourceMetadata {
 }
 
 /**
- * McpServer wraps the MCP SDK and bridges it to Routecraft's DirectChannel infrastructure.
- * It reads the MCP route registry lazily (on first tools/list request) to ensure routes have subscribed.
+ * McpServer wraps the MCP SDK and bridges it to Routecraft's DirectChannel
+ * infrastructure. It reads the MCP route registry lazily (on first `tools/list`
+ * request) to ensure routes have subscribed.
  *
- * Note: Uses dynamic imports to avoid TypeScript compatibility issues with the MCP SDK.
- * Supports both stdio and streamable-http transports.
+ * Serving follows protocol revision 2026-07-28: both transports build a fresh
+ * server instance per serving unit and hold no state between them, so the HTTP
+ * transport scales horizontally with no session affinity. 2025-era clients are
+ * still served, through the SDK's stateless fallback.
+ *
+ * The SDK is loaded through `loadOptionalPeer` (see `./sdk.ts`) because it is
+ * an optional peer dependency, not because of any type incompatibility.
  */
 export class McpServer {
   private context: CraftContext;
   private options: McpServerResolvedOptions;
-  private server: unknown = null;
-  private transport: unknown = null;
   /**
    * Node HTTP server when transport is http; used to listen on port and close on stop.
    * When OAuth is enabled this holds the Express app's underlying server.
    */
   private httpServer: ReturnType<typeof createServer> | null = null;
-  /** Active HTTP sessions keyed by session ID (each session has its own server+transport pair). */
-  private httpSessions = new Map<
-    string,
-    { server: unknown; transport: unknown }
-  >();
+  /**
+   * The web-standard MCP handler backing the HTTP transport. Holds no
+   * per-client state: it builds a fresh server instance per request from
+   * {@link createServerInstance}. `null` until the HTTP transport starts.
+   */
+  private mcpHandler: McpHttpHandler | null = null;
+  /** Handle for the stdio transport, used to await shutdown. `null` on HTTP. */
+  private stdioHandle: StdioServerHandle | null = null;
   private running = false;
   private toolsListLogged = false;
   /**
@@ -379,31 +396,59 @@ export class McpServer {
   }
 
   /**
-   * Start stdio transport
+   * Start stdio transport.
+   *
+   * `serveStdio` calls the factory once per connection, and once more for a
+   * discarded `server/discover` probe when a negotiating client checks which
+   * protocol revision this server speaks. stdio carries no HTTP credentials,
+   * so the instance is always built without a principal.
    */
   private async startStdio(): Promise<void> {
-    const serverMod = await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/server/index.js"),
-      { adapterName: "mcp (stdio)", packageName: "@modelcontextprotocol/sdk" },
+    const { serveStdio } = await loadMcpServerStdioSdk("mcp (stdio)");
+    this.stdioHandle = serveStdio(() => this.createServerInstance(undefined));
+  }
+
+  /**
+   * Build one MCP `Server` instance bound to a single serving unit: one HTTP
+   * request under `createMcpHandler`, or one connection under `serveStdio`.
+   *
+   * The authenticated principal is closed over rather than read from ambient
+   * request-scoped storage. Under the 2026-07-28 stateless model a request is
+   * self-describing and its instance is never reused, so the principal is
+   * simply a construction parameter -- which is also what makes the handler
+   * safe to run on any replica.
+   */
+  private async createServerInstance(
+    principal: Principal | undefined,
+  ): Promise<SdkServer> {
+    const { Server } = await loadMcpServerSdk("mcp");
+    const server = new Server(
+      this.buildServerInfo(),
+      this.buildServerOptions(),
     );
-    const Server = serverMod.Server as SdkServerCtor;
-    const stdioMod = await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/server/stdio.js"),
-      { adapterName: "mcp (stdio)", packageName: "@modelcontextprotocol/sdk" },
-    );
-    const StdioServerTransport =
-      stdioMod.StdioServerTransport as new () => unknown;
 
-    this.server = new Server(this.buildServerInfo(), this.buildServerOptions());
+    // Both handlers cast their result at the wire boundary. `McpTool` and
+    // `McpToolCallResult` are Routecraft's own projections, deliberately
+    // looser than the SDK's generated schema types (`inputSchema.properties`
+    // is `Record<string, unknown>` because it comes from an arbitrary
+    // Standard Schema, and `content` blocks are built by route code). The
+    // shapes agree on the wire; only the static types differ.
+    server.setRequestHandler("tools/list", () => {
+      const tools = this.getAvailableTools();
+      this.logExposedToolsOnce();
+      return { tools } as unknown as ListToolsResult;
+    });
 
-    await this.setupRequestHandlers();
+    server.setRequestHandler("tools/call", async (request) => {
+      const result = await this.handleToolCall(
+        request.params.name,
+        request.params.arguments ?? {},
+        principal,
+      );
+      return result as unknown as CallToolResult;
+    });
 
-    this.transport = new StdioServerTransport();
-    const srvWithConnect = this.server as Record<
-      string,
-      (transport: unknown) => Promise<void>
-    >;
-    await srvWithConnect["connect"](this.transport);
+    return server;
   }
 
   /**
@@ -419,179 +464,49 @@ export class McpServer {
   }
 
   /**
-   * Import the MCP SDK Server constructor and StreamableHTTPServerTransport.
-   * Shared by both HTTP startup paths.
+   * Build the stateless web-standard MCP handler shared by both HTTP paths.
+   *
+   * Under protocol revision 2026-07-28 there is no `initialize` handshake and
+   * no `Mcp-Session-Id`: every request is self-describing, so the handler
+   * builds a fresh server instance per request and holds nothing between them.
+   * That is what lets a Routecraft MCP server run as N replicas behind a plain
+   * round-robin load balancer, with no sticky sessions and no shared store.
+   *
+   * `legacy: "stateless"` (the SDK default) keeps 2025-era clients working:
+   * a request that carries no per-request `_meta` envelope is answered by the
+   * established stateless 2025 idiom from the same factory. Existing clients
+   * therefore keep working unchanged, they simply do not get the new
+   * revision's features.
    */
-  private async importSdkHttp(): Promise<{
-    ServerCtor: SdkServerCtor;
-    TransportClass: new (options?: {
-      sessionIdGenerator?: () => string;
-      onsessioninitialized?: (sessionId: string) => void;
-      enableJsonResponse?: boolean;
-    }) => unknown;
-  }> {
-    const serverModule = await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/server/index.js"),
-      { adapterName: "mcp (http)", packageName: "@modelcontextprotocol/sdk" },
-    );
-    const ServerCtor = serverModule.Server as SdkServerCtor;
+  private async buildHttpHandler(): Promise<
+    (req: AuthenticatedRequest, res: import("node:http").ServerResponse) => void
+  > {
+    const { createMcpHandler } = await loadMcpServerSdk("mcp (http)");
+    const { toNodeHandler } = await loadMcpNodeSdk("mcp (http)");
 
-    // streamableHttp is a sub-export that may not exist on older SDK
-    // versions; the `.catch(() => null)` lets the OAuth-aware fallback
-    // kick in instead of failing the whole startup. Don't route through
-    // loadOptionalPeer here because the missing-sub-export case is
-    // distinct from the missing-package case.
-    const streamableModule =
-      await import("@modelcontextprotocol/sdk/server/streamableHttp.js").catch(
-        () => null,
-      );
-    const TransportClass = (
-      streamableModule as Record<string, unknown> | null
-    )?.["StreamableHTTPServerTransport"] as
-      | (new (options?: {
-          sessionIdGenerator?: () => string;
-          onsessioninitialized?: (sessionId: string) => void;
-          enableJsonResponse?: boolean;
-        }) => unknown)
-      | undefined;
-
-    if (!TransportClass) {
-      throw new Error(
-        "StreamableHTTPServerTransport not found in MCP SDK - ensure @modelcontextprotocol/sdk v1.26.0+ is installed",
-      );
-    }
-
-    return { ServerCtor, TransportClass };
-  }
-
-  /**
-   * Creates a new MCP Server + Transport pair for a single HTTP session.
-   * Called on every initialization request (no session ID header).
-   */
-  private async createSession(
-    ServerCtor: SdkServerCtor,
-    TransportClass: new (options?: {
-      sessionIdGenerator?: () => string;
-      onsessioninitialized?: (sessionId: string) => void;
-      enableJsonResponse?: boolean;
-    }) => unknown,
-  ): Promise<{
-    transport: unknown;
-    handleRequest: (
-      req: unknown,
-      res: unknown,
-      parsedBody?: unknown,
-    ) => Promise<void>;
-  }> {
-    const server = new ServerCtor(
-      this.buildServerInfo(),
-      this.buildServerOptions(),
-    );
-
-    await this.setupRequestHandlersOn(server);
-
-    const transport = new TransportClass({
-      sessionIdGenerator: () => crypto.randomUUID(),
-      onsessioninitialized: (sessionId: string) => {
-        this.httpSessions.set(sessionId, { server, transport });
-        this.context.logger.debug({ sessionId }, "MCP session created");
-        this.context.emit("plugin:mcp:session:created", { sessionId });
+    this.mcpHandler = createMcpHandler(
+      (ctx: McpRequestContext) =>
+        this.createServerInstance(this.authInfoToPrincipal(ctx.authInfo)),
+      {
+        onerror: (error: Error) => {
+          this.context.logger.error({ err: error }, "MCP handler error");
+        },
       },
-      enableJsonResponse: true,
+    );
+
+    const nodeHandler = toNodeHandler(this.mcpHandler, {
+      onerror: (error: Error) => {
+        this.context.logger.error({ err: error }, "MCP HTTP request error");
+      },
     });
 
-    const srvWithConnect = server as Record<
-      string,
-      (t: unknown) => Promise<void>
-    >;
-    await srvWithConnect["connect"](transport);
-
-    // Clean up on transport close so the session map does not leak.
-    const tr = transport as Record<string, unknown>;
-    const prevOnClose = tr["onclose"] as (() => void) | undefined;
-    tr["onclose"] = () => {
-      const sid = (transport as { sessionId?: string }).sessionId;
-      if (sid) {
-        this.httpSessions.delete(sid);
-        this.context.logger.debug({ sessionId: sid }, "MCP session closed");
-        this.context.emit("plugin:mcp:session:closed", {
-          sessionId: sid,
-        });
-      }
-      prevOnClose?.();
+    // `IncomingMessage.method` is `string | undefined` while the adapter's
+    // duck-typed shape declares `method?: string`; under
+    // `exactOptionalPropertyTypes` those differ statically but not at runtime.
+    // The handler owns its own error responses, so the promise is not awaited.
+    return (req, res) => {
+      void nodeHandler(req as NodeIncomingMessageLike, res);
     };
-
-    const handleRequest = (
-      transport as Record<
-        string,
-        (req: unknown, res: unknown, parsedBody?: unknown) => Promise<void>
-      >
-    )["handleRequest"];
-    if (typeof handleRequest !== "function") {
-      throw new Error(
-        "StreamableHTTPServerTransport.handleRequest not found - SDK may have changed",
-      );
-    }
-
-    return {
-      transport,
-      handleRequest: handleRequest.bind(transport) as (
-        req: unknown,
-        res: unknown,
-        parsedBody?: unknown,
-      ) => Promise<void>,
-    };
-  }
-
-  /**
-   * Route an MCP request through session management with principal context.
-   * Shared by both HTTP startup paths.
-   */
-  private async handleMcpRequest(
-    req: IncomingMessage,
-    res: import("node:http").ServerResponse,
-    principal: Principal | undefined,
-    createSessionFn: () => Promise<{
-      handleRequest: (
-        req: unknown,
-        res: unknown,
-        parsedBody?: unknown,
-      ) => Promise<void>;
-    }>,
-  ): Promise<void> {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    const runWithPrincipal = <T>(fn: () => Promise<T>): Promise<T> =>
-      principalStore.run(principal, fn);
-
-    try {
-      if (sessionId && this.httpSessions.has(sessionId)) {
-        const session = this.httpSessions.get(sessionId)!;
-        const hr = (
-          session.transport as Record<
-            string,
-            (req: unknown, res: unknown, parsedBody?: unknown) => Promise<void>
-          >
-        )["handleRequest"];
-        await runWithPrincipal(() => hr.call(session.transport, req, res));
-      } else if (!sessionId || req.method === "POST") {
-        const { handleRequest } = await createSessionFn();
-        await runWithPrincipal(() => handleRequest(req, res));
-      } else {
-        res.writeHead(404, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Session not found" }));
-      }
-    } catch (err) {
-      const msg = isRoutecraftError(err)
-        ? (err as unknown as { meta: { message: string } }).meta.message
-        : err instanceof Error
-          ? err.message
-          : "MCP HTTP request error";
-      this.context.logger.error({ err }, msg);
-      if (!res.headersSent) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Internal Server Error" }));
-      }
-    }
   }
 
   /**
@@ -713,7 +628,6 @@ export class McpServer {
    * Uses raw Node.js `http.createServer`.
    */
   private async startHttpWithValidator(): Promise<void> {
-    const { ServerCtor, TransportClass } = await this.importSdkHttp();
     const port = this.options.port;
     const host = this.options.host;
     const cors = resolveCorsOptions(this.options.cors);
@@ -723,10 +637,9 @@ export class McpServer {
     // the first request.
     this.validatorVerifier = this.buildValidatorVerifier();
 
-    const createSessionFn = () =>
-      this.createSession(ServerCtor, TransportClass);
+    const nodeHandler = await this.buildHttpHandler();
 
-    this.httpServer = createServer(async (req, res) => {
+    this.httpServer = createServer(async (req: AuthenticatedRequest, res) => {
       const url = req.url?.split("?")[0] ?? "";
       const rawOrigin = req.headers["origin"];
       const originValue = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
@@ -772,10 +685,9 @@ export class McpServer {
         return;
       }
 
-      let principal: Principal | undefined;
       if (this.options.auth) {
-        const result = await this.validateAuth(req);
-        if (!result) {
+        const principal = await this.validateAuth(req);
+        if (!principal) {
           res.writeHead(401, {
             "Content-Type": "application/json",
             "WWW-Authenticate": this.buildWwwAuthenticateHeader(),
@@ -783,10 +695,14 @@ export class McpServer {
           res.end(JSON.stringify({ error: "Unauthorized" }));
           return;
         }
-        principal = result;
+        // `toNodeHandler` forwards `req.auth` to the handler's pass-through
+        // `authInfo`, which the per-request factory reads back into the
+        // principal. This is the stateless replacement for the
+        // AsyncLocalStorage the sessionful transport needed.
+        req.auth = this.principalToAuthInfo(principal);
       }
 
-      await this.handleMcpRequest(req, res, principal, createSessionFn);
+      nodeHandler(req, res);
     });
 
     await this.listenHttp(port, host);
@@ -794,8 +710,11 @@ export class McpServer {
 
   /**
    * Start HTTP transport with OAuth provider auth.
-   * Uses Express to mount `mcpAuthRouter` (OAuth endpoints) alongside `/mcp`.
-   * Express is available as a transitive dependency of `@modelcontextprotocol/sdk`.
+   *
+   * Uses Express to mount `mcpAuthRouter` (the OAuth authorization-server
+   * endpoints) alongside `/mcp`, which serves the same stateless handler the
+   * validator path uses. Express is a declared optional peer of this package
+   * and of `@modelcontextprotocol/server-legacy`.
    *
    * Note: if the server runs behind a reverse proxy, `req.ip` and `req.protocol`
    * may be incorrect. Users should set `trust proxy` on the Express app via a
@@ -804,73 +723,23 @@ export class McpServer {
   private async startHttpWithOAuth(
     oauthOptions: OAuthAuthOptions,
   ): Promise<void> {
-    const { ServerCtor, TransportClass } = await this.importSdkHttp();
+    const expressMod = await loadOptionalPeer(() => import("express"), {
+      adapterName: "mcp (oauth)",
+      packageName: "express",
+    });
+    const expressFn = expressMod.default ?? expressMod;
 
-    // Dynamic imports for Express and SDK OAuth infrastructure.
-    // Express types are not available at compile time (transitive dep of SDK),
-    // so all Express values are typed as unknown and accessed dynamically.
-    type ExpressFn = (...args: unknown[]) => {
-      get: (...args: unknown[]) => void;
-      use: (...args: unknown[]) => void;
-      all: (...args: unknown[]) => void;
-      listen: (
-        port: number,
-        host: string,
-        cb: () => void,
-      ) => ReturnType<typeof createServer>;
-    };
-
-    const expressMod = (await loadOptionalPeer(
-      // @ts-expect-error -- Express is a transitive dep of @modelcontextprotocol/sdk; no type declarations in this project
-      () => import("express"),
-      { adapterName: "mcp (oauth)", packageName: "express" },
-    )) as Record<string, unknown>;
-    const expressFn = (expressMod["default"] ?? expressMod) as ExpressFn;
-
-    // OAuth sub-modules require @modelcontextprotocol/sdk v1.27.0+. If the
-    // package is missing entirely loadOptionalPeer fires RC5017 with the
-    // install hint. If the package is present but the sub-path is not (older
-    // SDK), the underlying ERR_MODULE_NOT_FOUND for the sub-path propagates,
-    // which is more diagnostic than a generic "install" message.
-    const routerMod = await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/server/auth/router.js"),
-      { adapterName: "mcp (oauth)", packageName: "@modelcontextprotocol/sdk" },
-    );
-    const mcpAuthRouter = (routerMod as Record<string, unknown>)[
-      "mcpAuthRouter"
-    ] as (options: Record<string, unknown>) => unknown;
-
-    const bearerMod = await loadOptionalPeer(
-      () =>
-        import("@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js"),
-      { adapterName: "mcp (oauth)", packageName: "@modelcontextprotocol/sdk" },
-    );
-    const requireBearerAuth = (bearerMod as Record<string, unknown>)[
-      "requireBearerAuth"
-    ] as (options: Record<string, unknown>) => unknown;
-
-    const proxyMod = await loadOptionalPeer(
-      () =>
-        import("@modelcontextprotocol/sdk/server/auth/providers/proxyProvider.js"),
-      { adapterName: "mcp (oauth)", packageName: "@modelcontextprotocol/sdk" },
-    );
-    const ProxyOAuthServerProvider = (proxyMod as Record<string, unknown>)[
-      "ProxyOAuthServerProvider"
-    ] as new (options: Record<string, unknown>) => unknown;
-
-    // The SDK's bearer middleware maps a thrown verify error to an HTTP status
-    // by its type: only an `InvalidTokenError` becomes a 401 (with a
-    // `WWW-Authenticate: Bearer error="invalid_token"` header that drives the
-    // client to refresh); anything else falls through to a generic 500. The
-    // wrapped verifier below converts token-validation failures into this error
-    // so an expired or invalid bearer yields 401, not 500.
-    const errorsMod = await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/server/auth/errors.js"),
-      { adapterName: "mcp (oauth)", packageName: "@modelcontextprotocol/sdk" },
-    );
-    const InvalidTokenError = (errorsMod as Record<string, unknown>)[
-      "InvalidTokenError"
-    ] as new (message: string) => Error;
+    // The OAuth *authorization server* surface (`/authorize`, `/token`,
+    // `/register`, `/revoke`) lives in `@modelcontextprotocol/server-legacy`
+    // as of SDK v2: the spec now steers MCP servers towards delegating to a
+    // dedicated IdP rather than proxying one. Resource-server duties stay on
+    // the main server package, shared with the validator path.
+    const {
+      mcpAuthRouter,
+      requireBearerAuth,
+      ProxyOAuthServerProvider,
+      InvalidTokenError,
+    } = await loadMcpLegacyAuthSdk("mcp (oauth)");
 
     // Apply plugin-level `userinfo` enrichment to the OAuth verifier. The
     // issuer for `userinfo: true` discovery is surfaced on the oauth() result
@@ -971,8 +840,12 @@ export class McpServer {
       endpoints: {
         authorizationUrl: oauthOptions.endpoints.authorizationUrl,
         tokenUrl: oauthOptions.endpoints.tokenUrl,
-        revocationUrl: oauthOptions.endpoints.revocationUrl,
-        registrationUrl: oauthOptions.endpoints.registrationUrl,
+        ...(oauthOptions.endpoints.revocationUrl !== undefined
+          ? { revocationUrl: oauthOptions.endpoints.revocationUrl }
+          : {}),
+        ...(oauthOptions.endpoints.registrationUrl !== undefined
+          ? { registrationUrl: oauthOptions.endpoints.registrationUrl }
+          : {}),
       },
       verifyAccessToken: wrappedVerifier,
       getClient: oauthOptions.getClient,
@@ -1080,54 +953,51 @@ export class McpServer {
     }
 
     // Mount OAuth endpoints at root (discovery, authorize, token, revoke).
-    const authRouterOptions: Record<string, unknown> = {
-      provider,
-      issuerUrl: resourceUrl,
-    };
-    if (oauthOptions.baseUrl) {
-      authRouterOptions["baseUrl"] = new URL(oauthOptions.baseUrl.toString());
-    }
     const resource = this.options.resource;
-    if (resource?.scopesSupported && resource.scopesSupported.length > 0) {
-      authRouterOptions["scopesSupported"] = resource.scopesSupported;
-    }
-    if (resource?.documentationUrl !== undefined) {
-      authRouterOptions["serviceDocumentationUrl"] = new URL(
-        resource.documentationUrl.toString(),
-      );
-    }
     const resourceName = this.resolveResourceName();
-    if (resourceName) {
-      authRouterOptions["resourceName"] = resourceName;
-    }
-    app.use(mcpAuthRouter(authRouterOptions));
+    app.use(
+      mcpAuthRouter({
+        provider,
+        issuerUrl: resourceUrl,
+        ...(oauthOptions.baseUrl
+          ? { baseUrl: new URL(oauthOptions.baseUrl.toString()) }
+          : {}),
+        ...(resource?.scopesSupported && resource.scopesSupported.length > 0
+          ? { scopesSupported: resource.scopesSupported }
+          : {}),
+        ...(resource?.documentationUrl !== undefined
+          ? {
+              serviceDocumentationUrl: new URL(
+                resource.documentationUrl.toString(),
+              ),
+            }
+          : {}),
+        ...(resourceName ? { resourceName } : {}),
+      }),
+    );
 
     // Bearer auth middleware for /mcp. The SDK appends
     // `resource_metadata="..."` to its 401 WWW-Authenticate header when
     // `resourceMetadataUrl` is provided. Use an absolute URL (RFC 9728
     // §5.1 SHOULD) that points at the doc we just mounted above.
-    const bearerOptions: Record<string, unknown> = {
-      verifier: provider,
-      resourceMetadataUrl: this.resolveResourceMetadataUrl(),
-    };
-    if (oauthOptions.requiredScopes) {
-      bearerOptions["requiredScopes"] = oauthOptions.requiredScopes;
-    }
-    app.use("/mcp", requireBearerAuth(bearerOptions));
+    app.use(
+      "/mcp",
+      requireBearerAuth({
+        verifier: provider,
+        resourceMetadataUrl: this.resolveResourceMetadataUrl(),
+        ...(oauthOptions.requiredScopes
+          ? { requiredScopes: oauthOptions.requiredScopes }
+          : {}),
+      }),
+    );
 
-    const createSessionFn = () =>
-      this.createSession(ServerCtor, TransportClass);
+    const nodeHandler = await this.buildHttpHandler();
 
-    // MCP transport handler at /mcp.
-    app.all("/mcp", async (req: unknown, res: unknown) => {
-      const nodeReq = req as IncomingMessage;
-      const nodeRes = res as import("node:http").ServerResponse;
-
-      // The SDK's requireBearerAuth sets req.auth with the verified AuthInfo.
-      const authInfo = (req as Record<string, unknown>)["auth"] as
-        SdkAuthInfo | undefined;
-      const principal = this.authInfoToPrincipal(authInfo);
-
+    // MCP transport handler at /mcp. `requireBearerAuth` above has already
+    // stamped `req.auth` with the verified AuthInfo, which `toNodeHandler`
+    // forwards to the per-request factory as its pass-through `authInfo`.
+    app.all("/mcp", (req: AuthenticatedRequest, res) => {
+      const principal = this.authInfoToPrincipal(req.auth);
       if (principal) {
         const successDetail = {
           subject: principal.subject,
@@ -1138,17 +1008,12 @@ export class McpServer {
         this.context.emit("auth:success", successDetail);
       }
 
-      await this.handleMcpRequest(nodeReq, nodeRes, principal, createSessionFn);
+      nodeHandler(req, res);
     });
 
     // Wrap the Express app in a raw HTTP server so listenHttp can bind it.
     // Express apps are callable as (req, res) request handlers.
-    this.httpServer = createServer(
-      app as unknown as (
-        req: import("node:http").IncomingMessage,
-        res: import("node:http").ServerResponse,
-      ) => void,
-    );
+    this.httpServer = createServer(app);
     await this.listenHttp(port, host);
   }
 
@@ -1204,6 +1069,28 @@ export class McpServer {
       fallback.expiresAt = authInfo.expiresAt;
     }
     return fallback;
+  }
+
+  /**
+   * Wrap a verified {@link Principal} as the SDK `AuthInfo` the handler passes
+   * through to the per-request factory, stashing the full principal in `extra`
+   * so {@link authInfoToPrincipal} recovers it losslessly on the way back out.
+   *
+   * Used by the validator path, whose verifier produces a Routecraft
+   * `Principal` directly. The OAuth path does the same stashing inside its
+   * wrapped `verifyAccessToken`, so both auth modes converge on one carrier.
+   */
+  private principalToAuthInfo(principal: Principal): SdkAuthInfo {
+    const authInfo: SdkAuthInfo = {
+      token: "",
+      clientId: principal.clientId ?? principal.subject,
+      scopes: principal.scopes ?? [],
+      extra: { principal },
+    };
+    if (principal.expiresAt !== undefined) {
+      authInfo.expiresAt = principal.expiresAt;
+    }
+    return authInfo;
   }
 
   /**
@@ -1330,56 +1217,6 @@ export class McpServer {
   }
 
   /**
-   * Set up request handlers on this.server (used by stdio transport).
-   */
-  private async setupRequestHandlers(): Promise<void> {
-    await this.setupRequestHandlersOn(this.server);
-  }
-
-  /**
-   * Set up request handlers on the given server instance.
-   * Uses SDK request schemas so setRequestHandler receives a proper schema (method literal).
-   */
-  private async setupRequestHandlersOn(server: unknown): Promise<void> {
-    const typesModule = (await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/types.js"),
-      { adapterName: "mcp", packageName: "@modelcontextprotocol/sdk" },
-    )) as Record<string, unknown>;
-    const t = typesModule;
-    const ListToolsRequestSchema = t["ListToolsRequestSchema"];
-    const CallToolRequestSchema = t["CallToolRequestSchema"];
-
-    if (!ListToolsRequestSchema || !CallToolRequestSchema) {
-      throw new Error(
-        "MCP SDK types missing ListToolsRequestSchema or CallToolRequestSchema - ensure @modelcontextprotocol/sdk is installed",
-      );
-    }
-
-    const srv = server as Record<
-      string,
-      (schema: unknown, handler: (request: unknown) => Promise<unknown>) => void
-    >;
-
-    srv["setRequestHandler"](ListToolsRequestSchema, async () => {
-      const tools = this.getAvailableTools();
-      this.logExposedToolsOnce();
-      return { tools };
-    });
-
-    srv["setRequestHandler"](
-      CallToolRequestSchema,
-      async (request: unknown) => {
-        const req = request as Record<string, unknown>;
-        const params = req["params"] as Record<string, unknown>;
-        return await this.handleToolCall(
-          (params["name"] as string) || "",
-          (params["arguments"] as Record<string, unknown>) || {},
-        );
-      },
-    );
-  }
-
-  /**
    * Stop the MCP server
    */
   async stop(): Promise<void> {
@@ -1389,14 +1226,12 @@ export class McpServer {
 
     try {
       if (this.httpServer) {
-        // Close all active HTTP sessions.
-        for (const [, session] of this.httpSessions) {
-          const tr = session.transport as Record<string, () => Promise<void>>;
-          if (typeof tr["close"] === "function") {
-            await tr["close"]();
-          }
+        // Tear down the modern leg: aborts in-flight exchanges and closes
+        // their per-request instances. There are no sessions to drain.
+        if (this.mcpHandler) {
+          await this.mcpHandler.close();
+          this.mcpHandler = null;
         }
-        this.httpSessions.clear();
 
         // Force-close any lingering connections (e.g. SSE streams that keep
         // the socket open indefinitely). closeAllConnections() is available
@@ -1412,11 +1247,9 @@ export class McpServer {
         });
         this.httpServer = null;
       }
-      if (this.transport) {
-        const tr = this.transport as Record<string, () => Promise<void>>;
-        if (typeof tr["close"] === "function") {
-          await tr["close"]();
-        }
+      if (this.stdioHandle) {
+        await this.stdioHandle.close();
+        this.stdioHandle = null;
       }
       this.running = false;
       this.context.logger.info({}, "MCP server stopped");
@@ -1641,6 +1474,7 @@ export class McpServer {
   private async handleToolCall(
     toolName: string,
     args: Record<string, unknown>,
+    principal: Principal | undefined,
   ): Promise<McpToolCallResult> {
     try {
       // Normalize args once for both the local and proxied paths (the SDK
@@ -1654,7 +1488,7 @@ export class McpServer {
       if (!entry) {
         const proxied = this.resolveProxied().get(toolName);
         if (proxied) {
-          return await this.handleProxiedToolCall(proxied, body);
+          return await this.handleProxiedToolCall(proxied, body, principal);
         }
         const err = new Error(`Tool not found: ${toolName}`);
         this.context.emit(`plugin:mcp:tool:failed`, {
@@ -1682,10 +1516,11 @@ export class McpServer {
       // enrichment, so branding here marks the verified identity as
       // authentic for downstream `authorize()` without freezing it too
       // early to enrich.
-      const principal = principalStore.getStore();
+      const requestId = crypto.randomUUID();
       const headers: Record<string, unknown> = {
         [McpHeadersKeys.TOOL]: toolName,
-        [McpHeadersKeys.SESSION]: `mcp-${Date.now()}`,
+        [McpHeadersKeys.REQUEST]: requestId,
+        [McpHeadersKeys.SESSION]: requestId,
       };
       if (principal) {
         headers[HeadersKeys.AUTH_PRINCIPAL] = markAuthentic(principal);
@@ -1779,6 +1614,7 @@ export class McpServer {
   private async handleProxiedToolCall(
     proxied: McpProxiedTool,
     args: Record<string, unknown>,
+    principal: Principal | undefined,
   ): Promise<McpToolCallResult> {
     const detail = {
       tool: proxied.exposedName,
@@ -1799,7 +1635,7 @@ export class McpServer {
         const guardCtx = makeFnHandlerContext(
           proxied.exposedName,
           NEVER_ABORTED,
-          principalStore.getStore(),
+          principal,
         );
         await guard(args, guardCtx);
       }

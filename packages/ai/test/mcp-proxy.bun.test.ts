@@ -845,22 +845,6 @@ describe("MCP tool proxying over HTTP with auth", () => {
     const port = server.getHttpPort()!;
 
     async function callTool(token: string): Promise<Record<string, unknown>> {
-      const auth = { Authorization: `Bearer ${token}` };
-      const init = await post(
-        port,
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: {
-            protocolVersion: "2024-11-05",
-            capabilities: {},
-            clientInfo: { name: "test", version: "1.0.0" },
-          },
-        }),
-        auth,
-      );
-      expect(init.statusCode).toBe(200);
       const call = await post(
         port,
         JSON.stringify({
@@ -869,7 +853,7 @@ describe("MCP tool proxying over HTTP with auth", () => {
           method: "tools/call",
           params: { name: "get_document", arguments: { id: "42" } },
         }),
-        { ...auth, "mcp-session-id": init.sessionId! },
+        { Authorization: `Bearer ${token}` },
       );
       expect(call.statusCode).toBe(200);
       return parseRpcResult(call.body);

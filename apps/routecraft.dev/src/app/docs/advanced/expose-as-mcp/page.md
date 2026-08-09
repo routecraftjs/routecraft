@@ -102,6 +102,15 @@ export default {
 
 Start the server with `craft run`, then point your AI client at it. Anything reachable over the network must be authenticated: see [Securing capabilities](/docs/advanced/securing-capabilities) for every auth mode (`jwt()`, `jwks()`, custom validators, the OAuth 2.1 proxy), identity enrichment, RFC 9728 discovery metadata, and CORS.
 
+### Scaling out
+
+The HTTP transport is stateless. Following [MCP revision 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28), there is no `initialize` handshake and no `Mcp-Session-Id`: every request carries its own protocol version, client identity, and capabilities, and Routecraft builds a fresh server instance to answer it. Two consequences worth planning around:
+
+- **Any replica can answer any request.** Run as many processes as you like behind a plain round-robin load balancer. No sticky sessions, no shared session store.
+- **Auth is enforced per request.** A credential is verified on every call rather than once per session, so a revoked token stops working immediately rather than at the end of a session.
+
+Clients that only speak the 2025 revision keep working unchanged; they are served through the stateless 2025 path and simply do not get the newer revision's features.
+
 ### Claude Desktop (HTTP)
 
 ```json

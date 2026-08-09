@@ -2,9 +2,13 @@ import {
   type CraftContext,
   type CraftPlugin,
   type EventName,
-  loadOptionalPeer,
 } from "@routecraft/routecraft";
 import { McpServer } from "./server.ts";
+import {
+  loadMcpClientSdk,
+  MCP_CLIENT_INFO,
+  MCP_VERSION_NEGOTIATION,
+} from "./sdk.ts";
 import {
   ADAPTER_MCP_CLIENT_SERVERS,
   MCP_PLUGIN_REGISTERED,
@@ -215,36 +219,20 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     const existing = httpClients.get(serverId);
     if (existing) return existing;
 
-    const { Client } = await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/client/index.js"),
-      {
-        adapterName: "mcp (http client)",
-        packageName: "@modelcontextprotocol/sdk",
-      },
-    );
-    const { StreamableHTTPClientTransport } = await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-      {
-        adapterName: "mcp (http client)",
-        packageName: "@modelcontextprotocol/sdk",
-      },
-    );
+    const { Client, StreamableHTTPClientTransport } =
+      await loadMcpClientSdk("mcp (http client)");
 
     const headers = await buildAuthHeaders(auth);
     const transportOptions = headers ? { requestInit: { headers } } : undefined;
-    const transport = new (
-      StreamableHTTPClientTransport as new (
-        url: URL,
-        options?: { requestInit?: { headers?: Record<string, string> } },
-      ) => unknown
-    )(new URL(url), transportOptions);
-    const rawClient = new Client(
-      { name: "routecraft-mcp-client", version: "1.0.0" },
-      { capabilities: {} },
+    const transport = new StreamableHTTPClientTransport(
+      new URL(url),
+      transportOptions,
     );
-    await (
-      rawClient as unknown as { connect(t: unknown): Promise<void> }
-    ).connect(transport);
+    const rawClient = new Client(MCP_CLIENT_INFO, {
+      capabilities: {},
+      versionNegotiation: MCP_VERSION_NEGOTIATION,
+    });
+    await rawClient.connect(transport);
 
     const typed = rawClient as unknown as {
       close(): Promise<void>;
