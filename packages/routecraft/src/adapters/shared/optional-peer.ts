@@ -55,7 +55,6 @@ function isMissingExpectedPackage(
   if (typeof message !== "string") return false;
   // Phrasings observed in the wild:
   //   Node ESM:  `Cannot find package 'pkg' imported from /path`
-  //   Node bare: `Cannot find module '/abs/path/pkg/index.js' imported from ...`
   //   CJS:       `Cannot find module 'pkg'`
   //   Bun:       `Cannot find module 'pkg/subpath' from '/path'`
   // Node names the package even when the import used a subpath; Bun quotes the
@@ -64,7 +63,11 @@ function isMissingExpectedPackage(
   // ERR_MODULE_NOT_FOUND. The quote-or-slash boundary keeps this from matching
   // a longer package name that merely starts with the same characters, and the
   // opening quote keeps a transitive-dep miss inside the same package from
-  // being mistaken for the peer itself.
+  // being mistaken for the peer itself. The resolved-path phrasing
+  // (`Cannot find module '/abs/path/pkg/index.js'`) is deliberately NOT
+  // matched: it means the package resolved but its entry file is missing,
+  // which is a broken install rather than an absent peer, and an install hint
+  // would send the user down the wrong path.
   return QUOTES.some((quote) => {
     const start = message.indexOf(`${quote}${packageName}`);
     if (start === -1) return false;

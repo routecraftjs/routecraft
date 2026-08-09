@@ -48,31 +48,6 @@ export function loadMcpNodeSdk(
   });
 }
 
-/**
- * The v2 legacy auth package: `mcpAuthRouter`, `ProxyOAuthServerProvider`.
- *
- * v2 moved the OAuth *authorization server* surface out of the main server
- * package on the reasoning that an MCP server should delegate to a dedicated
- * IdP rather than proxy one. Routecraft's `oauth()` mode is exactly that proxy,
- * so it keeps working from here, and takes its Express `requireBearerAuth`
- * middleware from here too: the v2 equivalent is web-standard
- * (`Request -> AuthInfo | Response`) and does not compose with an Express
- * chain. The validator path uses no middleware and shares nothing with this
- * package; RFC 9728 metadata is Routecraft's own on both paths.
- *
- * The SDK marks this surface deprecated upstream. This loader is not itself
- * deprecated and has no planned removal; it goes when `oauth()` provider mode
- * does, if it does.
- */
-export function loadMcpLegacyAuthSdk(
-  adapterName: string,
-): Promise<typeof import("@modelcontextprotocol/server-legacy/auth")> {
-  return loadOptionalPeer(
-    () => import("@modelcontextprotocol/server-legacy/auth"),
-    { adapterName, packageName: "@modelcontextprotocol/server-legacy" },
-  );
-}
-
 /** The v2 client package: `Client`, `StreamableHTTPClientTransport`. */
 export function loadMcpClientSdk(
   adapterName: string,

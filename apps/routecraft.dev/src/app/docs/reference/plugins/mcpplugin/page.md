@@ -241,12 +241,8 @@ import { jwtVerify, createRemoteJWKSet } from 'jose'
 const jwks = createRemoteJWKSet(new URL('https://idp.example.com/.well-known/jwks.json'))
 
 auth: oauth({
-  issuerUrl: 'https://mcp.example.com',
-  endpoints: {
-    authorizationUrl: 'https://idp.example.com/authorize',
-    tokenUrl: 'https://idp.example.com/token',
-  },
-  verifyAccessToken: async (token) => {
+  issuer: 'https://idp.example.com',
+  verify: async (token) => {
     const { payload } = await jwtVerify(token, jwks, {
       issuer: 'https://idp.example.com',
       audience: 'https://mcp.example.com',
@@ -260,13 +256,14 @@ auth: oauth({
       claims: payload as Record<string, unknown>,
     }
   },
-  client: async (clientId) => await db.clients.findByClientId(clientId),
 })
 ```
 
-`expiresAt` is required by the MCP SDK's bearer middleware; omit it and every request is rejected with 401. Pass **either** `jwt` or `verifyAccessToken`, never both.
+`expiresAt` is required on a principal returned through `oauth()`: a credential with no expiry never expires, so `oauth()` refuses one rather than admitting it.
 
-The `client` supplier (when you pass a function rather than a static object) is invoked **per request** by the OAuth proxy provider during every authorize/token/revoke call. Cache or preload registry reads so the hot path stays fast.
+`verify` runs on **every request**. Protocol revision 2026-07-28 is stateless, so there is no session in which a past verification could be cached; keep introspection calls fast or cache them yourself.
+
+`issuer` is what the RFC 9728 metadata document advertises as `authorization_servers`, and it is how clients discover where to authenticate. `jwks()` and `jwt()` supply it automatically; a raw `verify` function must pass it explicitly.
 
 **HTTP client config (`McpClientHttpConfig`):**
 

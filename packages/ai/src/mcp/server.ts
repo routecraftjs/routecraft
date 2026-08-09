@@ -3,7 +3,6 @@ import {
   DefaultExchange,
   HeadersKeys,
   isRoutecraftError,
-  loadOptionalPeer,
   markAuthentic,
 } from "@routecraft/routecraft";
 import { createServer } from "node:http";
@@ -19,7 +18,6 @@ import type {
 import type { NodeIncomingMessageLike } from "@modelcontextprotocol/node";
 import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 import type {
-  OAuthPrincipal,
   OAuthValidatorAuthOptions,
   Principal,
   ValidatorAuthOptions,
@@ -28,7 +26,6 @@ import {
   MCP_LOCAL_TOOL_REGISTRY,
   MCP_TOOL_REGISTRY,
   McpHeadersKeys,
-  isOAuthAuth,
 } from "./types.ts";
 import type {
   McpIcon,
@@ -36,7 +33,6 @@ import type {
   McpPluginOptions,
   McpRawToolResult,
   McpTool,
-  OAuthAuthOptions,
 } from "./types.ts";
 import { dispatchMcpCallRaw } from "./dispatch.ts";
 import { makeFnHandlerContext } from "../fn/handler-context.ts";
@@ -55,7 +51,6 @@ import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { buildEnrichedVerifier } from "./userinfo.ts";
 import { classifyRejectionReason, isExpiredTokenError } from "./auth-errors.ts";
 import {
-  loadMcpLegacyAuthSdk,
   loadMcpNodeSdk,
   loadMcpServerSdk,
   loadMcpServerStdioSdk,
@@ -69,13 +64,25 @@ import {
 type SdkAuthInfo = AuthInfo;
 
 /**
- * A Node request after the auth gate has run. Both HTTP paths stash the
- * verified {@link SdkAuthInfo} here (the validator path directly, the OAuth
- * path via the SDK's bearer middleware) because `toNodeHandler` forwards
- * `req.auth` to the handler as its pass-through `authInfo` -- which is how the
- * principal reaches a per-request server instance without ambient state.
+ * A Node request after the auth gate has run. The gate stashes the verified
+ * {@link SdkAuthInfo} here because `toNodeHandler` forwards `req.auth` to the
+ * handler as its pass-through `authInfo` -- which is how the principal reaches
+ * a per-request server instance without ambient state.
  */
 type AuthenticatedRequest = IncomingMessage & { auth?: SdkAuthInfo };
+
+/**
+ * Outcome of the HTTP auth gate.
+ *
+ * A refusal carries the status it deserves: `401` when the caller's credential
+ * is missing, malformed, expired or rejected, and `500` when verification
+ * itself could not be completed (an unreachable JWKS endpoint, a failed
+ * `userinfo` fetch). Collapsing the two would tell a client to discard a token
+ * that is probably fine.
+ */
+type AuthGateResult =
+  | { ok: true; principal: Principal; token: string }
+  | { ok: false; status: 401 | 500 };
 
 /**
  * Shared never-aborted signal for guard contexts on the proxied-call path,
@@ -210,8 +217,8 @@ export class McpServer {
   private context: CraftContext;
   private options: McpServerResolvedOptions;
   /**
-   * Node HTTP server when transport is http; used to listen on port and close on stop.
-   * When OAuth is enabled this holds the Express app's underlying server.
+   * Node HTTP server when transport is http; used to listen on port and close
+   * on stop.
    */
   private httpServer: ReturnType<typeof createServer> | null = null;
   /**
@@ -479,14 +486,14 @@ export class McpServer {
 
   /**
    * Start HTTP transport (streamable-http).
-   * Dispatches to the OAuth or raw-HTTP path depending on the auth config.
+   *
+   * One path serves every auth mode. The MCP server is a Resource Server: it
+   * verifies bearer tokens and advertises its Authorization Server through
+   * RFC 9728 metadata, so there is no authorization-server surface to mount
+   * beside `/mcp` and no web framework in the way.
    */
   private async startHttp(): Promise<void> {
-    if (this.options.auth && isOAuthAuth(this.options.auth)) {
-      await this.startHttpWithOAuth(this.options.auth);
-    } else {
-      await this.startHttpWithValidator();
-    }
+    await this.startHttpWithValidator();
   }
 
   /**
@@ -641,19 +648,40 @@ export class McpServer {
   }
 
   /**
-   * Build the `WWW-Authenticate` header value for a 401, with an absolute
-   * `resource_metadata` URL per RFC 9728 §5.1.
+   * Build the `WWW-Authenticate` header value for a rejected request, with an
+   * absolute `resource_metadata` URL per RFC 9728 §5.1.
+   *
+   * `params` carries the RFC 6750 §3 attributes for the specific refusal: a
+   * bare challenge on a `401`, or `error="insufficient_scope"` plus the
+   * `scope` the client would need on a `403`.
    */
-  private buildWwwAuthenticateHeader(): string {
+  private buildWwwAuthenticateHeader(
+    params: Record<string, string> = {},
+  ): string {
     const metadataUrl = this.resolveResourceMetadataUrl();
-    return `Bearer realm="mcp", resource_metadata="${metadataUrl}"`;
+    const attributes = [
+      `realm="mcp"`,
+      ...Object.entries(params).map(([key, value]) => `${key}="${value}"`),
+      `resource_metadata="${metadataUrl}"`,
+    ];
+    return `Bearer ${attributes.join(", ")}`;
+  }
+
+  /**
+   * Required scopes the principal does not carry, in configuration order.
+   * Empty when no `requiredScopes` are configured or all are satisfied.
+   */
+  private missingScopes(principal: Principal): string[] {
+    const required = this.options.auth?.requiredScopes;
+    if (!required || required.length === 0) return [];
+    const granted = new Set(principal.scopes ?? []);
+    return required.filter((scope) => !granted.has(scope));
   }
 
   /**
    * Serve the RFC 9728 protected-resource metadata document.
    *
-   * Shared between validator and OAuth-proxy modes so both produce the
-   * exact same JSON shape. Default `Cache-Control: public, max-age=3600`
+   * Default `Cache-Control: public, max-age=3600`
    * follows RFC 9728 §3.3's caching guidance; auto-discovering MCP clients
    * fetch this document on every connection, so a short cache prevents the
    * IdP from being polled needlessly.
@@ -676,8 +704,7 @@ export class McpServer {
   }
 
   /**
-   * Start HTTP transport with validator-based auth (existing behavior).
-   * Uses raw Node.js `http.createServer`.
+   * Start the HTTP transport on a raw Node `http.createServer`.
    */
   private async startHttpWithValidator(): Promise<void> {
     const port = this.options.port;
@@ -740,14 +767,46 @@ export class McpServer {
 
       if (this.options.auth) {
         const authenticated = await this.validateAuth(req);
-        if (!authenticated) {
+        if (!authenticated.ok) {
+          if (authenticated.status === 500) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Internal Server Error" }));
+            return;
+          }
           res.writeHead(401, {
             "Content-Type": "application/json",
-            "WWW-Authenticate": this.buildWwwAuthenticateHeader(),
+            "WWW-Authenticate": this.buildWwwAuthenticateHeader({
+              error: "invalid_token",
+            }),
           });
           res.end(JSON.stringify({ error: "Unauthorized" }));
           return;
         }
+
+        // A valid token that lacks a required scope is a 403, not a 401
+        // (RFC 6750 §3.1): the identity is good, the grant is too narrow, and
+        // re-authenticating with the same scopes would not help. The
+        // `scope` parameter tells the client what to ask for on a step-up.
+        const missing = this.missingScopes(authenticated.principal);
+        if (missing.length > 0) {
+          const detail = {
+            reason: "insufficient_scope",
+            scheme: "bearer",
+            source: "mcp",
+          };
+          this.context.logger.warn(detail, "Auth rejected: insufficient scope");
+          this.context.emit("auth:rejected", detail);
+          res.writeHead(403, {
+            "Content-Type": "application/json",
+            "WWW-Authenticate": this.buildWwwAuthenticateHeader({
+              error: "insufficient_scope",
+              scope: missing.join(" "),
+            }),
+          });
+          res.end(JSON.stringify({ error: "insufficient_scope" }));
+          return;
+        }
+
         // `toNodeHandler` forwards `req.auth` to the handler's pass-through
         // `authInfo`, which the per-request factory reads back into the
         // principal. This is the stateless replacement for the
@@ -765,320 +824,7 @@ export class McpServer {
   }
 
   /**
-   * Start HTTP transport with OAuth provider auth.
-   *
-   * Uses Express to mount `mcpAuthRouter` (the OAuth authorization-server
-   * endpoints) alongside `/mcp`, which serves the same stateless handler the
-   * validator path uses. Express is a declared optional peer of this package
-   * and of `@modelcontextprotocol/server-legacy`.
-   *
-   * Note: if the server runs behind a reverse proxy, `req.ip` and `req.protocol`
-   * may be incorrect. Users should set `trust proxy` on the Express app via a
-   * future configuration option or by using a custom HTTP server.
-   */
-  private async startHttpWithOAuth(
-    oauthOptions: OAuthAuthOptions,
-  ): Promise<void> {
-    const expressMod = await loadOptionalPeer(() => import("express"), {
-      adapterName: "mcp (oauth)",
-      packageName: "express",
-    });
-    const expressFn = expressMod.default ?? expressMod;
-
-    // The OAuth *authorization server* surface (`/authorize`, `/token`,
-    // `/register`, `/revoke`) lives in `@modelcontextprotocol/server-legacy`
-    // as of SDK v2: the spec now steers MCP servers towards delegating to a
-    // dedicated IdP rather than proxying one. Resource-server duties stay on
-    // the main server package, shared with the validator path.
-    const {
-      mcpAuthRouter,
-      requireBearerAuth,
-      ProxyOAuthServerProvider,
-      InvalidTokenError,
-    } = await loadMcpLegacyAuthSdk("mcp (oauth)");
-
-    // Apply plugin-level `userinfo` enrichment to the OAuth verifier. The
-    // issuer for `userinfo: true` discovery is surfaced on the oauth() result
-    // from the verify helper. Built eagerly so a misconfigured `userinfo: true`
-    // (no issuer) throws at startup.
-    const verifyAccessToken =
-      this.options.userinfo === undefined
-        ? oauthOptions.verifyAccessToken
-        : buildEnrichedVerifier(
-            oauthOptions.verifyAccessToken,
-            this.options.userinfo,
-            oauthOptions.issuer,
-          );
-
-    // Wrap the user's verifier so the MCP SDK sees a clean AuthInfo while the
-    // rich OAuthPrincipal rides through in `extra.principal` for
-    // this.authInfoToPrincipal. Token verification failures emit `auth:rejected`
-    // so operators can observe brute-force attempts, mismatched audiences, and
-    // expired tokens alongside the validator path's rejections. Expiry is
-    // routine (the client refreshes and retries) so it logs at `debug`; every
-    // other failure logs at `warn`. A token-validation failure is re-thrown as
-    // InvalidTokenError so the SDK answers 401 (the client refreshes), not 500.
-    const wrappedVerifier = async (token: string): Promise<SdkAuthInfo> => {
-      let principal: OAuthPrincipal;
-      try {
-        principal = await verifyAccessToken(token);
-      } catch (err) {
-        const expired = isExpiredTokenError(err);
-        const reason = classifyRejectionReason(err);
-        const detail = {
-          reason,
-          scheme: "bearer",
-          source: "mcp",
-          path: "oauth",
-        };
-        if (expired) {
-          this.context.logger.debug(
-            { err, ...detail },
-            "Auth rejected: token expired",
-          );
-        } else {
-          this.context.logger.warn(
-            { err, ...detail },
-            "Auth rejected: token validation failed",
-          );
-        }
-        this.context.emit("auth:rejected", detail);
-        // A server-side failure (RC5021 userinfo/discovery fetch, RC5022 sub
-        // mismatch, or a JWKS endpoint that is unreachable, slow, or returns a
-        // bad response) propagates unchanged so the SDK maps it to 500: the
-        // client must retry later, not discard a token that may be valid. Every
-        // other throw is the verifier rejecting the token, so surface it as
-        // InvalidTokenError for 401 invalid_token (which drives the refresh).
-        if (reason === "infrastructure") throw err;
-        throw new InvalidTokenError(
-          expired ? "Token has expired" : "Invalid token",
-        );
-      }
-      // Belt-and-suspenders: the type system already guarantees `expiresAt`,
-      // but third-party code using `as any` or dynamic plugin wiring could
-      // still hand us an incomplete principal. Emit a structured rejection
-      // so an operator can trace the mis-wired verifier instead of debugging
-      // a silent 401 from the SDK bearer middleware.
-      if ((principal as { expiresAt?: number }).expiresAt === undefined) {
-        const detail = {
-          reason: "missing_expires_at",
-          scheme: "bearer",
-          source: "mcp",
-          path: "oauth",
-        };
-        this.context.logger.warn(
-          detail,
-          "Auth rejected: OAuth principal is missing expiresAt",
-        );
-        this.context.emit("auth:rejected", detail);
-        throw new Error(
-          "oauth: verifyAccessToken must return a principal with expiresAt (required by MCP SDK bearer middleware)",
-        );
-      }
-      if (!principal.clientId) {
-        this.context.logger.debug(
-          { subject: principal.subject },
-          "oauth: principal missing clientId; using subject as fallback for AuthInfo.clientId",
-        );
-      }
-      const authInfo: SdkAuthInfo = {
-        token,
-        clientId: principal.clientId ?? principal.subject,
-        scopes: principal.scopes ?? [],
-        expiresAt: principal.expiresAt,
-        extra: { principal },
-      };
-      return authInfo;
-    };
-
-    // Build the ProxyOAuthServerProvider from the user's config.
-    const provider = new ProxyOAuthServerProvider({
-      endpoints: {
-        authorizationUrl: oauthOptions.endpoints.authorizationUrl,
-        tokenUrl: oauthOptions.endpoints.tokenUrl,
-        ...(oauthOptions.endpoints.revocationUrl !== undefined
-          ? { revocationUrl: oauthOptions.endpoints.revocationUrl }
-          : {}),
-        ...(oauthOptions.endpoints.registrationUrl !== undefined
-          ? { registrationUrl: oauthOptions.endpoints.registrationUrl }
-          : {}),
-      },
-      verifyAccessToken: wrappedVerifier,
-      getClient: oauthOptions.getClient,
-    });
-
-    const port = this.options.port;
-    const host = this.options.host;
-
-    // OAuth-proxy mode resolves the resource URL at startup because the MCP
-    // SDK's `mcpAuthRouter` and `requireBearerAuth` middleware close over
-    // the URL when they are mounted. With `port: 0` (an ephemeral port,
-    // commonly used in tests) and no explicit `resource.url`, the bound
-    // port is unknown at this point and would be baked into the discovery
-    // document and `WWW-Authenticate` header as `:0`. Reject that
-    // combination loudly so the user picks a fixed port or a public URL.
-    if (port === 0 && this.options.resource?.url === undefined) {
-      throw new TypeError(
-        "mcpPlugin: OAuth-proxy mode requires either a fixed `port` or an explicit `resource.url`. " +
-          "With `port: 0` (ephemeral) and no `resource.url`, the protected-resource metadata URL " +
-          'would advertise `:0`. Pass `resource: { url: "https://..." }` or a non-zero `port`.',
-      );
-    }
-
-    // Single source of truth for the resource URL (validates HTTPS in
-    // production when explicitly set; falls back to the configured port
-    // otherwise).
-    const resourceUrl = new URL(this.resolveResourceUrl());
-    const { ownedPaths, metadataPaths } = buildMcpOwnedPaths(resourceUrl);
-
-    const app = expressFn();
-
-    const oauthCors = resolveCorsOptions(this.options.cors);
-
-    // CORS middleware for our owned routes (`/mcp` and the protected-resource
-    // metadata endpoint). Mounted FIRST so OPTIONS preflight short-circuits
-    // before bearer auth runs (a preflight has no Authorization header by
-    // design). The SDK-owned OAuth endpoints (`/register`, `/token`,
-    // `/revoke`, the SDK's metadata) carry their own permissive CORS via
-    // `mcpAuthRouter` -> the `cors` npm package -- we leave those alone.
-    //
-    // When `oauthCors === null` (user opted out via `cors: false`) the
-    // middleware is not registered at all: preflight requests fall through
-    // to the bearer middleware / route handler, exactly as they would if
-    // CORS support had never been built. The user told us a fronting
-    // proxy/CDN owns CORS.
-    if (oauthCors !== null) {
-      app.use((req: unknown, res: unknown, next: unknown) => {
-        const nodeReq = req as IncomingMessage;
-        const nodeRes = res as import("node:http").ServerResponse;
-        const url = nodeReq.url?.split("?")[0] ?? "";
-        const rawOrigin = nodeReq.headers["origin"];
-        const originValue = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
-        // OPTIONS preflight: we only short-circuit on the paths we own.
-        // SDK-owned OAuth endpoints (`/register`, `/token`, ...) have their
-        // own `cors()` middleware that handles preflight per their policy,
-        // and we must not swallow those.
-        if (nodeReq.method === "OPTIONS" && ownedPaths.has(url)) {
-          applyCorsHeaders(nodeRes, oauthCors, originValue, true);
-          nodeRes.writeHead(204);
-          nodeRes.end();
-          return;
-        }
-        // Apply CORS headers via setHeader on every other non-OPTIONS request,
-        // including unowned paths. For SDK endpoints the SDK's own `cors()`
-        // runs later and overrides via setHeader; for the Express default
-        // 404 fallthrough on unknown paths our values persist so browser
-        // clients can read the status rather than seeing a misleading CORS
-        // error. Unowned-path OPTIONS (e.g. preflight against a route we
-        // don't handle) is left untouched so the SDK's per-route preflight
-        // policy is the only one in play there.
-        if (nodeReq.method !== "OPTIONS") {
-          applyCorsHeaders(nodeRes, oauthCors, originValue, false);
-        }
-        (next as () => void)();
-      });
-    }
-
-    // Mount our own protected-resource metadata handler BEFORE
-    // `mcpAuthRouter`. The SDK's router also mounts a doc, but at a
-    // path-aware URL (`/.well-known/oauth-protected-resource{rsPath}`)
-    // and without the `bearer_methods_supported` field RFC 9728 §2
-    // recommends. Mounting ours first means clients fetching the URL we
-    // advertise in the 401 always get the same JSON shape as validator
-    // mode -- the design's "auto-mount, same shape, regardless of auth
-    // mode" promise. Express runs middleware in registration order, so the
-    // handler registered first wins for the matching URL; do NOT move this
-    // below `app.use(mcpAuthRouter(...))` or the SDK's path-aware doc will
-    // shadow ours when the resource URL collapses to root.
-    // CORS headers are committed by the middleware above via `setHeader`,
-    // so the handler does not need to re-emit them in `writeHead`.
-    //
-    // Mount on every metadata path resolved from the resource URL (RFC 9728
-    // §3): root plus the path-suffixed variant matching the SDK's `rsPath`
-    // math (derived from `resource.url.pathname`). Both URLs return the
-    // identical document; this guarantees we shadow the SDK's path-aware
-    // doc at whichever URL it chose to mount, regardless of how the user
-    // configured `resource.url`.
-    const serveMetadata = (_req: unknown, res: unknown) => {
-      this.serveProtectedResourceMetadata(
-        res as import("node:http").ServerResponse,
-      );
-    };
-    for (const path of metadataPaths) {
-      app.get(path, serveMetadata);
-    }
-
-    // Mount OAuth endpoints at root (discovery, authorize, token, revoke).
-    const resource = this.options.resource;
-    const resourceName = this.resolveResourceName();
-    app.use(
-      mcpAuthRouter({
-        provider,
-        issuerUrl: resourceUrl,
-        ...(oauthOptions.baseUrl
-          ? { baseUrl: new URL(oauthOptions.baseUrl.toString()) }
-          : {}),
-        ...(resource?.scopesSupported && resource.scopesSupported.length > 0
-          ? { scopesSupported: resource.scopesSupported }
-          : {}),
-        ...(resource?.documentationUrl !== undefined
-          ? {
-              serviceDocumentationUrl: new URL(
-                resource.documentationUrl.toString(),
-              ),
-            }
-          : {}),
-        ...(resourceName ? { resourceName } : {}),
-      }),
-    );
-
-    // Bearer auth middleware for /mcp. The SDK appends
-    // `resource_metadata="..."` to its 401 WWW-Authenticate header when
-    // `resourceMetadataUrl` is provided. Use an absolute URL (RFC 9728
-    // §5.1 SHOULD) that points at the doc we just mounted above.
-    app.use(
-      "/mcp",
-      requireBearerAuth({
-        verifier: provider,
-        resourceMetadataUrl: this.resolveResourceMetadataUrl(),
-        ...(oauthOptions.requiredScopes
-          ? { requiredScopes: oauthOptions.requiredScopes }
-          : {}),
-      }),
-    );
-
-    const { handler, serve } = await this.buildHttpHandler();
-    this.mcpHandler = handler;
-
-    // MCP transport handler at /mcp. `requireBearerAuth` above has already
-    // stamped `req.auth` with the verified AuthInfo, which `toNodeHandler`
-    // forwards to the per-request factory as its pass-through `authInfo`.
-    app.all("/mcp", (req: AuthenticatedRequest, res) => {
-      const principal = this.authInfoToPrincipal(req.auth);
-      if (principal) {
-        const successDetail = {
-          subject: principal.subject,
-          scheme: principal.scheme,
-          source: "mcp",
-        };
-        // `debug` for the same reason as the validator path: every request
-        // re-authenticates now, so this fires once per tool call.
-        this.context.logger.debug(successDetail, "Auth succeeded");
-        this.context.emit("auth:success", successDetail);
-      }
-
-      serve(req, res);
-    });
-
-    // Wrap the Express app in a raw HTTP server so listenHttp can bind it.
-    // Express apps are callable as (req, res) request handlers.
-    this.httpServer = createServer(app);
-    await this.listenHttp(port, host);
-  }
-
-  /**
    * Bind the HTTP server to the configured port and host.
-   * Used by the validator path.
    */
   private async listenHttp(port: number, host: string): Promise<void> {
     await new Promise<void>((resolve, reject) => {
@@ -1203,13 +949,13 @@ export class McpServer {
    * {@link principalToAuthInfo} can present the same `AuthInfo.token` the
    * OAuth path does.
    */
-  private async validateAuth(
-    req: IncomingMessage,
-  ): Promise<{ principal: Principal; token: string } | null> {
+  private async validateAuth(req: IncomingMessage): Promise<AuthGateResult> {
     const authOptions = this.options.auth as ValidatorAuthOptions | undefined;
-    if (!authOptions || !("validator" in authOptions)) return null;
-    const verifier = this.validatorVerifier ?? this.buildValidatorVerifier();
-    if (!verifier) return null;
+    const verifier =
+      authOptions && "validator" in authOptions
+        ? (this.validatorVerifier ?? this.buildValidatorVerifier())
+        : null;
+    if (!verifier) return { ok: false, status: 401 };
 
     const rawHeader = req.headers["authorization"];
     if (!rawHeader || Array.isArray(rawHeader)) {
@@ -1227,7 +973,7 @@ export class McpServer {
         "Auth rejected: missing or malformed Authorization header",
       );
       this.context.emit("auth:rejected", detail);
-      return null;
+      return { ok: false, status: 401 };
     }
 
     const schemeMatch = /^bearer\s+(.+)$/i.exec(rawHeader);
@@ -1245,7 +991,7 @@ export class McpServer {
         "Auth rejected: unsupported authorization scheme",
       );
       this.context.emit("auth:rejected", detail);
-      return null;
+      return { ok: false, status: 401 };
     }
     const token = schemeMatch[1];
 
@@ -1264,7 +1010,7 @@ export class McpServer {
       // still fires for metrics and audit sinks.
       this.context.logger.debug(successDetail, "Auth succeeded");
       this.context.emit("auth:success", successDetail);
-      return { principal: result, token };
+      return { ok: true, principal: result, token };
     } catch (err) {
       const expired = isExpiredTokenError(err);
       const reason = classifyRejectionReason(err);
@@ -1288,7 +1034,11 @@ export class McpServer {
         );
       }
       this.context.emit("auth:rejected", detail);
-      return null;
+      // A server-side fault (RC5021 userinfo/discovery fetch, RC5022 sub
+      // mismatch, or a JWKS endpoint that is unreachable, slow, or answers
+      // badly) is not the caller's token being wrong: answer 500 so the client
+      // retries later rather than discarding a credential that may be valid.
+      return { ok: false, status: reason === "infrastructure" ? 500 : 401 };
     }
   }
 

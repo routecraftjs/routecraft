@@ -12,7 +12,7 @@ Revision 2026-07-28 removes protocol-level sessions entirely, and this release a
 
 Breaking changes:
 
-- The optional peer `@modelcontextprotocol/sdk` (v1) is replaced by the v2 package split. Install the packages for the surfaces you use: `@modelcontextprotocol/server` and `@modelcontextprotocol/node` for `transport: 'http'`, `@modelcontextprotocol/server` for `transport: 'stdio'`, `@modelcontextprotocol/client` for outbound clients, and `@modelcontextprotocol/server-legacy` plus `express` for `oauth()` provider mode.
+- The optional peer `@modelcontextprotocol/sdk` (v1) is replaced by the v2 package split. Install the packages for the surfaces you use: `@modelcontextprotocol/server` and `@modelcontextprotocol/node` for `transport: 'http'`, `@modelcontextprotocol/server` for `transport: 'stdio'`, and `@modelcontextprotocol/client` for outbound clients. `express` is no longer a peer at all.
 - Successful authentication now logs at `debug` rather than `info` on both auth paths. Auth is verified per request rather than once per session, so an `info` line per tool call would put a subject identifier in the log stream at agent-loop rates. The `auth:success` event is unchanged and remains the signal to subscribe to.
 - Outbound MCP clients advertise the real `@routecraft/ai` package version as `clientInfo.version` instead of a hardcoded `1.0.0`.
 - The `plugin:mcp:session:created` and `plugin:mcp:session:closed` events are removed. There are no sessions to observe; use `plugin:mcp:tool:called` / `:completed` / `:failed` for per-call observability.
@@ -20,4 +20,12 @@ Breaking changes:
 - `Access-Control-Expose-Headers` no longer lists `Mcp-Session-Id` or `Last-Event-ID`. The revision removed both sessions and SSE resumability, so neither header is ever emitted.
 - 2025-era exchanges over HTTP are answered as a single SSE frame rather than a plain JSON body. Both are valid Streamable HTTP and every MCP client handles both; only code parsing the raw response body is affected.
 
-`oauth()` provider mode still serves the OAuth authorization-server endpoints, now via `@modelcontextprotocol/server-legacy`. The SDK deprecated that surface in favour of delegating to a dedicated IdP, so expect it to be revisited; validator auth (`jwt()`, `jwks()`, a custom validator) is unaffected and is the recommended path.
+`oauth()` becomes a resource-server helper rather than an authorization-server proxy:
+
+- It no longer mounts `/authorize`, `/token`, `/register` or `/revoke`. The MCP server verifies bearer tokens, enforces `requiredScopes`, and advertises its Authorization Server through RFC 9728 metadata; clients run the flow directly against the IdP. Revision 2026-07-28 deprecated Dynamic Client Registration in favour of Client ID Metadata Documents and steers MCP servers towards delegating to a dedicated provider, so proxying it was working against the spec.
+- `oauth({ endpoints, client })` are removed. Pass `issuer` instead (or let `jwks()` / `jwt()` supply it), plus the optional `requiredScopes`. `OAuthAuthOptions`, `OAuthProxyEndpoints`, `OAuthClientInfo`, `OAuthClientSupplier` and `isOAuthAuth` are removed with them.
+- A token missing a required scope is now refused with `403 insufficient_scope` and a `WWW-Authenticate` naming the missing scope, rather than the SDK middleware's response.
+- Verification failures caused by infrastructure (an unreachable JWKS endpoint, a failed `userinfo` fetch) answer `500` on every auth mode, so a client retries rather than discarding a credential that is probably valid. Previously only the OAuth path did this.
+- The `auth:rejected` detail no longer carries `path: "oauth"`; there is one auth path.
+
+Migration: point clients at your IdP's own authorization and token endpoints. They will find it from the `authorization_servers` field of `/.well-known/oauth-protected-resource`, which Routecraft serves, and from the `resource_metadata` hint on a `401`.

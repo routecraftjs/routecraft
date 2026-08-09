@@ -413,6 +413,79 @@ describe("MCP 2026-07-28 stateless revision", () => {
     });
 
     /**
+     * @case A valid token missing a required scope is refused with 403, not 401
+     * @preconditions oauth() auth requiring the "mcp:admin" scope; a correctly signed token carrying only "mcp:read"
+     * @expectedResult 403 with WWW-Authenticate naming error="insufficient_scope" and the missing scope, so the client knows to step up rather than re-authenticate; the route never runs
+     */
+    test("refuses a token missing a required scope with 403", async () => {
+      const sink: { principal?: Principal | undefined } = {};
+      const { oauth } = await import("../src/mcp/oauth.ts");
+      const { url } = await start([capturingRoute(sink)], {
+        auth: oauth({
+          verify: jwt({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE }),
+          requiredScopes: ["mcp:admin"],
+        }),
+        resource: { url: "https://mcp.test.example/mcp" },
+      });
+
+      const res = await post(
+        url,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "whoami", arguments: {}, _meta: MODERN_META },
+        },
+        {
+          Authorization: `Bearer ${mintToken({ scope: "mcp:read" })}`,
+          "Mcp-Method": "tools/call",
+          "Mcp-Name": "whoami",
+        },
+      );
+
+      expect(res.status).toBe(403);
+      const challenge = res.headers.get("www-authenticate");
+      expect(challenge).toContain('error="insufficient_scope"');
+      expect(challenge).toContain('scope="mcp:admin"');
+      expect(sink.principal).toBeUndefined();
+    });
+
+    /**
+     * @case A token carrying every required scope is admitted
+     * @preconditions Same server; token carrying both the required scope and an extra one
+     * @expectedResult 200 and the route runs, so the gate admits a superset rather than demanding an exact match
+     */
+    test("admits a token carrying all required scopes", async () => {
+      const sink: { principal?: Principal | undefined } = {};
+      const { oauth } = await import("../src/mcp/oauth.ts");
+      const { url } = await start([capturingRoute(sink)], {
+        auth: oauth({
+          verify: jwt({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE }),
+          requiredScopes: ["mcp:admin"],
+        }),
+        resource: { url: "https://mcp.test.example/mcp" },
+      });
+
+      const res = await post(
+        url,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "whoami", arguments: {}, _meta: MODERN_META },
+        },
+        {
+          Authorization: `Bearer ${mintToken({ scope: "mcp:read mcp:admin" })}`,
+          "Mcp-Method": "tools/call",
+          "Mcp-Name": "whoami",
+        },
+      );
+
+      expect(res.status).toBe(200);
+      expect(sink.principal?.subject).toBe("user-42");
+    });
+
+    /**
      * @case A rejected request advertises RFC 9728 discovery
      * @preconditions jwt() validator auth with an explicit resource.url; unauthenticated tools/list
      * @expectedResult 401 whose WWW-Authenticate carries an absolute resource_metadata URL pointing at the protected-resource document

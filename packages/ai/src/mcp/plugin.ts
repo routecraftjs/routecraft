@@ -256,8 +256,9 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     registry: McpToolRegistry,
     auth?: McpClientHttpConfig["auth"],
   ): Promise<void> {
+    let client: Awaited<ReturnType<typeof getOrCreateHttpClient>> | undefined;
     try {
-      const client = await getOrCreateHttpClient(serverId, url, auth);
+      client = await getOrCreateHttpClient(serverId, url, auth);
 
       const result = await client.listTools();
       const tools = result.tools ?? [];
@@ -271,12 +272,18 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
         } as Record<string, unknown>,
       );
     } catch (error) {
-      // Connection may have gone stale; discard so next attempt reconnects.
-      // Dispose it first: a remote that stays unreachable would otherwise leak
-      // one client and one transport per refresh interval.
-      const stale = httpClients.get(serverId);
-      httpClients.delete(serverId);
-      await stale?.dispose();
+      // Connection may have gone stale; discard so the next attempt
+      // reconnects, and dispose it so an unreachable remote does not leak a
+      // client and a transport per refresh interval.
+      //
+      // Only the instance THIS refresh used is evicted: overlapping refreshes
+      // are possible (the interval can fire while a previous run is still in
+      // flight), and evicting by key alone would let a failing run dispose the
+      // healthy client a concurrent run had just cached.
+      if (client && httpClients.get(serverId) === client) {
+        httpClients.delete(serverId);
+      }
+      await client?.dispose();
       ctx.logger.warn(
         { err: error, serverId, url, operation: "listTools" },
         "Failed to list tools from HTTP client",

@@ -1550,17 +1550,14 @@ describe("McpServer", () => {
 
     describe("RFC 9728 protected-resource metadata (OAuth-proxy mode)", () => {
       /**
-       * @case OAuth-proxy mode rejects port: 0 with no explicit resource.url
-       * @preconditions oauth({...}) auth, port: 0, no resource.url
-       * @expectedResult startHttpServer throws a TypeError mentioning port and resource.url; the SDK middleware would otherwise bake :0 into advertised URLs
+       * @case oauth() auth works on an ephemeral port with no explicit resource.url
+       * @preconditions oauth({...}) auth, port: 0, no resource.url; GET the protected-resource metadata
+       * @expectedResult The document advertises the bound port rather than `:0`. Resolution is per request now that no middleware closes over the URL at mount time, so the old startup guard against `port: 0` is gone.
        */
-      test("rejects port: 0 with no resource.url", async () => {
+      test("resolves the bound port on an ephemeral port", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
         const authConfig = oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: async () => ({
             kind: "oauth" as const,
             scheme: "bearer" as const,
@@ -1568,14 +1565,13 @@ describe("McpServer", () => {
             clientId: "u",
             expiresAt: Math.floor(Date.now() / 1000) + 60,
           }),
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
-          }),
         });
-        await expect(startHttpServer([], { auth: authConfig })).rejects.toThrow(
-          /port|resource\.url/i,
-        );
+        const { get, port } = await startHttpServer([], { auth: authConfig });
+        const res = await get("/.well-known/oauth-protected-resource");
+        expect(res.statusCode).toBe(200);
+        const doc = JSON.parse(res.body) as { resource: string };
+        expect(doc.resource).toContain(`:${port}`);
+        expect(doc.resource).not.toContain(":0/");
       });
 
       /**
@@ -1586,20 +1582,13 @@ describe("McpServer", () => {
       test("OAuth-proxy mode serves the unified metadata shape (has bearer_methods_supported)", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
         const authConfig = oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: async () => ({
             kind: "oauth" as const,
             scheme: "bearer" as const,
             subject: "u",
             clientId: "u",
             expiresAt: Math.floor(Date.now() / 1000) + 60,
-          }),
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
           }),
         });
         const { get } = await startHttpServer([], {
@@ -2020,20 +2009,13 @@ describe("McpServer", () => {
       async function buildOAuthAuth() {
         const { oauth } = await import("../src/mcp/oauth.ts");
         return oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: async () => ({
             kind: "oauth" as const,
             scheme: "bearer" as const,
             subject: "u",
             clientId: "u",
             expiresAt: Math.floor(Date.now() / 1000) + 60,
-          }),
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
           }),
         });
       }
@@ -2252,7 +2234,6 @@ describe("McpServer", () => {
         });
         const res = await post(initBody);
         expect(res.statusCode).toBe(200);
-        // The streamable-http transport may return the response either as
         const parsed = JSON.parse(res.body) as {
           result: { serverInfo: { name: string; title?: string } };
         };
@@ -2418,10 +2399,7 @@ describe("McpServer", () => {
         let capturedHeaders: Record<string, unknown> | undefined;
 
         const authConfig = oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: async (token) => {
             expect(token).toBe("rich-token");
             return {
@@ -2439,10 +2417,6 @@ describe("McpServer", () => {
               claims: { sub: "user-42", custom: "value" },
             };
           },
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
-          }),
         });
 
         const { post, initHandshake } = await startHttpServer(
@@ -2504,17 +2478,14 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case OAuth provider mode still mounts the authorization-server endpoints
-       * @preconditions McpServer with oauth() auth and a fixed resource url; GET the RFC 8414 authorization-server metadata document
-       * @expectedResult 200 with a document naming the mounted authorize and token endpoints, proving the AS router still mounts after it moved to @modelcontextprotocol/server-legacy
+       * @case oauth() advertises its Authorization Server and mounts none of its own
+       * @preconditions McpServer with oauth({ issuer }) and a fixed resource url; GET the protected-resource metadata and the RFC 8414 authorization-server path
+       * @expectedResult The RFC 9728 document names the issuer under authorization_servers so clients discover the real IdP, and the authorization-server path 404s because Routecraft is a Resource Server and mounts no OAuth endpoints of its own
        */
-      test("serves authorization-server metadata in oauth mode", async () => {
+      test("advertises the issuer and mounts no authorization server", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
         const authConfig = oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: async () => ({
             kind: "oauth" as const,
             scheme: "bearer" as const,
@@ -2523,10 +2494,6 @@ describe("McpServer", () => {
             scopes: [],
             expiresAt: Math.floor(Date.now() / 1000) + 600,
           }),
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
-          }),
         });
 
         const { get } = await startHttpServer([], {
@@ -2534,15 +2501,19 @@ describe("McpServer", () => {
           resource: { url: "http://localhost:9999" },
         });
 
-        const res = await get("/.well-known/oauth-authorization-server");
-        expect(res.statusCode).toBe(200);
-        const doc = JSON.parse(res.body) as {
-          issuer: string;
-          authorization_endpoint: string;
-          token_endpoint: string;
+        const metadata = await get("/.well-known/oauth-protected-resource");
+        expect(metadata.statusCode).toBe(200);
+        const doc = JSON.parse(metadata.body) as {
+          authorization_servers?: string[];
         };
-        expect(doc.authorization_endpoint).toContain("/authorize");
-        expect(doc.token_endpoint).toContain("/token");
+        expect(doc.authorization_servers).toEqual(["http://localhost:9999"]);
+
+        // Routecraft proxies no OAuth endpoints: clients run the flow against
+        // the issuer the document above names.
+        const as = await get("/.well-known/oauth-authorization-server");
+        expect(as.statusCode).toBe(404);
+        expect((await get("/authorize")).statusCode).toBe(404);
+        expect((await get("/token")).statusCode).toBe(404);
       });
 
       /**
@@ -2555,10 +2526,7 @@ describe("McpServer", () => {
         let capturedPrincipal: Principal | undefined;
 
         const authConfig = oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: async () => ({
             kind: "oauth" as const,
             scheme: "bearer" as const,
@@ -2567,10 +2535,6 @@ describe("McpServer", () => {
             scopes: ["read"],
             // expiresAt is required by the MCP SDK's requireBearerAuth middleware.
             expiresAt: Math.floor(Date.now() / 1000) + 600,
-          }),
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
           }),
         });
 
@@ -2622,7 +2586,7 @@ describe("McpServer", () => {
        * @preconditions McpServer with oauth() auth; verify is cast to bypass the OAuthPrincipal
        *                type contract and return a principal without expiresAt (simulating a
        *                dynamically wired plugin or `as any` escape hatch in user code)
-       * @expectedResult HTTP 401 response; auth:rejected event emitted with reason "missing_expires_at"
+       * @expectedResult HTTP 401 response and an auth:rejected event; oauth() wraps the verifier so a principal with no expiry is refused rather than treated as never expiring
        */
       test("rejects principal without expiresAt and emits auth:rejected", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
@@ -2640,17 +2604,10 @@ describe("McpServer", () => {
         });
 
         const authConfig = oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: unsafeVerify as unknown as Parameters<
             typeof oauth
           >[0]["verify"],
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
-          }),
         });
 
         t = await testContext().store(MCP_STORE_KEY, true).build();
@@ -2716,10 +2673,11 @@ describe("McpServer", () => {
         expect(res.statusCode).toBeGreaterThanOrEqual(400);
         expect(rejections).toHaveLength(1);
         expect(rejections[0]).toMatchObject({
-          reason: "missing_expires_at",
+          // `invalid_token`: the refusal now comes from the verifier wrapper
+          // `oauth()` installs, so it classifies like any other rejected token.
+          reason: "invalid_token",
           scheme: "bearer",
           source: "mcp",
-          path: "oauth",
         });
       });
     });
@@ -2856,14 +2814,7 @@ describe("McpServer", () => {
           method: "initialize",
           params: INIT_PARAMS,
         });
-        const oauthEndpoints = {
-          authorizationUrl: "http://localhost:9999/authorize",
-          tokenUrl: "http://localhost:9999/token",
-        };
-        const oauthClient = async (clientId: string) => ({
-          client_id: clientId,
-          redirect_uris: ["http://localhost:3000/callback"],
-        });
+        const oauthIssuer = "http://localhost:9999";
 
         /**
          * @case An expired token on the OAuth verifier path returns 401 and logs at debug
@@ -2878,11 +2829,10 @@ describe("McpServer", () => {
           );
           const { post } = await startHttpServer([], {
             auth: oauth({
-              endpoints: oauthEndpoints,
+              issuer: oauthIssuer,
               verify: async () => {
                 throw expiredError;
               },
-              client: oauthClient,
             }),
             resource: { url: "http://localhost:9999" },
           });
@@ -2904,7 +2854,6 @@ describe("McpServer", () => {
           expect(debugCall).toBeDefined();
           expect(debugCall?.[0]).toMatchObject({
             reason: "expired",
-            path: "oauth",
           });
           expect(
             t.logger.warn.mock.calls.some(
@@ -2922,11 +2871,10 @@ describe("McpServer", () => {
           const { oauth } = await import("../src/mcp/oauth.ts");
           const { post } = await startHttpServer([], {
             auth: oauth({
-              endpoints: oauthEndpoints,
+              issuer: oauthIssuer,
               verify: async () => {
                 throw new Error("invalid signature");
               },
-              client: oauthClient,
             }),
             resource: { url: "http://localhost:9999" },
           });
@@ -2946,7 +2894,6 @@ describe("McpServer", () => {
           expect(warnCall).toBeDefined();
           expect(warnCall?.[0]).toMatchObject({
             reason: "invalid_token",
-            path: "oauth",
           });
           expect(
             t.logger.debug.mock.calls.some(
@@ -2965,14 +2912,13 @@ describe("McpServer", () => {
           const rejections: Array<Record<string, unknown>> = [];
           const { post } = await startHttpServer([], {
             auth: oauth({
-              endpoints: oauthEndpoints,
+              issuer: oauthIssuer,
               verify: async () => {
                 throw rcError(
                   "RC5021",
                   new Error("userinfo endpoint unreachable"),
                 );
               },
-              client: oauthClient,
             }),
             resource: { url: "http://localhost:9999" },
           });
@@ -3009,11 +2955,10 @@ describe("McpServer", () => {
           });
           const { post } = await startHttpServer([], {
             auth: oauth({
-              endpoints: oauthEndpoints,
+              issuer: oauthIssuer,
               verify: async () => {
                 throw jwksTimeout;
               },
-              client: oauthClient,
             }),
             resource: { url: "http://localhost:9999" },
           });
