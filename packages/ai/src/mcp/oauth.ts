@@ -52,6 +52,13 @@ export interface OAuthFactoryOptions {
   requiredScopes?: string[];
 }
 
+/** True when the issuer is a non-empty string, or an array of them. */
+function isNonEmptyIssuer(issuer: string | string[]): boolean {
+  return typeof issuer === "string"
+    ? issuer.trim().length > 0
+    : issuer.length > 0 && issuer.every((value) => value.trim().length > 0);
+}
+
 /**
  * Normalise the `verify` option into a `(token) => Promise<OAuthPrincipal>`
  * callback.
@@ -151,11 +158,12 @@ export function oauth(options: OAuthFactoryOptions): McpHttpAuthOptions {
   const issuer =
     options.issuer ??
     (typeof options.verify === "function" ? undefined : options.verify.issuer);
-  if (issuer === undefined) {
+  if (issuer === undefined || !isNonEmptyIssuer(issuer)) {
     throw new TypeError(
-      "oauth: `issuer` is required when `verify` is a plain function. " +
-        "Pass the Authorization Server issuer so RFC 9728 metadata can advertise it, " +
-        "or use jwks(...) / jwt(...), which carry their own issuer.",
+      "oauth: a non-empty `issuer` is required. Pass the Authorization Server " +
+        "issuer explicitly, or use jwks(...) / jwt(...), which carry their own. " +
+        "Without it the RFC 9728 metadata document advertises no authorization " +
+        "server and clients cannot discover where to authenticate.",
     );
   }
 

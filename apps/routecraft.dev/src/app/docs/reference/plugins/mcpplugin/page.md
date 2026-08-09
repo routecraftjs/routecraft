@@ -168,69 +168,36 @@ auth: {
 }
 ```
 
-## OAuth 2.1 with `oauth()`
+## OAuth with `oauth()`
 
-`oauth()` mounts a full OAuth 2.1 server flow that proxies to an upstream IdP. Pass a `jwt` config to let the factory handle JWKS fetching, signature verification, issuer and audience checks, and claim mapping (requires the optional peer dependency `jose`). For opaque tokens, introspection, or fully custom verification, pass your own `verifyAccessToken` callback instead.
+The MCP server is an OAuth 2.0 **Resource Server**. `oauth()` verifies bearer tokens, enforces required scopes, and advertises the Authorization Server through RFC 9728 metadata so clients run the authorization flow directly against your IdP. Routecraft mounts no `/authorize`, `/token`, `/register` or `/revoke` endpoints of its own.
 
-**Built-in JWT verification (recommended):**
-
-```ts
-import { mcpPlugin, oauth } from '@routecraft/ai'
-
-auth: oauth({
-  issuerUrl: 'https://mcp.example.com',
-  endpoints: {
-    authorizationUrl: 'https://idp.example.com/authorize',
-    tokenUrl: 'https://idp.example.com/token',
-  },
-  jwt: {
-    jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
-    issuer: 'https://idp.example.com',
-    audience: 'https://mcp.example.com',
-  },
-  client: {
-    client_id: 'my-mcp-server',
-    redirect_uris: ['http://localhost:3000/callback'],
-  },
-})
-```
-
-`issuer` and `audience` are required, so the server cannot silently accept tokens from a different IdP or minted for a different resource. The factory maps standard JWT claims (`sub`, `client_id`, `email`, `name`, `iss`, `aud`, `scope`, `roles`, `exp`) to `OAuthPrincipal` fields automatically; the resolved principal surfaces on the structured `routecraft.auth.principal` exchange header and is exposed ergonomically via the `ex.principal` getter.
-
-`client` accepts either a static `OAuthClientInfo` (matched on `client_id`; unknown IDs are rejected) or a supplier `(clientId) => Promise<OAuthClientInfo | undefined>` for dynamic lookup against a database or registry.
-
-**`OAuthJwtConfig` fields:**
+**`OAuthFactoryOptions` fields:**
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `jwksUrl` | `string \| URL` | Yes | JWKS endpoint the IdP publishes; keys are fetched and rotated by `jose`'s `createRemoteJWKSet` |
-| `issuer` | `string` | Yes | Expected `iss` claim; tokens from other issuers are rejected |
-| `audience` | `string \| string[]` | Yes | Expected `aud` claim; the token must include at least one of these values |
-| `clockTolerance` | `number \| string` | No | Skew tolerance applied to `exp`/`nbf` validation (seconds as a number, or a string like `"5s"`); default: no tolerance |
-| `claims` | `OAuthJwtClaimMappers` | No | Per-claim overrides for non-standard IdPs (see below) |
+| `verify` | `OAuthValidatorAuthOptions \| OAuthTokenVerifier` | Yes | `jwks(...)`, `jwt(...)`, or a raw `(token) => OAuthPrincipal` for opaque tokens and introspection. Runs on every request |
+| `issuer` | `string \| string[]` | Only for a raw `verify` | Authorization Server issuer advertised as `authorization_servers`. Supplied automatically by `jwks()` / `jwt()` |
+| `requiredScopes` | `string[]` | No | Every request must carry all of them; a token missing any is refused with `403 insufficient_scope` |
 
-**`OAuthJwtClaimMappers` fields.** Each maps a verified payload to the corresponding `OAuthPrincipal` field when the IdP uses non-standard claim names:
-
-| Field | Default when omitted |
-|-------|----------------------|
-| `subject` | `payload.sub`, then `payload.client_id`, then `payload.azp` |
-| `clientId` | `payload.client_id`, then `payload.azp` |
-| `scopes` | space-split `payload.scope` |
-
-`email`, `name`, and `roles` are not mappable here. They are read from the standard claim names (`email`, `name`, `roles`) when present in the token. For identity fields that do not live in the bearer (most IdPs do not put them there), use the [`userinfo` option on `mcpPlugin({})`](/docs/advanced/securing-capabilities#principal-enrichment-via-userinfo): function variant for custom mappings, OIDC Discovery or an explicit URL for the standard `/userinfo` endpoint.
-
-**Claim overrides for non-standard IdPs:**
+**JWKS-backed verification (recommended):**
 
 ```ts
-jwt: {
-  jwksUrl: 'https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys',
-  issuer: 'https://login.microsoftonline.com/<tenant>/v2.0',
-  audience: '<app-id>',
-  claims: {
-    subject: (p) => p.oid as string,
-  },
-}
+import { mcpPlugin, oauth, jwks } from '@routecraft/ai'
+
+auth: oauth({
+  verify: jwks({
+    jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
+    issuer: 'https://idp.example.com',
+    audience: 'https://mcp.example.com',
+  }),
+  requiredScopes: ['mcp:invoke'],
+})
 ```
+
+`issuer` and `audience` are required on `jwks()` / `jwt()`, so the server cannot silently accept tokens from a different IdP or minted for a different resource. Standard claims (`sub`, `client_id`, `email`, `name`, `iss`, `aud`, `scope`, `roles`, `exp`) map to `OAuthPrincipal` fields automatically; the resolved principal surfaces on the structured `routecraft.auth.principal` exchange header and via the `ex.principal` getter. For non-standard IdPs, pass `claims` mappers to `jwks()` / `jwt()`; see [Securing capabilities](/docs/advanced/securing-capabilities).
+
+Passing `jwks(...)` straight to `auth` works identically. Reach for `oauth()` when you want `requiredScopes` enforcement or an explicit issuer.
 
 **Custom verification (opaque tokens, introspection, etc.):**
 
@@ -259,37 +226,9 @@ auth: oauth({
 })
 ```
 
-`expiresAt` is required on a principal returned through `oauth()`: a credential with no expiry never expires, so `oauth()` refuses one rather than admitting it.
+`expiresAt` is required on a principal returned through `oauth()`: a credential with no expiry never expires. A principal whose expiry has already passed is refused at the gate whichever auth mode produced it.
 
-`verify` runs on **every request**. Protocol revision 2026-07-28 is stateless, so there is no session in which a past verification could be cached; keep introspection calls fast or cache them yourself.
-
-`issuer` is what the RFC 9728 metadata document advertises as `authorization_servers`, and it is how clients discover where to authenticate. `jwks()` and `jwt()` supply it automatically; a raw `verify` function must pass it explicitly.
-
-**HTTP client config (`McpClientHttpConfig`):**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `url` | `string` | Yes | Full URL of the remote MCP server |
-| `auth` | `McpClientAuthOptions` | No | Auth credentials sent on every request to this server |
-
-**McpClientAuthOptions:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `token` | `string \| string[] \| (() => string \| Promise<string>)` | Bearer token, array of tokens (round-robin), or provider function called per request |
-| `headers` | `Record<string, string>` | Additional request headers; overrides `token` if `Authorization` is set |
-
-**Stdio client config (`McpClientStdioConfig`):**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `transport` | `'stdio'` | Yes | Must be `'stdio'` to select subprocess mode |
-| `command` | `string` | Yes | Executable to spawn (e.g. `'node'`, `'npx'`) |
-| `args` | `string[]` | No | Arguments passed to the command |
-| `env` | `Record<string, string>` | No | Environment variables for the child process |
-| `cwd` | `string` | No | Working directory for the child process |
-
-Stdio clients are spawned when the context starts and stopped on teardown. If the subprocess exits unexpectedly, the plugin automatically restarts it with exponential backoff (`restartDelayMs * restartBackoffMultiplier ^ attempt`). The restart counter resets after a successful reconnection.
+`verify` runs on **every request**. Revision 2026-07-28 is stateless, so there is no session in which a past verification could be cached; keep introspection calls fast or cache them yourself.
 
 ## Proxying client tools
 

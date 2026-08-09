@@ -151,13 +151,12 @@ auth: oauth({
       expiresAt: info.exp,
     }
   },
-  client: async (clientId) => await db.clients.findByClientId(clientId),
 })
 ```
 
-`client` accepts either a static `OAuthClientInfo` (unknown IDs are rejected) or a `(clientId) => Promise<OAuthClientInfo | undefined>` supplier for dynamic lookup. The supplier is called per request during the OAuth flow, so cache or preload registry reads to keep the hot path fast.
+`verify` runs on **every** request: revision 2026-07-28 is stateless, so there is no session in which a past verification could be cached. Keep introspection calls fast, or cache them yourself.
 
-`expiresAt` is required by the MCP SDK's bearer middleware; the server will throw if the verifier returns a principal without it.
+`expiresAt` is required on a principal returned through `oauth()`, and a principal whose expiry has already passed is refused at the gate whichever auth mode produced it. A credential with no expiry never expires, so `oauth()` will not admit one.
 
 The populated `Principal` rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter, e.g. `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`.
 

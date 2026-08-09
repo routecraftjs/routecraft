@@ -23,9 +23,11 @@ Breaking changes:
 `oauth()` becomes a resource-server helper rather than an authorization-server proxy:
 
 - It no longer mounts `/authorize`, `/token`, `/register` or `/revoke`. The MCP server verifies bearer tokens, enforces `requiredScopes`, and advertises its Authorization Server through RFC 9728 metadata; clients run the flow directly against the IdP. Revision 2026-07-28 deprecated Dynamic Client Registration in favour of Client ID Metadata Documents and steers MCP servers towards delegating to a dedicated provider, so proxying it was working against the spec.
-- `oauth({ endpoints, client })` are removed. Pass `issuer` instead (or let `jwks()` / `jwt()` supply it), plus the optional `requiredScopes`. `OAuthAuthOptions`, `OAuthProxyEndpoints`, `OAuthClientInfo`, `OAuthClientSupplier` and `isOAuthAuth` are removed with them.
+- `oauth({ endpoints, client })` are removed. Pass `issuer` instead (or let `jwks()` / `jwt()` supply it), plus the optional `requiredScopes`. `OAuthAuthOptions`, `OAuthProxyEndpoints`, `OAuthClientInfo`, `OAuthClientSupplier` and `isOAuthAuth` are removed with them. `mcpPlugin` refuses the old `{ provider, endpoints, verifyAccessToken }` shape at construction with the migration message, rather than starting and then refusing every request.
 - A token missing a required scope is now refused with `403 insufficient_scope` and a `WWW-Authenticate` naming the missing scope, rather than the SDK middleware's response.
 - Verification failures caused by infrastructure (an unreachable JWKS endpoint, a failed `userinfo` fetch) answer `500` on every auth mode, so a client retries rather than discarding a credential that is probably valid. Previously only the OAuth path did this.
+- A principal whose `expiresAt` has elapsed (or is not a finite timestamp) is refused with `401` on every auth mode, whether or not a route declares an expiry requirement. The removed SDK bearer middleware enforced this only on the OAuth path.
+- `requiredScopes` entries are validated against the RFC 6749 scope-token grammar at construction. A scope containing a space, a quote or a backslash would have been split or would have broken the `WWW-Authenticate` header it is echoed into.
 - The `auth:rejected` detail no longer carries `path: "oauth"`; there is one auth path.
 
 Migration: point clients at your IdP's own authorization and token endpoints. They will find it from the `authorization_servers` field of `/.well-known/oauth-protected-resource`, which Routecraft serves, and from the `resource_metadata` hint on a `401`.

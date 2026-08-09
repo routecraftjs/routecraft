@@ -82,7 +82,8 @@ type AuthenticatedRequest = IncomingMessage & { auth?: SdkAuthInfo };
  */
 type AuthGateResult =
   | { ok: true; principal: Principal; token: string }
-  | { ok: false; status: 401 | 500 };
+  | { ok: false; status: 500 }
+  | { ok: false; status: 401; presented: boolean };
 
 /**
  * Shared never-aborted signal for guard contexts on the proxied-call path,
@@ -773,11 +774,15 @@ export class McpServer {
             res.end(JSON.stringify({ error: "Internal Server Error" }));
             return;
           }
+          // RFC 6750 §3: a request that carried no credential gets a bare
+          // challenge. Claiming `invalid_token` there would tell the MCP
+          // discovery probe its credential was rejected when it never sent
+          // one, and clients branch on that.
           res.writeHead(401, {
             "Content-Type": "application/json",
-            "WWW-Authenticate": this.buildWwwAuthenticateHeader({
-              error: "invalid_token",
-            }),
+            "WWW-Authenticate": this.buildWwwAuthenticateHeader(
+              authenticated.presented ? { error: "invalid_token" } : {},
+            ),
           });
           res.end(JSON.stringify({ error: "Unauthorized" }));
           return;
@@ -955,7 +960,7 @@ export class McpServer {
       authOptions && "validator" in authOptions
         ? (this.validatorVerifier ?? this.buildValidatorVerifier())
         : null;
-    if (!verifier) return { ok: false, status: 401 };
+    if (!verifier) return { ok: false, status: 401, presented: false };
 
     const rawHeader = req.headers["authorization"];
     if (!rawHeader || Array.isArray(rawHeader)) {
@@ -973,7 +978,7 @@ export class McpServer {
         "Auth rejected: missing or malformed Authorization header",
       );
       this.context.emit("auth:rejected", detail);
-      return { ok: false, status: 401 };
+      return { ok: false, status: 401, presented: false };
     }
 
     const schemeMatch = /^bearer\s+(.+)$/i.exec(rawHeader);
@@ -991,7 +996,7 @@ export class McpServer {
         "Auth rejected: unsupported authorization scheme",
       );
       this.context.emit("auth:rejected", detail);
-      return { ok: false, status: 401 };
+      return { ok: false, status: 401, presented: false };
     }
     const token = schemeMatch[1];
 
@@ -1008,6 +1013,31 @@ export class McpServer {
       // stateless revision, so an `info` line per tool call would put a
       // subject identifier in the log stream at agent-loop rates. The event
       // still fires for metrics and audit sinks.
+      // A verified principal whose expiry has already passed must not
+      // authenticate. `jwt()` / `jwks()` reject an expired token themselves,
+      // but a custom validator may not, and the gate is the last checkpoint
+      // before the route runs. Absent `expiresAt` is left alone: a credential
+      // with no expiry concept (an API key) is a legitimate validator result.
+      if (result.expiresAt !== undefined) {
+        const nowSeconds = Date.now() / 1000;
+        if (
+          !Number.isFinite(result.expiresAt) ||
+          nowSeconds > result.expiresAt
+        ) {
+          const detail = {
+            reason: "expired",
+            scheme: "bearer",
+            source: "mcp",
+          };
+          this.context.logger.debug(
+            detail,
+            "Auth rejected: principal expiry has passed",
+          );
+          this.context.emit("auth:rejected", detail);
+          return { ok: false, status: 401, presented: true };
+        }
+      }
+
       this.context.logger.debug(successDetail, "Auth succeeded");
       this.context.emit("auth:success", successDetail);
       return { ok: true, principal: result, token };
@@ -1038,7 +1068,9 @@ export class McpServer {
       // mismatch, or a JWKS endpoint that is unreachable, slow, or answers
       // badly) is not the caller's token being wrong: answer 500 so the client
       // retries later rather than discarding a credential that may be valid.
-      return { ok: false, status: reason === "infrastructure" ? 500 : 401 };
+      return reason === "infrastructure"
+        ? { ok: false, status: 500 }
+        : { ok: false, status: 401, presented: true };
     }
   }
 

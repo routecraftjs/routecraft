@@ -19,6 +19,9 @@ type ValidateResult<T = unknown> =
  * StandardSchemaV1 from Zod, Valibot, or ArkType before calling mcpPlugin().
  * @internal
  */
+/** RFC 6749 §3.3 scope-token: visible ASCII except space, `"` and `\`. */
+const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
+
 export function validateMcpPluginOptions(options: McpPluginOptions): void {
   if (options.transport === "http") {
     if (options.port !== undefined) {
@@ -63,24 +66,58 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
 
   // Validate auth options
   if (options.auth !== undefined) {
-    if ("provider" in options.auth) {
-      // OAuth provider auth -- validated by the oauth() factory.
-      if (options.auth.provider !== "oauth") {
-        throw new TypeError(
-          'mcpPlugin: auth.provider must be "oauth". Use the oauth() helper.',
-        );
-      }
-    } else if ("validator" in options.auth) {
-      if (typeof options.auth.validator !== "function") {
+    const auth = options.auth as unknown as Record<string, unknown>;
+
+    // The pre-2026 authorization-server-proxy shape. It has no `validator`, so
+    // it would otherwise start cleanly and then refuse every request with 401.
+    // Fail at construction with the migration instead.
+    if (
+      "provider" in auth ||
+      "endpoints" in auth ||
+      "verifyAccessToken" in auth
+    ) {
+      throw new TypeError(
+        "mcpPlugin: auth uses the removed OAuth authorization-server proxy shape " +
+          "({ provider, endpoints, verifyAccessToken, getClient }). The MCP server is " +
+          "now a resource server: use oauth({ verify, issuer, requiredScopes }) and " +
+          "point clients at your IdP's own authorization and token endpoints, which " +
+          "they discover from the protected-resource metadata.",
+      );
+    }
+
+    if ("validator" in auth) {
+      if (typeof auth["validator"] !== "function") {
         throw new TypeError(
           "mcpPlugin: auth.validator must be a function that returns a Principal (throw to reject)",
         );
       }
     } else {
       throw new TypeError(
-        "mcpPlugin: auth must have either a 'validator' function or 'provider' set to 'oauth'. " +
+        "mcpPlugin: auth must have a 'validator' function. " +
           "Use jwt(), jwks(), oauth(), or a custom { validator } object.",
       );
+    }
+
+    // Required scopes are reflected into a `WWW-Authenticate` challenge, whose
+    // grammar (RFC 6749 §3.3) excludes quotes, backslashes and spaces. Reject
+    // them here so a misconfiguration surfaces at startup rather than as a
+    // corrupted header on the first refusal.
+    const requiredScopes = auth["requiredScopes"];
+    if (requiredScopes !== undefined) {
+      if (!Array.isArray(requiredScopes)) {
+        throw new TypeError(
+          "mcpPlugin: auth.requiredScopes must be an array of scope strings",
+        );
+      }
+      for (const scope of requiredScopes as unknown[]) {
+        if (typeof scope !== "string" || !SCOPE_TOKEN.test(scope)) {
+          throw new TypeError(
+            `mcpPlugin: auth.requiredScopes contains an invalid scope ${JSON.stringify(scope)}. ` +
+              "A scope token is one or more visible ASCII characters excluding space, " +
+              "double quote and backslash (RFC 6749 §3.3).",
+          );
+        }
+      }
     }
   }
 

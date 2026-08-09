@@ -509,6 +509,75 @@ describe("MCP 2026-07-28 stateless revision", () => {
     });
 
     /**
+     * @case A custom verifier returning an already-elapsed expiry does not authenticate
+     * @preconditions A raw verify function that returns a well-formed principal whose expiresAt is in the past
+     * @expectedResult 401 and the route never runs. jwks()/jwt() reject an expired token themselves, but a custom verifier may not, so the gate is the last checkpoint
+     */
+    test("refuses a principal whose expiry has already passed", async () => {
+      const sink: { principal?: Principal | undefined } = {};
+      const { oauth } = await import("../src/mcp/oauth.ts");
+      const { url } = await start([capturingRoute(sink)], {
+        auth: oauth({
+          issuer: ISSUER,
+          verify: async () => ({
+            kind: "custom" as const,
+            scheme: "bearer" as const,
+            subject: "stale-user",
+            expiresAt: Math.floor(Date.now() / 1000) - 60,
+          }),
+        }),
+        resource: { url: "https://mcp.test.example/mcp" },
+      });
+
+      const res = await post(
+        url,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "whoami", arguments: {}, _meta: MODERN_META },
+        },
+        {
+          Authorization: "Bearer anything",
+          "Mcp-Method": "tools/call",
+          "Mcp-Name": "whoami",
+        },
+      );
+
+      expect(res.status).toBe(401);
+      expect(sink.principal).toBeUndefined();
+    });
+
+    /**
+     * @case A credential-less discovery probe gets a bare challenge, not invalid_token
+     * @preconditions jwt() validator auth; tools/list posted with no Authorization header, then one with a bad token
+     * @expectedResult The probe's challenge carries no error code (RFC 6750 §3), so a client reads it as "authenticate here" rather than "your credential was rejected"; the bad token does get error="invalid_token"
+     */
+    test("distinguishes a missing credential from a rejected one", async () => {
+      const { url } = await start([echoRoute()], authOptions());
+      const body = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: { _meta: MODERN_META },
+      };
+
+      const probe = await post(url, body);
+      expect(probe.status).toBe(401);
+      const probeChallenge = probe.headers.get("www-authenticate")!;
+      expect(probeChallenge).toContain("Bearer");
+      expect(probeChallenge).not.toContain("error=");
+
+      const rejected = await post(url, body, {
+        Authorization: `Bearer ${mintToken({}, "the-wrong-secret")}`,
+      });
+      expect(rejected.status).toBe(401);
+      expect(rejected.headers.get("www-authenticate")).toContain(
+        'error="invalid_token"',
+      );
+    });
+
+    /**
      * @case A token signed with the wrong key is refused
      * @preconditions jwt() validator auth; tools/call carrying a token minted with a different secret
      * @expectedResult 401, and the route never runs
