@@ -16,6 +16,7 @@ import { ROUTECRAFT_DEFAULT_ICONS } from "../src/mcp/default-icon.ts";
 import { buildAuthHeaders } from "../src/mcp/build-auth-headers.ts";
 import { z } from "zod";
 import http from "node:http";
+import { rpcBody } from "./fixtures/rpc-body.ts";
 
 const MCP_STORE_KEY =
   MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
@@ -26,24 +27,6 @@ const INIT_PARAMS = {
   capabilities: {},
   clientInfo: { name: "test", version: "1.0.0" },
 };
-
-/**
- * Reduce a Streamable HTTP response body to its JSON-RPC payload.
- *
- * A single exchange may come back either as a plain JSON body (the modern
- * path) or as one SSE frame (`event: message` + `data:`, which the 2025-era
- * stateless fallback uses). Both are valid Streamable HTTP; tests care about
- * the payload, not the framing.
- */
-function rpcBody(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed.includes("data: ")) return trimmed;
-  return trimmed
-    .split("\n")
-    .filter((line) => line.startsWith("data: "))
-    .map((line) => line.slice("data: ".length))
-    .join("");
-}
 
 describe("McpServer", () => {
   let t: TestContext;
@@ -3193,7 +3176,7 @@ describe("McpServer", () => {
       await server.start();
       const port = server.getHttpPort()!;
 
-      // Initialize session
+      // Legacy-era initialize handshake; the server answers it statelessly
       await new Promise<{
         statusCode: number;
         headers: Record<string, string | string[] | undefined>;
@@ -3310,7 +3293,7 @@ describe("McpServer", () => {
       await server.start();
       const port = server.getHttpPort()!;
 
-      // Initialize session
+      // Legacy-era initialize handshake; the server answers it statelessly
       await new Promise<{
         headers: Record<string, string | string[] | undefined>;
       }>((resolve, reject) => {
@@ -3431,7 +3414,7 @@ describe("McpServer", () => {
       await server.start();
       const port = server.getHttpPort()!;
 
-      // Initialize session
+      // Legacy-era initialize handshake; the server answers it statelessly
       await new Promise<{
         headers: Record<string, string | string[] | undefined>;
       }>((resolve, reject) => {

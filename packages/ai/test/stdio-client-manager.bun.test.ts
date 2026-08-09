@@ -64,6 +64,7 @@ const MockClient = mock().mockImplementation(function (
 // interop tests that must drive the real SDK. Only the stdio loaders are
 // overridden; the HTTP loader keeps its real implementation.
 const realSdk = await import("../src/mcp/sdk.ts");
+const { MCP_CLIENT_INFO } = realSdk;
 
 mock.module("../src/mcp/sdk.ts", () => ({
   ...realSdk,
@@ -166,8 +167,11 @@ describe("StdioClientManager", () => {
         stderr: "pipe",
       }),
     );
+    // Asserted against the shared constant, not a literal: the advertised
+    // version is the real package version so remote servers can tell
+    // Routecraft releases apart in their telemetry.
     expect(MockClient).toHaveBeenCalledWith(
-      { name: "routecraft-mcp-client", version: "1.0.0" },
+      MCP_CLIENT_INFO,
       expect.objectContaining({ capabilities: {} }),
     );
     expect(mockConnect).toHaveBeenCalledTimes(1);

@@ -222,6 +222,13 @@ export class McpServer {
   private mcpHandler: McpHttpHandler | null = null;
   /** Handle for the stdio transport, used to await shutdown. `null` on HTTP. */
   private stdioHandle: StdioServerHandle | null = null;
+  /**
+   * Per-request factory inputs, resolved once by {@link prepareServerFactory}
+   * so {@link createServerInstance} stays off the dynamic-import path.
+   */
+  private sdkServerCtor: typeof SdkServer | null = null;
+  private serverInfo: SdkServerInfo | null = null;
+  private serverOptions: SdkServerOptions | null = null;
   private running = false;
   private toolsListLogged = false;
   /**
@@ -405,7 +412,23 @@ export class McpServer {
    */
   private async startStdio(): Promise<void> {
     const { serveStdio } = await loadMcpServerStdioSdk("mcp (stdio)");
+    await this.prepareServerFactory();
     this.stdioHandle = serveStdio(() => this.createServerInstance(undefined));
+  }
+
+  /**
+   * Resolve everything the per-request factory needs, once, at startup.
+   *
+   * {@link createServerInstance} runs on every request, so the SDK import and
+   * the identity/capability objects are hoisted out of that path: they depend
+   * only on `this.options` and would otherwise be recomputed per request on
+   * the axis this transport is meant to scale along.
+   */
+  private async prepareServerFactory(): Promise<void> {
+    const { Server } = await loadMcpServerSdk("mcp");
+    this.sdkServerCtor = Server;
+    this.serverInfo = this.buildServerInfo();
+    this.serverOptions = this.buildServerOptions();
   }
 
   /**
@@ -418,25 +441,25 @@ export class McpServer {
    * simply a construction parameter -- which is also what makes the handler
    * safe to run on any replica.
    */
-  private async createServerInstance(
-    principal: Principal | undefined,
-  ): Promise<SdkServer> {
-    const { Server } = await loadMcpServerSdk("mcp");
-    const server = new Server(
-      this.buildServerInfo(),
-      this.buildServerOptions(),
-    );
+  private createServerInstance(principal: Principal | undefined): SdkServer {
+    if (!this.sdkServerCtor || !this.serverInfo || !this.serverOptions) {
+      throw new Error(
+        "mcp: server factory used before prepareServerFactory() ran",
+      );
+    }
+    const server = new this.sdkServerCtor(this.serverInfo, this.serverOptions);
 
-    // Both handlers cast their result at the wire boundary. `McpTool` and
-    // `McpToolCallResult` are Routecraft's own projections, deliberately
-    // looser than the SDK's generated schema types (`inputSchema.properties`
-    // is `Record<string, unknown>` because it comes from an arbitrary
-    // Standard Schema, and `content` blocks are built by route code). The
-    // shapes agree on the wire; only the static types differ.
+    // Each handler casts only the member whose type is deliberately looser
+    // than the SDK's generated schema: `McpTool.inputSchema.properties` is a
+    // `Record<string, unknown>` because it comes from an arbitrary Standard
+    // Schema, and `content` blocks are assembled by route code. The
+    // surrounding result envelope stays structurally checked, so a future
+    // required field on either result is a compile error rather than a
+    // protocol error at a client.
     server.setRequestHandler("tools/list", () => {
       const tools = this.getAvailableTools();
       this.logExposedToolsOnce();
-      return { tools } as unknown as ListToolsResult;
+      return { tools: tools as unknown as ListToolsResult["tools"] };
     });
 
     server.setRequestHandler("tools/call", async (request) => {
@@ -445,7 +468,10 @@ export class McpServer {
         request.params.arguments ?? {},
         principal,
       );
-      return result as unknown as CallToolResult;
+      return {
+        ...result,
+        content: result.content as unknown as CallToolResult["content"],
+      };
     });
 
     return server;
@@ -478,13 +504,18 @@ export class McpServer {
    * therefore keep working unchanged, they simply do not get the new
    * revision's features.
    */
-  private async buildHttpHandler(): Promise<
-    (req: AuthenticatedRequest, res: import("node:http").ServerResponse) => void
-  > {
+  private async buildHttpHandler(): Promise<{
+    handler: McpHttpHandler;
+    serve: (
+      req: AuthenticatedRequest,
+      res: import("node:http").ServerResponse,
+    ) => void;
+  }> {
     const { createMcpHandler } = await loadMcpServerSdk("mcp (http)");
     const { toNodeHandler } = await loadMcpNodeSdk("mcp (http)");
+    await this.prepareServerFactory();
 
-    this.mcpHandler = createMcpHandler(
+    const handler = createMcpHandler(
       (ctx: McpRequestContext) =>
         this.createServerInstance(this.authInfoToPrincipal(ctx.authInfo)),
       {
@@ -494,7 +525,7 @@ export class McpServer {
       },
     );
 
-    const nodeHandler = toNodeHandler(this.mcpHandler, {
+    const nodeHandler = toNodeHandler(handler, {
       onerror: (error: Error) => {
         this.context.logger.error({ err: error }, "MCP HTTP request error");
       },
@@ -503,10 +534,31 @@ export class McpServer {
     // `IncomingMessage.method` is `string | undefined` while the adapter's
     // duck-typed shape declares `method?: string`; under
     // `exactOptionalPropertyTypes` those differ statically but not at runtime.
-    // The handler owns its own error responses, so the promise is not awaited.
-    return (req, res) => {
-      void nodeHandler(req as NodeIncomingMessageLike, res);
+    //
+    // The adapter's own try/catch covers request conversion and `fetch`, but
+    // not the `res.writeHead`/`res.end` that follow it, so a response already
+    // committed upstream (CORS, bearer middleware) surfaces as a rejection
+    // here. Left unhandled it would take the process down under Node's
+    // default `--unhandled-rejections=throw`, turning one bad request into a
+    // replica outage.
+    const serve = (
+      req: AuthenticatedRequest,
+      res: import("node:http").ServerResponse,
+    ): void => {
+      void nodeHandler(req as NodeIncomingMessageLike, res).catch(
+        (err: unknown) => {
+          this.context.logger.error({ err }, "MCP HTTP request failed");
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Internal Server Error" }));
+          } else if (!res.writableEnded) {
+            res.end();
+          }
+        },
+      );
     };
+
+    return { handler, serve };
   }
 
   /**
@@ -637,7 +689,8 @@ export class McpServer {
     // the first request.
     this.validatorVerifier = this.buildValidatorVerifier();
 
-    const nodeHandler = await this.buildHttpHandler();
+    const { handler, serve } = await this.buildHttpHandler();
+    this.mcpHandler = handler;
 
     this.httpServer = createServer(async (req: AuthenticatedRequest, res) => {
       const url = req.url?.split("?")[0] ?? "";
@@ -686,8 +739,8 @@ export class McpServer {
       }
 
       if (this.options.auth) {
-        const principal = await this.validateAuth(req);
-        if (!principal) {
+        const authenticated = await this.validateAuth(req);
+        if (!authenticated) {
           res.writeHead(401, {
             "Content-Type": "application/json",
             "WWW-Authenticate": this.buildWwwAuthenticateHeader(),
@@ -699,10 +752,13 @@ export class McpServer {
         // `authInfo`, which the per-request factory reads back into the
         // principal. This is the stateless replacement for the
         // AsyncLocalStorage the sessionful transport needed.
-        req.auth = this.principalToAuthInfo(principal);
+        req.auth = this.principalToAuthInfo(
+          authenticated.principal,
+          authenticated.token,
+        );
       }
 
-      nodeHandler(req, res);
+      serve(req, res);
     });
 
     await this.listenHttp(port, host);
@@ -991,7 +1047,8 @@ export class McpServer {
       }),
     );
 
-    const nodeHandler = await this.buildHttpHandler();
+    const { handler, serve } = await this.buildHttpHandler();
+    this.mcpHandler = handler;
 
     // MCP transport handler at /mcp. `requireBearerAuth` above has already
     // stamped `req.auth` with the verified AuthInfo, which `toNodeHandler`
@@ -1004,11 +1061,13 @@ export class McpServer {
           scheme: principal.scheme,
           source: "mcp",
         };
-        this.context.logger.info(successDetail, "Auth succeeded");
+        // `debug` for the same reason as the validator path: every request
+        // re-authenticates now, so this fires once per tool call.
+        this.context.logger.debug(successDetail, "Auth succeeded");
         this.context.emit("auth:success", successDetail);
       }
 
-      nodeHandler(req, res);
+      serve(req, res);
     });
 
     // Wrap the Express app in a raw HTTP server so listenHttp can bind it.
@@ -1079,10 +1138,18 @@ export class McpServer {
    * Used by the validator path, whose verifier produces a Routecraft
    * `Principal` directly. The OAuth path does the same stashing inside its
    * wrapped `verifyAccessToken`, so both auth modes converge on one carrier.
+   *
+   * `token` carries the verified bearer the caller presented. Both auth modes
+   * must agree on it: the SDK hands `AuthInfo` to every per-request instance,
+   * and a consumer reading `authInfo.token` must not see a real credential
+   * under `oauth()` and a placeholder under `jwt()`.
    */
-  private principalToAuthInfo(principal: Principal): SdkAuthInfo {
+  private principalToAuthInfo(
+    principal: Principal,
+    token: string,
+  ): SdkAuthInfo {
     const authInfo: SdkAuthInfo = {
-      token: "",
+      token,
       clientId: principal.clientId ?? principal.subject,
       scopes: principal.scopes ?? [],
       extra: { principal },
@@ -1131,9 +1198,14 @@ export class McpServer {
   /**
    * Validate the Authorization header using the configured validator.
    * Only used on the validator auth path (not OAuth -- that uses Express middleware).
-   * Returns the authenticated principal on success, or `null` to reject with 401.
+   * Returns the authenticated principal and the bearer it was derived from on
+   * success, or `null` to reject with 401. The token rides along so
+   * {@link principalToAuthInfo} can present the same `AuthInfo.token` the
+   * OAuth path does.
    */
-  private async validateAuth(req: IncomingMessage): Promise<Principal | null> {
+  private async validateAuth(
+    req: IncomingMessage,
+  ): Promise<{ principal: Principal; token: string } | null> {
     const authOptions = this.options.auth as ValidatorAuthOptions | undefined;
     if (!authOptions || !("validator" in authOptions)) return null;
     const verifier = this.validatorVerifier ?? this.buildValidatorVerifier();
@@ -1186,9 +1258,13 @@ export class McpServer {
         scheme: result.scheme,
         source: "mcp",
       };
-      this.context.logger.info(successDetail, "Auth succeeded");
+      // `debug`, not `info`: auth is re-verified on every request under the
+      // stateless revision, so an `info` line per tool call would put a
+      // subject identifier in the log stream at agent-loop rates. The event
+      // still fires for metrics and audit sinks.
+      this.context.logger.debug(successDetail, "Auth succeeded");
       this.context.emit("auth:success", successDetail);
-      return result;
+      return { principal: result, token };
     } catch (err) {
       const expired = isExpiredTokenError(err);
       const reason = classifyRejectionReason(err);
@@ -1226,8 +1302,11 @@ export class McpServer {
 
     try {
       if (this.httpServer) {
-        // Tear down the modern leg: aborts in-flight exchanges and closes
-        // their per-request instances. There are no sessions to drain.
+        // Tear down the modern leg: aborts in-flight 2026-era exchanges and
+        // closes their per-request instances. There are no sessions to drain.
+        // Per the SDK contract this does NOT reach the 2025-era stateless
+        // fallback, so a legacy exchange in flight is ended by the socket
+        // close below rather than drained.
         if (this.mcpHandler) {
           await this.mcpHandler.close();
           this.mcpHandler = null;
@@ -1516,11 +1595,9 @@ export class McpServer {
       // enrichment, so branding here marks the verified identity as
       // authentic for downstream `authorize()` without freezing it too
       // early to enrich.
-      const requestId = crypto.randomUUID();
       const headers: Record<string, unknown> = {
         [McpHeadersKeys.TOOL]: toolName,
-        [McpHeadersKeys.REQUEST]: requestId,
-        [McpHeadersKeys.SESSION]: requestId,
+        [McpHeadersKeys.REQUEST]: crypto.randomUUID(),
       };
       if (principal) {
         headers[HeadersKeys.AUTH_PRINCIPAL] = markAuthentic(principal);

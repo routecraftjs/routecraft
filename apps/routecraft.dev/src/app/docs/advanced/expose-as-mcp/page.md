@@ -156,7 +156,7 @@ Clients that only speak the 2025 revision keep working unchanged; they are serve
 
 ## Server identity and branding
 
-When a client like Claude adds your server, it renders the server's identity from the MCP `initialize` handshake. Configure it on `mcpPlugin` (or the `mcp` key of `defineConfig`):
+When a client like Claude adds your server, it renders the server's identity from `serverInfo`, returned by `server/discover` for 2026-07-28 clients and by the `initialize` handshake for 2025-era ones. Configure it on `mcpPlugin` (or the `mcp` key of `defineConfig`):
 
 ```ts
 // craft.config.ts
@@ -170,7 +170,7 @@ export default {
       version: '2.1.0',                          // serverInfo.version
       description: 'Acme operations over MCP.',  // serverInfo.description
       websiteUrl: 'https://acme.example.com',    // serverInfo.websiteUrl
-      instructions: 'Call orders_search before orders_refund.', // initialize.instructions
+      instructions: 'Call orders_search before orders_refund.', // serverInfo.instructions
       icons: [
         { src: 'https://acme.example.com/icon.svg', mimeType: 'image/svg+xml' },
         { src: 'data:image/png;base64,...', mimeType: 'image/png', sizes: ['48x48'], theme: 'light' },

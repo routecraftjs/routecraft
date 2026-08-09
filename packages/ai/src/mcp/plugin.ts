@@ -4,11 +4,7 @@ import {
   type EventName,
 } from "@routecraft/routecraft";
 import { McpServer } from "./server.ts";
-import {
-  loadMcpClientSdk,
-  MCP_CLIENT_INFO,
-  MCP_VERSION_NEGOTIATION,
-} from "./sdk.ts";
+import { connectMcpHttpClient } from "./sdk.ts";
 import {
   ADAPTER_MCP_CLIENT_SERVERS,
   MCP_PLUGIN_REGISTERED,
@@ -25,7 +21,6 @@ import type {
 import { validateMcpPluginOptions } from "./validate-options.ts";
 import { StdioClientManager } from "./stdio-client-manager.ts";
 import { McpToolRegistry } from "./tool-registry.ts";
-import { buildAuthHeaders } from "./build-auth-headers.ts";
 
 type ClientConfig = McpClientHttpConfig | McpClientStdioConfig;
 
@@ -219,20 +214,10 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     const existing = httpClients.get(serverId);
     if (existing) return existing;
 
-    const { Client, StreamableHTTPClientTransport } =
-      await loadMcpClientSdk("mcp (http client)");
-
-    const headers = await buildAuthHeaders(auth);
-    const transportOptions = headers ? { requestInit: { headers } } : undefined;
-    const transport = new StreamableHTTPClientTransport(
+    const { client: rawClient } = await connectMcpHttpClient(
       new URL(url),
-      transportOptions,
+      auth,
     );
-    const rawClient = new Client(MCP_CLIENT_INFO, {
-      capabilities: {},
-      versionNegotiation: MCP_VERSION_NEGOTIATION,
-    });
-    await rawClient.connect(transport);
 
     const typed = rawClient as unknown as {
       close(): Promise<void>;

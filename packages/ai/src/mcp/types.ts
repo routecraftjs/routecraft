@@ -129,8 +129,8 @@ declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     /** The MCP tool name that triggered this exchange. */
     "routecraft.mcp.tool"?: string;
-    /** The MCP session identifier. */
-    "routecraft.mcp.session"?: string;
+    /** Correlation id for the single MCP request that produced this exchange. */
+    "routecraft.mcp.request"?: string;
   }
 }
 
@@ -189,12 +189,6 @@ export enum McpHeadersKeys {
   TOOL = "routecraft.mcp.tool",
   /** Correlation id for the single MCP request that produced this exchange. */
   REQUEST = "routecraft.mcp.request",
-  /**
-   * @deprecated Protocol revision 2026-07-28 removed MCP sessions, so there is
-   * no session to identify. Carries the same value as {@link REQUEST}; read
-   * that instead.
-   */
-  SESSION = "routecraft.mcp.session",
 }
 
 /**

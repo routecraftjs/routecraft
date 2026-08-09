@@ -4,8 +4,8 @@
  * The v1 SDK shipped as a single `@modelcontextprotocol/sdk` package with deep
  * sub-path imports (`/server/index.js`, `/client/streamableHttp.js`, ...). v2
  * splits it into role packages with flat entry points, so every load site
- * resolves through one of the four helpers here rather than restating the
- * `loadOptionalPeer` incantation with its own package name and adapter label.
+ * resolves through a helper here rather than restating the `loadOptionalPeer`
+ * incantation with its own package name and adapter label.
  *
  * Centralising the loads also keeps the install hints correct: a consumer using
  * only outbound MCP clients is told to install `@modelcontextprotocol/client`,
@@ -14,6 +14,9 @@
  * @see https://modelcontextprotocol.io/specification/2026-07-28
  */
 import { loadOptionalPeer } from "@routecraft/routecraft";
+import { version as packageVersion } from "../../package.json";
+import { buildAuthHeaders } from "./build-auth-headers.ts";
+import type { McpClientAuthOptions } from "./types.ts";
 
 /** The v2 server package: `createMcpHandler`, `Server`, bearer auth, OAuth metadata. */
 export function loadMcpServerSdk(
@@ -55,7 +58,9 @@ export function loadMcpNodeSdk(
  * RFC 9728 metadata) come from `@modelcontextprotocol/server` on both auth
  * paths and do not touch this package.
  *
- * @deprecated Tracks the SDK's own deprecation of the AS-proxy surface.
+ * The SDK marks this surface deprecated upstream. This loader is not itself
+ * deprecated and has no planned removal; it goes when `oauth()` provider mode
+ * does, if it does.
  */
 export function loadMcpLegacyAuthSdk(
   adapterName: string,
@@ -98,8 +103,61 @@ export const MCP_VERSION_NEGOTIATION = {
   mode: "auto",
 } as const;
 
-/** Client identity Routecraft presents on every outbound MCP connection. */
+/**
+ * Client identity Routecraft presents on every outbound MCP connection.
+ *
+ * The version is the real package version, not a constant: remote servers log
+ * and branch on `clientInfo.version`, so a frozen value would make every
+ * Routecraft client indistinguishable in their telemetry.
+ */
 export const MCP_CLIENT_INFO = {
   name: "routecraft-mcp-client",
-  version: "1.0.0",
+  version: packageVersion,
 } as const;
+
+/**
+ * Open one outbound MCP client over Streamable HTTP.
+ *
+ * Every caller that talks to a remote MCP server over HTTP goes through here,
+ * so negotiation mode, client identity and auth headers cannot drift between
+ * the one-shot dispatch path and the plugin's cached clients. A failed
+ * handshake closes the transport rather than orphaning its socket.
+ *
+ * The stdio manager deliberately does not use this: it builds a stdio
+ * transport and registers a `listChanged` handler, and folding both shapes
+ * into one helper would need a transport-kind flag. It shares the loaders and
+ * constants above instead.
+ */
+export async function connectMcpHttpClient(
+  url: URL,
+  auth?: McpClientAuthOptions,
+): Promise<{
+  client: InstanceType<Awaited<ReturnType<typeof loadMcpClientSdk>>["Client"]>;
+  transport: InstanceType<
+    Awaited<
+      ReturnType<typeof loadMcpClientSdk>
+    >["StreamableHTTPClientTransport"]
+  >;
+}> {
+  const { Client, StreamableHTTPClientTransport } =
+    await loadMcpClientSdk("mcp (http client)");
+
+  const headers = await buildAuthHeaders(auth);
+  const transport = new StreamableHTTPClientTransport(
+    url,
+    headers ? { requestInit: { headers } } : undefined,
+  );
+  const client = new Client(MCP_CLIENT_INFO, {
+    capabilities: {},
+    versionNegotiation: MCP_VERSION_NEGOTIATION,
+  });
+
+  try {
+    await client.connect(transport);
+  } catch (cause) {
+    await transport.close().catch(() => {});
+    throw cause;
+  }
+
+  return { client, transport };
+}

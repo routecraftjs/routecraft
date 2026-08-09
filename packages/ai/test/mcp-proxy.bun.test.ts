@@ -12,6 +12,7 @@ import {
 import type { McpRawToolResult, McpTool } from "../src/mcp/types.ts";
 import type { FnHandlerContext } from "../src/fn/types.ts";
 import http from "node:http";
+import { rpcResult } from "./fixtures/rpc-body.ts";
 
 type StoreKey = keyof import("@routecraft/routecraft").StoreRegistry;
 
@@ -797,17 +798,6 @@ describe("MCP tool proxying over HTTP with auth", () => {
     });
   }
 
-  /** Extract the JSON-RPC result payload from a JSON or SSE response body. */
-  function parseRpcResult(body: string): Record<string, unknown> {
-    const jsonLine = body.startsWith("event:")
-      ? (body
-          .split("\n")
-          .find((line) => line.startsWith("data:"))
-          ?.slice(5) ?? "{}")
-      : body;
-    return (JSON.parse(jsonLine) as { result: Record<string, unknown> }).result;
-  }
-
   /**
    * @case Guard sees the authenticated MCP caller's principal and can authorise by role
    * @preconditions HTTP server with a token validator mapping admin-token to an admin-role principal; proxied tool guarded on the admin role
@@ -856,7 +846,7 @@ describe("MCP tool proxying over HTTP with auth", () => {
         { Authorization: `Bearer ${token}` },
       );
       expect(call.statusCode).toBe(200);
-      return parseRpcResult(call.body);
+      return rpcResult(call.body);
     }
 
     const adminResult = await callTool("admin-token");

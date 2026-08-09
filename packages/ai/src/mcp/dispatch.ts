@@ -3,12 +3,7 @@ import {
   rcError,
   type CraftContext,
 } from "@routecraft/routecraft";
-import { buildAuthHeaders } from "./build-auth-headers.ts";
-import {
-  loadMcpClientSdk,
-  MCP_CLIENT_INFO,
-  MCP_VERSION_NEGOTIATION,
-} from "./sdk.ts";
+import { connectMcpHttpClient } from "./sdk.ts";
 import { extractContent } from "./extract-content.ts";
 import {
   ADAPTER_MCP_CLIENT_SERVERS,
@@ -154,22 +149,10 @@ export async function callRemoteToolRaw(
   args: Record<string, unknown>,
   auth?: McpClientAuthOptions,
 ): Promise<McpRawToolResult> {
-  const { Client, StreamableHTTPClientTransport } =
-    await loadMcpClientSdk("mcp (http client)");
-
-  let transport: InstanceType<typeof StreamableHTTPClientTransport> | undefined;
-  let client: InstanceType<typeof Client> | undefined;
+  let connection: Awaited<ReturnType<typeof connectMcpHttpClient>> | undefined;
   try {
-    const url = new URL(serverUrl);
-    const headers = await buildAuthHeaders(auth);
-    const transportOptions = headers ? { requestInit: { headers } } : undefined;
-    transport = new StreamableHTTPClientTransport(url, transportOptions);
-    client = new Client(MCP_CLIENT_INFO, {
-      capabilities: {},
-      versionNegotiation: MCP_VERSION_NEGOTIATION,
-    });
-    await client.connect(transport);
-    return (await client.callTool({
+    connection = await connectMcpHttpClient(new URL(serverUrl), auth);
+    return (await connection.client.callTool({
       name: toolName,
       arguments: args,
     })) as McpRawToolResult;
@@ -186,17 +169,16 @@ export async function callRemoteToolRaw(
       message: `mcp dispatch: failed to call tool "${toolName}" at "${serverUrl}".`,
     });
   } finally {
-    // `client` and `transport` stay undefined when an early step inside the
-    // try block (URL parsing, auth header building, construction) threw
-    // before they were assigned. Cleanup errors are swallowed so the
-    // original failure propagates.
+    // `connection` stays undefined when URL parsing or the handshake threw;
+    // a failed handshake already closed its own transport. Cleanup errors are
+    // swallowed so the original failure propagates.
     try {
-      await client?.close();
+      await connection?.client.close();
     } catch {
       // Ignore cleanup errors so original error propagates
     }
     try {
-      await transport?.close();
+      await connection?.transport.close();
     } catch {
       // Ignore cleanup errors so original error propagates
     }

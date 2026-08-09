@@ -269,7 +269,7 @@ The default policy is **loopback-only**: a browser request whose `Origin` is on 
 
 Server-to-server callers (`curl`, `mcp-remote`, the MCP CLI) do not send an `Origin` header and are unaffected by this policy regardless of configuration.
 
-The option surface is intentionally minimal: only `origin` is configurable. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`*`), and exposed headers (`WWW-Authenticate, Mcp-Session-Id, Last-Event-ID`) so browser clients can read the RFC 9728 `resource_metadata` hint on a 401 and follow discovery, echo the SDK-issued `Mcp-Session-Id` on every request after `initialize` (stateful transport), and resume SSE streams via `Last-Event-ID`. Preflight responses also carry `Access-Control-Allow-Private-Network: true` so Chrome PNA crossings (e.g. a hosted browser client tunnelled to a local MCP server) are not blocked.
+The option surface is intentionally minimal: only `origin` is configurable. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`*`), and exposed headers (`WWW-Authenticate`) so browser clients can read the RFC 9728 `resource_metadata` hint on a 401 and follow discovery. Protocol revision 2026-07-28 removed both sessions and SSE resumability, so `Mcp-Session-Id` and `Last-Event-ID` are never emitted and are not exposed. Preflight responses also carry `Access-Control-Allow-Private-Network: true` so Chrome PNA crossings (e.g. a hosted browser client tunnelled to a local MCP server) are not blocked.
 
 ```ts
 // Default: no config needed for local browser MCP tooling

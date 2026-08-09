@@ -25,6 +25,7 @@ import { MCP_PLUGIN_REGISTERED, McpHeadersKeys } from "../src/mcp/types.ts";
 import { Client } from "@modelcontextprotocol/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { z } from "zod";
+import { rpcBody } from "./fixtures/rpc-body.ts";
 
 const MCP_STORE_KEY =
   MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
@@ -68,17 +69,6 @@ const MODERN_META = {
   "io.modelcontextprotocol/clientCapabilities": {},
 };
 
-/** Reduce a Streamable HTTP body (plain JSON or one SSE frame) to its payload. */
-function rpcBody(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed.includes("data: ")) return trimmed;
-  return trimmed
-    .split("\n")
-    .filter((line) => line.startsWith("data: "))
-    .map((line) => line.slice("data: ".length))
-    .join("");
-}
-
 describe("MCP 2026-07-28 stateless revision", () => {
   let t: TestContext;
   let server: McpServer;
@@ -107,24 +97,7 @@ describe("MCP 2026-07-28 stateless revision", () => {
       ...options,
     });
 
-    const total = t.ctx.getRoutes().length;
-    const routesReady = new Promise<void>((resolve, reject) => {
-      let ready = 0;
-      const timeout = setTimeout(() => reject(new Error("Timeout")), 5000);
-      if (total === 0) {
-        clearTimeout(timeout);
-        resolve();
-        return;
-      }
-      t.ctx.on("route:started", () => {
-        if (++ready >= total) {
-          clearTimeout(timeout);
-          resolve();
-        }
-      });
-    });
-    void t.ctx.start();
-    await routesReady;
+    await t.startAndWaitReady();
     await server.start();
     const port = server.getHttpPort()!;
     return { port, url: `http://127.0.0.1:${port}/mcp` };

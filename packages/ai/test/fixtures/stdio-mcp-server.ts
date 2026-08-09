@@ -32,17 +32,7 @@ const t = await testContext()
   )
   .build();
 
-// stdout belongs to the MCP transport, so route logging away from it before
-// anything can write a stray line into the JSON-RPC stream.
-const total = t.ctx.getRoutes().length;
-const ready = new Promise<void>((resolve) => {
-  let started = 0;
-  t.ctx.on("route:started", () => {
-    if (++started >= total) resolve();
-  });
-});
-void t.ctx.start();
-await ready;
+await t.startAndWaitReady();
 
 const server = new McpServer(t.ctx, {
   name: "stdio-sample",
