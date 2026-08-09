@@ -112,7 +112,9 @@ External SDKs that a package only needs when a specific feature is used (Vercel 
 
 **New code MUST use `loadOptionalPeer`.** The cron source (`packages/routecraft/src/adapters/cron/source.ts`) and the html adapter (`packages/routecraft/src/adapters/html/shared.ts`) are the canonical references; copy the shape (lazy import via the thunk, RC5017 message, type-only `import type` at the top of the file).
 
-The pre-existing migration backlog tracked in [#287](https://github.com/routecraftjs/routecraft/issues/287) is closed: every dynamic-import optional-peer site now goes through `loadOptionalPeer`. `loadOptionalPeer` is exported from `@routecraft/routecraft` so cross-package adapters (`@routecraft/ai`'s mcp suite, `@routecraft/cli`) reuse the same helper. New code MUST follow the same shape and is reviewed against this contract. A repo-wide contract test (`packages/routecraft/test/optional-peer-contract.bun.test.ts`) enforces it across core, ai, os, and cli: any bare dynamic import of an optional peer fails the suite (regular dependencies and required peers are exempt). ## 7. Bun command conventions
+The pre-existing migration backlog tracked in [#287](https://github.com/routecraftjs/routecraft/issues/287) is closed: every dynamic-import optional-peer site now goes through `loadOptionalPeer`. `loadOptionalPeer` is exported from `@routecraft/routecraft` so cross-package adapters (`@routecraft/ai`'s mcp suite, `@routecraft/cli`) reuse the same helper. New code MUST follow the same shape and is reviewed against this contract. A repo-wide contract test (`packages/routecraft/test/optional-peer-contract.bun.test.ts`) enforces it across core, ai, os, and cli: any bare dynamic import of an optional peer fails the suite (regular dependencies and required peers are exempt).
+
+## 7. Bun command conventions
 
 - Use `bun run <script>` for any `package.json` script (root or workspace). E.g. `bun run lint`, `bun run --filter routecraft.dev dev`.
 - Use `bunx <bin>` for one-shot binary execution from a `node_modules/.bin` entry. E.g. `bunx madge --circular .`, `bunx create-routecraft`.

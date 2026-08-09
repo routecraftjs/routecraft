@@ -40,7 +40,10 @@ describe("MCP stdio transport", () => {
     transport = new StdioClientTransport({
       command: process.execPath,
       args: [SERVER_SCRIPT],
-      stderr: "pipe",
+      // `inherit`, not `pipe`: nothing reads a piped stream here, so a fixture
+      // that fails at startup would lose its diagnostic and a chatty one would
+      // block on a full pipe buffer until the test timed out.
+      stderr: "inherit",
     });
     client = new Client(
       { name: "stdio-interop", version: "1.0.0" },

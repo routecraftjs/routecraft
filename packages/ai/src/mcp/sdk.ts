@@ -54,9 +54,11 @@ export function loadMcpNodeSdk(
  * v2 moved the OAuth *authorization server* surface out of the main server
  * package on the reasoning that an MCP server should delegate to a dedicated
  * IdP rather than proxy one. Routecraft's `oauth()` mode is exactly that proxy,
- * so it keeps working from here. Resource-server duties (bearer verification,
- * RFC 9728 metadata) come from `@modelcontextprotocol/server` on both auth
- * paths and do not touch this package.
+ * so it keeps working from here, and takes its Express `requireBearerAuth`
+ * middleware from here too: the v2 equivalent is web-standard
+ * (`Request -> AuthInfo | Response`) and does not compose with an Express
+ * chain. The validator path uses no middleware and shares nothing with this
+ * package; RFC 9728 metadata is Routecraft's own on both paths.
  *
  * The SDK marks this surface deprecated upstream. This loader is not itself
  * deprecated and has no planned removal; it goes when `oauth()` provider mode
@@ -142,11 +144,23 @@ export async function connectMcpHttpClient(
   const { Client, StreamableHTTPClientTransport } =
     await loadMcpClientSdk("mcp (http client)");
 
-  const headers = await buildAuthHeaders(auth);
-  const transport = new StreamableHTTPClientTransport(
-    url,
-    headers ? { requestInit: { headers } } : undefined,
-  );
+  // Auth headers are resolved per request through the transport's fetch hook,
+  // not baked into `requestInit` once at connect. `McpClientTokenProvider` is
+  // documented as "called on every request", and a token array round-robins
+  // per request; a client cached across many calls (mcpPlugin's clients) would
+  // otherwise pin whichever token was current when it connected and keep
+  // presenting it after expiry.
+  const transport = new StreamableHTTPClientTransport(url, {
+    fetch: async (input, init) => {
+      const headers = await buildAuthHeaders(auth);
+      if (!headers) return fetch(input, init);
+      const merged = new Headers(init?.headers);
+      for (const [name, value] of Object.entries(headers)) {
+        merged.set(name, value);
+      }
+      return fetch(input, { ...init, headers: merged });
+    },
+  });
   const client = new Client(MCP_CLIENT_INFO, {
     capabilities: {},
     versionNegotiation: MCP_VERSION_NEGOTIATION,

@@ -141,7 +141,7 @@ export class StdioClientManager {
       versionNegotiation: MCP_VERSION_NEGOTIATION,
       listChanged: {
         tools: {
-          onChanged: (_error: unknown, tools: unknown) => {
+          onChanged: (error: unknown, tools: unknown) => {
             if (tools && Array.isArray((tools as { tools: unknown[] }).tools)) {
               this.tools = (tools as { tools: McpTool[] }).tools;
               this.onToolsUpdated(serverId, this.tools);
@@ -150,7 +150,13 @@ export class StdioClientManager {
                 toolCount: this.tools.length,
               });
             } else {
-              // Server notified of change but SDK couldn't fetch; re-list manually
+              // Server notified of change but SDK couldn't fetch; re-list
+              // manually. Log the cause so a persistently broken push path is
+              // distinguishable from a healthy one that simply re-lists.
+              this.logger.debug(
+                { err: error, serverId },
+                "listChanged delivered no tools; re-listing manually",
+              );
               void this.refreshTools();
             }
           },

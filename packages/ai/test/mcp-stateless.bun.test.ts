@@ -123,11 +123,16 @@ describe("MCP 2026-07-28 stateless revision", () => {
       body: JSON.stringify(body),
     });
     const raw = await res.text();
-    return {
-      status: res.status,
-      headers: res.headers,
-      json: raw ? (JSON.parse(rpcBody(raw)) as Record<string, unknown>) : {},
-    };
+    // A non-JSON body must not throw here: the caller's status assertion is
+    // the more useful failure, and a rejected request may answer with anything.
+    let json: Record<string, unknown> = {};
+    try {
+      const decoded = raw ? rpcBody(raw) : "";
+      if (decoded) json = JSON.parse(decoded) as Record<string, unknown>;
+    } catch {
+      // Leave `json` empty; the status assertion reports the real problem.
+    }
+    return { status: res.status, headers: res.headers, json };
   }
 
   const echoRoute = (): AnyRouteBuilder =>
@@ -550,6 +555,7 @@ describe("MCP 2026-07-28 stateless revision", () => {
 
       expect(seen).toHaveLength(2);
       expect(seen[0]).toBeTruthy();
+      expect(seen[1]).toBeTruthy();
       expect(seen[0]).not.toBe(seen[1]);
     });
   });

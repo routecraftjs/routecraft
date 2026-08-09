@@ -44,7 +44,10 @@ beforeAll(() => {
 });
 
 /** Mint an RS256 JWT signed with the generated private key. */
-function mintRs256(claims: Record<string, unknown> = {}): string {
+function mintRs256(
+  claims: Record<string, unknown> = {},
+  signingKey?: string,
+): string {
   const b64 = (o: unknown) =>
     Buffer.from(JSON.stringify(o)).toString("base64url");
   const signingInput = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({
@@ -58,7 +61,7 @@ function mintRs256(claims: Record<string, unknown> = {}): string {
   })}`;
   const signature = createSign("RSA-SHA256")
     .update(signingInput)
-    .sign(privateKey, "base64url");
+    .sign(signingKey ?? privateKey, "base64url");
   return `${signingInput}.${signature}`;
 }
 
@@ -299,6 +302,10 @@ describe("capabilities exposed as MCP tools", () => {
     });
 
     expect(result.isError).toBe(true);
+    // Assert the reason, not just the failure: a misconfigured server or an
+    // unreachable port would otherwise satisfy this test.
+    const content = result.content as Array<{ text: string }>;
+    expect(content[0]!.text.toLowerCase()).toMatch(/valid|schema|query/);
   }, 20_000);
 
   /**
@@ -360,18 +367,9 @@ describe("capabilities exposed as MCP tools", () => {
       publicKeyEncoding: { type: "spki", format: "pem" },
       privateKeyEncoding: { type: "pkcs8", format: "pem" },
     });
-    const b64 = (o: unknown) =>
-      Buffer.from(JSON.stringify(o)).toString("base64url");
-    const signingInput = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({
-      sub: "intruder",
-      iss: ISSUER,
-      aud: AUDIENCE,
-      exp: Math.floor(Date.now() / 1000) + 300,
-    })}`;
-    const forged = `${signingInput}.${createSign("RSA-SHA256")
-      .update(signingInput)
-      .sign(foreign.privateKey, "base64url")}`;
+    const forged = mintRs256({ sub: "intruder" }, foreign.privateKey);
 
-    await expect(connect(url, forged)).rejects.toThrow();
+    // Assert the rejection is the auth refusal, not any connection failure.
+    await expect(connect(url, forged)).rejects.toThrow(/401|unauthor/i);
   }, 20_000);
 });

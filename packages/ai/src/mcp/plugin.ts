@@ -42,7 +42,11 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
   const stdioManagers = new Map<string, StdioClientManager>();
   const httpClients = new Map<
     string,
-    { close(): Promise<void>; listTools(): Promise<{ tools: McpTool[] }> }
+    {
+      listTools(): Promise<{ tools: McpTool[] }>;
+      /** Close the client AND its transport; closing the client alone leaks the socket. */
+      dispose(): Promise<void>;
+    }
   >();
   const httpRefreshTimers: ReturnType<typeof setInterval>[] = [];
   let toolRegistry: McpToolRegistry | null = null;
@@ -116,7 +120,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
       // Close persistent HTTP clients
       for (const [serverId, client] of httpClients) {
         try {
-          await client.close();
+          await client.dispose();
         } catch (error) {
           ctx.logger.error(
             { err: error, serverId, operation: "close" },
@@ -208,23 +212,41 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     url: string,
     auth?: McpClientHttpConfig["auth"],
   ): Promise<{
-    close(): Promise<void>;
     listTools(): Promise<{ tools: McpTool[] }>;
+    dispose(): Promise<void>;
   }> {
     const existing = httpClients.get(serverId);
     if (existing) return existing;
 
-    const { client: rawClient } = await connectMcpHttpClient(
+    const { client: rawClient, transport } = await connectMcpHttpClient(
       new URL(url),
       auth,
     );
-
     const typed = rawClient as unknown as {
       close(): Promise<void>;
       listTools(): Promise<{ tools: McpTool[] }>;
     };
-    httpClients.set(serverId, typed);
-    return typed;
+
+    // Both handles are retained: closing the client does not close its
+    // transport, so a cache that kept only the client would leak a socket per
+    // entry on teardown and per failed refresh.
+    const entry = {
+      listTools: () => typed.listTools(),
+      dispose: async (): Promise<void> => {
+        try {
+          await typed.close();
+        } catch {
+          // Ignore cleanup errors
+        }
+        try {
+          await transport.close();
+        } catch {
+          // Ignore cleanup errors
+        }
+      },
+    };
+    httpClients.set(serverId, entry);
+    return entry;
   }
 
   async function listHttpClientTools(
@@ -249,8 +271,12 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
         } as Record<string, unknown>,
       );
     } catch (error) {
-      // Connection may have gone stale; discard so next attempt reconnects
+      // Connection may have gone stale; discard so next attempt reconnects.
+      // Dispose it first: a remote that stays unreachable would otherwise leak
+      // one client and one transport per refresh interval.
+      const stale = httpClients.get(serverId);
       httpClients.delete(serverId);
+      await stale?.dispose();
       ctx.logger.warn(
         { err: error, serverId, url, operation: "listTools" },
         "Failed to list tools from HTTP client",

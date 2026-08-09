@@ -1308,8 +1308,18 @@ export class McpServer {
         // fallback, so a legacy exchange in flight is ended by the socket
         // close below rather than drained.
         if (this.mcpHandler) {
-          await this.mcpHandler.close();
-          this.mcpHandler = null;
+          // Isolated: a rejection here must not skip the listener teardown
+          // below, or the port stays bound and `running` stays true.
+          try {
+            await this.mcpHandler.close();
+          } catch (error) {
+            this.context.logger.error(
+              { err: error },
+              "Failed to close MCP handler; continuing shutdown",
+            );
+          } finally {
+            this.mcpHandler = null;
+          }
         }
 
         // Force-close any lingering connections (e.g. SSE streams that keep

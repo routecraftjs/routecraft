@@ -227,9 +227,12 @@ describe("MCP CORS helper", () => {
       // advertised as readable.
       const expose = headers["Access-Control-Expose-Headers"];
       expect(expose).toBeDefined();
-      expect(expose).toContain("WWW-Authenticate");
-      expect(expose).not.toContain("Mcp-Session-Id");
-      expect(expose).not.toContain("Last-Event-ID");
+      // Matched lowercased: header names are case-insensitive, so a regression
+      // re-adding a removed header under different casing must still fail.
+      const exposeLower = expose!.toLowerCase();
+      expect(exposeLower).toContain("www-authenticate");
+      expect(exposeLower).not.toContain("mcp-session-id");
+      expect(exposeLower).not.toContain("last-event-id");
     });
 
     /**

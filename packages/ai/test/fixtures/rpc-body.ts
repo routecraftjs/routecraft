@@ -11,18 +11,28 @@
 /** Reduce a Streamable HTTP response body to its JSON-RPC payload. */
 export function rpcBody(raw: string): string {
   const trimmed = raw.trim();
-  if (!trimmed.includes("data: ")) return trimmed;
-  return trimmed
-    .split("\n")
-    .filter((line) => line.startsWith("data: "))
-    .map((line) => line.slice("data: ".length))
-    .join("");
+  // Decide framing from a line prefix, not a substring: a plain JSON body may
+  // legitimately contain "data: " inside a string value. Split on CRLF too, so
+  // a server that frames SSE with \r\n does not leave a stray \r mid-payload.
+  const data = trimmed
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"));
+  if (data.length === 0) return trimmed;
+  return data.map((line) => line.slice("data:".length).trimStart()).join("");
 }
 
 /** The `result` member of a JSON-RPC response, whichever framing carried it. */
 export function rpcResult(raw: string): Record<string, unknown> {
   const parsed = JSON.parse(rpcBody(raw)) as {
     result?: Record<string, unknown>;
+    error?: { code?: number; message?: string };
   };
+  // Surface a JSON-RPC error here rather than returning an empty object: a
+  // protocol failure would otherwise read as an empty success at every caller.
+  if (parsed.result === undefined && parsed.error) {
+    throw new Error(
+      `JSON-RPC error ${parsed.error.code ?? "?"}: ${parsed.error.message ?? "unknown"}`,
+    );
+  }
   return parsed.result ?? {};
 }

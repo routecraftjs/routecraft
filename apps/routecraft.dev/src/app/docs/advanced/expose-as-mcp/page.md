@@ -170,7 +170,7 @@ export default {
       version: '2.1.0',                          // serverInfo.version
       description: 'Acme operations over MCP.',  // serverInfo.description
       websiteUrl: 'https://acme.example.com',    // serverInfo.websiteUrl
-      instructions: 'Call orders_search before orders_refund.', // serverInfo.instructions
+      instructions: 'Call orders_search before orders_refund.', // server capabilities, not serverInfo
       icons: [
         { src: 'https://acme.example.com/icon.svg', mimeType: 'image/svg+xml' },
         { src: 'data:image/png;base64,...', mimeType: 'image/png', sizes: ['48x48'], theme: 'light' },

@@ -53,13 +53,25 @@ function isMissingExpectedPackage(
   }
   const message = (cause as { message?: unknown }).message;
   if (typeof message !== "string") return false;
-  // Node phrasings observed in the wild:
-  //   ESM: `Cannot find package 'pkg' imported from /path`
-  //   ESM bare: `Cannot find module '/abs/path/pkg/index.js' imported from ...`
-  //   CJS: `Cannot find module 'pkg'`
-  // Match the package name surrounded by quotes so we do not mistake
-  // a transitive-dep miss inside the same package for a missing peer.
-  return (
-    message.includes(`'${packageName}'`) || message.includes(`"${packageName}"`)
-  );
+  // Phrasings observed in the wild:
+  //   Node ESM:  `Cannot find package 'pkg' imported from /path`
+  //   Node bare: `Cannot find module '/abs/path/pkg/index.js' imported from ...`
+  //   CJS:       `Cannot find module 'pkg'`
+  //   Bun:       `Cannot find module 'pkg/subpath' from '/path'`
+  // Node names the package even when the import used a subpath; Bun quotes the
+  // full specifier. Accept the quoted name with an optional subpath suffix so a
+  // subpath loader (`pkg/stdio`) still yields RC5017 on Bun instead of a raw
+  // ERR_MODULE_NOT_FOUND. The quote-or-slash boundary keeps this from matching
+  // a longer package name that merely starts with the same characters, and the
+  // opening quote keeps a transitive-dep miss inside the same package from
+  // being mistaken for the peer itself.
+  return QUOTES.some((quote) => {
+    const start = message.indexOf(`${quote}${packageName}`);
+    if (start === -1) return false;
+    const next = message[start + quote.length + packageName.length];
+    return next === quote || next === "/";
+  });
 }
+
+/** Quote characters a runtime may wrap a specifier in. */
+const QUOTES = ["'", '"'] as const;

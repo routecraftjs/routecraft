@@ -66,10 +66,22 @@ const MockClient = mock().mockImplementation(function (
 const realSdk = await import("../src/mcp/sdk.ts");
 const { MCP_CLIENT_INFO } = realSdk;
 
+const realClientSdk = await realSdk.loadMcpClientSdk("mcp (test)");
+const realClientStdioSdk = await realSdk.loadMcpClientStdioSdk("mcp (test)");
+
 mock.module("../src/mcp/sdk.ts", () => ({
   ...realSdk,
-  loadMcpClientSdk: mock().mockResolvedValue({ Client: MockClient }),
+  // Each loader keeps the real module's other exports and swaps only the
+  // symbol under test. `loadMcpClientSdk` also provides
+  // `StreamableHTTPClientTransport` to `connectMcpHttpClient`, so returning a
+  // bare `{ Client }` here would make every HTTP-path test in the same process
+  // construct `new undefined(...)`.
+  loadMcpClientSdk: mock().mockResolvedValue({
+    ...realClientSdk,
+    Client: MockClient,
+  }),
   loadMcpClientStdioSdk: mock().mockResolvedValue({
+    ...realClientStdioSdk,
     StdioClientTransport: MockTransport,
   }),
 }));
