@@ -101,6 +101,13 @@ export function continuationHash(
  * Schema itself defines no JSON Schema export, so a schema library without
  * that extension simply yields no rendering; nothing else changes.
  *
+ * The extension's arms may be the rendered schema OR a function that
+ * produces it on demand (Zod 4 ships the lazy form), so {@link render}
+ * resolves either. Storing the unresolved function instead would be
+ * quietly destructive twice over: it cannot be persisted, and it hashes to
+ * the same digest for EVERY schema, which silently disables the
+ * changed-`expect` half of the compatibility check.
+ *
  * @param schema - The `expect` schema declared on `.suspend()`.
  * @returns A serializable descriptor of the schema.
  *
@@ -117,7 +124,7 @@ export function describeExpect(schema: StandardSchemaV1): SuspensionExpect {
     }
   )["~standard"];
   const jsonSchema =
-    standard?.jsonSchema?.output ?? standard?.jsonSchema?.input;
+    render(standard?.jsonSchema?.output) ?? render(standard?.jsonSchema?.input);
   // With a JSON Schema rendering the hash tracks the actual contract, so a
   // widened field moves it. Without one there is nothing to read: fall back
   // to the vendor and version, which at least catches a swapped schema
@@ -134,6 +141,27 @@ export function describeExpect(schema: StandardSchemaV1): SuspensionExpect {
     hash: sha256(canonical(identity)),
     ...(jsonSchema !== undefined ? { jsonSchema } : {}),
   };
+}
+
+/**
+ * Resolve one arm of the `~standard.jsonSchema` extension.
+ *
+ * The arm is either the rendered schema or a producer for it. A producer
+ * is vendor code, so a throwing one yields no rendering rather than failing
+ * the suspend: the rendering is descriptive, and the live schema is what
+ * validation actually runs against.
+ *
+ * @internal
+ */
+function render(arm: unknown): unknown {
+  if (arm === undefined || arm === null) return undefined;
+  if (typeof arm !== "function") return arm;
+  try {
+    const produced = (arm as () => unknown)();
+    return produced === null ? undefined : produced;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

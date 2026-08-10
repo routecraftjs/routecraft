@@ -12,14 +12,19 @@ import type { Exchange } from "./exchange.ts";
 import {
   StepBuilderBase,
   type BuilderState,
+  type ExchangeOf,
   type Retyped,
   type SetBody,
+  type SetSuspension,
 } from "./step-builder-base.ts";
 import { PUSH_STEP } from "./dsl-symbol.ts";
 import { TapStep } from "./operations/tap.ts";
 import { TransformStep, mapper } from "./operations/transform.ts";
 import { ValidateStep, schema } from "./operations/validate.ts";
 import { log, debug, type LogOptions } from "./adapters/log/index.ts";
+import { SuspendStep, type SuspendOptions } from "./operations/suspend.ts";
+import { ResumeStep, type ResumeMapper } from "./operations/resume.ts";
+import type { ResumeAcknowledgment } from "./suspension/revive.ts";
 
 // ---------------------------------------------------------------------------
 // registerDsl
@@ -145,6 +150,22 @@ registerDsl("schema", {
     new ValidateStep(schema(standardSchema)),
 });
 
+// `.suspend()` and `.resume()` register here rather than living on
+// StepBuilderBase for the same reason `.log()` and `.schema()` do: they are
+// one step each with no builder state of their own. They are also
+// symmetric, and registering them side by side keeps them that way.
+registerDsl("suspend", {
+  kind: "process",
+  label: "suspend",
+  factory: (options: SuspendOptions) => new SuspendStep(options),
+});
+
+registerDsl("resume", {
+  kind: "process",
+  label: "resume",
+  factory: (mapper?: ResumeMapper) => new ResumeStep(mapper),
+});
+
 // ---------------------------------------------------------------------------
 // Module augmentation: TypeScript types for built-in sugar
 // ---------------------------------------------------------------------------
@@ -218,5 +239,94 @@ declare module "@routecraft/routecraft" {
     schema<Schema extends StandardSchemaV1>(
       standardSchema: Schema,
     ): Retyped<this, SetBody<S, StandardSchemaV1.InferOutput<Schema>>>;
+
+    /**
+     * Park the exchange durably and exit the pipeline, to be resumed later
+     * at the next step.
+     *
+     * This run ends here and answers immediately with the `Suspended`
+     * acknowledgment, because a durable suspend cannot hold a caller: the
+     * answer arrives in hours or days and the process will be restarted
+     * first. Nothing is scheduled, no worker waits, and the route stays
+     * live for every other exchange. The route's real output flows to its
+     * destinations on execution two, when `.resume()` revives the exchange
+     * with the answer.
+     *
+     * The body is unchanged across the park, so a branch that suspends
+     * rejoins the main flow with the contract it left on. The answer
+     * arrives beside it, on `ex.suspension.result`, typed by `expect`.
+     *
+     * @param options - `expect` (what a valid answer looks like) and an
+     *   optional `ttl` after which the suspension stops being resumable
+     * @example
+     * ```ts
+     * craft()
+     *   .id("payout")
+     *   .input({ body: PayoutRequest })
+     *   .from(http({ path: "/payouts", method: "POST" }))
+     *   .choice(
+     *     when((ex) => ex.body.amountCents >= 50_000, (b) =>
+     *       b
+     *         .tap(direct("notify-approver"))
+     *         .suspend({ expect: Approval, ttl: "72h" })
+     *         .filter((ex) =>
+     *           ex.suspension.result.approved
+     *             ? true
+     *             : { reason: `rejected by ${ex.suspension.resumedBy?.subject}` },
+     *         ),
+     *     ),
+     *   )
+     *   .to(payouts())
+     * ```
+     */
+    suspend<Schema extends StandardSchemaV1>(
+      options: SuspendOptions<Schema>,
+    ): Retyped<this, SetSuspension<S, StandardSchemaV1.InferOutput<Schema>>>;
+
+    /**
+     * Revive a parked exchange and run its continuation.
+     *
+     * Addresses an EXCHANGE by signed token, not a route by name: any route
+     * ending in `.resume()` is a resume ingress, whether it is fed by an
+     * HTTP webhook, a mail-reply parser, or an ops CLI. The original source
+     * takes no part in execution two, which is what lets a mail-born
+     * exchange be continued by a chat-born answer.
+     *
+     * The mapping function owns SHAPE (find the token, build the candidate
+     * answer); validation against the suspending step's `expect` happens at
+     * revival, because only the suspension knows that schema. The bare form
+     * expects the body to already be `{ token, result }`.
+     *
+     * Authorizing the answerer belongs on this route (`.authorize()`,
+     * sender verification, a per-approver link): the token proves the
+     * deployment minted it, not that its holder may answer. Whoever the
+     * route authenticated is recorded on the suspension as `resumedBy`.
+     *
+     * The revived route runs to completion before this step continues, so
+     * the acknowledgment placed in the body reports how execution two
+     * ended, and the ingress route can answer the approver's own channel.
+     * A duplicate answer returns the first one's cached terminal outcome
+     * without re-running anything.
+     *
+     * @param map - Maps the ingress exchange to `{ token, result }`
+     * @example
+     * ```ts
+     * craft()
+     *   .id("approval-replies")
+     *   .from(mail("INBOX"))
+     *   .authenticate(mailPrincipal)
+     *   .resume((ex) => ({
+     *     token: tokenFrom(ex.headers["routecraft.mail.subject"]),
+     *     result: { approved: /^yes/i.test(ex.body.text ?? "") },
+     *   }))
+     *   .to(log())
+     * ```
+     */
+    resume(
+      map?: (
+        exchange: ExchangeOf<S>,
+        ctx?: { readonly signal?: AbortSignal },
+      ) => ReturnType<ResumeMapper<S["body"]>>,
+    ): Retyped<this, SetBody<S, ResumeAcknowledgment>>;
   }
 }

@@ -5,10 +5,12 @@ import {
   DefaultExchange,
   EXCHANGE_INTERNALS,
   isDropped,
+  isSuspendedRun,
   OperationType,
   setStartedAt,
 } from "../exchange.ts";
 import { isRecovery, applyDropDirective } from "../recovery.ts";
+import { parkExchange } from "../suspension/park.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -20,11 +22,7 @@ import {
   getAdapterLabel,
 } from "../types.ts";
 import { buildInputValidationStep, buildParseStep } from "./synthetic-steps.ts";
-import {
-  applyOutputValidation,
-  handleOutputValidationFailure,
-  type ValidationDeps,
-} from "./validation.ts";
+import { applyOutputStage } from "./validation.ts";
 import {
   DeadlineExceededError,
   raceWithDeadline,
@@ -116,6 +114,8 @@ export async function runPipeline(
   exchange: Exchange;
   failed: boolean;
   dropped: boolean;
+  /** The exchange parked at a `.suspend()`; execution one ends here. */
+  suspended: boolean;
   error?: unknown;
 }> {
   // If the source adapter attached a `parse` function (see #187), prepend
@@ -483,15 +483,28 @@ export async function runPipeline(
           // The step marked the exchange dropped and emitted its drop
           // events; schedule nothing.
           break;
-        case "suspend":
-          // Reserved StepOutcome kind: declared for the route-level
-          // suspend/resume feature but not yet producible. No step returns
-          // it today, so reaching here means a custom step emitted a kind the
-          // engine cannot yet schedule. Fail loud rather than silently drop
-          // the exchange.
-          throw rcError("RC5032", undefined, {
-            message: `Step "${stepLabel}" returned a "suspend" outcome, but suspend/resume is not implemented yet.`,
-          });
+        case "suspend": {
+          // The exchange parks here and this run ends: the executor
+          // serializes it, writes the suspension, and answers with the
+          // `Suspended` acknowledgment. Nothing is scheduled beyond that
+          // (`steps: []`), no worker waits, and the route stays live for
+          // every other exchange, because the continuation lives in the
+          // store rather than in this process.
+          if (!outcome.request) {
+            throw rcError("RC5032", undefined, {
+              message: `Step "${stepLabel}" returned a "suspend" outcome without a suspend request, so the engine cannot work out what to park or what would resume.`,
+            });
+          }
+          const parked = await parkExchange(
+            deps.context,
+            outcome.exchange,
+            outcome.request,
+            deps.routeId,
+            step,
+          );
+          queue.push({ exchange: parked, steps: [] });
+          break;
+        }
       }
 
       // Emit step:completed event unless the step manages its own events
@@ -665,6 +678,7 @@ export async function runPipeline(
           exchange: lastProcessedExchange,
           failed,
           dropped,
+          suspended: isSuspendedRun(exchange),
           error: stepError,
         };
       }
@@ -758,6 +772,7 @@ export async function runPipeline(
     exchange: lastProcessedExchange,
     failed,
     dropped,
+    suspended: isSuspendedRun(exchange),
     error: stepError,
   };
 }
@@ -789,9 +804,17 @@ function segmentResultToOutcome(result: {
   exchange: Exchange;
   dropped: boolean;
 }): StepOutcome {
-  return result.dropped
-    ? ({ kind: "drop" } as const)
-    : ({ kind: "continue", exchange: result.exchange } as const);
+  if (result.dropped) return { kind: "drop" } as const;
+  // A run that parked inside the segment has already been answered with its
+  // `Suspended` acknowledgment, and the parking is recorded on the
+  // exchange's shared internals, so the outer run must schedule nothing
+  // further rather than continuing into steps the parked exchange is no
+  // longer at. It is `complete`, not a second `suspend`: the exchange is
+  // parked once, by the run that reached the step.
+  if (isSuspendedRun(result.exchange)) {
+    return { kind: "complete", exchange: result.exchange } as const;
+  }
+  return { kind: "continue", exchange: result.exchange } as const;
 }
 
 /**
@@ -867,83 +890,7 @@ function makeDownstreamRunner(
   downstream: Step<Adapter>[],
 ): (exchange: Exchange) => Promise<{ failed: boolean; dropped: boolean }> {
   return (releaseExchange) => {
-    const release = (async (): Promise<{
-      failed: boolean;
-      dropped: boolean;
-    }> => {
-      const start = Date.now();
-      const correlationId = releaseExchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-      deps.context.emit("route:exchange:started", {
-        routeId: deps.routeId,
-        exchangeId: releaseExchange.id,
-        correlationId,
-      });
-      const routeDefinition = deps.route.definition;
-      const nested: ExecutorDeps = {
-        routeId: deps.routeId,
-        context: deps.context,
-        route: deps.route,
-        buildForward: deps.buildForward,
-        definition: {
-          preParseFilters: [],
-          postParseFilters: [],
-          steps: downstream,
-          postFromFilters: [],
-          ...(routeDefinition.errorHandler
-            ? { errorHandler: routeDefinition.errorHandler }
-            : {}),
-        },
-      };
-      let result = await runPipeline(nested, releaseExchange, start);
-
-      // Mirror DefaultRoute.handler: the released exchange carries the route's
-      // final output, so enforce `.output()` schemas before declaring
-      // completion. A validation failure takes the same
-      // error-handler-or-failed path as a thrown step.
-      if (!result.failed && !result.dropped) {
-        const outputSchemas = routeDefinition.discovery?.output;
-        if (outputSchemas?.body || outputSchemas?.headers) {
-          const validationDeps: ValidationDeps = {
-            routeId: deps.routeId,
-            context: deps.context,
-            route: deps.route,
-            buildForward: deps.buildForward,
-            ...(routeDefinition.errorHandler
-              ? { errorHandler: routeDefinition.errorHandler }
-              : {}),
-          };
-          try {
-            const validated = await applyOutputValidation(
-              validationDeps,
-              result.exchange,
-              outputSchemas,
-            );
-            result = { ...result, exchange: validated };
-          } catch (err) {
-            result = await handleOutputValidationFailure(
-              validationDeps,
-              result.exchange,
-              err,
-              start,
-              outputSchemas,
-            );
-          }
-        }
-      }
-
-      if (!result.failed && !result.dropped) {
-        deps.context.emit("route:exchange:completed", {
-          routeId: deps.routeId,
-          exchangeId: releaseExchange.id,
-          correlationId,
-          duration: Date.now() - start,
-          exchange: result.exchange,
-        });
-      }
-      return { failed: result.failed, dropped: result.dropped };
-    })();
+    const release = runDetachedPipeline(deps, downstream, releaseExchange);
     // Track the ENTIRE release flow (pipeline, output validation, and the
     // completion emit), not just the pipeline promise: a caller that does not
     // itself await the runner to completion (debounce's settle latch does,
@@ -953,6 +900,121 @@ function makeDownstreamRunner(
     deps.route.trackTask(release);
     return release;
   };
+}
+
+/**
+ * Run `steps` against `exchange` as a detached, first-class run of the
+ * route: its own `exchange:started` / `:completed` pair, the route-scope
+ * `.error()` handler honoured, and the route's `.output()` schemas enforced
+ * before completion.
+ *
+ * Two callers, and the shared contract is what makes them one function.
+ * `debounce` releases a held exchange into the steps that follow it, and a
+ * resume revives a parked exchange into its continuation. Neither is a
+ * side-effect clone: in both cases the exchange IS the route's primary
+ * flow, resuming partway down a pipeline whose earlier steps must not
+ * re-run.
+ *
+ * The run inherits NO abort signal. A signal from the capturing attempt (a
+ * route-scope timeout) can fire long after, and a detached run is a fresh
+ * flow rather than a continuation of that attempt.
+ *
+ * @internal
+ */
+export function runDetachedPipeline(
+  deps: ExecutorDeps,
+  downstream: ReadonlyArray<Step<Adapter>>,
+  releaseExchange: Exchange,
+): Promise<DetachedResult> {
+  return (async (): Promise<DetachedResult> => {
+    const start = Date.now();
+    const correlationId = releaseExchange.headers[
+      HeadersKeys.CORRELATION_ID
+    ] as string;
+    deps.context.emit("route:exchange:started", {
+      routeId: deps.routeId,
+      exchangeId: releaseExchange.id,
+      correlationId,
+    });
+    const routeDefinition = deps.route.definition;
+    const nested: ExecutorDeps = {
+      routeId: deps.routeId,
+      context: deps.context,
+      route: deps.route,
+      buildForward: deps.buildForward,
+      definition: {
+        preParseFilters: [],
+        postParseFilters: [],
+        steps: [...downstream],
+        postFromFilters: [],
+        ...(routeDefinition.errorHandler
+          ? { errorHandler: routeDefinition.errorHandler }
+          : {}),
+      },
+    };
+    let result = await runPipeline(nested, releaseExchange, start);
+
+    // The released exchange carries the route's final output, so the same
+    // output stage the source-driven path uses runs here too.
+    result = await applyOutputStage(
+      {
+        routeId: deps.routeId,
+        context: deps.context,
+        route: deps.route,
+        buildForward: deps.buildForward,
+        ...(routeDefinition.errorHandler
+          ? { errorHandler: routeDefinition.errorHandler }
+          : {}),
+      },
+      routeDefinition.discovery?.output,
+      result,
+      start,
+    );
+
+    // A run that parked at a `.suspend()` ends with the `Suspended`
+    // acknowledgment rather than the route's output, and its terminal
+    // event was `route:exchange:suspended`. Completing it here would both
+    // claim an output it does not carry and give the exchange two
+    // terminal events.
+    if (!result.failed && !result.dropped && !result.suspended) {
+      deps.context.emit("route:exchange:completed", {
+        routeId: deps.routeId,
+        exchangeId: releaseExchange.id,
+        correlationId,
+        duration: Date.now() - start,
+        exchange: result.exchange,
+      });
+    }
+    return {
+      failed: result.failed,
+      dropped: result.dropped,
+      suspended: result.suspended,
+      exchange: result.exchange,
+      ...(result.error !== undefined ? { error: result.error } : {}),
+    };
+  })();
+}
+
+/**
+ * What a detached run reports back. `error` is present exactly when
+ * `failed` is true and the failure reached the run's boundary, which is
+ * what a resume needs to cache as the suspension's terminal outcome.
+ *
+ * @internal
+ */
+export interface DetachedResult {
+  failed: boolean;
+  dropped: boolean;
+  /**
+   * The run parked at a `.suspend()`. Distinct from every other outcome:
+   * the exchange is neither finished nor failed, and its terminal body is
+   * the `Suspended` acknowledgment rather than the route's output. A caller
+   * that treats it as a completion publishes both a false receipt and the
+   * next suspension's resume token.
+   */
+  suspended: boolean;
+  exchange: Exchange;
+  error?: unknown;
 }
 
 /**

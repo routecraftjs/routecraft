@@ -22,6 +22,12 @@ export const BRAND = {
    * touching the serializer.
    */
   Secret: Symbol.for("routecraft.secret"),
+  /**
+   * The `Suspended` acknowledgment execution one answers with. Branded so a
+   * transport recognises a parked exchange without shape-sniffing a body a
+   * user route could also produce.
+   */
+  Suspended: Symbol.for("routecraft.suspended"),
 } as const;
 
 export const INTERNALS_KEY = Symbol.for("routecraft.exchange.internals");

@@ -8,11 +8,13 @@ import {
   emitExchangeDropped,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import { COLLECT_STEPS } from "../dsl-symbol.ts";
+import { COLLECT_STEPS, NESTED_STEPS } from "../dsl-symbol.ts";
+import type { NestedSteps } from "../suspension/sites.ts";
 import {
   StepBuilderBase,
   type BuilderState,
   type FetchedBody,
+  type PathState,
 } from "../step-builder-base.ts";
 import type { Destination } from "./to.ts";
 import type { Enricher } from "./enrich.ts";
@@ -44,7 +46,7 @@ export type ChoicePredicate<T = unknown> = (exchange: Exchange<T>) => boolean;
 export type Path<In = unknown, Out = In> =
   | Destination<In>
   | Enricher<In, unknown>
-  | ((b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>);
+  | ((b: PathBuilder<PathState<In>>) => PathBuilder<PathState<Out>>);
 
 /**
  * Internal representation of one registered branch: a predicate plus the
@@ -118,7 +120,7 @@ export type ChoiceDescriptor<In = unknown, Out = In> =
  */
 export function when<In = unknown, Out = In>(
   predicate: ChoicePredicate<In>,
-  branch: (b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>,
+  branch: (b: PathBuilder<PathState<In>>) => PathBuilder<PathState<Out>>,
 ): WhenDescriptor<In, Out>;
 export function when<In = unknown>(
   predicate: ChoicePredicate<In>,
@@ -147,7 +149,7 @@ export function when(
  * @param branch - Sub-pipeline callback (overload 1) or bare adapter (overloads 2 and 3)
  */
 export function otherwise<In = unknown, Out = In>(
-  branch: (b: PathBuilder<{ body: In }>) => PathBuilder<{ body: Out }>,
+  branch: (b: PathBuilder<PathState<In>>) => PathBuilder<PathState<Out>>,
 ): OtherwiseDescriptor<In, Out>;
 export function otherwise<In = unknown>(
   destination: Destination<In>,
@@ -169,7 +171,7 @@ export function otherwise(
  * @internal
  */
 export function compilePath(path: Path<unknown, unknown>): Step<Adapter>[] {
-  const builder = new PathBuilder();
+  const builder = new PathBuilder<PathState<unknown>>();
   if (typeof path === "function") {
     path(builder);
   } else {
@@ -354,6 +356,21 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
   skipStepEvents = true;
 
   constructor(private readonly branches: ChoiceBranch[]) {}
+
+  /**
+   * Expose the branch pipelines to framework-level walks of the route's
+   * step tree. `rejoins: true`: a matched branch is inlined ahead of the
+   * remaining main-pipeline steps, so a `.suspend()` inside a branch has a
+   * continuation that spans the branch tail and the main tail.
+   *
+   * @internal
+   */
+  [NESTED_STEPS](): ReadonlyArray<NestedSteps> {
+    return this.branches.map((branch) => ({
+      steps: branch.steps,
+      rejoins: true,
+    }));
+  }
 
   async execute(exchange: Exchange<In>): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);

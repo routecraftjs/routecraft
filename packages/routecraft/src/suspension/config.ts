@@ -1,5 +1,6 @@
 import type { CraftContext, CraftPlugin } from "../context.ts";
 import { registerConfigApplier } from "../config-applier.ts";
+import { SUSPENSION_RUNTIME } from "./runtime-key.ts";
 import { MemorySuspensionStore } from "./memory-store.ts";
 import {
   DEFAULT_SUSPENSION_DB_PATH,
@@ -20,19 +21,7 @@ import type { SuspensionStore } from "./types.ts";
  */
 export const SUSPENSION_STORE_ENV = "ROUTECRAFT_SUSPENSION_STORE";
 
-/**
- * Context-store key holding the resolved suspension runtime.
- *
- * Exported so the executor and the sweeper reach one resolved store and one
- * signer per context rather than each building their own.
- */
-export const SUSPENSION_RUNTIME = "routecraft.suspension.runtime" as const;
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [SUSPENSION_RUNTIME]: SuspensionRuntime;
-  }
-}
+export { SUSPENSION_RUNTIME };
 
 declare module "@routecraft/routecraft" {
   interface CraftConfig {

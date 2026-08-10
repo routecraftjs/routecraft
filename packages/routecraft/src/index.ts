@@ -190,6 +190,9 @@ export {
 
 export { type HeaderSetter } from "./operations/header.ts";
 
+export { type SuspendOptions } from "./operations/suspend.ts";
+export { type ResumeMapper } from "./operations/resume.ts";
+
 export { type CallableAuthenticator } from "./operations/authenticate.ts";
 
 export {
@@ -260,16 +263,23 @@ export {
  * machinery. Exposed so that `registerDsl` can augment a single interface
  * (`StepBuilderBase<S extends BuilderState>`) and have both `RouteBuilder`
  * and `PathBuilder` inherit the augmentation via class-interface
- * inheritance; `SetBody` and `Retyped` are the helpers type-changing sugar
- * uses to advance the bag. The class value is deliberately not re-exported --
- * the base is not a public extension point and the closed-world `Retyped`
- * helper falls through to `never` for any subclass outside the
- * framework-owned set.
+ * inheritance; `SetBody`, `SetSuspension` and `Retyped` are the helpers
+ * type-changing sugar uses to advance the bag. `ExchangeOf` and `PathState`
+ * are published for the same reason: both appear in signatures a user can
+ * see (`ExchangeOf` in every callable-taking builder method, `PathState` in
+ * the exported `Path` / `when()` / `otherwise()` types), so naming them has
+ * to be possible without re-declaring them. The class value is deliberately
+ * not re-exported: the base is not a public extension point and the
+ * closed-world `Retyped` helper falls through to `never` for any subclass
+ * outside the framework-owned set.
  */
 export type {
   StepBuilderBase,
   BuilderState,
+  ExchangeOf,
+  PathState,
   SetBody,
+  SetSuspension,
   FetchedBody,
   Retyped,
 } from "./step-builder-base.ts";
@@ -498,12 +508,20 @@ export {
   SUSPENSION_SECRET_ENV,
   SUSPENSION_STORE_ENV,
   SqliteSuspensionStore,
+  SuspensionHeaders,
+  isSuspended,
   suspensionPlugin,
 } from "./suspension/index.ts";
 export type {
+  Duration,
+  DurationUnit,
   NewSuspension,
   PendingSuspensionSummary,
   PrincipalRef,
+  ResumeAcknowledgment,
+  ResumeRequest,
+  Suspended,
+  SuspensionAffordance,
   SerializedExchange,
   SerializedOutcome,
   Suspension,

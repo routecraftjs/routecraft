@@ -37,8 +37,11 @@ export interface FilterDropResult {
  * })
  * ```
  */
-export type CallableFilter<T = unknown> = (
-  exchange: Exchange<T>,
+export type CallableFilter<
+  T = unknown,
+  Ex extends Exchange<T> = Exchange<T>,
+> = (
+  exchange: Ex,
 ) => Promise<boolean | FilterDropResult> | boolean | FilterDropResult;
 
 /**

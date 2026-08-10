@@ -1,6 +1,7 @@
 import { logger as defaultLogger } from "../../logger";
 import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
 import { isRoutecraftError } from "../../brand";
+import { isSuspended } from "../../suspension/suspended";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
 import { missingCredentialReason, type HttpAuthMiddleware } from "./auth";
@@ -439,6 +440,27 @@ function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
   const hint = readResponseHint(headers);
   const extraHeaders = hint.headers ?? {};
 
+  // A parked exchange answers 202 with the acknowledgment as its body. HTTP
+  // is the one transport with an out-of-band status channel, so the status
+  // carries the `Output | Suspended` discrimination and the declared 200
+  // body type stays the route's own output. `Retry-After` is the TTL, which
+  // is the honest hint: after it, the suspension is no longer resumable. An
+  // explicit `.header("routecraft.http.response.status", ...)` still wins,
+  // because a route that overrode the status meant it.
+  if (isSuspended(body)) {
+    const retryAfter = retryAfterSeconds(body.expiresAt);
+    return new Response(JSON.stringify(body), {
+      status: hint.status ?? 202,
+      headers: {
+        "content-type": hint.contentType ?? "application/json; charset=utf-8",
+        ...(retryAfter !== undefined
+          ? { "retry-after": String(retryAfter) }
+          : {}),
+        ...extraHeaders,
+      },
+    });
+  }
+
   // Reject streaming bodies in v1 (SSE deferred).
   if (
     body !== null &&
@@ -509,6 +531,20 @@ function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
       ...extraHeaders,
     },
   });
+}
+
+/**
+ * Whole seconds until `expiresAt`, for `Retry-After`.
+ *
+ * Absent when the suspension has no TTL (nothing honest to promise) or the
+ * deadline has already passed (a `Retry-After: 0` would invite an immediate
+ * retry against a suspension that can no longer be resumed).
+ */
+function retryAfterSeconds(expiresAt: string | undefined): number | undefined {
+  if (expiresAt === undefined) return undefined;
+  const remaining = Date.parse(expiresAt) - Date.now();
+  if (!Number.isFinite(remaining) || remaining <= 0) return undefined;
+  return Math.ceil(remaining / 1000);
 }
 
 function readResponseHint(headers: ExchangeHeaders): HttpResponseHint {

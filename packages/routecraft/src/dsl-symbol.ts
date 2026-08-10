@@ -20,3 +20,18 @@ export const PUSH_STEP: unique symbol = Symbol.for(
 export const COLLECT_STEPS: unique symbol = Symbol.for(
   "routecraft.builder.collectSteps",
 );
+
+/**
+ * Symbol a step implements to expose the sub-pipelines it carries (choice
+ * branches, multicast paths, dispatch targets) to framework-level walks of
+ * a route's step tree, without widening the public `Step` contract or
+ * making those step arrays writable from outside.
+ *
+ * The one walk today is the suspend-site resolver, which has to know both
+ * that a sub-pipeline exists and whether it rejoins the main flow.
+ *
+ * @internal
+ */
+export const NESTED_STEPS: unique symbol = Symbol.for(
+  "routecraft.step.nestedSteps",
+);

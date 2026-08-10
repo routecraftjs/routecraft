@@ -153,7 +153,19 @@ follow-up (see `.standards/resilience-wrappers.md` section 7).
 
 ---
 
-## 7. Cross-references
+## 7. Resume re-enters below the chain
+
+A resumed exchange (`.resume()` reviving a `.suspend()`) runs its continuation only: the steps after the suspend point, plus the route-scope `.error()` handler and `.output()` validation. Position #1 runs; positions #2 to #10 do not. The per-position table is user-facing on the [filter chain page](https://routecraft.dev/docs/advanced/filter-chain); do not re-document it here.
+
+That is the same call the chain itself makes about ordering. `authorize` (#2), `parse` (#3), `input` (#4) and `throttle` (#5) all describe an exchange ENTERING the route, and the exchange entered once, on execution one. Re-running them on execution two would re-admit an already-admitted exchange against a rate limit, re-parse a body that is already parsed, and authorize against a principal that came back from the store marked restored (`RC5043`) rather than the live one that entered.
+
+`error` (#1) is the exception, and it is load-bearing rather than incidental: `runDetachedPipeline` receives the route's `errorHandler`, so a continuation failure and a revival failure both reach the suspended route's handler. Without it a re-ask would have nowhere to run, since the ingress route cannot notify the approver.
+
+Authorizing the ANSWER is a separate question with a separate home: the resume ingress route, where an authenticated principal is actually available. `cache` (#9 / #10) is refused outright alongside a reachable suspend, because neither of its filters would ever run; see the [suspend reference](https://routecraft.dev/docs/reference/operations/suspend).
+
+**A continuation that needs the chain delegates to a route that has one** (`.to(direct('...'))` after the suspend). That target is an ordinary route, so all ten positions apply to it and it authorizes on its own terms rather than on a restored principal. This is the documented answer to "my post-approval work needs a circuit breaker", and it is why the framework does not grow a second chain for continuations.
+
+## 8. Cross-references
 
 - `.standards/resilience-wrappers.md` -- the dual-mode wrapper
   pattern (step-scope wrappers); the route-scope half is this

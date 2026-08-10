@@ -35,10 +35,11 @@ import {
  * @template T - Current body type
  * @template R - Produced value type
  */
-export type CallableEnricher<T = unknown, R = unknown> = (
-  exchange: Exchange<T>,
-  ctx?: StepSignalContext,
-) => Promise<R> | R;
+export type CallableEnricher<
+  T = unknown,
+  R = unknown,
+  Ex extends Exchange<T> = Exchange<T>,
+> = (exchange: Ex, ctx?: StepSignalContext) => Promise<R> | R;
 
 /**
  * Enricher adapter: pulls a value IN per exchange (HTTP GET, file read, IMAP
