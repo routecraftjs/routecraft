@@ -32,9 +32,9 @@ const b = 2;</code></pre>
   });
 
   /**
-   * @case Blank-line runs in prose are still collapsed
-   * @preconditions HTML with elements that turndown drops, leaving long blank runs between paragraphs
-   * @expectedResult No run of three or more newlines survives outside a fenced block
+   * @case Blank-line runs in prose are collapsed even when the blank lines carry indentation
+   * @preconditions HTML with dropped elements between two paragraphs, which turndown leaves as lines containing only spaces rather than as bare newlines
+   * @expectedResult The two paragraphs end up separated by exactly one blank line, with no whitespace-only lines surviving between them
    */
   test("collapses blank-line runs in prose", async () => {
     const markdown = await toMarkdown(
@@ -46,9 +46,7 @@ const b = 2;</code></pre>
        </article>`,
     );
 
-    expect(markdown).toContain("One");
-    expect(markdown).toContain("Two");
-    expect(markdown).not.toMatch(/\n{3,}/);
+    expect(markdown).toBe("One\n\nTwo");
   });
 
   /**
@@ -69,6 +67,27 @@ const b = 2;</code></pre>
     );
 
     expect(markdown).toContain("const a = 1;\n\n\nconst b = 2;");
+  });
+
+  /**
+   * @case Blank runs following a fenced block are collapsed rather than exempted with it
+   * @preconditions HTML with a code block followed by several dropped elements, which turndown renders as blank lines carrying indentation
+   * @expectedResult The gap between the block and the prose after it is a single blank line, proving the fence match stops at its closing line
+   */
+  test("collapses blank runs following a fenced block", async () => {
+    const markdown = await toMarkdown(
+      `<article>
+         <p>Intro</p>
+         <pre><code>code();</code></pre>
+         <script>a()</script>
+         <style>.b{}</style>
+         <script>c()</script>
+         <p>Tail</p>
+       </article>`,
+    );
+
+    expect(markdown).toContain("```");
+    expect(markdown).toEndWith("```\n\nTail");
   });
 
   /**

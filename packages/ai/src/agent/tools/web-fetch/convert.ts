@@ -73,9 +73,24 @@ async function buildConverter(): Promise<MarkdownConverter> {
  * treated as prose: precisely inverted, on exactly the documentation
  * pages this tool exists to read. Turndown always emits fences on their
  * own lines, so anchoring costs nothing.
+ *
+ * The closing fence allows only horizontal whitespace before the line
+ * end. `\s` would match newlines too, pulling the blank run that follows
+ * a code block into the fenced segment and exempting the prose after it
+ * from the collapse.
  */
 const FENCED_BLOCK =
-  /(^```[^\n]*\n[\s\S]*?^```\s*$|^~~~[^\n]*\n[\s\S]*?^~~~\s*$)/gm;
+  /(^```[^\n]*\n[\s\S]*?^```[ \t]*$|^~~~[^\n]*\n[\s\S]*?^~~~[ \t]*$)/gm;
+
+/**
+ * A run of blank lines, where "blank" includes lines carrying only
+ * spaces or tabs.
+ *
+ * Matching bare `\n{3,}` would almost never fire: where turndown drops an
+ * element it leaves the indentation behind, so the gap reads
+ * `\n\n  \n  \n\n` rather than a clean run of newlines.
+ */
+const BLANK_LINE_RUN = /\n(?:[ \t]*\n){2,}/g;
 
 /**
  * Convert `html` to markdown, collapsing the runs of blank lines that
@@ -93,7 +108,7 @@ export async function toMarkdown(html: string): Promise<string> {
     .split(FENCED_BLOCK)
     .map((segment, index) =>
       // split() with one capture group alternates prose, fence, prose.
-      index % 2 === 1 ? segment : segment.replace(/\n{3,}/g, "\n\n"),
+      index % 2 === 1 ? segment : segment.replace(BLANK_LINE_RUN, "\n\n"),
     )
     .join("")
     .trim();
