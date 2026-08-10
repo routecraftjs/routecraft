@@ -8,8 +8,8 @@ import { registerErrorCodes, type RCMeta } from "@routecraft/routecraft";
  * metadata. Loaded as a side-effect import from this package's index so
  * the codes are registered before any adapter can throw them.
  *
- * Numbering: AI1xxx = agent block subsystem. Formerly core RC5025-RC5027,
- * renumbered when the codes moved into this package.
+ * Numbering: AI1xxx = agent block subsystem (formerly core RC5025-RC5027,
+ * renumbered when the codes moved into this package), AI2xxx = MCP server.
  */
 /**
  * Provenance of an MCP tool-lifecycle event. Modeled as a discriminated
@@ -51,6 +51,8 @@ declare module "@routecraft/routecraft" {
     AI1002: RCMeta;
     /** Agent block misconfigured (formerly RC5027) */
     AI1003: RCMeta;
+    /** MCP tool result violated the tool's advertised output schema */
+    AI2001: RCMeta;
   }
 }
 
@@ -81,6 +83,14 @@ registerErrorCodes(
       suggestion:
         "A block is missing required fields or has an invalid shape: every block needs a non-empty `name`, a `mode` of `inject` or `progressive`, and a string-or-function `value`. Progressive blocks additionally require a non-empty `description` so the model can decide whether to load them.",
       docs: `${DOCS_BASE}#ai1003`,
+      retryable: false,
+    },
+    AI2001: {
+      category: "Adapter",
+      message: "MCP tool output violated its declared schema",
+      suggestion:
+        "The route behind this tool declares `.output()`, which the MCP server advertises as the tool's `outputSchema`, and the body it returned does not satisfy it. Fix the route so its result matches the declared shape, or widen `.output()` to describe what the route actually returns. The failing fields are in the error cause.",
+      docs: `${DOCS_BASE}#ai2001`,
       retryable: false,
     },
   },

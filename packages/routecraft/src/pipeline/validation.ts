@@ -28,6 +28,21 @@ export interface ValidationDeps {
  * value on success (schemas can legitimately transform to `undefined`,
  * so presence of the `value` key is what decides success, not truthiness)
  * or a human-readable message on failure.
+ *
+ * Exported for adapter and plugin authors who validate at a protocol
+ * boundary and need the failure as a message to hand back over the wire
+ * rather than as a thrown error.
+ *
+ * @param schema - The Standard Schema to validate with
+ * @param value - The value to validate
+ * @returns `{ ok: true, value }` with the validated (possibly coerced)
+ *   value, or `{ ok: false, message }` with the formatted schema issues
+ *
+ * @example
+ * ```ts
+ * const result = await validateAgainst(schema, exchange.body);
+ * if (!result.ok) return { isError: true, message: result.message };
+ * ```
  */
 export async function validateAgainst(
   schema: StandardSchemaV1,

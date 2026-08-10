@@ -4,6 +4,8 @@ import {
   HeadersKeys,
   isRoutecraftError,
   markAuthentic,
+  rcError,
+  validateAgainst,
 } from "@routecraft/routecraft";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
@@ -55,6 +57,10 @@ import {
   loadMcpServerSdk,
   loadMcpServerStdioSdk,
 } from "./sdk.ts";
+// Registers the AI error codes this module throws. Imported here rather than
+// relying on the package index, so a caller that reaches the server module
+// directly still gets AI2001 instead of an unknown-code RC9901.
+import "../errors.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -1383,6 +1389,45 @@ export class McpServer {
   }
 
   /**
+   * Enforce the tool's advertised `outputSchema` against the body the route
+   * produced, throwing `AI2001` when it does not conform so the tool call
+   * surfaces as `isError` carrying the validation message.
+   *
+   * A client is entitled to parse `structuredContent` against the schema
+   * `tools/list` advertised, so publishing an unchecked body is a protocol
+   * violation rather than a cosmetic mismatch. The route's own `.output()`
+   * validation covers the exchanges it completes, but not the ones it never
+   * completes (a dropped exchange resolves with the request body untouched),
+   * and the guarantee belongs to the surface that made the promise.
+   *
+   * The check is a gate: the validated value is discarded rather than
+   * published, so a coercing schema cannot apply its coercions a second time
+   * on top of the route's.
+   *
+   * A route that declares no `.output()` advertises no schema, so there is
+   * nothing to enforce and its result passes through untouched.
+   *
+   * Single-schema today, one arm of a union tomorrow: a route with a
+   * reachable durable `.suspend()` advertises `oneOf: [Output, Suspended]`
+   * (#550), and a suspension is then a conforming result rather than a
+   * violation. That lands here as a second accepted arm.
+   */
+  private async enforceAdvertisedOutput(
+    entry: McpLocalToolEntry,
+    body: unknown,
+  ): Promise<void> {
+    const advertised = entry.output?.body;
+    if (advertised === undefined) return;
+
+    const result = await validateAgainst(advertised, body);
+    if (result.ok) return;
+
+    throw rcError("AI2001", new Error(result.message), {
+      message: `MCP tool "${entry.endpoint}" returned a body that does not match its declared output schema`,
+    });
+  }
+
+  /**
    * Handle a tool call from MCP client. Resolves local route tools first
    * (after the `tools` filter, so a filtered-out tool is not callable),
    * then tools proxied from registered clients.
@@ -1453,6 +1498,8 @@ export class McpServer {
       });
 
       const resultExchange = await entry.handler(exchange);
+
+      await this.enforceAdvertisedOutput(entry, resultExchange.body);
 
       const resultText =
         typeof resultExchange.body === "string"

@@ -63,7 +63,24 @@ All other tool metadata (title, description, input / output schemas) comes from 
 | `.title('...')` | `tool.title` | Optional display title |
 | `.description('...')` | `tool.description` | **Required** for MCP source routes |
 | `.input({ body, headers })` | `tool.inputSchema` + runtime check | `body` validation is framework-enforced; `headers` validated values merge over the originals |
-| `.output({ body, headers })` | `tool.outputSchema` + runtime check | Framework-enforced before the primary destination fires |
+| `.output({ body, headers })` | `tool.outputSchema` + runtime check | Advertised to clients and enforced on the way out (see below) |
+
+**Output enforcement:**
+
+A route that declares `.output({ body })` advertises that schema as the tool's `outputSchema`, and a client is entitled to parse the result's `structuredContent` against it. The server therefore checks the body it is about to publish and refuses to return one the schema rejects:
+
+```ts
+craft()
+  .id('list-users')
+  .description('List users')
+  .output({ body: z.object({ users: z.array(z.object({ id: z.string() })) }) })
+  .from(mcp())
+  .transform(loadUsers);
+```
+
+If `loadUsers` returns something else, the call comes back as `isError: true` with the failing fields in the message (`AI2001`) rather than as a result contradicting the advertised schema. The check covers results the route pipeline itself never validated, such as an exchange dropped by a `.filter()`, which would otherwise resolve with the request body untouched.
+
+A tool whose route declares no `.output()` advertises no schema, so nothing is checked and its result passes through as-is.
 
 **McpToolAnnotations (optional hint fields, all booleans unless noted):**
 

@@ -296,6 +296,8 @@ export {
   RC,
 } from "./error.ts";
 
+export { validateAgainst } from "./pipeline/validation.ts";
+
 export {
   isCraftContext,
   isRoute,

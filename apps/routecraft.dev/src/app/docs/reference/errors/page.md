@@ -406,6 +406,19 @@ A block's shape is invalid at construction:
 - Progressive-mode blocks: `{ mode: "progressive", description: "...", value: <string | function> }`.
 - Use the `BlockMode` and `BlockLifetime` types exported from `@routecraft/ai` to catch typos at the type level.
 
+## AI2001
+MCP tool output violated its declared schema
+
+**Why it happens**  
+A route exposed with `.from(mcp())` declares `.output({ body })`, which the MCP server advertises as that tool's `outputSchema`, and the body it returned does not satisfy it. Clients parse `structuredContent` against the advertised schema, so the server refuses to publish the result and returns `isError: true` with the failing fields instead.
+
+Most violations are caught by the route's own output validation. This code is what the MCP boundary adds for results the route never validated, most commonly an exchange dropped by a `.filter()` or an unmatched `.choice()`, which resolves with the request body untouched rather than with a result.
+
+**Suggestion**  
+- Fix the route so its result matches the declared shape, or widen `.output()` to describe what the route actually returns.
+- A tool that drops its exchange has no result to publish; give the route a branch that produces a conforming body (an empty list, an explicit "not found" shape) rather than dropping.
+- Drop the `.output()` declaration if the tool's result shape is genuinely open; nothing is advertised and nothing is checked.
+
 ## RC5028
 Cache provider failed
 
