@@ -176,6 +176,12 @@ export class SqliteSuspensionStore implements SuspensionStore {
           record.expiresAt ? record.expiresAt.getTime() : null,
         );
     } catch (cause) {
+      // `encodePersistable` runs inside this try, so its RC5042 arrives here
+      // too. Wrapping it as a store failure would replace "stepState holds a
+      // function" with "failed to persist to the sqlite store", and the
+      // memory backend, which encodes outside any catch, would report the
+      // same input differently. Same passthrough `guard` uses below.
+      if (isRoutecraftError(cause)) throw cause;
       // Discriminate the one failure the contract names. A duplicate id
       // means the id derivation is wrong, which no retry fixes, so it must
       // not reach a `.retry()` wrapper as a retryable error.

@@ -351,7 +351,15 @@ describe("continuationHash over adapter configuration", () => {
       label: "pay",
       adapter: {
         adapterId: "routecraft.adapter.payout",
-        client: { socket: () => undefined },
+        // Each of these forces a different placeholder branch: a live client
+        // instance is [opaque], a symbol is [unhashable], and nesting past
+        // the walk's bound is [deep]. Without one of each the test proves
+        // only that hashing does not throw, which every plain object does.
+        client: new (class Socket {
+          readonly fd = 7;
+        })(),
+        marker: Symbol("live"),
+        nested: { a: { b: { c: { d: { e: "past the bound" } } } } },
         send: async () => undefined,
       } as unknown as Adapter,
       execute: async (exchange) => ({ kind: "continue", exchange }),

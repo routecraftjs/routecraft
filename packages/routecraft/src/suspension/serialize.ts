@@ -166,7 +166,13 @@ function encode(
     if (!Number.isFinite(value)) {
       throw refuse(path, `a non-finite number (${String(value)})`);
     }
-    return value;
+    // `JSON.parse("-0")` yields -0, which `JSON.stringify` then writes back
+    // as `0` while `structuredClone` preserves it, so the sqlite and memory
+    // backends would disagree on a value that reached the body from an
+    // ordinary inbound payload. Normalized for the same reason array holes
+    // and `undefined` are: the persisted form must not depend on which
+    // backend a deployment resolved.
+    return Object.is(value, -0) ? 0 : value;
   }
   if (kind === "function") throw refuse(path, "a function");
   if (kind === "symbol") throw refuse(path, "a symbol");
@@ -248,10 +254,14 @@ function encode(
     // because a non-enumerable own property is dropped by JSON exactly as
     // silently as a symbol-keyed one, and silent loss is what this walk
     // exists to prevent.
-    const hidden = Object.getOwnPropertyNames(object).find(
-      (key) => !keys.includes(key),
-    );
-    if (hidden !== undefined) {
+    // Compared by count first. `getOwnPropertyNames` is a superset of
+    // `keys`, so the two differ exactly when a non-enumerable own name
+    // exists, and the common case (there is none) stays linear with nothing
+    // allocated. Naming the offender is the throwing path's problem.
+    const names = Object.getOwnPropertyNames(object);
+    if (names.length !== keys.length) {
+      const enumerable = new Set(keys);
+      const hidden = names.find((key) => !enumerable.has(key));
       throw refuse(path, `a non-enumerable property ("${hidden}")`);
     }
 
