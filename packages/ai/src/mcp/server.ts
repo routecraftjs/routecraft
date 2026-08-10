@@ -255,9 +255,9 @@ export class McpServer {
   private proxyResolved: Map<string, McpProxiedTool> = new Map();
   /**
    * Validator-mode token verifier, optionally wrapped with `userinfo`
-   * enrichment. Built eagerly in `startHttpWithValidator` so a misconfigured
+   * enrichment. Built eagerly in `startHttp` so a misconfigured
    * `userinfo: true` (no issuer) fails at startup rather than on first
-   * request. `null` until the validator HTTP path starts.
+   * request. `null` until the HTTP transport starts.
    */
   private validatorVerifier: ((token: string) => Promise<Principal>) | null =
     null;
@@ -486,18 +486,6 @@ export class McpServer {
   }
 
   /**
-   * Start HTTP transport (streamable-http).
-   *
-   * One path serves every auth mode. The MCP server is a Resource Server: it
-   * verifies bearer tokens and advertises its Authorization Server through
-   * RFC 9728 metadata, so there is no authorization-server surface to mount
-   * beside `/mcp` and no web framework in the way.
-   */
-  private async startHttp(): Promise<void> {
-    await this.startHttpWithValidator();
-  }
-
-  /**
    * Build the stateless web-standard MCP handler shared by both HTTP paths.
    *
    * Under protocol revision 2026-07-28 there is no `initialize` handshake and
@@ -613,8 +601,8 @@ export class McpServer {
     metadata.resource_name = this.resolveResourceName();
 
     const auth = this.options.auth;
-    if (auth && !("provider" in auth) && "issuer" in auth) {
-      const issuer = (auth as OAuthValidatorAuthOptions).issuer;
+    if (auth && "issuer" in auth) {
+      const issuer: OAuthValidatorAuthOptions["issuer"] = auth.issuer;
       if (issuer !== undefined) {
         metadata.authorization_servers = Array.isArray(issuer)
           ? issuer
@@ -706,7 +694,7 @@ export class McpServer {
   /**
    * Start the HTTP transport on a raw Node `http.createServer`.
    */
-  private async startHttpWithValidator(): Promise<void> {
+  private async startHttp(): Promise<void> {
     const port = this.options.port;
     const host = this.options.host;
     const cors = resolveCorsOptions(this.options.cors);
