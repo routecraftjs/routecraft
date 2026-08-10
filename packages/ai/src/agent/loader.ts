@@ -1,15 +1,34 @@
-import { rcError } from "@routecraft/routecraft";
+import { logger, rcError } from "@routecraft/routecraft";
 import {
   optionalBoolean,
   optionalPositiveInt,
   optionalStringArray,
-  readMarkdownDir,
-  readMarkdownFile,
+  readMarkdownSource,
   requireString,
+  type ParsedMarkdown,
 } from "../block/markdown.ts";
 import { tools } from "./tools/index.ts";
 import type { LlmModelId } from "../llm/types.ts";
 import type { AgentRegisteredOptions } from "./types.ts";
+
+/**
+ * Filename that turns a directory under `agents/` into a single agent
+ * bundle. The directory is the agent's home: it holds the definition
+ * and any assets scoped to that agent, and is never descended into for
+ * further agents.
+ *
+ * @internal
+ */
+export const AGENT_BUNDLE_FILENAME = "AGENT.md";
+
+/**
+ * Directory name reserved inside `agents/` at every depth. It belongs
+ * to the enclosing agent bundle and is loaded by `skills()`, never by
+ * the agent walk.
+ *
+ * @internal
+ */
+export const AGENT_RESERVED_DIRECTORIES = ["skills"] as const;
 
 /**
  * Frontmatter fields supported today. Claude's subagent schema covers
@@ -27,6 +46,7 @@ const SUPPORTED_AGENT_KEYS = new Set([
   "maxTurns",
   "tools",
   "principal",
+  "skills",
 ]);
 
 /**
@@ -77,24 +97,61 @@ export interface AgentMarkdownOverride extends Partial<
 }
 
 /**
- * Convert a parsed markdown file into an `AgentRegisteredOptions`.
- * Validates that frontmatter `name` matches the filename so the
- * registry id is unambiguous; throws on unsupported frontmatter
- * fields and on empty body so an agent never lands with a hollow
- * system prompt.
+ * One agent as it was found on disk, before per-agent overrides are
+ * applied. Carries the location the definition came from so a caller
+ * that composes further content (the `craft start` discoverer reading
+ * a bundle's `skills/` folder, a startup log naming each agent's
+ * source) does not have to walk the tree a second time.
  *
  * @internal
  */
-function toAgent(
-  filename: string,
-  frontmatter: Record<string, unknown>,
-  body: string,
-  source: string,
-): { name: string; agent: AgentRegisteredOptions } {
+export interface LoadedAgentFile {
+  /** Agent id, taken from the frontmatter `name` field. */
+  name: string;
+  /** Options ready to register, minus any caller-supplied override. */
+  agent: AgentRegisteredOptions;
+  /** Absolute path of the markdown file the agent was read from. */
+  source: string;
+  /**
+   * Absolute path of the bundle directory when the agent was defined
+   * as `<name>/AGENT.md`. Absent for a flat `<name>.md` file, whose
+   * base directory is `dirname(source)`.
+   */
+  bundleDirectory?: string;
+  /**
+   * The `skills:` frontmatter list exactly as authored, unresolved.
+   * Entries are local paths or `npm:` package refs; resolving them
+   * against disk and composing the result into the agent's blocks is
+   * the caller's job, because a local path is relative to the agent
+   * file and the composition order involves sources this loader knows
+   * nothing about.
+   */
+  skills?: readonly string[];
+}
+
+/**
+ * Convert a parsed markdown file into an `AgentRegisteredOptions`.
+ * Identity comes from the frontmatter `name` field alone: the filename
+ * and the directory path are grouping, not identity, which is what
+ * lets an existing Claude Code `agents/` tree load unmodified. The one
+ * exception is a bundle (`<name>/AGENT.md`), where the directory is
+ * the agent's home and a mismatch would make the tree unreadable.
+ *
+ * Throws on unsupported frontmatter fields and on an empty body so an
+ * agent never lands with a hollow system prompt.
+ *
+ * @internal
+ */
+function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
+  const { frontmatter, body, path: source } = doc;
+  // Validate `name` before the key sweep: it is the override map's key,
+  // so the "supply it via the override map" hint below would otherwise
+  // have to guess one and send the author to a key that map rejects.
+  const name = requireString(frontmatter["name"], "name", source);
   for (const key of Object.keys(frontmatter)) {
     if (OVERRIDE_ONLY_AGENT_KEYS.has(key)) {
       throw rcError("RC5003", undefined, {
-        message: `Markdown file "${source}": frontmatter field "${key}" is override-only; YAML cannot express its value. Supply it via the override map instead: agents(path, { ${JSON.stringify(filename)}: { ${key}: ... } }).`,
+        message: `Markdown file "${source}": frontmatter field "${key}" is override-only; YAML cannot express its value. Supply it via the override map instead: agents(path, { ${JSON.stringify(name)}: { ${key}: ... } }).`,
       });
     }
     if (!SUPPORTED_AGENT_KEYS.has(key)) {
@@ -103,10 +160,9 @@ function toAgent(
       });
     }
   }
-  const name = requireString(frontmatter["name"], "name", source);
-  if (name !== filename) {
+  if (doc.bundleDirectory !== undefined && name !== doc.filename) {
     throw rcError("RC5003", undefined, {
-      message: `Markdown file "${source}": frontmatter "name" ("${name}") must match the filename ("${filename}"). Rename one or the other.`,
+      message: `Agent bundle "${doc.bundleDirectory}": frontmatter "name" ("${name}") in ${AGENT_BUNDLE_FILENAME} must match the bundle directory name ("${doc.filename}"). Rename one or the other.`,
     });
   }
   const description = requireString(
@@ -144,6 +200,11 @@ function toAgent(
     "principal",
     source,
   );
+  const skillRefs = optionalStringArray(
+    frontmatter["skills"],
+    "skills",
+    source,
+  );
   const agent: AgentRegisteredOptions = {
     description,
     system: body,
@@ -152,7 +213,11 @@ function toAgent(
   if (maxTurns !== undefined) agent.maxTurns = maxTurns;
   if (toolNames !== undefined) agent.tools = tools(toolNames);
   if (principal !== undefined) agent.principal = principal;
-  return { name, agent };
+  const loaded: LoadedAgentFile = { name, agent, source };
+  if (doc.bundleDirectory !== undefined)
+    loaded.bundleDirectory = doc.bundleDirectory;
+  if (skillRefs !== undefined) loaded.skills = skillRefs;
+  return loaded;
 }
 
 /**
@@ -182,13 +247,59 @@ function applyOverride(
 }
 
 /**
+ * Walk an agent markdown file or directory and return one entry per
+ * agent found, in path order, with the source location attached.
+ *
+ * This is the layout rule for `agents/`, and it lives here rather than
+ * in the CLI so a programmatic caller and `craft start` walk the tree
+ * the same way. See {@link agents} for the frontmatter contract.
+ *
+ * @internal
+ */
+export async function loadAgentFiles(path: string): Promise<LoadedAgentFile[]> {
+  const docs = await readMarkdownSource(path, {
+    sentinelFilename: AGENT_BUNDLE_FILENAME,
+    recursive: true,
+    reservedDirectories: AGENT_RESERVED_DIRECTORIES,
+  });
+  const out: LoadedAgentFile[] = [];
+  const seen = new Map<string, string>();
+  for (const doc of docs) {
+    const loaded = toAgent(doc);
+    const prior = seen.get(loaded.name);
+    if (prior !== undefined) {
+      throw rcError("RC5003", undefined, {
+        message: `agents("${path}"): duplicate agent name "${loaded.name}" declared in both "${prior}" and "${loaded.source}". Agent identity comes from the frontmatter "name" field, so two files anywhere in the tree cannot share one; rename or remove one.`,
+      });
+    }
+    seen.set(loaded.name, loaded.source);
+    out.push(loaded);
+  }
+  return out;
+}
+
+/**
  * Load agents from a markdown file or directory.
  *
- * - If `path` points to a directory, every `.md` file directly under
- *   it becomes one agent. The filename (without `.md`) is the agent
- *   name and must match the frontmatter `name`.
- * - If `path` points to a single `.md` file, the file becomes one
- *   agent keyed by its filename.
+ * A directory is walked recursively, matching Claude Code's
+ * `.claude/agents/` convention, so an existing tree drops in
+ * unmodified. Three layout rules apply:
+ *
+ * - **Flat file.** Any `.md` file, at any depth, is one agent.
+ *   Identity is the frontmatter `name`; the filename and the
+ *   directories above it are grouping and carry no identity.
+ * - **Bundle.** A directory holding `AGENT.md` is exactly one agent
+ *   and is not descended into for further agents. This is the one
+ *   place the relaxed filename rule does not apply: the frontmatter
+ *   `name` must match the bundle directory name, because the
+ *   directory is the agent's home.
+ * - **Reserved.** A directory named `skills` is never scanned for
+ *   agents at any depth. It belongs to the enclosing bundle and is
+ *   loaded by `skills()`.
+ *
+ * A single `.md` path loads that one file. Duplicate `name` values
+ * anywhere in the tree throw `RC5003` naming both files, rather than
+ * one definition silently shadowing the other.
  *
  * Frontmatter mirrors a deliberately narrow subset of Claude's
  * subagent schema:
@@ -203,6 +314,7 @@ function applyOverride(
  * | `tools`       | no       | `tools(stringArray)`                   |
  * | `principal`   | no       | `AgentRegisteredOptions.principal`     |
  * |               |          | (boolean only; renderer via override)  |
+ * | `skills`      | no       | declaration consumed by `craft start`  |
  *
  * Body of the file becomes `system`. Other Claude subagent fields
  * (`disallowedTools`, `permissionMode`, `mcpServers`, `hooks`,
@@ -210,6 +322,14 @@ function applyOverride(
  * `initialPrompt`, ...) throw `RC5003` "not yet supported" at load
  * and will land in follow-up stories as the runtime gains the
  * underlying features.
+ *
+ * `skills` is validated as a list of strings and otherwise passed
+ * through: resolving a ref into blocks needs the house skill folder
+ * and the bundle folder, neither of which this loader is given. A
+ * direct `agents()` call therefore records the declaration and loads
+ * no skills from it; `craft start` is what resolves and composes it.
+ * Attach skills yourself with the `blocks` override when calling
+ * `agents()` by hand.
  *
  * Pass `overrides` keyed by agent name to replace any of
  * `description` / `model` / `maxTurns` / `tools` / `blocks` /
@@ -239,17 +359,19 @@ export async function agents(
   // below would otherwise pass for keys that were never loaded, and
   // an assignment to `__proto__` would mutate the prototype).
   const out = Object.create(null) as Record<string, AgentRegisteredOptions>;
-  const docs = path.endsWith(".md")
-    ? [await readMarkdownFile(path)]
-    : await readMarkdownDir(path);
-  for (const doc of docs) {
-    const { name, agent } = toAgent(
-      doc.filename,
-      doc.frontmatter,
-      doc.body,
-      doc.path,
-    );
-    out[name] = applyOverride(agent, overrides[name]);
+  for (const loaded of await loadAgentFiles(path)) {
+    if (
+      loaded.skills !== undefined &&
+      overrides[loaded.name]?.blocks === undefined
+    ) {
+      // Say it at the point of the drop. Throwing instead would stop a
+      // tree that boots fine under the project runtime from also
+      // loading through a direct call, which is a supported workflow.
+      logger.warn(
+        `Markdown file "${loaded.source}": frontmatter "skills" needs the house and bundle folders to resolve, which agents() is not given, so it was not loaded. The project runtime resolves it; from a direct agents() call, attach skills with the "blocks" override.`,
+      );
+    }
+    out[loaded.name] = applyOverride(loaded.agent, overrides[loaded.name]);
   }
   for (const name of Object.keys(overrides)) {
     if (!Object.prototype.hasOwnProperty.call(out, name)) {

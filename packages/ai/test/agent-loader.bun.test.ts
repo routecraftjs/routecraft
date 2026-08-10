@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { testContext } from "@routecraft/testing";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { agentPlugin, agents, tools } from "../src/index.ts";
+import { loadAgentFiles } from "../src/agent/loader.ts";
 import { isToolSelection } from "../src/agent/tools/selection.ts";
 
 function tmpDir(): string {
@@ -18,11 +25,18 @@ describe("agents() markdown loader", () => {
     dirs = [];
   });
 
+  /**
+   * Write a tree of files under a fresh temp directory. Keys may carry
+   * `/` separators to create nested folders, which is what the agent
+   * walk cases need.
+   */
   function makeDir(files: Record<string, string>): string {
     const dir = tmpDir();
     dirs.push(dir);
     for (const [name, content] of Object.entries(files)) {
-      writeFileSync(join(dir, name), content, "utf-8");
+      const target = join(dir, name);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, content, "utf-8");
     }
     return dir;
   }
@@ -62,17 +76,36 @@ describe("agents() markdown loader", () => {
   });
 
   /**
-   * @case `skills` frontmatter is rejected (replaced by code-side `blocks`)
-   * @preconditions Agent frontmatter contains the now-removed `skills:` field
-   * @expectedResult Throws RC5003 listing the supported keys (skills not among them)
+   * @case `skills` frontmatter is accepted and surfaced verbatim, not resolved
+   * @preconditions Flat agent declaring a local path and an npm: package ref
+   * @expectedResult Load succeeds and LoadedAgentFile.skills carries both refs in declared order
    */
-  test("skills frontmatter is rejected after the 0.6 block rework", async () => {
+  test("skills frontmatter is surfaced verbatim on the loaded record", async () => {
     const dir = makeDir({
       "x.md":
-        "---\nname: x\ndescription: d\nskills:\n  - one\n  - two\n---\nsystem",
+        "---\nname: x\ndescription: d\nskills:\n  - ./skills\n  - npm:@devoptixnl/claude-skills/devoptix\n---\nsystem",
+    });
+    const loaded = await loadAgentFiles(dir);
+    expect(loaded[0]?.skills).toEqual([
+      "./skills",
+      "npm:@devoptixnl/claude-skills/devoptix",
+    ]);
+    // The declaration is not a block: resolving a ref needs the house
+    // folder and the bundle folder, which this loader is not given.
+    expect((await agents(dir))["x"]?.blocks).toBeUndefined();
+  });
+
+  /**
+   * @case Non-string entries in the skills list are rejected at load
+   * @preconditions skills list holds a mapping instead of a ref string
+   * @expectedResult Throws RC5003 naming the skills field
+   */
+  test("rejects a skills list that is not strings", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\nskills:\n  - a: b\n---\nsystem",
     });
     await expect(agents(dir)).rejects.toThrow(
-      /frontmatter field "skills" is not yet supported/,
+      /frontmatter field "skills" must contain only non-empty strings/,
     );
   });
 
@@ -264,5 +297,216 @@ describe("agents() markdown loader", () => {
     await expect(agents(dir, { y: { maxTurns: 1 } })).rejects.toThrow(
       /override for "y" but no agent with that name/,
     );
+  });
+
+  /**
+   * @case Subdirectories are grouping folders and are walked recursively
+   * @preconditions Agents at the root, one level down, and two levels down
+   * @expectedResult All three load; the directory path contributes nothing to identity
+   */
+  test("walks subdirectories recursively", async () => {
+    const dir = makeDir({
+      "triage.md": "---\nname: triage\ndescription: d\n---\nsystem",
+      "review/security.md": "---\nname: security\ndescription: d\n---\nsystem",
+      "research/deep/market.md":
+        "---\nname: market\ndescription: d\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(Object.keys(result).sort()).toEqual([
+      "market",
+      "security",
+      "triage",
+    ]);
+  });
+
+  /**
+   * @case Identity comes from frontmatter name, not the filename
+   * @preconditions File named 01-first.md declaring name: triage
+   * @expectedResult Agent is registered as "triage"; the filename is not consulted
+   */
+  test("agent name comes from frontmatter, not the filename", async () => {
+    const dir = makeDir({
+      "01-first.md": "---\nname: triage\ndescription: d\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(Object.keys(result)).toEqual(["triage"]);
+  });
+
+  /**
+   * @case Two files declaring the same name fail loudly rather than shadowing
+   * @preconditions Same name in a root file and a nested file
+   * @expectedResult Throws RC5003 naming both source paths
+   */
+  test("duplicate agent names across the tree throw", async () => {
+    const dir = makeDir({
+      "triage.md": "---\nname: triage\ndescription: d\n---\nsystem",
+      "inbox/other.md": "---\nname: triage\ndescription: d\n---\nsystem",
+    });
+    const error = await agents(dir).catch((err: unknown) => err);
+    expect(error).toMatchObject({ rc: "RC5003" });
+    expect((error as Error).message).toMatch(/duplicate agent name "triage"/);
+    expect((error as Error).message).toContain("triage.md");
+    expect((error as Error).message).toContain(join("inbox", "other.md"));
+  });
+
+  /**
+   * @case A directory holding AGENT.md is one agent and is not descended into
+   * @preconditions Bundle aria/AGENT.md alongside aria/notes/scratch.md
+   * @expectedResult Only "aria" loads; the nested markdown never becomes an agent
+   */
+  test("AGENT.md bundle loads as exactly one agent", async () => {
+    const dir = makeDir({
+      "aria/AGENT.md": "---\nname: aria\ndescription: d\n---\nsystem",
+      "aria/notes/scratch.md": "not an agent at all",
+    });
+    const loaded = await loadAgentFiles(dir);
+    expect(loaded.map((a) => a.name)).toEqual(["aria"]);
+    expect(loaded[0]?.bundleDirectory).toBe(join(dir, "aria"));
+  });
+
+  /**
+   * @case A bundle whose frontmatter name differs from its directory is an error
+   * @preconditions aria/AGENT.md declaring name: nova
+   * @expectedResult Throws RC5003 naming both the declared name and the directory name
+   */
+  test("bundle name must match the bundle directory", async () => {
+    const dir = makeDir({
+      "aria/AGENT.md": "---\nname: nova\ndescription: d\n---\nsystem",
+    });
+    const error = await agents(dir).catch((err: unknown) => err);
+    expect(error).toMatchObject({ rc: "RC5003" });
+    expect((error as Error).message).toMatch(/"nova"/);
+    expect((error as Error).message).toMatch(/"aria"/);
+  });
+
+  /**
+   * @case A bundle's skills folder is never scanned for agents
+   * @preconditions Bundle with skills/ holding markdown that is not a valid agent
+   * @expectedResult Load succeeds with only the bundle agent; the skill file does not fail the boot
+   */
+  test("a bundle's skills folder is reserved, not scanned", async () => {
+    const dir = makeDir({
+      "aria/AGENT.md": "---\nname: aria\ndescription: d\n---\nsystem",
+      "aria/skills/refund-policy.md":
+        "---\nname: refund-policy\ndescription: d\n---\nRefund rules.",
+      "aria/skills/nested/notes.md": "no frontmatter at all",
+    });
+    const result = await agents(dir);
+    expect(Object.keys(result)).toEqual(["aria"]);
+  });
+
+  /**
+   * @case The skills directory is reserved at every depth, not only inside a bundle
+   * @preconditions A skills/ folder directly under the agents root
+   * @expectedResult Its markdown is skipped; only the real agent loads
+   */
+  test("a skills directory is reserved at any depth", async () => {
+    const dir = makeDir({
+      "triage.md": "---\nname: triage\ndescription: d\n---\nsystem",
+      "skills/tone-of-voice.md":
+        "---\nname: tone-of-voice\ndescription: d\n---\nBe brief.",
+      "team/skills/handbook.md": "---\nname: handbook\n---\nno description",
+    });
+    const result = await agents(dir);
+    expect(Object.keys(result)).toEqual(["triage"]);
+  });
+
+  /**
+   * @case An AGENT.md bundle may declare skills refs like a flat file
+   * @preconditions Bundle frontmatter carrying a local ref and an npm: ref
+   * @expectedResult Refs are surfaced verbatim alongside the bundle directory
+   */
+  test("skills frontmatter is surfaced from a bundle too", async () => {
+    const dir = makeDir({
+      "zoe/AGENT.md":
+        "---\nname: zoe\ndescription: d\nskills:\n  - ./skills\n  - npm:@devoptixnl/claude-skills/devoptix\n---\nsystem",
+    });
+    const loaded = await loadAgentFiles(dir);
+    expect(loaded[0]).toMatchObject({
+      name: "zoe",
+      skills: ["./skills", "npm:@devoptixnl/claude-skills/devoptix"],
+    });
+  });
+
+  /**
+   * @case An existing Claude Code agents tree loads with no edits
+   * @preconditions Nested folders, filenames that differ from the declared names
+   * @expectedResult Every agent loads keyed by its frontmatter name
+   */
+  test("an existing .claude/agents tree loads unmodified", async () => {
+    const dir = makeDir({
+      "review/security-reviewer.md":
+        "---\nname: security\ndescription: Reviews for vulnerabilities\n---\nYou review code.",
+      "review/perf.md":
+        "---\nname: performance\ndescription: Reviews for hot paths\n---\nYou profile code.",
+      "research/market.md":
+        "---\nname: market-research\ndescription: Researches markets\n---\nYou research.",
+    });
+    const result = await agents(dir);
+    expect(Object.keys(result).sort()).toEqual([
+      "market-research",
+      "performance",
+      "security",
+    ]);
+  });
+
+  /**
+   * @case A symlinked subdirectory is not followed, so a cyclic tree terminates
+   * @preconditions agents/loop is a symlink pointing back at the agents root
+   * @expectedResult The load completes and yields only the real agent
+   */
+  test("does not follow a symlinked directory", async () => {
+    const dir = makeDir({
+      "triage.md": "---\nname: triage\ndescription: d\n---\nsystem",
+    });
+    symlinkSync(dir, join(dir, "loop"), "dir");
+    const result = await agents(dir);
+    expect(Object.keys(result)).toEqual(["triage"]);
+  });
+
+  /**
+   * @case A symlinked markdown file is followed
+   * @preconditions agents/linked.md is a symlink to a real agent file elsewhere
+   * @expectedResult The agent loads, keyed by its frontmatter name
+   */
+  test("follows a symlinked markdown file", async () => {
+    const root = makeDir({
+      "shared/shared.md": "---\nname: shared\ndescription: d\n---\nsystem",
+      "agents/triage.md": "---\nname: triage\ndescription: d\n---\nsystem",
+    });
+    symlinkSync(
+      join(root, "shared", "shared.md"),
+      join(root, "agents", "linked.md"),
+    );
+    const result = await agents(join(root, "agents"));
+    expect(Object.keys(result).sort()).toEqual(["shared", "triage"]);
+  });
+
+  /**
+   * @case A single-file path is recognised whatever the extension's case
+   * @preconditions An agent file named with an uppercase .MD extension
+   * @expectedResult It loads as one agent rather than being treated as a directory
+   */
+  test("accepts a single file with an uppercase extension", async () => {
+    const dir = makeDir({
+      "Triage.MD": "---\nname: triage\ndescription: d\n---\nsystem",
+    });
+    const result = await agents(join(dir, "Triage.MD"));
+    expect(Object.keys(result)).toEqual(["triage"]);
+  });
+
+  /**
+   * @case Dependency and dot directories are never walked
+   * @preconditions node_modules/ and .cache/ under the agents root holding markdown
+   * @expectedResult Only the real agent loads; a package tree is not scanned for agents
+   */
+  test("skips node_modules and dot directories", async () => {
+    const dir = makeDir({
+      "triage.md": "---\nname: triage\ndescription: d\n---\nsystem",
+      "node_modules/pkg/readme.md": "# not an agent",
+      ".cache/tmp.md": "# not an agent",
+    });
+    const result = await agents(dir);
+    expect(Object.keys(result)).toEqual(["triage"]);
   });
 });

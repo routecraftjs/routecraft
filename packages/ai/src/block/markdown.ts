@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve, basename, extname } from "node:path";
+import { join, resolve, basename, extname, sep } from "node:path";
 import { loadOptionalPeer, rcError } from "@routecraft/routecraft";
 
 /**
@@ -17,6 +17,19 @@ export interface ParsedMarkdown {
   frontmatter: Record<string, unknown>;
   /** Trimmed body (everything after the front-matter block). */
   body: string;
+  /**
+   * Absolute path of the bundle directory when the document was
+   * discovered through the `sentinelFilename` form (`<name>/SKILL.md`,
+   * `<name>/AGENT.md`). Absent for flat `.md` files.
+   *
+   * Presence is the signal that this document is a bundle, so do not
+   * repurpose it as a general base directory: a caller that set it for
+   * flat documents too would silently subject every one of them to
+   * whatever rule the loader applies to bundles. Whether that rule is
+   * directory-is-identity is per loader; `agents()` applies it,
+   * `skills()` currently keys identity off `filename` for both layouts.
+   */
+  bundleDirectory?: string;
 }
 
 /**
@@ -129,13 +142,127 @@ export interface ReadMarkdownDirOptions {
    * When set, subdirectories of `dir` are also inspected. If a
    * subdirectory contains a file with this exact name (e.g.
    * `"SKILL.md"`), it is yielded as a single `ParsedMarkdown` whose
-   * `filename` is the **subdirectory name**, not the sentinel stem.
-   * This matches the Claude Code skill convention
-   * (`<name>/SKILL.md`), where the directory name is the identity and
-   * the folder can also bundle supporting assets. Subdirectories
-   * without the sentinel are silently skipped.
+   * `filename` is the **subdirectory name**, not the sentinel stem,
+   * and whose `bundleDirectory` is the subdirectory path. This matches the
+   * Claude Code skill convention (`<name>/SKILL.md`), where the
+   * directory name is the identity and the folder can also bundle
+   * supporting assets. A sentinel bundle is never descended into.
    */
   sentinelFilename?: string;
+  /**
+   * Descend into subdirectories that are neither a sentinel bundle nor
+   * reserved. Off by default, so a caller that only wants one level
+   * keeps it. With it on, a `.md` file at any depth is yielded as a
+   * flat document, matching Claude Code's recursive `agents/` scan
+   * where the subdirectory path is grouping and carries no identity.
+   */
+  recursive?: boolean;
+  /**
+   * Directory names that are never inspected, at any depth. Used for
+   * folders the walk must leave to another loader: `skills` under
+   * `agents/` belongs to the enclosing agent bundle, so treating its
+   * markdown as agents would fail the boot on the first file.
+   *
+   * Checked before the sentinel, so a directory whose name is reserved
+   * is never treated as a bundle either.
+   */
+  reservedDirectories?: readonly string[];
+}
+
+/**
+ * Directory names skipped by every walk. A dependency tree or an
+ * editor's dot-folder under a content directory is never authored
+ * content, and recursing into `node_modules` would walk a package
+ * tree looking for markdown.
+ *
+ * @internal
+ */
+function isSkippedDirectory(name: string): boolean {
+  return name === "node_modules" || name.startsWith(".");
+}
+
+/**
+ * Walk one directory level, appending discovered documents to `out`.
+ * Recurses only when `options.recursive` is set and the subdirectory is
+ * neither a sentinel bundle nor reserved.
+ *
+ * @internal
+ */
+async function collectMarkdown(
+  abs: string,
+  options: ReadMarkdownDirOptions,
+  out: ParsedMarkdown[],
+): Promise<void> {
+  const reserved = options.reservedDirectories ?? [];
+  let entries;
+  try {
+    entries = readdirSync(abs, { withFileTypes: true });
+  } catch (err) {
+    throw rcError("RC5003", undefined, {
+      message: `Markdown directory "${abs}" could not be read: ${(err as Error).message}`,
+    });
+  }
+  for (const entry of entries) {
+    const child = join(abs, entry.name);
+    if (entry.isFile() || (entry.isSymbolicLink() && isFilePath(child))) {
+      if (extname(entry.name).toLowerCase() !== ".md") continue;
+      out.push(await splitFrontmatter(readMarkdownContent(child), child));
+      continue;
+    }
+    if (!entry.isDirectory()) continue;
+    if (isSkippedDirectory(entry.name)) continue;
+    if (reserved.includes(entry.name)) continue;
+    if (options.sentinelFilename) {
+      const sentinelPath = join(child, options.sentinelFilename);
+      if (isFilePath(sentinelPath)) {
+        const parsed = await splitFrontmatter(
+          readMarkdownContent(sentinelPath),
+          sentinelPath,
+        );
+        // The bundle directory is the identity, not the sentinel stem.
+        parsed.filename = entry.name;
+        parsed.bundleDirectory = child;
+        out.push(parsed);
+        continue;
+      }
+    }
+    if (options.recursive) await collectMarkdown(child, options, out);
+  }
+}
+
+/**
+ * True when `path` resolves to a file, following symlinks. Returns
+ * false rather than throwing for a path that is missing or not a
+ * directory, which are both ordinary answers during a walk.
+ *
+ * @internal
+ */
+function isFilePath(path: string): boolean {
+  try {
+    return statSync(path, { throwIfNoEntry: false })?.isFile() === true;
+  } catch {
+    // Still reachable for EACCES and friends, which `throwIfNoEntry`
+    // does not cover. An unreadable candidate is simply not a file we
+    // can load.
+    return false;
+  }
+}
+
+/**
+ * Read a markdown file, reporting a failure as RC5003 naming the path.
+ * The walk lists a directory and then reads what it listed, so a file
+ * removed or made unreadable in between surfaces here.
+ *
+ * @internal
+ */
+function readMarkdownContent(path: string): string {
+  try {
+    return readFileSync(path, "utf-8");
+  } catch (err) {
+    throw rcError("RC5003", undefined, {
+      message: `Markdown file "${path}" could not be read: ${(err as Error).message}`,
+    });
+  }
 }
 
 /**
@@ -144,12 +271,21 @@ export interface ReadMarkdownDirOptions {
  *
  * - Flat `.md` files directly under `dir` are always loaded.
  * - When `sentinelFilename` is set, subdirectories containing that
- *   exact file are loaded too, keyed by the **subdirectory name**.
+ *   exact file are loaded as one document keyed by the **subdirectory
+ *   name** and are not descended into.
+ * - When `recursive` is set, every other subdirectory is walked, so a
+ *   `.md` file at any depth loads as a flat document.
  *
- * Subdirectories without the configured sentinel (or any
- * subdirectories at all when the option is absent) are silently
- * skipped, so a `node_modules`-style folder mixed in with real skills
- * does not produce noise.
+ * `node_modules`, dot-directories, and any name in
+ * `reservedDirectories` are skipped at every level. Subdirectories
+ * without the configured sentinel are silently skipped when the walk
+ * is not recursive, so a folder mixed in with real skills does not
+ * produce noise.
+ *
+ * A symlink to a file is followed, so a tree assembled by linking
+ * shared definitions loads. A symlink to a directory is not, which
+ * makes the walk loop-free by construction: a cycle needs a directory
+ * link.
  *
  * @internal
  */
@@ -172,39 +308,37 @@ export async function readMarkdownDir(
     });
   }
   const out: ParsedMarkdown[] = [];
-  for (const entry of readdirSync(abs, { withFileTypes: true })) {
-    if (entry.isFile()) {
-      if (extname(entry.name).toLowerCase() !== ".md") continue;
-      out.push(
-        await splitFrontmatter(
-          readFileSync(join(abs, entry.name), "utf-8"),
-          join(abs, entry.name),
-        ),
-      );
-      continue;
-    }
-    if (entry.isDirectory() && options.sentinelFilename) {
-      const sentinelPath = join(abs, entry.name, options.sentinelFilename);
-      let sentinelStats;
-      try {
-        sentinelStats = statSync(sentinelPath);
-      } catch {
-        continue;
-      }
-      if (!sentinelStats.isFile()) continue;
-      const parsed = await splitFrontmatter(
-        readFileSync(sentinelPath, "utf-8"),
-        sentinelPath,
-      );
-      // The subdirectory name is the identity, not the sentinel stem.
-      parsed.filename = entry.name;
-      out.push(parsed);
-    }
-  }
-  // Sort so file order is deterministic regardless of filesystem
-  // listing order. Useful for stable tests and reproducible builds.
-  out.sort((a, b) => a.filename.localeCompare(b.filename));
+  await collectMarkdown(abs, options, out);
+  // Sort on a separator-normalized key so order is deterministic
+  // regardless of filesystem listing order and identical across
+  // platforms, matching `scanDirectory`: a raw sort diverges on
+  // Windows, where the backslash separator (0x5C) sorts after
+  // characters that `/` (0x2F) sorts before. Compared with `<` rather
+  // than `localeCompare`, which is locale dependent.
+  const sortKey = (doc: ParsedMarkdown): string =>
+    sep === "/" ? doc.path : doc.path.split(sep).join("/");
+  out.sort((a, b) => {
+    const ka = sortKey(a);
+    const kb = sortKey(b);
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
   return out;
+}
+
+/**
+ * Read a markdown source that may be a single file or a directory,
+ * applying the same extension rule the directory walk uses so a path
+ * is classified one way everywhere.
+ *
+ * @internal
+ */
+export async function readMarkdownSource(
+  path: string,
+  options: ReadMarkdownDirOptions = {},
+): Promise<ParsedMarkdown[]> {
+  return extname(path).toLowerCase() === ".md"
+    ? [await readMarkdownFile(path)]
+    : readMarkdownDir(path, options);
 }
 
 /**

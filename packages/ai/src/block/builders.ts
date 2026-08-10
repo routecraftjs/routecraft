@@ -5,11 +5,7 @@ import {
   type CraftContext,
   type Exchange,
 } from "@routecraft/routecraft";
-import {
-  readMarkdownDir,
-  readMarkdownFile,
-  requireString,
-} from "./markdown.ts";
+import { readMarkdownSource, requireString } from "./markdown.ts";
 import type {
   BlockBody,
   BlockClient,
@@ -101,11 +97,14 @@ export async function skills(options: SkillsOptions): Promise<Blocks> {
       message: `skills: "lifetime" must be "dispatch" or "context" when present (got ${JSON.stringify(lifetime)}).`,
     });
   }
-  const docs = source.endsWith(".md")
-    ? [await readMarkdownFile(source)]
-    : await readMarkdownDir(source, { sentinelFilename: "SKILL.md" });
+  const docs = await readMarkdownSource(source, {
+    sentinelFilename: "SKILL.md",
+  });
   const sources = new Map<string, string>();
-  const out: Record<string, BlockBody> = {};
+  // Null-prototype map so a frontmatter `name` like `__proto__` sets a
+  // real key instead of the object's prototype, which would drop the
+  // skill silently. Mirrors the same guard in `agents()`.
+  const out = Object.create(null) as Record<string, BlockBody>;
   for (const doc of docs) {
     const name = requireString(doc.frontmatter["name"], "name", doc.path);
     if (name !== doc.filename) {
