@@ -23,6 +23,7 @@ import {
 } from "../types.ts";
 import { buildInputValidationStep, buildParseStep } from "./synthetic-steps.ts";
 import { applyOutputStage } from "./validation.ts";
+import { type DetachedKind, detachedDefinition } from "./chain-policy.ts";
 import {
   DeadlineExceededError,
   raceWithDeadline,
@@ -890,7 +891,12 @@ function makeDownstreamRunner(
   downstream: Step<Adapter>[],
 ): (exchange: Exchange) => Promise<{ failed: boolean; dropped: boolean }> {
   return (releaseExchange) => {
-    const release = runDetachedPipeline(deps, downstream, releaseExchange);
+    const release = runDetachedPipeline(
+      deps,
+      downstream,
+      releaseExchange,
+      "debounce",
+    );
     // Track the ENTIRE release flow (pipeline, output validation, and the
     // completion emit), not just the pipeline promise: a caller that does not
     // itself await the runner to completion (debounce's settle latch does,
@@ -908,16 +914,23 @@ function makeDownstreamRunner(
  * `.error()` handler honoured, and the route's `.output()` schemas enforced
  * before completion.
  *
- * Two callers, and the shared contract is what makes them one function.
- * `debounce` releases a held exchange into the steps that follow it, and a
- * resume revives a parked exchange into its continuation. Neither is a
- * side-effect clone: in both cases the exchange IS the route's primary
- * flow, resuming partway down a pipeline whose earlier steps must not
- * re-run.
+ * Two callers, sharing the run's shape but not its chain. `debounce`
+ * releases a held exchange into the steps that follow it, and a resume
+ * revives a parked exchange into its continuation. Neither is a side-effect
+ * clone: in both cases the exchange IS the route's primary flow, resuming
+ * partway down a pipeline whose earlier steps must not re-run.
+ *
+ * `kind` is what separates them, because the chain above the entry point
+ * means different things for each: a released exchange is work the route
+ * held back and never admitted, while a resumed one entered the route once
+ * and was admitted then. Which positions apply is declared per position in
+ * `chain-policy.ts` rather than decided here.
  *
  * The run inherits NO abort signal. A signal from the capturing attempt (a
  * route-scope timeout) can fire long after, and a detached run is a fresh
  * flow rather than a continuation of that attempt.
+ *
+ * @param kind - Which detached run this is, selecting the chain policy
  *
  * @internal
  */
@@ -925,6 +938,7 @@ export function runDetachedPipeline(
   deps: ExecutorDeps,
   downstream: ReadonlyArray<Step<Adapter>>,
   releaseExchange: Exchange,
+  kind: DetachedKind,
 ): Promise<DetachedResult> {
   return (async (): Promise<DetachedResult> => {
     const start = Date.now();
@@ -942,15 +956,7 @@ export function runDetachedPipeline(
       context: deps.context,
       route: deps.route,
       buildForward: deps.buildForward,
-      definition: {
-        preParseFilters: [],
-        postParseFilters: [],
-        steps: [...downstream],
-        postFromFilters: [],
-        ...(routeDefinition.errorHandler
-          ? { errorHandler: routeDefinition.errorHandler }
-          : {}),
-      },
+      definition: detachedDefinition(routeDefinition, downstream, kind),
     };
     let result = await runPipeline(nested, releaseExchange, start);
 

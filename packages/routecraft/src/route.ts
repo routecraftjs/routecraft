@@ -1006,7 +1006,12 @@ export class DefaultRoute implements Route {
     exchange: Exchange,
     steps: ReadonlyArray<Step<Adapter>>,
   ): Promise<DetachedResult> {
-    const run = runDetachedPipeline(this.executorDeps(), steps, exchange);
+    const run = runDetachedPipeline(
+      this.executorDeps(),
+      steps,
+      exchange,
+      "resume",
+    );
     this.trackTask(run);
     return run;
   }

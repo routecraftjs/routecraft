@@ -112,24 +112,30 @@ normally.
 
 ### A resumed exchange re-enters below the chain
 
-When a route [suspends](/docs/reference/operations/suspend) and is later resumed, execution two runs the continuation only: the steps after the suspend point. It is the same exchange (same id, same correlation id) in the same route, but it did not enter the route again, so most of the chain does not re-run.
+When a route [suspends](/docs/reference/operations/suspend) and is later resumed, execution two runs the continuation only: the steps after the suspend point. It is the same exchange (same id, same correlation id) in the same route, but it did not enter the route again, so the positions that describe an arrival do not re-run.
+
+Every position states its own answer. This is a declaration in the framework, not a side effect of how a continuation happens to be executed, so a position cannot quietly stop applying.
 
 | # | Filter | Execution two | Why |
 |---|--------|---------------|-----|
 | 1 | `error` | **runs** | The route still owns the exchange, and a revival failure has nowhere else to go: only this route can notify and re-ask |
-| 2 | `authorize` | does not run | The principal came back from the store marked restored, so it would fail `RC5043` rather than admit anything. Authorize the ANSWER on the resume ingress route |
+| 2 | `authorize` | does not run | The principal came back from the store marked restored, so it would fail `RC5043` rather than admit anything. Authorize the ANSWER on the resume ingress route, where a live principal exists |
 | 3 | `parse` | does not run | The body was parsed on execution one and stored parsed |
-| 4 | `input` | does not run | Same body, already validated. The ANSWER is validated instead, against the suspending step's `expect` |
-| 5 | `throttle` | does not run | The exchange was admitted against the rate limit once, on arrival |
-| 6 | `circuitBreaker` | does not run | Not reachable from a continuation |
-| 7 | `retry` | does not run | Not reachable from a continuation |
-| 8 | `timeout` | does not run | A suspension's deadline is `ttl`, measured in days and held in the store, not a per-attempt deadline in this process |
-| 8.5 | `concurrency` | does not run | Not reachable from a continuation |
+| 4 | `input` | does not run | `.input()` validates the shape arriving at the route, and execution two starts mid-pipeline with a body earlier steps already transformed. The ANSWER is validated instead, against the suspending step's `expect` |
+| 5 | `throttle` | does not run | It admits new work into the route, and this exchange was admitted on execution one. Answer arrival is governed by the resume ingress route's own `throttle` |
+| 6 | `circuitBreaker` | does not run | By the time a continuation runs, the resume has already claimed the suspension, so fast-failing here would record a failed terminal and spend the approval. Put the breaker on the resume ingress route, whose chain wraps `.resume()` and so refuses subsequent answers before they are claimed |
+| 7 | `retry` | **runs** | Attempts happen before any terminal outcome is recorded, so a retried continuation never spends the approval it was answering |
+| 8 | `timeout` | **runs** | Bounds execution two. Distinct from `ttl`, which is a store-side expiry on the suspension rather than a per-attempt deadline in this process |
+| 8.5 | `concurrency` | **runs** | A bulkhead bounds simultaneous work in the route against a downstream, and a continuation is that work. Ingress executions and resumed continuations compete for the same limiter |
 | 9 / 10 | `cache` | refused at build | Both filters wrap the user pipeline, which a park exits and a resume re-enters partway down, so neither would ever run (`RC5003`) |
 | - | **your continuation** | runs | Steps after the suspend, with their own step-scope wrappers |
 | - | `.output()` | runs | Execution two produces the route's real output |
 
-So resilience for a continuation is declared **inside** it, not above it. Step-scope wrappers work normally, and because a wrapper wraps the immediately following step, a nesting operation groups a whole block under one:
+{% callout type="warning" title="Route-scope `.retry()` now re-runs continuation steps" %}
+A route-scope `.retry()` applies to execution two, so the steps after a `.suspend()` are at-least-once on failure, the same as the steps before it. If your continuation does something a downstream cannot absorb twice (issuing a payment, sending a message), make it idempotent or move it behind a step-scope wrapper you control. This is the position that changed most when continuations started honouring the chain.
+{% /callout %}
+
+Inside the continuation, step-scope wrappers work normally, and because a wrapper wraps the immediately following step, a nesting operation groups a whole block under one:
 
 ```ts
 .suspend({ expect: Approval, ttl: '72h' })
@@ -140,7 +146,7 @@ So resilience for a continuation is declared **inside** it, not above it. Step-s
 ))
 ```
 
-When you want the full chain back, hand the continuation to a route that has one:
+When you want the positions that stay off, hand the continuation to a route that has them:
 
 ```ts
 .suspend({ expect: Approval, ttl: '72h' })
@@ -156,7 +162,9 @@ craft()
   .to(ledger())
 ```
 
-That route is an ordinary route, so every position of the chain applies to it, and it is authorized on its own terms rather than on a principal read back from disk. This is the recommended shape when the work after an approval is itself risky.
+That route is an ordinary route, so every position of the chain applies to it, and it is authorized on its own terms rather than on a principal read back from disk. This is the recommended shape when the work after an approval needs `authorize` or a circuit breaker.
+
+A `.debounce()` release re-enters partway down too, and answers these questions differently: it is work the route held back and never admitted, so it keeps `error` and nothing else. The two are separate declarations rather than one shared rule.
 
 ## Why this order
 
