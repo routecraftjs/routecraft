@@ -296,12 +296,10 @@ export const PROTECTED_RESOURCE_METADATA_PATH =
  * the canonical client probe is `/.well-known/oauth-protected-resource/api/mcp`.
  * Both metadata URLs serve the identical document.
  *
- * The path-suffixed URL is derived dynamically because the MCP SDK's
- * `mcpAuthRouter` mounts its own path-aware doc at the same SDK-derived URL
- * (`/.well-known/oauth-protected-resource${rsPath}`); we must register our
- * handler at the same URL to shadow it and preserve the
- * "identical JSON regardless of auth mode" promise in
- * `.standards/security.md` §6.
+ * The path-suffixed URL is derived dynamically from `resource.url` so a
+ * non-default resource path still answers at the URL RFC 9728 §3 tells a
+ * client to probe, preserving the "identical JSON at every advertised URL"
+ * promise in `.standards/security.md` §6.
  *
  * Returns the set of owned paths (always includes `/mcp`, `/mcp/`, and the
  * root metadata path; conditionally includes the path-suffixed metadata path).

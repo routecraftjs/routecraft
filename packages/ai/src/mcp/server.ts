@@ -576,11 +576,10 @@ export class McpServer {
    *
    * The HTTPS-in-production guard on an explicit `resource.url` runs eagerly
    * in the constructor (see `validateResourceConfig`); this resolver is a
-   * pure projection. Should be called after `.listen()` so the bound port is
-   * known. The OAuth path resolves at startup (pre-listen) because the MCP
-   * SDK closes over the URL when middleware is registered; that path
-   * forbids `port: 0` with an unset `resource.url` separately to avoid
-   * baking `:0` into advertised URLs.
+   * pure projection. Call it after `.listen()` so the bound port is known:
+   * nothing registers middleware that closes over the URL beforehand, so an
+   * ephemeral `port: 0` resolves to the real port rather than baking `:0`
+   * into the discovery document and the 401 headers.
    */
   private resolveResourceUrl(): string {
     const explicit = this.options.resource?.url;
@@ -852,13 +851,14 @@ export class McpServer {
   }
 
   /**
-   * Convert the MCP SDK's AuthInfo (set by requireBearerAuth) to a Principal
-   * for routecraft's exchange headers.
+   * Convert the SDK `AuthInfo` carried on a request back into the Routecraft
+   * {@link Principal} for the exchange headers.
    *
-   * The OAuth path's wrapped `verifyAccessToken` stashes the fully-populated
-   * {@link Principal} in `authInfo.extra.principal`. If the stash is absent
-   * (e.g. a third party plugged a bare `ProxyOAuthServerProvider` in some
-   * custom setup), fall back to a minimal principal from the SDK-level `AuthInfo`.
+   * {@link principalToAuthInfo} stashes the fully-populated principal in
+   * `authInfo.extra.principal`, so the round trip is lossless. The fallback
+   * covers an `AuthInfo` this server did not mint, which can only reach here
+   * if the SDK handler is driven directly: it reconstructs what the SDK-level
+   * shape can express and nothing more, rather than dropping the identity.
    */
   private authInfoToPrincipal(
     authInfo: SdkAuthInfo | undefined,
@@ -886,14 +886,15 @@ export class McpServer {
    * through to the per-request factory, stashing the full principal in `extra`
    * so {@link authInfoToPrincipal} recovers it losslessly on the way back out.
    *
-   * Used by the validator path, whose verifier produces a Routecraft
-   * `Principal` directly. The OAuth path does the same stashing inside its
-   * wrapped `verifyAccessToken`, so both auth modes converge on one carrier.
+   * The principal travels as a construction parameter of the per-request
+   * server instance rather than through ambient storage: revision 2026-07-28
+   * builds a fresh instance per request, so the identity can be closed over at
+   * construction and there is no session for an `AsyncLocalStorage` to key on.
    *
-   * `token` carries the verified bearer the caller presented. Both auth modes
-   * must agree on it: the SDK hands `AuthInfo` to every per-request instance,
-   * and a consumer reading `authInfo.token` must not see a real credential
-   * under `oauth()` and a placeholder under `jwt()`.
+   * `token` carries the verified bearer the caller presented. Every auth
+   * helper must agree on it: the SDK hands one `AuthInfo` to every
+   * per-request instance, and a consumer reading `authInfo.token` must not see
+   * a real credential under `oauth()` and a placeholder under `jwt()`.
    */
   private principalToAuthInfo(
     principal: Principal,
@@ -948,11 +949,14 @@ export class McpServer {
 
   /**
    * Validate the Authorization header using the configured validator.
-   * Only used on the validator auth path (not OAuth -- that uses Express middleware).
+   *
+   * This is the single auth gate: `jwt()`, `jwks()`, `oauth()` and a custom
+   * `{ validator }` all converge here, which is why `requireBearerAuth` was
+   * dropped in favour of owning the 401/403/500 mapping locally.
+   *
    * Returns the authenticated principal and the bearer it was derived from on
-   * success, or `null` to reject with 401. The token rides along so
-   * {@link principalToAuthInfo} can present the same `AuthInfo.token` the
-   * OAuth path does.
+   * success. The token rides along so {@link principalToAuthInfo} can present
+   * it as `AuthInfo.token` whichever helper produced the principal.
    */
   private async validateAuth(req: IncomingMessage): Promise<AuthGateResult> {
     const authOptions = this.options.auth as ValidatorAuthOptions | undefined;

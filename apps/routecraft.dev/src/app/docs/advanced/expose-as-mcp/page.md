@@ -100,7 +100,7 @@ export default {
 }
 ```
 
-Start the server with `craft run`, then point your AI client at it. Anything reachable over the network must be authenticated: see [Securing capabilities](/docs/advanced/securing-capabilities) for every auth mode (`jwt()`, `jwks()`, custom validators, the OAuth 2.1 proxy), identity enrichment, RFC 9728 discovery metadata, and CORS.
+Start the server with `craft run`, then point your AI client at it. Anything reachable over the network must be authenticated: see [Securing capabilities](/docs/advanced/securing-capabilities) for every auth mode (`jwt()`, `jwks()`, custom validators, and `oauth()` as a resource-server gate), identity enrichment, RFC 9728 discovery metadata, and CORS.
 
 ### Scaling out
 
