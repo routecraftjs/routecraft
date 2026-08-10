@@ -190,14 +190,14 @@ export enum McpHeadersKeys {
 /**
  * Protected-resource (RFC 9728) metadata for the MCP server.
  *
- * Used by both validator-mode and OAuth-proxy auth to populate
+ * Used by every auth helper to populate
  * `/.well-known/oauth-protected-resource` and the `resource_metadata`
  * parameter on 401 responses. Orthogonal to the auth mode: identifies WHAT
  * is being protected, not HOW it authenticates.
  *
  * When omitted entirely, the framework still advertises a baseline metadata
- * document built from the bound URL and (in validator mode) the IdP issuer
- * surfaced by `jwks()` / `jwt()`.
+ * document built from the bound URL and the IdP issuer surfaced by
+ * `jwks()` / `jwt()` / `oauth()`.
  */
 export interface McpResourceOptions {
   /**
@@ -344,8 +344,8 @@ export interface McpPluginOptions {
   /**
    * Protected-resource (RFC 9728) metadata for the HTTP transport. When set,
    * the server advertises `/.well-known/oauth-protected-resource` and adds
-   * `resource_metadata="..."` to 401 `WWW-Authenticate` headers. Used by both
-   * validator and OAuth-proxy auth modes; ignored for stdio.
+   * `resource_metadata="..."` to 401 `WWW-Authenticate` headers. Used by every
+   * auth helper; ignored for stdio.
    *
    * When omitted, baseline metadata is still served (deriving `resource` from
    * the bound URL and `authorization_servers` from the validator's IdP

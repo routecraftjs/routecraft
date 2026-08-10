@@ -1394,8 +1394,8 @@ export class McpServer {
       // Build exchange headers. The authenticated principal (when present)
       // rides as a single structured header rather than ten flat keys; the
       // `ex.principal` getter on the exchange surfaces it ergonomically.
-      // This is the single attach point for every MCP auth mode (validator
-      // jwt/jwks/custom and OAuth proxy) and runs after any userinfo
+      // This is the single attach point for every MCP auth mode (jwt/jwks/
+      // custom validator and `oauth()`) and runs after any userinfo
       // enrichment, so branding here marks the verified identity as
       // authentic for downstream `authorize()` without freezing it too
       // early to enrich.
