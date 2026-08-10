@@ -9,11 +9,14 @@ import {
 import type { Adapter, Step } from "../types.ts";
 import type { SuspendRequest } from "./sites.ts";
 import { actionFingerprint, continuationHash, describeExpect } from "./hash.ts";
-import { SuspensionHeaders, readSequence } from "./exchange-state.ts";
+import {
+  SuspensionHeaders,
+  readSequence,
+  suspensionIdOf,
+} from "./exchange-state.ts";
 import { SUSPENSION_RUNTIME } from "./runtime-key.ts";
 import { serializeExchange } from "./serialize.ts";
 import { type Suspended, createSuspended } from "./suspended.ts";
-import { suspensionIdFor } from "./tokens.ts";
 import type { NewSuspension } from "./types.ts";
 
 /**
@@ -57,7 +60,7 @@ export async function parkExchange(
   }
 
   const sequence = readSequence(exchange.headers);
-  const id = suspensionIdFor(exchange.id, sequence);
+  const id = suspensionIdOf(exchange.headers, exchange.id);
   // The parked exchange carries the sequence its successor will use, so a
   // route that suspends, resumes, and suspends again mints a fresh id
   // rather than colliding with the record it just settled.

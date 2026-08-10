@@ -69,7 +69,15 @@ export interface PrincipalRef {
  * continuation a second time.
  */
 export interface SerializedOutcome {
-  readonly status: "completed" | "failed" | "dropped";
+  /**
+   * How execution two ended. `suspended` is the two-stage-approval case:
+   * the continuation reached ANOTHER `.suspend()` and parked again, so the
+   * work is neither finished nor failed. It is recorded distinctly because
+   * calling it `completed` would tell a receipt, a dashboard, and every
+   * duplicate resume that the work finished while it is still waiting on
+   * the next answer.
+   */
+  readonly status: "completed" | "failed" | "dropped" | "suspended";
   /** Terminal body on a completed run. Plain JSON data, same rule as {@link SerializedExchange}. */
   readonly body?: unknown;
   /** Error code and message on a failed run. The stack is deliberately not persisted. */

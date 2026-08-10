@@ -927,7 +927,7 @@ function makeDownstreamRunner(
  */
 export function runDetachedPipeline(
   deps: ExecutorDeps,
-  downstream: Step<Adapter>[],
+  downstream: ReadonlyArray<Step<Adapter>>,
   releaseExchange: Exchange,
 ): Promise<DetachedResult> {
   return (async (): Promise<DetachedResult> => {
@@ -949,7 +949,7 @@ export function runDetachedPipeline(
       definition: {
         preParseFilters: [],
         postParseFilters: [],
-        steps: downstream,
+        steps: [...downstream],
         postFromFilters: [],
         ...(routeDefinition.errorHandler
           ? { errorHandler: routeDefinition.errorHandler }
@@ -1017,6 +1017,7 @@ export function runDetachedPipeline(
     return {
       failed: result.failed,
       dropped: result.dropped,
+      suspended: result.suspended,
       exchange: result.exchange,
       ...(result.error !== undefined ? { error: result.error } : {}),
     };
@@ -1033,6 +1034,14 @@ export function runDetachedPipeline(
 export interface DetachedResult {
   failed: boolean;
   dropped: boolean;
+  /**
+   * The run parked at a `.suspend()`. Distinct from every other outcome:
+   * the exchange is neither finished nor failed, and its terminal body is
+   * the `Suspended` acknowledgment rather than the route's output. A caller
+   * that treats it as a completion publishes both a false receipt and the
+   * next suspension's resume token.
+   */
+  suspended: boolean;
   exchange: Exchange;
   error?: unknown;
 }

@@ -39,8 +39,7 @@ import {
   buildThrottleCheckStep,
 } from "./pipeline/synthetic-steps.ts";
 import {
-  applyOutputValidation,
-  handleOutputValidationFailure,
+  applyOutputStage,
   validateInputOrThrow,
   type ValidationDeps,
 } from "./pipeline/validation.ts";
@@ -398,7 +397,7 @@ export interface Route<T = unknown> {
    */
   runContinuation(
     exchange: Exchange,
-    steps: Step<Adapter>[],
+    steps: ReadonlyArray<Step<Adapter>>,
   ): Promise<DetachedResult>;
 
   /**
@@ -933,38 +932,18 @@ export class DefaultRoute implements Route {
       // Framework-level output validation runs on successful, non-dropped
       // exchanges before we declare completion. A failure falls through the
       // same path as a thrown step: errorHandler if set, else a failed result.
-      // A parked exchange is exempt from both: its body is the `Suspended`
-      // acknowledgment rather than the route's declared output (the two
-      // arms of the route's `Output | Suspended` type), and its terminal
-      // event was `route:exchange:suspended`. The source still receives the
-      // exchange, which is how each transport renders the acknowledgment.
-      let finalResult = result;
-      if (!result.failed && !result.dropped && !result.suspended) {
-        const outputSchemas = this.definition.discovery?.output;
-        if (outputSchemas?.body || outputSchemas?.headers) {
-          try {
-            const validated = await applyOutputValidation(
-              this.validationDeps(),
-              result.exchange,
-              outputSchemas,
-            );
-            finalResult = { ...result, exchange: validated };
-          } catch (err) {
-            // `suspended` is false by construction here: this arm only runs
-            // for a non-suspended result.
-            finalResult = {
-              suspended: false,
-              ...(await handleOutputValidationFailure(
-                this.validationDeps(),
-                result.exchange,
-                err,
-                startTime,
-                outputSchemas,
-              )),
-            };
-          }
-        }
-      }
+      // A parked exchange is exempt from the output stage AND from
+      // completion: its body is the `Suspended` acknowledgment rather than
+      // the route's declared output (the two arms of the route's
+      // `Output | Suspended` type), and its terminal event was
+      // `route:exchange:suspended`. The source still receives the exchange,
+      // which is how each transport renders the acknowledgment.
+      const finalResult = await applyOutputStage(
+        this.validationDeps(),
+        this.definition.discovery?.output,
+        result,
+        startTime,
+      );
 
       if (
         !finalResult.failed &&
@@ -1015,7 +994,7 @@ export class DefaultRoute implements Route {
    */
   runContinuation(
     exchange: Exchange,
-    steps: Step<Adapter>[],
+    steps: ReadonlyArray<Step<Adapter>>,
   ): Promise<DetachedResult> {
     const run = runDetachedPipeline(this.executorDeps(), steps, exchange);
     this.trackTask(run);
@@ -1055,16 +1034,14 @@ export class DefaultRoute implements Route {
       correlationId,
     });
     const deps: ExecutorDeps = {
-      routeId: this.definition.id,
-      context: this.context,
-      route: this,
-      // The re-ask handler forwards as the SUSPENDED exchange, so its
-      // `forward()` carries that exchange's headers: the correlation of the
-      // work being re-asked about, and its principal, which came back from
-      // the store marked restored. A target declaring `.authorize()` refuses
-      // it for that reason (RC5043), which is the correct answer: nothing
-      // re-verified that identity across the park.
-      buildForward: (caller: Exchange) => this.buildForward(caller),
+      // The memoised deps carry the route's own `buildForward`, so the
+      // re-ask handler forwards as the SUSPENDED exchange: its `forward()`
+      // takes the correlation of the work being re-asked about, and its
+      // principal, which came back from the store marked restored. A target
+      // declaring `.authorize()` refuses it for that reason (RC5043), which
+      // is the correct answer: nothing re-verified that identity across the
+      // park.
+      ...this.executorDeps(),
       definition: {
         preParseFilters: [],
         postParseFilters: [],
@@ -1073,7 +1050,11 @@ export class DefaultRoute implements Route {
           {
             operation: OperationType.PROCESS,
             label: operation,
-            adapter: { adapterId: "routecraft.operation.resume" },
+            // Derived from the caller's label rather than pinned to the
+            // resume operation: a cancellation sweeper or an operator deny
+            // path pushing into this channel must not have its failures
+            // attributed to resume in telemetry.
+            adapter: { adapterId: `routecraft.operation.${operation}` },
             execute: () => Promise.reject(error),
           },
         ],

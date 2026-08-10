@@ -407,11 +407,27 @@ export const EXCHANGE_INTERNALS = new WeakMap<Exchange, ExchangeInternals>();
 export function getExchangeContext(
   exchange: Exchange,
 ): CraftContext | undefined {
-  const internals =
+  return internalsOf(exchange)?.context;
+}
+
+/**
+ * Resolve an exchange's internals: symbol-keyed slot first (which works
+ * across duplicate copies of the package in one process), WeakMap second.
+ *
+ * One accessor rather than the lookup written out at each call site. The
+ * two-step rule is load-bearing (a `rewrap` shares the internals object by
+ * reference, which is what makes the dropped and suspended flags visible
+ * from every derivation of one logical exchange), and a site that got it
+ * wrong would silently read `undefined` and lose the flag.
+ *
+ * @internal
+ */
+function internalsOf(exchange: Exchange): ExchangeInternals | undefined {
+  return (
     (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
       INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
-  return internals?.context;
+    ] ?? EXCHANGE_INTERNALS.get(exchange)
+  );
 }
 
 /**
@@ -423,11 +439,7 @@ export function getExchangeContext(
  * @internal
  */
 export function getExchangeRoute(exchange: Exchange): Route | undefined {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
-  return internals?.route;
+  return internalsOf(exchange)?.route;
 }
 
 /**
@@ -442,10 +454,7 @@ export function getExchangeRoute(exchange: Exchange): Route | undefined {
  * @internal
  */
 export function setExchangeRoute(exchange: Exchange, route: Route): void {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  const internals = internalsOf(exchange);
   if (internals) internals.route = route;
 }
 
@@ -505,10 +514,7 @@ export function cloneExchange<T>(
  * @internal
  */
 export function markDropped(exchange: Exchange): void {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  const internals = internalsOf(exchange);
   if (internals) internals.dropped = true;
 }
 
@@ -560,10 +566,7 @@ export function emitExchangeDropped(
  * @internal
  */
 export function markSuspended(exchange: Exchange): void {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  const internals = internalsOf(exchange);
   if (internals) internals.suspended = true;
 }
 
@@ -574,11 +577,7 @@ export function markSuspended(exchange: Exchange): void {
  * @internal
  */
 export function isSuspendedRun(exchange: Exchange): boolean {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
-  return internals?.suspended === true;
+  return internalsOf(exchange)?.suspended === true;
 }
 
 /**
@@ -588,11 +587,7 @@ export function isSuspendedRun(exchange: Exchange): boolean {
  * @internal
  */
 export function isDropped(exchange: Exchange): boolean {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
-  return internals?.dropped === true;
+  return internalsOf(exchange)?.dropped === true;
 }
 
 /**
@@ -604,10 +599,7 @@ export function isDropped(exchange: Exchange): boolean {
  * @internal
  */
 export function setStartedAt(exchange: Exchange, ts: number): void {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  const internals = internalsOf(exchange);
   if (internals) internals.startedAt = ts;
 }
 
@@ -617,11 +609,7 @@ export function setStartedAt(exchange: Exchange, ts: number): void {
  * @internal
  */
 export function getStartedAt(exchange: Exchange): number | undefined {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
-  return internals?.startedAt;
+  return internalsOf(exchange)?.startedAt;
 }
 
 /**
@@ -914,10 +902,7 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
       readonly headers?: ExchangeHeaders;
     } = {},
   ): DefaultExchange<T> {
-    const prevInternals =
-      (prev as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-        INTERNALS_KEY
-      ] ?? EXCHANGE_INTERNALS.get(prev);
+    const prevInternals = internalsOf(prev);
     const context = prevInternals?.context;
     if (!context) {
       throw new Error(

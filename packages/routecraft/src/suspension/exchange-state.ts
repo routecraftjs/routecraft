@@ -107,9 +107,9 @@ export function suspensionAffordance(
   exchangeId: string,
 ): SuspensionAffordance {
   const sequence = readSequence(headers);
-  const owner = headers[SuspensionHeaders.OWNER] ?? exchangeId;
+  const id = suspensionIdOf(headers, exchangeId);
   return {
-    id: suspensionIdFor(owner, sequence),
+    id,
     sequence,
     get token(): string {
       const runtime = context?.getStore(SUSPENSION_RUNTIME);
@@ -119,12 +119,38 @@ export function suspensionAffordance(
             "Cannot mint a resume token: this context has no suspension runtime. Add suspension: {} to defineConfig.",
         });
       }
-      return runtime.signer.mint(suspensionIdFor(owner, sequence));
+      return runtime.signer.mint(id);
     },
     result: headers[SuspensionHeaders.RESULT],
     resumedBy: headers[SuspensionHeaders.RESUMED_BY],
     resumedAt: headers[SuspensionHeaders.RESUMED_AT],
   };
+}
+
+/**
+ * The suspension id an exchange parks as.
+ *
+ * The one derivation, called by the `ex.suspension` affordance and by the
+ * park path alike. They must agree: the affordance is what a notification
+ * step mints a token from BEFORE the park, and the park is what writes the
+ * record that token has to find. Deriving it twice let them diverge for any
+ * exchange carrying an owner header, which is every exchange a `.debounce()`
+ * releases downstream, and the symptom was a resume link that verified and
+ * then found nothing.
+ *
+ * @param headers - The exchange's headers
+ * @param exchangeId - The exchange's own id, used when it is not a snapshot
+ *
+ * @internal
+ */
+export function suspensionIdOf(
+  headers: ExchangeHeaders,
+  exchangeId: string,
+): string {
+  return suspensionIdFor(
+    headers[SuspensionHeaders.OWNER] ?? exchangeId,
+    readSequence(headers),
+  );
 }
 
 /**

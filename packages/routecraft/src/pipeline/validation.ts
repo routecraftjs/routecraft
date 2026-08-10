@@ -48,6 +48,68 @@ export async function validateAgainst(
 }
 
 /**
+ * The route's terminal output stage: enforce `.output()` schemas on a run
+ * that produced the route's output, or pass the result through untouched
+ * when it did not.
+ *
+ * One implementation because there are two callers with identical rules
+ * (`DefaultRoute.handler` for a source-driven run, `runDetachedPipeline`
+ * for a debounce release or a resumed continuation), and the suspend work
+ * proved they drift: both had to grow the same `suspended` exemption in
+ * the same shape. A third terminal state, or any change to the failure
+ * path, now lands once.
+ *
+ * A failed, dropped, or parked run is exempt. The first two never produced
+ * an output; the third produced the `Suspended` acknowledgment, which is
+ * deliberately not the declared output but the other arm of the route's
+ * `Output | Suspended` type.
+ *
+ * @param deps - Route identity plus the route-scope error handler
+ * @param schemas - The route's declared output schemas, if any
+ * @param result - The run's result
+ * @param startTime - Run start, for the failure path's duration
+ * @returns The result, with a validated exchange or a failure recorded
+ *
+ * @internal
+ */
+export async function applyOutputStage<
+  R extends {
+    exchange: Exchange;
+    failed: boolean;
+    dropped: boolean;
+    suspended: boolean;
+    error?: unknown;
+  },
+>(
+  deps: ValidationDeps,
+  schemas: { body?: StandardSchemaV1; headers?: StandardSchemaV1 } | undefined,
+  result: R,
+  startTime: number,
+): Promise<R> {
+  if (result.failed || result.dropped || result.suspended) return result;
+  if (!schemas?.body && !schemas?.headers) return result;
+  try {
+    return {
+      ...result,
+      exchange: await applyOutputValidation(deps, result.exchange, schemas),
+    };
+  } catch (err) {
+    return {
+      ...result,
+      // `suspended` is false by construction: this arm only runs for a
+      // result that reached validation.
+      ...(await handleOutputValidationFailure(
+        deps,
+        result.exchange,
+        err,
+        startTime,
+        schemas,
+      )),
+    };
+  }
+}
+
+/**
  * Validate an exchange against the route's `input` schemas, throwing
  * `RC5002` on failure without emitting any lifecycle events: the caller
  * is a chain step inside `runPipeline`, so the failure becomes a normal

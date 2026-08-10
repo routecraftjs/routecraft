@@ -516,7 +516,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Definition",
     message: "Suspend not supported at this position",
     suggestion:
-      "A `.suspend()` was declared where the framework cannot durably park and revive the exchange: inside `.split()` (a durable aggregator would have to track N outstanding children across restarts), inside a `.multicast()` / `.dispatch()` path (those exchanges are not the route's primary flow), or under a step-scope wrapper. Split the work into per-item child capabilities, each its own exchange suspending independently, or move the suspend onto the main flow or a `.choice()` branch of it.",
+      "A `.suspend()` was declared where the framework cannot durably park and revive the exchange: inside `.split()` (a durable aggregator would have to track N outstanding children across restarts), or inside a `.multicast()` path or `.dispatch()` target (those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin). Split the work into per-item child capabilities, each its own exchange suspending independently, or move the suspend onto the main flow or a `.choice()` branch of it. A `.suspend()` under a step-scope wrapper is refused separately, as RC5003.",
     docs: `${DOCS_BASE}#rc-5051`,
     retryable: false,
   },

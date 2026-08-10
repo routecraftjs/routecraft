@@ -7,13 +7,12 @@ import {
 } from "../exchange.ts";
 import { toSignalContext } from "../types.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
-import type { Principal } from "../auth/types.ts";
 import {
   type ResumeAcknowledgment,
   type ResumeRequest,
   reviveSuspension,
 } from "../suspension/revive.ts";
-import type { PrincipalRef } from "../suspension/types.ts";
+import { principalRef } from "../suspension/principal-ref.ts";
 
 /**
  * Maps the ingress exchange to the suspension it answers.
@@ -62,7 +61,10 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
   async execute(exchange: Exchange, ctx: StepContext): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
     if (!context) {
-      throw rcError("RC5052", undefined, {
+      // Not RC5052: nothing is misconfigured. An exchange reaching a step
+      // without a context binding is a framework invariant violation, which
+      // is what the catch-all code is for.
+      throw rcError("RC5001", undefined, {
         message:
           "Cannot resume: this exchange has no context binding, so there is no suspension store to revive from.",
       });
@@ -126,27 +128,4 @@ function fromBody(exchange: Exchange): ResumeRequest {
     });
   }
   return { token: body.token, result: body.result };
-}
-
-/**
- * Reduce a live principal to the audit reference the store records.
- *
- * A subset, not the principal itself: a full principal carries claims,
- * scopes and a delegation chain that would be resurrected as data with no
- * verification behind it. What the record answers is "who authorized this",
- * which is what a receipt is for.
- *
- * @internal
- */
-function principalRef(principal: Principal): PrincipalRef {
-  return {
-    subject: principal.subject,
-    ...(principal.issuer !== undefined ? { issuer: principal.issuer } : {}),
-    ...(principal.clientId !== undefined
-      ? { clientId: principal.clientId }
-      : {}),
-    ...(principal.actor?.subject !== undefined
-      ? { actorSubject: principal.actor.subject }
-      : {}),
-  };
 }

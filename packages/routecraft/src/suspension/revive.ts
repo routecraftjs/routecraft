@@ -10,7 +10,7 @@ import {
 } from "../exchange.ts";
 import type { Route } from "../route.ts";
 import type { Adapter, Step } from "../types.ts";
-import { continuationHash } from "./hash.ts";
+import { continuationHash, describeExpect } from "./hash.ts";
 import { SuspensionHeaders } from "./exchange-state.ts";
 import { SUSPENSION_RUNTIME } from "./runtime-key.ts";
 import { deserializeExchange, encodePersistable } from "./serialize.ts";
@@ -120,7 +120,7 @@ export async function reviveSuspension(
   }
 
   if (suspension.status !== "suspended") {
-    return settled(context, suspension);
+    return settled(suspension);
   }
 
   const route = context.getRouteById(suspension.routeId);
@@ -133,10 +133,22 @@ export async function reviveSuspension(
   // Checked here as well as by the sweeper: an answer can arrive between
   // the deadline and the sweep that marks it, and resuming into a window
   // the route already declared closed is exactly what `ttl` rules out.
+  //
+  // The transition is what makes the re-ask exactly-once. Without the
+  // compare-and-swap, every replay of one dead token would emit the event
+  // again, run the suspended route's error channel again, and typically
+  // send the approver another notification: an outbound-message amplifier
+  // driven by a party the token does not authenticate. Winning the CAS is
+  // the right to notify, and the sweeper competes for the same right.
   if (
     suspension.expiresAt !== undefined &&
     suspension.expiresAt.getTime() <= Date.now()
   ) {
+    const expiry = rcError("RC5047", undefined, {
+      message: `Suspension "${id}" expired at ${suspension.expiresAt.toISOString()}.`,
+    });
+    const cas = await runtime.store.markExpired(id);
+    if (!cas.won) throw expiry;
     context.emit("route:exchange:expired", {
       routeId: suspension.routeId,
       exchangeId: exchangeIdOf(suspension),
@@ -144,14 +156,7 @@ export async function reviveSuspension(
       suspensionId: id,
       expiresAt: suspension.expiresAt,
     });
-    throw await reask(
-      context,
-      route,
-      suspension,
-      rcError("RC5047", undefined, {
-        message: `Suspension "${id}" expired at ${suspension.expiresAt.toISOString()}.`,
-      }),
-    );
+    throw await reask(context, route, suspension, expiry);
   }
 
   const site = findSite(route, suspension);
@@ -166,10 +171,17 @@ export async function reviveSuspension(
     );
   }
 
+  // `describeExpect(site.expect)`, never `suspension.expect`: the stored
+  // descriptor is the one that was folded into `suspension.continuationHash`
+  // at park time, so comparing it against itself is inert and a widened
+  // `expect` would resume into a contract its approver never saw. The
+  // suspending step's own definition is excluded from the hashed tail by
+  // design, which makes this descriptor the ONLY representation of that step
+  // in the digest.
   const current = continuationHash(
     [site.step, ...site.site.continuation],
     0,
-    suspension.expect,
+    describeExpect(site.expect),
   );
   if (current !== suspension.continuationHash) {
     throw await reask(
@@ -182,11 +194,10 @@ export async function reviveSuspension(
     );
   }
 
-  // Validation runs against the LIVE schema read off the route, not
-  // anything in the record: a Standard Schema is an object with a validate
-  // function and cannot be persisted. The record holds only a hash of it,
-  // folded into `continuationHash`, so a schema that changed under the
-  // parked exchange was already refused above.
+  // Validation runs against the LIVE schema read off the route: a Standard
+  // Schema is an object with a validate function and cannot be persisted.
+  // Reaching here means the hash check above already confirmed that live
+  // schema is the one the approval was taken against.
   const result = await validateAgainst(site.expect, request.result);
   if (!result.ok) {
     // Ingress only, deliberately: unlike an expiry or a changed
@@ -216,7 +227,7 @@ export async function reviveSuspension(
         message: `Suspension "${id}" disappeared while it was being resumed.`,
       });
     }
-    return settled(context, cas.suspension, route);
+    return settled(cas.suspension);
   }
 
   const exchange = rehydrate(context, route, suspension, {
@@ -287,11 +298,7 @@ function correlationIdOf(suspension: Suspension): string {
  *
  * @internal
  */
-async function settled(
-  context: CraftContext,
-  suspension: Suspension,
-  route?: Route,
-): Promise<ResumeAcknowledgment> {
+function settled(suspension: Suspension): ResumeAcknowledgment {
   if (suspension.status === "resumed") {
     return {
       status: "duplicate",
@@ -311,16 +318,19 @@ async function settled(
     };
   }
 
-  const target = route ?? context.getRouteById(suspension.routeId);
-  const error =
-    suspension.status === "expired"
-      ? rcError("RC5047", undefined, {
-          message: `Suspension "${suspension.id}" expired before an answer arrived.`,
-        })
-      : rcError("RC5050", undefined, {
-          message: `Suspension "${suspension.id}" was denied${suspension.deniedReason ? `: ${suspension.deniedReason}` : ""}.`,
-        });
-  throw target ? await reask(context, target, suspension, error) : error;
+  // No re-ask here, deliberately. The record is ALREADY terminal, so
+  // whoever moved it there (the sweeper, a cancellation, an earlier resume
+  // that lost no race) owned the notification and has sent it. Re-entering
+  // the route's error channel per arriving replay would notify the approver
+  // once per request rather than once per event, from a token anyone who
+  // saw the original link still holds.
+  throw suspension.status === "expired"
+    ? rcError("RC5047", undefined, {
+        message: `Suspension "${suspension.id}" expired before an answer arrived.`,
+      })
+    : rcError("RC5050", undefined, {
+        message: `Suspension "${suspension.id}" was denied${suspension.deniedReason ? `: ${suspension.deniedReason}` : ""}.`,
+      });
 }
 
 /**
@@ -422,7 +432,14 @@ async function runContinuation(
   continuation: ReadonlyArray<Step<Adapter>>,
   at: Date,
 ): Promise<SerializedOutcome> {
-  const result = await route.runContinuation(exchange, [...continuation]);
+  const result = await route.runContinuation(exchange, continuation);
+  if (result.suspended) {
+    // The continuation reached another `.suspend()`. Recording a body here
+    // would cache the SECOND suspension's acknowledgment, token included,
+    // and hand it back to whoever answered the first one: in a two-stage
+    // approval that is approver A receiving approver B's capability.
+    return { status: "suspended", at };
+  }
   if (result.dropped) {
     return { status: "dropped", reason: "dropped by the route", at };
   }

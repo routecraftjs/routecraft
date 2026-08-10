@@ -177,10 +177,23 @@ function walk(
       continue;
     }
 
-    for (const nested of nestedOf(step)) {
-      walk(route, nested.steps, nested.rejoins ? after : [], found, counter, {
+    const nested = nestedStepsOf(step);
+    // Presence of the protocol, not emptiness of its answer: a
+    // `.multicast()` with zero paths legitimately reports none, while a
+    // step that never implemented the protocol reports none for the very
+    // reason this check exists.
+    if (!answersNestedSteps(step) && NESTING_OPERATIONS.has(step.operation)) {
+      throw rcError("RC5003", undefined, {
+        message:
+          `Route "${route.id}" has a "${step.operation}" step that does not report its sub-pipelines, ` +
+          `so the framework cannot see what is inside it. A step carrying sub-pipelines must implement ` +
+          `the NESTED_STEPS protocol, and a wrapper around one must forward it.`,
+      });
+    }
+    for (const branch of nested) {
+      walk(route, branch.steps, branch.rejoins ? after : [], found, counter, {
         splitDepth,
-        sealed: scope.sealed || !nested.rejoins,
+        sealed: scope.sealed || !branch.rejoins,
       });
     }
   }
@@ -191,10 +204,41 @@ function walk(
  *
  * @internal
  */
-function nestedOf(step: Step<Adapter>): ReadonlyArray<NestedSteps> {
+export function nestedStepsOf(step: Step<Adapter>): ReadonlyArray<NestedSteps> {
   const nesting = (step as Partial<NestingStep>)[NESTED_STEPS];
   return typeof nesting === "function" ? nesting.call(step as NestingStep) : [];
 }
+
+/**
+ * Whether a step implements the {@link NESTED_STEPS} protocol at all.
+ *
+ * @internal
+ */
+function answersNestedSteps(step: Step<Adapter>): boolean {
+  return typeof (step as Partial<NestingStep>)[NESTED_STEPS] === "function";
+}
+
+/**
+ * Operations that MUST answer the {@link NESTED_STEPS} protocol.
+ *
+ * The protocol is opt-in, and an opt-in protocol fails silently: a step
+ * that carries sub-pipelines but does not implement it makes everything
+ * inside it invisible to this walk, so a `.suspend()` in there is refused
+ * at runtime (after the approver was notified) rather than at build time,
+ * and the route-scope cache and startup-runtime checks silently pass.
+ *
+ * Listing the operations that carry sub-pipelines turns that silent hole
+ * into a loud one: a new nesting operation, or a wrapper that stops
+ * forwarding, fails the build of any route using it rather than the resume
+ * of one exchange.
+ *
+ * @internal
+ */
+const NESTING_OPERATIONS: ReadonlySet<OperationType> = new Set([
+  OperationType.CHOICE,
+  OperationType.MULTICAST,
+  OperationType.DISPATCH,
+]);
 
 /** @internal */
 function refuse(routeId: string, where: string): Error {

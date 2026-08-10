@@ -8,6 +8,8 @@ import {
   OperationType,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
+import { NESTED_STEPS } from "../dsl-symbol.ts";
+import { type NestedSteps, nestedStepsOf } from "../suspension/sites.ts";
 
 /**
  * Operation kinds that resilience wrappers cannot safely wrap. Validated
@@ -90,6 +92,23 @@ export abstract class WrapperStep<
    * pair around the wrapper.
    */
   readonly skipStepEvents = true;
+
+  /**
+   * Forward the inner step's sub-pipelines so a wrapper is transparent to
+   * framework-level walks of the route's step tree.
+   *
+   * Without this a wrapped nesting step hides everything inside it: a
+   * `.error(h).choice(when(p, (b) => b.suspend(...)))` route resolved zero
+   * suspend sites, which silently disabled the build-time refusals AND the
+   * startup check, and then failed at runtime, after the approver had
+   * already been notified, with a diagnostic telling the user to build the
+   * route through `craft()` (which they had).
+   *
+   * @internal
+   */
+  [NESTED_STEPS](): ReadonlyArray<NestedSteps> {
+    return nestedStepsOf(this.inner);
+  }
 
   constructor(protected readonly inner: Step<T>) {
     if (NON_WRAPPABLE_OPERATIONS.has(inner.operation)) {

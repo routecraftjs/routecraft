@@ -28,10 +28,7 @@ import type { Enricher } from "./enrich.ts";
  *
  * @template T - Body type of the exchange at the point of the choice
  */
-export type ChoicePredicate<
-  T = unknown,
-  Ex extends Exchange<T> = Exchange<T>,
-> = (exchange: Ex) => boolean;
+export type ChoicePredicate<T = unknown> = (exchange: Exchange<T>) => boolean;
 
 /**
  * A single fan-out path: either a bare destination (the exchange is sent to
