@@ -8,6 +8,13 @@ import { extractArticle } from "../src/agent/tools/web-fetch/extract.ts";
  * the behaviour that matters here is precisely where those two disagree
  * with their own documentation.
  */
+/**
+ * Container Readability wraps every successful extraction in. Its
+ * presence or absence is the only reliable way to tell an extracted
+ * result from a body fallback, since both can carry the same markup.
+ */
+const READABILITY_WRAPPER = 'id="readability-page-1"';
+
 describe("WebFetch extraction", () => {
   /**
    * @case A readable article is reduced to its content
@@ -35,7 +42,7 @@ describe("WebFetch extraction", () => {
   /**
    * @case An element-dense document is answered with its body rather than an error
    * @preconditions HTML carrying more elements than the extraction ceiling allows
-   * @expectedResult Returns the body content instead of throwing, so a dense page is still readable
+   * @expectedResult Returns the raw body instead of throwing, and carries none of Readability's wrapper, proving extraction was skipped rather than merely surviving
    */
   test("falls back to the body past the element ceiling", async () => {
     const dense = `<html><head><title>Dense</title></head><body>${"<p>x</p>".repeat(30_001)}</body></html>`;
@@ -44,6 +51,9 @@ describe("WebFetch extraction", () => {
 
     expect(result.title).toBe("Dense");
     expect(result.html).toContain("<p>x</p>");
+    // Readability wraps everything it returns in this container, so its
+    // absence is what distinguishes the fallback from a successful parse.
+    expect(result.html).not.toContain(READABILITY_WRAPPER);
   });
 
   /**
@@ -63,16 +73,32 @@ describe("WebFetch extraction", () => {
   });
 
   /**
-   * @case A page Readability cannot find an article in still returns its text
-   * @preconditions A link index with no article-shaped content
+   * @case A page Readability cannot find an article in still returns its markup
+   * @preconditions A document whose only body content is a script, which Readability parses to null
    * @expectedResult The body is returned rather than an empty result or an error
    */
   test("falls back to the body when Readability declines", async () => {
+    const result = await extractArticle(
+      `<html><head><title>Index</title></head><body><script>load()</script></body></html>`,
+      "http://example.test/index",
+    );
+
+    expect(result.title).toBe("Index");
+    expect(result.html).toContain("<script>");
+    expect(result.html).not.toContain(READABILITY_WRAPPER);
+  });
+
+  /**
+   * @case A link index is extracted rather than falling back, which is why the decline case needs different input
+   * @preconditions A list of links, which Readability accepts and wraps rather than declining
+   * @expectedResult The result carries Readability's wrapper, pinning the boundary between the two paths
+   */
+  test("extracts a link index rather than declining on it", async () => {
     const result = await extractArticle(
       `<html><head><title>Index</title></head><body><ul><li><a href="/a">A</a></li><li><a href="/b">B</a></li></ul></body></html>`,
       "http://example.test/index",
     );
 
-    expect(result.html).toContain("href");
+    expect(result.html).toContain(READABILITY_WRAPPER);
   });
 });
