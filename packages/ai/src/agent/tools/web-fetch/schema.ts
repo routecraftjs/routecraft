@@ -60,6 +60,20 @@ export const webFetchInputSchema: StandardSchemaV1<unknown, WebFetchInput> = {
       }
       const record = value as Record<string, unknown>;
 
+      // The published JSON Schema says additionalProperties: false, so
+      // silently dropping an unknown key would let a model misspell
+      // "offset" and read page one forever, believing it had paginated.
+      const unknown = Object.keys(record).filter(
+        (key) => key !== "url" && key !== "offset",
+      );
+      if (unknown.length > 0) {
+        return issue(
+          `Unknown propert${unknown.length === 1 ? "y" : "ies"} ${unknown
+            .map((key) => `"${key}"`)
+            .join(", ")}. This tool accepts only "url" and "offset".`,
+        );
+      }
+
       const url = record["url"];
       if (typeof url !== "string" || url.trim() === "") {
         return issue('"url" must be a non-empty string.');

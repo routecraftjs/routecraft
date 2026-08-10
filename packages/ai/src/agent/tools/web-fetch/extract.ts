@@ -10,6 +10,17 @@ import { loadOptionalPeer } from "@routecraft/routecraft";
  * keeps this one; a reader-API variant replaces both and keeps neither.
  */
 
+/**
+ * Element ceiling handed to Readability.
+ *
+ * The caller's byte cap bounds input size, but Readability's candidate
+ * scoring is driven by element count rather than bytes, so markup made of
+ * very many tiny elements is expensive at a size the byte cap allows.
+ * Readability returns null past this ceiling, which the caller already
+ * treats as "declined" and answers with the body fallback.
+ */
+const MAX_ELEMS_TO_PARSE = 30_000;
+
 /** Readable content pulled out of a page. */
 export interface ExtractedDocument {
   /** Document title, when the page supplied one. */
@@ -71,9 +82,9 @@ export async function extractArticle(
 
   const title = document.title?.trim() || undefined;
 
-  const article = new readability.Readability(
-    document as unknown as Document,
-  ).parse();
+  const article = new readability.Readability(document as unknown as Document, {
+    maxElemsToParse: MAX_ELEMS_TO_PARSE,
+  }).parse();
 
   const extracted = article?.content?.trim();
   if (extracted) {

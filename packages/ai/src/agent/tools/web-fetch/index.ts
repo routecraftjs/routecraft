@@ -55,6 +55,16 @@ const TEXT_TYPES = new Set([
 /** Media types run through extraction and markdown conversion. */
 const HTML_TYPES = new Set(["text/html", "application/xhtml+xml"]);
 
+/**
+ * Everything this tool can render, handed to the fetch step so an
+ * unsupported type is refused on its headers rather than downloaded in
+ * full and then thrown away.
+ */
+const ACCEPTED_TYPES: ReadonlySet<string> = new Set([
+  ...TEXT_TYPES,
+  ...HTML_TYPES,
+]);
+
 /** Registration-time configuration for {@link webFetch}. */
 export interface WebFetchOptions {
   /**
@@ -98,6 +108,10 @@ export interface WebFetchResult {
    * Length in characters of the full markdown. When the response itself
    * hit the byte cap this is a lower bound, and the truncation notice
    * says so.
+   *
+   * Zero on a cross-host redirect, where no document was read at all.
+   * {@link content} still carries the notice naming the target, so read
+   * {@link redirectedTo} rather than treating zero as an empty page.
    */
   totalLength: number;
   /** Offset to pass back to continue reading. Set only when truncated. */
@@ -184,12 +198,13 @@ export function webFetch(options: WebFetchOptions = {}): FnOptions {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxRedirects: options.maxRedirects ?? DEFAULT_MAX_REDIRECTS,
     allowedDomains: normaliseDomains(options.allowedDomains),
+    acceptedTypes: ACCEPTED_TYPES,
   };
   const maxLength = options.maxLength ?? DEFAULT_MAX_LENGTH;
 
-  assertPositive("maxBytes", bounds.maxBytes);
-  assertPositive("maxLength", maxLength);
-  assertPositive("timeoutMs", bounds.timeoutMs);
+  assertPositiveInteger("maxBytes", bounds.maxBytes);
+  assertPositiveInteger("maxLength", maxLength);
+  assertPositiveInteger("timeoutMs", bounds.timeoutMs);
   if (!Number.isInteger(bounds.maxRedirects) || bounds.maxRedirects < 0) {
     throw rcError("RC5003", undefined, {
       message: `webFetch: maxRedirects must be a non-negative integer, received ${bounds.maxRedirects}.`,
@@ -206,10 +221,16 @@ export function webFetch(options: WebFetchOptions = {}): FnOptions {
   } as FnOptions;
 }
 
-function assertPositive(name: string, value: number): void {
-  if (!Number.isFinite(value) || value <= 0) {
+/**
+ * Integers, not merely positive numbers. A fractional `maxLength` would
+ * advertise a fractional `offset` back to the model, which its own schema
+ * rejects, and a fractional `timeoutMs` makes `AbortSignal.timeout` throw
+ * a raw range error at call time rather than here.
+ */
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isInteger(value) || value <= 0) {
     throw rcError("RC5003", undefined, {
-      message: `webFetch: ${name} must be a positive number, received ${value}.`,
+      message: `webFetch: ${name} must be a positive integer, received ${value}.`,
     });
   }
 }
@@ -227,15 +248,25 @@ function normaliseDomains(domains: string[] | undefined): readonly string[] {
   if (!domains) return Object.freeze([]);
   return Object.freeze(
     domains.map((raw, index) => {
-      const domain = raw.trim().toLowerCase().replace(/^\./, "");
-      if (domain === "" || /[:/?#*\s]/.test(domain)) {
+      const bare = raw.trim().replace(/^\./, "").replace(/\.$/, "");
+      if (bare === "" || /[:/?#*\s]/.test(bare)) {
         throw rcError("RC5003", undefined, {
           message:
             `webFetch: allowedDomains[${index}] must be a bare hostname such as ` +
             `"example.com", received "${raw}".`,
         });
       }
-      return domain;
+      // Through URL so an internationalised entry is stored punycoded,
+      // which is the form `url.hostname` will present at match time.
+      try {
+        return new URL(`https://${bare}`).hostname;
+      } catch (cause) {
+        throw rcError("RC5003", cause, {
+          message:
+            `webFetch: allowedDomains[${index}] is not a usable hostname, ` +
+            `received "${raw}".`,
+        });
+      }
     }),
   );
 }
@@ -293,11 +324,32 @@ async function render(
       markdown: await toMarkdown(article.html),
     };
   }
+  // Backstop. The fetch step refuses anything outside ACCEPTED_TYPES on
+  // the response headers, so reaching here means the two have drifted.
   throw rcError("AI2003", undefined, {
     message:
       `WebFetch: ${resource.url} returned unsupported content type ` +
       `"${resource.contentType}". This tool reads HTML, markdown, and plain text.`,
   });
+}
+
+/**
+ * Pull `index` back by one when it would land between the halves of a
+ * surrogate pair, so an astral character is never split across two
+ * responses. JavaScript string indices count UTF-16 code units, and
+ * slicing on a raw count can otherwise hand the model a lone half of an
+ * emoji and open the next page with the other half.
+ */
+function codePointBoundary(text: string, index: number): number {
+  if (index <= 0 || index >= text.length) return index;
+  const code = text.charCodeAt(index);
+  const previous = text.charCodeAt(index - 1);
+  const splitsPair =
+    previous >= 0xd800 &&
+    previous <= 0xdbff &&
+    code >= 0xdc00 &&
+    code <= 0xdfff;
+  return splitsPair ? index - 1 : index;
 }
 
 /**
@@ -325,7 +377,10 @@ function bound(
     });
   }
 
-  const end = Math.min(offset + maxLength, totalLength);
+  const end = codePointBoundary(
+    markdown,
+    Math.min(offset + maxLength, totalLength),
+  );
   const slice = markdown.slice(offset, end);
   const truncated = end < totalLength;
 

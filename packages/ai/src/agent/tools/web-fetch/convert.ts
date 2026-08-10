@@ -64,14 +64,27 @@ async function buildConverter(): Promise<MarkdownConverter> {
   return service;
 }
 
+/** Fenced code regions, which the blank-line collapse must not touch. */
+const FENCED_BLOCK = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
+
 /**
  * Convert `html` to markdown, collapsing the runs of blank lines that
  * turndown leaves behind where it dropped elements.
+ *
+ * The collapse skips fenced regions. Documentation is the tool's main
+ * target and code samples are most of what documentation contains, so a
+ * blanket replace would silently reformat the very code the model was
+ * asked to read.
  */
 export async function toMarkdown(html: string): Promise<string> {
   const service = await loadConverter();
   return service
     .turndown(html)
-    .replace(/\n{3,}/g, "\n\n")
+    .split(FENCED_BLOCK)
+    .map((segment, index) =>
+      // split() with one capture group alternates prose, fence, prose.
+      index % 2 === 1 ? segment : segment.replace(/\n{3,}/g, "\n\n"),
+    )
+    .join("")
     .trim();
 }

@@ -32,11 +32,16 @@ function records(...addresses: string[]) {
   }));
 }
 
-async function expectRejected(url: string, allowed: string[] = []) {
-  const error = await assertFetchableUrl(new URL(url), allowed).then(
+/** Run the guard and hand back whatever it threw, without asserting a code. */
+async function capture(url: string, allowed: string[] = []): Promise<unknown> {
+  return assertFetchableUrl(new URL(url), allowed).then(
     () => undefined,
     (e: unknown) => e,
   );
+}
+
+async function expectRejected(url: string, allowed: string[] = []) {
+  const error = await capture(url, allowed);
   expect(error).toMatchObject({ rc: "AI2001" });
   return error as Error;
 }
@@ -116,8 +121,8 @@ describe("WebFetch egress guard", () => {
 
   /**
    * @case The deprecated IPv4-compatible IPv6 form does not slip past the range allowlist
-   * @preconditions http://[::7f00:1]/ , which is ::127.0.0.1 and which ipaddr.js classifies as unicast rather than loopback
-   * @expectedResult Rejects with AI2001, proving ::/96 is refused rather than judged on its empty wrapper
+   * @preconditions http://[::7f00:1]/ (::127.0.0.1) and http://[::a9fe:a9fe]/ (::169.254.169.254), both of which ipaddr.js classifies as unicast rather than loopback or link-local
+   * @expectedResult Both reject with AI2001, proving ::/96 is refused rather than judged on its empty wrapper
    */
   test("refuses IPv4-compatible IPv6 addresses", async () => {
     await expectRejected("http://[::7f00:1]/");
@@ -199,24 +204,48 @@ describe("WebFetch egress guard", () => {
   });
 
   /**
-   * @case A host that does not resolve is refused rather than attempted
+   * @case A resolver failure is classified as transient rather than as a refusal
    * @preconditions Resolver rejects with ENOTFOUND
-   * @expectedResult Rejects with AI2001 naming the host
+   * @expectedResult Rejects with the retryable AI2002 rather than the permanent AI2001, so a brief DNS outage is not treated as a policy decision
    */
-  test("refuses a host that fails to resolve", async () => {
+  test("reports a resolver failure as retryable", async () => {
     lookupMock.mockRejectedValue(new Error("ENOTFOUND"));
-    const error = await expectRejected("https://nope.example.com/");
-    expect(error.message).toMatch(/could not resolve host/i);
+    const error = await capture("https://nope.example.com/");
+    expect(error).toMatchObject({ rc: "AI2002", retryable: true });
+    expect((error as Error).message).toMatch(/could not resolve host/i);
   });
 
   /**
-   * @case A host resolving to nothing is refused
+   * @case A host resolving to nothing does not fall through to a fetch
    * @preconditions Resolver returns an empty record set
-   * @expectedResult Rejects with AI2001 rather than falling through to a fetch
+   * @expectedResult Rejects with AI2002, the same transient class as a resolver rejection
    */
   test("refuses a host that resolves to no addresses", async () => {
     lookupMock.mockResolvedValue([]);
-    const error = await expectRejected("https://empty.example.com/");
-    expect(error.message).toMatch(/no addresses/i);
+    const error = await capture("https://empty.example.com/");
+    expect(error).toMatchObject({ rc: "AI2002" });
+    expect((error as Error).message).toMatch(/no addresses/i);
+  });
+
+  /**
+   * @case A host carrying the root-zone trailing dot still matches its allowlist entry
+   * @preconditions allowedDomains is ["example.com"], target host is written as example.com. with a trailing dot
+   * @expectedResult Resolves without throwing, rather than failing closed on a cosmetic difference
+   */
+  test("matches a host written with a trailing dot", async () => {
+    lookupMock.mockResolvedValue(records("93.184.216.34"));
+    await assertFetchableUrl(new URL("https://example.com./"), ["example.com"]);
+  });
+
+  /**
+   * @case An internationalised host matches an allowlist entry stored in punycode
+   * @preconditions Entry is the punycoded xn--exmple-cua.com, target host is the Unicode exämple.com which URL punycodes
+   * @expectedResult Resolves without throwing, proving both sides meet in the same encoding
+   */
+  test("matches an internationalised host against its punycode entry", async () => {
+    lookupMock.mockResolvedValue(records("93.184.216.34"));
+    await assertFetchableUrl(new URL("https://exämple.com/"), [
+      "xn--exmple-cua.com",
+    ]);
   });
 });

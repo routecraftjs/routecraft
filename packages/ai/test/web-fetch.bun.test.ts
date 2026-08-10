@@ -266,6 +266,34 @@ describe("WebFetch tool", () => {
   });
 
   /**
+   * @case A redirect that keeps the host but drops to http is not followed
+   * @preconditions An https URL redirects to the same hostname over plain http
+   * @expectedResult Reported as a cross-host redirect rather than followed, so the fetch is never silently downgraded to cleartext
+   */
+  test("does not follow an https to http downgrade on the same host", async () => {
+    fetchMock.mockResolvedValue(redirect(`http://${HOST}/downgraded`));
+
+    const result = await call({}, { url: `https://${HOST}/secure` });
+
+    expect(result.redirectedTo).toBe(`http://${HOST}/downgraded`);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * @case A redirect to a different port on the same hostname is not followed
+   * @preconditions An https URL redirects to the same hostname on an explicit non-default port
+   * @expectedResult Reported as a cross-host redirect, since the origin changed even though the hostname did not
+   */
+  test("does not follow a port change on the same host", async () => {
+    fetchMock.mockResolvedValue(redirect(`https://${HOST}:8443/elsewhere`));
+
+    const result = await call({}, { url: `https://${HOST}/start` });
+
+    expect(result.redirectedTo).toBe(`https://${HOST}:8443/elsewhere`);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
    * @case A redirect loop stops at the configured hop limit
    * @preconditions maxRedirects of 2 against a host that always redirects to itself
    * @expectedResult Rejects with AI2002 naming the limit
@@ -336,6 +364,92 @@ describe("WebFetch tool", () => {
   });
 
   /**
+   * @case An unsupported content type is refused on its headers, not after a full download
+   * @preconditions Server returns application/pdf with a body
+   * @expectedResult Rejects with AI2003 and the response body stream is cancelled rather than read
+   */
+  test("refuses an unsupported content type without reading the body", async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new TextEncoder().encode("%PDF-1.7"));
+        controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    fetchMock.mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "application/pdf" },
+      }),
+    );
+
+    const error = await call({}, { url: `http://${HOST}/doc.pdf` }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toMatchObject({ rc: "AI2003" });
+    expect(cancelled).toBe(true);
+  });
+
+  /**
+   * @case A truncation boundary never splits an astral character in half
+   * @preconditions maxLength lands exactly between the two surrogate halves of an emoji
+   * @expectedResult The boundary moves back one unit so neither response carries a lone surrogate
+   */
+  test("keeps truncation boundaries on code-point boundaries", async () => {
+    // Each emoji is two UTF-16 units, so maxLength 5 would otherwise cut
+    // the third one in half.
+    fetchMock.mockResolvedValue(respond("ab🙂🙂🙂", "text/markdown"));
+
+    const first = await call({ maxLength: 5 }, { url: `http://${HOST}/` });
+    const body = first.content.split("\n\n---\n")[0]!;
+
+    expect(body).toBe("ab🙂");
+    expect(first.nextOffset).toBe(4);
+    // No unpaired surrogate survived into the response.
+    expect([...body].every((ch) => ch.codePointAt(0)! !== 0xfffd)).toBe(true);
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(body)).toBe(false);
+  });
+
+  /**
+   * @case An unknown input property is rejected rather than silently dropped
+   * @preconditions Input carries a misspelled "offsett" alongside a valid url
+   * @expectedResult Validation fails, matching the published additionalProperties: false, so a mistyped continuation cannot loop on page one
+   */
+  test("rejects unknown input properties", async () => {
+    fetchMock.mockResolvedValue(respond("hi", "text/plain"));
+
+    const error = await call(
+      {},
+      {
+        url: `http://${HOST}/`,
+        offsett: 100,
+      },
+    ).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeDefined();
+    expect((error as Error).message).toMatch(/offsett/);
+  });
+
+  /**
+   * @case Fractional bounds are rejected at registration
+   * @preconditions A factory configured with a fractional maxLength and, separately, a fractional timeoutMs
+   * @expectedResult Both throw RC5003, since a fractional maxLength would advertise a schema-invalid offset and a fractional timeoutMs throws inside AbortSignal.timeout
+   */
+  test("rejects fractional bounds at registration", () => {
+    expect(() => webFetch({ maxLength: 1.5 })).toThrow(/positive integer/);
+    expect(() => webFetch({ timeoutMs: 1.5 })).toThrow(/positive integer/);
+    expect(() => webFetch({ maxBytes: 1.5 })).toThrow(/positive integer/);
+  });
+
+  /**
    * @case The registered tool advertises itself as safe to repeat
    * @preconditions A default-configured factory
    * @expectedResult Tags are read-only and idempotent, matching the other built-in read tools
@@ -351,6 +465,9 @@ describe("WebFetch tool", () => {
    */
   test("rejects invalid bounds at registration", () => {
     expect(() => webFetch({ maxBytes: 0 })).toThrow(/maxBytes/);
+    expect(() => webFetch({ maxBytes: 0 })).toThrowError(
+      expect.objectContaining({ rc: "RC5003" }),
+    );
   });
 
   /**

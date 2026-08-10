@@ -40,6 +40,12 @@ export interface FetchBounds {
   maxRedirects: number;
   /** Host allowlist, checked on every hop. Empty means any public host. */
   allowedDomains: readonly string[];
+  /**
+   * Media types the caller can render. Checked against the response
+   * header before the body is read, so a PDF or an image costs one set
+   * of headers rather than a full download that is then discarded.
+   */
+  acceptedTypes: ReadonlySet<string>;
 }
 
 /**
@@ -82,7 +88,13 @@ export async function fetchResource(
   const combined = AbortSignal.any([signal, deadline]);
 
   for (let hop = 0; hop <= bounds.maxRedirects; hop++) {
-    await assertFetchableUrl(current, bounds.allowedDomains);
+    // Raced against the deadline because `dns.lookup` takes no abort
+    // signal, and a resolver that hangs would otherwise hold the walk
+    // past `timeoutMs` once per hop.
+    await Promise.race([
+      assertFetchableUrl(current, bounds.allowedDomains),
+      rejectOnAbort(combined, current, deadline, bounds.timeoutMs),
+    ]);
 
     const response = await request(current, combined, deadline, bounds);
 
@@ -97,7 +109,10 @@ export async function fetchResource(
         });
       }
       const next = resolveLocation(location, current);
-      if (next.host !== current.host) {
+      // Origin, not host: `host` carries no scheme, so comparing it would
+      // treat an https to http redirect on the same name as a same-host
+      // hop and quietly move the fetch onto cleartext.
+      if (next.origin !== current.origin) {
         return {
           url: current.href,
           contentType: "",
@@ -121,6 +136,15 @@ export async function fetchResource(
       .split(";")[0]!
       .trim()
       .toLowerCase();
+
+    if (!bounds.acceptedTypes.has(contentType)) {
+      await response.body?.cancel();
+      throw rcError("AI2003", undefined, {
+        message:
+          `WebFetch: ${current.href} returned unsupported content type ` +
+          `"${contentType}". This tool reads HTML, markdown, and plain text.`,
+      });
+    }
     // The read is wrapped as well as the request: a deadline or a caller
     // abort that fires after the headers arrive rejects here instead, and
     // an unwrapped rejection would reach the model as a bare
@@ -204,6 +228,32 @@ async function request(
  * reporting that as "did not complete within 30000ms" would send an
  * operator hunting a timeout that never happened.
  */
+/**
+ * A promise that never resolves and rejects with `AI2002` the moment
+ * `signal` aborts. Used to put a deadline around work that takes no
+ * abort signal of its own.
+ */
+function rejectOnAbort(
+  signal: AbortSignal,
+  url: URL,
+  deadline: AbortSignal,
+  timeoutMs: number,
+): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    const fail = () =>
+      reject(
+        rcError("AI2002", undefined, {
+          message: abortMessage(url, deadline, timeoutMs),
+        }),
+      );
+    if (signal.aborted) {
+      fail();
+      return;
+    }
+    signal.addEventListener("abort", fail, { once: true });
+  });
+}
+
 function abortMessage(
   url: URL,
   deadline: AbortSignal,

@@ -436,8 +436,8 @@ Input is `{ url, offset? }`. The result carries `url`, `title?`, `content`, `tru
 
 Output is bounded, never summarised. A page longer than `maxLength` comes back cut, and the content itself ends with a visible notice naming the full length and the offset to resume from:
 
-```
-[WebFetch: Showing characters 0 to 50000 of 213480. Call WebFetch again with offset=50000 for the next section.]
+```text
+[WebFetch: Showing characters 0 to 50000 of 213480. Call this tool again with offset=50000 for the next section.]
 ```
 
 There is no silent truncation: a clipped page always says so in the text the model reads, not only in a sibling field.

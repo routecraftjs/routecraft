@@ -416,7 +416,9 @@ Web tool refused to dereference a URL
 - The URL carries embedded credentials (`https://user:password@host/`).
 - `allowedDomains` is configured and the host is not on it, nor a subdomain of an entry.
 - The host resolves to a non-public address: loopback, RFC 1918 private space, link-local (including the `169.254.169.254` cloud-metadata address), unique-local IPv6, or any other non-unicast range. Every address a host resolves to is checked, not just the first.
-- The host does not resolve, resolves to nothing, or resolves to an address that cannot be parsed.
+- The host resolves to an address that cannot be parsed, which fails closed rather than being skipped.
+
+A host that fails to resolve at all is `AI2002` rather than this code, because a resolver failure is usually transient and should stay retryable.
 
 The same check runs again on every redirect hop, so a permitted host cannot bounce the fetch somewhere it could not reach directly.
 
@@ -427,7 +429,7 @@ This tool reaches the public web only. To read something internal, expose it as 
 Web tool request failed
 
 **Why it happens**  
-The request was made but produced no usable response: a transport failure, a non-2xx status, a redirect carrying no `Location` or an unparseable one, more same-host redirects than `maxRedirects` allows, or the per-call `timeoutMs` deadline elapsing (whether it fires while awaiting headers or partway through reading the body).
+The request was made but produced no usable response: a DNS resolver failure (or a host resolving to no addresses), a transport failure, a non-2xx status, a redirect carrying no `Location` or an unparseable one, more same-origin redirects than `maxRedirects` allows, or the per-call `timeoutMs` deadline elapsing (whether it fires during name resolution, while awaiting headers, or partway through reading the body).
 
 **Suggestion**  
 Check the URL resolves and responds. Raise `timeoutMs` or `maxRedirects` on the factory if the host is legitimately slow or redirect-heavy. Retryable: a transient failure may succeed on a second call.

@@ -92,7 +92,10 @@ async function resolveAll(hostname: string): Promise<string[]> {
     const records = await lookup(hostname, { all: true, verbatim: true });
     return records.map((r) => r.address);
   } catch (cause) {
-    throw rcError("AI2001", cause, {
+    // AI2002, not AI2001: a resolver rejection is an environmental
+    // failure and is usually transient, so it must stay retryable. AI2001
+    // is reserved for refusals we decided on, which retrying cannot fix.
+    throw rcError("AI2002", cause, {
       message: `WebFetch: could not resolve host "${hostname}".`,
     });
   }
@@ -141,7 +144,7 @@ export async function assertFetchableUrl(
 
   const addresses = await resolveAll(url.hostname);
   if (addresses.length === 0) {
-    throw rcError("AI2001", undefined, {
+    throw rcError("AI2002", undefined, {
       message: `WebFetch: host "${url.hostname}" resolved to no addresses.`,
     });
   }
@@ -173,14 +176,15 @@ export async function assertFetchableUrl(
  * one. The dot boundary is what keeps `evil-example.com` from matching an
  * entry of `example.com`.
  *
- * Entries arrive already trimmed and lowercased from the factory, so this
- * only has to compare.
+ * Entries arrive normalised from the factory (lowercased, punycode), so
+ * this only has to strip the optional root-zone dot a host may carry and
+ * compare.
  */
 function matchesAllowedDomain(
   url: URL,
   allowedDomains: readonly string[],
 ): boolean {
-  const host = url.hostname.toLowerCase();
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
   return allowedDomains.some(
     (domain) => host === domain || host.endsWith(`.${domain}`),
   );
