@@ -243,6 +243,18 @@ function encode(
     }
 
     const keys = Object.keys(object);
+    // Third and last place this walk enumerates own names, after the Date
+    // and array branches above. All three refuse rather than enumerate,
+    // because a non-enumerable own property is dropped by JSON exactly as
+    // silently as a symbol-keyed one, and silent loss is what this walk
+    // exists to prevent.
+    const hidden = Object.getOwnPropertyNames(object).find(
+      (key) => !keys.includes(key),
+    );
+    if (hidden !== undefined) {
+      throw refuse(path, `a non-enumerable property ("${hidden}")`);
+    }
+
     if (keys.length === 1 && keys[0] === DATE_TAG) {
       throw refuse(path, `the reserved ${DATE_TAG} envelope key`);
     }

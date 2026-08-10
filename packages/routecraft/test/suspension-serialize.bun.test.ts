@@ -323,6 +323,25 @@ describe("suspension serialization refusals", () => {
   });
 
   /**
+   * @case A hidden field on a plain object is refused, not dropped
+   * @preconditions A body object whose own property is non-enumerable
+   * @expectedResult RC5042. Completes the rule the Date and array branches
+   *   already hold: hidden own state is refused wherever it appears, because
+   *   JSON drops a non-enumerable property as silently as a symbol-keyed one.
+   */
+  test("refuses an object with a non-enumerable property", () => {
+    const body: Record<string, unknown> = { amountCents: 100 };
+    Object.defineProperty(body, "auditToken", {
+      value: "abc",
+      enumerable: false,
+    });
+    const attempt = () => serializeExchange(exchangeWith(body));
+
+    expect(attempt).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    expect(attempt).toThrow(/auditToken/);
+  });
+
+  /**
    * @case The check reaches into headers, not just the body
    * @preconditions A header holding an adapter handle
    * @expectedResult RC5042 naming the header path
