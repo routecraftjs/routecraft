@@ -352,4 +352,110 @@ describe("WebFetch tool", () => {
   test("rejects invalid bounds at registration", () => {
     expect(() => webFetch({ maxBytes: 0 })).toThrow(/maxBytes/);
   });
+
+  /**
+   * @case A malformed allowlist entry is caught at registration rather than failing every call
+   * @preconditions allowedDomains carries a full URL instead of a bare hostname
+   * @expectedResult Throws RC5003 naming the offending index, so the typo surfaces at context init
+   */
+  test("rejects malformed allowedDomains entries at registration", () => {
+    expect(() =>
+      webFetch({ allowedDomains: ["https://docs.example.com"] }),
+    ).toThrow(/allowedDomains\[0\]/);
+    expect(() => webFetch({ allowedDomains: ["example.com/guide"] })).toThrow(
+      /allowedDomains\[0\]/,
+    );
+    expect(() => webFetch({ allowedDomains: ["  "] })).toThrow(
+      /allowedDomains\[0\]/,
+    );
+  });
+
+  /**
+   * @case The allowlist is copied at registration, so mutating the caller's array cannot widen it
+   * @preconditions A factory registered with an array that is then pushed to, and a fetch aimed at the pushed host
+   * @expectedResult The later host is still refused with AI2001, proving the array was not captured by reference
+   */
+  test("does not widen the allowlist when the caller's array is mutated", async () => {
+    const domains = ["allowed.example"];
+    const spec = webFetch({ allowedDomains: domains });
+    domains.push("sneaky.example");
+    fetchMock.mockResolvedValue(respond("hi", "text/plain"));
+
+    const error = await testFn(spec, {
+      url: "http://sneaky.example/",
+    }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toMatchObject({ rc: "AI2001" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @case Continuation instructions do not name a tool name the caller may not have used
+   * @preconditions A truncated page, from a factory the caller could register under any name
+   * @expectedResult The notice says "this tool" rather than a hard-coded WebFetch, so continuation works under any registered name
+   */
+  test("phrases the continuation notice without a hard-coded tool name", async () => {
+    fetchMock.mockResolvedValue(respond(longMarkdown(250), "text/markdown"));
+
+    const result = await call({ maxLength: 100 }, { url: `http://${HOST}/` });
+
+    expect(result.content).toMatch(/Call this tool again with offset=100/);
+    expect(result.content).not.toMatch(/Call WebFetch again/);
+  });
+
+  /**
+   * @case HTML past the extraction ceiling is refused rather than blocking the event loop
+   * @preconditions A text/html body larger than the hard MAX_EXTRACTABLE_CHARS ceiling, with maxBytes raised to let it through the wire cap
+   * @expectedResult Rejects with AI2003 naming the ceiling, and no extraction is attempted
+   */
+  test("refuses HTML past the extraction ceiling", async () => {
+    const huge = `<html><body>${"<p>x</p>".repeat(100_000)}</body></html>`;
+    fetchMock.mockResolvedValue(respond(huge));
+
+    const error = await call(
+      { maxBytes: 20_000_000 },
+      { url: `http://${HOST}/huge` },
+    ).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toMatchObject({ rc: "AI2003" });
+    expect((error as Error).message).toMatch(/will extract/i);
+  });
+
+  /**
+   * @case An empty document read from a stale continuation offset errors instead of reporting a backwards range
+   * @preconditions A page whose markdown is empty, read with a non-zero offset
+   * @expectedResult Rejects with AI2003, the same as any other offset past the end, rather than emitting "characters 500 to 0 of 0"
+   */
+  test("rejects a non-zero offset into an empty document", async () => {
+    fetchMock.mockResolvedValue(respond("   ", "text/plain"));
+
+    const error = await call({}, { url: `http://${HOST}/`, offset: 500 }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toMatchObject({ rc: "AI2003" });
+    expect((error as Error).message).toMatch(/past the end/i);
+  });
+
+  /**
+   * @case An empty document read from the start is not an error
+   * @preconditions A page whose markdown is empty, read with no offset
+   * @expectedResult Returns empty content rather than throwing, since offset 0 into an empty page is legitimate
+   */
+  test("allows an empty document at offset zero", async () => {
+    fetchMock.mockResolvedValue(respond("   ", "text/plain"));
+
+    const result = await call({}, { url: `http://${HOST}/` });
+
+    expect(result.content).toBe("");
+    expect(result.truncated).toBe(false);
+    expect(result.totalLength).toBe(0);
+  });
 });

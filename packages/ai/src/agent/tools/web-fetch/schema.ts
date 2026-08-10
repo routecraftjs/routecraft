@@ -78,9 +78,12 @@ export const webFetchInputSchema: StandardSchemaV1<unknown, WebFetchInput> = {
       }
       return { value: { url: url.trim(), offset: rawOffset } };
     },
+    // Only `input` is declared. `JSON_SCHEMA` describes `{ url, offset? }`,
+    // which is this tool's input and not its output (`WebFetchResult`), so
+    // pointing `output` at it would assert something false. The bridge's
+    // output direction already falls back to `input`.
     jsonSchema: {
       input: () => JSON_SCHEMA,
-      output: () => JSON_SCHEMA,
     },
   } as StandardSchemaV1<unknown, WebFetchInput>["~standard"],
 };

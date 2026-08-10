@@ -33,19 +33,21 @@ const LINKEDOM_PEER = { adapterName: "WebFetch", packageName: "linkedom" };
 type ReadabilityModule = typeof import("@mozilla/readability");
 type LinkedomModule = typeof import("linkedom");
 
-let cached: {
+interface Extractors {
   readability: ReadabilityModule;
   linkedom: LinkedomModule;
-} | null = null;
+}
 
-async function loadExtractors(): Promise<NonNullable<typeof cached>> {
-  if (cached) return cached;
-  const [readability, linkedom] = await Promise.all([
+// Memoised on the promise, not the value: caching the value lets two
+// concurrent first callers both past the guard and both run the import.
+let extractors: Promise<Extractors> | null = null;
+
+async function loadExtractors(): Promise<Extractors> {
+  extractors ??= Promise.all([
     loadOptionalPeer(() => import("@mozilla/readability"), READABILITY_PEER),
     loadOptionalPeer(() => import("linkedom"), LINKEDOM_PEER),
-  ]);
-  cached = { readability, linkedom };
-  return cached;
+  ]).then(([readability, linkedom]) => ({ readability, linkedom }));
+  return extractors;
 }
 
 /**
@@ -69,10 +71,6 @@ export async function extractArticle(
 
   const title = document.title?.trim() || undefined;
 
-  // Readability mutates the document it is given, so the fallback reads
-  // the body BEFORE parsing rather than after.
-  const bodyHtml = document.body?.innerHTML ?? "";
-
   const article = new readability.Readability(
     document as unknown as Document,
   ).parse();
@@ -85,5 +83,14 @@ export async function extractArticle(
       html: extracted,
     };
   }
-  return { ...(title ? { title } : {}), html: bodyHtml };
+
+  // Re-parse rather than keeping a copy of the body from before the call:
+  // Readability mutates the document it is given, and serialising the
+  // whole body up front would cost a full extra copy on every page just
+  // to have a fallback ready for the few that need one.
+  const { document: pristine } = linkedom.parseHTML(html, { location: url });
+  return {
+    ...(title ? { title } : {}),
+    html: pristine.body?.innerHTML ?? "",
+  };
 }

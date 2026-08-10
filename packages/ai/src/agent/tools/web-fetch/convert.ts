@@ -28,14 +28,20 @@ interface TurndownConstructor {
   new (options?: Record<string, unknown>): MarkdownConverter;
 }
 
-let cached: MarkdownConverter | null = null;
+// Memoised on the promise, not the value: caching the value lets two
+// concurrent first callers both past the guard and both build a converter.
+let converter: Promise<MarkdownConverter> | null = null;
 
 /**
  * Build the shared converter once. Turndown instances carry no state
  * between `turndown()` calls, so one instance serves every fetch.
  */
 async function loadConverter(): Promise<MarkdownConverter> {
-  if (cached) return cached;
+  converter ??= buildConverter();
+  return converter;
+}
+
+async function buildConverter(): Promise<MarkdownConverter> {
   const mod = await loadOptionalPeer(() => import("turndown"), TURNDOWN_PEER);
   // Accept either interop shape rather than betting on one runtime's.
   const namespace = mod as unknown as {
@@ -51,7 +57,6 @@ async function loadConverter(): Promise<MarkdownConverter> {
   // Readability leaves these in when they sit inside the article body,
   // and none of them renders as anything a model can use.
   service.remove(["script", "style", "noscript", "iframe", "form"]);
-  cached = service;
   return service;
 }
 

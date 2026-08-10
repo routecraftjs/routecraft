@@ -60,11 +60,18 @@ const PUBLIC_RANGE = "unicast";
  * inside it.
  */
 function isPublicAddress(parsed: ipaddr.IPv4 | ipaddr.IPv6): boolean {
-  const address =
-    parsed.kind() === "ipv6" && (parsed as ipaddr.IPv6).isIPv4MappedAddress()
-      ? (parsed as ipaddr.IPv6).toIPv4Address()
-      : parsed;
-  return address.range() === PUBLIC_RANGE;
+  if (parsed.kind() === "ipv6") {
+    const v6 = parsed as ipaddr.IPv6;
+    if (v6.isIPv4MappedAddress()) {
+      return v6.toIPv4Address().range() === PUBLIC_RANGE;
+    }
+    // RFC 4291 deprecated the IPv4-compatible form (::a.b.c.d). ipaddr.js
+    // has no range for ::/96, so ::7f00:1 would otherwise be judged on
+    // the empty wrapper and pass as unicast. IANA reserves the whole
+    // block, so refusing it outright loses nothing.
+    if (v6.parts.slice(0, 6).every((part) => part === 0)) return false;
+  }
+  return parsed.range() === PUBLIC_RANGE;
 }
 
 /**
@@ -165,15 +172,16 @@ export async function assertFetchableUrl(
  * True when `url`'s host equals an allowlist entry or is a subdomain of
  * one. The dot boundary is what keeps `evil-example.com` from matching an
  * entry of `example.com`.
+ *
+ * Entries arrive already trimmed and lowercased from the factory, so this
+ * only has to compare.
  */
 function matchesAllowedDomain(
   url: URL,
   allowedDomains: readonly string[],
 ): boolean {
   const host = url.hostname.toLowerCase();
-  return allowedDomains.some((raw) => {
-    const domain = raw.trim().toLowerCase().replace(/^\./, "");
-    if (domain === "") return false;
-    return host === domain || host.endsWith(`.${domain}`);
-  });
+  return allowedDomains.some(
+    (domain) => host === domain || host.endsWith(`.${domain}`),
+  );
 }

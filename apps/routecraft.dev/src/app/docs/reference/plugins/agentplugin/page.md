@@ -424,8 +424,8 @@ They are optional peers, loaded on first call. A deployment that never registers
 
 | Option | Default | Meaning |
 |---|---|---|
-| `allowedDomains` | `[]` (any public host) | Hosts the tool may read. An entry matches its exact host and any subdomain. |
-| `maxBytes` | `5000000` | Bytes read off the wire per fetch. |
+| `allowedDomains` | `[]` (any public host) | Hosts the tool may read. An entry matches its exact host and any subdomain. Entries must be bare hostnames; a malformed entry throws at registration rather than failing every call. |
+| `maxBytes` | `500000` | Bytes read off the wire per fetch. Bounds CPU as well as memory, see below. |
 | `maxLength` | `50000` | Markdown characters per response. |
 | `timeoutMs` | `30000` | Deadline for a whole fetch, redirects included. |
 | `maxRedirects` | `5` | Same-host redirect hops followed. |
@@ -441,6 +441,10 @@ Output is bounded, never summarised. A page longer than `maxLength` comes back c
 ```
 
 There is no silent truncation: a clipped page always says so in the text the model reads, not only in a sibling field.
+
+**Why `maxBytes` defaults low**
+
+Extraction and markdown conversion are synchronous and run on the same event loop as every route, consumer, and timer in the process. Turndown's cost is superlinear in the number of block elements: measured against the shipped peers on block-heavy HTML, 250 KB converts in about 0.4s, 500 KB in about 1.7s, and 1 MB in about 12s. The default sits below that knee so one tool call cannot stall the process for seconds, and a separate hard ceiling refuses extraction outright (with `AI2003`) above 600,000 characters of HTML, so raising `maxBytes` cannot configure the bound away by accident. Reading pages larger than that is a job for a purpose-built route.
 
 **What it protects against**
 

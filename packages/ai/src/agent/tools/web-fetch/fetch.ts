@@ -84,7 +84,7 @@ export async function fetchResource(
   for (let hop = 0; hop <= bounds.maxRedirects; hop++) {
     await assertFetchableUrl(current, bounds.allowedDomains);
 
-    const response = await request(current, combined, bounds.timeoutMs);
+    const response = await request(current, combined, deadline, bounds);
 
     if (REDIRECT_STATUSES.has(response.status)) {
       const location = response.headers.get("location");
@@ -121,11 +121,24 @@ export async function fetchResource(
       .split(";")[0]!
       .trim()
       .toLowerCase();
-    const { text, truncated } = await readCapped(
-      response,
-      bounds.maxBytes,
-      contentTypeCharset(response.headers.get("content-type")),
-    );
+    // The read is wrapped as well as the request: a deadline or a caller
+    // abort that fires after the headers arrive rejects here instead, and
+    // an unwrapped rejection would reach the model as a bare
+    // "The operation timed out" carrying neither the URL nor AI2002's
+    // retryable metadata.
+    let read: { text: string; truncated: boolean };
+    try {
+      read = await readCapped(
+        response,
+        bounds.maxBytes,
+        contentTypeCharset(response.headers.get("content-type")),
+      );
+    } catch (cause) {
+      throw rcError("AI2002", cause, {
+        message: abortMessage(current, deadline, bounds.timeoutMs),
+      });
+    }
+    const { text, truncated } = read;
     return {
       url: current.href,
       contentType,
@@ -162,7 +175,8 @@ function resolveLocation(location: string, base: URL): URL {
 async function request(
   url: URL,
   signal: AbortSignal,
-  timeoutMs: number,
+  deadline: AbortSignal,
+  bounds: FetchBounds,
 ): Promise<Response> {
   try {
     return await fetch(url, {
@@ -176,15 +190,29 @@ async function request(
       },
     });
   } catch (cause) {
-    if (signal.aborted && signal.reason instanceof Error) {
-      throw rcError("AI2002", signal.reason, {
-        message: `WebFetch: ${url.href} did not complete within ${timeoutMs}ms.`,
-      });
-    }
     throw rcError("AI2002", cause, {
-      message: `WebFetch: request to ${url.href} failed.`,
+      message: abortMessage(url, deadline, bounds.timeoutMs),
     });
   }
+}
+
+/**
+ * Describe a failure in terms of what actually stopped it.
+ *
+ * Discriminating on the deadline signal rather than the combined one
+ * matters: a route shutting down cancels the caller's signal, and
+ * reporting that as "did not complete within 30000ms" would send an
+ * operator hunting a timeout that never happened.
+ */
+function abortMessage(
+  url: URL,
+  deadline: AbortSignal,
+  timeoutMs: number,
+): string {
+  if (deadline.aborted) {
+    return `WebFetch: ${url.href} did not complete within ${timeoutMs}ms.`;
+  }
+  return `WebFetch: request to ${url.href} failed.`;
 }
 
 /** Charset from a Content-Type header, defaulting to UTF-8. */
@@ -253,10 +281,20 @@ async function readCapped(
 
 function decode(bytes: Uint8Array, charset: string): string {
   try {
-    return new TextDecoder(charset).decode(bytes);
+    return decodeStreaming(charset, bytes);
   } catch {
     // An unrecognised charset label is the server's problem, not a
     // reason to fail the read; UTF-8 is the overwhelmingly likely truth.
-    return new TextDecoder("utf-8").decode(bytes);
+    return decodeStreaming("utf-8", bytes);
   }
+}
+
+/**
+ * Decode without a final flush. The byte cap lands at an arbitrary
+ * offset, so the tail is often half a multi-byte sequence; streaming mode
+ * drops the incomplete character instead of substituting U+FFFD into the
+ * HTML that extraction then has to parse.
+ */
+function decodeStreaming(charset: string, bytes: Uint8Array): string {
+  return new TextDecoder(charset).decode(bytes, { stream: true });
 }

@@ -411,6 +411,7 @@ Web tool refused to dereference a URL
 
 **Why it happens**  
 `webFetch()` rejected a URL before opening any connection:
+- The URL string cannot be parsed as an absolute URL.
 - The scheme is not `http:` or `https:`.
 - The URL carries embedded credentials (`https://user:password@host/`).
 - `allowedDomains` is configured and the host is not on it, nor a subdomain of an entry.
@@ -426,7 +427,7 @@ This tool reaches the public web only. To read something internal, expose it as 
 Web tool request failed
 
 **Why it happens**  
-The request was made but produced no usable response: a transport failure, a non-2xx status, a redirect carrying no `Location`, more same-host redirects than `maxRedirects` allows, or the per-call `timeoutMs` deadline elapsing.
+The request was made but produced no usable response: a transport failure, a non-2xx status, a redirect carrying no `Location` or an unparseable one, more same-host redirects than `maxRedirects` allows, or the per-call `timeoutMs` deadline elapsing (whether it fires while awaiting headers or partway through reading the body).
 
 **Suggestion**  
 Check the URL resolves and responds. Raise `timeoutMs` or `maxRedirects` on the factory if the host is legitimately slow or redirect-heavy. Retryable: a transient failure may succeed on a second call.
@@ -437,10 +438,11 @@ Web tool could not read the fetched content
 **Why it happens**  
 The response arrived but could not be turned into text:
 - The content type is not one this tool reads (HTML, markdown, or plain text).
+- The HTML is larger than the tool will extract. Extraction and markdown conversion are synchronous and block the event loop, so there is a hard ceiling above which the fetch is refused rather than attempted.
 - A continuation `offset` points past the end of the document.
 
 **Suggestion**  
-Fetch binary formats, or API responses you intend to parse, with a purpose-built route rather than this tool. For an offset error, re-read from the offset named in the last truncation notice.
+Fetch binary formats, oversized pages, or API responses you intend to parse, with a purpose-built route rather than this tool. For an offset error, re-read from the offset named in the last truncation notice.
 
 ## RC5028
 Cache provider failed

@@ -2,11 +2,34 @@ import { rcError, type KnownTag } from "@routecraft/routecraft";
 import type { FnHandlerContext, FnOptions } from "../../../fn/types.ts";
 import { toMarkdown } from "./convert.ts";
 import { extractArticle } from "./extract.ts";
-import { fetchResource } from "./fetch.ts";
+import {
+  fetchResource,
+  type FetchBounds,
+  type FetchedResource,
+} from "./fetch.ts";
 import { webFetchInputSchema, type WebFetchInput } from "./schema.ts";
 
-/** Bytes read off the wire before the response is cut short. */
-const DEFAULT_MAX_BYTES = 5_000_000;
+/**
+ * Bytes read off the wire before the response is cut short.
+ *
+ * This bounds CPU, not just memory. Extraction and markdown conversion
+ * are synchronous and run on the same event loop as every route,
+ * consumer, and timer in the process, and turndown's cost is superlinear
+ * in the number of block elements. Measured against the shipped peers on
+ * block-heavy HTML: 250 KB converts in ~0.4s, 500 KB in ~1.7s, and 1 MB
+ * in ~12s. The default sits below that knee so one tool call cannot stall
+ * the process for seconds. Raising it trades the whole loop for reach.
+ */
+const DEFAULT_MAX_BYTES = 500_000;
+/**
+ * Hard ceiling on the HTML handed to extraction, independent of
+ * `maxBytes`.
+ *
+ * `maxBytes` is a deployer's dial and can be raised; this is the backstop
+ * that keeps the CPU bound from being configured away by accident. Above
+ * it the fetch fails with `AI2003` rather than blocking the loop.
+ */
+const MAX_EXTRACTABLE_CHARS = 600_000;
 /** Markdown characters returned in one response. */
 const DEFAULT_MAX_LENGTH = 50_000;
 /** Deadline for the whole fetch, redirects included. */
@@ -14,7 +37,15 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 /** Same-host redirect hops followed before giving up. */
 const DEFAULT_MAX_REDIRECTS = 5;
 
-/** Media types returned verbatim, with no extraction or conversion. */
+/**
+ * Media types returned verbatim, with no extraction or conversion.
+ *
+ * The empty string is deliberate: it is what a response with no
+ * `Content-Type` produces, and the realistic source of that is a server
+ * handing back an extensionless plain-text file, for which passing the
+ * body through is the right answer. The cost is that a header-less HTML
+ * page reaches the model as raw markup rather than extracted prose.
+ */
 const TEXT_TYPES = new Set([
   "text/markdown",
   "text/x-markdown",
@@ -33,7 +64,12 @@ export interface WebFetchOptions {
    * the agent's job only needs a known set of sites.
    */
   allowedDomains?: string[];
-  /** Bytes read off the wire per fetch. Defaults to 5,000,000. */
+  /**
+   * Bytes read off the wire per fetch. Defaults to 500,000.
+   *
+   * Bounds extraction CPU as well as memory, so raising it lengthens the
+   * synchronous stall a single large page imposes on the whole process.
+   */
   maxBytes?: number;
   /** Markdown characters per response. Defaults to 50,000. */
   maxLength?: number;
@@ -104,6 +140,10 @@ export interface WebFetchResult {
  *   `allowedDomains` cannot bounce the fetch to one that is not.
  * - **Unbounded reads.** Byte cap, character cap, redirect cap, and a
  *   deadline, all applied per call.
+ * - **Unbounded CPU.** Extraction and conversion are synchronous and
+ *   share the event loop with every route in the process, so the byte cap
+ *   defaults below the point where conversion cost turns superlinear, and
+ *   a hard ceiling refuses oversized HTML outright rather than blocking.
  *
  * ## What it does NOT protect against
  *
@@ -139,11 +179,11 @@ export interface WebFetchResult {
  * field documented here.
  */
 export function webFetch(options: WebFetchOptions = {}): FnOptions {
-  const bounds = {
+  const bounds: FetchBounds = {
     maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxRedirects: options.maxRedirects ?? DEFAULT_MAX_REDIRECTS,
-    allowedDomains: options.allowedDomains ?? [],
+    allowedDomains: normaliseDomains(options.allowedDomains),
   };
   const maxLength = options.maxLength ?? DEFAULT_MAX_LENGTH;
 
@@ -174,10 +214,36 @@ function assertPositive(name: string, value: number): void {
   }
 }
 
+/**
+ * Normalise, validate, and freeze the host allowlist at registration.
+ *
+ * Copying matters as much as validating: the caller's array would
+ * otherwise stay live, so a later push into it would silently widen the
+ * egress allowlist of an already-registered tool. Rejecting malformed
+ * entries here turns a typo into a startup error rather than an
+ * every-call `AI2001` that reads like a genuine host mismatch.
+ */
+function normaliseDomains(domains: string[] | undefined): readonly string[] {
+  if (!domains) return Object.freeze([]);
+  return Object.freeze(
+    domains.map((raw, index) => {
+      const domain = raw.trim().toLowerCase().replace(/^\./, "");
+      if (domain === "" || /[:/?#*\s]/.test(domain)) {
+        throw rcError("RC5003", undefined, {
+          message:
+            `webFetch: allowedDomains[${index}] must be a bare hostname such as ` +
+            `"example.com", received "${raw}".`,
+        });
+      }
+      return domain;
+    }),
+  );
+}
+
 async function run(
   input: WebFetchInput,
   ctx: FnHandlerContext,
-  bounds: Parameters<typeof fetchResource>[1],
+  bounds: FetchBounds,
   maxLength: number,
 ): Promise<WebFetchResult> {
   const resource = await fetchResource(input.url, bounds, ctx.abortSignal);
@@ -187,7 +253,7 @@ async function run(
       url: resource.url,
       content:
         `${resource.url} redirects to a different host: ${resource.crossHostRedirect}\n\n` +
-        `Cross-host redirects are not followed automatically. Call WebFetch again with that URL if you want its content.`,
+        `Cross-host redirects are not followed automatically. Call this tool again with that URL if you want its content.`,
       truncated: false,
       totalLength: 0,
       redirectedTo: resource.crossHostRedirect,
@@ -206,12 +272,21 @@ async function run(
  * damage it.
  */
 async function render(
-  resource: Awaited<ReturnType<typeof fetchResource>>,
+  resource: FetchedResource,
 ): Promise<{ title?: string; markdown: string }> {
   if (TEXT_TYPES.has(resource.contentType)) {
     return { markdown: resource.body.trim() };
   }
   if (HTML_TYPES.has(resource.contentType)) {
+    if (resource.body.length > MAX_EXTRACTABLE_CHARS) {
+      throw rcError("AI2003", undefined, {
+        message:
+          `WebFetch: ${resource.url} is ${resource.body.length} characters of HTML, ` +
+          `past the ${MAX_EXTRACTABLE_CHARS} this tool will extract. Extraction is ` +
+          `synchronous, so attempting it would stall the process. Fetch this page ` +
+          `with a purpose-built route instead.`,
+      });
+    }
     const article = await extractArticle(resource.body, resource.url);
     return {
       ...(article.title ? { title: article.title } : {}),
@@ -230,7 +305,7 @@ async function render(
  * makes the truncation visible in the content itself.
  */
 function bound(
-  resource: Awaited<ReturnType<typeof fetchResource>>,
+  resource: FetchedResource,
   title: string | undefined,
   markdown: string,
   offset: number,
@@ -238,7 +313,11 @@ function bound(
 ): WebFetchResult {
   const totalLength = markdown.length;
 
-  if (offset >= totalLength && totalLength > 0) {
+  // Guarding on the offset alone rather than also on totalLength: an
+  // empty document read from the start is legitimate, but any non-zero
+  // offset into one is a stale continuation handle and gets the same
+  // error a non-empty page would give.
+  if (offset > 0 && offset >= totalLength) {
     throw rcError("AI2003", undefined, {
       message:
         `WebFetch: offset ${offset} is past the end of ${resource.url}, ` +
@@ -269,7 +348,7 @@ function bound(
     );
   }
   if (truncated) {
-    notes.push(`Call WebFetch again with offset=${end} for the next section.`);
+    notes.push(`Call this tool again with offset=${end} for the next section.`);
   }
   if (resource.bodyTruncated) {
     notes.push(

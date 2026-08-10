@@ -115,6 +115,16 @@ describe("WebFetch egress guard", () => {
   });
 
   /**
+   * @case The deprecated IPv4-compatible IPv6 form does not slip past the range allowlist
+   * @preconditions http://[::7f00:1]/ , which is ::127.0.0.1 and which ipaddr.js classifies as unicast rather than loopback
+   * @expectedResult Rejects with AI2001, proving ::/96 is refused rather than judged on its empty wrapper
+   */
+  test("refuses IPv4-compatible IPv6 addresses", async () => {
+    await expectRejected("http://[::7f00:1]/");
+    await expectRejected("http://[::a9fe:a9fe]/");
+  });
+
+  /**
    * @case A public IP literal passes
    * @preconditions http://93.184.216.34/ , a public unicast address
    * @expectedResult Resolves without throwing; the resolver is never consulted
