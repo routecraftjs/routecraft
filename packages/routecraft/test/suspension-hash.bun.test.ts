@@ -189,17 +189,18 @@ describe("continuationHash", () => {
   });
 
   /**
-   * @case A checkout with different line endings is not a behaviour change
-   * @preconditions The same body with CRLF and with LF, and differing
-   *   indentation, so the two differ in insignificant whitespace and nothing
-   *   else
-   * @expectedResult The hashes match, so cloning the repo on Windows does not
-   *   re-ask every outstanding approval
+   * @case Source text is taken verbatim, so insignificant edits move the hash
+   * @preconditions The same body with CRLF and with LF, differing only in
+   *   whitespace no JavaScript engine treats as meaningful
+   * @expectedResult The hashes DIFFER. This is the accepted cost of refusing
+   *   to normalize: every fold that would make these match is also a chance
+   *   to miss a real change, and the failure this asserts costs an
+   *   error-channel re-ask while the one it prevents resumes a parked
+   *   approval into different behaviour.
    */
-  test("ignores insignificant whitespace in step source", () => {
-    // Built with `new Function` so a formatter cannot normalise the very
-    // difference under test: the two bodies are token-identical and differ
-    // only in whitespace.
+  test("does not normalize insignificant whitespace in step source", () => {
+    // Built with `new Function` so a formatter cannot erase the very
+    // difference under test: the two bodies are token-identical.
     const crlf = new Function("value", "return value *\r\n\t\t2;") as (
       value: number,
     ) => number;
@@ -209,38 +210,8 @@ describe("continuationHash", () => {
 
     expect(
       continuationHash([step("s", (v) => v), step("pay", crlf)], 0, expected),
-    ).toBe(
-      continuationHash([step("s", (v) => v), step("pay", lf)], 0, expected),
-    );
-  });
-
-  /**
-   * @case A line break that changes what a step returns is not whitespace
-   * @preconditions Two bodies differing only in a newline after `return`,
-   *   where automatic semicolon insertion makes the first return undefined
-   * @expectedResult The hashes differ. Collapsing the break would let a
-   *   parked approval resume into a step that returns nothing.
-   */
-  test("does not collapse a line break significant to semicolon insertion", () => {
-    const inserted = new Function("value", "return\n  value * 2;") as (
-      value: number,
-    ) => number;
-    const returned = new Function("value", "return value * 2;") as (
-      value: number,
-    ) => number;
-
-    expect(
-      continuationHash(
-        [step("s", (v) => v), step("pay", inserted)],
-        0,
-        expected,
-      ),
     ).not.toBe(
-      continuationHash(
-        [step("s", (v) => v), step("pay", returned)],
-        0,
-        expected,
-      ),
+      continuationHash([step("s", (v) => v), step("pay", lf)], 0, expected),
     );
   });
 

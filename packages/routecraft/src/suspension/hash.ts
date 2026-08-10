@@ -37,14 +37,37 @@ import type { SerializedExchange, SuspensionExpect } from "./types.ts";
  * `payOut` itself does not: that is the "step definitions only" boundary
  * stated above, seen from the other side.
  *
- * One operational consequence to plan around: function source is a property
- * of the BUILD, not just the source tree. A rebuild that changes emitted
- * text (a different minifier, new bundler settings, a TypeScript target
- * bump) moves the hash for steps it touched even when the code did not
- * change. Parked exchanges then re-enter their route's error channel and
- * can be re-asked, which is a survivable outcome by design, but a
- * deployment that parks approvals for days should keep its build settings
- * stable across releases.
+ * ## The design rule: never normalize the source
+ *
+ * Function source is taken VERBATIM. Do not add whitespace collapsing,
+ * formatting normalization, or any other canonicalization ahead of this
+ * digest, however safe a given transformation looks.
+ *
+ * The reasoning is asymmetric and it is the whole argument. Normalization
+ * can only ever fold two distinct sources onto one digest. Every such fold
+ * is a chance to MISS a change, and a missed change means a parked approval
+ * resumes into behaviour its approver never authorized. The opposite error,
+ * treating an inert edit as a change, costs an error-channel re-ask, which
+ * is a path this design already provides and expects to be used.
+ *
+ * This was learned rather than assumed. An earlier revision normalized
+ * whitespace outside string literals with a hand-rolled scanner. Review
+ * found three separate ways to desynchronize it (automatic semicolon
+ * insertion, regex literals, and an apostrophe inside a comment), each
+ * fixable only by moving closer to a real JavaScript tokenizer, and each
+ * failing in the direction that resumes a parked approval into different
+ * behaviour. The scanner was deleted rather than completed.
+ *
+ * ## What that costs, and why it is the right trade
+ *
+ * The hash reads emitted text, so it is sensitive to more than the source
+ * tree: a formatting pass, a checkout with different line endings, or a
+ * build that changes emitted text (a different minifier, new bundler
+ * settings, a TypeScript target bump) all move it for steps whose behaviour
+ * did not change. Every one of those outcomes is an error-channel re-ask,
+ * never a wrong resume. Deployments that park approvals for days should pin
+ * line endings and build settings; the configuration reference says so for
+ * users.
  *
  * @param steps - The full step array of the route, in declaration order.
  * @param position - Index of the suspending step. The hash covers
@@ -172,7 +195,7 @@ function describeStep(step: Step<Adapter>): unknown {
     for (const key of Object.keys(adapter).sort()) {
       if (key === "adapterId") continue;
       const value = adapter[key];
-      if (typeof value === "function") callables[key] = normalizeSource(value);
+      if (typeof value === "function") callables[key] = sourceOf(value);
       else config[key] = describable(value);
     }
   }
@@ -217,7 +240,7 @@ function describable(value: unknown, depth = 0): unknown {
   // top-level adapter callable: `http({ url: (ex) => bankA(ex) })` and the
   // same with `bankB` differ only here. Collapsing it to a placeholder
   // would let the tail's actual target change under a parked approval.
-  if (kind === "function") return normalizeSource(value as object);
+  if (kind === "function") return sourceOf(value as object);
   if (value instanceof Date) return value.toISOString();
   // Bound the walk: a deeply nested or self-referential options object must
   // not turn hashing a route into a graph traversal.
@@ -240,85 +263,18 @@ function describable(value: unknown, depth = 0): unknown {
 }
 
 /**
- * Collapse insignificant whitespace in a function's source so a line-ending
- * change between checkouts does not read as a changed continuation.
- * Identifier renames and real edits still move it.
+ * A function's source text, verbatim.
  *
- * A run of whitespace collapses to one space, or to one newline when the run
- * contained any line terminator. The newline has to survive because
- * automatic semicolon insertion makes it semantic: `return` followed by a
- * newline and `value` returns undefined, while `return value` returns the
- * value, and collapsing the two together would let a parked approval resume
- * into a step that does something else. Keeping the break means a reformat
- * that moves line boundaries moves the hash, which is the safe direction:
- * over-invalidating merely re-asks an approval.
- *
- * Whitespace INSIDE string and template literals is preserved. A blanket
- * `replace(/\s+/g, " ")` would make `pay("acct  123")` and
- * `pay("acct 123")` hash alike, which is a semantic change the digest must
- * not miss.
- *
- * Regex literals are not tracked, because telling one from a division
- * operator needs a real tokenizer. Whitespace inside a regex is therefore
- * still collapsed; in practice significant regex whitespace is written
- * escaped (`\s`, `\x20`) or inside a character class, both of which survive.
+ * Deliberately not normalized. See the design rule on
+ * {@link continuationHash}: anything that folds two distinct sources onto
+ * one digest can only weaken this hash, and the only failure it can produce
+ * is the one the hash exists to prevent.
  *
  * @internal
  */
-function normalizeSource(fn: object): string {
-  const source = Function.prototype.toString.call(fn);
-  let out = "";
-  let quote: string | undefined;
-  // Deferred separator: a run collapses to one character, and a run at the
-  // very end is dropped entirely.
-  let pending = "";
-
-  for (let i = 0; i < source.length; i++) {
-    const char = source[i]!;
-
-    if (quote !== undefined) {
-      out += char;
-      if (char === "\\") {
-        // Copy the escaped character verbatim so an escaped quote does not
-        // read as the end of the literal.
-        i++;
-        if (i < source.length) out += source[i];
-      } else if (char === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-
-    if (WHITESPACE.test(char)) {
-      if (out.length > 0) {
-        pending = pending === "\n" || LINE_TERMINATOR.test(char) ? "\n" : " ";
-      }
-      continue;
-    }
-
-    if (pending) {
-      out += pending;
-      pending = "";
-    }
-    if (char === '"' || char === "'" || char === "`") quote = char;
-    out += char;
-  }
-
-  return out;
+function sourceOf(fn: object): string {
+  return Function.prototype.toString.call(fn);
 }
-
-/** @internal */
-const WHITESPACE = /\s/;
-
-/**
- * The line terminators ECMAScript treats as statement boundaries for
- * automatic semicolon insertion. CRLF collapses to the same single newline
- * as LF, which is what keeps a checkout with different line endings hashing
- * identically.
- *
- * @internal
- */
-const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
 
 /**
  * Deterministic JSON with object keys sorted at every depth, so two
