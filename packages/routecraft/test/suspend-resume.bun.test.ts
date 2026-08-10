@@ -4,6 +4,7 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import {
   MemorySuspensionStore,
   SUSPENSION_RUNTIME,
+  authorize,
   craft,
   direct,
   isSuspended,
@@ -540,6 +541,99 @@ describe("suspend and resume", () => {
       result: { approved: true },
     });
     expect(acknowledgment).toMatchObject({ status: "resumed" });
+  });
+
+  /**
+   * @case The answering principal is recorded on the suspension
+   * @preconditions The resume ingress authenticates its caller before .resume()
+   * @expectedResult ex.suspension.resumedBy carries that subject on the continuation, so the receipt reads "this principal authorized this operation" rather than "someone answered"
+   */
+  test("resumedBy is recorded from the ingress route's principal", async () => {
+    const receipts: Array<{
+      subject: string | undefined;
+      at: Date | undefined;
+    }> = [];
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ expect: Approval })
+          .tap((ex) => {
+            receipts.push({
+              subject: ex.suspension.resumedBy?.subject,
+              at: ex.suspension.resumedAt,
+            });
+          })
+          .to(noop()),
+        craft()
+          .id("answers")
+          .from(direct())
+          .authenticate(() => ({
+            scheme: "test",
+            subject: "approver@acme.test",
+            issuer: "https://idp.test",
+          }))
+          .resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(
+      await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
+    );
+    await t.client.sendDirect("answers", {
+      token: parked.token,
+      result: { approved: true },
+    });
+    await t.drain();
+
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]?.subject).toBe("approver@acme.test");
+    expect(receipts[0]?.at).toBeInstanceOf(Date);
+  });
+
+  /**
+   * @case A principal that came back from the store is not a verified one
+   * @preconditions The parked exchange carried an authenticated principal; the continuation runs authorize()
+   * @expectedResult RC5043: the restored shape has no live credential behind it, so the continuation must re-verify rather than trust what was read off disk (#355)
+   */
+  test("a resumed exchange's principal is refused by authorize", async () => {
+    const reached: unknown[] = [];
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .authenticate(() => ({
+            scheme: "test",
+            subject: "requester@acme.test",
+            roles: ["payer"],
+          }))
+          .suspend({ expect: Approval })
+          .validate(authorize({ roles: ["payer"] }))
+          .tap((ex) => {
+            reached.push(ex.body);
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(
+      await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
+    );
+    const acknowledgment = (await t.client.sendDirect("answers", {
+      token: parked.token,
+      result: { approved: true },
+    })) as { outcome: { status: string; error?: { rc?: string } } };
+
+    expect(acknowledgment.outcome.status).toBe("failed");
+    expect(acknowledgment.outcome.error?.rc).toBe("RC5043");
+    expect(reached).toHaveLength(0);
   });
 
   /**
