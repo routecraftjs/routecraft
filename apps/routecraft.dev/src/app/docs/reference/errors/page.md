@@ -406,7 +406,7 @@ A block's shape is invalid at construction:
 - Progressive-mode blocks: `{ mode: "progressive", description: "...", value: <string | function> }`.
 - Use the `BlockMode` and `BlockLifetime` types exported from `@routecraft/ai` to catch typos at the type level.
 
-## AI2001
+## AI3001
 Web tool refused to dereference a URL
 
 **Why it happens**  
@@ -418,14 +418,14 @@ Web tool refused to dereference a URL
 - The host resolves to a non-public address: loopback, RFC 1918 private space, link-local (including the `169.254.169.254` cloud-metadata address), unique-local IPv6, or any other non-unicast range. Every address a host resolves to is checked, not just the first.
 - The host resolves to an address that cannot be parsed, which fails closed rather than being skipped.
 
-A host that fails to resolve at all is `AI2002` rather than this code, because a resolver failure is usually transient and should stay retryable.
+A host that fails to resolve at all is `AI3002` rather than this code, because a resolver failure is usually transient and should stay retryable.
 
 The same check runs again on every redirect hop, so a permitted host cannot bounce the fetch somewhere it could not reach directly.
 
 **Suggestion**  
 This tool reaches the public web only. To read something internal, expose it as a route and register it with `directTool(routeId)`, or write a purpose-built fn: both keep the target under your control rather than the model's. If a legitimate public host is being refused, check what it resolves to.
 
-## AI2002
+## AI3002
 Web tool request failed
 
 **Why it happens**  
@@ -434,7 +434,7 @@ The request was made but produced no usable response: a DNS resolver failure (or
 **Suggestion**  
 Check the URL resolves and responds. Raise `timeoutMs` or `maxRedirects` on the factory if the host is legitimately slow or redirect-heavy. Retryable: a transient failure may succeed on a second call.
 
-## AI2003
+## AI3003
 Web tool could not read the fetched content
 
 **Why it happens**  

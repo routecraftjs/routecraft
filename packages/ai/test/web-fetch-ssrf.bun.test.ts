@@ -42,7 +42,7 @@ async function capture(url: string, allowed: string[] = []): Promise<unknown> {
 
 async function expectRejected(url: string, allowed: string[] = []) {
   const error = await capture(url, allowed);
-  expect(error).toMatchObject({ rc: "AI2001" });
+  expect(error).toMatchObject({ rc: "AI3001" });
   return error as Error;
 }
 
@@ -54,7 +54,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case A non-http(s) scheme is refused before anything is dereferenced
    * @preconditions A file: URL, no allowlist configured
-   * @expectedResult Rejects with AI2001 naming the scheme; the resolver is never consulted
+   * @expectedResult Rejects with AI3001 naming the scheme; the resolver is never consulted
    */
   test("refuses non-http(s) schemes", async () => {
     const error = await expectRejected("file:///etc/passwd");
@@ -65,7 +65,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case A URL carrying embedded credentials is refused
    * @preconditions https URL with a "user:password@" prefix
-   * @expectedResult Rejects with AI2001 telling the caller to strip the prefix
+   * @expectedResult Rejects with AI3001 telling the caller to strip the prefix
    */
   test("refuses URLs with embedded credentials", async () => {
     const error = await expectRejected("https://user:secret@example.com/");
@@ -75,7 +75,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case Loopback reached by IP literal is refused without a DNS round trip
    * @preconditions http://127.0.0.1/ , an address ipaddr.js classifies as loopback
-   * @expectedResult Rejects with AI2001; the resolver is never consulted
+   * @expectedResult Rejects with AI3001; the resolver is never consulted
    */
   test("refuses the IPv4 loopback address", async () => {
     const error = await expectRejected("http://127.0.0.1/");
@@ -86,7 +86,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case The cloud metadata endpoint is refused
    * @preconditions http://169.254.169.254/latest/meta-data/, the link-local address that serves instance credentials
-   * @expectedResult Rejects with AI2001
+   * @expectedResult Rejects with AI3001
    */
   test("refuses the cloud metadata address", async () => {
     await expectRejected("http://169.254.169.254/latest/meta-data/");
@@ -95,7 +95,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case RFC 1918 space is refused
    * @preconditions http://10.0.0.5/ , a private-range literal
-   * @expectedResult Rejects with AI2001
+   * @expectedResult Rejects with AI3001
    */
   test("refuses private-range addresses", async () => {
     await expectRejected("http://10.0.0.5/");
@@ -104,7 +104,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case IPv6 loopback in bracket form is refused
    * @preconditions http://[::1]/ , which URL keeps bracketed in `hostname`
-   * @expectedResult Rejects with AI2001 rather than failing to parse the address
+   * @expectedResult Rejects with AI3001 rather than failing to parse the address
    */
   test("refuses the IPv6 loopback address", async () => {
     await expectRejected("http://[::1]/");
@@ -113,7 +113,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case An IPv4-mapped IPv6 address is judged on the address it carries
    * @preconditions http://[::ffff:127.0.0.1]/ , whose own range is ipv4Mapped rather than loopback
-   * @expectedResult Rejects with AI2001, proving the mapped form is unwrapped before classification
+   * @expectedResult Rejects with AI3001, proving the mapped form is unwrapped before classification
    */
   test("unwraps IPv4-mapped IPv6 before classifying", async () => {
     await expectRejected("http://[::ffff:127.0.0.1]/");
@@ -122,7 +122,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case The deprecated IPv4-compatible IPv6 form does not slip past the range allowlist
    * @preconditions http://[::7f00:1]/ (::127.0.0.1) and http://[::a9fe:a9fe]/ (::169.254.169.254), both of which ipaddr.js classifies as unicast rather than loopback or link-local
-   * @expectedResult Both reject with AI2001, proving ::/96 is refused rather than judged on its empty wrapper
+   * @expectedResult Both reject with AI3001, proving ::/96 is refused rather than judged on its empty wrapper
    */
   test("refuses IPv4-compatible IPv6 addresses", async () => {
     await expectRejected("http://[::7f00:1]/");
@@ -142,7 +142,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case A hostname resolving into private space is refused
    * @preconditions Resolver returns 192.168.1.10 for the host
-   * @expectedResult Rejects with AI2001 naming the resolved address
+   * @expectedResult Rejects with AI3001 naming the resolved address
    */
   test("refuses a hostname that resolves to a private address", async () => {
     lookupMock.mockResolvedValue(records("192.168.1.10"));
@@ -153,7 +153,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case Every resolved address is checked, not just the first
    * @preconditions Resolver returns a public address followed by a loopback one
-   * @expectedResult Rejects with AI2001, since fetch could have connected to either
+   * @expectedResult Rejects with AI3001, since fetch could have connected to either
    */
   test("refuses when any resolved address is non-public", async () => {
     lookupMock.mockResolvedValue(records("93.184.216.34", "127.0.0.1"));
@@ -174,7 +174,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case A host absent from a configured allowlist is refused
    * @preconditions allowedDomains is ["example.com"], target host is other.com
-   * @expectedResult Rejects with AI2001 listing the configured domains, before any DNS work
+   * @expectedResult Rejects with AI3001 listing the configured domains, before any DNS work
    */
   test("refuses a host outside allowedDomains", async () => {
     const error = await expectRejected("https://other.com/", ["example.com"]);
@@ -197,7 +197,7 @@ describe("WebFetch egress guard", () => {
   /**
    * @case A lookalike host does not match an allowlist entry by suffix
    * @preconditions allowedDomains is ["example.com"], target host is evil-example.com
-   * @expectedResult Rejects with AI2001, proving the match requires a dot boundary
+   * @expectedResult Rejects with AI3001, proving the match requires a dot boundary
    */
   test("refuses a lookalike host that merely ends with an entry", async () => {
     await expectRejected("https://evil-example.com/", ["example.com"]);
@@ -206,24 +206,24 @@ describe("WebFetch egress guard", () => {
   /**
    * @case A resolver failure is classified as transient rather than as a refusal
    * @preconditions Resolver rejects with ENOTFOUND
-   * @expectedResult Rejects with the retryable AI2002 rather than the permanent AI2001, so a brief DNS outage is not treated as a policy decision
+   * @expectedResult Rejects with the retryable AI3002 rather than the permanent AI3001, so a brief DNS outage is not treated as a policy decision
    */
   test("reports a resolver failure as retryable", async () => {
     lookupMock.mockRejectedValue(new Error("ENOTFOUND"));
     const error = await capture("https://nope.example.com/");
-    expect(error).toMatchObject({ rc: "AI2002", retryable: true });
+    expect(error).toMatchObject({ rc: "AI3002", retryable: true });
     expect((error as Error).message).toMatch(/could not resolve host/i);
   });
 
   /**
    * @case A host resolving to nothing does not fall through to a fetch
    * @preconditions Resolver returns an empty record set
-   * @expectedResult Rejects with AI2002, the same transient class as a resolver rejection
+   * @expectedResult Rejects with AI3002, the same transient class as a resolver rejection
    */
   test("refuses a host that resolves to no addresses", async () => {
     lookupMock.mockResolvedValue([]);
     const error = await capture("https://empty.example.com/");
-    expect(error).toMatchObject({ rc: "AI2002" });
+    expect(error).toMatchObject({ rc: "AI3002" });
     expect((error as Error).message).toMatch(/no addresses/i);
   });
 

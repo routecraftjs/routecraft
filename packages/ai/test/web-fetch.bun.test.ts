@@ -187,7 +187,7 @@ describe("WebFetch tool", () => {
   /**
    * @case An offset past the end of the document is an error, not an empty result
    * @preconditions offset of 5000 against a 250-character document
-   * @expectedResult Rejects with AI2003 naming the document length
+   * @expectedResult Rejects with AI3003 naming the document length
    */
   test("rejects an offset past the end of the document", async () => {
     fetchMock.mockResolvedValue(respond(longMarkdown(250), "text/markdown"));
@@ -197,7 +197,7 @@ describe("WebFetch tool", () => {
       (e: unknown) => e,
     );
 
-    expect(error).toMatchObject({ rc: "AI2003" });
+    expect(error).toMatchObject({ rc: "AI3003" });
     expect((error as Error).message).toMatch(/past the end/i);
   });
 
@@ -296,7 +296,7 @@ describe("WebFetch tool", () => {
   /**
    * @case A redirect loop stops at the configured hop limit
    * @preconditions maxRedirects of 2 against a host that always redirects to itself
-   * @expectedResult Rejects with AI2002 naming the limit
+   * @expectedResult Rejects with AI3002 naming the limit
    */
   test("stops after the redirect limit", async () => {
     fetchMock.mockResolvedValue(redirect(`http://${HOST}/again`));
@@ -309,14 +309,14 @@ describe("WebFetch tool", () => {
       (e: unknown) => e,
     );
 
-    expect(error).toMatchObject({ rc: "AI2002" });
+    expect(error).toMatchObject({ rc: "AI3002" });
     expect((error as Error).message).toMatch(/redirects/i);
   });
 
   /**
    * @case A redirect without a Location header is an error
    * @preconditions Response is a 301 carrying no Location
-   * @expectedResult Rejects with AI2002
+   * @expectedResult Rejects with AI3002
    */
   test("rejects a redirect with no Location", async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 301 }));
@@ -326,13 +326,13 @@ describe("WebFetch tool", () => {
       (e: unknown) => e,
     );
 
-    expect(error).toMatchObject({ rc: "AI2002" });
+    expect(error).toMatchObject({ rc: "AI3002" });
   });
 
   /**
    * @case A non-2xx response surfaces as a tool error the model can react to
    * @preconditions Server returns 404
-   * @expectedResult Rejects with AI2002 naming the status
+   * @expectedResult Rejects with AI3002 naming the status
    */
   test("rejects a non-2xx response", async () => {
     fetchMock.mockResolvedValue(new Response("nope", { status: 404 }));
@@ -342,14 +342,14 @@ describe("WebFetch tool", () => {
       (e: unknown) => e,
     );
 
-    expect(error).toMatchObject({ rc: "AI2002" });
+    expect(error).toMatchObject({ rc: "AI3002" });
     expect((error as Error).message).toMatch(/404/);
   });
 
   /**
    * @case Binary content is refused rather than returned as mojibake
    * @preconditions Server returns application/pdf
-   * @expectedResult Rejects with AI2003 naming the content type and what the tool does read
+   * @expectedResult Rejects with AI3003 naming the content type and what the tool does read
    */
   test("rejects an unsupported content type", async () => {
     fetchMock.mockResolvedValue(respond("%PDF-1.7", "application/pdf"));
@@ -359,14 +359,14 @@ describe("WebFetch tool", () => {
       (e: unknown) => e,
     );
 
-    expect(error).toMatchObject({ rc: "AI2003" });
+    expect(error).toMatchObject({ rc: "AI3003" });
     expect((error as Error).message).toMatch(/application\/pdf/);
   });
 
   /**
    * @case An unsupported content type is refused on its headers, not after a full download
    * @preconditions Server returns application/pdf with a body
-   * @expectedResult Rejects with AI2003 and the response body stream is cancelled rather than read
+   * @expectedResult Rejects with AI3003 and the response body stream is cancelled rather than read
    */
   test("refuses an unsupported content type without reading the body", async () => {
     let cancelled = false;
@@ -391,7 +391,7 @@ describe("WebFetch tool", () => {
       (e: unknown) => e,
     );
 
-    expect(error).toMatchObject({ rc: "AI2003" });
+    expect(error).toMatchObject({ rc: "AI3003" });
     expect(cancelled).toBe(true);
   });
 
@@ -441,7 +441,7 @@ describe("WebFetch tool", () => {
   /**
    * @case A cancelled caller signal stops the walk before any request is made
    * @preconditions An already-aborted signal passed through testFn, so cancellation is live before the first hop
-   * @expectedResult Rejects with AI2002 and no fetch is attempted, proving the abort race covers the guard rather than only the request
+   * @expectedResult Rejects with AI3002 and no fetch is attempted, proving the abort race covers the guard rather than only the request
    */
   test("honours a caller abort before the first request", async () => {
     fetchMock.mockResolvedValue(respond("hi", "text/plain"));
@@ -455,7 +455,7 @@ describe("WebFetch tool", () => {
       (e: unknown) => e,
     );
 
-    expect(error).toMatchObject({ rc: "AI2002" });
+    expect(error).toMatchObject({ rc: "AI3002" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -538,7 +538,7 @@ describe("WebFetch tool", () => {
   /**
    * @case The allowlist is copied at registration, so mutating the caller's array cannot widen it
    * @preconditions A factory registered with an array that is then pushed to, and a fetch aimed at the pushed host
-   * @expectedResult The later host is still refused with AI2001, proving the array was not captured by reference
+   * @expectedResult The later host is still refused with AI3001, proving the array was not captured by reference
    */
   test("does not widen the allowlist when the caller's array is mutated", async () => {
     const domains = ["allowed.example"];
@@ -553,7 +553,7 @@ describe("WebFetch tool", () => {
       (e: unknown) => e,
     );
 
-    expect(error).toMatchObject({ rc: "AI2001" });
+    expect(error).toMatchObject({ rc: "AI3001" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -574,7 +574,7 @@ describe("WebFetch tool", () => {
   /**
    * @case HTML past the extraction ceiling is refused rather than blocking the event loop
    * @preconditions A text/html body larger than the hard MAX_EXTRACTABLE_CHARS ceiling, with maxBytes raised to let it through the wire cap
-   * @expectedResult Rejects with AI2003 naming the ceiling, and no extraction is attempted
+   * @expectedResult Rejects with AI3003 naming the ceiling, and no extraction is attempted
    */
   test("refuses HTML past the extraction ceiling", async () => {
     const huge = `<html><body>${"<p>x</p>".repeat(100_000)}</body></html>`;
@@ -588,14 +588,14 @@ describe("WebFetch tool", () => {
       (e: unknown) => e,
     );
 
-    expect(error).toMatchObject({ rc: "AI2003" });
+    expect(error).toMatchObject({ rc: "AI3003" });
     expect((error as Error).message).toMatch(/will extract/i);
   });
 
   /**
    * @case An empty document read from a stale continuation offset errors instead of reporting a backwards range
    * @preconditions A page whose markdown is empty, read with a non-zero offset
-   * @expectedResult Rejects with AI2003, the same as any other offset past the end, rather than emitting "characters 500 to 0 of 0"
+   * @expectedResult Rejects with AI3003, the same as any other offset past the end, rather than emitting "characters 500 to 0 of 0"
    */
   test("rejects a non-zero offset into an empty document", async () => {
     fetchMock.mockResolvedValue(respond("   ", "text/plain"));
@@ -605,7 +605,7 @@ describe("WebFetch tool", () => {
       (e: unknown) => e,
     );
 
-    expect(error).toMatchObject({ rc: "AI2003" });
+    expect(error).toMatchObject({ rc: "AI3003" });
     expect((error as Error).message).toMatch(/past the end/i);
   });
 

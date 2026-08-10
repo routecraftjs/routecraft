@@ -104,7 +104,7 @@ export async function fetchResource(
       // undrained holds the socket open until GC.
       await response.body?.cancel();
       if (!location) {
-        throw rcError("AI2002", undefined, {
+        throw rcError("AI3002", undefined, {
           message: `WebFetch: ${current.href} returned ${response.status} with no Location header.`,
         });
       }
@@ -127,7 +127,7 @@ export async function fetchResource(
 
     if (!response.ok) {
       await response.body?.cancel();
-      throw rcError("AI2002", undefined, {
+      throw rcError("AI3002", undefined, {
         message: `WebFetch: ${current.href} returned HTTP ${response.status} ${response.statusText}.`,
       });
     }
@@ -139,7 +139,7 @@ export async function fetchResource(
 
     if (!bounds.acceptedTypes.has(contentType)) {
       await response.body?.cancel();
-      throw rcError("AI2003", undefined, {
+      throw rcError("AI3003", undefined, {
         message:
           `WebFetch: ${current.href} returned unsupported content type ` +
           `"${contentType}". This tool reads HTML, markdown, and plain text.`,
@@ -148,7 +148,7 @@ export async function fetchResource(
     // The read is wrapped as well as the request: a deadline or a caller
     // abort that fires after the headers arrive rejects here instead, and
     // an unwrapped rejection would reach the model as a bare
-    // "The operation timed out" carrying neither the URL nor AI2002's
+    // "The operation timed out" carrying neither the URL nor AI3002's
     // retryable metadata.
     let read: { text: string; truncated: boolean };
     try {
@@ -158,7 +158,7 @@ export async function fetchResource(
         contentTypeCharset(response.headers.get("content-type")),
       );
     } catch (cause) {
-      throw rcError("AI2002", cause, {
+      throw rcError("AI3002", cause, {
         message: abortMessage(current, deadline, bounds.timeoutMs),
       });
     }
@@ -171,7 +171,7 @@ export async function fetchResource(
     };
   }
 
-  throw rcError("AI2002", undefined, {
+  throw rcError("AI3002", undefined, {
     message: `WebFetch: exceeded ${bounds.maxRedirects} same-host redirects starting from ${target}.`,
   });
 }
@@ -180,7 +180,7 @@ function parseUrl(raw: string): URL {
   try {
     return new URL(raw);
   } catch (cause) {
-    throw rcError("AI2001", cause, {
+    throw rcError("AI3001", cause, {
       message: `WebFetch: "${raw}" is not a valid absolute URL.`,
     });
   }
@@ -190,7 +190,7 @@ function resolveLocation(location: string, base: URL): URL {
   try {
     return new URL(location, base);
   } catch (cause) {
-    throw rcError("AI2002", cause, {
+    throw rcError("AI3002", cause, {
       message: `WebFetch: ${base.href} redirected to an unparseable Location "${location}".`,
     });
   }
@@ -214,14 +214,14 @@ async function request(
       },
     });
   } catch (cause) {
-    throw rcError("AI2002", cause, {
+    throw rcError("AI3002", cause, {
       message: abortMessage(url, deadline, bounds.timeoutMs),
     });
   }
 }
 
 /**
- * A promise that never resolves and rejects with `AI2002` the moment
+ * A promise that never resolves and rejects with `AI3002` the moment
  * `signal` aborts. Used to put a deadline around work that takes no
  * abort signal of its own.
  */
@@ -234,7 +234,7 @@ function rejectOnAbort(
   return new Promise((_resolve, reject) => {
     const fail = () =>
       reject(
-        rcError("AI2002", undefined, {
+        rcError("AI3002", undefined, {
           message: abortMessage(url, deadline, timeoutMs),
         }),
       );

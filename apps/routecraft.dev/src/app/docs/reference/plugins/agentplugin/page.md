@@ -444,11 +444,11 @@ There is no silent truncation: a clipped page always says so in the text the mod
 
 **Why `maxBytes` defaults low**
 
-Extraction and markdown conversion are synchronous and run on the same event loop as every route, consumer, and timer in the process. Turndown's cost is superlinear in the number of block elements: measured against the shipped peers on block-heavy HTML, 250 KB converts in about 0.4s, 500 KB in about 1.7s, and 1 MB in about 12s. The default sits below that knee so one tool call cannot stall the process for seconds, and a separate hard ceiling refuses extraction outright (with `AI2003`) above 600,000 characters of HTML, so raising `maxBytes` cannot configure the bound away by accident. Reading pages larger than that is a job for a purpose-built route.
+Extraction and markdown conversion are synchronous and run on the same event loop as every route, consumer, and timer in the process. Turndown's cost is superlinear in the number of block elements: measured against the shipped peers on block-heavy HTML, 250 KB converts in about 0.4s, 500 KB in about 1.7s, and 1 MB in about 12s. The default sits below that knee so one tool call cannot stall the process for seconds, and a separate hard ceiling refuses extraction outright (with `AI3003`) above 600,000 characters of HTML, so raising `maxBytes` cannot configure the bound away by accident. Reading pages larger than that is a job for a purpose-built route.
 
 **What it protects against**
 
-- **Reaching internal infrastructure.** Every hostname is resolved and every resulting address classified before connecting. Loopback, private, link-local (including the `169.254.169.254` cloud-metadata address), and other non-public ranges are refused with `AI2001`. Re-checked on every redirect hop.
+- **Reaching internal infrastructure.** Every hostname is resolved and every resulting address classified before connecting. Loopback, private, link-local (including the `169.254.169.254` cloud-metadata address), and other non-public ranges are refused with `AI3001`. Re-checked on every redirect hop.
 - **Credential exfiltration through the tool.** The request is a credential-free GET: no caller headers, no cookies, no authorization, and URLs carrying `user:password@` are refused. The tool cannot be pointed at an internal API and told to authenticate.
 - **Redirect laundering.** Cross-host redirects are not followed. The target is returned to the model as a URL to consider, so a host on `allowedDomains` cannot bounce the fetch to one that is not.
 - **Unbounded reads.** Byte, character, redirect, and time bounds, all per call.

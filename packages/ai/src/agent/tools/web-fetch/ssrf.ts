@@ -92,10 +92,10 @@ async function resolveAll(hostname: string): Promise<string[]> {
     const records = await lookup(hostname, { all: true, verbatim: true });
     return records.map((r) => r.address);
   } catch (cause) {
-    // AI2002, not AI2001: a resolver rejection is an environmental
-    // failure and is usually transient, so it must stay retryable. AI2001
+    // AI3002, not AI3001: a resolver rejection is an environmental
+    // failure and is usually transient, so it must stay retryable. AI3001
     // is reserved for refusals we decided on, which retrying cannot fix.
-    throw rcError("AI2002", cause, {
+    throw rcError("AI3002", cause, {
       message: `WebFetch: could not resolve host "${hostname}".`,
     });
   }
@@ -106,7 +106,7 @@ async function resolveAll(hostname: string): Promise<string[]> {
  * host resolves exclusively to public unicast addresses, and (when
  * `allowedDomains` is non-empty) whose host is on that list.
  *
- * Throws `AI2001` on every refusal. The thrown error reaches the calling
+ * Throws `AI3001` on every refusal. The thrown error reaches the calling
  * model as a tool error, so the message names the host and the reason
  * without echoing anything the host returned.
  *
@@ -119,7 +119,7 @@ export async function assertFetchableUrl(
   allowedDomains: readonly string[],
 ): Promise<void> {
   if (!ALLOWED_PROTOCOLS.has(url.protocol)) {
-    throw rcError("AI2001", undefined, {
+    throw rcError("AI3001", undefined, {
       message:
         `WebFetch: refusing to fetch "${url.protocol}" URL. ` +
         `Only http: and https: are supported.`,
@@ -127,7 +127,7 @@ export async function assertFetchableUrl(
   }
 
   if (url.username !== "" || url.password !== "") {
-    throw rcError("AI2001", undefined, {
+    throw rcError("AI3001", undefined, {
       message:
         `WebFetch: refusing a URL carrying embedded credentials. ` +
         `Strip the "user:password@" prefix.`,
@@ -135,7 +135,7 @@ export async function assertFetchableUrl(
   }
 
   if (allowedDomains.length > 0 && !matchesAllowedDomain(url, allowedDomains)) {
-    throw rcError("AI2001", undefined, {
+    throw rcError("AI3001", undefined, {
       message:
         `WebFetch: host "${url.hostname}" is not in the configured allowedDomains ` +
         `(${allowedDomains.join(", ")}).`,
@@ -144,7 +144,7 @@ export async function assertFetchableUrl(
 
   const addresses = await resolveAll(url.hostname);
   if (addresses.length === 0) {
-    throw rcError("AI2002", undefined, {
+    throw rcError("AI3002", undefined, {
       message: `WebFetch: host "${url.hostname}" resolved to no addresses.`,
     });
   }
@@ -156,12 +156,12 @@ export async function assertFetchableUrl(
     } catch (cause) {
       // An address the resolver returned but ipaddr.js cannot parse is
       // unclassifiable, so it fails closed rather than being skipped.
-      throw rcError("AI2001", cause, {
+      throw rcError("AI3001", cause, {
         message: `WebFetch: host "${url.hostname}" resolved to an unparseable address "${address}".`,
       });
     }
     if (!isPublicAddress(parsed)) {
-      throw rcError("AI2001", undefined, {
+      throw rcError("AI3001", undefined, {
         message:
           `WebFetch: refusing to fetch "${url.hostname}": it resolves to the ` +
           `non-public address ${address}. Private, loopback, link-local, and ` +

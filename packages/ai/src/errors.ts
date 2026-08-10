@@ -53,11 +53,11 @@ declare module "@routecraft/routecraft" {
     /** Agent block misconfigured (formerly RC5027) */
     AI1003: RCMeta;
     /** Web tool refused to dereference a URL */
-    AI2001: RCMeta;
+    AI3001: RCMeta;
     /** Web tool request failed */
-    AI2002: RCMeta;
+    AI3002: RCMeta;
     /** Web tool could not read the fetched content */
-    AI2003: RCMeta;
+    AI3003: RCMeta;
   }
 }
 
@@ -90,28 +90,28 @@ registerErrorCodes(
       docs: `${DOCS_BASE}#ai1003`,
       retryable: false,
     },
-    AI2001: {
+    AI3001: {
       category: "Adapter",
       message: "Web tool refused to dereference a URL",
       suggestion:
-        "The URL was rejected before any connection was made: it was not a valid absolute URL, used a scheme other than http(s), carried embedded credentials, fell outside the configured `allowedDomains`, or resolved to a non-public address (loopback, private, link-local, or cloud-metadata). Reaching internal hosts through this tool is not supported; expose them as a route or a purpose-built fn instead. A host that fails to resolve is AI2002 rather than this code, because that is transient.",
-      docs: `${DOCS_BASE}#ai2001`,
+        "The URL was rejected before any connection was made: it was not a valid absolute URL, used a scheme other than http(s), carried embedded credentials, fell outside the configured `allowedDomains`, or resolved to a non-public address (loopback, private, link-local, or cloud-metadata). Reaching internal hosts through this tool is not supported; expose them as a route or a purpose-built fn instead. A host that fails to resolve is AI3002 rather than this code, because that is transient.",
+      docs: `${DOCS_BASE}#ai3001`,
       retryable: false,
     },
-    AI2002: {
+    AI3002: {
       category: "Adapter",
       message: "Web tool request failed",
       suggestion:
         "The request was attempted but did not produce a usable response: a DNS resolver failure, a transport failure, a non-2xx status, a redirect with no Location or an unparseable one, more same-origin redirects than `maxRedirects` allows, or the per-call deadline elapsing. Check the target URL; raise `timeoutMs` on the tool factory if the host is legitimately slow, or `maxRedirects` if it is redirect-heavy.",
-      docs: `${DOCS_BASE}#ai2002`,
+      docs: `${DOCS_BASE}#ai3002`,
       retryable: true,
     },
-    AI2003: {
+    AI3003: {
       category: "Adapter",
       message: "Web tool could not read the fetched content",
       suggestion:
         "The response arrived but could not be turned into text: an unsupported content type (this tool reads HTML, markdown, and plain text), or a continuation `offset` past the end of the document. Fetch binary or API content with a purpose-built route rather than this tool.",
-      docs: `${DOCS_BASE}#ai2003`,
+      docs: `${DOCS_BASE}#ai3003`,
       retryable: false,
     },
   },

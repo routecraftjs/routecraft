@@ -27,7 +27,7 @@ const DEFAULT_MAX_BYTES = 500_000;
  *
  * `maxBytes` is a deployer's dial and can be raised; this is the backstop
  * that keeps the CPU bound from being configured away by accident. Above
- * it the fetch fails with `AI2003` rather than blocking the loop.
+ * it the fetch fails with `AI3003` rather than blocking the loop.
  */
 const MAX_EXTRACTABLE_CHARS = 600_000;
 /** Markdown characters returned in one response. */
@@ -242,7 +242,7 @@ function assertPositiveInteger(name: string, value: number): void {
  * otherwise stay live, so a later push into it would silently widen the
  * egress allowlist of an already-registered tool. Rejecting malformed
  * entries here turns a typo into a startup error rather than an
- * every-call `AI2001` that reads like a genuine host mismatch.
+ * every-call `AI3001` that reads like a genuine host mismatch.
  */
 function normaliseDomains(domains: string[] | undefined): readonly string[] {
   if (!domains) return Object.freeze([]);
@@ -313,7 +313,7 @@ async function render(
   }
   if (HTML_TYPES.has(resource.contentType)) {
     if (resource.body.length > MAX_EXTRACTABLE_CHARS) {
-      throw rcError("AI2003", undefined, {
+      throw rcError("AI3003", undefined, {
         message:
           `WebFetch: ${resource.url} is ${resource.body.length} characters of HTML, ` +
           `past the ${MAX_EXTRACTABLE_CHARS} this tool will extract. Extraction is ` +
@@ -329,7 +329,7 @@ async function render(
   }
   // Backstop. The fetch step refuses anything outside ACCEPTED_TYPES on
   // the response headers, so reaching here means the two have drifted.
-  throw rcError("AI2003", undefined, {
+  throw rcError("AI3003", undefined, {
     message:
       `WebFetch: ${resource.url} returned unsupported content type ` +
       `"${resource.contentType}". This tool reads HTML, markdown, and plain text.`,
@@ -373,7 +373,7 @@ function bound(
   // offset into one is a stale continuation handle and gets the same
   // error a non-empty page would give.
   if (offset > 0 && offset >= totalLength) {
-    throw rcError("AI2003", undefined, {
+    throw rcError("AI3003", undefined, {
       message:
         `WebFetch: offset ${offset} is past the end of ${resource.url}, ` +
         `which is ${totalLength} characters long.`,
