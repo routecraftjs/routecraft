@@ -5,6 +5,7 @@ import {
 } from "@routecraft/routecraft";
 import { McpServer } from "./server.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
+import { createConnectionCache } from "./http-client-cache.ts";
 import {
   ADAPTER_MCP_CLIENT_SERVERS,
   MCP_PLUGIN_REGISTERED,
@@ -40,14 +41,11 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
 
   let server: McpServer | null = null;
   const stdioManagers = new Map<string, StdioClientManager>();
-  const httpClients = new Map<
-    string,
-    {
-      listTools(): Promise<{ tools: McpTool[] }>;
-      /** Close the client AND its transport; closing the client alone leaks the socket. */
-      dispose(): Promise<void>;
-    }
-  >();
+  const httpClients = createConnectionCache<{
+    listTools(): Promise<{ tools: McpTool[] }>;
+    /** Close the client AND its transport; closing the client alone leaks the socket. */
+    dispose(): Promise<void>;
+  }>();
   const httpRefreshTimers: ReturnType<typeof setInterval>[] = [];
   let toolRegistry: McpToolRegistry | null = null;
 
@@ -118,17 +116,12 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
       httpRefreshTimers.length = 0;
 
       // Close persistent HTTP clients
-      for (const [serverId, client] of httpClients) {
-        try {
-          await client.dispose();
-        } catch (error) {
-          ctx.logger.error(
-            { err: error, serverId, operation: "close" },
-            "Failed to close HTTP client",
-          );
-        }
-      }
-      httpClients.clear();
+      await httpClients.disposeAll((error, serverId) => {
+        ctx.logger.error(
+          { err: error, serverId, operation: "close" },
+          "Failed to close HTTP client",
+        );
+      });
 
       // Stop all stdio client managers
       for (const [serverId, manager] of stdioManagers) {
@@ -207,7 +200,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     }
   }
 
-  async function getOrCreateHttpClient(
+  function getOrCreateHttpClient(
     serverId: string,
     url: string,
     auth?: McpClientHttpConfig["auth"],
@@ -215,38 +208,35 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     listTools(): Promise<{ tools: McpTool[] }>;
     dispose(): Promise<void>;
   }> {
-    const existing = httpClients.get(serverId);
-    if (existing) return existing;
+    return httpClients.getOrCreate(serverId, async () => {
+      const { client: rawClient, transport } = await connectMcpHttpClient(
+        new URL(url),
+        auth,
+      );
+      const typed = rawClient as unknown as {
+        close(): Promise<void>;
+        listTools(): Promise<{ tools: McpTool[] }>;
+      };
 
-    const { client: rawClient, transport } = await connectMcpHttpClient(
-      new URL(url),
-      auth,
-    );
-    const typed = rawClient as unknown as {
-      close(): Promise<void>;
-      listTools(): Promise<{ tools: McpTool[] }>;
-    };
-
-    // Both handles are retained: closing the client does not close its
-    // transport, so a cache that kept only the client would leak a socket per
-    // entry on teardown and per failed refresh.
-    const entry = {
-      listTools: () => typed.listTools(),
-      dispose: async (): Promise<void> => {
-        try {
-          await typed.close();
-        } catch {
-          // Ignore cleanup errors
-        }
-        try {
-          await transport.close();
-        } catch {
-          // Ignore cleanup errors
-        }
-      },
-    };
-    httpClients.set(serverId, entry);
-    return entry;
+      // Both handles are retained: closing the client does not close its
+      // transport, so a cache that kept only the client would leak a socket
+      // per entry on teardown and per failed refresh.
+      return {
+        listTools: () => typed.listTools(),
+        dispose: async (): Promise<void> => {
+          try {
+            await typed.close();
+          } catch {
+            // Ignore cleanup errors
+          }
+          try {
+            await transport.close();
+          } catch {
+            // Ignore cleanup errors
+          }
+        },
+      };
+    });
   }
 
   async function listHttpClientTools(
@@ -256,9 +246,10 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     registry: McpToolRegistry,
     auth?: McpClientHttpConfig["auth"],
   ): Promise<void> {
-    let client: Awaited<ReturnType<typeof getOrCreateHttpClient>> | undefined;
+    let pending: ReturnType<typeof getOrCreateHttpClient> | undefined;
     try {
-      client = await getOrCreateHttpClient(serverId, url, auth);
+      pending = getOrCreateHttpClient(serverId, url, auth);
+      const client = await pending;
 
       const result = await client.listTools();
       const tools = result.tools ?? [];
@@ -274,16 +265,12 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     } catch (error) {
       // Connection may have gone stale; discard so the next attempt
       // reconnects, and dispose it so an unreachable remote does not leak a
-      // client and a transport per refresh interval.
-      //
-      // Only the instance THIS refresh used is evicted: overlapping refreshes
-      // are possible (the interval can fire while a previous run is still in
-      // flight), and evicting by key alone would let a failing run dispose the
-      // healthy client a concurrent run had just cached.
-      if (client && httpClients.get(serverId) === client) {
-        httpClients.delete(serverId);
-      }
-      await client?.dispose();
+      // client and a transport per refresh interval. `evict` drops the entry
+      // only when it is still the one THIS refresh used, because overlapping
+      // refreshes are possible (the interval can fire while a previous run is
+      // still in flight) and evicting by key alone would let a failing run
+      // dispose the healthy client a concurrent run had just cached.
+      if (pending) await httpClients.evict(serverId, pending);
       ctx.logger.warn(
         { err: error, serverId, url, operation: "listTools" },
         "Failed to list tools from HTTP client",
