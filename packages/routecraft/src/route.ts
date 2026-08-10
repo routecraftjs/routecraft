@@ -1040,6 +1040,20 @@ export class DefaultRoute implements Route {
     error: unknown,
     operation: string,
   ): Promise<void> {
+    const start = Date.now();
+    const correlationId = exchange.headers[
+      HeadersKeys.CORRELATION_ID
+    ] as string;
+    // The re-entry is a run of this route in its own right, so it gets its
+    // own started / terminal pair rather than leaving a stray `failed` with
+    // no `started` before it. `.output()` validation is deliberately NOT
+    // applied to a recovered body: what a re-ask handler returns is a
+    // notification, not the route's output.
+    this.context.emit("route:exchange:started", {
+      routeId: this.definition.id,
+      exchangeId: exchange.id,
+      correlationId,
+    });
     const deps: ExecutorDeps = {
       routeId: this.definition.id,
       context: this.context,
@@ -1068,7 +1082,16 @@ export class DefaultRoute implements Route {
           : {}),
       },
     };
-    await runPipeline(deps, exchange, Date.now());
+    const result = await runPipeline(deps, exchange, start);
+    if (!result.failed && !result.dropped) {
+      this.context.emit("route:exchange:completed", {
+        routeId: this.definition.id,
+        exchangeId: exchange.id,
+        correlationId,
+        duration: Date.now() - start,
+        exchange: result.exchange,
+      });
+    }
   }
 
   /**

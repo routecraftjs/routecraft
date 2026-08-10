@@ -415,6 +415,12 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  * of the route means at least one `split` was not aggregated, so the
  * route is rejected with `RC5003`.
  *
+ * A reachable `.suspend()` is refused for a related reason: the cache
+ * filters sit OUTSIDE the user pipeline (check before it, store after it),
+ * while a park exits the pipeline and a resume re-enters it partway down.
+ * Neither filter would run on either execution, so the route would carry a
+ * `.cache()` that silently never caches.
+ *
  * Step-scope `.cache()` is unaffected; it wraps a single inner step and
  * never participates in this check.
  */
@@ -423,6 +429,17 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
     (f) => f.label === "cache-check",
   );
   if (!hasRouteScopeCache) return;
+
+  if ((route.suspendSteps?.length ?? 0) > 0) {
+    throw rcError("RC5003", undefined, {
+      message:
+        `Route "${route.id}" has route-scope .cache() and a reachable .suspend(). ` +
+        `The cache filters wrap the user pipeline, but a parked exchange exits it and ` +
+        `resumes partway down, so neither the check nor the store would ever run and the ` +
+        `cache would silently do nothing. Cache the expensive step with a step-scope ` +
+        `.cache() instead, or drop the route-scope one.`,
+    });
+  }
 
   let depth = 0;
   for (const step of route.steps) {
@@ -1706,12 +1723,13 @@ export class RouteBuilder<
     }
     this.assertNoPendingWrappers("build");
     for (const route of this.routes) {
-      assertRouteScopeCacheCompatibility(route);
       // Resolving suspend sites is also where a `.suspend()` in a position
       // that cannot be revived is refused, so it runs on every build rather
-      // than only when the route turns out to suspend.
+      // than only when the route turns out to suspend. It runs BEFORE the
+      // cache check, which reads what it resolved.
       const suspendSteps = resolveSuspendSites(route);
       if (suspendSteps.length > 0) route.suspendSteps = suspendSteps;
+      assertRouteScopeCacheCompatibility(route);
     }
     logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;

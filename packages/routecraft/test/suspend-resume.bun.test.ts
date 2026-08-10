@@ -678,6 +678,74 @@ describe("suspend and resume", () => {
   });
 
   /**
+   * @case Route-scope .cache() on a route that can suspend
+   * @preconditions .cache() staged before .from(), and a .suspend() in the pipeline
+   * @expectedResult craft().build() refuses with RC5003: the cache filters wrap the user pipeline, which a park exits and a resume re-enters partway down, so the cache would silently never run
+   */
+  test("route-scope .cache() with a reachable suspend is refused at build time", () => {
+    expect(() =>
+      craft()
+        .id("payout")
+        .cache()
+        .from(direct())
+        .suspend({ expect: Approval })
+        .to(noop())
+        .build(),
+    ).toThrow(expect.objectContaining({ rc: "RC5003" }) as unknown as Error);
+  });
+
+  /**
+   * @case The suspended route's error-channel re-entry is a complete run
+   * @preconditions An expired suspension whose route has a route-scope .error() that recovers
+   * @expectedResult The re-ask emits one exchange:started and one terminal event for that exchange, so the lifecycle guarantee holds for the re-entry as well
+   */
+  test("the error-channel re-entry emits a balanced lifecycle pair", async () => {
+    const lifecycle: Array<{ event: string; routeId: string }> = [];
+    const record = (event: string) =>
+      ((payload: { details: { routeId: string } }) => {
+        lifecycle.push({ event, routeId: payload.details.routeId });
+      }) as never;
+
+    t = await testContext()
+      .with(suspending())
+      .on("route:exchange:started" as EventName, record("started"))
+      .on("route:exchange:completed" as EventName, record("completed"))
+      .on("route:exchange:failed" as EventName, record("failed"))
+      .on("route:exchange:suspended" as EventName, record("suspended"))
+      .routes([
+        craft()
+          .id("payout")
+          .error(() => ({ reasked: true }))
+          .from(direct())
+          .suspend({ expect: Approval, ttl: "1ms" })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(
+      await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect(
+      t.client.sendDirect("answers", {
+        token: parked.token,
+        result: { approved: true },
+      }),
+    ).rejects.toMatchObject({ rc: "RC5047" });
+
+    // Execution one: started then suspended. The re-ask: started then
+    // completed, because the route-scope handler recovered. The ingress
+    // route has its own pair and is filtered out by routeId.
+    expect(
+      lifecycle
+        .filter((entry) => entry.routeId === "payout")
+        .map((entry) => entry.event),
+    ).toEqual(["started", "suspended", "started", "completed"]);
+  });
+
+  /**
    * @case A step-scope wrapper around .suspend()
    * @preconditions .retry() staged immediately before a .suspend()
    * @expectedResult The wrapper refuses at construction (RC5003): parking is not a failure to re-attempt, and a wrapped park has no coherent recovery

@@ -99,6 +99,7 @@ A suspend branch rejoins the main flow only if it restored the main flow's contr
 - **Inside `.split()`.** A durable aggregator would have to track N outstanding children across restarts. Split the work into per-item child capabilities instead: each is its own exchange and suspends independently.
 - **Inside a `.multicast()` path or a `.dispatch()` target.** Those exchanges are isolated side flows, so a resumed continuation would have nowhere to rejoin.
 - **Under a step-scope wrapper** (`.retry()`, `.timeout()`, `.cache()`, …), which fails with [`RC5003`](/docs/reference/errors#rc-5003). Parking is not a failure to re-attempt. Put `.error()` at route scope instead, where it also catches revival failures.
+- **On a route with route-scope `.cache()`**, also [`RC5003`](/docs/reference/errors#rc-5003). The cache filters wrap the user pipeline, which a park exits and a resume re-enters partway down, so neither the check nor the store would ever run and the cache would silently do nothing. Use a step-scope `.cache()` on the expensive step instead.
 
 Two more refusals happen at runtime, both deliberately at suspend time rather than at resume:
 
