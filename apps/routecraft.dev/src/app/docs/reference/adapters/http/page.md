@@ -196,6 +196,8 @@ builtins: {
 
 Auto-detection is conservative: only `name` and `version` are pulled because both are public by nature once a package is published to npm. `description`, `contact`, and `license` stay opt-in because `package.json` often carries internal context (TODO notes, author emails, license boilerplate) you may not want leaking through a publicly served document. Set them explicitly to publish them. When no `package.json` is reachable (single-file bundled binaries, Docker scratch images), the document falls back to `Routecraft HTTP API` / `0.0.0`.
 
+Workspace containers are excluded from auto-detection. If the nearest `package.json` is a monorepo root (it declares a `workspaces` field, or a `pnpm-workspace.yaml` sits beside it), the walk yields nothing and the neutral fallbacks apply. A workspace container is repository infrastructure, not a service identity: it is typically private, and release tooling never versions it, so its `version` silently goes stale. Running an app from a monorepo root therefore serves `Routecraft HTTP API` / `0.0.0` until you set `builtins.openapi.info` (or run from the app's own directory). A `private: true` manifest without workspaces is still used; an unpublished app's own name and version is exactly the identity its document should carry.
+
 ### Auth
 
 `http: { auth }` accepts:

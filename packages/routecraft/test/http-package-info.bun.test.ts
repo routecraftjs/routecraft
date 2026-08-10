@@ -81,6 +81,92 @@ describe("findPackageInfo", () => {
   });
 
   /**
+   * @case A workspace-container manifest (workspaces field) yields no identity
+   * @preconditions The nearest package.json declares a `workspaces` array and
+   *   carries a name and version of its own (the monorepo-root scenario)
+   * @expectedResult Returns `{}`. A workspace container is repository
+   *   infrastructure, not a service identity: it is typically private and
+   *   its version drifts because release tooling never touches it, so its
+   *   metadata must not surface on the publicly-served /openapi.json
+   */
+  test("workspace container with workspaces array yields no identity", () => {
+    const dir = mktmp();
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "@acme/workspace",
+        version: "0.1.0",
+        private: true,
+        workspaces: ["packages/*"],
+      }),
+    );
+    expect(findPackageInfo(dir)).toEqual({});
+  });
+
+  /**
+   * @case A workspace container is skipped without falling through to a parent
+   * @preconditions Inner directory holds a workspaces-declaring manifest; the
+   *   parent directory holds a well-formed plain manifest
+   * @expectedResult Returns `{}` rather than the parent's metadata. The walk
+   *   commits to the nearest manifest level; an ancestor is even less related
+   *   to the running service than the container itself
+   */
+  test("workspace container does not fall through to parent", () => {
+    const root = mktmp();
+    writeFileSync(
+      join(root, "package.json"),
+      JSON.stringify({ name: "outer-app", version: "3.0.0" }),
+    );
+    const inner = join(root, "nested");
+    mkdirSync(inner);
+    writeFileSync(
+      join(inner, "package.json"),
+      JSON.stringify({ name: "inner-workspace", workspaces: [] }),
+    );
+    expect(findPackageInfo(inner)).toEqual({});
+  });
+
+  /**
+   * @case A pnpm workspace root is recognised as a container
+   * @preconditions The nearest package.json has no `workspaces` field but a
+   *   `pnpm-workspace.yaml` sits beside it (pnpm keeps workspaces out of the
+   *   manifest)
+   * @expectedResult Returns `{}`, same as an npm / yarn / bun workspace root
+   */
+  test("pnpm-workspace.yaml beside the manifest marks a container", () => {
+    const dir = mktmp();
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "pnpm-root", version: "2.0.0", private: true }),
+    );
+    writeFileSync(
+      join(dir, "pnpm-workspace.yaml"),
+      "packages:\n  - packages/*\n",
+    );
+    expect(findPackageInfo(dir)).toEqual({});
+  });
+
+  /**
+   * @case private: true alone does not disqualify a manifest
+   * @preconditions The nearest package.json is private with no workspaces
+   *   field and no pnpm-workspace.yaml beside it (a deliberately-unpublished
+   *   app)
+   * @expectedResult Returns the manifest's name and version; an unpublished
+   *   app's own identity is exactly what its /openapi.json should carry
+   */
+  test("private manifest without workspaces is still used", () => {
+    const dir = mktmp();
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "internal-app", version: "4.5.6", private: true }),
+    );
+    expect(findPackageInfo(dir)).toEqual({
+      name: "internal-app",
+      version: "4.5.6",
+    });
+  });
+
+  /**
    * @case findPackageInfo returns {} when no package.json exists above start
    * @preconditions Start directory and every ancestor lack a package.json
    *   (simulated by starting from a freshly created tmpdir whose path
