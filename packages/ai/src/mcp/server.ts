@@ -585,6 +585,30 @@ export class McpServer {
   }
 
   /**
+   * The four RFC 9728 / RFC 6750 helpers below are deliberately hand-rolled
+   * rather than taken from `@modelcontextprotocol/server`, which exports
+   * `buildOAuthProtectedResourceMetadata`, `getOAuthProtectedResourceMetadataUrl`,
+   * `oauthMetadataResponse` and `bearerAuthChallengeResponse`.
+   *
+   * Two of those are web-standard shaped (`oauthMetadataResponse(request:
+   * Request): Response`, `bearerAuthChallengeResponse(): Response`), but the
+   * metadata and 401 paths are answered on raw Node `IncomingMessage` /
+   * `ServerResponse` before anything reaches `toNodeHandler`, so adopting them
+   * would mean bridging Request/Response for the two endpoints least able to
+   * afford an extra translation layer. `bearerAuthChallengeResponse` also
+   * derives the challenge from a thrown error, whereas the gate derives it
+   * from a classified outcome (missing credential, rejected token,
+   * insufficient scope); routing our policy back through errors it recognises
+   * is the coupling that dropping `requireBearerAuth` removed.
+   *
+   * The remaining two are pure builders whose output is a security-surface
+   * wire format we already pin with tests. Swapping them would re-pin the same
+   * bytes against a dependency that can change them in a minor release, for no
+   * user-visible gain. Revisit only if the SDK starts emitting a field the
+   * spec requires and these do not.
+   */
+
+  /**
    * Build the RFC 9728 protected-resource metadata document.
    *
    * `authorization_servers` is populated from the validator's `issuer` (when
