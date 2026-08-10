@@ -13,6 +13,8 @@ A body the route already validated is deliberately not re-checked. Output valida
 
 Tools whose route declares no `.output()` advertise no schema and are unchanged.
 
-The advertised contract now has one owner: `advertisedOutputArms(entry)` is what `tools/list` publishes and what enforcement accepts, so the two cannot drift. It returns one arm today. A route with a reachable durable `.suspend()` will advertise `oneOf: [Output, Suspended]` once #550 lands, and adding that arm teaches both sides at once, making a suspension a conforming result rather than a violation. That acceptance item stays open until the derived union exists.
+The advertised contract now has one owner: `advertisedOutputArms(entry)` is what `tools/list` publishes and what enforcement accepts, so the two cannot drift.
+
+A run that parks at a `.suspend()` answers with the framework's `Suspended` acknowledgment rather than the route's declared output, and the pipeline skips output validation for it. Enforcement accepts it (via `isSuspended`), so a suspending MCP tool answers with its acknowledgment instead of a validation error. Advertising that second arm as `oneOf: [Output, Suspended]` in `tools/list` is still open: it needs a schema for the acknowledgment and a signal that a route can park, neither of which core exposes yet. Until then a strict client that validates `structuredContent` against the advertised schema will reject a suspension response, exactly as it did before this change.
 
 Core also exports `validateAgainst(schema, value)`, the Standard Schema helper the pipeline validates with, typed to the schema's output and returning the raw `issues` alongside the formatted message, for adapter authors who need a validation failure as data to hand back over the wire rather than as a thrown error.
