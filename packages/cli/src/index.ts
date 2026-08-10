@@ -50,6 +50,24 @@ if (process.argv.length <= 2) {
 }
 
 /**
+ * Push the global log options onto the environment before any import
+ * that constructs the logger. The logger reads env at module load, so
+ * this has to happen inside a command action but ahead of the lazy
+ * `run` / `start` imports.
+ */
+function applyGlobalLogOptions(): void {
+  const globalOpts = program.opts();
+  if (globalOpts["logLevel"] !== undefined) {
+    process.env["LOG_LEVEL"] = globalOpts["logLevel"];
+    process.env["CRAFT_LOG_LEVEL"] = globalOpts["logLevel"];
+  }
+  if (globalOpts["logFile"] !== undefined) {
+    process.env["LOG_FILE"] = globalOpts["logFile"];
+    process.env["CRAFT_LOG_FILE"] = globalOpts["logFile"];
+  }
+}
+
+/**
  * The 'run' command executes routes from a single file.
  *
  * Example:
@@ -70,16 +88,7 @@ program
   )
   .passThroughOptions()
   .action(async (filePath, args: string[], options) => {
-    // Apply global log options to env before any import that creates the logger
-    const globalOpts = program.opts();
-    if (globalOpts["logLevel"] !== undefined) {
-      process.env["LOG_LEVEL"] = globalOpts["logLevel"];
-      process.env["CRAFT_LOG_LEVEL"] = globalOpts["logLevel"];
-    }
-    if (globalOpts["logFile"] !== undefined) {
-      process.env["LOG_FILE"] = globalOpts["logFile"];
-      process.env["CRAFT_LOG_FILE"] = globalOpts["logFile"];
-    }
+    applyGlobalLogOptions();
 
     const { loadEnvFile } = await import("./util.js");
     if (options.env !== undefined) {
@@ -103,6 +112,53 @@ program
     // Don't call process.exit(); let the event loop drain naturally.
     // process.exit() triggers C++ static destructors that race with ONNX
     // Runtime cleanup (onnxruntime#25038: "mutex lock failed").
+  });
+
+/**
+ * The 'start' command boots a whole project from the folder convention.
+ *
+ * Example:
+ * craft start
+ * craft start ./apps/eywa --once
+ */
+program
+  .command("start")
+  .description(
+    "Start a project from its folder convention (capabilities, plugins, agents, skills)",
+  )
+  .argument("[dir]", "Project root (default: current directory)")
+  .option(
+    "--env <path>",
+    "Load environment variables from a .env file (default: .env)",
+  )
+  .option(
+    "--once",
+    "Shut down after the first exchange reaches a terminal outcome",
+  )
+  .action(async (dir: string | undefined, options) => {
+    applyGlobalLogOptions();
+
+    const { loadEnvFile } = await import("./util.js");
+    if (options.env !== undefined) {
+      loadEnvFile(options.env);
+    } else {
+      loadEnvFile();
+    }
+
+    const { startCommand } = await import("./start.js");
+    const result = await startCommand(dir, { once: options.once === true });
+    if (!result.success) {
+      if (result.message) {
+        // eslint-disable-next-line no-console
+        console.error(result.message);
+      }
+      // Defer exit so pino/sonic-boom can finish initializing and avoid
+      // "sonic boom is not ready yet"
+      const code = result.code ?? 1;
+      setImmediate(() => process.exit(code));
+      return;
+    }
+    // Don't call process.exit(); let the event loop drain naturally.
   });
 
 /**

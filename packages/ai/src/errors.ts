@@ -51,6 +51,8 @@ declare module "@routecraft/routecraft" {
     AI1002: RCMeta;
     /** Agent block misconfigured (formerly RC5027) */
     AI1003: RCMeta;
+    /** Skills source could not be resolved */
+    AI1004: RCMeta;
   }
 }
 
@@ -81,6 +83,14 @@ registerErrorCodes(
       suggestion:
         "A block is missing required fields or has an invalid shape: every block needs a non-empty `name`, a `mode` of `inject` or `progressive`, and a string-or-function `value`. Progressive blocks additionally require a non-empty `description` so the model can decide whether to load them.",
       docs: `${DOCS_BASE}#ai1003`,
+      retryable: false,
+    },
+    AI1004: {
+      category: "Adapter",
+      message: "Skills source could not be resolved",
+      suggestion:
+        "A `skills:` ref in agent frontmatter did not resolve to a directory. A local ref is relative to the agent file; an `npm:` ref resolves against installed packages, so check the package is a dependency of the project and that the subpath exists inside it.",
+      docs: `${DOCS_BASE}#ai1004`,
       retryable: false,
     },
   },

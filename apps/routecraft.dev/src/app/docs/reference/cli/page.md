@@ -30,7 +30,7 @@ craft --log-level info --log-file craft.log run ./capabilities/orders.ts
 ```
 
 {% callout type="note" title="More commands coming" %}
-`dev`, `build`, `start`, and `exec` are planned for future releases.
+`dev`, `build`, and `exec` are planned for future releases.
 {% /callout %}
 
 ## Project scaffolding
@@ -94,6 +94,52 @@ Options:
 | --- | --- |
 | `<file>` | TypeScript or JavaScript file (.ts/.mjs/.js/.cjs) to execute |
 | `--env <path>` | Load environment variables from a .env file |
+
+### start
+
+Boot a whole project from its [folder convention](/docs/introduction/project-structure)
+instead of a hand-written barrel file. Where `run` executes one entry file, `start` reads
+`craft.config.ts` and then discovers what the project declares on disk: capabilities,
+plugins, agents, and skills.
+
+```bash
+craft start [dir] [--env <.env path>] [--once]
+```
+
+With no argument it starts the project in the current directory. Both the root-level and the
+`src/`-nested layouts work.
+
+Options:
+
+| Option | Description |
+| --- | --- |
+| `[dir]` | Project root. Defaults to the current directory |
+| `--env <path>` | Load environment variables from a .env file |
+| `--once` | Shut down cleanly after the first exchange reaches a terminal outcome on any route |
+
+What it loads, and in what order:
+
+1. `craft.config.ts` from the project root, via its named `craftConfig` export. A default
+   export is accepted with a warning. Importing this file is what pulls ecosystem packages
+   into the module graph.
+2. `plugins/`, one plugin instance per module.
+3. Folder discoverers, in their registered order. `@routecraft/ai` claims `skills/` and then
+   `agents/`, so an agent can compose the house skills rather than replacing them.
+4. `capabilities/`, one or more routes per capability.
+
+Code wins and convention fills the gaps: whatever `craft.config.ts` declares is kept, and
+discovery supplies only what it left out. Every discovered capability, plugin and agent is
+logged with the file it came from.
+
+`--once` is for CI smoke checks and cron-style one-shot invocations. A failure and a drop
+count as terminal alongside a completion, so a broken exchange reports instead of hanging
+until the job is killed; a first exchange that failed exits non-zero. A project whose sources
+never produce an exchange (an HTTP server with no traffic, say) will wait, which is what makes
+`--once` a smoke check rather than a timeout.
+
+```bash
+craft start ./apps/eywa --once
+```
 
 ## Shutdown helpers
 

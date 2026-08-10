@@ -13,7 +13,13 @@ import {
 
 const SUPPORTED_EXTENSIONS = [".mjs", ".js", ".cjs", ".ts"] as const;
 
-type RunResult =
+/**
+ * Result of a CLI command that boots a context. `success: false`
+ * carries the message the CLI prints and the exit code it uses.
+ *
+ * @internal
+ */
+export type RunResult =
   { success: true } | { success: false; code?: number; message: string };
 
 /**
@@ -92,65 +98,72 @@ export async function runCommand(
   }
 }
 
-function configureRoutes(
-  contextBuilder: InstanceType<typeof ContextBuilder>,
-  defaultExport: unknown,
-): RunResult {
+/**
+ * Outcome of interpreting a module's default export as routes. Shared
+ * by `run` (one entry file) and `start` (one capability file at a
+ * time) so both accept exactly the same shapes.
+ *
+ * @internal
+ */
+export type CollectRoutesResult =
+  | { ok: true; routes: (RouteDefinition | AnyRouteBuilder)[] }
+  | { ok: false; reason: string };
+
+/**
+ * Interpret a module's default export as routes. Accepts a single
+ * `RouteBuilder`, a single `RouteDefinition`, or an array of either.
+ * Uses brand-based guards so a builder created by another copy of the
+ * package still passes.
+ *
+ * @internal
+ */
+export function collectRoutes(defaultExport: unknown): CollectRoutesResult {
   if (!defaultExport) {
-    logger.error("No default export found. Expected routes as default export.");
-    return { success: false, code: 1, message: "No default export found" };
+    return {
+      ok: false,
+      reason: "No default export found. Expected routes as default export.",
+    };
   }
-
-  // Handle single RouteBuilder or RouteDefinition (brand-based guards for cross-instance)
   if (isRouteBuilder(defaultExport)) {
-    contextBuilder.routes(defaultExport as AnyRouteBuilder);
-    logger.info("Loaded single RouteBuilder from default export");
-    return { success: true };
+    return { ok: true, routes: [defaultExport as AnyRouteBuilder] };
   }
-
   if (isRouteDefinition(defaultExport)) {
-    contextBuilder.routes(defaultExport as RouteDefinition);
-    logger.info("Loaded single route from default export");
-    return { success: true };
+    return { ok: true, routes: [defaultExport as RouteDefinition] };
   }
-
-  // Handle array of routes
   if (Array.isArray(defaultExport)) {
-    // Check each item, prioritizing RouteBuilder check
     if (
       !defaultExport.every(
         (item) => isRouteBuilder(item) || isRouteDefinition(item),
       )
     ) {
-      logger.error(
-        "All items in default export array must be RouteDefinition or RouteBuilder",
-      );
       return {
-        success: false,
-        code: 1,
-        message: "Invalid items in default export array",
+        ok: false,
+        reason:
+          "All items in the default export array must be a RouteDefinition or a RouteBuilder.",
       };
     }
-
-    defaultExport.forEach((routeOrBuilder) =>
-      contextBuilder.routes(
-        routeOrBuilder as RouteDefinition | AnyRouteBuilder,
-      ),
-    );
-    logger.info(
-      `Loaded ${defaultExport.length} routes from default export array`,
-    );
-    return { success: true };
+    return {
+      ok: true,
+      routes: defaultExport as (RouteDefinition | AnyRouteBuilder)[],
+    };
   }
-
-  // Invalid default export
-  logger.error(
-    "Invalid default export. Expected: RouteDefinition, RouteBuilder, or array of those.",
-  );
   return {
-    success: false,
-    code: 1,
-    message:
+    ok: false,
+    reason:
       "Invalid default export. Expected: RouteDefinition, RouteBuilder, or array of those.",
   };
+}
+
+function configureRoutes(
+  contextBuilder: InstanceType<typeof ContextBuilder>,
+  defaultExport: unknown,
+): RunResult {
+  const collected = collectRoutes(defaultExport);
+  if (!collected.ok) {
+    logger.error(collected.reason);
+    return { success: false, code: 1, message: collected.reason };
+  }
+  collected.routes.forEach((route) => contextBuilder.routes(route));
+  logger.info(`Loaded ${collected.routes.length} route(s) from default export`);
+  return { success: true };
 }
