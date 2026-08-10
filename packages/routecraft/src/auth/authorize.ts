@@ -2,6 +2,7 @@ import type { Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import type { CallableValidator } from "../operations/validate.ts";
 import { isAuthentic } from "./authentic.ts";
+import { isRestored } from "./restored.ts";
 import { actorMatches } from "./delegate.ts";
 import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
 
@@ -191,8 +192,10 @@ function actorAllowed(
  * audit data. The default `actor: 'none'` means a route is not reachable
  * through delegation unless it says so.
  *
- * Throws `RC5012` when no principal is present, `RC5023` when a principal
- * is present but was not established by a trusted origin, `RC5020` on
+ * Throws `RC5012` when no principal is present, `RC5043` when the
+ * principal was restored from a suspension rather than verified live,
+ * `RC5023` when a principal is present but was not established by a
+ * trusted origin, `RC5020` on
  * expiry, `RC5034` when the actor is not admitted, `RC5035` when the
  * subject is not admitted, `RC5036` when the delegation chain exceeds
  * `maxDelegationDepth`, `RC5015` when the principal fails the role or
@@ -265,6 +268,23 @@ export function authorize(
     // is treated as self-asserted and rejected, so identity cannot be forged
     // by an incidental header write or by spreading an existing principal
     // with elevated roles.
+    // A principal rehydrated from a suspension is reported separately from
+    // a self-asserted one. Both are rejected, but the caller's next move
+    // differs: a restored identity needs re-verification against the live
+    // credential, not a mint.
+    if (isRestored(principal)) {
+      throw rcError(
+        "RC5043",
+        new Error("Principal was restored from a suspension"),
+        {
+          message:
+            "Authorization failed: principal was restored from a suspension, not verified live",
+          suggestion:
+            "The exchange resumed from durable storage, so its principal is a recorded shape with no live credential behind it. Re-verify the identity after resume (a fresh .authenticate() from a checked credential), or authorize the resume ingress route instead, where the answering principal is verified live. ex.suspension.resumedBy records who answered.",
+        },
+      );
+    }
+
     if (!isAuthentic(principal)) {
       throw rcError("RC5023", new Error("Principal is not authentic"), {
         message:

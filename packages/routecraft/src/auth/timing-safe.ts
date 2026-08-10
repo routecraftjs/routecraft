@@ -8,8 +8,9 @@ import { timingSafeEqual } from "node:crypto";
  * is not treated as secret; digest lengths are fixed per algorithm, so a
  * mismatch only reveals that the candidate is malformed.
  *
- * Shared by the JWT HMAC validator and the webhook-signature verifier so
- * the security-critical comparison exists exactly once.
+ * Shared by the JWT HMAC validator, the webhook-signature verifier, and the
+ * resume-token signer so the security-critical comparison exists exactly
+ * once.
  *
  * @internal
  */

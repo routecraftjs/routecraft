@@ -16,6 +16,7 @@ export {
 export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
 export { delegate, type DelegateOptions } from "./auth/delegate.ts";
 export { isAuthentic, markAuthentic } from "./auth/authentic.ts";
+export { isRestored, markRestored } from "./auth/restored.ts";
 export type {
   ActorMatcher,
   ClaimMappers,
@@ -66,6 +67,7 @@ import "./adapters/direct/config.ts";
 import "./adapters/mail/config.ts";
 import "./adapters/carddav/config.ts";
 import "./telemetry/config.ts";
+import "./suspension/config.ts";
 
 export { httpPlugin } from "./plugins/http/plugin.ts";
 export { apiKey } from "./plugins/http/auth.ts";
@@ -483,6 +485,37 @@ export type {
   TelemetrySqliteOptions,
   TelemetryEvent,
 } from "./telemetry/index.ts";
+
+// The suspension engine (hashing, serialization, token minting, runtime
+// resolution) stays behind `./suspension/index.ts`, which is where the
+// executor imports it from. Only the surface a user touches is published:
+// configuration, the store contract for anyone writing a backend, the two
+// shipped backends, and the environment-variable names.
+export {
+  DEFAULT_SUSPENSION_DB_PATH,
+  MemorySuspensionStore,
+  SUSPENSION_RUNTIME,
+  SUSPENSION_SECRET_ENV,
+  SUSPENSION_STORE_ENV,
+  SqliteSuspensionStore,
+  suspensionPlugin,
+} from "./suspension/index.ts";
+export type {
+  NewSuspension,
+  PendingSuspensionSummary,
+  PrincipalRef,
+  SerializedExchange,
+  SerializedOutcome,
+  Suspension,
+  SuspensionCasResult,
+  SuspensionConfig,
+  SuspensionExpect,
+  SuspensionResumption,
+  SuspensionRuntime,
+  SuspensionStatus,
+  SuspensionStore,
+  SuspensionStoreConfig,
+} from "./suspension/index.ts";
 export {
   type MailAuth,
   type MailReconnectOptions,

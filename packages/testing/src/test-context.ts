@@ -7,6 +7,7 @@ import type {
   RouteDefinition,
   AnyRouteBuilder,
   AdapterOverride,
+  SuspensionConfig,
 } from "@routecraft/routecraft";
 import {
   ContextBuilder,
@@ -26,6 +27,34 @@ import {
 import { isAdapterMock, type AdapterMock } from "./mock-adapter";
 
 const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
+
+/**
+ * Substitute test-shaped defaults into config keys whose production
+ * defaults would be wrong under a test runner.
+ *
+ * Only `suspension` needs this today, and it needs it for two reasons: a
+ * test must not be made to configure a signing secret before it can suspend
+ * anything, and a test must not leave a sqlite file behind in the working
+ * directory. Both defaults are overridable, so a test that wants the
+ * durable backend (the kill-restart proof does) passes an explicit `store`.
+ *
+ * `allowEphemeralSecret` is deliberately not on `SuspensionConfig`: it
+ * relaxes a security gate, so it must not be reachable from a user's
+ * `defineConfig`. This is the one place that supplies it. The seam is the
+ * spread below: a spread carries the extra key without excess-property
+ * checking, so the flag reaches the plugin without ever appearing on the
+ * type a user writes against.
+ */
+function applyTestDefaults(config: CraftConfig): CraftConfig {
+  if (!config.suspension) return config;
+  const seams = { allowEphemeralSecret: true };
+  const suspension: SuspensionConfig = {
+    store: "memory",
+    ...seams,
+    ...config.suspension,
+  };
+  return { ...config, suspension };
+}
 
 function describeOverrideTarget(target: unknown): string {
   if (typeof target === "function" && typeof target.name === "string") {
@@ -282,7 +311,7 @@ export class TestContextBuilder {
   }
 
   with(config: CraftConfig): this {
-    this.builder.with(config);
+    this.builder.with(applyTestDefaults(config));
     return this;
   }
 

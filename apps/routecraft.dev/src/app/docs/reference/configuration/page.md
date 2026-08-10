@@ -36,6 +36,7 @@ export const craftConfig = defineConfig({
 | `http` | `HttpPluginOptions` | No | -- | Serve routes over HTTP for the `http()` source ([details](#http)) |
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
+| `suspension` | `SuspensionConfig` | No | -- | Where parked exchanges are stored and how resume tokens are signed ([details](#suspension)) |
 | `plugins` | `CraftPlugin[]` | No | -- | Custom plugins to initialize before routes are registered |
 
 ### Ecosystem keys (added by `@routecraft/ai`)
@@ -134,6 +135,46 @@ export const craftConfig = defineConfig({
 | `maxBodySize` | `number` | `10485760` (10 MB) | Maximum request body in bytes; larger requests return `413`. |
 | `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | Toggle the per-request `plugin:http:request:completed` event. |
 | `builtins` | `{ health?, ready?, openapi?: { enabled?: boolean; requireAuth?: boolean } }` | see [adapter reference](/docs/reference/adapters/http#configuring-built-ins) | Per-endpoint config for `/health`, `/ready`, `/openapi.json`. Uniform `{ enabled, requireAuth }` shape per built-in (inspired by Spring Boot Actuator). |
+
+### suspension
+
+{% callout type="note" %}
+**Foundation only.** This ships the storage and token-signing half of durable suspend and resume. The `.suspend()` and `.resume()` operations that use it are not in the DSL yet; they arrive with the [suspend and resume epic](https://github.com/routecraftjs/routecraft/issues/417). Configuring this key today is only useful if you are building against the store contract directly.
+{% /callout %}
+
+Configures where parked exchanges are persisted, and the secret used to sign the resume tokens an approver is handed. Set it when any route can reach a `.suspend()`; a context that never suspends does not need the key.
+
+```ts
+import { defineConfig } from '@routecraft/routecraft'
+
+export const craftConfig = defineConfig({
+  suspension: {
+    // A mounted volume in a container deployment, so parked exchanges
+    // outlive the container that parked them.
+    store: { path: '/data/suspensions.db' },
+  },
+})
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `store` | `string \| { path: string } \| "memory" \| SuspensionStore` | `.routecraft/suspensions.db` | Where parked exchanges live. A path opens the SQLite backend. `"memory"` opts into the in-process backend, accepting that parked exchanges die with the process. A `SuspensionStore` instance plugs in a backend of your own. |
+| `secret` | `string` | -- | HMAC secret for signing resume tokens. Prefer the environment variable below; this field is for deployments that fetch secrets at boot and pass them in code. |
+
+Both settings are also readable from the environment, which is how a container deployment supplies them:
+
+| Variable | Purpose |
+|----------|---------|
+| `ROUTECRAFT_SUSPENSION_STORE` | Store location: a file path, or the literal `memory`. |
+| `ROUTECRAFT_SUSPENSION_SECRET` | Resume-token signing secret. |
+
+An explicit config value wins over the environment.
+
+**The store backend is chosen per runtime.** Under Bun it is `bun:sqlite`, a built-in. Under Node it is `better-sqlite3`, an optional peer: install it (`bun add better-sqlite3`) to get a durable store on Node. Without it, an unconfigured context falls back to the in-memory backend and warns that parked exchanges will not survive a restart, while a context that named a `store` path fails to start rather than silently losing durability it asked for.
+
+**If you park exchanges, pin your line endings and build settings across deploys.** A parked exchange records a hash of the steps that have not run yet, so that a change to what an approval authorises invalidates it rather than resuming into different behaviour. That hash reads step identity from function source text **verbatim**, with no normalisation, because any normalisation that made two different sources hash alike would also be a way to miss a real change. The consequence is that the hash is sensitive to more than your source tree: a formatting pass, a checkout with different line endings, and a build that changes emitted text (a different minifier, new bundler settings, a TypeScript target bump) each move it for steps whose behaviour did not change. Every one of those outcomes is safe rather than silent, since affected exchanges re-enter their route's error channel and can be re-asked; none of them can resume an approval into different behaviour, which is the trade being made. For a repository whose routes park approvals for days, commit a `.gitattributes` with `* text eol=lf` (or the equivalent pin for your platform) so checkouts agree on line endings, and keep build settings stable between releases. Running TypeScript directly (the default under Bun, with no bundler in the path) removes the build half of this entirely.
+
+**The signing secret is required, at least 32 bytes, and never generated for you.** A context whose routes can reach a durable suspend fails at startup with [`RC5040`](/docs/reference/errors#rc-5040) when no secret is configured. The secret is deliberately not stored alongside the suspensions: a store compromise must not also yield forgeable resume tokens. `testContext()`, `NODE_ENV=development` and `NODE_ENV=test` mint an ephemeral in-memory key so tests and local iteration need no setup; that key is regenerated on every start, so tokens minted before a restart stop verifying, and the framework warns when it is in use.
 
 ## Logging configuration
 
