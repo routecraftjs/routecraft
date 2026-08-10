@@ -153,7 +153,15 @@ follow-up (see `.standards/resilience-wrappers.md` section 7).
 
 ---
 
-## 7. Cross-references
+## 7. Resume re-enters below the chain
+
+A resumed exchange (`.resume()` reviving a `.suspend()`) runs its continuation only: the steps after the suspend point, plus the route-scope `.error()` handler and `.output()` validation. None of the chain above it re-runs.
+
+That is the same call the chain itself makes about ordering. `authorize` (#2), `parse` (#3), `input` (#4) and `throttle` (#5) all describe an exchange ENTERING the route, and the exchange entered once, on execution one. Re-running them on execution two would re-admit an already-admitted exchange against a rate limit, re-parse a body that is already parsed, and authorize against a principal that came back from the store marked restored (`RC5043`) rather than the live one that entered.
+
+Authorizing the ANSWER is a separate question with a separate home: the resume ingress route, where an authenticated principal is actually available. `cache` (#9 / #10) is refused outright alongside a reachable suspend, because neither of its filters would ever run; see the [suspend reference](https://routecraft.dev/docs/reference/operations/suspend).
+
+## 8. Cross-references
 
 - `.standards/resilience-wrappers.md` -- the dual-mode wrapper
   pattern (step-scope wrappers); the route-scope half is this

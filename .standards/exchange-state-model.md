@@ -9,7 +9,7 @@ Two layers per exchange.
 | Layer | What it holds | Examples | Persistence |
 |---|---|---|---|
 | **State (stored fields)** | `body: T`, `headers: ExchangeHeaders` | the payload, every piece of metadata about the exchange (id, route, correlation, split hierarchy, source-emitted facts, cross-cutting concerns like principal/span/tenant) | serialized verbatim; rehydrated verbatim |
-| **Derivations (getters / methods on `DefaultExchange`)** | `id`, `principal`, `logger` | `get id()` reads `headers["routecraft.id"]`; `get principal()` reads `headers["routecraft.auth.principal"]`; `get logger()` builds a child logger from the framework's base logger and the exchange's id | not serialized; reconstructed by instantiating `DefaultExchange` around the rehydrated state |
+| **Derivations (getters / methods on `DefaultExchange`)** | `id`, `principal`, `logger`, `suspension` | `get id()` reads `headers["routecraft.id"]`; `get principal()` reads `headers["routecraft.auth.principal"]`; `get logger()` builds a child logger from the framework's base logger and the exchange's id; `get suspension()` reads the `routecraft.suspension.*` keys and mints a resume token from the context's signer | not serialized; reconstructed by instantiating `DefaultExchange` around the rehydrated state |
 
 Application-wide singletons (adapter clients, plugin state, schedulers) live in `context.store`, which is orthogonal: it outlives any individual exchange.
 
@@ -49,7 +49,9 @@ Adding an engine-owned header means deciding its route-boundary behaviour here a
 
 Persisting an exchange = serializing `{ body, headers }`. Resuming an exchange = `new DefaultExchange(context, { body, headers })` on the resuming process, where `context` is a fresh `CraftContext`.
 
-The getters (`id`, `principal`, `logger`) work immediately because they derive lazily. The `EXCHANGE_INTERNALS` WeakMap (route binding, parse hook, validation hook, startedAt, dropped flag) is NOT serialized -- it's runtime context, rehydrated by re-attaching the route via `headers["routecraft.route"]` on the new context.
+Durable suspend and resume is the first live consumer of this contract: `.suspend()` persists exactly these two slots, and `.resume()` rebuilds a `DefaultExchange` around them on whichever process holds the answer. The suspension's own state follows the same rule rather than earning a bag of its own: the park counter, the validated result, and the resume receipt are `routecraft.suspension.*` headers, and `ex.suspension` is the derivation over them.
+
+The getters (`id`, `principal`, `logger`, `suspension`) work immediately because they derive lazily. The `EXCHANGE_INTERNALS` WeakMap (route binding, parse hook, validation hook, startedAt, dropped flag) is NOT serialized -- it's runtime context, rehydrated by re-attaching the route via `headers["routecraft.route"]` on the new context.
 
 The serialization surface is exactly two slots (`body`, `headers`), by construction. A future halt/continue PR does not need to enumerate which fields to serialize; the model dictates it.
 

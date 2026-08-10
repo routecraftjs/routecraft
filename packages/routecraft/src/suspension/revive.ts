@@ -296,7 +296,6 @@ async function settled(
       outcome: suspension.terminal ?? {
         status: "failed",
         error: {
-          rc: "RC5046",
           message:
             "The first resume of this suspension has not recorded a terminal outcome yet.",
         },

@@ -61,7 +61,7 @@ The `exchangeId` field is the exchange's own ID, not the correlation ID. Use `co
 
 **Lifecycle guarantee:** every `exchange:started` is eventually followed by exactly one of `completed`, `failed`, `dropped`, or `suspended`.
 
-A parked exchange runs twice, and the events say so. Execution one is `started` then `suspended`. When the answer arrives, `resumed` fires, followed by execution two's own `started` and its `completed` / `failed` / `dropped`. Both runs carry the same `exchangeId` and `correlationId`, which is what lets a consumer stitch them together; `suspensionId` identifies the park itself.
+A parked exchange runs more than once, and the events say so. Execution one is `started` then `suspended`. When the answer arrives, `resumed` fires, followed by execution two's own `started` and its `completed` / `failed` / `dropped`. A revival failure that the suspended route re-asks on (an expiry, a continuation that changed under the parked exchange) is its own `started` plus terminal pair on that route. Every run carries the same `exchangeId` and `correlationId`, which is what lets a consumer stitch them together; `suspensionId` identifies the park itself.
 
 ## Operation events
 
