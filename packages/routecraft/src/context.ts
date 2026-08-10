@@ -11,6 +11,7 @@ import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
+import { SUSPENSION_RUNTIME } from "./suspension/runtime-key.ts";
 import { EventBus } from "./event-bus.ts";
 
 import type { EventHandler, EventName, EventPayload } from "./types.ts";
@@ -378,6 +379,46 @@ export class CraftContext {
   }
 
   /**
+   * Refuse to start when a route can reach a `.suspend()` and nothing
+   * configured where parked exchanges go.
+   *
+   * Deliberately not auto-provisioned. The suspension runtime decides
+   * whether this deployment survives a restart and whether resume tokens
+   * outlive the process, and defaulting it silently would hand a route that
+   * promises durability an in-memory store nobody chose. Failing at startup
+   * costs one config line; failing on the first large payout costs the
+   * payout.
+   *
+   * Routes that never touch suspension carry neither marker, so a context
+   * without the feature pays nothing here.
+   *
+   * @throws RC5052 when a suspendable route has no suspension runtime
+   */
+  private assertSuspensionConfigured(): void {
+    if (this.getStore(SUSPENSION_RUNTIME)) return;
+    const suspending = this.routes.find(
+      (route) => (route.definition.suspendSteps?.length ?? 0) > 0,
+    );
+    // A resume ingress needs the runtime just as much: it verifies tokens
+    // against the signer and reads the store. Left out, a resume-only
+    // deployment starts clean and refuses every answer at request time.
+    const resuming = this.routes.find((route) => route.definition.usesResume);
+    const offender = suspending ?? resuming;
+    if (!offender) return;
+    const reached = suspending ? ".suspend()" : ".resume()";
+    const err = rcError("RC5052", undefined, {
+      message: `Route "${offender.definition.id}" can reach a ${reached}, but this context has no suspension runtime. Add suspension: {} to defineConfig (or suspension: { store, secret } to be explicit).`,
+    });
+    // Emitted as well as thrown, matching the plugin-init failure path: a
+    // caller that never awaits `start()` (every long-running source holds
+    // it open until shutdown) would otherwise only see this as an
+    // unobserved rejection.
+    this.logger.fatal({ err }, err.meta.message);
+    this.emit("context:error", { error: err });
+    throw err;
+  }
+
+  /**
    * Register a teardown callback to run when the context stops. Plugins use this
    * to release resources (e.g. caches, native handles) after routes have drained.
    * Callbacks run in REVERSE registration order (LIFO, mirroring plugin
@@ -668,6 +709,7 @@ export class CraftContext {
     if (!this.pluginsInitialized) {
       await this.initPlugins();
     }
+    this.assertSuspensionConfigured();
     this.shutdownPromise = null;
     this.logger.info(
       { routeCount: this.routes.length },

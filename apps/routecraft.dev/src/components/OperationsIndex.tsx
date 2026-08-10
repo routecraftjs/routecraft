@@ -246,6 +246,20 @@ const ops: Op[] = [
     description:
       'Release only the last exchange in a burst after a quiet period.',
   },
+  {
+    name: 'suspend',
+    category: 'Flow Control',
+    signature: '.suspend({ expect, ttl? })',
+    description:
+      'Park the exchange durably and answer now; resume later at the next step.',
+  },
+  {
+    name: 'resume',
+    category: 'Flow Control',
+    signature: '.resume(map?)',
+    description:
+      'Revive a parked exchange addressed by its signed resume token.',
+  },
 
   // Side Effects
   {

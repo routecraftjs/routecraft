@@ -9,6 +9,7 @@ import {
   noop,
   rcError,
   type AnyRouteBuilder,
+  type CraftConfig,
   type Principal,
 } from "@routecraft/routecraft";
 import { mcp } from "../src/index.ts";
@@ -3884,6 +3885,34 @@ describe("McpServer", () => {
       expect(result.structuredContent).toEqual({
         at: new Date("2026-01-01T00:00:00.000Z"),
       });
+    });
+
+    /**
+     * @case A run that parks at a .suspend() answers with its acknowledgment, not a schema violation
+     * @preconditions Route declares .output() and reaches .suspend() before producing that output, with an in-memory suspension store
+     * @expectedResult No error; the Suspended acknowledgment is published. The pipeline deliberately skips output validation for a parked run, so the boundary must not enforce the declared output against an acknowledgment that was never meant to satisfy it
+     */
+    test("publishes the acknowledgment when the route suspends", async () => {
+      t = await testContext()
+        .with({ suspension: {} } as unknown as CraftConfig)
+        .store(MCP_STORE_KEY, true)
+        .routes([
+          craft()
+            .id("approve-payout")
+            .description("Parks for approval before paying out")
+            .output({ body: z.object({ paid: z.boolean() }) })
+            .from<{ amount: number }>(mcp())
+            .suspend({ expect: z.object({ approved: z.boolean() }) })
+            .transform(() => ({ paid: true })),
+        ])
+        .build();
+      await t.startAndWaitReady();
+      server = new McpServer(t.ctx);
+
+      const result = await callTool(server, "approve-payout", { amount: 100 });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({ status: "suspended" });
     });
 
     /**

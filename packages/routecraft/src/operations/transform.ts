@@ -23,11 +23,11 @@ import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
  * @template T - Current body type
  * @template R - Result body type (default T)
  */
-export type CallableTransformer<T = unknown, R = T> = (
-  message: T,
-  exchange: Exchange<T>,
-  ctx?: StepSignalContext,
-) => Promise<R> | R;
+export type CallableTransformer<
+  T = unknown,
+  R = T,
+  Ex extends Exchange<T> = Exchange<T>,
+> = (message: T, exchange: Ex, ctx?: StepSignalContext) => Promise<R> | R;
 
 /**
  * Result of the field-shaping helpers (`keep`, `mask`). Generic over the

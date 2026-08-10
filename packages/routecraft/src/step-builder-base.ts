@@ -1,6 +1,7 @@
 import { ENRICH_MERGE_TYPE } from "./brand.ts";
 import type { Adapter, Step } from "./types.ts";
 import type { Exchange, HeaderValue, HeaderLiteral } from "./exchange.ts";
+import type { SuspensionAffordance } from "./suspension/exchange-state.ts";
 import {
   type Destination,
   type SendContext,
@@ -109,6 +110,18 @@ import type { PathBuilder } from "./operations/choice.ts";
 export interface BuilderState {
   /** Body type entering the next pipeline step. */
   body: unknown;
+  /**
+   * Type of `ex.suspension.result` for the steps that follow a
+   * `.suspend({ expect })`, threaded in from the `expect` schema the way
+   * `body` is threaded in from `.input()`. `unknown` before any suspend.
+   *
+   * Optional, per the extension rule above: an existing augmentation or a
+   * hand-written state bag that predates this field still satisfies the
+   * constraint. Framework-internal bags always carry it explicitly, because
+   * a bag that OMITS the key is a different shape from one that has it, and
+   * the two do not interconvert (the builders are invariant in this bag).
+   */
+  suspension?: unknown;
 }
 
 /**
@@ -123,6 +136,52 @@ export interface BuilderState {
 export type SetBody<S extends BuilderState, B> = {
   [K in keyof S]: K extends "body" ? B : S[K];
 };
+
+/**
+ * Replace the `suspension` field of a state bag, preserving every other
+ * field. The `.suspend()` counterpart of {@link SetBody}: it advances the
+ * type of `ex.suspension.result` for the rest of the chain.
+ *
+ * `Omit` plus an intersection rather than a mapped type, because a mapped
+ * type preserves optionality: mapping the OPTIONAL `suspension` key would
+ * type the result as `R | undefined` and force a needless narrowing on
+ * every read after a suspend. After a `.suspend()` the field is known.
+ *
+ * @template S - The incoming state bag
+ * @template R - The expected-result type declared by `.suspend({ expect })`
+ */
+export type SetSuspension<S extends BuilderState, R> = Omit<S, "suspension"> & {
+  suspension: R;
+};
+
+/**
+ * The exchange type a callable sees at this point in the chain: the body
+ * type from the bag, plus `ex.suspension.result` narrowed to whatever the
+ * last `.suspend({ expect })` declared.
+ *
+ * An intersection rather than a rewritten `Exchange`, so the narrowing is
+ * additive: `Exchange<T>` already carries `suspension`, and
+ * `SuspensionAffordance<unknown> & SuspensionAffordance<R>` reads `result`
+ * as `R`. Before any suspend the bag's field is `unknown` and the
+ * intersection is a no-op.
+ *
+ * @template S - The state bag at this chain position
+ */
+export type ExchangeOf<S extends BuilderState> = Exchange<S["body"]> & {
+  readonly suspension: SuspensionAffordance<S["suspension"]>;
+};
+
+/**
+ * A path's state bag: a fresh chain over body `T`.
+ *
+ * Spelled out (rather than `{ body: T }`) because the builders are
+ * invariant in their bag: a sub-pipeline that ends in a `.suspend()`
+ * produces a bag WITH the `suspension` key, and it is only assignable back
+ * to the declared path type if that type has the key too.
+ *
+ * @template T - Body type entering the path
+ */
+export type PathState<T> = { body: T; suspension: unknown };
 
 /**
  * Body type after a bare pull-in step (`.enrich(x)` with no aggregator, or a
@@ -539,7 +598,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
     enricher: Enricher<S["body"], R>,
   ): Retyped<this, SetBody<S, FetchedBody<S["body"], R>>>;
   to<R = void>(
-    fn: (exchange: Exchange<S["body"]>, ctx?: SendContext) => Promise<R> | R,
+    fn: (exchange: ExchangeOf<S>, ctx?: SendContext) => Promise<R> | R,
   ): Retyped<this, SetBody<S, R extends void ? S["body"] : R>>;
   to(target: ToTarget<S["body"], unknown>): unknown {
     this.pushStep(new ToStep<S["body"], unknown>(target));
@@ -557,7 +616,8 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    */
   transform<Return>(
     transformer:
-      Transformer<S["body"], Return> | CallableTransformer<S["body"], Return>,
+      | Transformer<S["body"], Return>
+      | CallableTransformer<S["body"], Return, ExchangeOf<S>>,
   ): Retyped<this, SetBody<S, Return>> {
     this.pushStep(new TransformStep<S["body"], Return>(transformer));
     return this.retype<Return>();
@@ -582,7 +642,8 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * @template A - Aggregator type (drives body shape inference)
    */
   enrich<R>(
-    enricher: Enricher<S["body"], R> | CallableEnricher<S["body"], R>,
+    enricher:
+      Enricher<S["body"], R> | CallableEnricher<S["body"], R, ExchangeOf<S>>,
   ): Retyped<this, SetBody<S, FetchedBody<S["body"], R>>>;
   enrich<
     R,
@@ -592,7 +653,8 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
           [ENRICH_MERGE_TYPE]?: EnrichMergeShape;
         }),
   >(
-    enricher: Enricher<S["body"], R> | CallableEnricher<S["body"], R>,
+    enricher:
+      Enricher<S["body"], R> | CallableEnricher<S["body"], R, ExchangeOf<S>>,
     aggregator: A,
   ): Retyped<
     this,
@@ -602,7 +664,8 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
     >
   >;
   enrich<R>(
-    enricher: Enricher<S["body"], R> | CallableEnricher<S["body"], R>,
+    enricher:
+      Enricher<S["body"], R> | CallableEnricher<S["body"], R, ExchangeOf<S>>,
     aggregator?: EnrichAggregatorOption<S["body"], R>,
   ): unknown {
     this.pushStep(new EnrichStep<S["body"], R>(enricher, aggregator));
@@ -620,7 +683,8 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    */
   process<Return = S["body"]>(
     processor:
-      Processor<S["body"], Return> | CallableProcessor<S["body"], Return>,
+      | Processor<S["body"], Return>
+      | CallableProcessor<S["body"], Return, ExchangeOf<S>>,
   ): Retyped<this, SetBody<S, Return>> {
     this.pushStep(new ProcessStep<S["body"], Return>(processor));
     return this.retype<Return>();
@@ -638,7 +702,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
     key: string,
     valueOrFn:
       | HeaderLiteral
-      | ((exchange: Exchange<S["body"]>) => HeaderValue | Promise<HeaderValue>),
+      | ((exchange: ExchangeOf<S>) => HeaderValue | Promise<HeaderValue>),
   ): this {
     this.pushStep(new HeaderStep<S["body"]>(key, valueOrFn));
     return this;
@@ -741,7 +805,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * @param target - Destination, Enricher, or callable for the side effect
    * @returns This builder (same subclass, same body type)
    */
-  tap(target: TapTarget<S["body"]>): this {
+  tap(target: TapTarget<S["body"], ExchangeOf<S>>): this {
     this.pushStep(new TapStep<S["body"]>(target));
     return this;
   }
@@ -754,7 +818,9 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * @param filter - Filter adapter or callable predicate
    * @returns This builder (same subclass, same body type)
    */
-  filter(filter: Filter<S["body"]> | CallableFilter<S["body"]>): this {
+  filter(
+    filter: Filter<S["body"]> | CallableFilter<S["body"], ExchangeOf<S>>,
+  ): this {
     this.pushStep(new FilterStep<S["body"]>(filter));
     return this;
   }
@@ -803,7 +869,8 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * @template R - Output body type after validation (defaults to the current body)
    */
   validate<R = S["body"]>(
-    validator: Validator<S["body"], R> | CallableValidator<S["body"], R>,
+    validator:
+      Validator<S["body"], R> | CallableValidator<S["body"], R, ExchangeOf<S>>,
   ): Retyped<this, SetBody<S, R>> {
     this.pushStep(new ValidateStep<S["body"], R>(validator));
     return this.retype<R>();

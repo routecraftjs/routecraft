@@ -11,6 +11,17 @@ import type { Route } from "./route.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
 import type { Principal } from "./auth/types.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import {
+  type SuspensionAffordance,
+  SuspensionHeaders,
+  suspensionAffordance,
+} from "./suspension/exchange-state.ts";
+
+/**
+ * Local alias so the clone path reads at a glance. See
+ * {@link SuspensionHeaders.OWNER}.
+ */
+const SUSPENSION_OWNER_HEADER = SuspensionHeaders.OWNER;
 
 /**
  * Types of operations that can be performed on an exchange.
@@ -67,6 +78,10 @@ export enum OperationType {
   DEBOUNCE = "debounce",
   /** Short-circuit the pipeline: drop the exchange without further steps */
   HALT = "halt",
+  /** Park the exchange durably and exit the pipeline, to be resumed later at the next step */
+  SUSPEND = "suspend",
+  /** Revive a parked exchange addressed by a signed resume token */
+  RESUME = "resume",
 }
 
 /**
@@ -260,6 +275,20 @@ export type Exchange<T = unknown> = {
    * exchanges build a fresh child logger on first access.
    */
   readonly logger: ReturnType<typeof logger.child>;
+
+  /**
+   * Durable-suspension view of this exchange: the id and signed token it
+   * would park as, and (after a resume) the answer that revived it.
+   *
+   * Sugar over the `routecraft.suspension.*` headers plus the context's
+   * token signer, in the same shape as `principal` and `logger`. Readable
+   * before the `.suspend()` runs, which is what lets a notification step
+   * earlier in the pipeline send a working resume link.
+   *
+   * `result` is `unknown` here; `.suspend({ expect })` narrows it to the
+   * schema's output type for every step after the suspend.
+   */
+  readonly suspension: SuspensionAffordance;
 };
 
 /**
@@ -361,6 +390,22 @@ type ExchangeInternals = {
    * @internal
    */
   outputValidatedAgainst?: StandardSchemaV1;
+  /**
+   * Set when the exchange parked at a `.suspend()`. Read after
+   * `runPipeline` returns to skip `.output()` validation and
+   * `exchange:completed`: execution one ends with the `Suspended`
+   * acknowledgment as its body, which is deliberately NOT the route's
+   * declared output, and its terminal event is `route:exchange:suspended`.
+   *
+   * On internals for the same reason as {@link ExchangeInternals.dropped}:
+   * the flag is set on the exchange a step was handed (already rewrapped),
+   * while the run that has to read it holds the pre-rewrap reference, and a
+   * nested run (a route-scope retry / timeout / bulkhead segment) holds yet
+   * another. All of them share one internals object.
+   *
+   * @internal
+   */
+  suspended?: boolean;
 };
 
 /**
@@ -382,11 +427,27 @@ export const EXCHANGE_INTERNALS = new WeakMap<Exchange, ExchangeInternals>();
 export function getExchangeContext(
   exchange: Exchange,
 ): CraftContext | undefined {
-  const internals =
+  return internalsOf(exchange)?.context;
+}
+
+/**
+ * Resolve an exchange's internals: symbol-keyed slot first (which works
+ * across duplicate copies of the package in one process), WeakMap second.
+ *
+ * One accessor rather than the lookup written out at each call site. The
+ * two-step rule is load-bearing (a `rewrap` shares the internals object by
+ * reference, which is what makes the dropped and suspended flags visible
+ * from every derivation of one logical exchange), and a site that got it
+ * wrong would silently read `undefined` and lose the flag.
+ *
+ * @internal
+ */
+function internalsOf(exchange: Exchange): ExchangeInternals | undefined {
+  return (
     (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
       INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
-  return internals?.context;
+    ] ?? EXCHANGE_INTERNALS.get(exchange)
+  );
 }
 
 /**
@@ -398,11 +459,7 @@ export function getExchangeContext(
  * @internal
  */
 export function getExchangeRoute(exchange: Exchange): Route | undefined {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
-  return internals?.route;
+  return internalsOf(exchange)?.route;
 }
 
 /**
@@ -417,10 +474,7 @@ export function getExchangeRoute(exchange: Exchange): Route | undefined {
  * @internal
  */
 export function setExchangeRoute(exchange: Exchange, route: Route): void {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  const internals = internalsOf(exchange);
   if (internals) internals.route = route;
 }
 
@@ -452,6 +506,12 @@ export function cloneExchange<T>(
     headers: {
       ...exchange.headers,
       [HeadersKeys.ID]: randomUUID(),
+      // The fresh id above is what makes a clone distinguishable in logs,
+      // but it would also point `ex.suspension` at a suspension that never
+      // parks. Record which exchange this is a snapshot OF so a `.tap()`
+      // notification can mint the resume token for the exchange that will.
+      [SUSPENSION_OWNER_HEADER]:
+        exchange.headers[SUSPENSION_OWNER_HEADER] ?? exchange.id,
     },
   });
   if (route) setExchangeRoute(clone, route);
@@ -474,10 +534,7 @@ export function cloneExchange<T>(
  * @internal
  */
 export function markDropped(exchange: Exchange): void {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  const internals = internalsOf(exchange);
   if (internals) internals.dropped = true;
 }
 
@@ -530,10 +587,7 @@ export function markOutputValidated(
   exchange: Exchange,
   schema: StandardSchemaV1,
 ): void {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  const internals = internalsOf(exchange);
   if (internals) internals.outputValidatedAgainst = schema;
 }
 
@@ -558,11 +612,30 @@ export function wasOutputValidated(
   exchange: Exchange,
   schema: StandardSchemaV1,
 ): boolean {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
-  return internals?.outputValidatedAgainst === schema;
+  return internalsOf(exchange)?.outputValidatedAgainst === schema;
+}
+
+/**
+ * Mark an exchange as parked at a `.suspend()`. Idempotent. Called by the
+ * executor once the suspension is durably stored, never before: the flag
+ * suppresses the exchange's completion accounting, so setting it for a park
+ * that then failed to write would lose the exchange from every ledger.
+ *
+ * @internal
+ */
+export function markSuspended(exchange: Exchange): void {
+  const internals = internalsOf(exchange);
+  if (internals) internals.suspended = true;
+}
+
+/**
+ * Returns true if the exchange (or any rewrap of it sharing the same
+ * internals) parked at a `.suspend()` during this run.
+ *
+ * @internal
+ */
+export function isSuspendedRun(exchange: Exchange): boolean {
+  return internalsOf(exchange)?.suspended === true;
 }
 
 /**
@@ -581,11 +654,7 @@ export function wasOutputValidated(
  * @returns Whether the exchange was dropped rather than completed
  */
 export function isDropped(exchange: Exchange): boolean {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
-  return internals?.dropped === true;
+  return internalsOf(exchange)?.dropped === true;
 }
 
 /**
@@ -597,10 +666,7 @@ export function isDropped(exchange: Exchange): boolean {
  * @internal
  */
 export function setStartedAt(exchange: Exchange, ts: number): void {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  const internals = internalsOf(exchange);
   if (internals) internals.startedAt = ts;
 }
 
@@ -610,11 +676,7 @@ export function setStartedAt(exchange: Exchange, ts: number): void {
  * @internal
  */
 export function getStartedAt(exchange: Exchange): number | undefined {
-  const internals =
-    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-      INTERNALS_KEY
-    ] ?? EXCHANGE_INTERNALS.get(exchange);
-  return internals?.startedAt;
+  return internalsOf(exchange)?.startedAt;
 }
 
 /**
@@ -864,6 +926,22 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
   }
 
   /**
+   * Durable-suspension view of this exchange. See {@link Exchange.suspension}.
+   *
+   * Built per access rather than cached: the view derives from `headers`,
+   * which a resume rewrites, so a cached one would go stale exactly when it
+   * matters. It is a small object of getters, and the expensive part
+   * (minting a token) only runs if the caller reads `token`.
+   */
+  get suspension(): SuspensionAffordance {
+    return suspensionAffordance(
+      getExchangeContext(this),
+      this.headers,
+      this.id,
+    );
+  }
+
+  /**
    * Construct a new {@link DefaultExchange} that combines internals from a
    * previous exchange (context, route binding, parse hooks) with field
    * overrides from a partial. Used by the engine to normalise plain
@@ -891,10 +969,7 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
       readonly headers?: ExchangeHeaders;
     } = {},
   ): DefaultExchange<T> {
-    const prevInternals =
-      (prev as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
-        INTERNALS_KEY
-      ] ?? EXCHANGE_INTERNALS.get(prev);
+    const prevInternals = internalsOf(prev);
     const context = prevInternals?.context;
     if (!context) {
       throw new Error(

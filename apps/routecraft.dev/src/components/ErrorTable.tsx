@@ -297,6 +297,48 @@ const errors: ErrorRow[] = [
     message: 'Suspension store busy',
     retryable: true,
   },
+  {
+    code: 'RC5046',
+    category: 'Runtime',
+    message: 'Suspension not found',
+    retryable: false,
+  },
+  {
+    code: 'RC5047',
+    category: 'Runtime',
+    message: 'Suspension expired',
+    retryable: false,
+  },
+  {
+    code: 'RC5048',
+    category: 'Runtime',
+    message: 'Suspension continuation changed',
+    retryable: false,
+  },
+  {
+    code: 'RC5049',
+    category: 'Runtime',
+    message: 'Suspension result rejected',
+    retryable: false,
+  },
+  {
+    code: 'RC5050',
+    category: 'Runtime',
+    message: 'Suspension denied',
+    retryable: false,
+  },
+  {
+    code: 'RC5051',
+    category: 'Definition',
+    message: 'Suspend not supported at this position',
+    retryable: false,
+  },
+  {
+    code: 'RC5052',
+    category: 'Definition',
+    message: 'Suspension runtime not configured',
+    retryable: false,
+  },
   // Ecosystem namespaces (registered via registerErrorCodes). @routecraft/ai
   // owns AI*; AI1001-AI1003 replaced the retired core codes RC5025-RC5027.
   {

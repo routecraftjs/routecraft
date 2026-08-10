@@ -16,30 +16,34 @@ describe(".input() retyping type safety", () => {
   /**
    * @case .input({ body: schema }).from(direct()) seeds body from the schema
    * @preconditions Body schema in bundle form, untyped direct() source
-   * @expectedResult RouteBuilder<{ body: Query }> with no .from<T>() generic
+   * @expectedResult RouteBuilder<{ body: Query; suspension?: unknown }> with no .from<T>() generic
    */
   test("input({ body }) types the following from()", () => {
     const route = craft()
       .id("typed-bundle")
       .input({ body: querySchema })
       .from(direct());
-    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: Query }>>();
+    expectTypeOf(route).toEqualTypeOf<
+      RouteBuilder<{ body: Query; suspension?: unknown }>
+    >();
   });
 
   /**
    * @case .input(schema) bare-schema shorthand also retypes the chain
    * @preconditions Bare Standard Schema (body-only shorthand)
-   * @expectedResult RouteBuilder<{ body: Query }>
+   * @expectedResult RouteBuilder<{ body: Query; suspension?: unknown }>
    */
   test("input(bareSchema) types the following from()", () => {
     const route = craft().id("typed-bare").input(querySchema).from(direct());
-    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: Query }>>();
+    expectTypeOf(route).toEqualTypeOf<
+      RouteBuilder<{ body: Query; suspension?: unknown }>
+    >();
   });
 
   /**
    * @case Explicit .from<T>() generic overrides the staged schema type
    * @preconditions Typed .input() followed by .from<Override>(direct())
-   * @expectedResult RouteBuilder<{ body: Override }>
+   * @expectedResult RouteBuilder<{ body: Override; suspension?: unknown }>
    */
   test("explicit from<T>() overrides the staged type", () => {
     type Override = { raw: string };
@@ -47,13 +51,15 @@ describe(".input() retyping type safety", () => {
       .id("typed-override")
       .input({ body: querySchema })
       .from<Override>(direct());
-    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: Override }>>();
+    expectTypeOf(route).toEqualTypeOf<
+      RouteBuilder<{ body: Override; suspension?: unknown }>
+    >();
   });
 
   /**
    * @case Staging calls after a typed .input() keep the staged body type
    * @preconditions .input({ body }) then .description() then .from(direct())
-   * @expectedResult RouteBuilder<{ body: Query }>; staging does not erase it
+   * @expectedResult RouteBuilder<{ body: Query; suspension?: unknown }>; staging does not erase it
    */
   test("staging methods preserve the staged type", () => {
     const route = craft()
@@ -62,20 +68,24 @@ describe(".input() retyping type safety", () => {
       .description("keeps the schema type")
       .tag("read-only")
       .from(direct());
-    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: Query }>>();
+    expectTypeOf(route).toEqualTypeOf<
+      RouteBuilder<{ body: Query; suspension?: unknown }>
+    >();
   });
 
   /**
    * @case Multi-ingress .from(a, b) after typed .input() shares the body type
    * @preconditions .input(schema) then .from(direct(), direct())
-   * @expectedResult RouteBuilder<{ body: Query }> without an explicit generic
+   * @expectedResult RouteBuilder<{ body: Query; suspension?: unknown }> without an explicit generic
    */
   test("multi-source from() after input() is typed", () => {
     const route = craft()
       .id("typed-multi")
       .input(querySchema)
       .from(direct(), direct());
-    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: Query }>>();
+    expectTypeOf(route).toEqualTypeOf<
+      RouteBuilder<{ body: Query; suspension?: unknown }>
+    >();
   });
 
   /**
@@ -88,24 +98,28 @@ describe(".input() retyping type safety", () => {
       .id("headers-only")
       .input({ headers: z.object({ "x-tenant": z.string() }) })
       .from(simple({ id: 0 }));
-    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: { id: number } }>>();
+    expectTypeOf(route).toEqualTypeOf<
+      RouteBuilder<{ body: { id: number }; suspension?: unknown }>
+    >();
   });
 
   /**
    * @case A route without .input() keeps source inference
    * @preconditions No .input() call, untyped direct() source
-   * @expectedResult RouteBuilder<{ body: unknown }>
+   * @expectedResult RouteBuilder<{ body: unknown; suspension?: unknown }>
    */
   test("no input() leaves the body unknown", () => {
     const route = craft().id("plain").from(direct());
-    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: unknown }>>();
+    expectTypeOf(route).toEqualTypeOf<
+      RouteBuilder<{ body: unknown; suspension?: unknown }>
+    >();
   });
 
   /**
    * @case A typed .input() does not leak into the next chained route
    * @preconditions Route 1 uses typed .input(); route 2 is staged with .id()
    *   and opens with an untyped direct() source
-   * @expectedResult Route 2's builder is RouteBuilder<{ body: unknown }>
+   * @expectedResult Route 2's builder is RouteBuilder<{ body: unknown; suspension?: unknown }>
    */
   test("typed input() does not leak into the next route", () => {
     const route = craft()
@@ -114,7 +128,9 @@ describe(".input() retyping type safety", () => {
       .from(direct())
       .id("second")
       .from(direct());
-    expectTypeOf(route).toEqualTypeOf<RouteBuilder<{ body: unknown }>>();
+    expectTypeOf(route).toEqualTypeOf<
+      RouteBuilder<{ body: unknown; suspension?: unknown }>
+    >();
   });
 
   /**

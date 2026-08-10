@@ -138,11 +138,9 @@ export const craftConfig = defineConfig({
 
 ### suspension
 
-{% callout type="note" %}
-**Foundation only.** This ships the storage and token-signing half of durable suspend and resume. The `.suspend()` and `.resume()` operations that use it are not in the DSL yet; they arrive with the [suspend and resume epic](https://github.com/routecraftjs/routecraft/issues/417). Configuring this key today is only useful if you are building against the store contract directly.
-{% /callout %}
+Configures where parked exchanges are persisted, and the secret used to sign the resume tokens an approver is handed. Required as soon as any route can reach a [`.suspend()`](/docs/reference/operations/suspend): such a context refuses to start without it, with [`RC5052`](/docs/reference/errors#rc-5052). A context that never suspends does not need the key.
 
-Configures where parked exchanges are persisted, and the secret used to sign the resume tokens an approver is handed. Set it when any route can reach a `.suspend()`; a context that never suspends does not need the key.
+It is deliberately not implicit. This setting decides whether a deployment survives a restart and whether resume tokens outlive the process, and defaulting it silently would hand a route that promises durability an in-memory store nobody chose.
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'

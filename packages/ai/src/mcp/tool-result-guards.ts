@@ -1,5 +1,6 @@
 import {
   isDropped,
+  isSuspended,
   rcError,
   validateAgainst,
   wasOutputValidated,
@@ -18,10 +19,12 @@ import "../errors.ts";
  * {@link enforceAdvertisedOutput} accepts a body matching any of them, so the
  * promise and its enforcement cannot drift apart.
  *
- * One arm today. A route with a reachable durable `.suspend()` will advertise
- * `oneOf: [Output, Suspended]` (#550); adding that arm here teaches both sides
- * at once, and a suspension becomes a conforming result rather than a
- * violation.
+ * One arm today. A route with a reachable durable `.suspend()` answers with
+ * the framework's `Suspended` acknowledgment rather than its declared output,
+ * which {@link enforceAdvertisedOutput} accepts. Advertising that second arm
+ * as `oneOf: [Output, Suspended]` is still open: it needs a schema for the
+ * acknowledgment and a signal that a route can park, neither of which core
+ * exposes yet. Adding the arm here will teach both sides at once.
  *
  * Empty when the route declares no `.output({ body })`: nothing is advertised,
  * so nothing is enforced.
@@ -85,6 +88,11 @@ export async function enforceAdvertisedOutput(
   if (arms.some((arm) => wasOutputValidated(exchange, arm))) {
     return exchange.body;
   }
+  // A run that parked at a `.suspend()` answers with the framework's
+  // acknowledgment, which is deliberately not the route's declared output
+  // and which the pipeline therefore does not validate either. Rejecting it
+  // would fail every suspension of a tool that declares one.
+  if (isSuspended(exchange.body)) return exchange.body;
 
   const failures: string[] = [];
   for (const arm of arms) {

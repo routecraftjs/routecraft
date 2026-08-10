@@ -4,6 +4,8 @@ import type { CraftContext } from "./context.ts";
 import type { RouteDefinition } from "./route.ts";
 import type { Route } from "./route.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
+import type { SuspendRequest } from "./suspension/sites.ts";
+import type { PrincipalRef } from "./suspension/types.ts";
 
 /**
  * Base interface for all adapters (sources, destinations, transformers, filters, etc.).
@@ -182,16 +184,15 @@ export function extractOutcomeMetadata(
  *   (choice routes into the matched branch).
  * - `fanOut`: schedule each child exchange independently through the
  *   remaining steps (split).
- * - `suspend`: exit the pipeline and wait for an external answer, resuming
- *   later from the same position. **Reserved stub, never produced yet.** The
- *   kind is declared now so the route-level suspend/resume feature can land
- *   it post-1.0 without a breaking change to this frozen contract; see the
- *   suspend/resume tracking issue for the full design. `exchange` is carried
- *   because the eventual executor serializes it into the suspension
- *   checkpoint. Until that feature ships, no step returns this and the
- *   executor rejects it loudly (`RC5032`) rather than silently dropping the
- *   exchange. This mirrors the forward-compat `SuspendError` stub in
- *   `@routecraft/ai`.
+ * - `suspend`: park `exchange` durably and exit the pipeline, to be resumed
+ *   later at the next step. Produced by `.suspend()`. The executor
+ *   serializes the exchange, writes the suspension, emits
+ *   `route:exchange:suspended`, and schedules nothing further for it;
+ *   `request` carries what it needs to do that (the `expect` schema, the
+ *   TTL, and where the suspend sits in the route). Only the framework's own
+ *   suspend step can produce a coherent `request`, so a custom step
+ *   returning this kind without one is rejected with `RC5032` rather than
+ *   silently dropping the exchange.
  *
  * The union is OPEN across minor releases: new kinds may be added as the
  * engine grows (the executor exhaustively handles every kind it ships
@@ -204,7 +205,7 @@ export type StepOutcome =
   | { kind: "drop"; metadata?: StepOutcomeMetadata }
   | { kind: "branch"; exchange: Exchange; steps: Step<Adapter>[] }
   | { kind: "fanOut"; exchanges: Exchange[] }
-  | { kind: "suspend"; exchange: Exchange };
+  | { kind: "suspend"; exchange: Exchange; request: SuspendRequest };
 
 /**
  * The abort surface of a step execution, handed to function-form steps
@@ -531,6 +532,40 @@ export interface EventDetailsMap {
     exchange?: ExchangeSnapshot;
   };
   "route:exchange:restored": ExchangeScoped & { source: string };
+  /**
+   * The exchange parked at a `.suspend()` and execution one ended. This is
+   * that run's terminal event, in place of `:completed`: the body the
+   * source receives is the `Suspended` acknowledgment, and the route's real
+   * output flows on execution two.
+   */
+  "route:exchange:suspended": ExchangeScoped & {
+    suspensionId: string;
+    /** Address of the suspending step; the continuation is what follows it. */
+    position: number;
+    /** When the suspension stops being resumable, when a `ttl` was declared. */
+    expiresAt?: Date;
+  };
+  /**
+   * A parked exchange was revived and its continuation is about to run.
+   * Execution two's `:started` follows immediately, and that run gets its
+   * own `:completed` / `:failed` / `:dropped`.
+   */
+  "route:exchange:resumed": ExchangeScoped & {
+    suspensionId: string;
+    position: number;
+    /** Who answered, when the resume ingress had an authenticated principal. */
+    resumedBy?: PrincipalRef;
+  };
+  /**
+   * A suspension stopped being resumable because its `ttl` elapsed. Fires
+   * when a late answer discovers it, and (once the sweeper lands) when the
+   * sweeper reaches it first. The suspended route's error channel receives
+   * `RC5047` alongside, which is where a re-ask belongs.
+   */
+  "route:exchange:expired": ExchangeScoped & {
+    suspensionId: string;
+    expiresAt: Date;
+  };
 
   // -- Step lifecycle --
   "route:step:started": ExchangeScoped & {

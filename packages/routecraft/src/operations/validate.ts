@@ -16,9 +16,11 @@ interface StandardSchemaResult {
  * @template T - Input body type
  * @template R - Output body type (may differ if the validator coerces)
  */
-export type CallableValidator<T = unknown, R = T> = (
-  exchange: Exchange<T>,
-) => R | Promise<R>;
+export type CallableValidator<
+  T = unknown,
+  R = T,
+  Ex extends Exchange<T> = Exchange<T>,
+> = (exchange: Ex) => R | Promise<R>;
 
 /**
  * Validator adapter: validates the exchange body and returns the validated

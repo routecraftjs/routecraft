@@ -4,6 +4,8 @@ import { type Exchange, OperationType, cloneExchange } from "../exchange.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
 import { type Path, compilePath } from "./choice.ts";
+import { NESTED_STEPS } from "../dsl-symbol.ts";
+import type { NestedSteps } from "../suspension/sites.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 
@@ -353,6 +355,21 @@ export class DispatchStep<In = unknown> implements Step<DispatchAdapter> {
       this.#targets.length,
       this.#strategy.name === "sticky" ? this.#strategy.maxKeys : 1,
     );
+  }
+
+  /**
+   * Expose the compiled targets to framework-level walks of the route's
+   * step tree. `rejoins: false`: a target runs as an isolated nested
+   * pipeline whose result the main flow does not carry, so the
+   * suspend-site resolver refuses a `.suspend()` inside one.
+   *
+   * @internal
+   */
+  [NESTED_STEPS](): ReadonlyArray<NestedSteps> {
+    return this.#targets.map((target) => ({
+      steps: target.steps,
+      rejoins: false,
+    }));
   }
 
   async execute(
