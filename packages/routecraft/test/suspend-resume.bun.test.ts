@@ -651,6 +651,60 @@ describe("suspend and resume", () => {
   });
 
   /**
+   * @case A revived exchange keeps the identity it parked with
+   * @preconditions An exchange parks, then resumes; ids are captured on both sides of the park
+   * @expectedResult Execution two runs under the SAME routecraft.id and correlation id as execution one, because a resume is a continuation rather than a route ingress (#573 mints a fresh id at every ingress); suspension ids are derived from the exchange id, and the suspended / resumed / expired events key off it
+   */
+  test("a resumed exchange retains its exchange id and correlation id", async () => {
+    const seen: Array<{ phase: string; id: string; correlationId: unknown }> =
+      [];
+    // `.process()`, not `.tap()`: a tap runs against a snapshot with a fresh
+    // `routecraft.id` by design, so it cannot answer a question about the
+    // identity of the exchange itself.
+    const capture =
+      (phase: string) =>
+      (ex: Exchange<unknown>): Exchange<unknown> => {
+        seen.push({
+          phase,
+          id: ex.id,
+          correlationId: ex.headers["routecraft.correlation_id"],
+        });
+        return ex;
+      };
+
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .process(capture("before"))
+          .suspend({ expect: Approval })
+          .process(capture("after"))
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(
+      await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
+    );
+    await t.client.sendDirect("answers", {
+      token: parked.token,
+      result: { approved: true },
+    });
+    await t.drain();
+
+    expect(seen.map((entry) => entry.phase)).toEqual(["before", "after"]);
+    expect(seen[1]?.id).toBe(seen[0]!.id);
+    expect(seen[1]?.correlationId).toBe(seen[0]!.correlationId);
+    // And the suspension the token named is derived from that same id, which
+    // is what keeps the :suspended and :resumed events on one exchange.
+    expect(parked.suspensionId.startsWith(seen[0]!.id)).toBe(true);
+  });
+
+  /**
    * @case Suspension lifecycle events land on the fixed event registry
    * @preconditions A park and a resume observed through ctx.on()
    * @expectedResult route:exchange:suspended carries the suspension id and position and replaces :completed for execution one; route:exchange:resumed precedes execution two's :started / :completed
