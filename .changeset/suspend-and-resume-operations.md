@@ -20,4 +20,6 @@ The user-visible half of durable suspend and resume, built on slice 1's store, r
 
 New events `route:exchange:suspended` / `:resumed` / `:expired` on the fixed registry. New optional `suspension` field on the builder state bag, which threads the `expect` type through the chain: a hand-written state bag such as `RouteBuilder<{ body: X }>` now describes a chain only if it carries that field too.
 
+`SerializedOutcome` gains a `suspended` status, for the two-stage-approval case where the continuation reaches another `.suspend()`: recording that as `completed` would publish a false receipt and hand the first approver the second one's resume token.
+
 MCP carriage (`structuredContent` plus the derived `oneOf` output schema) is gated on #214 and is not in this slice.
