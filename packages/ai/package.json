@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/ai",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "AI and MCP integrations for Routecraft",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -24,13 +24,13 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
-    "ai": "^6.0.230"
+    "ai": "^6.0.246"
   },
   "devDependencies": {
-    "@ai-sdk/anthropic": "^3.0.98",
-    "@ai-sdk/google": "^3.0.95",
-    "@ai-sdk/openai": "^3.0.86",
-    "@ai-sdk/openai-compatible": "^1.0.46",
+    "@ai-sdk/anthropic": "^3.0.107",
+    "@ai-sdk/google": "^3.0.104",
+    "@ai-sdk/openai": "^3.0.91",
+    "@ai-sdk/openai-compatible": "^1.0.47",
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/node": "^2.0.0",
@@ -39,10 +39,10 @@
     "@routecraft/routecraft": "workspace:*",
     "@sinonjs/fake-timers": "^11.3.1",
     "@types/sinonjs__fake-timers": "^15.0.1",
-    "jose": "^6.2.3",
+    "jose": "^6.2.8",
     "ollama-ai-provider-v2": "^3.6.0",
     "vitest": "^4.1.10",
-    "yaml": "^2.8.4",
+    "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "peerDependencies": {

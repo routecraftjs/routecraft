@@ -44,9 +44,15 @@ interface OpenApiPathItem {
  * not leak into a publicly served document by default. Set them
  * explicitly to publish them.
  *
+ * Auto-detection deliberately yields nothing when the nearest
+ * `package.json` is a workspace container (a `workspaces` field, or a
+ * `pnpm-workspace.yaml` beside it): a monorepo root's private, often
+ * stale identity must not be advertised on a publicly served document.
+ * See `findPackageInfo` for the full resolution rules.
+ *
  * Any explicit field passed by the caller wins over the auto-detected
- * default; missing `package.json` falls back to the hardcoded "Routecraft
- * HTTP API" / "0.0.0".
+ * default; no usable `package.json` falls back to the hardcoded
+ * "Routecraft HTTP API" / "0.0.0".
  */
 export interface HttpOpenApiInfo {
   title?: string;

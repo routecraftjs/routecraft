@@ -21,12 +21,27 @@ export interface PackageInfo {
  * (single-file bundled binaries, Docker scratch images), falling back
  * to hard-coded defaults in the OpenAPI builder.
  *
- * Resolution rule when a `package.json` IS present at a given level but
- * unreadable or malformed: the walk stops at that level and returns `{}`
- * rather than falling through to the parent. A corrupt local manifest
- * must not silently get replaced with an unrelated parent's metadata
- * (notably the monorepo root's), since that mis-attributed `name` /
- * `version` would then leak through the publicly-served `/openapi.json`.
+ * Resolution rule when a `package.json` IS present at a given level: the
+ * walk commits to that level and never falls through to a parent, since
+ * an ancestor's metadata is by definition less related to the running
+ * service than the nearest manifest. Concretely:
+ *
+ * - Unreadable or malformed manifest: return `{}`. A corrupt local
+ *   manifest must not silently get replaced with an unrelated parent's
+ *   `name` / `version` on the publicly-served `/openapi.json`.
+ * - Workspace-container manifest (a `workspaces` field, or a
+ *   `pnpm-workspace.yaml` beside it): return `{}`. The container is
+ *   repository infrastructure, not a service identity; it is typically
+ *   private, often versionless, and changesets-style tooling never
+ *   versions it, so its `version` silently goes stale. Advertising it
+ *   on a public document mis-attributes the service, so the safe
+ *   default is no identity at all (the OpenAPI builder's neutral
+ *   fallbacks apply) until the caller sets `builtins.openapi.info`.
+ *
+ * `private: true` alone is NOT treated as a container marker: plenty of
+ * real, deliberately-unpublished apps are private, and their own
+ * `name` / `version` is exactly the identity their `/openapi.json`
+ * should carry.
  */
 export function findPackageInfo(start: string = process.cwd()): PackageInfo {
   let dir = start;
@@ -44,16 +59,12 @@ export function findPackageInfo(start: string = process.cwd()): PackageInfo {
       exists = false;
     }
     if (exists) {
-      // The file is present at this level. Commit to it: if read or parse
-      // fails, return empty rather than silently inheriting the parent's
-      // metadata. A corrupt local package.json must not get replaced with
-      // (e.g.) the monorepo root's name/version on the publicly-served
-      // /openapi.json doc.
       try {
         const parsed = JSON.parse(readFileSync(candidate, "utf8")) as Record<
           string,
           unknown
         >;
+        if (isWorkspaceContainer(parsed, dir)) return {};
         const info: PackageInfo = {};
         if (typeof parsed["name"] === "string") info.name = parsed["name"];
         if (typeof parsed["version"] === "string") {
@@ -69,4 +80,24 @@ export function findPackageInfo(start: string = process.cwd()): PackageInfo {
     dir = parent;
   }
   return {};
+}
+
+/**
+ * A manifest counts as a workspace container when it declares workspaces
+ * itself (npm / yarn / bun keep them in `package.json`) or when a
+ * `pnpm-workspace.yaml` sits beside it (pnpm keeps them out of the
+ * manifest entirely).
+ */
+function isWorkspaceContainer(
+  manifest: Record<string, unknown>,
+  dir: string,
+): boolean {
+  const workspaces = manifest["workspaces"];
+  if (Array.isArray(workspaces)) return true;
+  if (typeof workspaces === "object" && workspaces !== null) return true;
+  try {
+    return statSync(join(dir, "pnpm-workspace.yaml")).isFile();
+  } catch {
+    return false;
+  }
 }

@@ -163,7 +163,7 @@ All rows below run inside `release.yml`, which triggers via `workflow_run` after
 
 | Trigger | Job | Result |
 |---------|-----|--------|
-| Main push with pending changesets | `release` (changesets action) | Opens/updates the "Version Packages" PR: runs `bun run version-packages` (= `changeset version` + `scripts/sync-derived-versions.mjs`, which patches the `.claude-plugin/{plugin,marketplace}.json` versions from core). |
+| Main push with pending changesets | `release` (changesets action) | Opens/updates the "Version Packages" PR: runs `bun run version-packages` (= `changeset version` + `scripts/sync-derived-versions.mjs`, which patches the `.claude-plugin/{plugin,marketplace}.json` versions from core, + `scripts/finalise-changelog.mjs`, which rewrites the changelog's in-development heading to its released form). The branch is force-pushed on every regeneration, so never hand-commit to it; anything that must appear in the Version Packages PR belongs in the `version-packages` script. |
 | Merging the "Version Packages" PR | `release` | `bun run release` (= build + `changeset publish`) publishes to npm with provenance, creates one GitHub Release per package version (tags like `@routecraft/routecraft@0.7.0`), and pushes a `v<core-version>` tag; `build-and-deploy-docs` then freezes the docs to that fresh tag in the same workflow run. |
 | Main push touching packages | `publish-canary` (after `release`) | Publishes canaries of the packages CHANGED by the push (`0.6.0-canary-<datetime>`, calculated from the last release plus pending changesets) under the npm `canary` dist-tag, no git tags. A synthetic changeset is generated from the git diff (base sha handed over from CI as the `push-base` artifact), so canaries flow on every merge whether or not the PR carried a changeset. The fixed core train always moves together (a change to any train member canaries the whole train, lockstep); independent packages (ai, os) canary when they themselves changed OR while they carry a pending changeset (the canary previews the whole upcoming release). |
 
@@ -181,7 +181,7 @@ The publish goes through `changeset publish` (npm under the hood) even though th
 ## References
 
 - Workflow sources: `.github/workflows/ci.yml`, `.github/workflows/release.yml`
-- Scripts: `scripts/sync-derived-versions.mjs`, `scripts/prepare-canary-snapshot.mjs`, `.github/scripts/smoke-test-embedding.mjs`, `packages/routecraft/scripts/verify-dist.mjs`
+- Scripts: `scripts/sync-derived-versions.mjs`, `scripts/finalise-changelog.mjs`, `scripts/prepare-canary-snapshot.mjs`, `.github/scripts/smoke-test-embedding.mjs`, `packages/routecraft/scripts/verify-dist.mjs`
 - Changesets config: `.changeset/config.json`
 - Definition of Done: `DEFINITION_OF_DONE.md`
 - Testing standards: `./testing.md`
