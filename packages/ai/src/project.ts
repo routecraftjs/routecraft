@@ -265,8 +265,8 @@ async function composeAgentSkills(
       blocks: await skills({ source: directory }),
     });
   }
-  if (file.directory !== undefined) {
-    const bundleSkills = join(file.directory, SKILLS_FOLDER);
+  if (file.bundleDirectory !== undefined) {
+    const bundleSkills = join(file.bundleDirectory, SKILLS_FOLDER);
     if (isDirectory(bundleSkills)) {
       own.push({
         label: displayPath(contentRoot, bundleSkills),

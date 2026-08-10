@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   mkdirSync,
   mkdtempSync,
@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { logger } from "@routecraft/routecraft";
 import { testContext } from "@routecraft/testing";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { agentPlugin, agents, tools } from "../src/index.ts";
@@ -20,7 +21,16 @@ function tmpDir(): string {
 
 describe("agents() markdown loader", () => {
   let dirs: string[] = [];
+  // Claude-compatibility paths report through the logger rather than
+  // throwing, so the warning is the assertion surface.
+  let warn: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    warn = spyOn(logger, "warn").mockImplementation(() => {});
+  });
+
   afterEach(() => {
+    warn.mockRestore();
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
     dirs = [];
   });
@@ -242,30 +252,60 @@ describe("agents() markdown loader", () => {
   });
 
   /**
-   * @case Unsupported Claude frontmatter field throws not-yet-supported
-   * @preconditions Agent with permissionMode set
-   * @expectedResult Throws RC5003 mentioning the field and the supported list
+   * @case Claude-specific frontmatter this loader does not map is tolerated
+   * @preconditions Agent carrying permissionMode and color
+   * @expectedResult The agent loads and each ignored key is warned about
    */
-  test("rejects unsupported Claude subagent frontmatter fields", async () => {
+  test("ignores unmapped Claude frontmatter with a warning", async () => {
     const dir = makeDir({
       "x.md":
-        "---\nname: x\ndescription: d\npermissionMode: default\n---\nsystem",
+        "---\nname: x\ndescription: d\npermissionMode: default\ncolor: blue\n---\nsystem",
     });
-    await expect(agents(dir)).rejects.toThrow(
-      /frontmatter field "permissionMode" is not yet supported/,
-    );
+    const result = await agents(dir);
+    expect(result["x"]?.description).toBe("d");
+    const warned = warn.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(warned).toMatch(/"permissionMode" is not supported/);
+    expect(warned).toMatch(/"color" is not supported/);
   });
 
   /**
-   * @case Bare model alias rejected with a clear hint
-   * @preconditions model: sonnet (no provider:)
-   * @expectedResult Throws RC5003 telling the user to use full provider:model form
+   * @case Claude model aliases map to full provider:model references
+   * @preconditions model: sonnet
+   * @expectedResult The agent carries the pinned anthropic reference
    */
-  test("rejects bare model aliases like 'sonnet'", async () => {
+  test("maps the model alias 'sonnet'", async () => {
     const dir = makeDir({
       "x.md": "---\nname: x\ndescription: d\nmodel: sonnet\n---\nsystem",
     });
-    await expect(agents(dir)).rejects.toThrow(/full "provider:model" form/);
+    const result = await agents(dir);
+    expect(result["x"]?.model).toBe("anthropic:claude-sonnet-4-6");
+  });
+
+  /**
+   * @case model: inherit leaves the model unset so the context default applies
+   * @preconditions model: inherit
+   * @expectedResult No model on the loaded agent
+   */
+  test("maps the model alias 'inherit' to no model at all", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\nmodel: inherit\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(result["x"]?.model).toBeUndefined();
+  });
+
+  /**
+   * @case A model that is neither an alias nor provider:model is rejected
+   * @preconditions model: gpt-nine
+   * @expectedResult Throws RC5003 listing the known aliases
+   */
+  test("rejects a model that is neither alias nor provider:model", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\nmodel: gpt-nine\n---\nsystem",
+    });
+    await expect(agents(dir)).rejects.toThrow(
+      /neither a known alias .* nor a full "provider:model" reference/,
+    );
   });
 
   /**
@@ -524,6 +564,186 @@ describe("agents() markdown loader", () => {
     await expect(agents(join(root, "notes.txt"))).rejects.toThrow(
       /is a file but not a "\.md" file/,
     );
+  });
+
+  /**
+   * Resolve an agent's tool selection against a context holding the
+   * given fns, returning the resolved wire names.
+   */
+  async function resolveToolNames(
+    agent: { tools?: unknown } | undefined,
+    functions: Record<string, unknown> = {},
+  ): Promise<string[]> {
+    const t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            functions: functions as NonNullable<
+              NonNullable<Parameters<typeof agentPlugin>[0]>["functions"]
+            >,
+          }),
+        ],
+      })
+      .build();
+    await t.startAndWaitReady();
+    try {
+      const selection = agent?.tools as
+        { resolve: (ctx: unknown) => Array<{ name: string }> } | undefined;
+      return (selection?.resolve(t.ctx) ?? []).map((tool) => tool.name).sort();
+    } finally {
+      await t.stop();
+    }
+  }
+
+  const echoFn = {
+    description: "Echoes",
+    input: {
+      "~standard": {
+        version: 1 as const,
+        vendor: "test",
+        validate: (value: unknown) => ({ value }),
+      },
+    },
+    handler: async (): Promise<string> => "ok",
+  };
+
+  /**
+   * @case Claude's comma-separated tools string is accepted
+   * @preconditions tools: echo, Read written as a plain string
+   * @expectedResult Both refs are parsed; the registered fn resolves
+   */
+  test("accepts a comma-separated tools string", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\ntools: echo, Read\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(await resolveToolNames(result["x"], { echo: echoFn })).toEqual([
+      "echo",
+    ]);
+  });
+
+  /**
+   * @case A Claude built-in this runtime does not provide is skipped with a warning
+   * @preconditions tools listing Read alongside a registered fn
+   * @expectedResult Only the registered fn resolves; the skip is warned once
+   */
+  test("skips Claude built-ins this runtime does not provide", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\ntools:\n  - echo\n  - Read\n  - Bash\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(await resolveToolNames(result["x"], { echo: echoFn })).toEqual([
+      "echo",
+    ]);
+    const warned = warn.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(warned).toMatch(/tool "Read" is a Claude Code built-in/);
+    expect(warned).toMatch(/tool "Bash" is a Claude Code built-in/);
+  });
+
+  /**
+   * @case A registered fn wins over the built-in skip list
+   * @preconditions A fn actually registered under the name Read
+   * @expectedResult It resolves normally rather than being skipped
+   */
+  test("a registered fn named like a built-in resolves normally", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\ntools:\n  - Read\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(await resolveToolNames(result["x"], { Read: echoFn })).toEqual([
+      "Read",
+    ]);
+  });
+
+  /**
+   * @case A genuinely unknown tool name is still a hard error
+   * @preconditions tools listing a name that is neither registered nor a Claude built-in
+   * @expectedResult Resolution throws naming the unknown tool
+   */
+  test("a genuinely unknown tool still throws", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\ntools:\n  - notAThing\n---\nsystem",
+    });
+    const result = await agents(dir);
+    await expect(resolveToolNames(result["x"])).rejects.toThrow(
+      /unknown tool "notAThing"/,
+    );
+  });
+
+  /**
+   * @case disallowedTools removes a reference from the agent's own list
+   * @preconditions tools grants two fns; disallowedTools denies one
+   * @expectedResult Only the allowed fn resolves
+   */
+  test("disallowedTools removes a granted tool", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\ntools: echo, other\ndisallowedTools: other\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(
+      await resolveToolNames(result["x"], { echo: echoFn, other: echoFn }),
+    ).toEqual(["echo"]);
+  });
+
+  /**
+   * @case disallowedTools without tools warns rather than silently doing nothing
+   * @preconditions Only disallowedTools is set
+   * @expectedResult A warning explains that a per-agent list replaces the default
+   */
+  test("disallowedTools without tools warns", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\ndisallowedTools: Bash\n---\nsystem",
+    });
+    await agents(dir);
+    const warned = warn.mock.calls.map((c: unknown[]) => String(c[0])).join("");
+    expect(warned).toMatch(/"disallowedTools" is set but "tools" is not/);
+  });
+
+  /**
+   * @case A real Claude Code agents tree boots unchanged
+   * @preconditions Nested folders, Claude-only frontmatter, comma-separated tools
+   *   mixing a built-in with an MCP ref, filenames differing from declared names
+   * @expectedResult Every agent loads keyed by frontmatter name with aliases mapped,
+   *   unknown keys warned, and the unimplemented built-in skipped
+   */
+  test("a real .claude/agents tree boots unchanged", async () => {
+    const dir = makeDir({
+      "review/security-reviewer.md": [
+        "---",
+        "name: security",
+        "description: Reviews for vulnerabilities",
+        "model: opus",
+        "tools: Read, Grep, echo",
+        "color: red",
+        "permissionMode: default",
+        "---",
+        "You review code.",
+      ].join("\n"),
+      "research/market.md": [
+        "---",
+        "name: market-research",
+        "description: Researches markets",
+        "model: haiku",
+        "disallowedTools: Write",
+        "tools: WebSearch, echo",
+        "---",
+        "You research.",
+      ].join("\n"),
+    });
+    const result = await agents(dir);
+    expect(Object.keys(result).sort()).toEqual(["market-research", "security"]);
+    expect(result["security"]?.model).toBe("anthropic:claude-opus-4-7");
+    expect(result["market-research"]?.model).toBe("anthropic:claude-haiku-4-5");
+    expect(
+      await resolveToolNames(result["security"], { echo: echoFn }),
+    ).toEqual(["echo"]);
+    expect(
+      await resolveToolNames(result["market-research"], { echo: echoFn }),
+    ).toEqual(["echo"]);
   });
 
   /**

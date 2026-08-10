@@ -106,6 +106,25 @@ Duplicate `name` values anywhere in the tree throw `RC5003` naming both files. I
 
 Passing a single `.md` path loads that one file.
 
+### Claude Code compatibility
+
+The loader is deliberately tolerant so an existing agent file works without edits.
+
+| Field | Accepted forms |
+|-------|----------------|
+| `tools` | A YAML array (`- Direct(cancel-order)`) or Claude's comma-separated string (`tools: Read, Grep, echo`) |
+| `disallowedTools` | Same two forms. Removes references from **this agent's own** list |
+| `model` | A full `provider:model` reference, or the aliases `opus`, `sonnet`, `haiku`, `inherit` |
+| anything else | Ignored with a warning |
+
+**Unknown keys are never fatal.** A file carrying `permissionMode`, `color`, `hooks` or a key a future version of another harness introduces still loads; each ignored key is warned about once. The two Routecraft-owned keys `blocks` and `output` are the exception and still throw, because they point at a real mistake: their values cannot be expressed in YAML and belong in the override map.
+
+**Model aliases map to pinned references**: `opus`, `sonnet` and `haiku` resolve to specific Anthropic model ids rather than "whatever is newest", because an agent whose model changes under it is not reproducible. Write the full `provider:model` form to pick a different version. `inherit` leaves the model unset, which is exactly right: the agent then picks up `agentPlugin({ defaultOptions: { model } })` at dispatch.
+
+**Unimplemented Claude built-ins are skipped, not fatal.** A reference to `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Bash`, `WebFetch`, `WebSearch` and friends is dropped with a warning when this runtime provides no tool of that name, so a coding agent still boots here with its remaining tools instead of failing the load. The check runs against the live registry, so a fn you register under one of those names resolves normally. A name that is neither registered nor a recognised built-in is still a hard error, because that is a typo or a missing registration rather than a known gap.
+
+`disallowedTools` applies to the list the agent itself declares. It cannot narrow an inherited `agentPlugin({ defaultOptions: { tools } })`, because a per-agent list replaces that default outright; setting `disallowedTools` with no `tools` warns rather than quietly doing nothing.
+
 ### The `skills:` frontmatter key
 
 An agent file may declare where its skills come from:

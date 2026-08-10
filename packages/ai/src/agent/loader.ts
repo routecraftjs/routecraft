@@ -8,6 +8,7 @@ import {
   type ParsedMarkdown,
 } from "../block/markdown.ts";
 import { tools } from "./tools/index.ts";
+import type { ToolSelection } from "./tools/selection.ts";
 import type { LlmModelId } from "../llm/types.ts";
 import type { AgentRegisteredOptions } from "./types.ts";
 
@@ -31,13 +32,14 @@ export const AGENT_BUNDLE_FILENAME = "AGENT.md";
 export const AGENT_RESERVED_DIRECTORIES = ["skills"] as const;
 
 /**
- * Frontmatter fields supported today. Claude's subagent schema covers
- * many more (`disallowedTools`, `permissionMode`, `mcpServers`,
- * `hooks`, `memory`, `background`, `effort`, `isolation`, `color`,
- * `initialPrompt`, ...) which we will add incrementally as the
- * underlying features land. Any other key in the frontmatter throws
- * `RC5003` "not yet supported" at load so a misspelt key never silently
- * disappears.
+ * Frontmatter fields this loader maps. Claude's subagent schema covers
+ * more (`permissionMode`, `mcpServers`, `hooks`, `memory`,
+ * `background`, `effort`, `isolation`, `color`, `initialPrompt`, ...)
+ * which we will add as the underlying features land. Any other key is
+ * ignored with a warning rather than throwing: tolerance is what keeps
+ * "drop your `.claude/agents/` tree in unchanged" true, and a file
+ * written for a harness that grows a new key must not stop booting
+ * this one.
  */
 const SUPPORTED_AGENT_KEYS = new Set([
   "name",
@@ -45,8 +47,52 @@ const SUPPORTED_AGENT_KEYS = new Set([
   "model",
   "maxTurns",
   "tools",
+  "disallowedTools",
   "principal",
   "skills",
+]);
+
+/**
+ * Claude model aliases mapped to the full `provider:model` form. The
+ * targets are pinned rather than "whatever is newest", because an
+ * agent whose model silently changes under it is not reproducible;
+ * write the full form to pick a different version.
+ */
+const MODEL_ALIASES: Record<string, LlmModelId> = {
+  opus: "anthropic:claude-opus-4-7" as LlmModelId,
+  sonnet: "anthropic:claude-sonnet-4-6" as LlmModelId,
+  haiku: "anthropic:claude-haiku-4-5" as LlmModelId,
+};
+
+/**
+ * Claude Code's built-in tool names. A reference to one of these that
+ * this runtime does not provide is dropped with a warning instead of
+ * failing the load, so an agent file written for a coding harness
+ * still boots here with its remaining tools. A genuinely unknown name
+ * is still a hard error, because that is a typo or a missing
+ * registration rather than a known gap.
+ *
+ * The check runs against the live catalog, so the moment Routecraft
+ * registers a fn under one of these names (`WebFetch` in #341,
+ * `WebSearch` in #342, `Bash` in #343) it resolves normally and no
+ * entry has to be removed from this list.
+ */
+const CLAUDE_BUILTIN_TOOLS = new Set([
+  "Bash",
+  "BashOutput",
+  "Edit",
+  "Glob",
+  "Grep",
+  "KillShell",
+  "MultiEdit",
+  "NotebookEdit",
+  "Read",
+  "SlashCommand",
+  "Task",
+  "TodoWrite",
+  "WebFetch",
+  "WebSearch",
+  "Write",
 ]);
 
 /**
@@ -130,6 +176,107 @@ export interface LoadedAgentFile {
 }
 
 /**
+ * Read a tool reference list from frontmatter. Accepts the YAML array
+ * form and Claude Code's comma-separated string
+ * (`tools: Read, Grep, Bash`), which is what an unmodified agent file
+ * carries.
+ *
+ * @internal
+ */
+function optionalToolRefs(
+  value: unknown,
+  field: string,
+  source: string,
+): string[] | undefined {
+  if (typeof value === "string") {
+    const refs = value
+      .split(",")
+      .map((ref) => ref.trim())
+      .filter((ref) => ref !== "");
+    if (refs.length === 0) {
+      throw rcError("RC5003", undefined, {
+        message: `Markdown file "${source}": frontmatter field "${field}" is an empty string. Remove the key or list at least one tool.`,
+      });
+    }
+    return refs;
+  }
+  return optionalStringArray(value, field, source);
+}
+
+/**
+ * Build the agent's tool selection from its frontmatter references.
+ *
+ * Two Claude-compatibility rules live here rather than in `tools()`,
+ * because they are properties of a dropped-in file and not of the
+ * selection grammar:
+ *
+ * - A reference to a Claude built-in this runtime does not provide is
+ *   dropped with a warning. Resolution runs per dispatch, so the
+ *   warning is emitted once per name per selection.
+ * - `disallowedTools` removes references from the agent's own list.
+ *   It cannot reach an inherited `defaultOptions.tools`, because a
+ *   per-agent list replaces that default outright rather than
+ *   narrowing it.
+ *
+ * @internal
+ */
+function toolSelection(
+  refs: string[],
+  disallowed: readonly string[],
+  source: string,
+): ToolSelection {
+  const denied = new Set(disallowed);
+  const warned = new Set<string>();
+  return tools((catalog) => {
+    const registered = new Set(catalog.fns.map((fn) => fn.name));
+    const kept: string[] = [];
+    for (const ref of refs) {
+      if (denied.has(ref)) continue;
+      if (!registered.has(ref) && CLAUDE_BUILTIN_TOOLS.has(ref)) {
+        if (!warned.has(ref)) {
+          warned.add(ref);
+          logger.warn(
+            `Markdown file "${source}": tool "${ref}" is a Claude Code built-in this runtime does not provide; skipping it for this agent.`,
+          );
+        }
+        continue;
+      }
+      kept.push(ref);
+    }
+    return kept;
+  });
+}
+
+/**
+ * Resolve the frontmatter `model` field to a full `provider:model`
+ * reference.
+ *
+ * Claude's aliases map onto pinned ids; `inherit` maps to nothing at
+ * all, which is exactly right here because an agent that sets no model
+ * already picks up `agentPlugin({ defaultOptions: { model } })` at
+ * dispatch.
+ *
+ * @internal
+ */
+function resolveModel(value: unknown, source: string): LlmModelId | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw rcError("RC5003", undefined, {
+      message: `Markdown file "${source}": frontmatter "model" must be a string of the form "provider:model" (e.g. "anthropic:claude-sonnet-4-6").`,
+    });
+  }
+  if (value === "inherit") return undefined;
+  const alias = MODEL_ALIASES[value];
+  if (alias !== undefined) return alias;
+  if (!value.includes(":")) {
+    throw rcError("RC5003", undefined, {
+      message: `Markdown file "${source}": frontmatter "model" ("${value}") is neither a known alias (${Object.keys(MODEL_ALIASES).sort().join(", ")}, inherit) nor a full "provider:model" reference.`,
+    });
+  }
+  return value as LlmModelId;
+}
+
+/**
  * Convert a parsed markdown file into an `AgentRegisteredOptions`.
  * Identity comes from the frontmatter `name` field alone: the filename
  * and the directory path are grouping, not identity, which is what
@@ -155,9 +302,9 @@ function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
       });
     }
     if (!SUPPORTED_AGENT_KEYS.has(key)) {
-      throw rcError("RC5003", undefined, {
-        message: `Markdown file "${source}": frontmatter field "${key}" is not yet supported. Currently supported fields: ${[...SUPPORTED_AGENT_KEYS].sort().join(", ")}.`,
-      });
+      logger.warn(
+        `Markdown file "${source}": frontmatter field "${key}" is not supported and was ignored. Supported fields: ${[...SUPPORTED_AGENT_KEYS].sort().join(", ")}.`,
+      );
     }
   }
   if (doc.bundleDirectory !== undefined && name !== doc.filename) {
@@ -175,23 +322,24 @@ function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
       message: `Markdown file "${source}": agent body is empty. The body becomes the agent's system prompt; an empty system prompt is rejected at dispatch.`,
     });
   }
-  const modelRaw = frontmatter["model"];
-  if (modelRaw !== undefined && typeof modelRaw !== "string") {
-    throw rcError("RC5003", undefined, {
-      message: `Markdown file "${source}": frontmatter "model" must be a string of the form "provider:model" (e.g. "anthropic:claude-sonnet-4-6").`,
-    });
-  }
-  if (typeof modelRaw === "string" && !modelRaw.includes(":")) {
-    throw rcError("RC5003", undefined, {
-      message: `Markdown file "${source}": frontmatter "model" ("${modelRaw}") must use the full "provider:model" form. Bare model aliases like "sonnet" / "opus" / "haiku" are not yet supported by the markdown loader.`,
-    });
-  }
+  const model = resolveModel(frontmatter["model"], source);
   const maxTurns = optionalPositiveInt(
     frontmatter["maxTurns"],
     "maxTurns",
     source,
   );
-  const toolNames = optionalStringArray(frontmatter["tools"], "tools", source);
+  const toolRefs = optionalToolRefs(frontmatter["tools"], "tools", source);
+  const disallowed =
+    optionalToolRefs(
+      frontmatter["disallowedTools"],
+      "disallowedTools",
+      source,
+    ) ?? [];
+  if (disallowed.length > 0 && toolRefs === undefined) {
+    logger.warn(
+      `Markdown file "${source}": "disallowedTools" is set but "tools" is not. A per-agent tool list replaces the context default outright rather than narrowing it, so this deny list has nothing to apply to.`,
+    );
+  }
   // Frontmatter carries only the boolean form; the function-renderer
   // form is a closure YAML cannot express and is supplied via the
   // override map or agentPlugin({ defaultOptions }).
@@ -209,9 +357,10 @@ function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
     description,
     system: body,
   };
-  if (modelRaw) agent.model = modelRaw as LlmModelId;
+  if (model !== undefined) agent.model = model;
   if (maxTurns !== undefined) agent.maxTurns = maxTurns;
-  if (toolNames !== undefined) agent.tools = tools(toolNames);
+  if (toolRefs !== undefined)
+    agent.tools = toolSelection(toolRefs, disallowed, source);
   if (principal !== undefined) agent.principal = principal;
   const loaded: LoadedAgentFile = { name, agent, source };
   if (doc.bundleDirectory !== undefined)
