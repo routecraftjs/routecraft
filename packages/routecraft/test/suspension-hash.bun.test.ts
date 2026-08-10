@@ -500,6 +500,61 @@ describe("describeExpect", () => {
     expect(described.jsonSchema).toBeUndefined();
     expect(described.hash).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  /**
+   * @case A schema library whose jsonSchema extension is a lazy producer
+   * @preconditions Zod 4 exposes `~standard.jsonSchema.output` as a FUNCTION that renders on demand
+   * @expectedResult The rendering is resolved, so two structurally different schemas hash differently and the descriptor is plain data the store can persist
+   */
+  test("resolves a lazy JSON Schema producer", () => {
+    const lazy = (title: string): StandardSchemaV1 =>
+      ({
+        "~standard": {
+          version: 1,
+          vendor: "lazy",
+          validate: (value: unknown) => ({ value }),
+          jsonSchema: {
+            output: () => ({ type: "object", title }),
+          },
+        },
+      }) as unknown as StandardSchemaV1;
+
+    const described = describeExpect(lazy("approval"));
+
+    expect(described.jsonSchema).toEqual({ type: "object", title: "approval" });
+    // The load-bearing property: an unresolved producer hashes to the same
+    // digest for every schema (a function is not JSON), which would silently
+    // disable the changed-expect half of the compatibility check.
+    expect(described.hash).not.toBe(describeExpect(lazy("rejection")).hash);
+    // And the descriptor is written to the store as-is, so it has to be
+    // data. `structuredClone` is what the in-memory backend does.
+    expect(() => structuredClone(described)).not.toThrow();
+  });
+
+  /**
+   * @case A lazy producer that throws
+   * @preconditions The extension's producer is vendor code that fails
+   * @expectedResult The suspend is not failed by it: no rendering is claimed, and a hash is still produced
+   */
+  test("survives a JSON Schema producer that throws", () => {
+    const hostile = {
+      "~standard": {
+        version: 1,
+        vendor: "hostile",
+        validate: (value: unknown) => ({ value }),
+        jsonSchema: {
+          output: () => {
+            throw new Error("no rendering for you");
+          },
+        },
+      },
+    } as unknown as StandardSchemaV1;
+
+    const described = describeExpect(hostile);
+
+    expect(described.jsonSchema).toBeUndefined();
+    expect(described.hash).toMatch(/^[0-9a-f]{64}$/);
+  });
 });
 
 describe("actionFingerprint", () => {
