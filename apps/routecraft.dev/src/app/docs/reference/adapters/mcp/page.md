@@ -78,7 +78,9 @@ craft()
   .transform(loadUsers);
 ```
 
-If `loadUsers` returns something else, the call comes back as `isError: true` with the failing fields in the message (`AI2001`) rather than as a result contradicting the advertised schema.
+If `loadUsers` returns something else, the call comes back as `isError: true` naming the failing fields rather than as a result contradicting the advertised schema.
+
+Two checks stand behind that promise. The route's own output validation runs first and covers every result it completes, reporting a violation as [RC5002](/docs/reference/errors#rc-5002). The server then checks anything that reached it without passing through that validation, and reports those as [AI2001](/docs/reference/errors#ai-2001). A body the route already validated is not checked twice: validation replaces the body with the schema's output, so a schema that transforms (`z.string().transform(...)`, `.pipe()`) would reject the value it just produced.
 
 A tool whose route declares no `.output()` advertises no schema, so nothing is checked and its result passes through as-is.
 

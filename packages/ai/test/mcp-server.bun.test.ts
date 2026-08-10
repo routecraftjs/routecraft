@@ -51,6 +51,22 @@ describe("McpServer", () => {
   });
 
   /**
+   * Build a context holding `routes`, start it, and return an McpServer
+   * reading from it. The server is constructed after start because the local
+   * tool registry is read per call rather than captured at construction, so a
+   * tool registered later is still callable.
+   */
+  async function serve(
+    routes: AnyRouteBuilder[] = [],
+    options?: ConstructorParameters<typeof McpServer>[1],
+  ): Promise<McpServer> {
+    t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
+    await t.startAndWaitReady();
+    server = new McpServer(t.ctx, options);
+    return server;
+  }
+
+  /**
    * @case McpServer construction with default and custom options
    * @preconditions Context built; create server with no options then with name/version
    * @expectedResult Both servers are defined
@@ -3671,22 +3687,13 @@ describe("McpServer", () => {
       ).handleToolCall(tool, args, undefined)) as ToolResult;
     }
 
-    /** Start a context holding the routes and an McpServer reading from it. */
-    async function serve(routes: AnyRouteBuilder[]): Promise<McpServer> {
-      t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
-      await t.startAndWaitReady();
-      server = new McpServer(t.ctx);
-      return server;
-    }
-
     /**
      * Serve one tool straight from the local registry, with a handler that
      * returns `body` without a route behind it. Isolates the MCP boundary
      * from the route pipeline's own `.output()` validation.
      */
     async function serveUnvalidated(body: unknown): Promise<McpServer> {
-      t = await testContext().store(MCP_STORE_KEY, true).build();
-      await t.startAndWaitReady();
+      const srv = await serve();
       t.ctx.setStore(
         MCP_LOCAL_TOOL_REGISTRY,
         new Map([
@@ -3702,8 +3709,7 @@ describe("McpServer", () => {
           ],
         ]),
       );
-      server = new McpServer(t.ctx);
-      return server;
+      return srv;
     }
 
     /**
@@ -3777,6 +3783,71 @@ describe("McpServer", () => {
     });
 
     /**
+     * @case A decline is reported as declined, not as a failure
+     * @preconditions Listeners on plugin:mcp:tool:declined, :failed and :completed; route drops the exchange in a filter; spy logger captures levels
+     * @expectedResult The declined event fires with the tool name and reason, neither failed nor completed fires, and nothing is logged at error level, so an error-rate alert does not fire on a tool that filters as a matter of course
+     */
+    test("emits tool:declined rather than tool:failed on a drop", async () => {
+      const srv = await serve([
+        craft()
+          .id("filtering-tool")
+          .description("Declines every call by design")
+          .from<{ value: string }>(mcp())
+          .filter(() => false),
+      ]);
+
+      const declined: Array<Record<string, unknown>> = [];
+      const failed: Array<Record<string, unknown>> = [];
+      const completed: Array<Record<string, unknown>> = [];
+      t.ctx.on("plugin:mcp:tool:declined", (payload) => {
+        declined.push(payload.details as Record<string, unknown>);
+      });
+      t.ctx.on("plugin:mcp:tool:failed", (payload) => {
+        failed.push(payload.details as Record<string, unknown>);
+      });
+      t.ctx.on("plugin:mcp:tool:completed", (payload) => {
+        completed.push(payload.details as Record<string, unknown>);
+      });
+
+      const result = await callTool(srv, "filtering-tool", { value: "hi" });
+
+      expect(result.isError).toBe(true);
+      expect(declined).toHaveLength(1);
+      expect(declined[0]).toMatchObject({ tool: "filtering-tool" });
+      expect(String(declined[0]!["reason"])).toContain("declined the request");
+      expect(failed).toHaveLength(0);
+      expect(completed).toHaveLength(0);
+      expect(t.logger.error.mock.calls).toHaveLength(0);
+    });
+
+    /**
+     * @case A route whose output schema transforms is published, not rejected
+     * @preconditions Route declares .output() with a schema whose output type differs from its input type (string transformed to Date), and returns a body the schema accepts
+     * @expectedResult No error; the transformed value is published. The route's own validation replaced the body with the schema's output, and re-running the schema over that output at the boundary would reject the value the route just produced
+     */
+    test("publishes a result whose output schema transforms the value", async () => {
+      const srv = await serve([
+        craft()
+          .id("transforming")
+          .description("Output schema transforms a string into a Date")
+          .output({
+            body: z.object({ at: z.string().transform((s) => new Date(s)) }),
+          })
+          .from<{ at: string }>(mcp())
+          .transform((body) => ({ at: body.at })),
+      ]);
+
+      const result = await callTool(srv, "transforming", {
+        at: "2026-01-01T00:00:00.000Z",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toEqual({
+        at: new Date("2026-01-01T00:00:00.000Z"),
+      });
+    });
+
+    /**
      * @case A conforming result is published unchanged
      * @preconditions Route declares .output() with a defaulted field and returns a body the schema accepts
      * @expectedResult No error; structuredContent carries the route's body with the default applied exactly once
@@ -3846,6 +3917,7 @@ describe("McpServer", () => {
       expect(failed).toHaveLength(1);
       expect(failed[0]).toMatchObject({ tool: "unchecked" });
       expect(String(failed[0]!["error"])).toContain("output schema");
+      expect(t.logger.error.mock.calls.length).toBeGreaterThan(0);
     });
 
     /**

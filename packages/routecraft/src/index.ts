@@ -41,6 +41,7 @@ export {
   type HeaderLiteral,
   isDropped,
   OperationType,
+  wasOutputValidated,
   type RoutecraftHeaders,
 } from "./exchange.ts";
 

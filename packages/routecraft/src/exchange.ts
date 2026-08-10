@@ -341,6 +341,20 @@ type ExchangeInternals = {
    * @internal
    */
   dropped?: boolean;
+  /**
+   * Set when the route's `.output({ body })` validation accepted this
+   * exchange's body. Stored on internals so it survives the `rewrap` that
+   * carries the validated value, and so a request/reply adapter can tell a
+   * body the route vouched for from one that reached it another way.
+   *
+   * Load-bearing beyond bookkeeping: validation replaces the body with the
+   * schema's output, and a schema whose output type differs from its input
+   * type rejects its own output, so anything downstream that re-runs the
+   * same schema must know not to.
+   *
+   * @internal
+   */
+  outputValidated?: boolean;
 };
 
 /**
@@ -498,6 +512,41 @@ export function emitExchangeDropped(
     reason,
     exchange,
   });
+}
+
+/**
+ * Mark an exchange's body as having passed the route's declared output
+ * validation. Idempotent. Called by `applyOutputValidation` only.
+ *
+ * @internal
+ */
+export function markOutputValidated(exchange: Exchange): void {
+  const internals =
+    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
+      INTERNALS_KEY
+    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  if (internals) internals.outputValidated = true;
+}
+
+/**
+ * Returns true if the route's `.output({ body })` validation accepted this
+ * exchange's body.
+ *
+ * A request/reply source adapter that enforces the same schema at its own
+ * protocol boundary reads this to avoid validating twice. The second run is
+ * not merely redundant: validation replaces the body with the schema's
+ * output value, so a schema that transforms (`z.string().transform(...)`,
+ * `.pipe()`) rejects the very value it just produced.
+ *
+ * @param exchange - The exchange to test, or any rewrap of it
+ * @returns Whether the route validated this body against its output schema
+ */
+export function wasOutputValidated(exchange: Exchange): boolean {
+  const internals =
+    (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
+      INTERNALS_KEY
+    ] ?? EXCHANGE_INTERNALS.get(exchange);
+  return internals?.outputValidated === true;
 }
 
 /**

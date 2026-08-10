@@ -2,11 +2,8 @@ import type { CraftContext } from "@routecraft/routecraft";
 import {
   DefaultExchange,
   HeadersKeys,
-  isDropped,
   isRoutecraftError,
   markAuthentic,
-  rcError,
-  validateAgainst,
 } from "@routecraft/routecraft";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
@@ -21,7 +18,6 @@ import type {
 import type { NodeIncomingMessageLike } from "@modelcontextprotocol/node";
 import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 import type {
-  Exchange,
   OAuthValidatorAuthOptions,
   Principal,
   ValidatorAuthOptions,
@@ -59,10 +55,11 @@ import {
   loadMcpServerSdk,
   loadMcpServerStdioSdk,
 } from "./sdk.ts";
-// Registers the AI error codes this module throws. Imported here rather than
-// relying on the package index, so a caller that reaches the server module
-// directly still gets AI2001 instead of an unknown-code RC9901.
-import "../errors.ts";
+import {
+  advertisedOutputArms,
+  declinedError,
+  enforceAdvertisedOutput,
+} from "./tool-result-guards.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -1335,10 +1332,11 @@ export class McpServer {
     if (entry.title !== undefined) {
       tool.title = entry.title;
     }
-    if (entry.output?.body !== undefined) {
-      tool.outputSchema = this.schemaToJsonSchema(
-        entry.output.body,
-      ) as NonNullable<McpTool["outputSchema"]>;
+    const outputArms = advertisedOutputArms(entry);
+    if (outputArms.length > 0) {
+      tool.outputSchema = this.schemaToJsonSchema(outputArms[0]) as NonNullable<
+        McpTool["outputSchema"]
+      >;
     }
     if (entry.annotations !== undefined) {
       tool.annotations = entry.annotations;
@@ -1391,68 +1389,27 @@ export class McpServer {
   }
 
   /**
-   * Refuse to answer with a result the route never produced.
+   * Report a declined tool call: the route ran and chose not to answer.
    *
-   * A dropped exchange (a `.filter()` rejected it, a `.choice()` matched no
-   * branch, an error handler returned `recovery.drop()`) resolves with the
-   * body it came in with, so returning it hands the caller its own request
-   * back as if the tool had answered. `CraftClient.sendDirect` and the
-   * route-scope `forward` both raise RC5031 on this; MCP declines the call
-   * with `AI2002` instead, which is the same contract in the vocabulary
-   * of the protocol.
-   *
-   * Applies to every tool, declared output or not: an echoed request is not
-   * a result under any schema, and the caller cannot tell the difference
-   * from a genuine answer.
+   * Kept off the failure path deliberately. Core models a drop as its own
+   * lifecycle outcome beside completed and failed, and a tool whose job is to
+   * filter would otherwise write an error-level line and a `tool:failed`
+   * event on every ordinary rejection, paging anyone with an error-rate alert
+   * on normal traffic. MCP has no channel but `isError` to tell the caller,
+   * so the wire result matches a failure while the log and the event do not.
    */
-  private assertNotDeclined(
-    entry: McpLocalToolEntry,
-    exchange: Exchange,
-  ): void {
-    if (!isDropped(exchange)) return;
-
-    throw rcError("AI2002", undefined, {
-      message: `MCP tool "${entry.endpoint}" declined the request and produced no result`,
+  private declineToolCall(toolName: string, error: Error): McpToolCallResult {
+    const message = toolErrorLogMessage(error);
+    this.context.logger.warn({ tool: toolName, err: error }, message);
+    this.context.emit(`plugin:mcp:tool:declined`, {
+      tool: toolName,
+      reason: message,
     });
-  }
 
-  /**
-   * Enforce the tool's advertised `outputSchema` against the body the route
-   * produced, throwing `AI2001` when it does not conform so the tool call
-   * surfaces as `isError` carrying the validation message.
-   *
-   * A client is entitled to parse `structuredContent` against the schema
-   * `tools/list` advertised, so publishing an unchecked body is a protocol
-   * violation rather than a cosmetic mismatch. The route's own `.output()`
-   * validation covers the exchanges it completes, and the guarantee belongs
-   * to the surface that made the promise rather than to a module upstream
-   * of it that any future path could bypass.
-   *
-   * The check is a gate: the validated value is discarded rather than
-   * published, so a coercing schema cannot apply its coercions a second time
-   * on top of the route's.
-   *
-   * A route that declares no `.output()` advertises no schema, so there is
-   * nothing to enforce and its result passes through untouched.
-   *
-   * Single-schema today, one arm of a union tomorrow: a route with a
-   * reachable durable `.suspend()` advertises `oneOf: [Output, Suspended]`
-   * (#550), and a suspension is then a conforming result rather than a
-   * violation. That lands here as a second accepted arm.
-   */
-  private async enforceAdvertisedOutput(
-    entry: McpLocalToolEntry,
-    body: unknown,
-  ): Promise<void> {
-    const advertised = entry.output?.body;
-    if (advertised === undefined) return;
-
-    const result = await validateAgainst(advertised, body);
-    if (result.ok) return;
-
-    throw rcError("AI2001", new Error(result.message), {
-      message: `MCP tool "${entry.endpoint}" returned a body that does not match its declared output schema`,
-    });
+    return {
+      content: [{ type: "text", text: `Error: ${message}` }],
+      isError: true,
+    };
   }
 
   /**
@@ -1527,11 +1484,12 @@ export class McpServer {
 
       const resultExchange = await entry.handler(exchange);
 
-      // Declining comes first: a dropped exchange carries the request body,
-      // so validating it would report a schema violation for a body the
-      // route never claimed as its result.
-      this.assertNotDeclined(entry, resultExchange);
-      await this.enforceAdvertisedOutput(entry, resultExchange.body);
+      // A decline is the route's answer, not a failure, so it returns here
+      // rather than throwing into the catch below.
+      const declined = declinedError(entry, resultExchange);
+      if (declined) return this.declineToolCall(toolName, declined);
+
+      await enforceAdvertisedOutput(entry, resultExchange);
 
       const resultText =
         typeof resultExchange.body === "string"
@@ -1556,7 +1514,7 @@ export class McpServer {
         content: [{ type: "text", text: resultText }],
       };
       if (
-        entry.output?.body !== undefined &&
+        advertisedOutputArms(entry).length > 0 &&
         typeof resultExchange.body === "object" &&
         resultExchange.body !== null &&
         !Array.isArray(resultExchange.body)

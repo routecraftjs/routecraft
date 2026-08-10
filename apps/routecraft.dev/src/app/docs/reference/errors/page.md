@@ -412,7 +412,7 @@ MCP tool output violated its declared schema
 **Why it happens**  
 A route exposed with `.from(mcp())` declares `.output({ body })`, which the MCP server advertises as that tool's `outputSchema`, and the body it returned does not satisfy it. Clients parse `structuredContent` against the advertised schema, so the server refuses to publish the result and returns `isError: true` with the failing fields instead.
 
-The route's own output validation catches most violations before the server sees them. This code is the same contract enforced at the boundary that advertised the schema, so a result reaching the server unvalidated is refused rather than published on trust.
+The route's own output validation reports a violation it catches as [RC5002](#rc-5002). `AI2001` is the same contract enforced at the boundary that advertised the schema, covering results that reached the server without passing through that validation: a tool registered directly in the local tool registry, rather than by a `.from(mcp())` route. A body the route already validated is not re-checked, because validation replaces the body with the schema's output and a transforming schema rejects its own output.
 
 **Suggestion**  
 - Fix the route so its result matches the declared shape, or widen `.output()` to describe what the route actually returns.
@@ -422,7 +422,7 @@ The route's own output validation catches most violations before the server sees
 MCP tool declined the request
 
 **Why it happens**  
-The route behind an MCP tool dropped the exchange instead of completing it: a `.filter()` rejected it, a `.choice()` matched no branch, the source's `onParseError` was `drop`, or an error handler returned `recovery.drop()`. A dropped exchange resolves with the body it came in with, so there is no result to return and the request body is not one.
+The route behind an MCP tool dropped the exchange instead of completing it: a `.filter()` rejected it, a `.choice()` matched no branch, or an error handler returned `recovery.drop()`. A dropped exchange resolves with the body it came in with, so there is no result to return and the request body is not one.
 
 This is the MCP-side equivalent of [RC5031](#rc-5031) on the direct and forward surfaces. The call comes back as `isError: true` saying the tool declined, and never as a successful result carrying the caller's own arguments back.
 
