@@ -221,14 +221,6 @@ async function request(
 }
 
 /**
- * Describe a failure in terms of what actually stopped it.
- *
- * Discriminating on the deadline signal rather than the combined one
- * matters: a route shutting down cancels the caller's signal, and
- * reporting that as "did not complete within 30000ms" would send an
- * operator hunting a timeout that never happened.
- */
-/**
  * A promise that never resolves and rejects with `AI2002` the moment
  * `signal` aborts. Used to put a deadline around work that takes no
  * abort signal of its own.
@@ -254,6 +246,14 @@ function rejectOnAbort(
   });
 }
 
+/**
+ * Describe a failure in terms of what actually stopped it.
+ *
+ * Discriminating on the deadline signal rather than the combined one
+ * matters: a route shutting down cancels the caller's signal, and
+ * reporting that as "did not complete within 30000ms" would send an
+ * operator hunting a timeout that never happened.
+ */
 function abortMessage(
   url: URL,
   deadline: AbortSignal,

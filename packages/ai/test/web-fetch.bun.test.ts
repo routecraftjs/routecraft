@@ -471,6 +471,33 @@ describe("WebFetch tool", () => {
   });
 
   /**
+   * @case An allowlist entry carrying userinfo is rejected rather than silently widening egress
+   * @preconditions allowedDomains contains "example.com@evil.com", which URL would canonicalise to the host evil.com
+   * @expectedResult Throws RC5003 at registration, so a typo cannot quietly permit a different host
+   */
+  test("rejects an allowlist entry carrying userinfo", () => {
+    expect(() =>
+      webFetch({ allowedDomains: ["example.com@evil.com"] }),
+    ).toThrow(/allowedDomains\[0\]/);
+  });
+
+  /**
+   * @case A one-character window against an astral first character still advances
+   * @preconditions maxLength of 1 against markdown starting with a two-unit emoji
+   * @expectedResult The whole character is returned and nextOffset moves past it, rather than an empty page that pages forever
+   */
+  test("advances past an astral character at maxLength one", async () => {
+    fetchMock.mockResolvedValue(respond("🙂ab", "text/markdown"));
+
+    const result = await call({ maxLength: 1 }, { url: `http://${HOST}/` });
+    const body = result.content.split("\n\n---\n")[0]!;
+
+    expect(body).toBe("🙂");
+    expect(result.nextOffset).toBe(2);
+    expect(result.nextOffset).toBeGreaterThan(0);
+  });
+
+  /**
    * @case The registered tool advertises itself as safe to repeat
    * @preconditions A default-configured factory
    * @expectedResult Tags are read-only and idempotent, matching the other built-in read tools

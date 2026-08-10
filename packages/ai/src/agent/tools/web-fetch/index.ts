@@ -249,7 +249,10 @@ function normaliseDomains(domains: string[] | undefined): readonly string[] {
   return Object.freeze(
     domains.map((raw, index) => {
       const bare = raw.trim().replace(/^\./, "").replace(/\.$/, "");
-      if (bare === "" || /[:/?#*\s]/.test(bare)) {
+      // "@" matters most here: URL reads everything before it as
+      // userinfo, so an entry of "example.com@evil.com" would silently
+      // canonicalise to an allowlist entry for evil.com.
+      if (bare === "" || /[:/?#*@\s]/.test(bare)) {
         throw rcError("RC5003", undefined, {
           message:
             `webFetch: allowedDomains[${index}] must be a bare hostname such as ` +
@@ -377,10 +380,16 @@ function bound(
     });
   }
 
-  const end = codePointBoundary(
-    markdown,
-    Math.min(offset + maxLength, totalLength),
-  );
+  const requestedEnd = Math.min(offset + maxLength, totalLength);
+  const boundedEnd = codePointBoundary(markdown, requestedEnd);
+  // Pulling back off a surrogate pair must never leave the window empty:
+  // a maxLength of 1 against an astral first character would otherwise
+  // return nothing and hand back the offset it started from, so the model
+  // would page forever without reading a character. Take the whole pair.
+  const end =
+    boundedEnd === offset && requestedEnd > offset
+      ? Math.min(requestedEnd + 1, totalLength)
+      : boundedEnd;
   const slice = markdown.slice(offset, end);
   const truncated = end < totalLength;
 

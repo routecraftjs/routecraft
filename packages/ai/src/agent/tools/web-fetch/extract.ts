@@ -11,13 +11,16 @@ import { loadOptionalPeer } from "@routecraft/routecraft";
  */
 
 /**
- * Element ceiling handed to Readability.
+ * Element ceiling for extraction.
  *
  * The caller's byte cap bounds input size, but Readability's candidate
  * scoring is driven by element count rather than bytes, so markup made of
  * very many tiny elements is expensive at a size the byte cap allows.
- * Readability returns null past this ceiling, which the caller already
- * treats as "declined" and answers with the body fallback.
+ *
+ * Enforced here rather than through Readability's own `maxElemsToParse`,
+ * which is dead under linkedom: that guard counts through
+ * `getElementsByTagName("*")`, which linkedom answers with an empty list,
+ * so the option never fires. `querySelectorAll("*")` counts correctly.
  */
 const MAX_ELEMS_TO_PARSE = 30_000;
 
@@ -62,6 +65,22 @@ async function loadExtractors(): Promise<Extractors> {
 }
 
 /**
+ * Run Readability, answering `null` where it declines.
+ *
+ * It throws rather than returning `null` on some documents. Both outcomes
+ * mean the same thing to the caller (no article found, use the body), so
+ * collapsing them here keeps a page readable instead of failing the whole
+ * tool call.
+ */
+function parseArticle(readability: ReadabilityModule, document: object) {
+  try {
+    return new readability.Readability(document as Document).parse();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Extract the readable region of `html`.
  *
  * Readability declines on pages it cannot find an article in (link
@@ -82,9 +101,18 @@ export async function extractArticle(
 
   const title = document.title?.trim() || undefined;
 
-  const article = new readability.Readability(document as unknown as Document, {
-    maxElemsToParse: MAX_ELEMS_TO_PARSE,
-  }).parse();
+  // Checked before parsing, and answered with the body rather than an
+  // error: an element-dense page is still worth reading, just not worth
+  // scoring. Readability has not run yet here, so the document is
+  // unmutated and its body can be read directly.
+  if (document.querySelectorAll("*").length > MAX_ELEMS_TO_PARSE) {
+    return {
+      ...(title ? { title } : {}),
+      html: document.body?.innerHTML ?? "",
+    };
+  }
+
+  const article = parseArticle(readability, document);
 
   const extracted = article?.content?.trim();
   if (extracted) {

@@ -52,6 +52,26 @@ const b = 2;</code></pre>
   });
 
   /**
+   * @case A literal triple backtick in prose does not mis-pair with a real fence
+   * @preconditions HTML whose prose mentions a triple backtick inline, followed by a genuine code block containing a blank run
+   * @expectedResult The real block keeps its blank run, proving the fence match is anchored to line starts rather than pairing with the inline mention
+   */
+  test("does not mis-pair an inline triple backtick with a real fence", async () => {
+    const markdown = await toMarkdown(
+      `<article>
+         <p>Fence code with <code>\`\`\`</code> like so.</p>
+         <p>Filler</p>
+         <pre><code class="language-js">const a = 1;
+
+
+const b = 2;</code></pre>
+       </article>`,
+    );
+
+    expect(markdown).toContain("const a = 1;\n\n\nconst b = 2;");
+  });
+
+  /**
    * @case Script and style content never reaches the model
    * @preconditions HTML carrying script and style elements inside the converted region
    * @expectedResult Neither body appears in the markdown

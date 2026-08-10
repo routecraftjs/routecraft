@@ -64,8 +64,18 @@ async function buildConverter(): Promise<MarkdownConverter> {
   return service;
 }
 
-/** Fenced code regions, which the blank-line collapse must not touch. */
-const FENCED_BLOCK = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
+/**
+ * Fenced code regions, which the blank-line collapse must not touch.
+ *
+ * Anchored to line starts. An unanchored pattern pairs a literal triple
+ * backtick written inline in prose with the next real opening fence, so
+ * the span between them is treated as code and the actual block is
+ * treated as prose: precisely inverted, on exactly the documentation
+ * pages this tool exists to read. Turndown always emits fences on their
+ * own lines, so anchoring costs nothing.
+ */
+const FENCED_BLOCK =
+  /(^```[^\n]*\n[\s\S]*?^```\s*$|^~~~[^\n]*\n[\s\S]*?^~~~\s*$)/gm;
 
 /**
  * Convert `html` to markdown, collapsing the runs of blank lines that
