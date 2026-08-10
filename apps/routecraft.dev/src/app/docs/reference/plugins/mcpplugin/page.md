@@ -245,7 +245,7 @@ auth: oauth({
 })
 ```
 
-`expiresAt` is required on a principal returned through `oauth()`: a credential with no expiry never expires. A principal whose expiry has already passed is refused at the gate whichever auth mode produced it.
+`expiresAt` is required on a principal returned through `oauth()`: a principal without a finite numeric expiry has no bounded validity window and is refused. A principal whose expiry has already passed is refused at the gate whichever auth mode produced it. The boundary is inclusive and compared in whole seconds, so a principal whose `expiresAt` equals the current second is already expired, matching RFC 7519 section 4.1.4.
 
 `verify` runs on **every request**. Revision 2026-07-28 is stateless, so there is no session in which a past verification could be cached; keep introspection calls fast or cache them yourself.
 

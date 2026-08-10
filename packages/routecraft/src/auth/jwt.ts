@@ -151,7 +151,9 @@ function assertTemporalClaims(
   if (typeof payload["exp"] !== "number") {
     throw new Error("jwt: token is missing the required exp claim");
   }
-  if (now > payload["exp"] + clockToleranceSec) {
+  // Inclusive, matching jose's `exp <= now - tolerance` and RFC 7519 §4.1.4:
+  // the current time must be *before* `exp`, so `now === exp` is expired.
+  if (now >= payload["exp"] + clockToleranceSec) {
     throw Object.assign(new Error("jwt: token has expired"), {
       code: "ERR_JWT_EXPIRED",
     });

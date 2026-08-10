@@ -276,18 +276,17 @@ export function authorize(
 
     if (principal.expiresAt !== undefined) {
       // Fail closed on non-finite inputs: a NaN `expiresAt` or
-      // `clockToleranceSec` would make every `>` comparison false and
-      // silently bypass the check, so treat that as expired rather than
-      // valid.
+      // `clockToleranceSec` would make every comparison false and silently
+      // bypass the check, so treat that as expired rather than valid.
       //
-      // Floored, because `jwt()` and jose both compare against
-      // `Math.floor(Date.now() / 1000)`. A fractional `now` would put this
-      // boundary up to a second ahead of the verifier's and reject a token
-      // the verifier had just accepted.
+      // Floored and inclusive, matching jose's `exp <= now - tolerance` and
+      // RFC 7519 §4.1.4, which requires the current time to be *before* `exp`.
+      // A fractional `now` would put this boundary up to a second ahead of the
+      // verifier's; an exclusive `>` would put it a second behind.
       if (
         !Number.isFinite(principal.expiresAt) ||
         !Number.isFinite(clockToleranceSec) ||
-        Math.floor(Date.now() / 1000) > principal.expiresAt + clockToleranceSec
+        Math.floor(Date.now() / 1000) >= principal.expiresAt + clockToleranceSec
       ) {
         throw rcError("RC5020", new Error("Token expired"), {
           message: "Authorization failed: token expired during processing",

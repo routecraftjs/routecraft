@@ -921,11 +921,11 @@ describe("authorize() expiresAt enforcement", () => {
   });
 
   /**
-   * @case A token expiring in the current second is admitted for the whole of that second
+   * @case A token whose expiry equals the current second is already expired
    * @preconditions System clock pinned to the middle of a second; principal expiresAt equals that floored second; no clock tolerance
-   * @expectedResult Validator passes through. jwt() and jose compare against a floored now, so an unfloored comparison here would reject a token those verifiers had just accepted
+   * @expectedResult Refused with RC5020. RFC 7519 section 4.1.4 requires the current time to be before `exp`, and jose rejects on `exp <= now - tolerance`, so the comparison is inclusive; an exclusive `>` would honour the token for a further second
    */
-  test("admits a token expiring in the current second", async () => {
+  test("refuses a token at the exact expiry second", async () => {
     const second = 1_800_000_000;
     setSystemTime(new Date(second * 1000 + 500));
     try {
@@ -940,7 +940,42 @@ describe("authorize() expiresAt enforcement", () => {
       t = await testContext()
         .routes(
           craft()
-            .id("exp-current-second")
+            .id("exp-exact-second")
+            .from(simple("hello"))
+            .authenticate(() => principal)
+            .validate(authorize({}))
+            .to(s),
+        )
+        .build();
+      await t.test();
+
+      expect(s.receivedBodies()).toEqual([]);
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  /**
+   * @case A fractional expiry later in the current second is still valid
+   * @preconditions System clock pinned to 1_800_000_000.900; principal expiresAt is 1_800_000_000.5; no clock tolerance
+   * @expectedResult Admitted. `now` is floored to whole seconds exactly as jose floors it via `epoch(new Date())`, so the comparison is 1_800_000_000 >= 1_800_000_000.5, which is false. An unfloored `now` would reject a token jose accepts
+   */
+  test("floors now to whole seconds, matching jose, for a fractional expiry", async () => {
+    const second = 1_800_000_000;
+    setSystemTime(new Date(second * 1000 + 900));
+    try {
+      const s = spy<string>();
+      const principal: Principal = {
+        kind: "custom",
+        scheme: "bearer",
+        subject: "user-1",
+        expiresAt: second + 0.5,
+      };
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("exp-fractional")
             .from(simple("hello"))
             .authenticate(() => principal)
             .validate(authorize({}))

@@ -157,7 +157,7 @@ auth: oauth({
 
 `verify` runs on **every** request: revision 2026-07-28 is stateless, so there is no session in which a past verification could be cached. Keep introspection calls fast, or cache them yourself.
 
-`expiresAt` is required on a principal returned through `oauth()`, and a principal whose expiry has already passed is refused at the gate whichever auth mode produced it. A credential with no expiry never expires, so `oauth()` will not admit one.
+`expiresAt` is required on a principal returned through `oauth()`: a principal without a finite numeric expiry has no bounded validity window, so it is refused rather than admitted indefinitely. A principal whose expiry has already passed is refused at the gate whichever auth mode produced it. The boundary is inclusive and compared in whole seconds, so a principal whose `expiresAt` equals the current second is already expired, matching RFC 7519 section 4.1.4.
 
 The populated `Principal` rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter, e.g. `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`.
 
