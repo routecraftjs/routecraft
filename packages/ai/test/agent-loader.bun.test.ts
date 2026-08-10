@@ -380,11 +380,13 @@ describe("agents() markdown loader", () => {
   });
 
   /**
-   * @case A bundle's skills folder is never scanned for agents
-   * @preconditions Bundle with skills/ holding markdown that is not a valid agent
-   * @expectedResult Load succeeds with only the bundle agent; the skill file does not fail the boot
+   * @case Markdown inside a bundle never fails the boot, whatever it contains
+   * @preconditions Bundle whose skills/ holds a skill and a file with no frontmatter
+   * @expectedResult Only the bundle agent loads. The bundle rule alone accounts
+   *   for this (the walk stops at AGENT.md and never descends), which is why the
+   *   reserved-directory rule is covered separately below.
    */
-  test("a bundle's skills folder is reserved, not scanned", async () => {
+  test("markdown inside a bundle is never loaded as an agent", async () => {
     const dir = makeDir({
       "aria/AGENT.md": "---\nname: aria\ndescription: d\n---\nsystem",
       "aria/skills/refund-policy.md":
@@ -397,8 +399,12 @@ describe("agents() markdown loader", () => {
 
   /**
    * @case The skills directory is reserved at every depth, not only inside a bundle
-   * @preconditions A skills/ folder directly under the agents root
-   * @expectedResult Its markdown is skipped; only the real agent loads
+   * @preconditions A skills/ folder at the agents root and another under a
+   *   grouping folder, neither of them a bundle, so only the reserved-directory
+   *   rule can skip them
+   * @expectedResult Only the real agent loads. Dropping the reservation makes
+   *   this fail loudly rather than quietly: the nested file has no description,
+   *   so it would throw if the walk ever treated it as an agent.
    */
   test("a skills directory is reserved at any depth", async () => {
     const dir = makeDir({
@@ -493,6 +499,31 @@ describe("agents() markdown loader", () => {
     });
     const result = await agents(join(dir, "Triage.MD"));
     expect(Object.keys(result)).toEqual(["triage"]);
+  });
+
+  /**
+   * @case A directory whose name ends in .md is walked, not read as a file
+   * @preconditions An agents directory literally named "inbox.md"
+   * @expectedResult Its contents load, rather than the read failing with EISDIR
+   */
+  test("classifies a source by filesystem type, not by extension", async () => {
+    const root = makeDir({
+      "inbox.md/triage.md": "---\nname: triage\ndescription: d\n---\nsystem",
+    });
+    const result = await agents(join(root, "inbox.md"));
+    expect(Object.keys(result)).toEqual(["triage"]);
+  });
+
+  /**
+   * @case A file that is not markdown is rejected with a sentence
+   * @preconditions A path to a .txt file
+   * @expectedResult Throws RC5003 saying it is a file but not a .md file
+   */
+  test("rejects a single file that is not markdown", async () => {
+    const root = makeDir({ "notes.txt": "not markdown" });
+    await expect(agents(join(root, "notes.txt"))).rejects.toThrow(
+      /is a file but not a "\.md" file/,
+    );
   });
 
   /**

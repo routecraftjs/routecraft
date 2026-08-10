@@ -360,15 +360,15 @@ export async function agents(
   // an assignment to `__proto__` would mutate the prototype).
   const out = Object.create(null) as Record<string, AgentRegisteredOptions>;
   for (const loaded of await loadAgentFiles(path)) {
-    if (
-      loaded.skills !== undefined &&
-      overrides[loaded.name]?.blocks === undefined
-    ) {
-      // Say it at the point of the drop. Throwing instead would stop a
-      // tree that boots fine under the project runtime from also
-      // loading through a direct call, which is a supported workflow.
-      logger.warn(
-        `Markdown file "${loaded.source}": frontmatter "skills" needs the house and bundle folders to resolve, which agents() is not given, so it was not loaded. The project runtime resolves it; from a direct agents() call, attach skills with the "blocks" override.`,
+    if (loaded.skills !== undefined) {
+      // Debug rather than warn, and unconditional. This call never
+      // resolves the key, but a config that calls agents() and then
+      // boots under the project runtime does get it resolved moments
+      // later, so warning here would cry wolf on the common path. An
+      // override is no signal either way: it may set blocks that have
+      // nothing to do with the declared skills.
+      logger.debug(
+        `Markdown file "${loaded.source}": frontmatter "skills" needs the house and bundle folders to resolve, which agents() is not given, so this call did not load it. The project runtime resolves it; from a direct agents() call, attach skills with the "blocks" override.`,
       );
     }
     out[loaded.name] = applyOverride(loaded.agent, overrides[loaded.name]);

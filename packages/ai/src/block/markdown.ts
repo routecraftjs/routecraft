@@ -326,9 +326,13 @@ export async function readMarkdownDir(
 }
 
 /**
- * Read a markdown source that may be a single file or a directory,
- * applying the same extension rule the directory walk uses so a path
- * is classified one way everywhere.
+ * Read a markdown source that may be a single file or a directory.
+ *
+ * Classification comes from the filesystem, not from the name: a
+ * directory called `agents.md` is still a directory and gets walked,
+ * where an extension rule would try to read it and fail with EISDIR.
+ * The extension is then only used to reject a file that is not
+ * markdown, so the caller gets a sentence rather than a parse error.
  *
  * @internal
  */
@@ -336,9 +340,22 @@ export async function readMarkdownSource(
   path: string,
   options: ReadMarkdownDirOptions = {},
 ): Promise<ParsedMarkdown[]> {
-  return extname(path).toLowerCase() === ".md"
-    ? [await readMarkdownFile(path)]
-    : readMarkdownDir(path, options);
+  const abs = resolve(process.cwd(), path);
+  let stats;
+  try {
+    stats = statSync(abs);
+  } catch (err) {
+    throw rcError("RC5003", undefined, {
+      message: `Markdown source "${path}" could not be opened: ${(err as Error).message}`,
+    });
+  }
+  if (stats.isDirectory()) return readMarkdownDir(path, options);
+  if (extname(abs).toLowerCase() !== ".md") {
+    throw rcError("RC5003", undefined, {
+      message: `Markdown source "${path}" is a file but not a ".md" file. Pass a markdown file, or a directory containing them.`,
+    });
+  }
+  return [await readMarkdownFile(path)];
 }
 
 /**
