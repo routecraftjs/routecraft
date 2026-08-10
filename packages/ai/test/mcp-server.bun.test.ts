@@ -3713,6 +3713,45 @@ describe("McpServer", () => {
     }
 
     /**
+     * @case An unvalidated result is published as the schema's output, not as the value handed in
+     * @preconditions Local registry entry whose declared output transforms a string into a Date, with a handler returning the untransformed string and no route to validate it
+     * @expectedResult The published body carries the transformed value, so a client parsing structuredContent against the advertised schema sees what it was promised rather than the input shape
+     */
+    test("publishes the validated value when the boundary does the validating", async () => {
+      t = await testContext().store(MCP_STORE_KEY, true).build();
+      await t.startAndWaitReady();
+      t.ctx.setStore(
+        MCP_LOCAL_TOOL_REGISTRY,
+        new Map([
+          [
+            "unchecked",
+            {
+              endpoint: "unchecked",
+              description: "Returns a body nobody validated",
+              output: {
+                body: z.object({
+                  at: z.string().transform((s) => new Date(s)),
+                }),
+              },
+              handler: async (exchange) =>
+                DefaultExchange.rewrap(exchange, {
+                  body: { at: "2026-01-01T00:00:00.000Z" },
+                }),
+            } satisfies McpLocalToolEntry,
+          ],
+        ]),
+      );
+      server = new McpServer(t.ctx);
+
+      const result = await callTool(server, "unchecked", {});
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toEqual({
+        at: new Date("2026-01-01T00:00:00.000Z"),
+      });
+    });
+
+    /**
      * @case A tool result that does not satisfy the advertised outputSchema is refused at the MCP boundary
      * @preconditions Local registry entry declaring an output body schema, whose handler resolves with a body that violates it without a route (so no route-level output validation runs)
      * @expectedResult isError true and the validation message names the failing field, so the server never publishes a body contradicting what tools/list advertised

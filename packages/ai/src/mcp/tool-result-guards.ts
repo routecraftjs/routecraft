@@ -57,30 +57,39 @@ export function declinedError(
 
 /**
  * Enforce the tool's advertised output schema against the body about to be
- * published, throwing AI2001 when no advertised arm accepts it.
+ * published, throwing AI2001 when no advertised arm accepts it, and returning
+ * the body to publish.
  *
  * A client is entitled to parse `structuredContent` against the schema
  * `tools/list` advertised, so publishing an unchecked body is a protocol
  * violation rather than a cosmetic mismatch.
  *
- * Skipped for a body the route already validated against the same schema.
- * Re-running it would not merely duplicate work: validation replaces the body
- * with the schema's output, and a transforming schema (`z.string().transform`,
- * `.pipe()`) rejects the value it just produced. What reaches the check is
- * therefore a result the pipeline never vouched for: a directly registered
- * tool entry, or a future suspension.
+ * Returns the schema's output rather than the value handed in, because
+ * validating a transforming schema and then publishing its input would
+ * advertise one shape and send another, the very mismatch this enforces
+ * against. The route pipeline does the same on the path it owns.
+ *
+ * Skipped for a body the route already validated against this same schema,
+ * identified rather than assumed: re-running it would not merely duplicate
+ * work, because validation has already replaced the body with the schema's
+ * output and a transforming schema rejects the value it just produced. What
+ * reaches the check is therefore a result the pipeline never vouched for: a
+ * directly registered tool entry, or a future suspension.
  */
 export async function enforceAdvertisedOutput(
   entry: McpLocalToolEntry,
   exchange: Exchange,
-): Promise<void> {
+): Promise<unknown> {
   const arms = advertisedOutputArms(entry);
-  if (arms.length === 0 || wasOutputValidated(exchange)) return;
+  if (arms.length === 0) return exchange.body;
+  if (arms.some((arm) => wasOutputValidated(exchange, arm))) {
+    return exchange.body;
+  }
 
   const failures: string[] = [];
   for (const arm of arms) {
     const result = await validateAgainst(arm, exchange.body);
-    if (result.ok) return;
+    if (result.ok) return result.value;
     failures.push(result.message);
   }
 

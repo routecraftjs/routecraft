@@ -1489,12 +1489,18 @@ export class McpServer {
       const declined = declinedError(entry, resultExchange);
       if (declined) return this.declineToolCall(toolName, declined);
 
-      await enforceAdvertisedOutput(entry, resultExchange);
+      // Publishes what the schema accepted, not what the handler offered:
+      // for a transforming schema those differ, and the client was promised
+      // the schema's output.
+      const publishedBody = await enforceAdvertisedOutput(
+        entry,
+        resultExchange,
+      );
 
       const resultText =
-        typeof resultExchange.body === "string"
-          ? resultExchange.body
-          : JSON.stringify(resultExchange.body);
+        typeof publishedBody === "string"
+          ? publishedBody
+          : JSON.stringify(publishedBody);
 
       this.context.emit(`plugin:mcp:tool:completed`, {
         tool: toolName,
@@ -1515,14 +1521,11 @@ export class McpServer {
       };
       if (
         advertisedOutputArms(entry).length > 0 &&
-        typeof resultExchange.body === "object" &&
-        resultExchange.body !== null &&
-        !Array.isArray(resultExchange.body)
+        typeof publishedBody === "object" &&
+        publishedBody !== null &&
+        !Array.isArray(publishedBody)
       ) {
-        result.structuredContent = resultExchange.body as Record<
-          string,
-          unknown
-        >;
+        result.structuredContent = publishedBody as Record<string, unknown>;
       }
       return result;
     } catch (error) {

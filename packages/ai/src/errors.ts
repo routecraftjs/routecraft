@@ -50,11 +50,15 @@ declare module "@routecraft/routecraft" {
      * MCP tool call declined: the route ran and dropped the exchange rather
      * than producing a result. Separate from `failed` so a tool that filters
      * does not report ordinary rejections as errors.
+     *
+     * Local routes only, so it carries no provenance fields: a proxied call
+     * has no exchange of ours to drop, and a remote `isError` result is
+     * reported as `failed`.
      */
     "plugin:mcp:tool:declined": {
       tool: string;
       reason: string;
-    } & McpToolProvenance;
+    };
   }
   interface ErrorCodeRegistry {
     /** Agent block resolution failed (formerly RC5025) */

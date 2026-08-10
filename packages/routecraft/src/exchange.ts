@@ -10,6 +10,7 @@ import { logger, childBindings } from "./logger.ts";
 import type { Route } from "./route.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
 import type { Principal } from "./auth/types.ts";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 /**
  * Types of operations that can be performed on an exchange.
@@ -342,10 +343,15 @@ type ExchangeInternals = {
    */
   dropped?: boolean;
   /**
-   * Set when the route's `.output({ body })` validation accepted this
-   * exchange's body. Stored on internals so it survives the `rewrap` that
-   * carries the validated value, and so a request/reply adapter can tell a
-   * body the route vouched for from one that reached it another way.
+   * The schema the route's `.output({ body })` validation accepted this
+   * exchange's body against. Stored on internals so it survives the `rewrap`
+   * that carries the validated value, and so a request/reply adapter can tell
+   * a body the route vouched for from one that reached it another way.
+   *
+   * The schema itself rather than a boolean: "some schema accepted this" is
+   * not the question a downstream enforcer is asking. It wants to know
+   * whether *its* contract was the one checked, so an exchange validated
+   * elsewhere cannot walk past a different contract unexamined.
    *
    * Load-bearing beyond bookkeeping: validation replaces the body with the
    * schema's output, and a schema whose output type differs from its input
@@ -354,7 +360,7 @@ type ExchangeInternals = {
    *
    * @internal
    */
-  outputValidated?: boolean;
+  outputValidatedAgainst?: StandardSchemaV1;
 };
 
 /**
@@ -515,22 +521,25 @@ export function emitExchangeDropped(
 }
 
 /**
- * Mark an exchange's body as having passed the route's declared output
- * validation. Idempotent. Called by `applyOutputValidation` only.
+ * Record the schema the route's declared output validation accepted this
+ * exchange's body against. Idempotent. Called by `applyOutputValidation` only.
  *
  * @internal
  */
-export function markOutputValidated(exchange: Exchange): void {
+export function markOutputValidated(
+  exchange: Exchange,
+  schema: StandardSchemaV1,
+): void {
   const internals =
     (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
       INTERNALS_KEY
     ] ?? EXCHANGE_INTERNALS.get(exchange);
-  if (internals) internals.outputValidated = true;
+  if (internals) internals.outputValidatedAgainst = schema;
 }
 
 /**
  * Returns true if the route's `.output({ body })` validation accepted this
- * exchange's body.
+ * exchange's body against `schema` specifically.
  *
  * A request/reply source adapter that enforces the same schema at its own
  * protocol boundary reads this to avoid validating twice. The second run is
@@ -538,15 +547,22 @@ export function markOutputValidated(exchange: Exchange): void {
  * output value, so a schema that transforms (`z.string().transform(...)`,
  * `.pipe()`) rejects the very value it just produced.
  *
+ * The schema is compared by identity, so an exchange validated against some
+ * other contract does not count as validated against this one.
+ *
  * @param exchange - The exchange to test, or any rewrap of it
- * @returns Whether the route validated this body against its output schema
+ * @param schema - The schema the caller is about to enforce
+ * @returns Whether the route already validated this body against that schema
  */
-export function wasOutputValidated(exchange: Exchange): boolean {
+export function wasOutputValidated(
+  exchange: Exchange,
+  schema: StandardSchemaV1,
+): boolean {
   const internals =
     (exchange as Exchange & { [INTERNALS_KEY]?: ExchangeInternals })[
       INTERNALS_KEY
     ] ?? EXCHANGE_INTERNALS.get(exchange);
-  return internals?.outputValidated === true;
+  return internals?.outputValidatedAgainst === schema;
 }
 
 /**

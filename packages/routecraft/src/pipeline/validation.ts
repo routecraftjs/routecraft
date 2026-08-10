@@ -225,7 +225,7 @@ export async function applyOutputValidation(
       });
     }
     current = DefaultExchange.rewrap(current, { body: res.value });
-    markOutputValidated(current);
+    markOutputValidated(current, schemas.body);
   }
   if (schemas.headers) {
     const res = await validateAgainst(schemas.headers, current.headers);
