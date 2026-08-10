@@ -139,10 +139,20 @@ export interface Suspension {
  * in the contract then refuses to move it: the exchange is parked
  * permanently, with no error to notice.
  */
-export type NewSuspension = Omit<
-  Suspension,
-  "status" | "terminal" | "resumedBy" | "resumedAt" | "deniedReason"
->;
+export type NewSuspension = Omit<Suspension, SuspensionTransitionField> & {
+  // Declared as optional `never` rather than merely omitted. A plain `Omit`
+  // is satisfied by a full `Suspension` variable, because excess-property
+  // checking only fires on a fresh object literal, so the one shape most
+  // likely to carry a settled status (a record read back out of the store
+  // and handed to `create`) would have passed unremarked.
+  readonly [K in SuspensionTransitionField]?: never;
+};
+
+/**
+ * The fields only a `mark*` transition may write.
+ */
+type SuspensionTransitionField =
+  "status" | "terminal" | "resumedBy" | "resumedAt" | "deniedReason";
 
 /**
  * Details recorded when a resume wins the compare-and-swap.

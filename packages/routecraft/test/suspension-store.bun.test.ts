@@ -7,7 +7,7 @@ import {
   MemorySuspensionStore,
   SqliteSuspensionStore,
   type SerializedOutcome,
-  type Suspension,
+  type NewSuspension,
   type SuspensionStore,
 } from "../src/index.ts";
 
@@ -22,7 +22,7 @@ afterAll(() => {
  * round-trips is populated by default so a backend that silently drops one
  * fails the shared suite rather than passing on a thin record.
  */
-function record(overrides: Partial<Suspension> = {}): Suspension {
+function record(overrides: Partial<NewSuspension> = {}): NewSuspension {
   return {
     id: "sus-1",
     routeId: "payout",
@@ -34,7 +34,6 @@ function record(overrides: Partial<Suspension> = {}): Suspension {
       headers: { "routecraft.id": "ex-1", "routecraft.route": "payout" },
     },
     expect: { hash: "e".repeat(64), jsonSchema: { type: "object" } },
-    status: "suspended",
     suspendedAt: new Date("2026-08-10T09:00:00.000Z"),
     ...overrides,
   };
@@ -204,6 +203,39 @@ function contractSuite(
       expect([resumed.won, expired.won].filter(Boolean)).toHaveLength(1);
       const stored = await store.get("sus-1");
       expect(stored?.status).toBe(resumed.won ? "resumed" : "expired");
+    });
+
+    /**
+     * @case A new suspension never carries settled state from its input
+     * @preconditions A creation record polluted with the fields only a
+     *   transition may write, as a caller re-parking a record read back out
+     *   of the store would produce
+     * @expectedResult The stored record is suspended and clean. Keeping a
+     *   terminal outcome alive on a record that reports itself suspended
+     *   would let a resume answer from a cached result of a run that is not
+     *   this one, and the two backends would stop being substitutable.
+     */
+    test("strips transition-only fields on create", async () => {
+      store = await open();
+      await store.create({
+        ...record(),
+        // The type forbids these; a store is a persistence boundary and
+        // enforces its own invariants rather than trusting the caller's
+        // compiler, which is what this asserts.
+        status: "resumed",
+        terminal,
+        resumedAt: new Date("2026-08-10T10:00:00.000Z"),
+        resumedBy: { subject: "someone-else" },
+        deniedReason: "stale",
+      } as unknown as Parameters<SuspensionStore["create"]>[0]);
+
+      const stored = await store.get("sus-1");
+
+      expect(stored?.status).toBe("suspended");
+      expect(stored?.terminal).toBeUndefined();
+      expect(stored?.resumedAt).toBeUndefined();
+      expect(stored?.resumedBy).toBeUndefined();
+      expect(stored?.deniedReason).toBeUndefined();
     });
 
     /**

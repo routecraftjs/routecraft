@@ -2,7 +2,10 @@ import { afterAll, afterEach, describe, expect, test } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SqliteSuspensionStore, type Suspension } from "@routecraft/routecraft";
+import {
+  SqliteSuspensionStore,
+  type NewSuspension,
+} from "@routecraft/routecraft";
 
 /**
  * Cross-runtime contract for the durable suspension store.
@@ -26,7 +29,7 @@ afterAll(() => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
-function record(overrides: Partial<Suspension> = {}): Suspension {
+function record(overrides: Partial<NewSuspension> = {}): NewSuspension {
   return {
     id: "sus-1",
     routeId: "payout",
@@ -38,7 +41,6 @@ function record(overrides: Partial<Suspension> = {}): Suspension {
       headers: { "routecraft.id": "ex-1" },
     },
     expect: { hash: "e".repeat(64) },
-    status: "suspended",
     suspendedAt: new Date("2026-08-10T09:00:00.000Z"),
     ...overrides,
   };

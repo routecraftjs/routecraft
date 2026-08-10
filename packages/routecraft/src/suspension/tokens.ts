@@ -122,9 +122,15 @@ export type SigningSecretSource = "config" | "env" | "ephemeral";
 /**
  * Separator between the exchange id and the sequence number.
  *
- * Unreserved in RFC 3986, so a suspension id drops into a resume URL without
- * escaping. `#` would have started a fragment and truncated the id at the
- * first hop through a browser.
+ * Unreserved in RFC 3986, chosen so the framework's own contribution to the
+ * id needs no escaping. `#` would have started a fragment and truncated the
+ * id at its first hop through a browser.
+ *
+ * This does NOT make a suspension id URL-safe on its own: the exchange id it
+ * wraps is opaque, and an adapter is free to set `headers["routecraft.id"]`
+ * from an upstream message id containing anything at all. A suspension id is
+ * an identifier, not a URL component; whoever embeds one in a resume link
+ * percent-encodes it there.
  */
 const SUSPENSION_ID_SEPARATOR = "~";
 

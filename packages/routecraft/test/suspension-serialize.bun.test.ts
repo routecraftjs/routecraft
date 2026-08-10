@@ -289,6 +289,25 @@ describe("suspension serialization refusals", () => {
   });
 
   /**
+   * @case A hidden field on an array is refused, not dropped
+   * @preconditions An array whose named property is non-enumerable
+   * @expectedResult RC5042. Same reasoning as the Date case: the index walk
+   *   never visits it and `Object.keys` never reports it, so it would be
+   *   gone after resume with nothing raised.
+   */
+  test("refuses an array with a non-enumerable named property", () => {
+    const list: unknown[] = [1, 2];
+    Object.defineProperty(list, "cursor", {
+      value: "abc",
+      enumerable: false,
+    });
+    const attempt = () => serializeExchange(exchangeWith({ list }));
+
+    expect(attempt).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    expect(attempt).toThrow(/cursor/);
+  });
+
+  /**
    * @case A digit-shaped key that is not an index is still a named property
    * @preconditions An array carrying `"01"`, which passes a digit test but is
    *   never visited by the index walk

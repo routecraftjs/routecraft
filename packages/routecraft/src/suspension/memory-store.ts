@@ -38,9 +38,34 @@ export class MemorySuspensionStore implements SuspensionStore {
         message: `Suspension "${record.id}" already exists in the store.`,
       });
     }
+    // Built field by field rather than spread. The sqlite backend inserts
+    // only the columns it names, so anything the caller carried in beyond the
+    // creation fields leaves no trace there; a spread here would keep it
+    // alive on a record that reports itself suspended, and the two backends
+    // would stop being substitutable. `NewSuspension` types those fields
+    // away, but a store is a persistence boundary and enforces its own
+    // invariants rather than trusting the caller's compiler.
     this.#records.set(
       record.id,
-      clone(normalise({ ...record, status: "suspended" })),
+      clone(
+        normalise({
+          id: record.id,
+          routeId: record.routeId,
+          position: record.position,
+          continuationHash: record.continuationHash,
+          actionFingerprint: record.actionFingerprint,
+          exchange: record.exchange,
+          expect: record.expect,
+          ...(record.stepState !== undefined
+            ? { stepState: record.stepState }
+            : {}),
+          suspendedAt: record.suspendedAt,
+          ...(record.expiresAt !== undefined
+            ? { expiresAt: record.expiresAt }
+            : {}),
+          status: "suspended",
+        }),
+      ),
     );
   }
 

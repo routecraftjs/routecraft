@@ -203,8 +203,10 @@ function encode(
     if (Array.isArray(value)) {
       // Named or symbol-keyed properties on an array are invisible to the
       // index walk, so they would be dropped rather than refused.
-      const named = Object.keys(value).filter(
-        (key) => !isArrayIndex(key, value.length),
+      // `getOwnPropertyNames`, not `keys`: a non-enumerable name is lost just
+      // as silently, same reason the Date check above reads all own names.
+      const named = Object.getOwnPropertyNames(value).filter(
+        (key) => key !== "length" && !isArrayIndex(key, value.length),
       );
       if (named.length > 0) {
         throw refuse(path, `an array with a named property ("${named[0]}")`);
