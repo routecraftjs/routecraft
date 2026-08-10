@@ -11,6 +11,7 @@ import {
   resolveSqliteDriver,
 } from "./sqlite-driver.ts";
 import type {
+  NewSuspension,
   PendingSuspensionSummary,
   PrincipalRef,
   SerializedExchange,
@@ -150,7 +151,7 @@ export class SqliteSuspensionStore implements SuspensionStore {
     return new SqliteSuspensionStore(db, driver.name);
   }
 
-  async create(record: Suspension): Promise<void> {
+  async create(record: NewSuspension): Promise<void> {
     try {
       this.#db
         .prepare(
@@ -170,7 +171,7 @@ export class SqliteSuspensionStore implements SuspensionStore {
           record.stepState === undefined
             ? null
             : JSON.stringify(encodePersistable(record.stepState, "stepState")),
-          record.status,
+          "suspended" satisfies SuspensionStatus,
           record.suspendedAt.getTime(),
           record.expiresAt ? record.expiresAt.getTime() : null,
         );

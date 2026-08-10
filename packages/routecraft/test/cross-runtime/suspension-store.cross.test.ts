@@ -91,20 +91,33 @@ describe("suspension store (cross-runtime)", () => {
   });
 
   /**
-   * @case Concurrent resumes produce exactly one winner on either driver
-   * @preconditions One suspended record; two markResumed calls started together
-   * @expectedResult One call reports won, and the store records a single resume
+   * @case The resume transition is one-shot on either driver
+   * @preconditions One suspended record; two markResumed calls
+   * @expectedResult The first reports won and the second reports lost, and
+   *   the store records a single resume.
+   *
+   *   This is a contract check, not a race: both drivers are synchronous, so
+   *   two calls issued from one process cannot interleave here whatever
+   *   `Promise.all` suggests. The genuine race, four OS processes contending
+   *   on one database file, lives in `suspension-store.bun.test.ts`, where a
+   *   test runner that can spawn children is available.
    */
-  test("markResumed has exactly one winner", async () => {
+  test("markResumed transitions exactly once", async () => {
     store = await SqliteSuspensionStore.open({ path: ":memory:" });
     await store.create(record());
 
-    const results = await Promise.all([
-      store.markResumed("sus-1", { at: new Date(), by: { subject: "a" } }),
-      store.markResumed("sus-1", { at: new Date(), by: { subject: "b" } }),
-    ]);
+    const first = await store.markResumed("sus-1", {
+      at: new Date(),
+      by: { subject: "a" },
+    });
+    const second = await store.markResumed("sus-1", {
+      at: new Date(),
+      by: { subject: "b" },
+    });
 
-    expect(results.filter((result) => result.won)).toHaveLength(1);
+    expect(first.won).toBe(true);
+    expect(second.won).toBe(false);
+    expect((await store.get("sus-1"))?.resumedBy?.subject).toBe("a");
     expect((await store.get("sus-1"))?.status).toBe("resumed");
   });
 

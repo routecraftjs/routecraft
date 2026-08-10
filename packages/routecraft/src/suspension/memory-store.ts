@@ -1,6 +1,7 @@
 import { rcError } from "../error.ts";
 import { encodePersistable } from "./serialize.ts";
 import type {
+  NewSuspension,
   PendingSuspensionSummary,
   SerializedOutcome,
   Suspension,
@@ -31,13 +32,16 @@ import type {
 export class MemorySuspensionStore implements SuspensionStore {
   readonly #records = new Map<string, Suspension>();
 
-  async create(record: Suspension): Promise<void> {
+  async create(record: NewSuspension): Promise<void> {
     if (this.#records.has(record.id)) {
       throw rcError("RC5044", undefined, {
         message: `Suspension "${record.id}" already exists in the store.`,
       });
     }
-    this.#records.set(record.id, clone(normalise(record)));
+    this.#records.set(
+      record.id,
+      clone(normalise({ ...record, status: "suspended" })),
+    );
   }
 
   async get(id: string): Promise<Suspension | undefined> {

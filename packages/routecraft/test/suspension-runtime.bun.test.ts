@@ -64,22 +64,27 @@ function captureWarnings(context: CraftContext): string[] {
 
 describe("suspension runtime resolution", () => {
   let runtime: SuspensionRuntime | undefined;
-  let inheritedStoreEnv: string | undefined;
+  const inherited: Record<string, string | undefined> = {};
 
-  // Several tests exercise the unconfigured path, which reads the store
-  // environment variable. A value inherited from the shell or CI would make
-  // them resolve a real store instead.
+  // Every test here exercises a resolution path that reads the environment,
+  // and both variables resolve ahead of the config this suite passes in. A
+  // value inherited from the shell or CI would silently change which arm
+  // runs: an ambient secret turns the ephemeral-key test into an env-key
+  // test, and an ambient store path turns a fallback test into a real store.
   beforeEach(() => {
-    inheritedStoreEnv = process.env[SUSPENSION_STORE_ENV];
-    delete process.env[SUSPENSION_STORE_ENV];
+    for (const key of [SUSPENSION_STORE_ENV, SUSPENSION_SECRET_ENV]) {
+      inherited[key] = process.env[key];
+      delete process.env[key];
+    }
   });
 
   afterEach(async () => {
     if (runtime) await runtime.store.close();
     runtime = undefined;
-    if (inheritedStoreEnv === undefined)
-      delete process.env[SUSPENSION_STORE_ENV];
-    else process.env[SUSPENSION_STORE_ENV] = inheritedStoreEnv;
+    for (const [key, value] of Object.entries(inherited)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   });
 
   /**
@@ -197,18 +202,12 @@ describe("suspension runtime resolution", () => {
    * @expectedResult RC5040 before any store is opened
    */
   test("refuses to build a runtime without a signing secret", async () => {
-    const previous = process.env[SUSPENSION_SECRET_ENV];
-    delete process.env[SUSPENSION_SECRET_ENV];
-    try {
-      await expect(
-        createSuspensionRuntime(new CraftContext(), {
-          store: "memory",
-          allowEphemeralSecret: false,
-        }),
-      ).rejects.toThrow(expect.objectContaining({ rc: "RC5040" }));
-    } finally {
-      if (previous !== undefined) process.env[SUSPENSION_SECRET_ENV] = previous;
-    }
+    await expect(
+      createSuspensionRuntime(new CraftContext(), {
+        store: "memory",
+        allowEphemeralSecret: false,
+      }),
+    ).rejects.toThrow(expect.objectContaining({ rc: "RC5040" }));
   });
 
   /**

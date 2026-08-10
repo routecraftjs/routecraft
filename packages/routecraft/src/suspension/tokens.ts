@@ -120,6 +120,15 @@ export class ResumeTokenSigner {
 export type SigningSecretSource = "config" | "env" | "ephemeral";
 
 /**
+ * Separator between the exchange id and the sequence number.
+ *
+ * Unreserved in RFC 3986, so a suspension id drops into a resume URL without
+ * escaping. `#` would have started a fragment and truncated the id at the
+ * first hop through a browser.
+ */
+const SUSPENSION_ID_SEPARATOR = "~";
+
+/**
  * Derive the id of a suspension from the exchange that will park.
  *
  * Deterministic on purpose: `ex.suspension.token` and
@@ -129,13 +138,22 @@ export type SigningSecretSource = "config" | "env" | "ephemeral";
  * successive parks of the same exchange, which happens whenever a route
  * suspends, resumes, and suspends again for a second approval.
  *
+ * The sequence is always appended, including for the first park. Omitting it
+ * at zero looks tidier and collides: an exchange whose id already ends in
+ * `~1` (ids are `randomUUID()` by default but an adapter may set
+ * `headers["routecraft.id"]` from an upstream message id) would produce the
+ * same suspension id as that exchange's second park. Two unrelated parked
+ * exchanges sharing an id means one overwrites the other in the store.
+ * Appending unconditionally is injective, because the suffix is a canonical
+ * decimal after the final separator.
+ *
  * @param exchangeId - The parking exchange's id.
  * @param sequence - How many times this exchange has already suspended.
  *
  * @internal
  */
 export function suspensionIdFor(exchangeId: string, sequence: number): string {
-  return sequence === 0 ? exchangeId : `${exchangeId}#${sequence}`;
+  return `${exchangeId}${SUSPENSION_ID_SEPARATOR}${sequence}`;
 }
 
 /**

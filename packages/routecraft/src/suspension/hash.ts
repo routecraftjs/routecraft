@@ -227,7 +227,12 @@ function describable(value: unknown, depth = 0): unknown {
   }
   const prototype = Object.getPrototypeOf(value as object);
   if (prototype !== Object.prototype && prototype !== null) return "[opaque]";
-  const projected: Record<string, unknown> = {};
+  // Null-prototype accumulator, for the same reason `serialize.ts` uses one:
+  // `__proto__` is a genuine own key on anything that came from JSON.parse,
+  // and assigning it on an object literal hits the Object.prototype setter,
+  // which drops the field. Dropped here it would let a tail option carrying
+  // that key change under a parked approval without moving the digest.
+  const projected: Record<string, unknown> = Object.create(null);
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
     projected[key] = describable(entry, depth + 1);
   }
@@ -235,15 +240,23 @@ function describable(value: unknown, depth = 0): unknown {
 }
 
 /**
- * Collapse insignificant whitespace in a function's source so a formatter
- * pass (or a line-ending change between checkouts) does not read as a
- * changed continuation. Identifier renames and real edits still move it.
+ * Collapse insignificant whitespace in a function's source so a line-ending
+ * change between checkouts does not read as a changed continuation.
+ * Identifier renames and real edits still move it.
+ *
+ * A run of whitespace collapses to one space, or to one newline when the run
+ * contained any line terminator. The newline has to survive because
+ * automatic semicolon insertion makes it semantic: `return` followed by a
+ * newline and `value` returns undefined, while `return value` returns the
+ * value, and collapsing the two together would let a parked approval resume
+ * into a step that does something else. Keeping the break means a reformat
+ * that moves line boundaries moves the hash, which is the safe direction:
+ * over-invalidating merely re-asks an approval.
  *
  * Whitespace INSIDE string and template literals is preserved. A blanket
  * `replace(/\s+/g, " ")` would make `pay("acct  123")` and
  * `pay("acct 123")` hash alike, which is a semantic change the digest must
- * not miss; over-invalidating merely re-asks an approval, under-invalidating
- * resumes into different behaviour.
+ * not miss.
  *
  * Regex literals are not tracked, because telling one from a division
  * operator needs a real tokenizer. Whitespace inside a regex is therefore
@@ -256,7 +269,9 @@ function normalizeSource(fn: object): string {
   const source = Function.prototype.toString.call(fn);
   let out = "";
   let quote: string | undefined;
-  let pendingSpace = false;
+  // Deferred separator: a run collapses to one character, and a run at the
+  // very end is dropped entirely.
+  let pending = "";
 
   for (let i = 0; i < source.length; i++) {
     const char = source[i]!;
@@ -274,32 +289,36 @@ function normalizeSource(fn: object): string {
       continue;
     }
 
-    if (char === '"' || char === "'" || char === "`") {
-      if (pendingSpace) {
-        out += " ";
-        pendingSpace = false;
+    if (WHITESPACE.test(char)) {
+      if (out.length > 0) {
+        pending = pending === "\n" || LINE_TERMINATOR.test(char) ? "\n" : " ";
       }
-      quote = char;
-      out += char;
       continue;
     }
 
-    if (/\s/.test(char)) {
-      // Defer the space: a run collapses to one, and a run at the very end
-      // is dropped entirely.
-      pendingSpace = out.length > 0;
-      continue;
+    if (pending) {
+      out += pending;
+      pending = "";
     }
-
-    if (pendingSpace) {
-      out += " ";
-      pendingSpace = false;
-    }
+    if (char === '"' || char === "'" || char === "`") quote = char;
     out += char;
   }
 
   return out;
 }
+
+/** @internal */
+const WHITESPACE = /\s/;
+
+/**
+ * The line terminators ECMAScript treats as statement boundaries for
+ * automatic semicolon insertion. CRLF collapses to the same single newline
+ * as LF, which is what keeps a checkout with different line endings hashing
+ * identically.
+ *
+ * @internal
+ */
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
 
 /**
  * Deterministic JSON with object keys sorted at every depth, so two

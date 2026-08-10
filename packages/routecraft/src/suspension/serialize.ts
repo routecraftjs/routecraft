@@ -175,13 +175,22 @@ function encode(
   const object = value as object;
   if (isBranded(object, BRAND.Secret)) throw refuse(path, "a Secret");
   if (seen.has(object)) throw refuse(path, "a circular reference");
-  if (value instanceof Date) {
+  // A Date SUBCLASS deliberately fails this test and falls through to the
+  // class-instance refusal below: the envelope carries an instant and
+  // nothing else, so a subclass would resume as a plain Date with its added
+  // behaviour gone.
+  if (
+    value instanceof Date &&
+    Object.getPrototypeOf(value) === Date.prototype
+  ) {
     if (Number.isNaN(value.getTime())) throw refuse(path, "an invalid Date");
     // A Date carrying its own properties would suspend fine and resume with
     // those properties gone, since the envelope keeps only the instant.
     // Silent loss is the outcome this walk exists to prevent.
+    // `getOwnPropertyNames`, not `keys`: a non-enumerable field is lost just
+    // as silently as an enumerable one.
     if (
-      Object.keys(value).length > 0 ||
+      Object.getOwnPropertyNames(value).length > 0 ||
       Object.getOwnPropertySymbols(value).length > 0
     ) {
       throw refuse(path, "a Date carrying extra properties");
@@ -194,7 +203,9 @@ function encode(
     if (Array.isArray(value)) {
       // Named or symbol-keyed properties on an array are invisible to the
       // index walk, so they would be dropped rather than refused.
-      const named = Object.keys(value).filter((key) => !/^\d+$/.test(key));
+      const named = Object.keys(value).filter(
+        (key) => !isArrayIndex(key, value.length),
+      );
       if (named.length > 0) {
         throw refuse(path, `an array with a named property ("${named[0]}")`);
       }
@@ -292,6 +303,26 @@ function decode(value: unknown): unknown {
     });
   }
   return copy;
+}
+
+/**
+ * Whether `key` names one of the positions the index walk will visit.
+ *
+ * A digit test alone is not enough. `"01"` and any numeric beyond `length`
+ * are ordinary string keys that `Array.from` never reads, so they would be
+ * dropped in silence instead of being refused as the named properties they
+ * are.
+ *
+ * @internal
+ */
+function isArrayIndex(key: string, length: number): boolean {
+  const index = Number(key);
+  return (
+    Number.isInteger(index) &&
+    index >= 0 &&
+    index < length &&
+    String(index) === key
+  );
 }
 
 /** @internal */

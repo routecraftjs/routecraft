@@ -501,6 +501,7 @@ export {
   suspensionPlugin,
 } from "./suspension/index.ts";
 export type {
+  NewSuspension,
   PendingSuspensionSummary,
   PrincipalRef,
   SerializedExchange,

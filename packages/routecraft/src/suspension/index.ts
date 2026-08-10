@@ -1,4 +1,5 @@
 export type {
+  NewSuspension,
   PendingSuspensionSummary,
   PrincipalRef,
   SerializedExchange,

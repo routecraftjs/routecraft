@@ -234,6 +234,45 @@ describe("suspension serialization refusals", () => {
   });
 
   /**
+   * @case A hidden field on a Date is refused, not dropped
+   * @preconditions A Date whose own property is non-enumerable
+   * @expectedResult RC5042. A non-enumerable field is lost through the
+   *   envelope just as silently as an enumerable one, so the check cannot
+   *   stop at `Object.keys`.
+   */
+  test("refuses a Date carrying a non-enumerable property", () => {
+    const decorated = new Date("2026-08-10T09:00:00.000Z");
+    Object.defineProperty(decorated, "timezone", {
+      value: "Europe/Amsterdam",
+      enumerable: false,
+    });
+
+    expect(() => serializeExchange(exchangeWith({ at: decorated }))).toThrow(
+      expect.objectContaining({ rc: "RC5042" }),
+    );
+  });
+
+  /**
+   * @case A Date subclass is refused rather than downgraded
+   * @preconditions A subclass instance carrying behaviour on its prototype
+   * @expectedResult RC5042, because the envelope holds an instant and the
+   *   value would resume as a plain Date with that behaviour gone
+   */
+  test("refuses a Date subclass", () => {
+    class BusinessDate extends Date {
+      get quarter(): number {
+        return Math.floor(this.getMonth() / 3) + 1;
+      }
+    }
+
+    expect(() =>
+      serializeExchange(
+        exchangeWith({ at: new BusinessDate("2026-08-10T09:00:00.000Z") }),
+      ),
+    ).toThrow(/BusinessDate/);
+  });
+
+  /**
    * @case State hidden on an array is refused, not dropped
    * @preconditions An array carrying a named property, which the index walk
    *   cannot see
@@ -243,6 +282,19 @@ describe("suspension serialization refusals", () => {
     const list = Object.assign([1, 2], { cursor: "abc" });
 
     expect(() => serializeExchange(exchangeWith({ list }))).toThrow(/cursor/);
+  });
+
+  /**
+   * @case A digit-shaped key that is not an index is still a named property
+   * @preconditions An array carrying `"01"`, which passes a digit test but is
+   *   never visited by the index walk
+   * @expectedResult RC5042 naming the key, rather than the value vanishing
+   */
+  test("refuses an array with a digit-shaped named property", () => {
+    const list: unknown[] = [1, 2];
+    (list as unknown as Record<string, unknown>)["01"] = "hidden";
+
+    expect(() => serializeExchange(exchangeWith({ list }))).toThrow(/01/);
   });
 
   /**

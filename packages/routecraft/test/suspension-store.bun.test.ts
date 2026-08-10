@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -506,4 +507,62 @@ describe("SqliteSuspensionStore durability", () => {
 
     expect(summary.count).toBe(1);
   });
+});
+
+describe("SuspensionStore compare-and-swap under real concurrency", () => {
+  /**
+   * @case Four processes resuming one suspension at once produce one winner
+   * @preconditions A suspended record in a shared on-disk database and four
+   *   child processes each opening their own connection, released together
+   *   by a wall-clock barrier
+   * @expectedResult Exactly one process reports won, and the record resumes
+   *   once. This is the property the whole feature rests on: two approvers
+   *   clicking the same link must not run the payout twice.
+   *
+   *   Child processes rather than concurrent calls in this one: both sqlite
+   *   drivers are synchronous, so two in-process markResumed calls cannot
+   *   interleave and would pass even against a read-then-write that has no
+   *   atomicity at all.
+   */
+  test("markResumed has exactly one winner across processes", async () => {
+    const path = join(scratch, "race.db");
+    const seed = await SqliteSuspensionStore.open({ path });
+    await seed.create(record());
+    await seed.close();
+
+    const worker = join(import.meta.dir, "suspension-race-worker.ts");
+    // Enough runway for four processes to boot and reach the barrier.
+    const startAt = Date.now() + 2_000;
+    const results = await Promise.all(
+      ["a", "b", "c", "d"].map(
+        (subject) =>
+          new Promise<{ subject: string; won: boolean }>((resolve, reject) => {
+            const child = spawn(
+              process.execPath,
+              [worker, path, "sus-1", String(startAt), subject],
+              { stdio: ["ignore", "pipe", "pipe"] },
+            );
+            let stdout = "";
+            let stderr = "";
+            child.stdout.on("data", (chunk) => (stdout += chunk));
+            child.stderr.on("data", (chunk) => (stderr += chunk));
+            child.on("error", reject);
+            child.on("close", (code) => {
+              if (code !== 0)
+                reject(new Error(`worker failed (${code}): ${stderr}`));
+              else resolve(JSON.parse(stdout));
+            });
+          }),
+      ),
+    );
+
+    const winners = results.filter((result) => result.won);
+    expect(winners).toHaveLength(1);
+
+    const store = await SqliteSuspensionStore.open({ path });
+    const read = await store.get("sus-1");
+    await store.close();
+    expect(read?.status).toBe("resumed");
+    expect(read?.resumedBy?.subject).toBe(winners[0]?.subject);
+  }, 30_000);
 });

@@ -131,6 +131,20 @@ export interface Suspension {
 }
 
 /**
+ * A suspension as it is handed to {@link SuspensionStore.create}.
+ *
+ * A record is born `suspended`, so the fields only a transition can produce
+ * are not part of the input. Taking a full {@link Suspension} would let a
+ * caller insert a record that is already settled, and every compare-and-swap
+ * in the contract then refuses to move it: the exchange is parked
+ * permanently, with no error to notice.
+ */
+export type NewSuspension = Omit<
+  Suspension,
+  "status" | "terminal" | "resumedBy" | "resumedAt" | "deniedReason"
+>;
+
+/**
  * Details recorded when a resume wins the compare-and-swap.
  */
 export interface SuspensionResumption {
@@ -184,9 +198,10 @@ export interface SuspensionStore {
   /**
    * Persist a newly parked exchange. Throws if `record.id` already exists:
    * a suspension id is minted per suspend and a collision means a bug, not
-   * a retry.
+   * a retry. The stored record is `suspended`; only the `mark*` transitions
+   * move it out of that state.
    */
-  create(record: Suspension): Promise<void>;
+  create(record: NewSuspension): Promise<void>;
 
   /** Load a suspension by id. `undefined` when the id is unknown. */
   get(id: string): Promise<Suspension | undefined>;

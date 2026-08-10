@@ -46,8 +46,20 @@ describe("resume tokens", () => {
    *   with the first in the store
    */
   test("derives a distinct id per suspension of the same exchange", () => {
-    expect(suspensionIdFor("ex-1", 0)).toBe("ex-1");
+    expect(suspensionIdFor("ex-1", 0)).toBe("ex-1~0");
     expect(suspensionIdFor("ex-1", 1)).not.toBe(suspensionIdFor("ex-1", 0));
+  });
+
+  /**
+   * @case Two unrelated exchanges never derive the same suspension id
+   * @preconditions An exchange whose id already ends in the separator and a
+   *   sequence number, parked first, against another exchange parking for a
+   *   second time
+   * @expectedResult The ids differ. Colliding would let one parked exchange
+   *   overwrite the other in the store, losing an approval in flight
+   */
+  test("does not collide when an exchange id ends in a sequence suffix", () => {
+    expect(suspensionIdFor("ex-1~1", 0)).not.toBe(suspensionIdFor("ex-1", 1));
   });
 
   /**

@@ -189,31 +189,58 @@ describe("continuationHash", () => {
   });
 
   /**
-   * @case Reformatting is not a behaviour change
-   * @preconditions The same arrow written on one line and across several,
-   *   so the two differ in whitespace and nothing else
-   * @expectedResult The hashes match, so a formatter pass does not re-ask
-   *   every outstanding approval
+   * @case A checkout with different line endings is not a behaviour change
+   * @preconditions The same body with CRLF and with LF, and differing
+   *   indentation, so the two differ in insignificant whitespace and nothing
+   *   else
+   * @expectedResult The hashes match, so cloning the repo on Windows does not
+   *   re-ask every outstanding approval
    */
   test("ignores insignificant whitespace in step source", () => {
     // Built with `new Function` so a formatter cannot normalise the very
     // difference under test: the two bodies are token-identical and differ
     // only in whitespace.
-    const wrapped = new Function("value", "return value\n  *\n  2;") as (
+    const crlf = new Function("value", "return value *\r\n\t\t2;") as (
       value: number,
     ) => number;
-    const inline = new Function("value", "return value * 2;") as (
+    const lf = new Function("value", "return value *\n  2;") as (
+      value: number,
+    ) => number;
+
+    expect(
+      continuationHash([step("s", (v) => v), step("pay", crlf)], 0, expected),
+    ).toBe(
+      continuationHash([step("s", (v) => v), step("pay", lf)], 0, expected),
+    );
+  });
+
+  /**
+   * @case A line break that changes what a step returns is not whitespace
+   * @preconditions Two bodies differing only in a newline after `return`,
+   *   where automatic semicolon insertion makes the first return undefined
+   * @expectedResult The hashes differ. Collapsing the break would let a
+   *   parked approval resume into a step that returns nothing.
+   */
+  test("does not collapse a line break significant to semicolon insertion", () => {
+    const inserted = new Function("value", "return\n  value * 2;") as (
+      value: number,
+    ) => number;
+    const returned = new Function("value", "return value * 2;") as (
       value: number,
     ) => number;
 
     expect(
       continuationHash(
-        [step("s", (v) => v), step("pay", wrapped)],
+        [step("s", (v) => v), step("pay", inserted)],
         0,
         expected,
       ),
-    ).toBe(
-      continuationHash([step("s", (v) => v), step("pay", inline)], 0, expected),
+    ).not.toBe(
+      continuationHash(
+        [step("s", (v) => v), step("pay", returned)],
+        0,
+        expected,
+      ),
     );
   });
 
@@ -406,6 +433,37 @@ describe("continuationHash over factory-built adapters", () => {
 
     expect(continuationHash(toA, 0, expected)).not.toBe(
       continuationHash(toB, 0, expected),
+    );
+  });
+
+  /**
+   * @case A tail option under a `__proto__` key is still part of what was
+   *   approved
+   * @preconditions Two tails whose factory argument came from `JSON.parse`
+   *   and differs only beneath a `__proto__` own key, which is what a config
+   *   file or an upstream payload produces
+   * @expectedResult The hashes differ. Projecting options onto an ordinary
+   *   object literal drops that key through the Object.prototype setter, and
+   *   the option could then change freely under a parked approval.
+   */
+  test("a changed option under a __proto__ key invalidates it", () => {
+    const options = (role: string) =>
+      JSON.parse(
+        `{"path":"/tmp/a.txt","meta":{"__proto__":{"role":"${role}"}}}`,
+      );
+
+    expect(
+      continuationHash(
+        [step("s", (v) => v), destination(file(options("user")))],
+        0,
+        expected,
+      ),
+    ).not.toBe(
+      continuationHash(
+        [step("s", (v) => v), destination(file(options("admin")))],
+        0,
+        expected,
+      ),
     );
   });
 
