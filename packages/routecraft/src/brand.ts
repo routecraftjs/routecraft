@@ -14,6 +14,14 @@ export const BRAND = {
   // `[brand]: true` so they survive crossing duplicate package copies.
   SplitChild: Symbol.for("routecraft.split.child"),
   Recovery: Symbol.for("routecraft.recovery"),
+  /**
+   * RESERVED for the adapter-sandbox `Secret` wrapper (#526). Nothing
+   * brands it yet. The suspension serializer already refuses a value
+   * carrying this brand, so the moment `Secret` starts applying it, "a
+   * secret must never reach the suspension store" becomes enforced without
+   * touching the serializer.
+   */
+  Secret: Symbol.for("routecraft.secret"),
 } as const;
 
 export const INTERNALS_KEY = Symbol.for("routecraft.exchange.internals");

@@ -82,6 +82,10 @@ export interface ErrorCodeRegistry {
   RC5037: RCMeta;
   RC5038: RCMeta;
   RC5039: RCMeta;
+  RC5040: RCMeta;
+  RC5041: RCMeta;
+  RC5042: RCMeta;
+  RC5043: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -409,6 +413,38 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A route with http({ signature: {...} }) rejected a request whose signature header was missing, invalid, or expired. Check that the secret matches the provider's signing secret, the header name matches what the provider sends (e.g. x-hub-signature-256), and the prefix matches the provider's format (e.g. \"sha256=\" for GitHub). If the provider's deliveries pass through a proxy that re-encodes the body, the signed bytes no longer match; verification must see the exact wire bytes.",
     docs: `${DOCS_BASE}#rc-5039`,
+    retryable: false,
+  },
+  RC5040: {
+    category: "Definition",
+    message: "Resume-token signing secret not configured",
+    suggestion:
+      "A route in this context can reach a durable .suspend(), so resume tokens must be signable. Set the ROUTECRAFT_SUSPENSION_SECRET environment variable, or pass suspension: { secret } to defineConfig. The secret is never generated into the store: a store compromise must not yield forgeable resume tokens. testContext() and NODE_ENV=development mint an ephemeral in-memory key, so tests and local iteration need no setup.",
+    docs: `${DOCS_BASE}#rc-5040`,
+    retryable: false,
+  },
+  RC5041: {
+    category: "Runtime",
+    message: "Resume token rejected",
+    suggestion:
+      "The token presented to .resume() was malformed, carried a bad signature, or named a suspension this context cannot verify. Resume with the exact token minted at suspend time. If the token is genuine, check that every node shares one signing secret: a token signed with a different secret is indistinguishable from a forged one.",
+    docs: `${DOCS_BASE}#rc-5041`,
+    retryable: false,
+  },
+  RC5042: {
+    category: "Runtime",
+    message: "Exchange cannot be persisted for suspension",
+    suggestion:
+      "Suspension serializes the exchange to durable storage, so its body and headers must be plain JSON data. A function, symbol, bigint, class instance, circular reference, or secret-bearing value cannot be written. Move the offending value out of the exchange before the suspend point: resolve it to a string, keep it in context.store (which outlives the exchange and is not persisted), or recompute it after resume.",
+    docs: `${DOCS_BASE}#rc-5042`,
+    retryable: false,
+  },
+  RC5043: {
+    category: "Adapter",
+    message: "Principal restored from a suspension",
+    suggestion:
+      "authorize() rejected a principal that came back from durable storage with a resumed exchange. It is a recorded shape with no live credential behind it: nothing re-checked the signature, the expiry, or revocation. Re-verify the identity after resume with .authenticate() from a checked credential, or put the authorization on the resume ingress route, where the answering principal is verified live. Distinct from RC5023 (self-asserted) because the fix differs: re-verify, do not mint.",
+    docs: `${DOCS_BASE}#rc-5043`,
     retryable: false,
   },
   RC9901: {

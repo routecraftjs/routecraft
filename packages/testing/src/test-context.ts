@@ -27,6 +27,30 @@ import { isAdapterMock, type AdapterMock } from "./mock-adapter";
 
 const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
 
+/**
+ * Substitute test-shaped defaults into config keys whose production
+ * defaults would be wrong under a test runner.
+ *
+ * Only `suspension` needs this today, and it needs it for two reasons:
+ * a test must not be made to configure a signing secret before it can
+ * suspend anything, and a test must not leave a sqlite file behind in the
+ * working directory. Both defaults are overridable: a test that wants the
+ * durable backend (the kill-restart proof does) passes an explicit `store`,
+ * and a test asserting the missing-secret failure passes an explicit
+ * `allowEphemeralSecret: false`.
+ */
+function applyTestDefaults(config: CraftConfig): CraftConfig {
+  if (!config.suspension) return config;
+  return {
+    ...config,
+    suspension: {
+      store: "memory",
+      allowEphemeralSecret: true,
+      ...config.suspension,
+    },
+  };
+}
+
 function describeOverrideTarget(target: unknown): string {
   if (typeof target === "function" && typeof target.name === "string") {
     const kind =
@@ -282,7 +306,7 @@ export class TestContextBuilder {
   }
 
   with(config: CraftConfig): this {
-    this.builder.with(config);
+    this.builder.with(applyTestDefaults(config));
     return this;
   }
 

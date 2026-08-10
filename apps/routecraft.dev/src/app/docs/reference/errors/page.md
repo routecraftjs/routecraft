@@ -537,6 +537,48 @@ Check that the `secret` matches the provider's signing secret, the `header` name
 
 This error is not retryable: the same delivery fails verification the same way every time.
 
+## RC5040
+Resume-token signing secret not configured
+
+**Why it happens**  
+A context whose routes can reach a durable `.suspend()` was built without a way to sign resume tokens. Resume tokens are the capability a suspended exchange hands its approver, so a context that cannot sign them cannot suspend anything. The check runs while the context is being built, not on the first suspend, so this surfaces at startup rather than on the first large payout.
+
+**Suggestion**  
+Set the `ROUTECRAFT_SUSPENSION_SECRET` environment variable, or pass `suspension: { secret }` to `defineConfig`. Prefer the environment variable: a secret in a config file is a secret in version control.
+
+The secret is deliberately never generated into the store. A store compromise must not also yield the ability to forge resume tokens, and a store-resident key stops working the moment a second node appears. `testContext()` and `NODE_ENV=development` mint an ephemeral in-memory key so tests and local iteration need no setup; that key does not survive a restart, and the framework warns when it is used.
+
+## RC5041
+Resume token rejected
+
+**Why it happens**  
+The token presented to `.resume()` was malformed, carried a signature that does not verify, or named a format version this build does not understand. The three are reported as one error on purpose: telling a caller which check failed tells an attacker how far a forgery got.
+
+**Suggestion**  
+Resume with the exact token minted at suspend time. If the token is genuine, check that every node shares one signing secret: a token signed with a different secret is indistinguishable from a forged one, and an ephemeral development key is regenerated on every restart.
+
+## RC5042
+Exchange cannot be persisted for suspension
+
+**Why it happens**  
+Suspension writes the exchange to durable storage, so its `body` and `headers` must be plain JSON data. The error names the exact path that failed. Refused values are functions, symbols, bigints, non-finite numbers, circular references, class instances, and anything carrying the framework's `Secret` brand. A class instance is refused rather than downgraded because what would come back is a plain object wearing the same fields with none of the behaviour, and the failure would surface as a broken method call after resume instead of at the suspend.
+
+`Date` is the exception: it round-trips faithfully through a tagged envelope, so a timestamp in the body is still a `Date` after resume.
+
+**Suggestion**  
+Move the offending value out of the exchange before the suspend point. Resolve it to a string, keep it in `context.store` (which outlives the exchange and is never serialized), or recompute it after resume. Blocks declared `lifetime: "context"` already live in the context store and are unaffected.
+
+## RC5043
+Principal restored from a suspension
+
+**Why it happens**  
+`authorize()` was given a principal that came back from durable storage with a resumed exchange. It is the recorded shape of an identity verified days ago, with nothing behind it now: no signature was re-checked, no expiry, no revocation lookup. The framework marks such principals restored precisely so this case is distinguishable, rather than letting a shape read off disk pass an authorization check.
+
+**Suggestion**  
+Put the authorization on the resume ingress route, where the answering principal is verified live, and read `ex.suspension.resumedBy` for the receipt. If a step after the suspend point genuinely needs an authorized identity, re-verify it there with `.authenticate()` from a checked credential.
+
+Distinct from RC5023 (a self-asserted plain object) because the fix differs: re-verify, do not mint.
+
 
 ## RC9901
 Unknown error

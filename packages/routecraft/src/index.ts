@@ -16,6 +16,7 @@ export {
 export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
 export { delegate, type DelegateOptions } from "./auth/delegate.ts";
 export { isAuthentic, markAuthentic } from "./auth/authentic.ts";
+export { isRestored, markRestored } from "./auth/restored.ts";
 export type {
   ActorMatcher,
   ClaimMappers,
@@ -66,6 +67,7 @@ import "./adapters/direct/config.ts";
 import "./adapters/mail/config.ts";
 import "./adapters/carddav/config.ts";
 import "./telemetry/config.ts";
+import "./suspension/config.ts";
 
 export { httpPlugin } from "./plugins/http/plugin.ts";
 export { apiKey } from "./plugins/http/auth.ts";
@@ -483,6 +485,46 @@ export type {
   TelemetrySqliteOptions,
   TelemetryEvent,
 } from "./telemetry/index.ts";
+
+export {
+  DATE_TAG,
+  DEFAULT_SUSPENSION_DB_PATH,
+  MemorySuspensionStore,
+  ResumeTokenSigner,
+  SUSPENSION_RUNTIME,
+  SUSPENSION_SECRET_ENV,
+  SUSPENSION_STORE_ENV,
+  SqliteSuspensionStore,
+  actionFingerprint,
+  continuationHash,
+  createSuspensionRuntime,
+  describeExpect,
+  deserializeExchange,
+  resolveSigningSecret,
+  serializeExchange,
+  suspensionIdFor,
+  suspensionPlugin,
+} from "./suspension/index.ts";
+export type {
+  PendingSuspensionSummary,
+  PrincipalRef,
+  ResolvedSqliteDriver,
+  ResumeTokenPayload,
+  SerializedExchange,
+  SerializedOutcome,
+  SigningSecretOptions,
+  SigningSecretSource,
+  SqliteDriverName,
+  Suspension,
+  SuspensionCasResult,
+  SuspensionConfig,
+  SuspensionExpect,
+  SuspensionResumption,
+  SuspensionRuntime,
+  SuspensionStatus,
+  SuspensionStore,
+  SuspensionStoreConfig,
+} from "./suspension/index.ts";
 export {
   type MailAuth,
   type MailReconnectOptions,

@@ -36,6 +36,7 @@ export const craftConfig = defineConfig({
 | `http` | `HttpPluginOptions` | No | -- | Serve routes over HTTP for the `http()` source ([details](#http)) |
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
+| `suspension` | `SuspensionConfig` | No | -- | Where parked exchanges are stored and how resume tokens are signed ([details](#suspension)) |
 | `plugins` | `CraftPlugin[]` | No | -- | Custom plugins to initialize before routes are registered |
 
 ### Ecosystem keys (added by `@routecraft/ai`)
@@ -134,6 +135,40 @@ export const craftConfig = defineConfig({
 | `maxBodySize` | `number` | `10485760` (10 MB) | Maximum request body in bytes; larger requests return `413`. |
 | `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | Toggle the per-request `plugin:http:request:completed` event. |
 | `builtins` | `{ health?, ready?, openapi?: { enabled?: boolean; requireAuth?: boolean } }` | see [adapter reference](/docs/reference/adapters/http#configuring-built-ins) | Per-endpoint config for `/health`, `/ready`, `/openapi.json`. Uniform `{ enabled, requireAuth }` shape per built-in (inspired by Spring Boot Actuator). |
+
+### suspension
+
+Configures durable suspend and resume: where parked exchanges are persisted, and the secret used to sign the resume tokens an approver is handed. Set it when any route can reach a `.suspend()`; a context that never suspends does not need the key.
+
+```ts
+import { defineConfig } from '@routecraft/routecraft'
+
+export const craftConfig = defineConfig({
+  suspension: {
+    // A mounted volume in a container deployment, so parked exchanges
+    // outlive the container that parked them.
+    store: { path: '/data/suspensions.db' },
+  },
+})
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `store` | `string \| { path: string } \| "memory" \| SuspensionStore` | `.routecraft/suspensions.db` | Where parked exchanges live. A path opens the SQLite backend. `"memory"` opts into the in-process backend, accepting that parked exchanges die with the process. A `SuspensionStore` instance plugs in a backend of your own. |
+| `secret` | `string` | -- | HMAC secret for signing resume tokens. Prefer the environment variable below; this field is for deployments that fetch secrets at boot and pass them in code. |
+
+Both settings are also readable from the environment, which is how a container deployment supplies them:
+
+| Variable | Purpose |
+|----------|---------|
+| `ROUTECRAFT_SUSPENSION_STORE` | Store location: a file path, or the literal `memory`. |
+| `ROUTECRAFT_SUSPENSION_SECRET` | Resume-token signing secret. |
+
+An explicit config value wins over the environment.
+
+**The store backend is chosen per runtime.** Under Bun it is `bun:sqlite`, a built-in. Under Node it is `better-sqlite3`, an optional peer: install it (`bun add better-sqlite3`) to get a durable store on Node. Without it, an unconfigured context falls back to the in-memory backend and warns that parked exchanges will not survive a restart, while a context that named a `store` path fails to start rather than silently losing durability it asked for.
+
+**The signing secret is required, and never generated for you.** A context whose routes can reach a durable suspend fails at startup with [`RC5040`](/docs/reference/errors#rc-5040) when no secret is configured. The secret is deliberately not stored alongside the suspensions: a store compromise must not also yield forgeable resume tokens. `testContext()` and `NODE_ENV=development` mint an ephemeral in-memory key so tests and local iteration need no setup; that key is regenerated on every start, so tokens minted before a restart stop verifying, and the framework warns when it is in use.
 
 ## Logging configuration
 
