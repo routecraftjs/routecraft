@@ -82,7 +82,7 @@ This section covers every change landing on `main` since the v0.5.0 release. 0.6
 - **Every optional peer loads through `loadOptionalPeer`** -- the mail drivers and `agentBrowser()` now surface a missing package as `RC5017` with an install hint rather than a raw module-not-found, and detection no longer misses the phrasing Bun uses for a subpath import. A contract test scans all four code packages for bare external dynamic imports.
 - **Config appliers restored in the published bundles** -- a `sideEffects` allowlist let esbuild prune every core config applier out of the published bundle, so `defineConfig({ mail: { accounts } })` typechecked but never applied at runtime. A post-build guard now asserts every applier is live in the registry, and an unrecognised `defineConfig` key warns instead of being a silent no-op.
 - **`@routecraft/ai`, `@routecraft/os` and `@routecraft/testing` declare core as a peer** -- at `>=0.6.0 <1.0.0`, with a workspace devDependency for development, instead of duplicating core as a regular dependency.
-- **Dependency floors refreshed** -- runtime ranges on `@routecraft/ai`, `@routecraft/cli` and `create-routecraft` move to their newest in-range minor and patch releases, and core's optional `fast-xml-parser` peer floor rises to `^5.10.1` to exclude a DOCTYPE entity-expansion advisory. No majors are included.
+- **Dependency floors refreshed** -- runtime ranges on `@routecraft/ai`, `@routecraft/cli` and `create-routecraft` move to their newest in-range minor and patch releases, and core's optional `fast-xml-parser` peer floor rises to `^5.10.1` to exclude a DOCTYPE entity-expansion advisory. No majors are included, and the `imapflow` floor is held back deliberately.
 
 ### Adapters
 
