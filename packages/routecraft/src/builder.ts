@@ -30,7 +30,7 @@ import { BatchConsumer } from "./consumers/batch.ts";
 import { type Source, type SourceLike, toSource } from "./operations/from.ts";
 import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
-import { resolveSuspendSites } from "./suspension/sites.ts";
+import { resolveSuspendSites, usesResume } from "./suspension/sites.ts";
 import {
   type Splitter,
   type CallableSplitter,
@@ -1729,6 +1729,7 @@ export class RouteBuilder<
       // cache check, which reads what it resolved.
       const suspendSteps = resolveSuspendSites(route);
       if (suspendSteps.length > 0) route.suspendSteps = suspendSteps;
+      if (usesResume(route)) route.usesResume = true;
       assertRouteScopeCacheCompatibility(route);
     }
     logger.trace({ routeCount: this.routes.length }, "Building routes");

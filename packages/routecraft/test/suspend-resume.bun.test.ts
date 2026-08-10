@@ -705,6 +705,129 @@ describe("suspend and resume", () => {
   });
 
   /**
+   * @case A continuation that reaches a second .suspend() is not a completion
+   * @preconditions A two-stage approval: the continuation of the first park contains another .suspend()
+   * @expectedResult The first suspension's terminal outcome is "suspended" with no body, so the receipt does not claim the work finished and the first approver's response does not carry the second approver's resume token
+   */
+  test("a chained suspension records a suspended outcome, not a completion", async () => {
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ expect: Approval })
+          .suspend({ expect: Approval })
+          .transform(() => ({ paid: true }))
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(
+      await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
+    );
+    const first = (await t.client.sendDirect("answers", {
+      token: parked.token,
+      result: { approved: true },
+    })) as {
+      status: string;
+      outcome: { status: string; body?: unknown };
+    };
+
+    expect(first.status).toBe("resumed");
+    expect(first.outcome.status).toBe("suspended");
+    // No body: it would be the SECOND acknowledgment, token included.
+    expect(first.outcome.body).toBeUndefined();
+
+    const duplicate = (await t.client.sendDirect("answers", {
+      token: parked.token,
+      result: { approved: true },
+    })) as { status: string; outcome: { status: string; body?: unknown } };
+    expect(duplicate.status).toBe("duplicate");
+    expect(duplicate.outcome.status).toBe("suspended");
+    expect(duplicate.outcome.body).toBeUndefined();
+  });
+
+  /**
+   * @case A changed continuation is reported to the suspended route once, not once per replay
+   * @preconditions A parked exchange whose route changed under it; the same token is presented twice
+   * @expectedResult Both attempts fail in the ingress, but the suspended route's .error() handler runs exactly once: a replayed token cannot drive its re-ask notifications
+   */
+  test("a changed continuation re-asks exactly once across replays", async () => {
+    const store = new MemorySuspensionStore();
+    const shared = {
+      suspension: { store, secret: SECRET },
+    } as unknown as CraftConfig;
+
+    const parkContext = await testContext()
+      .with(shared)
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ expect: Approval })
+          .transform((body) => ({ paid: (body as Payout).amountCents }))
+          .to(noop()),
+      ])
+      .build();
+    await parkContext.startAndWaitReady();
+    const parked = asSuspended(
+      await parkContext.client.sendDirect("payout", {
+        amountCents: 25_000,
+        payee: "acme",
+      }),
+    );
+    await parkContext.stop();
+
+    const caught: unknown[] = [];
+    t = await testContext()
+      .with(shared)
+      .routes([
+        craft()
+          .id("payout")
+          .error((err) => {
+            caught.push(err);
+            return { reasked: true };
+          })
+          .from(direct())
+          .suspend({ expect: Approval })
+          .transform((body) => ({ paid: (body as Payout).amountCents * 2 }))
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const answer = () =>
+      t!.client.sendDirect("answers", {
+        token: parked.token,
+        result: { approved: true },
+      });
+
+    await expect(answer()).rejects.toMatchObject({ rc: "RC5048" });
+    // The replay still fails, and still fails in the ingress route.
+    await expect(answer()).rejects.toMatchObject({ rc: "RC5050" });
+    expect(caught).toHaveLength(1);
+  });
+
+  /**
+   * @case A resume-only ingress in a context with no suspension runtime
+   * @preconditions A route ending in .resume() and no `suspension` config; no route suspends
+   * @expectedResult The context refuses to start with RC5052, rather than becoming live and rejecting every answer at request time
+   */
+  test("starting a resume-only route without a suspension runtime is RC5052", async () => {
+    const unconfigured = await testContext()
+      .routes([craft().id("answers").from(direct()).resume().to(noop())])
+      .build();
+
+    await expect(unconfigured.ctx.start()).rejects.toMatchObject({
+      rc: "RC5052",
+    });
+  });
+
+  /**
    * @case Suspension lifecycle events land on the fixed event registry
    * @preconditions A park and a resume observed through ctx.on()
    * @expectedResult route:exchange:suspended carries the suspension id and position and replaces :completed for execution one; route:exchange:resumed precedes execution two's :started / :completed

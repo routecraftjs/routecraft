@@ -113,8 +113,8 @@ interface NestingStep extends Step<Adapter> {
  * @returns Every suspending step in the route, in pre-order, each carrying
  *   the site it was assigned
  * @throws RC5051 when a `.suspend()` sits somewhere it cannot be revived
- *   from: inside an unbalanced `.split()`, or inside a `.multicast()` /
- *   `.dispatch()` path.
+ *   from: inside a `.split()` fan-out (balanced or not), or inside a
+ *   `.multicast()` path or `.dispatch()` target.
  *
  * @internal
  */
@@ -126,6 +126,31 @@ export function resolveSuspendSites(route: RouteDefinition): SuspendableStep[] {
     sealed: false,
   });
   return found;
+}
+
+/**
+ * Whether a route can reach a `.resume()`.
+ *
+ * A resume ingress needs the suspension runtime just as much as a
+ * suspending route does: it verifies tokens against the signer and reads
+ * the store. Without this a resume-only deployment (the common shape, since
+ * the ingress is usually its own capability) starts clean and then refuses
+ * every answer at request time, which is the failure the startup check
+ * exists to move forward.
+ *
+ * @internal
+ */
+export function usesResume(route: RouteDefinition): boolean {
+  return containsResume(route.steps);
+}
+
+/** @internal */
+function containsResume(steps: ReadonlyArray<Step<Adapter>>): boolean {
+  return steps.some(
+    (step) =>
+      step.operation === OperationType.RESUME ||
+      nestedStepsOf(step).some((nested) => containsResume(nested.steps)),
+  );
 }
 
 /**
@@ -162,7 +187,7 @@ function walk(
       if (splitDepth > 0) {
         throw refuse(
           route.id,
-          "inside a .split() that no .aggregate() balances. Reviving one parked child would mean tracking every outstanding sibling across restarts, which is a distributed coordination problem in disguise. Split the work into per-item child capabilities instead: each is its own exchange and suspends independently",
+          "inside a .split() fan-out, between the split and its .aggregate(). Reviving one parked child would mean tracking every outstanding sibling across restarts, which is a distributed coordination problem in disguise. Move the suspend out of the fan-out, or split the work into per-item child capabilities: each is then its own exchange and suspends independently",
         );
       }
       if (scope.sealed) {

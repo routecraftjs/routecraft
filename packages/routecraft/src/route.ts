@@ -320,6 +320,16 @@ export type RouteDefinition<T = unknown> = {
    * @internal
    */
   suspendSteps?: SuspendableStep[];
+
+  /**
+   * The route can reach a `.resume()`. Recorded alongside
+   * {@link RouteDefinition.suspendSteps} because a resume ingress needs the
+   * suspension runtime too (it verifies tokens and reads the store), and a
+   * resume-only route carries no suspend sites to infer that from.
+   *
+   * @internal
+   */
+  usesResume?: boolean;
 };
 
 /**

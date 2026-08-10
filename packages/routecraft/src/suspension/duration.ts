@@ -30,24 +30,48 @@ const PATTERN = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/;
  * @param value - Milliseconds, or a duration string
  * @param field - Option name quoted in the error message
  * @returns The duration in milliseconds
- * @throws RC5003 when the value is not a positive finite duration
+ * @throws RC5003 when the value is not a duration an `expiresAt` `Date`
+ *   can represent: at least one millisecond, and not past the end of the
+ *   representable time range
  *
  * @internal
  */
 export function parseDuration(value: Duration, field: string): number {
-  if (typeof value === "number") {
-    if (!Number.isFinite(value) || value <= 0) {
-      throw refuse(field, String(value));
-    }
-    return value;
+  if (typeof value === "number") return assertRepresentable(value, field);
+  // Narrowed before `.trim()`: `ttl` crosses a plain-JavaScript boundary,
+  // where `null`, a boolean or an object would otherwise raise a native
+  // TypeError instead of the RC5003 this function documents.
+  if (typeof value !== "string") {
+    throw refuse(
+      field,
+      typeof value === "object" ? "an object" : String(value),
+    );
   }
   const match = PATTERN.exec(value.trim());
   if (!match) throw refuse(field, value);
-  const amount = Number(match[1]);
-  const unit = match[2] as DurationUnit;
-  const ms = amount * UNIT_MS[unit];
-  if (!Number.isFinite(ms) || ms <= 0) throw refuse(field, value);
-  return ms;
+  return assertRepresentable(
+    Number(match[1]) * UNIT_MS[match[2] as DurationUnit],
+    field,
+  );
+}
+
+/**
+ * Bound a duration to what an `expiresAt` `Date` can actually hold.
+ *
+ * Both ends matter and both fail late without this. Below a millisecond
+ * the deadline rounds to the moment of parking, so the suspension expires
+ * on arrival; beyond the Date range the arithmetic yields an Invalid Date
+ * that is only discovered once the record is already in the store, where
+ * every comparison against it is false.
+ *
+ * @internal
+ */
+function assertRepresentable(ms: number, field: string): number {
+  if (!Number.isFinite(ms) || ms < 1) throw refuse(field, String(ms));
+  // ECMAScript pins the time value range at +/- 8.64e15 ms from the epoch;
+  // a TTL is added to "now", so the ceiling is what is left of it.
+  if (Date.now() + ms > 8.64e15) throw refuse(field, String(ms));
+  return Math.floor(ms);
 }
 
 /** @internal */

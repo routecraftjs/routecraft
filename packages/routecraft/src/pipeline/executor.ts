@@ -22,11 +22,7 @@ import {
   getAdapterLabel,
 } from "../types.ts";
 import { buildInputValidationStep, buildParseStep } from "./synthetic-steps.ts";
-import {
-  applyOutputValidation,
-  handleOutputValidationFailure,
-  type ValidationDeps,
-} from "./validation.ts";
+import { applyOutputStage } from "./validation.ts";
 import {
   DeadlineExceededError,
   raceWithDeadline,
@@ -958,47 +954,22 @@ export function runDetachedPipeline(
     };
     let result = await runPipeline(nested, releaseExchange, start);
 
-    // Mirror DefaultRoute.handler: the released exchange carries the route's
-    // final output, so enforce `.output()` schemas before declaring
-    // completion. A validation failure takes the same
-    // error-handler-or-failed path as a thrown step. A parked exchange is
-    // exempt: its body is the `Suspended` acknowledgment, which is the
-    // other arm of the route's `Output | Suspended` type.
-    if (!result.failed && !result.dropped && !result.suspended) {
-      const outputSchemas = routeDefinition.discovery?.output;
-      if (outputSchemas?.body || outputSchemas?.headers) {
-        const validationDeps: ValidationDeps = {
-          routeId: deps.routeId,
-          context: deps.context,
-          route: deps.route,
-          buildForward: deps.buildForward,
-          ...(routeDefinition.errorHandler
-            ? { errorHandler: routeDefinition.errorHandler }
-            : {}),
-        };
-        try {
-          const validated = await applyOutputValidation(
-            validationDeps,
-            result.exchange,
-            outputSchemas,
-          );
-          result = { ...result, exchange: validated };
-        } catch (err) {
-          // `suspended` is false by construction here: this arm only runs
-          // for a non-suspended result.
-          result = {
-            suspended: false,
-            ...(await handleOutputValidationFailure(
-              validationDeps,
-              result.exchange,
-              err,
-              start,
-              outputSchemas,
-            )),
-          };
-        }
-      }
-    }
+    // The released exchange carries the route's final output, so the same
+    // output stage the source-driven path uses runs here too.
+    result = await applyOutputStage(
+      {
+        routeId: deps.routeId,
+        context: deps.context,
+        route: deps.route,
+        buildForward: deps.buildForward,
+        ...(routeDefinition.errorHandler
+          ? { errorHandler: routeDefinition.errorHandler }
+          : {}),
+      },
+      routeDefinition.discovery?.output,
+      result,
+      start,
+    );
 
     // A run that parked at a `.suspend()` ends with the `Suspended`
     // acknowledgment rather than the route's output, and its terminal

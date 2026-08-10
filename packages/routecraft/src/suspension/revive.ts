@@ -15,7 +15,12 @@ import { SuspensionHeaders } from "./exchange-state.ts";
 import { SUSPENSION_RUNTIME } from "./runtime-key.ts";
 import { deserializeExchange, encodePersistable } from "./serialize.ts";
 import type { SuspendSite } from "./sites.ts";
-import type { PrincipalRef, SerializedOutcome, Suspension } from "./types.ts";
+import type {
+  PrincipalRef,
+  SerializedOutcome,
+  Suspension,
+  SuspensionStore,
+} from "./types.ts";
 
 /**
  * What `.resume()`'s mapping function produces: which suspension to revive,
@@ -148,7 +153,15 @@ export async function reviveSuspension(
       message: `Suspension "${id}" expired at ${suspension.expiresAt.toISOString()}.`,
     });
     const cas = await runtime.store.markExpired(id);
-    if (!cas.won) throw expiry;
+    if (!cas.won) {
+      // The winner is not necessarily the sweeper. A concurrent resume can
+      // win `markResumed` right on the deadline, and that answer WAS
+      // accepted: reporting an expiry to this caller would be a false
+      // negative about work that is running. Whoever won says what
+      // happened.
+      if (cas.suspension) return settled(cas.suspension);
+      throw expiry;
+    }
     context.emit("route:exchange:expired", {
       routeId: suspension.routeId,
       exchangeId: exchangeIdOf(suspension),
@@ -161,13 +174,12 @@ export async function reviveSuspension(
 
   const site = findSite(route, suspension);
   if (!site) {
-    throw await reask(
+    throw await refuseContinuation(
       context,
+      runtime.store,
       route,
       suspension,
-      rcError("RC5048", undefined, {
-        message: `Route "${suspension.routeId}" no longer has a .suspend() at position ${suspension.position}.`,
-      }),
+      `Route "${suspension.routeId}" no longer has a .suspend() at position ${suspension.position}.`,
     );
   }
 
@@ -184,13 +196,12 @@ export async function reviveSuspension(
     describeExpect(site.expect),
   );
   if (current !== suspension.continuationHash) {
-    throw await reask(
+    throw await refuseContinuation(
       context,
+      runtime.store,
       route,
       suspension,
-      rcError("RC5048", undefined, {
-        message: `Route "${suspension.routeId}" changed after position ${suspension.position} while this exchange was parked, so the stored answer no longer authorizes what would run.`,
-      }),
+      `Route "${suspension.routeId}" changed after position ${suspension.position} while this exchange was parked, so the stored answer no longer authorizes what would run.`,
     );
   }
 
@@ -230,6 +241,35 @@ export async function reviveSuspension(
     return settled(cas.suspension);
   }
 
+  // The deadline is re-checked AFTER winning the transition. The check
+  // above ran before validating the answer, and validation is a user
+  // schema: it can await. Without this, an answer that arrived in time but
+  // validated slowly would run the continuation past the window its route
+  // declared, which is the one thing `ttl` promises it will not do.
+  if (
+    suspension.expiresAt !== undefined &&
+    suspension.expiresAt.getTime() <= Date.now()
+  ) {
+    const expiry = rcError("RC5047", undefined, {
+      message: `Suspension "${id}" expired at ${suspension.expiresAt.toISOString()} while its answer was being validated.`,
+    });
+    // Winning `markResumed` means the sweeper cannot also report this, so
+    // the notification is ours to send exactly once.
+    await runtime.store.recordTerminal(id, {
+      status: "failed",
+      error: { rc: "RC5047", message: expiry.message },
+      at: resumedAt,
+    });
+    context.emit("route:exchange:expired", {
+      routeId: suspension.routeId,
+      exchangeId: exchangeIdOf(suspension),
+      correlationId: correlationIdOf(suspension),
+      suspensionId: id,
+      expiresAt: suspension.expiresAt,
+    });
+    throw await reask(context, route, suspension, expiry);
+  }
+
   const exchange = rehydrate(context, route, suspension, {
     result: result.value,
     resumedAt,
@@ -259,6 +299,38 @@ export async function reviveSuspension(
     routeId: suspension.routeId,
     outcome,
   };
+}
+
+/**
+ * Refuse a resume whose continuation no longer matches, exactly once.
+ *
+ * The transition is what bounds the notification. A continuation mismatch
+ * is permanent for that record (the live hash is recomputed on every
+ * attempt and will not match again), so without a latch every replay of a
+ * still-valid token would re-drive the suspended route's error channel,
+ * approver notifications included, for as long as the token lives. That is
+ * the amplifier the expiry path is hardened against and the one the
+ * RC5049 narrowing removed; this path had neither guard.
+ *
+ * `denied` is the honest state: the suspension can no longer be honoured,
+ * and the route has been told to re-ask rather than to wait. The cost is
+ * that rolling the deploy back no longer rescues this exchange, which is
+ * consistent with the design's answer to a changed continuation (re-ask
+ * with a fresh suspension) rather than a new limitation.
+ *
+ * @internal
+ */
+async function refuseContinuation(
+  context: CraftContext,
+  store: SuspensionStore,
+  route: Route,
+  suspension: Suspension,
+  message: string,
+): Promise<Error> {
+  const error = rcError("RC5048", undefined, { message });
+  const cas = await store.markDenied(suspension.id, "continuation changed");
+  if (!cas.won) return error;
+  return reask(context, route, suspension, error);
 }
 
 /**

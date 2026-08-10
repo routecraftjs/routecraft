@@ -36,7 +36,7 @@ craft()
 | Option | Type | Default | Required | Description |
 |--------|------|---------|----------|-------------|
 | `expect` | `StandardSchemaV1` | -- | Yes | What a valid answer looks like. Types `ex.suspension.result` for every step after the suspend, and is what the candidate answer is validated against at resume time. |
-| `ttl` | `number \| "30s" \| "15m" \| "72h" \| "7d"` | none | No | How long the suspension stays resumable. Omit for no expiry. |
+| `ttl` | `Duration`: milliseconds, or `"<n><unit>"` with unit `ms` / `s` / `m` / `h` / `d` | none | No | How long the suspension stays resumable, for example `"500ms"`, `"30s"`, `"72h"`, `"7d"`. Omit for no expiry. |
 
 ## Execution one always answers
 
@@ -101,10 +101,10 @@ A suspend branch rejoins the main flow only if it restored the main flow's contr
 - **Under a step-scope wrapper** (`.retry()`, `.timeout()`, `.cache()`, …), which fails with [`RC5003`](/docs/reference/errors#rc-5003). Parking is not a failure to re-attempt. Put `.error()` at route scope instead, where it also catches revival failures.
 - **On a route with route-scope `.cache()`**, also [`RC5003`](/docs/reference/errors#rc-5003). The cache filters wrap the user pipeline, which a park exits and a resume re-enters partway down, so neither the check nor the store would ever run and the cache would silently do nothing. Use a step-scope `.cache()` on the expensive step instead.
 
-Two more refusals happen at runtime, both deliberately at suspend time rather than at resume:
+Two more refusals happen outside build time, each as early as it can be known and both well before a resume:
 
-- An exchange holding anything that is not plain JSON data (a function, a class instance, a `Secret`) fails with [`RC5042`](/docs/reference/errors#rc-5042) naming the offending path.
-- A context whose routes can reach a suspend but which configured no [`suspension`](/docs/reference/configuration#suspension) block fails at startup with [`RC5052`](/docs/reference/errors#rc-5052).
+- A context whose routes can reach a suspend (or a [`.resume()`](/docs/reference/operations/resume)) but which configured no [`suspension`](/docs/reference/configuration#suspension) block fails at **startup** with [`RC5052`](/docs/reference/errors#rc-5052).
+- An exchange holding anything that is not plain JSON data (a function, a class instance, a `Secret`) fails at **suspend time**, with [`RC5042`](/docs/reference/errors#rc-5042) naming the offending path. Deliberately at the park rather than at the resume: the deploy that introduced the value is what should fail, not the approver's click days later.
 
 {% callout type="warning" title="Durable from the suspend point onward" %}
 Suspension guarantees durability from a **declared** suspend point. It is not general crash recovery: if the process dies at step 4 of a route that never reached a `.suspend()`, that exchange is gone. Routecraft does not checkpoint at every step boundary.

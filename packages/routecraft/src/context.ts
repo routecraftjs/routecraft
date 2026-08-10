@@ -389,19 +389,25 @@ export class CraftContext {
    * costs one config line; failing on the first large payout costs the
    * payout.
    *
-   * Routes that never suspend carry no `suspendSteps`, so a context without
-   * the feature pays nothing here.
+   * Routes that never touch suspension carry neither marker, so a context
+   * without the feature pays nothing here.
    *
    * @throws RC5052 when a suspendable route has no suspension runtime
    */
   private assertSuspensionConfigured(): void {
     if (this.getStore(SUSPENSION_RUNTIME)) return;
-    const suspendable = this.routes.find(
+    const suspending = this.routes.find(
       (route) => (route.definition.suspendSteps?.length ?? 0) > 0,
     );
-    if (!suspendable) return;
+    // A resume ingress needs the runtime just as much: it verifies tokens
+    // against the signer and reads the store. Left out, a resume-only
+    // deployment starts clean and refuses every answer at request time.
+    const resuming = this.routes.find((route) => route.definition.usesResume);
+    const offender = suspending ?? resuming;
+    if (!offender) return;
+    const reached = suspending ? ".suspend()" : ".resume()";
     const err = rcError("RC5052", undefined, {
-      message: `Route "${suspendable.definition.id}" can reach a .suspend(), but this context has no suspension runtime. Add suspension: {} to defineConfig (or suspension: { store, secret } to be explicit).`,
+      message: `Route "${offender.definition.id}" can reach a ${reached}, but this context has no suspension runtime. Add suspension: {} to defineConfig (or suspension: { store, secret } to be explicit).`,
     });
     // Emitted as well as thrown, matching the plugin-init failure path: a
     // caller that never awaits `start()` (every long-running source holds
