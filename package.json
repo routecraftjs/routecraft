@@ -1,6 +1,5 @@
 {
   "name": "@routecraft/workspace",
-  "version": "0.5.0",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.11",
@@ -35,7 +34,7 @@
     "prepare": "husky",
     "build": "bun run --filter '*' build",
     "changeset": "changeset",
-    "version-packages": "changeset version && node scripts/sync-derived-versions.mjs",
+    "version-packages": "changeset version && node scripts/sync-derived-versions.mjs && node scripts/finalise-changelog.mjs",
     "release": "bun run build && changeset publish",
     "craft": "bun packages/cli/dist/index.js --log-level info",
     "docs": "bun run --filter routecraft.dev dev",

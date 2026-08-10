@@ -12,7 +12,7 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 ## v0.6.0 {% badge color="gray" %}In development{% /badge %}
 
-This section covers every change landing on `main` since the v0.5.0 release. 0.6.0 is the architecture release before v1: the contracts that freeze at v1 changed shape once, now, so they do not have to change after, and the engine rework brings a significant performance improvement to route and event processing. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) for all upgrade steps.
+This section covers every change since the v0.5.0 release. 0.6.0 is the architecture release before v1: the contracts that freeze at v1 changed shape once, now, so they do not have to change after, and the engine rework brings a significant performance improvement to route and event processing. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) for all upgrade steps.
 
 ### Core {% badge color="red" %}Breaking{% /badge %}
 
@@ -92,6 +92,7 @@ This section covers every change landing on `main` since the v0.5.0 release. 0.6
 - **`directory` adapter** -- scan a directory and list its entries as a source, or pull a listing in mid-route with `.enrich()`. Emits one exchange with the full listing by default, or one per entry with `chunked: true`. See the [directory reference](/docs/reference/adapters/directory).
 - **CSV appends no longer splice records together** -- appending `a,b` and then `c,d` through `.to(csv({ append: true }))` used to write `a,bc,d`. Appends are also serialised per path, so concurrent writes can no longer both emit the header.
 - **Signed webhooks on the `http()` source** -- `http({ signature })` verifies the raw request bytes before the route runs, covering the GitHub, legacy HMAC-SHA1 and Stripe timestamped schemes, and `http({ rawBody: true })` exposes those bytes for any other scheme. Adds `RC5039`. See [securing capabilities](/docs/advanced/securing-capabilities).
+- **`/openapi.json` never advertises a workspace container** -- when the nearest `package.json` is a monorepo root, auto-detection serves the neutral fallbacks instead of the container's private, often stale identity. Apps run from their own directory are unaffected. See the [http reference](/docs/reference/adapters/http).
 
 ### Mail
 

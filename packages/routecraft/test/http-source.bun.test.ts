@@ -12,6 +12,9 @@ import {
   type HttpPluginOptions,
 } from "@routecraft/routecraft";
 import { createHmac } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const JWT_SECRET = "test-secret-please-change-me";
 const JWT_ISSUER = "https://idp.test";
@@ -1562,22 +1565,36 @@ describe("HTTP Source Adapter -- /openapi.json exposure", () => {
 
   /**
    * @case openapi.info auto-detects title and version from the nearest package.json
-   * @preconditions No explicit builtins.openapi.info; cwd resides inside the
-   *   routecraft monorepo so package.json walk finds a real name + version.
+   * @preconditions No explicit builtins.openapi.info; cwd is switched to a
+   *   tmpdir holding a plain app package.json (name + version, no workspaces)
+   *   for the duration of plugin construction, then restored.
    * @expectedResult /openapi.json's `info` block carries the package.json `name`
    *   as `title` and the package.json `version` as `version`. Confirms the
    *   conservative auto-fill described on HttpOpenApiInfo (only public-by-nature
    *   fields; description / contact / license stay opt-in).
    */
   test("openapi.info auto-detects title and version from package.json", async () => {
-    const bound = await bootHttp({
-      routes: craft()
-        .id("oapi-info")
-        .from(http({ path: "/oapi-info", method: "GET" }))
-        .transform(() => ({ ok: true }))
-        .to(noop()),
-      http: { port: 0 },
-    });
+    const dir = mkdtempSync(join(tmpdir(), "rc-oapi-app-"));
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "acme-orders", version: "7.8.9" }),
+    );
+    const prevCwd = process.cwd();
+    let bound: BootHttpResult;
+    try {
+      process.chdir(dir);
+      bound = await bootHttp({
+        routes: craft()
+          .id("oapi-info")
+          .from(http({ path: "/oapi-info", method: "GET" }))
+          .transform(() => ({ ok: true }))
+          .to(noop()),
+        http: { port: 0 },
+      });
+    } finally {
+      process.chdir(prevCwd);
+      rmSync(dir, { recursive: true, force: true });
+    }
     t = bound.ctx;
 
     const res = await fetch(`http://127.0.0.1:${bound.port}/openapi.json`);
@@ -1591,15 +1608,60 @@ describe("HTTP Source Adapter -- /openapi.json exposure", () => {
         license?: unknown;
       };
     };
-    expect(typeof doc.info.title).toBe("string");
-    expect(doc.info.title.length).toBeGreaterThan(0);
-    expect(doc.info.title).not.toBe("Routecraft HTTP API");
-    expect(typeof doc.info.version).toBe("string");
-    expect(doc.info.version.length).toBeGreaterThan(0);
-    expect(doc.info.version).not.toBe("0.0.0");
+    expect(doc.info.title).toBe("acme-orders");
+    expect(doc.info.version).toBe("7.8.9");
     expect(doc.info.description).toBeUndefined();
     expect(doc.info.contact).toBeUndefined();
     expect(doc.info.license).toBeUndefined();
+  });
+
+  /**
+   * @case openapi.info does not leak a workspace container's identity
+   * @preconditions No explicit builtins.openapi.info; cwd is switched to a
+   *   tmpdir whose package.json declares `workspaces` and carries its own
+   *   private name + version (the run-from-monorepo-root scenario), then
+   *   restored.
+   * @expectedResult /openapi.json serves the neutral fallbacks "Routecraft
+   *   HTTP API" / "0.0.0" instead of the container's name and version. The
+   *   container is infrastructure, not a service identity, and its version
+   *   drifts because release tooling never touches it.
+   */
+  test("openapi.info falls back to neutral defaults at a workspace root", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rc-oapi-ws-"));
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        name: "@acme/workspace",
+        version: "0.1.0",
+        private: true,
+        workspaces: ["packages/*"],
+      }),
+    );
+    const prevCwd = process.cwd();
+    let bound: BootHttpResult;
+    try {
+      process.chdir(dir);
+      bound = await bootHttp({
+        routes: craft()
+          .id("oapi-info-ws")
+          .from(http({ path: "/oapi-info-ws", method: "GET" }))
+          .transform(() => ({ ok: true }))
+          .to(noop()),
+        http: { port: 0 },
+      });
+    } finally {
+      process.chdir(prevCwd);
+      rmSync(dir, { recursive: true, force: true });
+    }
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/openapi.json`);
+    expect(res.status).toBe(200);
+    const doc = (await res.json()) as {
+      info: { title: string; version: string };
+    };
+    expect(doc.info.title).toBe("Routecraft HTTP API");
+    expect(doc.info.version).toBe("0.0.0");
   });
 
   /**
