@@ -1,6 +1,9 @@
 import { mkdirSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { rcError } from "../error.ts";
+import { isRoutecraftError } from "../brand.ts";
+import { encodePersistable } from "./serialize.ts";
+import { assertSweepLimit } from "./memory-store.ts";
 import {
   type ResolvedSqliteDriver,
   type SqliteDatabase,
@@ -131,18 +134,19 @@ export class SqliteSuspensionStore implements SuspensionStore {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
 
     const db = new driver.Database(path);
-    // WAL lets the sweeper read while a resume writes. Harmless on
-    // `:memory:`, where SQLite ignores the journal mode change.
-    db.exec("PRAGMA journal_mode = WAL");
-    // Set explicitly because the drivers disagree: better-sqlite3 defaults
-    // to 5s, bun:sqlite to 0. Without this, a second writer on the same
-    // file (an operator running the CLI against a live deployment, a
-    // restart overlapping the previous shutdown) fails a resume instantly
-    // under Bun and waits under Node, so the bug would not reproduce for
-    // whoever is debugging on the other runtime.
-    db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
-    db.exec("PRAGMA foreign_keys = ON");
-    migrate(db);
+    try {
+      initialise(db);
+    } catch (cause) {
+      // The handle exists but no store owns it yet, so nothing else would
+      // ever close it. Release it before the error propagates, otherwise a
+      // context that falls back to memory leaves the file locked.
+      try {
+        db.close();
+      } catch {
+        // Already unusable; the original cause is what matters.
+      }
+      throw cause;
+    }
     return new SqliteSuspensionStore(db, driver.name);
   }
 
@@ -165,7 +169,7 @@ export class SqliteSuspensionStore implements SuspensionStore {
           JSON.stringify(record.expect),
           record.stepState === undefined
             ? null
-            : JSON.stringify(record.stepState),
+            : JSON.stringify(encodePersistable(record.stepState, "stepState")),
           record.status,
           record.suspendedAt.getTime(),
           record.expiresAt ? record.expiresAt.getTime() : null,
@@ -177,6 +181,11 @@ export class SqliteSuspensionStore implements SuspensionStore {
       const duplicate = /UNIQUE constraint failed/i.test(
         cause instanceof Error ? cause.message : String(cause),
       );
+      if (busy(cause)) {
+        throw rcError("RC5045", cause, {
+          message: `The suspension store was busy while persisting "${record.id}".`,
+        });
+      }
       throw rcError("RC5044", cause, {
         message: duplicate
           ? `Suspension "${record.id}" already exists in the store.`
@@ -233,6 +242,7 @@ export class SqliteSuspensionStore implements SuspensionStore {
   }
 
   async findExpired(now: Date, limit?: number): Promise<Suspension[]> {
+    assertSweepLimit(limit);
     const rows = this.#db
       .prepare(
         `SELECT * FROM suspensions
@@ -324,7 +334,7 @@ export class SqliteSuspensionStore implements SuspensionStore {
         // BEGIN itself failed, so there is no transaction to roll back.
         // The original cause is the one worth reporting.
       }
-      throw rcError("RC5044", cause, {
+      throw rcError(busy(cause) ? "RC5045" : "RC5044", cause, {
         message: `Failed to transition suspension "${id}" in the sqlite store.`,
       });
     }
@@ -339,6 +349,28 @@ export class SqliteSuspensionStore implements SuspensionStore {
 }
 
 /**
+ * Configure the connection and bring its schema up to date. Split out of
+ * `open` so a failure here can be caught while the handle is still in
+ * scope and closed.
+ *
+ * @internal
+ */
+function initialise(db: SqliteDatabase): void {
+  // WAL lets the sweeper read while a resume writes. Harmless on
+  // `:memory:`, where SQLite ignores the journal mode change.
+  db.exec("PRAGMA journal_mode = WAL");
+  // Set explicitly because the drivers disagree: better-sqlite3 defaults to
+  // 5s, bun:sqlite to 0. Without this, a second writer on the same file (an
+  // operator running the CLI against a live deployment, a restart
+  // overlapping the previous shutdown) fails a resume instantly under Bun
+  // and waits under Node, so the bug would not reproduce for whoever is
+  // debugging on the other runtime.
+  db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db);
+}
+
+/**
  * Apply outstanding migrations inside a transaction, so an interrupted
  * upgrade leaves the file on its previous version rather than half-way
  * between two.
@@ -346,22 +378,30 @@ export class SqliteSuspensionStore implements SuspensionStore {
  * @internal
  */
 function migrate(db: SqliteDatabase): void {
-  const row = db.prepare("PRAGMA user_version").get() as
-    { user_version?: number } | undefined;
-  const current = row?.user_version ?? 0;
-  // The downgrade guard has to run BEFORE the up-to-date check, not after:
-  // a file written by a newer build satisfies both conditions, so ordering
-  // it second made it unreachable and turned a rollback into a misleading
-  // persist failure on the first suspend instead of a startup error.
-  if (current > SCHEMA_VERSION) {
-    throw rcError("RC5044", undefined, {
-      message: `Suspension store schema version ${current} is newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point suspension.store.path at a fresh file.`,
-    });
-  }
-  if (current === SCHEMA_VERSION) return;
-
   try {
+    // The version is read INSIDE the write transaction. Two processes
+    // starting against one file would otherwise both read version 0, both
+    // try to create the tables, and the loser fail on an existing table.
+    // For an unconfigured context that failure means falling back to the
+    // non-durable memory store, which is the worst outcome a startup race
+    // could have.
     db.exec("BEGIN IMMEDIATE");
+    const row = db.prepare("PRAGMA user_version").get() as
+      { user_version?: number } | undefined;
+    const current = row?.user_version ?? 0;
+    // The downgrade guard has to run BEFORE the up-to-date check, not
+    // after: a file written by a newer build satisfies both conditions, so
+    // ordering it second made it unreachable and turned a rollback into a
+    // misleading persist failure on the first suspend.
+    if (current > SCHEMA_VERSION) {
+      throw rcError("RC5044", undefined, {
+        message: `Suspension store schema version ${current} is newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point suspension.store.path at a fresh file.`,
+      });
+    }
+    if (current === SCHEMA_VERSION) {
+      db.exec("COMMIT");
+      return;
+    }
     for (let version = current; version < SCHEMA_VERSION; version++) {
       db.exec(MIGRATIONS[version]!);
     }
@@ -375,10 +415,29 @@ function migrate(db: SqliteDatabase): void {
     } catch {
       // BEGIN itself failed; there is no transaction to roll back.
     }
+    if (isRoutecraftError(cause)) throw cause;
     throw rcError("RC5044", cause, {
       message: "Failed to migrate the suspension store schema.",
     });
   }
+}
+
+/**
+ * Whether a driver error is SQLite reporting lock contention rather than a
+ * permanent fault. Both drivers surface it in the message; better-sqlite3
+ * additionally sets a `code`.
+ *
+ * @internal
+ */
+function busy(cause: unknown): boolean {
+  const code = (cause as { code?: unknown } | null)?.code;
+  if (typeof code === "string" && /^SQLITE_BUSY|^SQLITE_LOCKED/.test(code)) {
+    return true;
+  }
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return /database is locked|database table is locked|SQLITE_BUSY|SQLITE_LOCKED/i.test(
+    message,
+  );
 }
 
 /**
@@ -443,5 +502,11 @@ function toSuspension(row: SuspensionRow): Suspension {
  * @internal
  */
 function serializeTerminal(terminal: SerializedOutcome): unknown {
-  return { ...terminal, at: terminal.at.toISOString() };
+  return {
+    ...terminal,
+    ...(terminal.body !== undefined
+      ? { body: encodePersistable(terminal.body, "terminal.body") }
+      : {}),
+    at: terminal.at.toISOString(),
+  };
 }

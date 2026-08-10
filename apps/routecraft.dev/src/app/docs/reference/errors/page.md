@@ -594,6 +594,15 @@ Read the message, which names which of those it was. A schema-version mismatch m
 This error is deliberately not retryable. None of its causes clear on a second attempt, so a `.retry()` wrapper must not spend its budget on them.
 
 
+## RC5045
+Suspension store busy
+
+**Why it happens**  
+Another writer held the suspension store's write lock for longer than the busy timeout (5 seconds). Almost always this means more than one process is writing the same store file: two app instances sharing a volume, or an operator tool running against a live deployment.
+
+**Suggestion**  
+Unlike [`RC5044`](#rc-5044) this is transient, so it is registered retryable and a `.retry()` wrapper re-attempts it. If it persists, the store file has more than one writer: give each process its own store, or move to a backend built for concurrent writers once one ships.
+
 ## RC9901
 Unknown error
 

@@ -103,9 +103,11 @@ describe("suspension serialization", () => {
   });
 
   /**
-   * @case JSON drops undefined object properties, so both backends must agree
-   * @preconditions A body with an undefined property and an array hole
-   * @expectedResult The property is absent and the array entry survives as null
+   * @case Both backends must agree on what JSON cannot carry
+   * @preconditions A body with an undefined property and an undefined array entry
+   * @expectedResult The property is dropped and the array entry becomes null,
+   *   which is what a JSON round trip does, so a deployment on the sqlite
+   *   backend and one that fell back to memory see the same value
    */
   test("applies JSON semantics to undefined consistently", () => {
     const serialized = serializeExchange(
@@ -114,7 +116,25 @@ describe("suspension serialization", () => {
 
     const body = serialized.body as Record<string, unknown>;
     expect("absent" in body).toBe(false);
-    expect(body["list"]).toEqual([1, undefined, 3]);
+    expect(body["list"]).toEqual([1, null, 3]);
+    // The normalized form is a fixed point of a JSON round trip, which is
+    // what makes the two backends interchangeable.
+    expect(JSON.parse(JSON.stringify(body))).toEqual(body);
+  });
+
+  /**
+   * @case An array hole is not a value the backends can disagree about
+   * @preconditions A sparse array in the body
+   * @expectedResult The hole becomes null rather than surviving as a hole
+   */
+  test("normalizes array holes to null", () => {
+    // Built rather than written as `[1, , 3]`: a literal hole is a lint
+    // error, and the point is the hole, not how it was created.
+    const sparse: unknown[] = [1];
+    sparse.length = 2;
+    sparse.push(3);
+    const serialized = serializeExchange(exchangeWith({ list: sparse }));
+    expect((serialized.body as { list: unknown[] }).list).toEqual([1, null, 3]);
   });
 });
 
@@ -195,6 +215,34 @@ describe("suspension serialization refusals", () => {
         expect.objectContaining({ rc: "RC5042" }),
       );
     }
+  });
+
+  /**
+   * @case A decorated Date would lose its extra state in silence
+   * @preconditions A Date carrying an own property
+   * @expectedResult RC5042, because the envelope keeps only the instant and
+   *   the property would be gone after resume with no signal
+   */
+  test("refuses a Date carrying extra properties", () => {
+    const decorated = Object.assign(new Date("2026-08-10T09:00:00.000Z"), {
+      timezone: "Europe/Amsterdam",
+    });
+
+    expect(() => serializeExchange(exchangeWith({ at: decorated }))).toThrow(
+      expect.objectContaining({ rc: "RC5042" }),
+    );
+  });
+
+  /**
+   * @case State hidden on an array is refused, not dropped
+   * @preconditions An array carrying a named property, which the index walk
+   *   cannot see
+   * @expectedResult RC5042 naming the property
+   */
+  test("refuses an array with a named property", () => {
+    const list = Object.assign([1, 2], { cursor: "abc" });
+
+    expect(() => serializeExchange(exchangeWith({ list }))).toThrow(/cursor/);
   });
 
   /**

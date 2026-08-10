@@ -87,6 +87,7 @@ export interface ErrorCodeRegistry {
   RC5042: RCMeta;
   RC5043: RCMeta;
   RC5044: RCMeta;
+  RC5045: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -455,6 +456,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
       "The suspension store could not complete a read or write. Common causes: a duplicate suspension id (a bug in id derivation, since ids are minted per suspend), a store file that is unwritable or out of disk, and a store written by a newer Routecraft build than the one now running. Deliberately not retryable: none of these clear on a second attempt, so a .retry() wrapper must not burn its budget on them.",
     docs: `${DOCS_BASE}#rc-5044`,
     retryable: false,
+  },
+  RC5045: {
+    category: "Runtime",
+    message: "Suspension store busy",
+    suggestion:
+      "Another writer held the suspension store's write lock for longer than the busy timeout. Unlike RC5044 this is transient: the competing write finishes and the same call succeeds, so it is registered retryable and a .retry() wrapper re-attempts it. Persistent contention means more than one process is writing the same store file; give each its own store, or move to a backend built for concurrent writers.",
+    docs: `${DOCS_BASE}#rc-5045`,
+    retryable: true,
   },
   RC9901: {
     category: "Runtime",

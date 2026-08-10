@@ -217,9 +217,7 @@ export async function createSuspensionRuntime(
  * signing secret fails at startup, and closes the store during teardown,
  * but only a store it opened itself.
  */
-export function suspensionPlugin(
-  config: SuspensionConfig & SuspensionTestSeams = {},
-): CraftPlugin {
+export function suspensionPlugin(config: SuspensionConfig = {}): CraftPlugin {
   return {
     name: "suspension",
     async apply(ctx: CraftContext) {

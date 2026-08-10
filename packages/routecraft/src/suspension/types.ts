@@ -227,6 +227,12 @@ export interface SuspensionStore {
    * before `now`, oldest first. `limit` bounds one sweep pass so a store
    * that accumulated a backlog while the process was down does not produce
    * an unbounded batch.
+   *
+   * An omitted `limit` means unbounded. A non-positive or non-integer
+   * `limit` is a caller error and throws, rather than being interpreted:
+   * SQLite reads a negative LIMIT as unbounded while an array slice reads
+   * it as "drop from the end", so leaving it undefined would make the two
+   * backends return different rows for the same call.
    */
   findExpired(now: Date, limit?: number): Promise<Suspension[]>;
 

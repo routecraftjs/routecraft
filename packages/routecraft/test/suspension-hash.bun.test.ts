@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { file } from "../src/adapters/file/index.ts";
 import {
   OperationType,
   type Adapter,
@@ -37,6 +38,16 @@ class PayoutAdapter {
   constructor(readonly options: { url: string; retries?: number }) {}
   send = async (): Promise<void> => {
     await Promise.resolve(this.options.url);
+  };
+}
+
+/** Wrap a real factory-built adapter as a tail step. */
+function destination(adapter: unknown): Step<Adapter> {
+  return {
+    operation: OperationType.TO,
+    label: "write",
+    adapter: adapter as Adapter,
+    execute: async (exchange) => ({ kind: "continue", exchange }),
   };
 }
 
@@ -178,33 +189,75 @@ describe("continuationHash", () => {
 
   /**
    * @case Reformatting is not a behaviour change
-   * @preconditions Two callables that differ only in whitespace
+   * @preconditions The same arrow written on one line and across several,
+   *   so the two differ in whitespace and nothing else
    * @expectedResult The hashes match, so a formatter pass does not re-ask
    *   every outstanding approval
    */
   test("ignores insignificant whitespace in step source", () => {
-    const compact = [
-      step("suspend", (v) => v),
-      step("pay", (value) => value * 2),
-    ];
-    const spaced = [
-      step("suspend", (v) => v),
+    // Built with `new Function` so a formatter cannot normalise the very
+    // difference under test: the two bodies are token-identical and differ
+    // only in whitespace.
+    const wrapped = new Function("value", "return value\n  *\n  2;") as (
+      value: number,
+    ) => number;
+    const inline = new Function("value", "return value * 2;") as (
+      value: number,
+    ) => number;
+
+    expect(
+      continuationHash(
+        [step("s", (v) => v), step("pay", wrapped)],
+        0,
+        expected,
+      ),
+    ).toBe(
+      continuationHash([step("s", (v) => v), step("pay", inline)], 0, expected),
+    );
+  });
+
+  /**
+   * @case Whitespace inside a string literal is part of the behaviour
+   * @preconditions Two callables whose only difference is the spacing inside
+   *   a string they pass on
+   * @expectedResult The hashes differ. Collapsing whitespace everywhere
+   *   would make a changed account number read as a reformat.
+   */
+  test("does not collapse whitespace inside string literals", () => {
+    const one = () => "acct 123";
+    const two = () => "acct  123";
+
+    expect(
+      continuationHash(
+        [step("s", (v) => v), step("pay", one as never)],
+        0,
+        expected,
+      ),
+    ).not.toBe(
+      continuationHash(
+        [step("s", (v) => v), step("pay", two as never)],
+        0,
+        expected,
+      ),
+    );
+  });
+
+  /**
+   * @case A rewritten body is a real change, not a reformat
+   * @preconditions An expression arrow against a block-bodied equivalent
+   * @expectedResult The hashes differ, because the token stream changed
+   */
+  test("a rewritten function body invalidates a parked exchange", () => {
+    const compact = [step("s", (v) => v), step("pay", (value) => value * 2)];
+    const block = [
+      step("s", (v) => v),
       step("pay", (value) => {
         return value * 2;
       }),
     ];
 
-    // A reformat that does not change tokens matches; a rewrite that adds a
-    // return statement is a different function and legitimately does not.
-    expect(continuationHash(compact, 0, expected)).toBe(
-      continuationHash(
-        [step("suspend", (v) => v), step("pay", (value) => value * 2)],
-        0,
-        expected,
-      ),
-    );
     expect(continuationHash(compact, 0, expected)).not.toBe(
-      continuationHash(spaced, 0, expected),
+      continuationHash(block, 0, expected),
     );
   });
 });
@@ -302,6 +355,78 @@ describe("continuationHash over adapter configuration", () => {
 
     expect(continuationHash(before, 1, expected)).toBe(
       continuationHash(after, 1, expected),
+    );
+  });
+});
+
+describe("continuationHash over factory-built adapters", () => {
+  /**
+   * @case Repointing a real factory-built destination invalidates a parked
+   *   approval
+   * @preconditions Two tails differing only in what `file()` was called
+   *   with. A factory returns a role facade whose own properties are bound
+   *   methods with identical source, so the options are reachable only
+   *   through the recorded factory arguments.
+   * @expectedResult The hashes differ, so an approval cannot resume into a
+   *   write to a different path
+   */
+  test("a changed factory argument after the suspend point invalidates it", () => {
+    const toA = [
+      step("s", (v) => v),
+      destination(file({ path: "/tmp/a.txt" })),
+    ];
+    const toB = [
+      step("s", (v) => v),
+      destination(file({ path: "/tmp/b.txt" })),
+    ];
+
+    expect(continuationHash(toA, 0, expected)).not.toBe(
+      continuationHash(toB, 0, expected),
+    );
+  });
+
+  /**
+   * @case A dynamic option callback is part of what was approved
+   * @preconditions Two tails whose factory argument is a path callback
+   *   resolving to different files
+   * @expectedResult The hashes differ. A callback nested in options would
+   *   otherwise collapse to a placeholder and the target could change
+   *   freely under a parked exchange.
+   */
+  test("a changed callback inside factory options invalidates it", () => {
+    const toA = [
+      step("s", (v) => v),
+      destination(file({ path: () => "/tmp/a.txt" })),
+    ];
+    const toB = [
+      step("s", (v) => v),
+      destination(file({ path: () => "/tmp/b.txt" })),
+    ];
+
+    expect(continuationHash(toA, 0, expected)).not.toBe(
+      continuationHash(toB, 0, expected),
+    );
+  });
+
+  /**
+   * @case The same configuration still hashes stably
+   * @preconditions Two separately constructed adapters with equal arguments
+   * @expectedResult The hashes match, so a restart does not invalidate
+   *   everything parked before it
+   */
+  test("identical factory arguments hash identically", () => {
+    expect(
+      continuationHash(
+        [step("s", (v) => v), destination(file({ path: "/tmp/a.txt" }))],
+        0,
+        expected,
+      ),
+    ).toBe(
+      continuationHash(
+        [step("s", (v) => v), destination(file({ path: "/tmp/a.txt" }))],
+        0,
+        expected,
+      ),
     );
   });
 });

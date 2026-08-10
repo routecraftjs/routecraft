@@ -115,6 +115,28 @@ export function deserializeExchange(
 }
 
 /**
+ * Run an arbitrary value through the same JSON-data rules the exchange
+ * gets, returning a detached copy or throwing `RC5042`.
+ *
+ * Used for the record's other free-form slots, `stepState` and a terminal
+ * outcome's body. They never pass through {@link serializeExchange}, so
+ * without this a backend would apply its own rules to them: sqlite would
+ * silently drop a function via `JSON.stringify` while the in-memory backend
+ * kept it alive through `structuredClone`, and the two would disagree about
+ * what a resumed step gets back. `stepState` is opaque to the store, not
+ * exempt from being storable.
+ *
+ * @param value - The value to check and copy.
+ * @param path - Label used in the error message when it fails.
+ * @throws RC5042 naming the offending path.
+ *
+ * @internal
+ */
+export function encodePersistable(value: unknown, path: string): unknown {
+  return encode(value, path);
+}
+
+/**
  * Deep-check and copy `value` into JSON data, or throw `RC5042` naming the
  * exact path that failed.
  *
@@ -123,9 +145,9 @@ export function deserializeExchange(
  * `headers.routecraft.mail.client holds an instance of ImapFlow`, not
  * "Converting circular structure to JSON".
  *
- * `undefined` is dropped from object properties and preserved inside
+ * `undefined` is dropped from object properties and becomes `null` inside
  * arrays, matching JSON semantics, so a value round-trips identically on
- * every backend.
+ * every backend rather than depending on which one a deployment resolved.
  *
  * @internal
  */
@@ -155,14 +177,37 @@ function encode(
   if (seen.has(object)) throw refuse(path, "a circular reference");
   if (value instanceof Date) {
     if (Number.isNaN(value.getTime())) throw refuse(path, "an invalid Date");
+    // A Date carrying its own properties would suspend fine and resume with
+    // those properties gone, since the envelope keeps only the instant.
+    // Silent loss is the outcome this walk exists to prevent.
+    if (
+      Object.keys(value).length > 0 ||
+      Object.getOwnPropertySymbols(value).length > 0
+    ) {
+      throw refuse(path, "a Date carrying extra properties");
+    }
     return { [DATE_TAG]: value.toISOString() };
   }
 
   seen.add(object);
   try {
     if (Array.isArray(value)) {
-      return value.map((entry, index) =>
-        encode(entry, `${path}[${index}]`, seen),
+      // Named or symbol-keyed properties on an array are invisible to the
+      // index walk, so they would be dropped rather than refused.
+      const named = Object.keys(value).filter((key) => !/^\d+$/.test(key));
+      if (named.length > 0) {
+        throw refuse(path, `an array with a named property ("${named[0]}")`);
+      }
+      if (Object.getOwnPropertySymbols(value).length > 0) {
+        throw refuse(path, "an array with a symbol-keyed property");
+      }
+      // Holes and `undefined` entries become `null`, which is what JSON
+      // does. Without this the in-memory backend (a structured clone) would
+      // keep `undefined` while sqlite (a JSON round trip) yields `null`, so
+      // a route would see a different value depending on which backend a
+      // deployment happened to resolve.
+      return Array.from(value, (entry, index) =>
+        entry === undefined ? null : encode(entry, `${path}[${index}]`, seen),
       );
     }
 

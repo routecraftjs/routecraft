@@ -1,4 +1,5 @@
 import { rcError } from "../error.ts";
+import { encodePersistable } from "./serialize.ts";
 import type {
   PendingSuspensionSummary,
   SerializedOutcome,
@@ -36,7 +37,7 @@ export class MemorySuspensionStore implements SuspensionStore {
         message: `Suspension "${record.id}" already exists in the store.`,
       });
     }
-    this.#records.set(record.id, clone(record));
+    this.#records.set(record.id, clone(normalise(record)));
   }
 
   async get(id: string): Promise<Suspension | undefined> {
@@ -69,10 +70,22 @@ export class MemorySuspensionStore implements SuspensionStore {
   async recordTerminal(id: string, terminal: SerializedOutcome): Promise<void> {
     const record = this.#records.get(id);
     if (!record) return;
-    this.#records.set(id, clone({ ...record, terminal }));
+    this.#records.set(
+      id,
+      clone({
+        ...record,
+        terminal: {
+          ...terminal,
+          ...(terminal.body !== undefined
+            ? { body: encodePersistable(terminal.body, "terminal.body") }
+            : {}),
+        },
+      }),
+    );
   }
 
   async findExpired(now: Date, limit?: number): Promise<Suspension[]> {
+    assertSweepLimit(limit);
     const due = [...this.#records.values()]
       .filter(
         (record) =>
@@ -146,6 +159,39 @@ export class MemorySuspensionStore implements SuspensionStore {
     this.#records.set(id, next);
     return { won: true, suspension: clone(next) };
   }
+}
+
+/**
+ * Reject a `limit` the two backends would read differently. Exported so the
+ * sqlite backend applies the identical rule.
+ *
+ * @internal
+ */
+export function assertSweepLimit(limit: number | undefined): void {
+  if (limit === undefined) return;
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw rcError("RC5044", undefined, {
+      message: `findExpired() limit must be a positive integer or omitted; received ${String(limit)}.`,
+    });
+  }
+}
+
+/**
+ * Put the record's free-form slots through the same JSON-data rules the
+ * durable backend applies, so a deployment that fell back to memory sees
+ * identical values to one that did not. `structuredClone` alone would keep
+ * shapes sqlite cannot store, and the divergence would only appear once a
+ * driver was installed.
+ *
+ * @internal
+ */
+function normalise(record: Suspension): Suspension {
+  return record.stepState === undefined
+    ? record
+    : {
+        ...record,
+        stepState: encodePersistable(record.stepState, "stepState"),
+      };
 }
 
 /**

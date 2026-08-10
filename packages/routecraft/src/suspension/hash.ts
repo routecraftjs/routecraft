@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { getAdapterArgs } from "../adapters/shared/factory-tag.ts";
 import type { Adapter, Step } from "../types.ts";
 import type { SerializedExchange, SuspensionExpect } from "./types.ts";
 
@@ -181,6 +182,15 @@ function describeStep(step: Step<Adapter>): unknown {
     adapterId: (adapter?.["adapterId"] as string | undefined) ?? null,
     callables,
     config,
+    // The own-property walk above only reaches an adapter that keeps its
+    // options on itself. Every factory-built adapter returns a role facade
+    // (`{ adapterId, subscribe, send, fetch }`) whose slots are bound
+    // methods of a delegate holding the options, so its own properties are
+    // functions with identical source for every instance: without this,
+    // `file({ path: a })` and `file({ path: b })` describe identically.
+    // `tagAdapter` already records what the factory was called with, which
+    // is the configuration in its most direct form.
+    args: (getAdapterArgs(adapter) ?? []).map((arg) => describable(arg)),
   };
 }
 
@@ -202,7 +212,12 @@ function describable(value: unknown, depth = 0): unknown {
   if (kind === "number") return Number.isFinite(value) ? value : "[number]";
   if (kind === "bigint") return `[bigint:${String(value)}]`;
   if (kind === "undefined") return undefined;
-  if (kind === "symbol" || kind === "function") return "[unhashable]";
+  if (kind === "symbol") return "[unhashable]";
+  // A callback nested in options is a step definition just as much as a
+  // top-level adapter callable: `http({ url: (ex) => bankA(ex) })` and the
+  // same with `bankB` differ only here. Collapsing it to a placeholder
+  // would let the tail's actual target change under a parked approval.
+  if (kind === "function") return normalizeSource(value as object);
   if (value instanceof Date) return value.toISOString();
   // Bound the walk: a deeply nested or self-referential options object must
   // not turn hashing a route into a graph traversal.
@@ -224,10 +239,66 @@ function describable(value: unknown, depth = 0): unknown {
  * pass (or a line-ending change between checkouts) does not read as a
  * changed continuation. Identifier renames and real edits still move it.
  *
+ * Whitespace INSIDE string and template literals is preserved. A blanket
+ * `replace(/\s+/g, " ")` would make `pay("acct  123")` and
+ * `pay("acct 123")` hash alike, which is a semantic change the digest must
+ * not miss; over-invalidating merely re-asks an approval, under-invalidating
+ * resumes into different behaviour.
+ *
+ * Regex literals are not tracked, because telling one from a division
+ * operator needs a real tokenizer. Whitespace inside a regex is therefore
+ * still collapsed; in practice significant regex whitespace is written
+ * escaped (`\s`, `\x20`) or inside a character class, both of which survive.
+ *
  * @internal
  */
 function normalizeSource(fn: object): string {
-  return Function.prototype.toString.call(fn).replace(/\s+/g, " ").trim();
+  const source = Function.prototype.toString.call(fn);
+  let out = "";
+  let quote: string | undefined;
+  let pendingSpace = false;
+
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i]!;
+
+    if (quote !== undefined) {
+      out += char;
+      if (char === "\\") {
+        // Copy the escaped character verbatim so an escaped quote does not
+        // read as the end of the literal.
+        i++;
+        if (i < source.length) out += source[i];
+      } else if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === "`") {
+      if (pendingSpace) {
+        out += " ";
+        pendingSpace = false;
+      }
+      quote = char;
+      out += char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      // Defer the space: a run collapses to one, and a run at the very end
+      // is dropped entirely.
+      pendingSpace = out.length > 0;
+      continue;
+    }
+
+    if (pendingSpace) {
+      out += " ";
+      pendingSpace = false;
+    }
+    out += char;
+  }
+
+  return out;
 }
 
 /**
