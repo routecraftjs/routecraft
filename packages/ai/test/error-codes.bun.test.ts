@@ -16,7 +16,7 @@ describe("AI error codes", () => {
   const registeredCodes = async (): Promise<string[]> => {
     const source = await read("../src/errors.ts");
     return Array.from(
-      source.matchAll(/^\s{4}(AI\d{4}): \{$/gm),
+      source.matchAll(/^\s*(AI\d{4}):\s*\{/gm),
       (match) => match[1]!,
     );
   };
@@ -53,6 +53,7 @@ describe("AI error codes", () => {
     );
 
     const codes = await registeredCodes();
+    expect(codes.length).toBeGreaterThan(0);
     expect(codes.filter((code) => !documented.has(code))).toEqual([]);
   });
 });

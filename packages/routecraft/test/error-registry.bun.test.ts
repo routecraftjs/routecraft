@@ -9,6 +9,12 @@ import { getRegisteredErrorCodes } from "../src/error.ts";
 import { readFile } from "node:fs/promises";
 
 describe("error-code registry", () => {
+  // Snapshot at module load. The registry is process-wide and later tests in
+  // this file register synthetic namespaces (TESTNS, DEMO) that are
+  // deliberately undocumented, so reading it inside a test would make the
+  // docs-coverage assertion depend on declaration order.
+  const seededCodes = Array.from(getRegisteredErrorCodes().keys());
+
   /**
    * @case Every registered code matches NAMESPACE + 4 digits and has docs
    * @preconditions Core codes seeded; any ecosystem codes registered by imports
@@ -44,9 +50,7 @@ describe("error-code registry", () => {
       Array.from(table.matchAll(/code: '([A-Z][A-Z0-9]*\d{4})'/g), (m) => m[1]),
     );
 
-    const missing = Array.from(getRegisteredErrorCodes().keys())
-      .filter((code) => !listed.has(code))
-      .sort();
+    const missing = seededCodes.filter((code) => !listed.has(code)).sort();
 
     expect(missing).toEqual([]);
   });
