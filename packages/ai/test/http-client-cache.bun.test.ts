@@ -116,6 +116,25 @@ describe("createConnectionCache", () => {
     // The stale caller retries its eviction after the fresh entry landed.
     await cache.evict("srv", stalePending);
     expect(fresh.disposed).toBe(0);
+    expect(stale.disposed).toBe(1);
     expect(await cache.getOrCreate("srv", async () => entry())).toBe(fresh);
+  });
+
+  /**
+   * @case Two callers sharing one connection both fail and both evict it
+   * @preconditions Both callers hold the same promise, which is the point of caching the promise rather than the result
+   * @expectedResult The connection is disposed once. Guarding only the map removal would let every failing caller dispose the same connection, closing it once per caller
+   */
+  test("disposes once when concurrent callers both evict the same entry", async () => {
+    const cache = createConnectionCache<ReturnType<typeof entry>>();
+    const shared = entry();
+
+    const first = cache.getOrCreate("srv", async () => shared);
+    const second = cache.getOrCreate("srv", async () => entry());
+    expect(await first).toBe(await second);
+
+    await Promise.all([cache.evict("srv", first), cache.evict("srv", second)]);
+
+    expect(shared.disposed).toBe(1);
   });
 });

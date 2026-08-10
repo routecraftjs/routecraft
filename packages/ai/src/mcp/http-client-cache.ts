@@ -57,7 +57,13 @@ export function createConnectionCache<
     },
 
     async evict(key, pending) {
-      if (entries.get(key) === pending) entries.delete(key);
+      // Removal and disposal are one step, not two. Callers share a single
+      // promise, so overlapping failures arrive here with the same `pending`;
+      // disposing outside this guard would close the same connection once per
+      // failing caller. Exactly one caller removes a given entry, so exactly
+      // one disposes it.
+      if (entries.get(key) !== pending) return;
+      entries.delete(key);
       // A rejected attempt has nothing to dispose, and its rejection is
       // already the failure the caller is handling.
       await pending.then(
