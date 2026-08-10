@@ -1,4 +1,11 @@
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,10 +64,22 @@ function captureWarnings(context: CraftContext): string[] {
 
 describe("suspension runtime resolution", () => {
   let runtime: SuspensionRuntime | undefined;
+  let inheritedStoreEnv: string | undefined;
+
+  // Several tests exercise the unconfigured path, which reads the store
+  // environment variable. A value inherited from the shell or CI would make
+  // them resolve a real store instead.
+  beforeEach(() => {
+    inheritedStoreEnv = process.env[SUSPENSION_STORE_ENV];
+    delete process.env[SUSPENSION_STORE_ENV];
+  });
 
   afterEach(async () => {
     if (runtime) await runtime.store.close();
     runtime = undefined;
+    if (inheritedStoreEnv === undefined)
+      delete process.env[SUSPENSION_STORE_ENV];
+    else process.env[SUSPENSION_STORE_ENV] = inheritedStoreEnv;
   });
 
   /**
@@ -98,15 +117,26 @@ describe("suspension runtime resolution", () => {
    * @expectedResult The sqlite backend opens at that path
    */
   test("reads the store location from the environment", async () => {
-    const previous = process.env[SUSPENSION_STORE_ENV];
     process.env[SUSPENSION_STORE_ENV] = join(scratch, "from-env.db");
-    try {
-      runtime = await createSuspensionRuntime(new CraftContext(), SECRET);
-      expect(runtime.backend).toBe("sqlite");
-    } finally {
-      if (previous === undefined) delete process.env[SUSPENSION_STORE_ENV];
-      else process.env[SUSPENSION_STORE_ENV] = previous;
-    }
+    runtime = await createSuspensionRuntime(new CraftContext(), SECRET);
+    expect(runtime.backend).toBe("sqlite");
+  });
+
+  /**
+   * @case A present-but-empty environment variable is not a store path
+   * @preconditions The store env var set to whitespace, no explicit store
+   * @expectedResult The default path is used rather than an attempt to open
+   *   the working directory, which would fail startup
+   */
+  test("treats a blank store environment variable as unset", async () => {
+    process.env[SUSPENSION_STORE_ENV] = "   ";
+    runtime = await createSuspensionRuntime(new CraftContext(), {
+      ...SECRET,
+      loaders: absentPeerLoaders,
+    });
+    // Falls back rather than throwing, which is what an unconfigured
+    // context does; an explicit path would have rethrown.
+    expect(runtime.backend).toBe("memory");
   });
 
   /**

@@ -348,6 +348,21 @@ function contractSuite(
     });
 
     /**
+     * @case A limit the two backends would read differently is refused
+     * @preconditions A fresh store; zero, a negative value and a fraction
+     * @expectedResult Each rejects, so a sweep cannot silently become
+     *   unbounded on sqlite while dropping records in memory
+     */
+    test("findExpired refuses a non-positive or non-integer limit", async () => {
+      store = await open();
+      for (const limit of [0, -1, 1.5]) {
+        await expect(store.findExpired(new Date(), limit)).rejects.toThrow(
+          expect.objectContaining({ rc: "RC5044" }),
+        );
+      }
+    });
+
+    /**
      * @case The startup scan reports what is still parked
      * @preconditions Two suspended records and one resumed
      * @expectedResult Count covers only the suspended ones, oldest is the earliest suspendedAt

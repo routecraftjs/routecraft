@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, describe, expect, test } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,19 +45,28 @@ function record(overrides: Partial<Suspension> = {}): Suspension {
 }
 
 describe("suspension store (cross-runtime)", () => {
+  let store: SqliteSuspensionStore | undefined;
+
+  // Closing on the last line of each test leaks a handle whenever an
+  // assertion fails first, and the afterAll rmSync then fails on top of the
+  // real failure.
+  afterEach(async () => {
+    if (store) await store.close();
+    store = undefined;
+  });
+
   /**
    * @case The runtime resolves the driver its split prescribes
    * @preconditions A store opened on the current runtime
    * @expectedResult Bun reports bun:sqlite, Node reports better-sqlite3
    */
   test("resolves the driver for this runtime", async () => {
-    const store = await SqliteSuspensionStore.open({ path: ":memory:" });
+    store = await SqliteSuspensionStore.open({ path: ":memory:" });
     const expected =
       typeof process.versions["bun"] === "string"
         ? "bun:sqlite"
         : "better-sqlite3";
     expect(store.driver).toBe(expected);
-    await store.close();
   });
 
   /**
@@ -73,9 +82,8 @@ describe("suspension store (cross-runtime)", () => {
     );
     await first.close();
 
-    const second = await SqliteSuspensionStore.open({ path });
-    const read = await second.get("sus-1");
-    await second.close();
+    store = await SqliteSuspensionStore.open({ path });
+    const read = await store.get("sus-1");
 
     expect(read?.status).toBe("suspended");
     expect(read?.exchange.body).toEqual({ amountCents: 50_000 });
@@ -88,7 +96,7 @@ describe("suspension store (cross-runtime)", () => {
    * @expectedResult One call reports won, and the store records a single resume
    */
   test("markResumed has exactly one winner", async () => {
-    const store = await SqliteSuspensionStore.open({ path: ":memory:" });
+    store = await SqliteSuspensionStore.open({ path: ":memory:" });
     await store.create(record());
 
     const results = await Promise.all([
@@ -98,7 +106,6 @@ describe("suspension store (cross-runtime)", () => {
 
     expect(results.filter((result) => result.won)).toHaveLength(1);
     expect((await store.get("sus-1"))?.status).toBe("resumed");
-    await store.close();
   });
 
   /**
@@ -107,7 +114,7 @@ describe("suspension store (cross-runtime)", () => {
    * @expectedResult Only the due record is returned
    */
   test("findExpired selects only due records", async () => {
-    const store = await SqliteSuspensionStore.open({ path: ":memory:" });
+    store = await SqliteSuspensionStore.open({ path: ":memory:" });
     await store.create(
       record({ id: "due", expiresAt: new Date("2026-08-11T09:00:00.000Z") }),
     );
@@ -118,6 +125,5 @@ describe("suspension store (cross-runtime)", () => {
     const due = await store.findExpired(new Date("2026-08-12T09:00:00.000Z"));
 
     expect(due.map((entry) => entry.id)).toEqual(["due"]);
-    await store.close();
   });
 });

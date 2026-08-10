@@ -514,7 +514,6 @@ export type {
   SuspensionStatus,
   SuspensionStore,
   SuspensionStoreConfig,
-  SuspensionTestSeams,
 } from "./suspension/index.ts";
 export {
   type MailAuth,

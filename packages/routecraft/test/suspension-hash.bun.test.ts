@@ -182,6 +182,7 @@ describe("continuationHash", () => {
    */
   test("handles a suspend at the end of the pipeline", () => {
     const steps = [step("suspend", (v) => v)];
+    expect(continuationHash(steps, 0, expected)).toMatch(/^[0-9a-f]{64}$/);
     expect(continuationHash(steps, 0, expected)).toBe(
       continuationHash(steps, 0, expected),
     );

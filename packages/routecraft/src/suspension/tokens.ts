@@ -201,8 +201,8 @@ export function resolveSigningSecret(
  * offline oracle: body plus HMAC, unlimited guesses, nothing to rate limit.
  * A dictionary-strength secret falls in seconds, after which an attacker
  * mints a token for any suspension id, and ids are derived from the exchange
- * id rather than being a second secret. 32 bytes matches the SHA-256 block
- * the HMAC uses.
+ * id rather than being a second secret. 32 bytes is the SHA-256 digest
+ * size, which RFC 2104 gives as the recommended minimum HMAC key length.
  */
 const MIN_SECRET_BYTES = 32;
 

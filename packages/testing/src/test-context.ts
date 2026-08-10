@@ -8,7 +8,6 @@ import type {
   AnyRouteBuilder,
   AdapterOverride,
   SuspensionConfig,
-  SuspensionTestSeams,
 } from "@routecraft/routecraft";
 import {
   ContextBuilder,
@@ -41,12 +40,14 @@ const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
  *
  * `allowEphemeralSecret` is deliberately not on `SuspensionConfig`: it
  * relaxes a security gate, so it must not be reachable from a user's
- * `defineConfig`. This is the one place that supplies it, and the cast is
- * the seam.
+ * `defineConfig`. This is the one place that supplies it. The seam is the
+ * spread below: a spread carries the extra key without excess-property
+ * checking, so the flag reaches the plugin without ever appearing on the
+ * type a user writes against.
  */
 function applyTestDefaults(config: CraftConfig): CraftConfig {
   if (!config.suspension) return config;
-  const seams: SuspensionTestSeams = { allowEphemeralSecret: true };
+  const seams = { allowEphemeralSecret: true };
   const suspension: SuspensionConfig = {
     store: "memory",
     ...seams,

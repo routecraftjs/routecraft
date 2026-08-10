@@ -162,7 +162,13 @@ export async function createSuspensionRuntime(
     );
   }
 
-  const configured = config.store ?? process.env[SUSPENSION_STORE_ENV];
+  // A present-but-empty environment variable means unset, not "open the
+  // working directory as a database". `resolveSigningSecret` treats a blank
+  // secret the same way.
+  const fromEnv = process.env[SUSPENSION_STORE_ENV]?.trim();
+  const configured =
+    config.store ??
+    (fromEnv !== undefined && fromEnv !== "" ? fromEnv : undefined);
   const explicit = configured !== undefined;
 
   if (

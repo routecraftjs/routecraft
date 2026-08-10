@@ -195,10 +195,12 @@ export class SqliteSuspensionStore implements SuspensionStore {
   }
 
   async get(id: string): Promise<Suspension | undefined> {
-    const row = this.#db
-      .prepare(`SELECT * FROM suspensions WHERE id = ?`)
-      .get(id);
-    return row ? toSuspension(row as SuspensionRow) : undefined;
+    return guard(`read suspension "${id}"`, () => {
+      const row = this.#db
+        .prepare(`SELECT * FROM suspensions WHERE id = ?`)
+        .get(id);
+      return row ? toSuspension(row as SuspensionRow) : undefined;
+    });
   }
 
   async markResumed(
@@ -236,54 +238,62 @@ export class SqliteSuspensionStore implements SuspensionStore {
   }
 
   async recordTerminal(id: string, terminal: SerializedOutcome): Promise<void> {
-    this.#db
-      .prepare(`UPDATE suspensions SET terminal = ? WHERE id = ?`)
-      .run(JSON.stringify(serializeTerminal(terminal)), id);
+    guard(`record the terminal outcome of "${id}"`, () => {
+      this.#db
+        .prepare(`UPDATE suspensions SET terminal = ? WHERE id = ?`)
+        .run(JSON.stringify(serializeTerminal(terminal)), id);
+    });
   }
 
   async findExpired(now: Date, limit?: number): Promise<Suspension[]> {
     assertSweepLimit(limit);
-    const rows = this.#db
-      .prepare(
-        `SELECT * FROM suspensions
+    return guard("scan for expired suspensions", () => {
+      const rows = this.#db
+        .prepare(
+          `SELECT * FROM suspensions
           WHERE status = 'suspended'
             AND expires_at IS NOT NULL
             AND expires_at <= ?
           ORDER BY suspended_at ASC
           LIMIT ?`,
-      )
-      // A negative LIMIT means "no limit" in SQLite, which is exactly the
-      // semantics of an omitted bound here.
-      .all(now.getTime(), limit ?? -1);
-    return rows.map((row) => toSuspension(row as SuspensionRow));
+        )
+        // A negative LIMIT means "no limit" in SQLite, which is exactly the
+        // semantics of an omitted bound here.
+        .all(now.getTime(), limit ?? -1);
+      return rows.map((row) => toSuspension(row as SuspensionRow));
+    });
   }
 
   async pending(): Promise<PendingSuspensionSummary> {
-    const row = this.#db
-      .prepare(
-        `SELECT COUNT(*) AS count, MIN(suspended_at) AS oldest
+    return guard("summarise pending suspensions", () => {
+      const row = this.#db
+        .prepare(
+          `SELECT COUNT(*) AS count, MIN(suspended_at) AS oldest
            FROM suspensions WHERE status = 'suspended'`,
-      )
-      .get() as { count: number; oldest: number | null } | undefined;
-    const count = row?.count ?? 0;
-    return {
-      count,
-      ...(row?.oldest != null ? { oldest: new Date(row.oldest) } : {}),
-    };
+        )
+        .get() as { count: number; oldest: number | null } | undefined;
+      const count = row?.count ?? 0;
+      return {
+        count,
+        ...(row?.oldest != null ? { oldest: new Date(row.oldest) } : {}),
+      };
+    });
   }
 
   async purgeSettled(before: Date): Promise<number> {
-    this.#db
-      .prepare(
-        `DELETE FROM suspensions
+    return guard("purge settled suspensions", () => {
+      this.#db
+        .prepare(
+          `DELETE FROM suspensions
           WHERE status <> 'suspended' AND suspended_at < ?`,
-      )
-      .run(before.getTime());
-    return (
-      this.#db.prepare("SELECT changes() AS changed").get() as {
-        changed: number;
-      }
-    ).changed;
+        )
+        .run(before.getTime());
+      return (
+        this.#db.prepare("SELECT changes() AS changed").get() as {
+          changed: number;
+        }
+      ).changed;
+    });
   }
 
   async close(): Promise<void> {
@@ -418,6 +428,25 @@ function migrate(db: SqliteDatabase): void {
     if (isRoutecraftError(cause)) throw cause;
     throw rcError("RC5044", cause, {
       message: "Failed to migrate the suspension store schema.",
+    });
+  }
+}
+
+/**
+ * Run a store operation, mapping any driver or decode failure onto the
+ * store's own codes. Without this the read paths surfaced raw driver errors
+ * and raw `SyntaxError`s from a corrupt column, so a caller could not tell a
+ * retryable busy lock from a permanent fault.
+ *
+ * @internal
+ */
+function guard<T>(what: string, run: () => T): T {
+  try {
+    return run();
+  } catch (cause) {
+    if (isRoutecraftError(cause)) throw cause;
+    throw rcError(busy(cause) ? "RC5045" : "RC5044", cause, {
+      message: `Failed to ${what} in the sqlite store.`,
     });
   }
 }

@@ -155,9 +155,11 @@ export class MemorySuspensionStore implements SuspensionStore {
     if (record.status !== "suspended") {
       return { won: false, suspension: clone(record) };
     }
-    const next = { ...record, ...fields } as Suspension;
-    this.#records.set(id, next);
-    return { won: true, suspension: clone(next) };
+    // `fields` carries caller-owned values (a `Date`, a `PrincipalRef`), so
+    // the stored copy has to be detached too, not just the returned one.
+    const stored = clone({ ...record, ...fields } as Suspension);
+    this.#records.set(id, stored);
+    return { won: true, suspension: clone(stored) };
   }
 }
 

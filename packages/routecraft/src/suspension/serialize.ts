@@ -267,7 +267,12 @@ function decode(value: unknown): unknown {
     // hand-edited. Reviving it as `Invalid Date` would hand the route a
     // Date-shaped value that fails every comparison it is used in.
     if (Number.isNaN(revived.getTime())) {
-      throw refuse("stored exchange", "an unparseable date envelope");
+      // Not `refuse()`: that phrases everything as a suspend-time failure,
+      // and this runs on the way back out of the store.
+      throw rcError("RC5042", undefined, {
+        message:
+          "Cannot resume: the stored exchange holds an unparseable date envelope, so it cannot be revived.",
+      });
     }
     return revived;
   }
