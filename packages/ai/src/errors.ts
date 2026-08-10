@@ -53,6 +53,8 @@ declare module "@routecraft/routecraft" {
     AI1003: RCMeta;
     /** MCP tool result violated the tool's advertised output schema */
     AI2001: RCMeta;
+    /** MCP tool declined the request: the route dropped the exchange */
+    AI2002: RCMeta;
   }
 }
 
@@ -91,6 +93,14 @@ registerErrorCodes(
       suggestion:
         "The route behind this tool declares `.output()`, which the MCP server advertises as the tool's `outputSchema`, and the body it returned does not satisfy it. Fix the route so its result matches the declared shape, or widen `.output()` to describe what the route actually returns. The failing fields are in the error cause.",
       docs: `${DOCS_BASE}#ai2001`,
+      retryable: false,
+    },
+    AI2002: {
+      category: "Adapter",
+      message: "MCP tool declined the request",
+      suggestion:
+        "The route behind this tool dropped the exchange instead of completing it (a `.filter()` rejected it, a `.choice()` matched no branch, or an error handler returned `recovery.drop()`), so there is no result to return. Give the route a branch that produces a result the caller can use (an empty list, an explicit not-found shape) if the caller should receive a value. Mirrors RC5031 on the direct and forward surfaces.",
+      docs: `${DOCS_BASE}#ai2002`,
       retryable: false,
     },
   },

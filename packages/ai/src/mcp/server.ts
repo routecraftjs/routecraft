@@ -2,6 +2,7 @@ import type { CraftContext } from "@routecraft/routecraft";
 import {
   DefaultExchange,
   HeadersKeys,
+  isDropped,
   isRoutecraftError,
   markAuthentic,
   rcError,
@@ -20,6 +21,7 @@ import type {
 import type { NodeIncomingMessageLike } from "@modelcontextprotocol/node";
 import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 import type {
+  Exchange,
   OAuthValidatorAuthOptions,
   Principal,
   ValidatorAuthOptions,
@@ -1389,6 +1391,32 @@ export class McpServer {
   }
 
   /**
+   * Refuse to answer with a result the route never produced.
+   *
+   * A dropped exchange (a `.filter()` rejected it, a `.choice()` matched no
+   * branch, an error handler returned `recovery.drop()`) resolves with the
+   * body it came in with, so returning it hands the caller its own request
+   * back as if the tool had answered. `CraftClient.sendDirect` and the
+   * route-scope `forward` both raise RC5031 on this; MCP declines the call
+   * with `AI2002` instead, which is the same contract in the vocabulary
+   * of the protocol.
+   *
+   * Applies to every tool, declared output or not: an echoed request is not
+   * a result under any schema, and the caller cannot tell the difference
+   * from a genuine answer.
+   */
+  private assertNotDeclined(
+    entry: McpLocalToolEntry,
+    exchange: Exchange,
+  ): void {
+    if (!isDropped(exchange)) return;
+
+    throw rcError("AI2002", undefined, {
+      message: `MCP tool "${entry.endpoint}" declined the request and produced no result`,
+    });
+  }
+
+  /**
    * Enforce the tool's advertised `outputSchema` against the body the route
    * produced, throwing `AI2001` when it does not conform so the tool call
    * surfaces as `isError` carrying the validation message.
@@ -1396,9 +1424,9 @@ export class McpServer {
    * A client is entitled to parse `structuredContent` against the schema
    * `tools/list` advertised, so publishing an unchecked body is a protocol
    * violation rather than a cosmetic mismatch. The route's own `.output()`
-   * validation covers the exchanges it completes, but not the ones it never
-   * completes (a dropped exchange resolves with the request body untouched),
-   * and the guarantee belongs to the surface that made the promise.
+   * validation covers the exchanges it completes, and the guarantee belongs
+   * to the surface that made the promise rather than to a module upstream
+   * of it that any future path could bypass.
    *
    * The check is a gate: the validated value is discarded rather than
    * published, so a coercing schema cannot apply its coercions a second time
@@ -1499,6 +1527,10 @@ export class McpServer {
 
       const resultExchange = await entry.handler(exchange);
 
+      // Declining comes first: a dropped exchange carries the request body,
+      // so validating it would report a schema violation for a body the
+      // route never claimed as its result.
+      this.assertNotDeclined(entry, resultExchange);
       await this.enforceAdvertisedOutput(entry, resultExchange.body);
 
       const resultText =

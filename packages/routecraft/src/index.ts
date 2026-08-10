@@ -39,6 +39,7 @@ export {
   HeadersKeys,
   type HeaderValue,
   type HeaderLiteral,
+  isDropped,
   OperationType,
   type RoutecraftHeaders,
 } from "./exchange.ts";

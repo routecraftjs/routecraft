@@ -3725,11 +3725,11 @@ describe("McpServer", () => {
     });
 
     /**
-     * @case A dropped exchange is not published as the tool result under the advertised schema
-     * @preconditions Route declares .output() and drops the exchange in a filter, so the route's own output validation never runs and the request body resolves untouched
-     * @expectedResult isError true with the validation message, instead of the request body echoed back as structuredContent
+     * @case A dropped exchange is declined rather than answered, on a tool that declares an output
+     * @preconditions Route declares .output() and drops the exchange in a filter, so the request body resolves untouched
+     * @expectedResult isError true saying the tool declined the request, not a schema violation, and no structuredContent or echoed request body
      */
-    test("refuses the untouched body of a dropped exchange", async () => {
+    test("declines a dropped call on a tool with a declared output", async () => {
       const srv = await serve([
         craft()
           .id("dropper")
@@ -3743,7 +3743,36 @@ describe("McpServer", () => {
       const result = await callTool(srv, "dropper", { value: "hi" });
 
       expect(result.isError).toBe(true);
-      expect(result.content[0]!.text).toContain("total");
+      expect(result.content[0]!.text).toContain(
+        'MCP tool "dropper" declined the request and produced no result',
+      );
+      expect(result.content[0]!.text).not.toContain("output schema");
+      expect(result.content[0]!.text).not.toContain("hi");
+      expect(result.structuredContent).toBeUndefined();
+    });
+
+    /**
+     * @case A dropped exchange is declined rather than answered, on a tool with no declared output
+     * @preconditions Route declares no .output() and drops the exchange in a filter
+     * @expectedResult isError true saying the tool declined the request, so an undeclared tool is guarded the same way rather than echoing the request back as its result
+     */
+    test("declines a dropped call on a tool without a declared output", async () => {
+      const srv = await serve([
+        craft()
+          .id("silent-dropper")
+          .description("Drops the exchange and declares no output schema")
+          .from<{ value: string }>(mcp())
+          .filter(() => false)
+          .transform(() => ({ anything: true })),
+      ]);
+
+      const result = await callTool(srv, "silent-dropper", { value: "hi" });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]!.text).toContain(
+        'MCP tool "silent-dropper" declined the request and produced no result',
+      );
+      expect(result.content[0]!.text).not.toContain("hi");
       expect(result.structuredContent).toBeUndefined();
     });
 
@@ -3775,7 +3804,7 @@ describe("McpServer", () => {
 
     /**
      * @case A tool whose route declares no output is not checked
-     * @preconditions Route without .output() drops the exchange after producing an arbitrary body
+     * @preconditions Route without .output() completes with a body no schema describes
      * @expectedResult The body passes through with no error, because no outputSchema was advertised for a client to trust
      */
     test("leaves a tool without a declared output unchecked", async () => {
@@ -3784,14 +3813,13 @@ describe("McpServer", () => {
           .id("undeclared")
           .description("Declares no output schema")
           .from<{ value: string }>(mcp())
-          .filter(() => false)
           .transform(() => ({ anything: true })),
       ]);
 
       const result = await callTool(srv, "undeclared", { value: "hi" });
 
       expect(result.isError).toBeUndefined();
-      expect(JSON.parse(result.content[0]!.text)).toEqual({ value: "hi" });
+      expect(JSON.parse(result.content[0]!.text)).toEqual({ anything: true });
     });
 
     /**

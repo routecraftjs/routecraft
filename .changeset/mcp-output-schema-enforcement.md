@@ -7,7 +7,7 @@ Enforce the `outputSchema` an MCP tool advertises (#214).
 
 A route exposed with `.from(mcp())` that declares `.output({ body })` has that schema advertised as the tool's `outputSchema` in `tools/list`, and spec-compliant clients parse the result's `structuredContent` against it. The MCP server now checks the body it is about to publish and refuses one the schema rejects: the call returns `isError: true` carrying the failing fields (new error code `AI2001`) instead of a result that contradicts what the server promised.
 
-The route pipeline already validated the exchanges it completes. What this adds is the guarantee at the surface that made the promise, which matters for results the pipeline never validated: an exchange dropped by a `.filter()` or an unmatched `.choice()` resolves with the request body untouched, and the server was publishing that echoed request as the tool's result, `structuredContent` and all.
+The route pipeline already validated the exchanges it completes. What this adds is the guarantee at the surface that made the promise, rather than in a module upstream of it whose coverage the server cannot see. The drop path that motivated this, where the request body resolved untouched and was published as the result, is closed separately by declining dropped calls outright.
 
 The check is a gate rather than a second parse: the validated value is discarded, so a coercing schema cannot apply its coercions twice. Tools whose route declares no `.output()` advertise no schema and are unchanged.
 

@@ -78,9 +78,13 @@ craft()
   .transform(loadUsers);
 ```
 
-If `loadUsers` returns something else, the call comes back as `isError: true` with the failing fields in the message (`AI2001`) rather than as a result contradicting the advertised schema. The check covers results the route pipeline itself never validated, such as an exchange dropped by a `.filter()`, which would otherwise resolve with the request body untouched.
+If `loadUsers` returns something else, the call comes back as `isError: true` with the failing fields in the message (`AI2001`) rather than as a result contradicting the advertised schema.
 
 A tool whose route declares no `.output()` advertises no schema, so nothing is checked and its result passes through as-is.
+
+**Declined calls:**
+
+A route that drops the exchange (a `.filter()` rejecting, a `.choice()` matching no branch, an error handler returning `recovery.drop()`) has produced no result. The call comes back as `isError: true` saying the tool declined the request (`AI2002`), which mirrors [RC5031](/docs/reference/errors#rc-5031) on the direct and forward surfaces. This applies to every tool, declared output or not.
 
 **McpToolAnnotations (optional hint fields, all booleans unless noted):**
 

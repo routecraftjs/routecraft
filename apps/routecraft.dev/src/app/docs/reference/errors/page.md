@@ -412,12 +412,24 @@ MCP tool output violated its declared schema
 **Why it happens**  
 A route exposed with `.from(mcp())` declares `.output({ body })`, which the MCP server advertises as that tool's `outputSchema`, and the body it returned does not satisfy it. Clients parse `structuredContent` against the advertised schema, so the server refuses to publish the result and returns `isError: true` with the failing fields instead.
 
-Most violations are caught by the route's own output validation. This code is what the MCP boundary adds for results the route never validated, most commonly an exchange dropped by a `.filter()` or an unmatched `.choice()`, which resolves with the request body untouched rather than with a result.
+The route's own output validation catches most violations before the server sees them. This code is the same contract enforced at the boundary that advertised the schema, so a result reaching the server unvalidated is refused rather than published on trust.
 
 **Suggestion**  
 - Fix the route so its result matches the declared shape, or widen `.output()` to describe what the route actually returns.
-- A tool that drops its exchange has no result to publish; give the route a branch that produces a conforming body (an empty list, an explicit "not found" shape) rather than dropping.
 - Drop the `.output()` declaration if the tool's result shape is genuinely open; nothing is advertised and nothing is checked.
+
+## AI2002
+MCP tool declined the request
+
+**Why it happens**  
+The route behind an MCP tool dropped the exchange instead of completing it: a `.filter()` rejected it, a `.choice()` matched no branch, the source's `onParseError` was `drop`, or an error handler returned `recovery.drop()`. A dropped exchange resolves with the body it came in with, so there is no result to return and the request body is not one.
+
+This is the MCP-side equivalent of [RC5031](#rc-5031) on the direct and forward surfaces. The call comes back as `isError: true` saying the tool declined, and never as a successful result carrying the caller's own arguments back.
+
+**Suggestion**  
+- Give the route a branch that produces a result the caller can use (an empty list, an explicit not-found shape) if the caller should receive a value.
+- Recover with a body in `.error()` rather than dropping, when the drop is an error path.
+- Keep the drop if declining is genuinely correct for that input; the client sees an error result, which is the honest answer.
 
 ## RC5028
 Cache provider failed

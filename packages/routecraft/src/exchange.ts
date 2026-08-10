@@ -504,7 +504,16 @@ export function emitExchangeDropped(
  * Returns true if the exchange (or any rewrap of it sharing the same
  * internals) has been marked as dropped.
  *
- * @internal
+ * A request/reply source adapter reads this to tell "the route declined
+ * this request" apart from "the route produced this result": a dropped
+ * exchange resolves with the body it came in with, so an adapter that does
+ * not check hands the caller its own request back as if it were an answer.
+ * `CraftClient.sendDirect` and the route-scope `forward` both raise RC5031
+ * on it; an adapter outside core translates it into whatever its protocol
+ * uses to decline.
+ *
+ * @param exchange - The exchange to test, or any rewrap of it
+ * @returns Whether the exchange was dropped rather than completed
  */
 export function isDropped(exchange: Exchange): boolean {
   const internals =
