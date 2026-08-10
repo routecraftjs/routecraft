@@ -439,6 +439,27 @@ describe("WebFetch tool", () => {
   });
 
   /**
+   * @case A cancelled caller signal stops the walk before any request is made
+   * @preconditions An already-aborted signal passed through testFn, so cancellation is live before the first hop
+   * @expectedResult Rejects with AI2002 and no fetch is attempted, proving the abort race covers the guard rather than only the request
+   */
+  test("honours a caller abort before the first request", async () => {
+    fetchMock.mockResolvedValue(respond("hi", "text/plain"));
+
+    const error = await testFn(
+      webFetch(),
+      { url: `http://${HOST}/` },
+      { signal: AbortSignal.abort() },
+    ).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toMatchObject({ rc: "AI2002" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  /**
    * @case Fractional bounds are rejected at registration
    * @preconditions A factory configured with a fractional maxLength and, separately, a fractional timeoutMs
    * @expectedResult Both throw RC5003, since a fractional maxLength would advertise a schema-invalid offset and a fractional timeoutMs throws inside AbortSignal.timeout
