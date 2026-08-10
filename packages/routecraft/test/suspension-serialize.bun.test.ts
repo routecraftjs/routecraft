@@ -5,12 +5,17 @@ import {
   HeadersKeys,
   authenticate,
   authorize,
-  deserializeExchange,
   isAuthentic,
   isRestored,
-  serializeExchange,
   type Exchange,
 } from "../src/index.ts";
+// The serializer is engine machinery, not public API: it is reached through
+// the intra-package barrel the executor uses, not the package index.
+import {
+  DATE_TAG,
+  deserializeExchange,
+  serializeExchange,
+} from "../src/suspension/index.ts";
 // Not public API: the Secret brand is reserved for #526 and reachable only
 // from inside the package, which is exactly the position the serializer's
 // refusal has to be tested from.
@@ -201,6 +206,87 @@ describe("suspension serialization refusals", () => {
     expect(() =>
       serializeExchange(exchangeWith({}, { "x-handle": () => undefined })),
     ).toThrow(/headers\.x-handle/);
+  });
+});
+
+describe("suspension serialization hostile input", () => {
+  /**
+   * @case A body field named __proto__ survives the round trip intact
+   * @preconditions A body parsed from JSON carrying a literal __proto__ key,
+   *   which is a legal field name an external system can choose
+   * @expectedResult The field is a normal own property on the serialized
+   *   copy and the copy's prototype is untouched, rather than the value
+   *   being swallowed by the inherited setter and lost after resume
+   */
+  test("does not let __proto__ hijack the serialized copy", () => {
+    const hostile = JSON.parse('{"amount":10,"__proto__":{"admin":true}}');
+
+    const serialized = serializeExchange(exchangeWith(hostile));
+
+    const body = serialized.body as Record<string, unknown>;
+    expect(Object.hasOwn(body, "__proto__")).toBe(true);
+    expect((body as { admin?: boolean }).admin).toBeUndefined();
+    expect(JSON.parse(JSON.stringify(body))["amount"]).toBe(10);
+  });
+
+  /**
+   * @case The same key cannot hijack the revived exchange either
+   * @preconditions A stored form carrying __proto__
+   * @expectedResult The revived body keeps it as an own property and does
+   *   not inherit from it
+   */
+  test("does not let __proto__ hijack the revived exchange", () => {
+    const hostile = JSON.parse('{"__proto__":{"admin":true}}');
+
+    const revived = deserializeExchange(
+      context,
+      serializeExchange(exchangeWith(hostile)),
+    );
+
+    expect((revived.body as { admin?: boolean }).admin).toBeUndefined();
+    expect(Object.hasOwn(revived.body as object, "__proto__")).toBe(true);
+  });
+
+  /**
+   * @case Body data cannot forge the Date envelope
+   * @preconditions A body field shaped exactly like the internal Date
+   *   envelope, which attacker-influenced JSON can be
+   * @expectedResult RC5042 at suspend time, so the approver never signs off
+   *   on a payload that changes type on the way back
+   */
+  test("refuses a body that forges the Date envelope", () => {
+    expect(() =>
+      serializeExchange(
+        exchangeWith({ when: { [DATE_TAG]: "2020-01-01T00:00:00.000Z" } }),
+      ),
+    ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+  });
+
+  /**
+   * @case A corrupted stored envelope fails loudly
+   * @preconditions A stored form whose date envelope does not parse
+   * @expectedResult RC5042 rather than an Invalid Date handed to the route
+   */
+  test("refuses an unparseable stored date envelope", () => {
+    expect(() =>
+      deserializeExchange(context, {
+        body: { when: { [DATE_TAG]: "not-a-date" } },
+        headers: { "routecraft.id": "ex-1" },
+      }),
+    ).toThrow(expect.objectContaining({ rc: "RC5042" }));
+  });
+
+  /**
+   * @case Symbol-keyed state is refused, not silently discarded
+   * @preconditions A body carrying a symbol-keyed property, which is the
+   *   framework's own idiom for attaching state
+   * @expectedResult RC5042, because parking successfully and losing the
+   *   data is the failure mode the whole walk exists to prevent
+   */
+  test("refuses a symbol-keyed property", () => {
+    expect(() =>
+      serializeExchange(exchangeWith({ visible: 1, [Symbol("handle")]: 2 })),
+    ).toThrow(expect.objectContaining({ rc: "RC5042" }));
   });
 });
 

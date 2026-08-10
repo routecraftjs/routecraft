@@ -1,5 +1,6 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { rcError } from "../error.ts";
+import { timingSafeStringEqual } from "../auth/timing-safe.ts";
 
 /**
  * Environment variable read for the resume-token signing secret when the
@@ -88,17 +89,7 @@ export class ResumeTokenSigner {
     const body = token.slice(0, separator);
     const signature = token.slice(separator + 1);
 
-    const expected = Buffer.from(this.#sign(body), "utf8");
-    const presented = Buffer.from(signature, "utf8");
-    // Compare in constant time, and only after the lengths match:
-    // timingSafeEqual throws on a length mismatch, which would itself be an
-    // observable difference.
-    if (
-      presented.length !== expected.length ||
-      !timingSafeEqual(presented, expected)
-    ) {
-      throw reject();
-    }
+    if (!timingSafeStringEqual(this.#sign(body), signature)) throw reject();
 
     let parsed: unknown;
     try {
@@ -140,6 +131,8 @@ export type SigningSecretSource = "config" | "env" | "ephemeral";
  *
  * @param exchangeId - The parking exchange's id.
  * @param sequence - How many times this exchange has already suspended.
+ *
+ * @internal
  */
 export function suspensionIdFor(exchangeId: string, sequence: number): string {
   return sequence === 0 ? exchangeId : `${exchangeId}#${sequence}`;
@@ -176,15 +169,21 @@ export interface SigningSecretOptions {
  *   permitted. Raised while the context is being built, not on the first
  *   suspend, so a missing secret is a startup failure rather than a
  *   production surprise on the first large payout.
+ *
+ * @internal
  */
 export function resolveSigningSecret(
   options: SigningSecretOptions = {},
 ): ResumeTokenSigner {
   const configured = options.secret?.trim();
-  if (configured) return new ResumeTokenSigner(configured, "config");
+  if (configured) {
+    return new ResumeTokenSigner(assertStrong(configured, "config"), "config");
+  }
 
   const fromEnv = (options.env ?? process.env)[SUSPENSION_SECRET_ENV]?.trim();
-  if (fromEnv) return new ResumeTokenSigner(fromEnv, "env");
+  if (fromEnv) {
+    return new ResumeTokenSigner(assertStrong(fromEnv, "env"), "env");
+  }
 
   if (options.allowEphemeral) {
     return new ResumeTokenSigner(randomBytes(32), "ephemeral");
@@ -193,6 +192,34 @@ export function resolveSigningSecret(
   throw rcError("RC5040", undefined, {
     message: `No resume-token signing secret is configured. Set ${SUSPENSION_SECRET_ENV}, or pass suspension: { secret } to defineConfig.`,
   });
+}
+
+/**
+ * Minimum signing-secret length, in bytes.
+ *
+ * A resume token is a bearer capability, and any holder of one token has an
+ * offline oracle: body plus HMAC, unlimited guesses, nothing to rate limit.
+ * A dictionary-strength secret falls in seconds, after which an attacker
+ * mints a token for any suspension id, and ids are derived from the exchange
+ * id rather than being a second secret. 32 bytes matches the SHA-256 block
+ * the HMAC uses.
+ */
+const MIN_SECRET_BYTES = 32;
+
+/**
+ * Reject a secret too weak to resist offline guessing, at resolution time
+ * where the failure is already a startup error rather than a runtime one.
+ *
+ * @internal
+ */
+function assertStrong(secret: string, source: string): string {
+  const bytes = Buffer.byteLength(secret, "utf8");
+  if (bytes < MIN_SECRET_BYTES) {
+    throw rcError("RC5040", undefined, {
+      message: `The resume-token signing secret from ${source} is ${bytes} bytes; at least ${MIN_SECRET_BYTES} are required. Generate one with: openssl rand -base64 32`,
+    });
+  }
+  return secret;
 }
 
 /** @internal */

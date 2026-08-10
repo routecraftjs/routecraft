@@ -68,6 +68,8 @@ export const DATE_TAG = "$routecraft.date";
  * @param exchange - The exchange being parked.
  * @returns JSON data safe to hand to any store backend.
  * @throws RC5042 when a value in `body` or `headers` cannot be persisted.
+ *
+ * @internal
  */
 export function serializeExchange(exchange: Exchange): SerializedExchange {
   return {
@@ -90,6 +92,8 @@ export function serializeExchange(exchange: Exchange): SerializedExchange {
  * @param context - The context reviving the exchange.
  * @param serialized - The stored `{ body, headers }` pair.
  * @returns A live exchange whose principal, if any, is marked restored.
+ *
+ * @internal
  */
 export function deserializeExchange(
   context: CraftContext,
@@ -170,8 +174,28 @@ function encode(
       );
     }
 
-    const copy: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(object)) {
+    // Symbol keys are invisible to Object.entries, so without this they
+    // would be dropped in silence rather than refused, which is the exact
+    // outcome this walk exists to prevent. Symbol-keyed state is the
+    // framework's own idiom for context stores, so an author moving a value
+    // onto the exchange lands here.
+    const symbols = Object.getOwnPropertySymbols(object);
+    if (symbols.length > 0) {
+      throw refuse(path, `a symbol-keyed property (${String(symbols[0])})`);
+    }
+
+    const keys = Object.keys(object);
+    if (keys.length === 1 && keys[0] === DATE_TAG) {
+      throw refuse(path, `the reserved ${DATE_TAG} envelope key`);
+    }
+
+    // Null-prototype accumulator: `__proto__` is a genuine own key on any
+    // object that came from JSON.parse, and assigning it on a normal object
+    // literal triggers the Object.prototype setter, which swaps the copy's
+    // prototype and loses the field.
+    const copy: Record<string, unknown> = Object.create(null);
+    for (const key of keys) {
+      const entry = (object as Record<string, unknown>)[key];
       if (entry === undefined) continue;
       copy[key] = encode(entry, `${path}.${key}`, seen);
     }
@@ -192,13 +216,31 @@ function decode(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(decode);
 
   const entries = Object.entries(value as Record<string, unknown>);
-  const tagged = entries.length === 1 && entries[0]?.[0] === DATE_TAG;
-  if (tagged && typeof entries[0]?.[1] === "string") {
-    return new Date(entries[0][1] as string);
+  if (entries.length === 1 && entries[0]?.[0] === DATE_TAG) {
+    const revived = new Date(String(entries[0][1]));
+    // A stored envelope that does not parse means the row was corrupted or
+    // hand-edited. Reviving it as `Invalid Date` would hand the route a
+    // Date-shaped value that fails every comparison it is used in.
+    if (Number.isNaN(revived.getTime())) {
+      throw refuse("stored exchange", "an unparseable date envelope");
+    }
+    return revived;
   }
 
+  // Same `__proto__` hazard as `encode`, but the revived value is handed
+  // back to route code, so it keeps an ordinary prototype (a null-prototype
+  // body would break `instanceof Object` and `hasOwnProperty` call sites
+  // that worked before the suspend). `defineProperty` writes the key
+  // without going through the inherited setter.
   const copy: Record<string, unknown> = {};
-  for (const [key, entry] of entries) copy[key] = decode(entry);
+  for (const [key, entry] of entries) {
+    Object.defineProperty(copy, key, {
+      value: decode(entry),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
   return copy;
 }
 

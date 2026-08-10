@@ -102,12 +102,16 @@ function contractSuite(
     /**
      * @case A suspension id is minted per suspend, so a collision is a bug
      * @preconditions The same id is written twice
-     * @expectedResult The second create rejects
+     * @expectedResult The second create rejects with RC5044, which is not
+     *   retryable, so a .retry() wrapper cannot spend its budget re-running
+     *   an insert that can never succeed
      */
     test("refuses a duplicate id", async () => {
       store = await open();
       await store.create(record());
-      await expect(store.create(record())).rejects.toThrow();
+      await expect(store.create(record())).rejects.toThrow(
+        expect.objectContaining({ rc: "RC5044", retryable: false }),
+      );
     });
 
     /**
@@ -392,6 +396,49 @@ function contractSuite(
       const local = await open();
       await local.close();
       await expect(local.close()).resolves.toBeUndefined();
+    });
+
+    /**
+     * @case Settled records are reclaimable, so a long-running process does
+     *   not accumulate every exchange that ever suspended
+     * @preconditions One old settled record, one old still-parked record,
+     *   and one recently settled record
+     * @expectedResult Only the old settled one is purged
+     */
+    test("purgeSettled reclaims settled records past the cutoff", async () => {
+      store = await open();
+      const old = new Date("2026-07-01T09:00:00.000Z");
+      const recent = new Date("2026-08-09T09:00:00.000Z");
+      await store.create(record({ id: "old-settled", suspendedAt: old }));
+      await store.create(record({ id: "old-parked", suspendedAt: old }));
+      await store.create(record({ id: "recent-settled", suspendedAt: recent }));
+      await store.markResumed("old-settled", { at: new Date() });
+      await store.markDenied("recent-settled", "cancelled");
+
+      const purged = await store.purgeSettled(
+        new Date("2026-08-01T00:00:00.000Z"),
+      );
+
+      expect(purged).toBe(1);
+      expect(await store.get("old-settled")).toBeUndefined();
+      expect(await store.get("old-parked")).toBeDefined();
+      expect(await store.get("recent-settled")).toBeDefined();
+    });
+
+    /**
+     * @case A parked exchange is never reclaimed by retention, however old
+     * @preconditions One long-parked, still-suspended record
+     * @expectedResult purgeSettled leaves it alone; only the sweeper may
+     *   move it out of the suspended state
+     */
+    test("purgeSettled never touches a still-parked record", async () => {
+      store = await open();
+      await store.create(
+        record({ suspendedAt: new Date("2020-01-01T00:00:00.000Z") }),
+      );
+
+      expect(await store.purgeSettled(new Date())).toBe(0);
+      expect((await store.get("sus-1"))?.status).toBe("suspended");
     });
   });
 }

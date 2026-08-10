@@ -7,6 +7,8 @@ import type {
   RouteDefinition,
   AnyRouteBuilder,
   AdapterOverride,
+  SuspensionConfig,
+  SuspensionTestSeams,
 } from "@routecraft/routecraft";
 import {
   ContextBuilder,
@@ -31,24 +33,26 @@ const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
  * Substitute test-shaped defaults into config keys whose production
  * defaults would be wrong under a test runner.
  *
- * Only `suspension` needs this today, and it needs it for two reasons:
- * a test must not be made to configure a signing secret before it can
- * suspend anything, and a test must not leave a sqlite file behind in the
- * working directory. Both defaults are overridable: a test that wants the
- * durable backend (the kill-restart proof does) passes an explicit `store`,
- * and a test asserting the missing-secret failure passes an explicit
- * `allowEphemeralSecret: false`.
+ * Only `suspension` needs this today, and it needs it for two reasons: a
+ * test must not be made to configure a signing secret before it can suspend
+ * anything, and a test must not leave a sqlite file behind in the working
+ * directory. Both defaults are overridable, so a test that wants the
+ * durable backend (the kill-restart proof does) passes an explicit `store`.
+ *
+ * `allowEphemeralSecret` is deliberately not on `SuspensionConfig`: it
+ * relaxes a security gate, so it must not be reachable from a user's
+ * `defineConfig`. This is the one place that supplies it, and the cast is
+ * the seam.
  */
 function applyTestDefaults(config: CraftConfig): CraftConfig {
   if (!config.suspension) return config;
-  return {
-    ...config,
-    suspension: {
-      store: "memory",
-      allowEphemeralSecret: true,
-      ...config.suspension,
-    },
+  const seams: SuspensionTestSeams = { allowEphemeralSecret: true };
+  const suspension: SuspensionConfig = {
+    store: "memory",
+    ...seams,
+    ...config.suspension,
   };
+  return { ...config, suspension };
 }
 
 function describeOverrideTarget(target: unknown): string {

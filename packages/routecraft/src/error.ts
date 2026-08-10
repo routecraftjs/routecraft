@@ -86,6 +86,7 @@ export interface ErrorCodeRegistry {
   RC5041: RCMeta;
   RC5042: RCMeta;
   RC5043: RCMeta;
+  RC5044: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -419,7 +420,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Definition",
     message: "Resume-token signing secret not configured",
     suggestion:
-      "A route in this context can reach a durable .suspend(), so resume tokens must be signable. Set the ROUTECRAFT_SUSPENSION_SECRET environment variable, or pass suspension: { secret } to defineConfig. The secret is never generated into the store: a store compromise must not yield forgeable resume tokens. testContext() and NODE_ENV=development mint an ephemeral in-memory key, so tests and local iteration need no setup.",
+      "A route in this context can reach a durable .suspend(), so resume tokens must be signable. Set the ROUTECRAFT_SUSPENSION_SECRET environment variable, or pass suspension: { secret } to defineConfig; generate one with `openssl rand -base64 32`. At least 32 bytes are required, because a resume token is a bearer capability and its holder can guess the secret offline without limit. The secret is never generated into the store: a store compromise must not yield forgeable resume tokens. testContext() and NODE_ENV=development or test mint an ephemeral in-memory key, so tests and local iteration need no setup.",
     docs: `${DOCS_BASE}#rc-5040`,
     retryable: false,
   },
@@ -445,6 +446,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "authorize() rejected a principal that came back from durable storage with a resumed exchange. It is a recorded shape with no live credential behind it: nothing re-checked the signature, the expiry, or revocation. Re-verify the identity after resume with .authenticate() from a checked credential, or put the authorization on the resume ingress route, where the answering principal is verified live. Distinct from RC5023 (self-asserted) because the fix differs: re-verify, do not mint.",
     docs: `${DOCS_BASE}#rc-5043`,
+    retryable: false,
+  },
+  RC5044: {
+    category: "Runtime",
+    message: "Suspension store operation failed",
+    suggestion:
+      "The suspension store could not complete a read or write. Common causes: a duplicate suspension id (a bug in id derivation, since ids are minted per suspend), a store file that is unwritable or out of disk, and a store written by a newer Routecraft build than the one now running. Deliberately not retryable: none of these clear on a second attempt, so a .retry() wrapper must not burn its budget on them.",
+    docs: `${DOCS_BASE}#rc-5044`,
     retryable: false,
   },
   RC9901: {

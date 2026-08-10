@@ -233,6 +233,25 @@ export interface SuspensionStore {
   /** Count and oldest `suspendedAt` across suspensions still parked. */
   pending(): Promise<PendingSuspensionSummary>;
 
+  /**
+   * Delete settled suspensions (`resumed`, `expired`, `denied`) that were
+   * parked before `before`, and report how many went.
+   *
+   * A settled record holds a full serialized exchange body plus its cached
+   * terminal outcome, and nothing else ever removes one. Without a
+   * retention path a long-running process accumulates every exchange that
+   * ever suspended: on disk under sqlite, and on the heap under the
+   * in-memory backend, which is also the automatic fallback for a Node
+   * install without a driver. Still-suspended records are never touched,
+   * whatever their age; expiring them is the sweeper's job and goes
+   * through {@link SuspensionStore.markExpired}.
+   *
+   * The cutoff is `suspendedAt` rather than a settled-at timestamp because
+   * that is the field the record carries, and retention is measured from
+   * when the work entered the store.
+   */
+  purgeSettled(before: Date): Promise<number>;
+
   /** Release backend resources. Idempotent. */
   close(): Promise<void>;
 }

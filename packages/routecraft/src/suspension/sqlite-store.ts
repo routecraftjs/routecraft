@@ -35,6 +35,12 @@ export const DEFAULT_SUSPENSION_DB_PATH = ".routecraft/suspensions.db";
 const SCHEMA_VERSION = 1;
 
 /**
+ * How long a writer waits for a competing write lock before giving up.
+ * Set explicitly because the two drivers ship different defaults.
+ */
+const BUSY_TIMEOUT_MS = 5_000;
+
+/**
  * Forward-only migrations, applied in order from the database's current
  * `PRAGMA user_version` to {@link SCHEMA_VERSION}. Index `n` migrates from
  * version `n` to `n + 1`, so a fresh file (version 0) runs all of them and
@@ -128,6 +134,13 @@ export class SqliteSuspensionStore implements SuspensionStore {
     // WAL lets the sweeper read while a resume writes. Harmless on
     // `:memory:`, where SQLite ignores the journal mode change.
     db.exec("PRAGMA journal_mode = WAL");
+    // Set explicitly because the drivers disagree: better-sqlite3 defaults
+    // to 5s, bun:sqlite to 0. Without this, a second writer on the same
+    // file (an operator running the CLI against a live deployment, a
+    // restart overlapping the previous shutdown) fails a resume instantly
+    // under Bun and waits under Node, so the bug would not reproduce for
+    // whoever is debugging on the other runtime.
+    db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     db.exec("PRAGMA foreign_keys = ON");
     migrate(db);
     return new SqliteSuspensionStore(db, driver.name);
@@ -158,8 +171,16 @@ export class SqliteSuspensionStore implements SuspensionStore {
           record.expiresAt ? record.expiresAt.getTime() : null,
         );
     } catch (cause) {
-      throw rcError("RC5001", cause, {
-        message: `Failed to persist suspension "${record.id}" to the sqlite store.`,
+      // Discriminate the one failure the contract names. A duplicate id
+      // means the id derivation is wrong, which no retry fixes, so it must
+      // not reach a `.retry()` wrapper as a retryable error.
+      const duplicate = /UNIQUE constraint failed/i.test(
+        cause instanceof Error ? cause.message : String(cause),
+      );
+      throw rcError("RC5044", cause, {
+        message: duplicate
+          ? `Suspension "${record.id}" already exists in the store.`
+          : `Failed to persist suspension "${record.id}" to the sqlite store.`,
       });
     }
   }
@@ -241,6 +262,20 @@ export class SqliteSuspensionStore implements SuspensionStore {
     };
   }
 
+  async purgeSettled(before: Date): Promise<number> {
+    this.#db
+      .prepare(
+        `DELETE FROM suspensions
+          WHERE status <> 'suspended' AND suspended_at < ?`,
+      )
+      .run(before.getTime());
+    return (
+      this.#db.prepare("SELECT changes() AS changed").get() as {
+        changed: number;
+      }
+    ).changed;
+  }
+
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
@@ -261,24 +296,45 @@ export class SqliteSuspensionStore implements SuspensionStore {
     sql: string,
     leadingParams: unknown[],
   ): SuspensionCasResult {
-    this.#db.exec("BEGIN IMMEDIATE");
+    let won = false;
+    let row: unknown;
     try {
-      const result = this.#db.prepare(sql).run(...leadingParams, id) as
-        { changes?: number } | undefined;
-      const row = this.#db
-        .prepare(`SELECT * FROM suspensions WHERE id = ?`)
-        .get(id);
+      // BEGIN sits inside the try so a busy lock surfaces as the wrapped
+      // store error this method promises, not as a raw driver throw.
+      this.#db.exec("BEGIN IMMEDIATE");
+      this.#db.prepare(sql).run(...leadingParams, id);
+      // Read the affected-row count from SQLite rather than from the
+      // driver's run() return value. `bun:sqlite` only began returning
+      // `{ changes }` partway through the 1.1 line, and the declared floor
+      // is 1.1.0, so trusting it would report every compare-and-swap as
+      // lost on an in-range Bun: the row would transition, every caller
+      // would be told it lost the race, and nothing would ever resume.
+      won =
+        (
+          this.#db.prepare("SELECT changes() AS changed").get() as {
+            changed: number;
+          }
+        ).changed === 1;
+      row = this.#db.prepare(`SELECT * FROM suspensions WHERE id = ?`).get(id);
       this.#db.exec("COMMIT");
-      return {
-        won: (result?.changes ?? 0) === 1,
-        suspension: row ? toSuspension(row as SuspensionRow) : undefined,
-      };
     } catch (cause) {
-      this.#db.exec("ROLLBACK");
-      throw rcError("RC5001", cause, {
+      try {
+        this.#db.exec("ROLLBACK");
+      } catch {
+        // BEGIN itself failed, so there is no transaction to roll back.
+        // The original cause is the one worth reporting.
+      }
+      throw rcError("RC5044", cause, {
         message: `Failed to transition suspension "${id}" in the sqlite store.`,
       });
     }
+    // Decoding runs after COMMIT and outside the try: a corrupt column
+    // would otherwise throw with no transaction active, and the rollback's
+    // own "no transaction is active" error would replace the parse failure.
+    return {
+      won,
+      suspension: row ? toSuspension(row as SuspensionRow) : undefined,
+    };
   }
 }
 
@@ -293,15 +349,19 @@ function migrate(db: SqliteDatabase): void {
   const row = db.prepare("PRAGMA user_version").get() as
     { user_version?: number } | undefined;
   const current = row?.user_version ?? 0;
-  if (current >= SCHEMA_VERSION) return;
-  if (current > MIGRATIONS.length) {
-    throw rcError("RC5003", undefined, {
+  // The downgrade guard has to run BEFORE the up-to-date check, not after:
+  // a file written by a newer build satisfies both conditions, so ordering
+  // it second made it unreachable and turned a rollback into a misleading
+  // persist failure on the first suspend instead of a startup error.
+  if (current > SCHEMA_VERSION) {
+    throw rcError("RC5044", undefined, {
       message: `Suspension store schema version ${current} is newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point suspension.store.path at a fresh file.`,
     });
   }
+  if (current === SCHEMA_VERSION) return;
 
-  db.exec("BEGIN IMMEDIATE");
   try {
+    db.exec("BEGIN IMMEDIATE");
     for (let version = current; version < SCHEMA_VERSION; version++) {
       db.exec(MIGRATIONS[version]!);
     }
@@ -310,8 +370,12 @@ function migrate(db: SqliteDatabase): void {
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     db.exec("COMMIT");
   } catch (cause) {
-    db.exec("ROLLBACK");
-    throw rcError("RC5003", cause, {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // BEGIN itself failed; there is no transaction to roll back.
+    }
+    throw rcError("RC5044", cause, {
       message: "Failed to migrate the suspension store schema.",
     });
   }

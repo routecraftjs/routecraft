@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { SUSPENSION_SECRET_ENV } from "../src/index.ts";
+// Engine machinery, reached through the intra-package barrel.
 import {
   ResumeTokenSigner,
-  SUSPENSION_SECRET_ENV,
   resolveSigningSecret,
   suspensionIdFor,
-} from "../src/index.ts";
+} from "../src/suspension/index.ts";
 
-const SECRET = "test-signing-secret";
+// At least 32 bytes: resolveSigningSecret enforces a floor, and a
+// fixture below it would be testing the guard rather than the signer.
+const SECRET = "test-signing-secret-padded-to-32-bytes";
 
 describe("resume tokens", () => {
   /**
@@ -72,7 +75,10 @@ describe("resume tokens", () => {
    */
   test("rejects a token signed with another secret", () => {
     const minted = new ResumeTokenSigner(SECRET, "config").mint("sus-1");
-    const other = new ResumeTokenSigner("different-secret", "config");
+    const other = new ResumeTokenSigner(
+      "a-different-secret-also-32-bytes-long",
+      "config",
+    );
 
     expect(() => other.verify(minted)).toThrow(
       expect.objectContaining({ rc: "RC5041" }),
@@ -113,7 +119,7 @@ describe("signing secret resolution", () => {
   test("prefers the configured secret over the environment", () => {
     const signer = resolveSigningSecret({
       secret: SECRET,
-      env: { [SUSPENSION_SECRET_ENV]: "from-env" },
+      env: { [SUSPENSION_SECRET_ENV]: "from-env-secret-padded-to-32-bytes" },
     });
     expect(signer.source).toBe("config");
   });
@@ -125,7 +131,7 @@ describe("signing secret resolution", () => {
    */
   test("reads the secret from the environment", () => {
     const signer = resolveSigningSecret({
-      env: { [SUSPENSION_SECRET_ENV]: "from-env" },
+      env: { [SUSPENSION_SECRET_ENV]: "from-env-secret-padded-to-32-bytes" },
     });
     expect(signer.source).toBe("env");
     expect(signer.verify(signer.mint("sus-1")).id).toBe("sus-1");
@@ -157,6 +163,22 @@ describe("signing secret resolution", () => {
     expect(() => resolveSigningSecret({ env: {} })).toThrow(
       new RegExp(SUSPENSION_SECRET_ENV),
     );
+  });
+
+  /**
+   * @case A guessable secret is refused at startup
+   * @preconditions A short secret, the kind copied out of an error message
+   *   to get past a startup failure
+   * @expectedResult RC5040 naming the byte count, because a resume token
+   *   holder can guess the secret offline with no rate limit
+   */
+  test("refuses a secret below the strength floor", () => {
+    expect(() => resolveSigningSecret({ secret: "changeme", env: {} })).toThrow(
+      expect.objectContaining({ rc: "RC5040" }),
+    );
+    expect(() =>
+      resolveSigningSecret({ env: { [SUSPENSION_SECRET_ENV]: "changeme" } }),
+    ).toThrow(/at least 32/);
   });
 
   /**

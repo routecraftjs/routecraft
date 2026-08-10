@@ -486,35 +486,25 @@ export type {
   TelemetryEvent,
 } from "./telemetry/index.ts";
 
+// The suspension engine (hashing, serialization, token minting, runtime
+// resolution) stays behind `./suspension/index.ts`, which is where the
+// executor imports it from. Only the surface a user touches is published:
+// configuration, the store contract for anyone writing a backend, the two
+// shipped backends, and the environment-variable names.
 export {
-  DATE_TAG,
   DEFAULT_SUSPENSION_DB_PATH,
   MemorySuspensionStore,
-  ResumeTokenSigner,
   SUSPENSION_RUNTIME,
   SUSPENSION_SECRET_ENV,
   SUSPENSION_STORE_ENV,
   SqliteSuspensionStore,
-  actionFingerprint,
-  continuationHash,
-  createSuspensionRuntime,
-  describeExpect,
-  deserializeExchange,
-  resolveSigningSecret,
-  serializeExchange,
-  suspensionIdFor,
   suspensionPlugin,
 } from "./suspension/index.ts";
 export type {
   PendingSuspensionSummary,
   PrincipalRef,
-  ResolvedSqliteDriver,
-  ResumeTokenPayload,
   SerializedExchange,
   SerializedOutcome,
-  SigningSecretOptions,
-  SigningSecretSource,
-  SqliteDriverName,
   Suspension,
   SuspensionCasResult,
   SuspensionConfig,
@@ -524,6 +514,7 @@ export type {
   SuspensionStatus,
   SuspensionStore,
   SuspensionStoreConfig,
+  SuspensionTestSeams,
 } from "./suspension/index.ts";
 export {
   type MailAuth,

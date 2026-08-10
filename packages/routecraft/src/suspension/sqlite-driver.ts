@@ -39,19 +39,14 @@ export interface ResolvedSqliteDriver {
 /**
  * Resolve a synchronous SQLite driver for the current runtime.
  *
- * ## The decision (#549, 2026-08-10)
+ * `bun:sqlite` under Bun, `better-sqlite3` as an optional peer under Node,
+ * and an in-memory fallback with a loud warning when neither is available.
+ * The default is durable wherever the runtime allows, because surviving a
+ * restart is the feature's whole promise.
  *
- * Candidate 1 of three, the per-runtime split: `bun:sqlite` under Bun,
- * `better-sqlite3` as an optional peer under Node, in-memory fallback with
- * a loud warning when neither is available. Chosen because the feature's
- * whole promise is surviving a restart, so the default must be durable
- * wherever the runtime allows rather than durable only where someone opted
- * in.
+ * ## Why not `node:sqlite`
  *
- * ## The version matrix it was decided against
- *
- * The obvious answer, `node:sqlite`, is ruled out by the engines floor
- * rather than by its API:
+ * It is ruled out by the engines floor rather than by its API:
  *
  * | Runtime | `bun:sqlite` | `node:sqlite` | `better-sqlite3` |
  * | --- | --- | --- | --- |

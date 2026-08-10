@@ -544,9 +544,11 @@ Resume-token signing secret not configured
 A context whose routes can reach a durable `.suspend()` was built without a way to sign resume tokens. Resume tokens are the capability a suspended exchange hands its approver, so a context that cannot sign them cannot suspend anything. The check runs while the context is being built, not on the first suspend, so this surfaces at startup rather than on the first large payout.
 
 **Suggestion**  
-Set the `ROUTECRAFT_SUSPENSION_SECRET` environment variable, or pass `suspension: { secret }` to `defineConfig`. Prefer the environment variable: a secret in a config file is a secret in version control.
+Set the `ROUTECRAFT_SUSPENSION_SECRET` environment variable, or pass `suspension: { secret }` to `defineConfig`. Prefer the environment variable: a secret in a config file is a secret in version control. Generate one with `openssl rand -base64 32`.
 
-The secret is deliberately never generated into the store. A store compromise must not also yield the ability to forge resume tokens, and a store-resident key stops working the moment a second node appears. `testContext()` and `NODE_ENV=development` mint an ephemeral in-memory key so tests and local iteration need no setup; that key does not survive a restart, and the framework warns when it is used.
+At least 32 bytes are required, and a shorter secret raises this same code. A resume token is a bearer capability, so any holder of one token can guess the secret offline with no rate limit and no server involvement; a dictionary-strength value falls in seconds, after which an attacker can mint a token for any suspension.
+
+The secret is deliberately never generated into the store. A store compromise must not also yield the ability to forge resume tokens, and a store-resident key stops working the moment a second node appears. `testContext()`, `NODE_ENV=development` and `NODE_ENV=test` mint an ephemeral in-memory key so tests and local iteration need no setup; that key does not survive a restart, and the framework warns when it is used.
 
 ## RC5041
 Resume token rejected
@@ -578,6 +580,18 @@ Principal restored from a suspension
 Put the authorization on the resume ingress route, where the answering principal is verified live, and read `ex.suspension.resumedBy` for the receipt. If a step after the suspend point genuinely needs an authorized identity, re-verify it there with `.authenticate()` from a checked credential.
 
 Distinct from RC5023 (a self-asserted plain object) because the fix differs: re-verify, do not mint.
+
+
+## RC5044
+Suspension store operation failed
+
+**Why it happens**  
+The suspension store could not complete a read or write. The common causes are a duplicate suspension id (a bug in id derivation, since ids are minted one per suspend), a store file that is unwritable or out of disk, and a store file written by a newer Routecraft build than the one now running.
+
+**Suggestion**  
+Read the message, which names which of those it was. A schema-version mismatch means you have downgraded: run the newer build, or point `suspension.store.path` at a fresh file.
+
+This error is deliberately not retryable. None of its causes clear on a second attempt, so a `.retry()` wrapper must not spend its budget on them.
 
 
 ## RC9901

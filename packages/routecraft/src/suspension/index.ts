@@ -51,4 +51,5 @@ export type {
   SuspensionConfig,
   SuspensionRuntime,
   SuspensionStoreConfig,
+  SuspensionTestSeams,
 } from "./config.ts";

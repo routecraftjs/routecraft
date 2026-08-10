@@ -138,7 +138,11 @@ export const craftConfig = defineConfig({
 
 ### suspension
 
-Configures durable suspend and resume: where parked exchanges are persisted, and the secret used to sign the resume tokens an approver is handed. Set it when any route can reach a `.suspend()`; a context that never suspends does not need the key.
+{% callout type="note" %}
+**Foundation only.** This ships the storage and token-signing half of durable suspend and resume. The `.suspend()` and `.resume()` operations that use it are not in the DSL yet; they arrive with the [suspend and resume epic](https://github.com/routecraftjs/routecraft/issues/417). Configuring this key today is only useful if you are building against the store contract directly.
+{% /callout %}
+
+Configures where parked exchanges are persisted, and the secret used to sign the resume tokens an approver is handed. Set it when any route can reach a `.suspend()`; a context that never suspends does not need the key.
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
@@ -168,7 +172,7 @@ An explicit config value wins over the environment.
 
 **The store backend is chosen per runtime.** Under Bun it is `bun:sqlite`, a built-in. Under Node it is `better-sqlite3`, an optional peer: install it (`bun add better-sqlite3`) to get a durable store on Node. Without it, an unconfigured context falls back to the in-memory backend and warns that parked exchanges will not survive a restart, while a context that named a `store` path fails to start rather than silently losing durability it asked for.
 
-**The signing secret is required, and never generated for you.** A context whose routes can reach a durable suspend fails at startup with [`RC5040`](/docs/reference/errors#rc-5040) when no secret is configured. The secret is deliberately not stored alongside the suspensions: a store compromise must not also yield forgeable resume tokens. `testContext()` and `NODE_ENV=development` mint an ephemeral in-memory key so tests and local iteration need no setup; that key is regenerated on every start, so tokens minted before a restart stop verifying, and the framework warns when it is in use.
+**The signing secret is required, at least 32 bytes, and never generated for you.** A context whose routes can reach a durable suspend fails at startup with [`RC5040`](/docs/reference/errors#rc-5040) when no secret is configured. The secret is deliberately not stored alongside the suspensions: a store compromise must not also yield forgeable resume tokens. `testContext()`, `NODE_ENV=development` and `NODE_ENV=test` mint an ephemeral in-memory key so tests and local iteration need no setup; that key is regenerated on every start, so tokens minted before a restart stop verifying, and the framework warns when it is in use.
 
 ## Logging configuration
 

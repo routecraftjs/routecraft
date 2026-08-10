@@ -28,9 +28,11 @@ import type { SerializedExchange, SuspensionExpect } from "./types.ts";
  * ## What makes it move
  *
  * Each step contributes its operation kind, its DSL label, its adapter id,
- * and the source text of the callables the adapter carries, which is where
- * a user's inline lambda lives. So `.transform((p) => payOut(p))` becoming
- * `.transform((p) => payOutTwice(p))` moves the hash, while editing
+ * the source text of the callables the adapter carries (where a user's
+ * inline lambda lives), and the adapter's own data properties (where an
+ * adapter's options live). So `.transform((p) => payOut(p))` becoming
+ * `.transform((p) => payOutTwice(p))` moves the hash, and so does
+ * `http({ url: bankA })` becoming `http({ url: bankB })`, while editing
  * `payOut` itself does not: that is the "step definitions only" boundary
  * stated above, seen from the other side.
  *
@@ -48,6 +50,8 @@ import type { SerializedExchange, SuspensionExpect } from "./types.ts";
  *   `position + 1` onward.
  * @param expect - The expected-result schema descriptor.
  * @returns A hex SHA-256 digest.
+ *
+ * @internal
  */
 export function continuationHash(
   steps: ReadonlyArray<Step<Adapter>>,
@@ -75,6 +79,8 @@ export function continuationHash(
  *
  * @param schema - The `expect` schema declared on `.suspend()`.
  * @returns A serializable descriptor of the schema.
+ *
+ * @internal
  */
 export function describeExpect(schema: StandardSchemaV1): SuspensionExpect {
   const standard = (
@@ -121,6 +127,8 @@ export function describeExpect(schema: StandardSchemaV1): SuspensionExpect {
  * @param input - Route identity, suspend position, the continuation hash,
  *   and the serialized exchange whose body was shown to the approver.
  * @returns A hex SHA-256 digest.
+ *
+ * @internal
  */
 export function actionFingerprint(input: {
   routeId: string;
@@ -141,15 +149,30 @@ export function actionFingerprint(input: {
 /**
  * Reduce a step to the parts that define what it will do.
  *
+ * Two kinds of own property carry that definition, and both have to be in
+ * the digest. Callables are where an inline lambda lives on a plain-object
+ * adapter (`.transform((p) => payOut(p))`). Data properties are where an
+ * adapter's OPTIONS live: a class-based adapter such as the http enricher
+ * keeps its config in an `options` property and exposes a `fetch` whose
+ * source text is identical for every instance, so hashing callables alone
+ * would give `http({ url: bankA })` and `http({ url: bankB })` the same
+ * digest and let a parked approval resume into a different payee.
+ *
+ * `adapterId` is read separately and excluded from the config walk so it is
+ * not counted twice.
+ *
  * @internal
  */
 function describeStep(step: Step<Adapter>): unknown {
   const adapter = step.adapter as Record<string, unknown> | undefined;
   const callables: Record<string, string> = {};
+  const config: Record<string, unknown> = {};
   if (adapter) {
     for (const key of Object.keys(adapter).sort()) {
+      if (key === "adapterId") continue;
       const value = adapter[key];
       if (typeof value === "function") callables[key] = normalizeSource(value);
+      else config[key] = describable(value);
     }
   }
   return {
@@ -157,7 +180,43 @@ function describeStep(step: Step<Adapter>): unknown {
     label: step.label ?? null,
     adapterId: (adapter?.["adapterId"] as string | undefined) ?? null,
     callables,
+    config,
   };
+}
+
+/**
+ * Project an adapter option into something hashable.
+ *
+ * Total by construction, because adapters legitimately hold live clients,
+ * sockets and credentials alongside their config. Anything the digest
+ * cannot represent collapses to a stable placeholder rather than throwing:
+ * a step whose adapter holds a socket must still be hashable, it just
+ * cannot contribute that field to the comparison.
+ *
+ * @internal
+ */
+function describable(value: unknown, depth = 0): unknown {
+  if (value === null) return null;
+  const kind = typeof value;
+  if (kind === "string" || kind === "boolean") return value;
+  if (kind === "number") return Number.isFinite(value) ? value : "[number]";
+  if (kind === "bigint") return `[bigint:${String(value)}]`;
+  if (kind === "undefined") return undefined;
+  if (kind === "symbol" || kind === "function") return "[unhashable]";
+  if (value instanceof Date) return value.toISOString();
+  // Bound the walk: a deeply nested or self-referential options object must
+  // not turn hashing a route into a graph traversal.
+  if (depth >= 4) return "[deep]";
+  if (Array.isArray(value)) {
+    return value.map((entry) => describable(entry, depth + 1));
+  }
+  const prototype = Object.getPrototypeOf(value as object);
+  if (prototype !== Object.prototype && prototype !== null) return "[opaque]";
+  const projected: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    projected[key] = describable(entry, depth + 1);
+  }
+  return projected;
 }
 
 /**

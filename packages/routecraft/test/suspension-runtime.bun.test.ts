@@ -7,10 +7,11 @@ import {
   MemorySuspensionStore,
   SUSPENSION_SECRET_ENV,
   SUSPENSION_STORE_ENV,
-  createSuspensionRuntime,
   rcError,
   type SuspensionRuntime,
 } from "../src/index.ts";
+// Engine machinery, reached through the intra-package barrel.
+import { createSuspensionRuntime } from "../src/suspension/index.ts";
 import type { SqliteDriverLoaders } from "../src/suspension/sqlite-driver.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "rc-suspension-runtime-"));
@@ -39,7 +40,8 @@ const absentPeerLoaders: SqliteDriverLoaders = {
     ),
 };
 
-const SECRET = { secret: "runtime-test-secret" };
+// At least 32 bytes: resolveSigningSecret enforces a strength floor.
+const SECRET = { secret: "runtime-test-secret-padded-to-32b" };
 
 /**
  * Redirect a context's warn channel into an array of message strings. The
@@ -177,6 +179,23 @@ describe("suspension runtime resolution", () => {
     } finally {
       if (previous !== undefined) process.env[SUSPENSION_SECRET_ENV] = previous;
     }
+  });
+
+  /**
+   * @case A custom backend keeps its own lifecycle
+   * @preconditions A caller-supplied store
+   * @expectedResult The runtime reports it as custom and disclaims
+   *   ownership, so teardown does not close a resource the caller may
+   *   still be using or sharing with another context
+   */
+  test("does not claim ownership of a supplied store", async () => {
+    runtime = await createSuspensionRuntime(new CraftContext(), {
+      ...SECRET,
+      store: new MemorySuspensionStore(),
+    });
+
+    expect(runtime.backend).toBe("custom");
+    expect(runtime.ownsStore).toBe(false);
   });
 
   /**

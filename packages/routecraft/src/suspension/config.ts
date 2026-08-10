@@ -78,20 +78,28 @@ export interface SuspensionConfig {
    * `defineConfig` in code.
    */
   secret?: string;
-  /**
-   * Driver loader injection point for tests that need to exercise the
-   * absent-peer arm.
-   *
-   * @internal
-   */
+}
+
+/**
+ * Seams the test harness needs and users must not have.
+ *
+ * Kept off {@link SuspensionConfig} rather than tagged `@internal` on it,
+ * because `allowEphemeralSecret` is a security relaxation: it short-circuits
+ * the named-environment gate that `.standards/security.md` section 6a
+ * requires, and `@internal` is a documentation tag, not an enforcement
+ * mechanism. On the public config type it would be exactly the flag someone
+ * copies out of a test fixture to make an RC5040 startup error go away.
+ * `CraftConfig["suspension"]` is declared as `SuspensionConfig` alone;
+ * `@routecraft/testing` supplies these separately.
+ *
+ * @internal
+ */
+export interface SuspensionTestSeams {
+  /** Driver loader injection, for exercising the absent-peer arm. */
   loaders?: SqliteDriverLoaders;
   /**
    * Permit an ephemeral in-memory signing key when no secret is
-   * configured. Set automatically by `testContext()`; production
-   * deployments must never set it, because an ephemeral key makes every
-   * outstanding resume token unverifiable after a restart.
-   *
-   * @internal
+   * configured, regardless of `NODE_ENV`.
    */
   allowEphemeralSecret?: boolean;
 }
@@ -102,8 +110,21 @@ export interface SuspensionConfig {
 export interface SuspensionRuntime {
   readonly store: SuspensionStore;
   readonly signer: ResumeTokenSigner;
-  /** What the store resolved to, for the startup log line. */
-  readonly backend: "sqlite" | "memory";
+  /**
+   * What the store resolved to, for the startup log line. `custom` is a
+   * store the caller supplied; reporting it as `sqlite` would mislead
+   * exactly the operators who configured a backend deliberately, on the one
+   * field that answers "is this deployment durable, and against what".
+   */
+  readonly backend: "sqlite" | "memory" | "custom";
+  /**
+   * False when the caller supplied the store, in which case they own its
+   * lifecycle and the plugin must not close it on teardown. A user-supplied
+   * backend typically wraps a pool shared with the rest of the application,
+   * or is reused across two contexts in one process (which is how a
+   * restart-durability test is written).
+   */
+  readonly ownsStore: boolean;
 }
 
 /**
@@ -123,10 +144,12 @@ export interface SuspensionRuntime {
  *
  * @param context - Context whose logger reports the outcome.
  * @param config - The `suspension` config block, if any.
+ *
+ * @internal
  */
 export async function createSuspensionRuntime(
   context: CraftContext,
-  config: SuspensionConfig = {},
+  config: SuspensionConfig & SuspensionTestSeams = {},
 ): Promise<SuspensionRuntime> {
   const signer = resolveSigningSecret({
     ...(config.secret !== undefined ? { secret: config.secret } : {}),
@@ -147,10 +170,15 @@ export async function createSuspensionRuntime(
     typeof configured === "object" &&
     "create" in configured
   ) {
-    return { store: configured, signer, backend: "sqlite" };
+    return { store: configured, signer, backend: "custom", ownsStore: false };
   }
   if (configured === "memory") {
-    return { store: new MemorySuspensionStore(), signer, backend: "memory" };
+    return {
+      store: new MemorySuspensionStore(),
+      signer,
+      backend: "memory",
+      ownsStore: true,
+    };
   }
 
   const path =
@@ -167,23 +195,31 @@ export async function createSuspensionRuntime(
       { backend: "sqlite", driver: store.driver, path },
       "Suspension store opened",
     );
-    return { store, signer, backend: "sqlite" };
+    return { store, signer, backend: "sqlite", ownsStore: true };
   } catch (err) {
     if (explicit) throw err;
     context.logger.warn(
       { err, path },
       "No durable suspension store available; parked exchanges will NOT survive a restart. Install better-sqlite3 (Node) or configure suspension: { store } to keep suspensions durable.",
     );
-    return { store: new MemorySuspensionStore(), signer, backend: "memory" };
+    return {
+      store: new MemorySuspensionStore(),
+      signer,
+      backend: "memory",
+      ownsStore: true,
+    };
   }
 }
 
 /**
  * Plugin form of {@link createSuspensionRuntime}, wired to the `suspension`
  * config key. Resolves the runtime during `initPlugins()` so a missing
- * signing secret fails at startup, and closes the store during teardown.
+ * signing secret fails at startup, and closes the store during teardown,
+ * but only a store it opened itself.
  */
-export function suspensionPlugin(config: SuspensionConfig = {}): CraftPlugin {
+export function suspensionPlugin(
+  config: SuspensionConfig & SuspensionTestSeams = {},
+): CraftPlugin {
   return {
     name: "suspension",
     async apply(ctx: CraftContext) {
@@ -193,7 +229,8 @@ export function suspensionPlugin(config: SuspensionConfig = {}): CraftPlugin {
       );
     },
     async teardown(ctx: CraftContext) {
-      await ctx.getStore(SUSPENSION_RUNTIME)?.store.close();
+      const runtime = ctx.getStore(SUSPENSION_RUNTIME);
+      if (runtime?.ownsStore) await runtime.store.close();
     },
   };
 }

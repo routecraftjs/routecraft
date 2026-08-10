@@ -1,14 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
-  actionFingerprint,
-  continuationHash,
-  describeExpect,
   OperationType,
   type Adapter,
   type SerializedExchange,
   type Step,
 } from "../src/index.ts";
+// Engine machinery, reached through the intra-package barrel.
+import {
+  actionFingerprint,
+  continuationHash,
+  describeExpect,
+} from "../src/suspension/index.ts";
 
 /**
  * Build a step whose identity is carried by a transformer callable, which
@@ -19,6 +22,32 @@ function step(label: string, body: (value: number) => number): Step<Adapter> {
     operation: OperationType.TRANSFORM,
     label,
     adapter: { adapterId: "transformer", transform: body } as Adapter,
+    execute: async (exchange) => ({ kind: "continue", exchange }),
+  };
+}
+
+/**
+ * Stand-in for a class-based adapter, which is where the real risk lives:
+ * config sits in a data property and the callable's source text is
+ * identical for every instance, so an options change is invisible to a
+ * digest built from callables alone.
+ */
+class PayoutAdapter {
+  readonly adapterId = "routecraft.adapter.payout";
+  constructor(readonly options: { url: string; retries?: number }) {}
+  send = async (): Promise<void> => {
+    await Promise.resolve(this.options.url);
+  };
+}
+
+function configuredStep(options: {
+  url: string;
+  retries?: number;
+}): Step<Adapter> {
+  return {
+    operation: OperationType.TO,
+    label: "pay",
+    adapter: new PayoutAdapter(options) as unknown as Adapter,
     execute: async (exchange) => ({ kind: "continue", exchange }),
   };
 }
@@ -176,6 +205,103 @@ describe("continuationHash", () => {
     );
     expect(continuationHash(compact, 0, expected)).not.toBe(
       continuationHash(spaced, 0, expected),
+    );
+  });
+});
+
+describe("continuationHash over adapter configuration", () => {
+  /**
+   * @case Repointing a destination in the tail invalidates a parked approval
+   * @preconditions Two pipelines whose only difference is an adapter option
+   *   after the suspend point, on a class-based adapter whose callable
+   *   source is identical either way
+   * @expectedResult The hashes differ, so an approval cannot be resumed
+   *   into a payment to a different payee
+   */
+  test("a changed adapter option after the suspend point invalidates it", () => {
+    const toBankA = [
+      step("suspend", (v) => v),
+      configuredStep({ url: "https://bank-a.example/pay" }),
+    ];
+    const toBankB = [
+      step("suspend", (v) => v),
+      configuredStep({ url: "https://bank-b.example/pay" }),
+    ];
+
+    expect(continuationHash(toBankA, 0, expected)).not.toBe(
+      continuationHash(toBankB, 0, expected),
+    );
+  });
+
+  /**
+   * @case The same configuration still hashes stably
+   * @preconditions Two separately constructed adapters with equal options
+   * @expectedResult The hashes match, so restarting the process does not
+   *   invalidate everything parked before it
+   */
+  test("identical adapter options hash identically across instances", () => {
+    const options = { url: "https://bank-a.example/pay", retries: 3 };
+
+    expect(
+      continuationHash(
+        [step("s", (v) => v), configuredStep({ ...options })],
+        0,
+        expected,
+      ),
+    ).toBe(
+      continuationHash(
+        [step("s", (v) => v), configuredStep({ ...options })],
+        0,
+        expected,
+      ),
+    );
+  });
+
+  /**
+   * @case An adapter holding a live handle is still hashable
+   * @preconditions An adapter whose options carry a client object and a
+   *   function, which real adapters routinely do
+   * @expectedResult Hashing produces a digest rather than throwing, because
+   *   a step that cannot be fully described must still be comparable
+   */
+  test("tolerates unhashable adapter state", () => {
+    const withHandle: Step<Adapter> = {
+      operation: OperationType.TO,
+      label: "pay",
+      adapter: {
+        adapterId: "routecraft.adapter.payout",
+        client: { socket: () => undefined },
+        send: async () => undefined,
+      } as unknown as Adapter,
+      execute: async (exchange) => ({ kind: "continue", exchange }),
+    };
+
+    expect(
+      continuationHash([step("s", (v) => v), withHandle], 0, expected),
+    ).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  /**
+   * @case An option change BEFORE the suspend point still does not invalidate
+   * @preconditions Two pipelines differing only in an adapter option on a
+   *   step that already ran
+   * @expectedResult The hashes match, so widening the hash to cover options
+   *   did not cost the compatibility property it was built for
+   */
+  test("an option change before the suspend point leaves it resumable", () => {
+    const before = [
+      configuredStep({ url: "https://notify-a.example" }),
+      step("suspend", (v) => v),
+      step("pay", (v) => v),
+    ];
+    const after = [
+      configuredStep({ url: "https://notify-b.example" }),
+      step("suspend", (v) => v),
+      step("pay", (v) => v),
+    ];
+
+    expect(continuationHash(before, 1, expected)).toBe(
+      continuationHash(after, 1, expected),
     );
   });
 });

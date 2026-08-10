@@ -32,7 +32,7 @@ export class MemorySuspensionStore implements SuspensionStore {
 
   async create(record: Suspension): Promise<void> {
     if (this.#records.has(record.id)) {
-      throw rcError("RC5001", undefined, {
+      throw rcError("RC5044", undefined, {
         message: `Suspension "${record.id}" already exists in the store.`,
       });
     }
@@ -98,7 +98,34 @@ export class MemorySuspensionStore implements SuspensionStore {
     return { count, ...(oldest ? { oldest: new Date(oldest.getTime()) } : {}) };
   }
 
-  async close(): Promise<void> {
+  async purgeSettled(before: Date): Promise<number> {
+    let purged = 0;
+    for (const [id, record] of this.#records) {
+      if (record.status === "suspended") continue;
+      if (record.suspendedAt.getTime() >= before.getTime()) continue;
+      this.#records.delete(id);
+      purged++;
+    }
+    return purged;
+  }
+
+  /**
+   * Releases nothing, because there is nothing to release. It deliberately
+   * does NOT clear the records: `close()` means "release backend
+   * resources" on every other backend, and a call that is a handle release
+   * on sqlite but a data wipe here would make the two non-substitutable
+   * for any code written against the interface. The map is collected with
+   * the store. Use {@link MemorySuspensionStore.reset} to discard records.
+   */
+  async close(): Promise<void> {}
+
+  /**
+   * Discard every record. Not part of {@link SuspensionStore}: wiping is
+   * specific to this backend, and a test wanting isolation should
+   * construct a fresh store rather than rely on a method an arbitrary
+   * backend may not have.
+   */
+  reset(): void {
     this.#records.clear();
   }
 
