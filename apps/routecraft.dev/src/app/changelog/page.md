@@ -12,7 +12,7 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 ## v0.6.0 {% badge color="gray" %}In development{% /badge %}
 
-This section covers every change landing on `main` since the v0.5.0 release. 0.6.0 is the architecture release before v1: the contracts that freeze at v1 changed shape once, now, so they do not have to change after, and the engine rework brings a significant performance improvement to route and event processing. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) for all upgrade steps.
+This section covers every change since the v0.5.0 release. 0.6.0 is the architecture release before v1: the contracts that freeze at v1 changed shape once, now, so they do not have to change after, and the engine rework brings a significant performance improvement to route and event processing. See the [0.5.x to 0.6.0 migration guide](/docs/migrating/0.5-to-0.6) for all upgrade steps.
 
 ### Core {% badge color="red" %}Breaking{% /badge %}
 
