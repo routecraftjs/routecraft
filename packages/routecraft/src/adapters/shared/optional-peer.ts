@@ -68,11 +68,22 @@ function isMissingExpectedPackage(
   // matched: it means the package resolved but its entry file is missing,
   // which is a broken install rather than an absent peer, and an install hint
   // would send the user down the wrong path.
+  // Every occurrence is examined, not just the first: a message may quote a
+  // longer name sharing our prefix before it quotes ours (`'@scope/pkg-extra'`
+  // ahead of `'@scope/pkg'`), and stopping at the first hit would fail the
+  // boundary check against the wrong one and degrade RC5017 into a raw
+  // ERR_MODULE_NOT_FOUND.
   return QUOTES.some((quote) => {
-    const start = message.indexOf(`${quote}${packageName}`);
-    if (start === -1) return false;
-    const next = message[start + quote.length + packageName.length];
-    return next === quote || next === "/";
+    const needle = `${quote}${packageName}`;
+    for (
+      let start = message.indexOf(needle);
+      start !== -1;
+      start = message.indexOf(needle, start + 1)
+    ) {
+      const next = message[start + needle.length];
+      if (next === quote || next === "/") return true;
+    }
+    return false;
   });
 }
 
