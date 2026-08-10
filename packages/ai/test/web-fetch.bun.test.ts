@@ -1,0 +1,355 @@
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { testFn } from "@routecraft/testing";
+import { webFetch, type WebFetchResult } from "../src/index.ts";
+
+/**
+ * Behaviour tests for the built-in `WebFetch` tool.
+ *
+ * `globalThis.fetch` is stubbed, following the convention in
+ * `packages/routecraft/test/http.bun.test.ts`, so nothing here touches
+ * the network. Hosts are public IP literals rather than names: the
+ * egress guard resolves names through `node:dns/promises` and short
+ * circuits on literals, which keeps this file free of a module mock that
+ * would be process-global across the whole run.
+ *
+ * The extraction and conversion steps run for real against `linkedom`,
+ * `@mozilla/readability`, and `turndown`, so the markdown asserted here
+ * is the markdown a model would see.
+ */
+
+/** A public unicast literal, so the guard passes without a resolver. */
+const HOST = "93.184.216.34";
+const OTHER_HOST = "93.184.216.35";
+
+function respond(
+  body: string,
+  contentType = "text/html; charset=utf-8",
+): Response {
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": contentType },
+  });
+}
+
+function redirect(location: string, status = 301): Response {
+  return new Response(null, { status, headers: { location } });
+}
+
+/** Markdown long enough to exceed a small `maxLength`. */
+function longMarkdown(length: number): string {
+  return "a".repeat(length);
+}
+
+async function call(
+  options: Parameters<typeof webFetch>[0],
+  input: unknown,
+): Promise<WebFetchResult> {
+  return (await testFn(webFetch(options), input)) as WebFetchResult;
+}
+
+describe("WebFetch tool", () => {
+  let fetchMock: ReturnType<typeof mock>;
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    fetchMock = mock();
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  /**
+   * @case An HTML article comes back as markdown with its title
+   * @preconditions Server returns a text/html document with a title and an article body
+   * @expectedResult Result carries the title, markdown headings and prose, and no navigation chrome
+   */
+  test("converts an HTML article to markdown", async () => {
+    fetchMock.mockResolvedValue(
+      respond(
+        `<html><head><title>Widget Guide</title></head><body>
+           <nav><a href="/somewhere">Skip me</a></nav>
+           <article>
+             <h1>Installing the widget</h1>
+             <p>Run the installer, then restart the service.</p>
+             <p>The widget listens on port 8080 by default.</p>
+           </article>
+         </body></html>`,
+      ),
+    );
+
+    const result = await call({}, { url: `http://${HOST}/guide` });
+
+    expect(result.title).toBe("Widget Guide");
+    expect(result.content).toContain("Installing the widget");
+    expect(result.content).toContain("restart the service");
+    expect(result.content).not.toContain("Skip me");
+    expect(result.truncated).toBe(false);
+  });
+
+  /**
+   * @case A server that honours the markdown-first Accept header is not re-processed
+   * @preconditions Server returns text/markdown containing syntax an HTML extractor would mangle
+   * @expectedResult The body is returned verbatim, proving extraction was skipped
+   */
+  test("returns server-supplied markdown verbatim", async () => {
+    const markdown = "# Title\n\n- one\n- two\n\n```js\nconst a = 1;\n```";
+    fetchMock.mockResolvedValue(respond(markdown, "text/markdown"));
+
+    const result = await call({}, { url: `http://${HOST}/readme.md` });
+
+    expect(result.content).toBe(markdown);
+    expect(result.truncated).toBe(false);
+  });
+
+  /**
+   * @case The outgoing request carries no caller credentials and follows no redirects itself
+   * @preconditions Any successful fetch
+   * @expectedResult Request is a GET with redirect "manual", an Accept preferring markdown, and no cookie or authorization header
+   */
+  test("issues a credential-free GET with manual redirects", async () => {
+    fetchMock.mockResolvedValue(respond("hi", "text/plain"));
+
+    await call({}, { url: `http://${HOST}/` });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit & {
+      headers: Record<string, string>;
+    };
+    expect(init.method).toBe("GET");
+    expect(init.redirect).toBe("manual");
+    expect(init.headers["accept"]).toMatch(/text\/markdown/);
+    expect(Object.keys(init.headers).map((k) => k.toLowerCase())).not.toContain(
+      "authorization",
+    );
+    expect(Object.keys(init.headers).map((k) => k.toLowerCase())).not.toContain(
+      "cookie",
+    );
+  });
+
+  /**
+   * @case Output longer than the character bound is cut and says so
+   * @preconditions maxLength of 100 against a 250-character markdown document
+   * @expectedResult truncated is true, totalLength is the full length, the content ends with a visible notice naming both, and nextOffset points at the resume point
+   */
+  test("truncates long output with a visible notice", async () => {
+    fetchMock.mockResolvedValue(respond(longMarkdown(250), "text/markdown"));
+
+    const result = await call({ maxLength: 100 }, { url: `http://${HOST}/` });
+
+    expect(result.truncated).toBe(true);
+    expect(result.totalLength).toBe(250);
+    expect(result.nextOffset).toBe(100);
+    expect(result.content).toMatch(
+      /\[WebFetch: Showing characters 0 to 100 of 250\./,
+    );
+    expect(result.content).toMatch(/offset=100/);
+    // The slice itself is intact ahead of the notice.
+    expect(result.content.startsWith(longMarkdown(100))).toBe(true);
+  });
+
+  /**
+   * @case A continuation offset returns the next windowful, still bounded
+   * @preconditions maxLength of 100, offset of 100, against the same 250-character document
+   * @expectedResult Characters 100 to 200 come back, still truncated, offering 200 as the next resume point
+   */
+  test("continues from a supplied offset", async () => {
+    fetchMock.mockResolvedValue(respond(longMarkdown(250), "text/markdown"));
+
+    const result = await call(
+      { maxLength: 100 },
+      { url: `http://${HOST}/`, offset: 100 },
+    );
+
+    expect(result.truncated).toBe(true);
+    expect(result.nextOffset).toBe(200);
+    expect(result.content).toMatch(/Showing characters 100 to 200 of 250\./);
+  });
+
+  /**
+   * @case The final section of a paginated read closes the walk
+   * @preconditions maxLength of 100, offset of 200, against the same 250-character document
+   * @expectedResult The last 50 characters come back, truncated is false, and no further offset is offered
+   */
+  test("ends the walk on the final section", async () => {
+    fetchMock.mockResolvedValue(respond(longMarkdown(250), "text/markdown"));
+
+    const result = await call(
+      { maxLength: 100 },
+      { url: `http://${HOST}/`, offset: 200 },
+    );
+
+    expect(result.truncated).toBe(false);
+    expect(result.nextOffset).toBeUndefined();
+    expect(result.content).toMatch(/Showing characters 200 to 250 of 250\./);
+  });
+
+  /**
+   * @case An offset past the end of the document is an error, not an empty result
+   * @preconditions offset of 5000 against a 250-character document
+   * @expectedResult Rejects with AI2003 naming the document length
+   */
+  test("rejects an offset past the end of the document", async () => {
+    fetchMock.mockResolvedValue(respond(longMarkdown(250), "text/markdown"));
+
+    const error = await call({}, { url: `http://${HOST}/`, offset: 5000 }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toMatchObject({ rc: "AI2003" });
+    expect((error as Error).message).toMatch(/past the end/i);
+  });
+
+  /**
+   * @case A response cut short by the byte cap says the source itself was clipped
+   * @preconditions maxBytes of 50 against a 400-byte markdown body
+   * @expectedResult The notice states the download limit was hit, distinguishing a clipped source from a merely paginated one
+   */
+  test("reports when the byte cap clipped the source", async () => {
+    fetchMock.mockResolvedValue(respond(longMarkdown(400), "text/markdown"));
+
+    const result = await call({ maxBytes: 50 }, { url: `http://${HOST}/` });
+
+    expect(result.content).toMatch(/download limit/i);
+  });
+
+  /**
+   * @case A same-host redirect is followed transparently
+   * @preconditions First response is a 301 to another path on the same host, second is content
+   * @expectedResult Content of the final URL is returned and the result names that URL
+   */
+  test("follows a same-host redirect", async () => {
+    fetchMock
+      .mockResolvedValueOnce(redirect(`http://${HOST}/final`))
+      .mockResolvedValueOnce(respond("arrived", "text/plain"));
+
+    const result = await call({}, { url: `http://${HOST}/start` });
+
+    expect(result.content).toBe("arrived");
+    expect(result.url).toBe(`http://${HOST}/final`);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * @case A cross-host redirect is reported rather than followed
+   * @preconditions Response is a 302 pointing at a different host
+   * @expectedResult redirectedTo names the target, no second fetch is made, and the content explains the decision
+   */
+  test("does not follow a cross-host redirect", async () => {
+    fetchMock.mockResolvedValue(
+      redirect(`http://${OTHER_HOST}/elsewhere`, 302),
+    );
+
+    const result = await call({}, { url: `http://${HOST}/start` });
+
+    expect(result.redirectedTo).toBe(`http://${OTHER_HOST}/elsewhere`);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.content).toMatch(/redirects to a different host/i);
+  });
+
+  /**
+   * @case A redirect that a host allowlist would not permit cannot be reached by bouncing
+   * @preconditions allowedDomains permits only the first host; it redirects to a host outside the list
+   * @expectedResult The target is reported back rather than fetched, so the allowlist is never circumvented
+   */
+  test("cannot be bounced past an allowlist by a redirect", async () => {
+    fetchMock.mockResolvedValue(redirect(`http://${OTHER_HOST}/elsewhere`));
+
+    const result = await call(
+      { allowedDomains: [HOST] },
+      { url: `http://${HOST}/start` },
+    );
+
+    expect(result.redirectedTo).toBe(`http://${OTHER_HOST}/elsewhere`);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * @case A redirect loop stops at the configured hop limit
+   * @preconditions maxRedirects of 2 against a host that always redirects to itself
+   * @expectedResult Rejects with AI2002 naming the limit
+   */
+  test("stops after the redirect limit", async () => {
+    fetchMock.mockResolvedValue(redirect(`http://${HOST}/again`));
+
+    const error = await call(
+      { maxRedirects: 2 },
+      { url: `http://${HOST}/start` },
+    ).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toMatchObject({ rc: "AI2002" });
+    expect((error as Error).message).toMatch(/redirects/i);
+  });
+
+  /**
+   * @case A redirect without a Location header is an error
+   * @preconditions Response is a 301 carrying no Location
+   * @expectedResult Rejects with AI2002
+   */
+  test("rejects a redirect with no Location", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 301 }));
+
+    const error = await call({}, { url: `http://${HOST}/` }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toMatchObject({ rc: "AI2002" });
+  });
+
+  /**
+   * @case A non-2xx response surfaces as a tool error the model can react to
+   * @preconditions Server returns 404
+   * @expectedResult Rejects with AI2002 naming the status
+   */
+  test("rejects a non-2xx response", async () => {
+    fetchMock.mockResolvedValue(new Response("nope", { status: 404 }));
+
+    const error = await call({}, { url: `http://${HOST}/missing` }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toMatchObject({ rc: "AI2002" });
+    expect((error as Error).message).toMatch(/404/);
+  });
+
+  /**
+   * @case Binary content is refused rather than returned as mojibake
+   * @preconditions Server returns application/pdf
+   * @expectedResult Rejects with AI2003 naming the content type and what the tool does read
+   */
+  test("rejects an unsupported content type", async () => {
+    fetchMock.mockResolvedValue(respond("%PDF-1.7", "application/pdf"));
+
+    const error = await call({}, { url: `http://${HOST}/doc.pdf` }).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+
+    expect(error).toMatchObject({ rc: "AI2003" });
+    expect((error as Error).message).toMatch(/application\/pdf/);
+  });
+
+  /**
+   * @case The registered tool advertises itself as safe to repeat
+   * @preconditions A default-configured factory
+   * @expectedResult Tags are read-only and idempotent, matching the other built-in read tools
+   */
+  test("registers as read-only and idempotent", () => {
+    expect(webFetch().tags).toEqual(["read-only", "idempotent"]);
+  });
+
+  /**
+   * @case Nonsense bounds are rejected at registration, not at first call
+   * @preconditions A factory configured with a zero maxBytes
+   * @expectedResult Throws RC5003 immediately, so the misconfiguration surfaces at context init
+   */
+  test("rejects invalid bounds at registration", () => {
+    expect(() => webFetch({ maxBytes: 0 })).toThrow(/maxBytes/);
+  });
+});

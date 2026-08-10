@@ -24,7 +24,8 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
-    "ai": "^6.0.246"
+    "ai": "^6.0.246",
+    "ipaddr.js": "^2.5.0"
   },
   "devDependencies": {
     "@ai-sdk/anthropic": "^3.0.107",
@@ -35,12 +36,15 @@
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
+    "@mozilla/readability": "^0.6.0",
     "@openrouter/ai-sdk-provider": "^2.10.0",
     "@routecraft/routecraft": "workspace:*",
     "@sinonjs/fake-timers": "^11.3.1",
     "@types/sinonjs__fake-timers": "^15.0.1",
     "jose": "^6.2.8",
+    "linkedom": "^0.18.13",
     "ollama-ai-provider-v2": "^3.6.0",
+    "turndown": "^7.2.4",
     "vitest": "^4.1.10",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
@@ -54,9 +58,12 @@
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
+    "@mozilla/readability": "^0.6.0",
     "@openrouter/ai-sdk-provider": "^2.2.3",
     "@routecraft/routecraft": ">=0.6.0 <1.0.0",
+    "linkedom": "^0.18.13",
     "ollama-ai-provider-v2": "^3.3.1",
+    "turndown": "^7.2.4",
     "yaml": "^2.8.0"
   },
   "keywords": [
@@ -99,10 +106,19 @@
     "@modelcontextprotocol/server": {
       "optional": true
     },
+    "@mozilla/readability": {
+      "optional": true
+    },
     "@openrouter/ai-sdk-provider": {
       "optional": true
     },
+    "linkedom": {
+      "optional": true
+    },
     "ollama-ai-provider-v2": {
+      "optional": true
+    },
+    "turndown": {
       "optional": true
     },
     "yaml": {

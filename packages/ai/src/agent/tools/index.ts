@@ -5,6 +5,12 @@ export {
   type ToolBuilderOverrides,
 } from "./builders.ts";
 export {
+  webFetch,
+  type WebFetchOptions,
+  type WebFetchResult,
+} from "./web-fetch/index.ts";
+export type { WebFetchInput } from "./web-fetch/schema.ts";
+export {
   DEFERRED_FN_BRAND,
   isDeferredFn,
   type DeferredFn,

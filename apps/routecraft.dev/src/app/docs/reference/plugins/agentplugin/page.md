@@ -383,10 +383,80 @@ Resolution rules:
 |---|---|
 | `directTool(routeId, overrides?)` | Adapt a registered direct route as a fn. Pulls description, input schema, and tags from the route's discovery bundle by default; `overrides` accepts `description` and `input` to replace either of those (tags pass through unchanged). |
 | `currentTime()` / `randomUuid()` | Built-in fn factories (read-only / idempotent). Assign each a tool name in your `functions:` config, the same way as `directTool`. |
+| `webFetch(options?)` | Built-in fn factory: reads a URL and returns markdown (read-only, idempotent). Performs network egress on a URL the model chooses, so it is never registered for you. See [WebFetch](#webfetch). |
 
 MCP tools are NOT exposed via a builder. Use the `MCP(server:tool)` / `MCP(server)` grammar (or the raw `mcp__server__tool` form) inside `tools([...])` instead; the registry populated by `defineConfig.mcp` is the source of truth.
 
 When to hand an agent a raw `MCP(...)` tool versus a wrapped `Direct(...)` route -- and why a guard cannot stand in for the wrap -- is covered in [Calling an MCP](/docs/advanced/call-an-mcp#guardrails-raw-guarded-or-wrapped).
+
+#### WebFetch
+
+`webFetch()` reads a URL and returns its content as markdown. It is the first built-in that reaches the open network on a target the model picks, so it is deliberately not part of any default set: registering it is a decision you make.
+
+```ts
+import { agentPlugin, tools, webFetch } from '@routecraft/ai';
+
+agentPlugin({
+  functions: {
+    WebFetch: webFetch({ allowedDomains: ['docs.example.com'] }),
+  },
+  agents: {
+    researcher: {
+      description: 'Answers questions from the product docs.',
+      system: 'Answer only from pages you have read.',
+      tools: tools(['WebFetch']),
+    },
+  },
+});
+```
+
+The name is yours to choose, as with every fn. `WebFetch` matches Claude Code's tool name, so a Claude agent file referencing `WebFetch` resolves without remapping.
+
+Install the render peers alongside it:
+
+```sh
+bun add @mozilla/readability linkedom turndown
+```
+
+They are optional peers, loaded on first call. A deployment that never registers `WebFetch` does not carry them; one that does and has not installed them gets `RC5017` naming the missing package.
+
+**Options**
+
+| Option | Default | Meaning |
+|---|---|---|
+| `allowedDomains` | `[]` (any public host) | Hosts the tool may read. An entry matches its exact host and any subdomain. |
+| `maxBytes` | `5000000` | Bytes read off the wire per fetch. |
+| `maxLength` | `50000` | Markdown characters per response. |
+| `timeoutMs` | `30000` | Deadline for a whole fetch, redirects included. |
+| `maxRedirects` | `5` | Same-host redirect hops followed. |
+
+**Input and output**
+
+Input is `{ url, offset? }`. The result carries `url`, `title?`, `content`, `truncated`, `totalLength`, `nextOffset?`, and `redirectedTo?`.
+
+Output is bounded, never summarised. A page longer than `maxLength` comes back cut, and the content itself ends with a visible notice naming the full length and the offset to resume from:
+
+```
+[WebFetch: Showing characters 0 to 50000 of 213480. Call WebFetch again with offset=50000 for the next section.]
+```
+
+There is no silent truncation: a clipped page always says so in the text the model reads, not only in a sibling field.
+
+**What it protects against**
+
+- **Reaching internal infrastructure.** Every hostname is resolved and every resulting address classified before connecting. Loopback, private, link-local (including the `169.254.169.254` cloud-metadata address), and other non-public ranges are refused with `AI2001`. Re-checked on every redirect hop.
+- **Credential exfiltration through the tool.** The request is a credential-free GET: no caller headers, no cookies, no authorization, and URLs carrying `user:password@` are refused. The tool cannot be pointed at an internal API and told to authenticate.
+- **Redirect laundering.** Cross-host redirects are not followed. The target is returned to the model as a URL to consider, so a host on `allowedDomains` cannot bounce the fetch to one that is not.
+- **Unbounded reads.** Byte, character, redirect, and time bounds, all per call.
+
+**What it does not protect against**
+
+These are yours to close, and are stated plainly rather than half-built:
+
+- **DNS rebinding.** The address check and the connection resolve the hostname independently, so a resolver answering differently between the two defeats the guard. Pinning the vetted address into the connection needs a runtime hook with no Bun equivalent, so it is not attempted. Close it with an egress proxy or a network policy that enforces the same rule at the packet level.
+- **Prompt injection from fetched content.** Everything this tool returns is attacker-controlled text flowing into a model's context. Treat it as untrusted input, and scope the agent's other tools on the assumption that a fetched page will try to drive them.
+- **Private services on public addresses.** Indistinguishable here from any other public host. Bound them with `allowedDomains`.
+- **Cost and rate limits at the far end.** No per-host throttling.
 
 #### Tags
 

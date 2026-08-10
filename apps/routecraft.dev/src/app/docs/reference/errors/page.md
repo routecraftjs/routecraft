@@ -406,6 +406,42 @@ A block's shape is invalid at construction:
 - Progressive-mode blocks: `{ mode: "progressive", description: "...", value: <string | function> }`.
 - Use the `BlockMode` and `BlockLifetime` types exported from `@routecraft/ai` to catch typos at the type level.
 
+## AI2001
+Web tool refused to dereference a URL
+
+**Why it happens**  
+`webFetch()` rejected a URL before opening any connection:
+- The scheme is not `http:` or `https:`.
+- The URL carries embedded credentials (`https://user:password@host/`).
+- `allowedDomains` is configured and the host is not on it, nor a subdomain of an entry.
+- The host resolves to a non-public address: loopback, RFC 1918 private space, link-local (including the `169.254.169.254` cloud-metadata address), unique-local IPv6, or any other non-unicast range. Every address a host resolves to is checked, not just the first.
+- The host does not resolve, resolves to nothing, or resolves to an address that cannot be parsed.
+
+The same check runs again on every redirect hop, so a permitted host cannot bounce the fetch somewhere it could not reach directly.
+
+**Suggestion**  
+This tool reaches the public web only. To read something internal, expose it as a route and register it with `directTool(routeId)`, or write a purpose-built fn: both keep the target under your control rather than the model's. If a legitimate public host is being refused, check what it resolves to.
+
+## AI2002
+Web tool request failed
+
+**Why it happens**  
+The request was made but produced no usable response: a transport failure, a non-2xx status, a redirect carrying no `Location`, more same-host redirects than `maxRedirects` allows, or the per-call `timeoutMs` deadline elapsing.
+
+**Suggestion**  
+Check the URL resolves and responds. Raise `timeoutMs` or `maxRedirects` on the factory if the host is legitimately slow or redirect-heavy. Retryable: a transient failure may succeed on a second call.
+
+## AI2003
+Web tool could not read the fetched content
+
+**Why it happens**  
+The response arrived but could not be turned into text:
+- The content type is not one this tool reads (HTML, markdown, or plain text).
+- A continuation `offset` points past the end of the document.
+
+**Suggestion**  
+Fetch binary formats, or API responses you intend to parse, with a purpose-built route rather than this tool. For an offset error, re-read from the offset named in the last truncation notice.
+
 ## RC5028
 Cache provider failed
 

@@ -160,6 +160,7 @@ export {
   directTool,
   randomUuid,
   tools,
+  webFetch,
   type AgentToolDescriptor,
   type AgentToolPolicy,
   type AgentToolPolicyContext,
@@ -177,6 +178,9 @@ export {
   type ToolsBuilder,
   type ToolsCatalog,
   type ToolsItem,
+  type WebFetchInput,
+  type WebFetchOptions,
+  type WebFetchResult,
 } from "./agent/tools/index.ts";
 
 // Block primitive: unified system-context contribution (skills, memory,
