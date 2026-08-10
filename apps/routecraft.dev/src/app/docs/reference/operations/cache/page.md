@@ -61,6 +61,8 @@ craft()
 - `ttl` (optional) - Time to live in milliseconds. After expiry, the next execution recomputes the value. When omitted, the provider's default expiry applies (the bundled in-memory provider keeps entries until LRU eviction).
 - `provider` (optional) - A `CacheProvider` implementation. Defaults to a process-wide `MemoryCacheProvider` backed by `lru-cache`. Pass a custom provider to plug in Redis, multi-tier, or file-backed stores.
 
+**Memory is bounded by default.** The default `MemoryCacheProvider` caps the store at `max: 1000` entries and evicts the least-recently-used entry once full, so an unbounded key space cannot grow the cache without limit, with or without a `ttl`. Raise or lower the cap with your own instance (`new MemoryCacheProvider({ max: 10_000 })`); there is no unbounded setting.
+
 **Concurrency:** When multiple exchanges race against the same key, the provider's `getOrCompute` is responsible for deduplication. The bundled `MemoryCacheProvider` runs the wrapped step at most once per key per TTL window; concurrent waiters share the result.
 
 **Caching semantics:**

@@ -46,8 +46,8 @@ const ops: Op[] = [
   {
     name: 'tag',
     category: 'Route',
-    signature: '.tag(key, value)',
-    description: 'Attach metadata for filtering and metrics.',
+    signature: '.tag(value)',
+    description: 'Attach one or more tags for filtering and discovery.',
   },
   {
     name: 'batch',
@@ -139,8 +139,8 @@ const ops: Op[] = [
   {
     name: 'authenticate',
     category: 'Transform',
-    signature: '.authenticate(claims)',
-    description: 'Mint a principal from verified claims.',
+    signature: '.authenticate(resolver)',
+    description: 'Mint a principal from claims the resolver has verified.',
   },
   {
     name: 'delegate',
@@ -179,8 +179,9 @@ const ops: Op[] = [
   {
     name: 'validate',
     category: 'Flow Control',
-    signature: '.validate(schema)',
-    description: 'Halt the exchange if the body fails the schema.',
+    signature: '.validate(validator)',
+    description:
+      'Check the body with a validator; the coerced result replaces it.',
   },
   {
     name: 'schema',
@@ -210,8 +211,8 @@ const ops: Op[] = [
   {
     name: 'aggregate',
     category: 'Flow Control',
-    signature: '.aggregate({ key, every })',
-    description: 'Collect exchanges into a batch by key or interval.',
+    signature: '.aggregate(fn?)',
+    description: 'Fold the children of a split back into one exchange.',
   },
   {
     name: 'multicast',
@@ -235,7 +236,7 @@ const ops: Op[] = [
   {
     name: 'sample',
     category: 'Flow Control',
-    signature: '.sample({ every })',
+    signature: '.sample({ every } | { intervalMs })',
     description: 'Pass every Nth exchange, or the first per time window.',
   },
   {
@@ -250,8 +251,9 @@ const ops: Op[] = [
   {
     name: 'tap',
     category: 'Side Effects',
-    signature: '.tap(processor)',
-    description: 'Run a processor without changing the body.',
+    signature: '.tap(target)',
+    description:
+      'Run a destination or enricher fire-and-forget; the body is unchanged.',
   },
   {
     name: 'log',
@@ -262,8 +264,8 @@ const ops: Op[] = [
   {
     name: 'debug',
     category: 'Side Effects',
-    signature: '.debug(selector?)',
-    description: 'Emit a verbose dump of the exchange.',
+    signature: '.debug(formatter?)',
+    description: 'Emit a log line for the exchange at debug level.',
   },
   {
     name: 'to',
