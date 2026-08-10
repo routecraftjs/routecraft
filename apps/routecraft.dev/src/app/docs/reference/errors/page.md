@@ -8,6 +8,17 @@ Core codes use the `RC` namespace. Ecosystem packages own their codes under regi
 
 Each error includes a code, message, a brief suggestion, and underlying error. A code is its owner's namespace followed by four digits: core codes follow `RCcnnn` where `c` is category and `nnn` is the number, and ecosystem packages use their registered namespace (`AI1001`). Adapters throw them with specific message and suggestion overrides via `rcError(rc, cause, { message, suggestion })`. When the framework logs an error, structured meta (`rc`, `message`, `suggestion`, `causeMessage`, `causeStack`) is included so you can search and alert in your log aggregator.
 
+## Range allocation
+
+Within a namespace, the leading digit reserves a range for one subsystem, so two features landing in parallel cannot mint the same code. Claim the next range here before using it.
+
+| Range | Owner | Covers |
+| --- | --- | --- |
+| `RC****` | `@routecraft/routecraft` | Core: routes, exchanges, adapters, auth, suspension. The digit after `RC` is the category, not a subsystem range. |
+| `AI1xxx` | `@routecraft/ai` | Agent blocks and configuration |
+| `AI2xxx` | `@routecraft/ai` | MCP boundary: tool results returned to a client |
+| `AI3xxx` | `@routecraft/ai` | Built-in agent tools |
+
 The `Retry` column shows whether the [`retry`](/docs/reference/operations/retry) wrapper will retry this error by default. Codes marked `No` typically represent permanent failures (bad input, configuration errors) that won't succeed on retry.
 
 {% error-table /%}

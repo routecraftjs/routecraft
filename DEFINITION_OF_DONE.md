@@ -93,7 +93,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 > Error reference is at `apps/routecraft.dev/src/app/docs/reference/errors/page.md`.
 
 - [ ] Add the error code with description, cause, and suggested fix
-- [ ] Use the existing `RC***` code format
+- [ ] Use the code format of the namespace you are adding to: `RC***` for core, or your ecosystem package's registered namespace (`AI***`). Take the next number in the range your subsystem owns, per the range-allocation table on the error reference page, and claim a new range there before using one
 
 ## When you add or modify a plugin
 
