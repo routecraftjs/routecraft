@@ -265,11 +265,13 @@ describe("suspension serialization refusals", () => {
       }
     }
 
-    expect(() =>
+    const attempt = () =>
       serializeExchange(
         exchangeWith({ at: new BusinessDate("2026-08-10T09:00:00.000Z") }),
-      ),
-    ).toThrow(/BusinessDate/);
+      );
+
+    expect(attempt).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    expect(attempt).toThrow(/BusinessDate/);
   });
 
   /**
@@ -280,8 +282,10 @@ describe("suspension serialization refusals", () => {
    */
   test("refuses an array with a named property", () => {
     const list = Object.assign([1, 2], { cursor: "abc" });
+    const attempt = () => serializeExchange(exchangeWith({ list }));
 
-    expect(() => serializeExchange(exchangeWith({ list }))).toThrow(/cursor/);
+    expect(attempt).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    expect(attempt).toThrow(/cursor/);
   });
 
   /**
@@ -293,8 +297,10 @@ describe("suspension serialization refusals", () => {
   test("refuses an array with a digit-shaped named property", () => {
     const list: unknown[] = [1, 2];
     (list as unknown as Record<string, unknown>)["01"] = "hidden";
+    const attempt = () => serializeExchange(exchangeWith({ list }));
 
-    expect(() => serializeExchange(exchangeWith({ list }))).toThrow(/01/);
+    expect(attempt).toThrow(expect.objectContaining({ rc: "RC5042" }));
+    expect(attempt).toThrow(/01/);
   });
 
   /**

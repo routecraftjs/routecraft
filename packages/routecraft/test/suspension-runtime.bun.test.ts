@@ -79,7 +79,11 @@ describe("suspension runtime resolution", () => {
   });
 
   afterEach(async () => {
-    if (runtime) await runtime.store.close();
+    // Same rule the plugin's teardown follows: a store the caller supplied
+    // is the caller's to close. Closing it here would contradict the
+    // ownership contract this suite asserts a few tests down, and would
+    // break the moment a custom backend has a close that does something.
+    if (runtime?.ownsStore) await runtime.store.close();
     runtime = undefined;
     for (const [key, value] of Object.entries(inherited)) {
       if (value === undefined) delete process.env[key];
