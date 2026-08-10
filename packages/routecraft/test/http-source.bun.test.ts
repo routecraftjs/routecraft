@@ -1564,6 +1564,28 @@ describe("HTTP Source Adapter -- /openapi.json exposure", () => {
   });
 
   /**
+   * Boot an http context with cwd switched into a tmpdir holding the given
+   * package.json, restoring cwd and removing the tmpdir before returning.
+   * findPackageInfo reads cwd synchronously at plugin construction, so the
+   * switch only needs to cover the boot.
+   */
+  async function bootHttpFromTmpPackage(
+    manifest: Record<string, unknown>,
+    options: Parameters<typeof bootHttp>[0],
+  ): Promise<BootHttpResult> {
+    const dir = mkdtempSync(join(tmpdir(), "rc-oapi-"));
+    writeFileSync(join(dir, "package.json"), JSON.stringify(manifest));
+    const prevCwd = process.cwd();
+    try {
+      process.chdir(dir);
+      return await bootHttp(options);
+    } finally {
+      process.chdir(prevCwd);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  /**
    * @case openapi.info auto-detects title and version from the nearest package.json
    * @preconditions No explicit builtins.openapi.info; cwd is switched to a
    *   tmpdir holding a plain app package.json (name + version, no workspaces)
@@ -1574,27 +1596,17 @@ describe("HTTP Source Adapter -- /openapi.json exposure", () => {
    *   fields; description / contact / license stay opt-in).
    */
   test("openapi.info auto-detects title and version from package.json", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "rc-oapi-app-"));
-    writeFileSync(
-      join(dir, "package.json"),
-      JSON.stringify({ name: "acme-orders", version: "7.8.9" }),
-    );
-    const prevCwd = process.cwd();
-    let bound: BootHttpResult;
-    try {
-      process.chdir(dir);
-      bound = await bootHttp({
+    const bound = await bootHttpFromTmpPackage(
+      { name: "acme-orders", version: "7.8.9" },
+      {
         routes: craft()
           .id("oapi-info")
           .from(http({ path: "/oapi-info", method: "GET" }))
           .transform(() => ({ ok: true }))
           .to(noop()),
         http: { port: 0 },
-      });
-    } finally {
-      process.chdir(prevCwd);
-      rmSync(dir, { recursive: true, force: true });
-    }
+      },
+    );
     t = bound.ctx;
 
     const res = await fetch(`http://127.0.0.1:${bound.port}/openapi.json`);
@@ -1627,32 +1639,22 @@ describe("HTTP Source Adapter -- /openapi.json exposure", () => {
    *   drifts because release tooling never touches it.
    */
   test("openapi.info falls back to neutral defaults at a workspace root", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "rc-oapi-ws-"));
-    writeFileSync(
-      join(dir, "package.json"),
-      JSON.stringify({
+    const bound = await bootHttpFromTmpPackage(
+      {
         name: "@acme/workspace",
         version: "0.1.0",
         private: true,
         workspaces: ["packages/*"],
-      }),
-    );
-    const prevCwd = process.cwd();
-    let bound: BootHttpResult;
-    try {
-      process.chdir(dir);
-      bound = await bootHttp({
+      },
+      {
         routes: craft()
           .id("oapi-info-ws")
           .from(http({ path: "/oapi-info-ws", method: "GET" }))
           .transform(() => ({ ok: true }))
           .to(noop()),
         http: { port: 0 },
-      });
-    } finally {
-      process.chdir(prevCwd);
-      rmSync(dir, { recursive: true, force: true });
-    }
+      },
+    );
     t = bound.ctx;
 
     const res = await fetch(`http://127.0.0.1:${bound.port}/openapi.json`);

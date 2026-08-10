@@ -152,9 +152,10 @@ Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick 
 
 ### Versioning model
 
-- `.changeset/config.json` declares a `fixed` group, the **core train**: `@routecraft/routecraft`, `@routecraft/cli`, `@routecraft/testing`, `create-routecraft`, `@routecraft/eslint-plugin-routecraft`, `@routecraft/prettier-plugin-routecraft`. These always share one version number.
+- `.changeset/config.json` declares a `fixed` group, the **core train**: `@routecraft/routecraft`, `@routecraft/cli`, `@routecraft/testing`, `create-routecraft`, `@routecraft/eslint-plugin-routecraft`, `@routecraft/prettier-plugin-routecraft`, and `routecraft.dev`. These always share one version number.
+- `routecraft.dev` rides the train PASSIVELY: it is private (never published; `privatePackages` versions it and publish skips it) and sits in the group only so its manifest version tracks releases, because the docs site reads it as a fallback version source at runtime. Never name `routecraft.dev` in a changeset: a changeset naming any fixed-group member bumps the whole train, so a docs-site changeset would force an empty release of every core package. Docs-site changes ship on the main cadence with no changeset at all. (`fixed` is the only changesets mechanism that moves a changeset-less member with the train; the app has no `@routecraft/*` dependency edge, so plain versioning would never move it.)
 - Everything else (`@routecraft/ai`, `@routecraft/os`, future vendor packages) versions independently.
-- `routecraft.dev` and `examples` are ignored.
+- `examples` is ignored and carries an independent version: it stands in for a user's own project and its version is what its MCP server advertises.
 - `onlyUpdatePeerDependentsWhenOutOfRange` is on, so a core bump that stays inside ecosystem peer ranges does not cascade at all. When a bump DOES leave the range, changesets major-bumps the dependents, which is why the pre-1.0 peer range form is `>=0.5.0 <1.0.0` (see section 5). The flag lives under changesets' `___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH` key, so re-check the changesets release notes for it whenever bumping `@changesets/cli`.
 
 ### Pipeline
