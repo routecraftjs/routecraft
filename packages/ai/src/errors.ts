@@ -8,9 +8,11 @@ import { registerErrorCodes, type RCMeta } from "@routecraft/routecraft";
  * metadata. Loaded as a side-effect import from this package's index so
  * the codes are registered before any adapter can throw them.
  *
- * Numbering: AI1xxx = agent block subsystem (formerly core RC5025-RC5027,
- * renumbered when the codes moved into this package). AI2xxx = built-in
- * web tools.
+ * Numbering follows the range allocation in the errors reference, which
+ * exists so parallel lanes cannot mint the same code: AI1xxx agent blocks
+ * and configuration (formerly core RC5025-RC5027, renumbered when the
+ * codes moved into this package), AI2xxx the MCP boundary, AI3xxx
+ * built-in agent tools.
  */
 /**
  * Provenance of an MCP tool-lifecycle event. Modeled as a discriminated
