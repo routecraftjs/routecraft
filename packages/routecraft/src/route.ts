@@ -367,9 +367,13 @@ export interface Route<T = unknown> {
    * callable to a user-supplied handler as the route-level pipeline
    * does.
    *
+   * @param caller The exchange the forward is issued from. Its headers
+   *   travel with the forwarded call, so the target sees the same
+   *   principal and correlation id as the caller. Required rather than
+   *   optional so a new call site cannot silently forward anonymously.
    * @internal
    */
-  getForward(): ForwardFn;
+  getForward(caller: Exchange): ForwardFn;
 }
 
 /**
@@ -465,6 +469,26 @@ export class DefaultRoute implements Route {
    * normal header and surfaces on the exchange via the `ex.principal`
    * getter.
    *
+   * This is the single route-ingress boundary: both the consumer handler
+   * and `buildForward` funnel through it, and a `direct()` source hands the
+   * target its caller's headers verbatim. Engine-owned identity is
+   * therefore re-established here rather than inherited:
+   *
+   * - `routecraft.id` is minted fresh. Ingress is always a new exchange,
+   *   and an inherited id collides in every store keyed by it (telemetry
+   *   spans and rows, suspension ids). The correlation id is what links a
+   *   hop, not the exchange id.
+   * - `routecraft.split_hierarchy` is dropped. A split group only joins
+   *   within the executor run that created it, so an inherited hierarchy is
+   *   unjoinable, and `.aggregate()` would resolve its trailing group id
+   *   against the context-wide split-parent store and delete the caller's
+   *   still-in-flight entry.
+   * - `routecraft.route` and `routecraft.operation` are stamped for the
+   *   receiving route.
+   *
+   * Everything else, principal and correlation id included, is inherited by
+   * reference. See `.standards/security.md` section 3.
+   *
    * @param message The message data
    * @param headers Optional headers to include
    * @returns A new Exchange object
@@ -479,8 +503,15 @@ export class DefaultRoute implements Route {
     // requiring callers to thread the id manually.
     const incomingCorrelationId = headers?.[HeadersKeys.CORRELATION_ID] as
       string | undefined;
+    // Omitted rather than deleted after the fact: `delete` on a fresh literal
+    // drops the object into dictionary mode, and this one becomes the header
+    // bag every step then reads.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
+    const { [HeadersKeys.SPLIT_HIERARCHY]: _unjoinable, ...inherited } =
+      headers ?? {};
     const builtHeaders: Record<string, unknown> = {
-      ...headers,
+      ...inherited,
+      [HeadersKeys.ID]: randomUUID(),
       [HeadersKeys.CORRELATION_ID]: incomingCorrelationId ?? randomUUID(),
       [HeadersKeys.ROUTE_ID]: this.definition.id,
       [HeadersKeys.OPERATION]: OperationType.FROM,
@@ -518,7 +549,7 @@ export class DefaultRoute implements Route {
       context: this.context,
       route: this,
       definition: this.definition,
-      buildForward: () => this.buildForward(),
+      buildForward: (caller: Exchange) => this.buildForward(caller),
     };
     return this.cachedExecutorDeps;
   }
@@ -530,7 +561,7 @@ export class DefaultRoute implements Route {
         routeId: this.definition.id,
         context: this.context,
         route: this,
-        buildForward: () => this.buildForward(),
+        buildForward: (caller: Exchange) => this.buildForward(caller),
       };
       if (this.definition.errorHandler) {
         deps.errorHandler = this.definition.errorHandler;
@@ -902,21 +933,29 @@ export class DefaultRoute implements Route {
    * Exposed (`@internal`) so step-scope `WrapperStep` subclasses can hand
    * the same forward callable to a user-supplied error / fallback handler
    * as the route-level pipeline does. Resolve via
-   * `getExchangeRoute(exchange).getForward()`.
+   * `getExchangeRoute(exchange).getForward(exchange)`.
    *
    * @returns A forward function
    */
-  getForward(): ForwardFn {
-    return this.buildForward();
+  getForward(caller: Exchange): ForwardFn {
+    return this.buildForward(caller);
   }
 
   /**
    * Build a forward function that sends a payload to another route via the direct adapter.
    *
+   * The forwarded exchange inherits the calling exchange's headers, which is
+   * what carries the caller's principal and correlation id across the hop. A
+   * `direct()` destination gets this for free because it hands the target its
+   * live exchange; forward builds a fresh envelope, so it has to pass the
+   * headers explicitly or the target sees an anonymous, separately-traced
+   * call.
+   *
+   * @param caller The exchange the forward is issued from
    * @returns A forward function
    * @private
    */
-  private buildForward(): ForwardFn {
+  private buildForward(caller: Exchange): ForwardFn {
     return async (
       endpoint: RegisteredDirectEndpoint,
       payload: unknown,
@@ -925,7 +964,7 @@ export class DefaultRoute implements Route {
         await import("./adapters/direct/shared.ts");
       const sanitized = sanitizeEndpoint(endpoint as string);
       const channel = getDirectChannel(this.context, sanitized, {});
-      const forwardExchange = this.buildExchange(payload);
+      const forwardExchange = this.buildExchange(payload, caller.headers);
       const result = await channel.send(sanitized, forwardExchange);
       // Mirror CraftClient.sendDirect: a dropped exchange has no result,
       // and resolving with its body would echo the forwarded payload back

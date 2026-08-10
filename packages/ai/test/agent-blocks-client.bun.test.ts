@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { craft, direct, simple } from "@routecraft/routecraft";
+import {
+  craft,
+  direct,
+  markAuthentic,
+  simple,
+  type Principal,
+  type Source,
+} from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import { agent, llmPlugin } from "../src/index.ts";
 import type { LlmResult } from "../src/llm/types.ts";
@@ -79,6 +86,66 @@ describe("agent blocks: resolver client.forward()", () => {
     await t.test();
     expect(memorySink.received.length).toBeGreaterThan(0);
     expect(capturedSystem).toContain("## memory");
+    expect(capturedSystem).toContain("Notes for jane");
+  });
+
+  /**
+   * @case client.forward() carries the dispatching exchange's principal into the resolved route
+   * @preconditions Calling route runs under an authentic principal; the memory route declares .authorize()
+   * @expectedResult The memory route completes under the caller's identity and its content reaches the system prompt
+   */
+  test("client.forward() reaches a guarded route as the caller", async () => {
+    const sink = spy();
+    const principal: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "jane",
+      scopes: ["kb:read"],
+    };
+    const principalSource: Source<string> = {
+      subscribe: async (sub) => {
+        await sub.emit({
+          message: "hi",
+          headers: { "routecraft.auth.principal": markAuthentic(principal) },
+        });
+      },
+    };
+
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("guarded-memory")
+          .authorize({ scopes: ["kb:read"] })
+          .from(direct())
+          .transform(
+            (_body: unknown, ex) => `Notes for ${ex.principal?.subject}`,
+          ),
+        craft()
+          .id("guarded-chat")
+          .from(principalSource)
+          .to(
+            agent({
+              system: "Base.",
+              model: "anthropic:claude-opus-4-7",
+              blocks: {
+                memory: {
+                  mode: "inject",
+                  value: async (_exchange, _context, _events, client) =>
+                    (await client.forward("guarded-memory", {})) as string,
+                },
+              },
+            }),
+          )
+          .to(sink),
+      ])
+      .build();
+
+    await t.test();
     expect(capturedSystem).toContain("Notes for jane");
   });
 });

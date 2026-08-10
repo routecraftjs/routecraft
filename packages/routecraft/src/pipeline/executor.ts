@@ -72,7 +72,8 @@ export interface ExecutorDeps {
     | "circuitBreaker"
     | "concurrency"
   >;
-  buildForward(): ForwardFn;
+  /** Build a forward callable whose target inherits `caller`'s headers. */
+  buildForward: (caller: Exchange) => ForwardFn;
   /**
    * When set and no `errorHandler` is defined, an unhandled failure of
    * the parent exchange THROWS out of `runPipeline` instead of firing
@@ -553,7 +554,7 @@ export async function runPipeline(
         });
 
         try {
-          const forward = deps.buildForward();
+          const forward = deps.buildForward(exchange);
           const result = await deps.definition.errorHandler(
             err,
             exchange,
@@ -824,7 +825,7 @@ function nestedDeps(
     routeId: deps.routeId,
     context: deps.context,
     route: deps.route,
-    buildForward: () => deps.buildForward(),
+    buildForward: deps.buildForward,
     ...(opts.rethrowUnhandled ? { rethrowUnhandled: true } : {}),
     ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
     definition: {
@@ -884,7 +885,7 @@ function makeDownstreamRunner(
         routeId: deps.routeId,
         context: deps.context,
         route: deps.route,
-        buildForward: () => deps.buildForward(),
+        buildForward: deps.buildForward,
         definition: {
           preParseFilters: [],
           postParseFilters: [],
@@ -908,7 +909,7 @@ function makeDownstreamRunner(
             routeId: deps.routeId,
             context: deps.context,
             route: deps.route,
-            buildForward: () => deps.buildForward(),
+            buildForward: deps.buildForward,
             ...(routeDefinition.errorHandler
               ? { errorHandler: routeDefinition.errorHandler }
               : {}),
@@ -1160,7 +1161,7 @@ function buildCircuitBreakerSegmentStep(
         controller.options,
       );
 
-      const forward = deps.buildForward();
+      const forward = deps.buildForward(exchange);
 
       return executeWithCircuitBreaker(
         controller,

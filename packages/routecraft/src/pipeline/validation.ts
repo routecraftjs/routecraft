@@ -21,7 +21,8 @@ export interface ValidationDeps {
   /** The owning route, surfaced on validation event payloads. */
   route: Route;
   errorHandler?: ErrorHandler;
-  buildForward(): ForwardFn;
+  /** Build a forward callable whose target inherits `caller`'s headers. */
+  buildForward: (caller: Exchange) => ForwardFn;
 }
 
 /**
@@ -160,7 +161,7 @@ export async function handleOutputValidationFailure(
 
   if (deps.errorHandler) {
     try {
-      const forward = deps.buildForward();
+      const forward = deps.buildForward(exchange);
       const recovered = await deps.errorHandler(error, exchange, forward);
       // Re-validate the recovered body against the same output schemas
       // before declaring success. Without this, an `errorHandler` that

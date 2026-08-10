@@ -451,8 +451,11 @@ export function circuitBreakerEmitHooks(
  *
  * @internal
  */
-export function circuitBreakerForward(route: Route | undefined): ForwardFn {
-  if (route) return route.getForward();
+export function circuitBreakerForward(
+  route: Route | undefined,
+  caller: Exchange,
+): ForwardFn {
+  if (route) return route.getForward(caller);
   return () =>
     Promise.reject(
       rcError("RC5001", undefined, {
@@ -578,7 +581,7 @@ export class CircuitBreakerWrapperStep<
       this.#controller.options,
     );
 
-    const forward = circuitBreakerForward(route);
+    const forward = circuitBreakerForward(route, exchange);
 
     return executeWithCircuitBreaker(
       this.#controller,

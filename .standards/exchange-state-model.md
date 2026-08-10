@@ -30,6 +30,21 @@ A contributor adding new state asks:
 
 That's it. No primitive/structured split. No second per-exchange bag. No stored-field "special cases" for cross-cutting concerns. One Principal --> one header key + one getter. One Span (future) --> one header key (and external helper if warranted).
 
+## Engine-owned headers at a route boundary
+
+`DefaultRoute.buildExchange` is the single route-ingress constructor: every source-driven ingress and every `forward()` funnels through it, and a `direct()` destination hands its target the caller's headers verbatim. It is therefore the one place that decides what an inherited header bag keeps.
+
+Everything is inherited by reference, including the principal (see `.standards/security.md` § 3), except the engine-owned keys declared in `engine-headers.ts`:
+
+| Key | At ingress | Why |
+|---|---|---|
+| `routecraft.id` | minted fresh | Ingress is always a new exchange. Inheriting the caller's id collides in every store keyed by it: telemetry spans (`${exchangeId}:${contextId}`), the `exchanges` / `exchange_snapshots` tables, and suspension ids (`${exchangeId}~${sequence}`). |
+| `routecraft.correlation_id` | preserved, else minted | This, not the exchange id, is what links a hop into one logical request. |
+| `routecraft.route`, `routecraft.operation` | stamped for the receiving route | They describe where the exchange is now, not where it came from. |
+| `routecraft.split_hierarchy` | dropped | A split group only joins within the executor run that created it, so an inherited hierarchy is unjoinable. Worse, `.aggregate()` resolves the trailing group id against the context-wide split-parent store, so it would claim the caller's parent exchange and delete that entry on completion. |
+
+Adding an engine-owned header means deciding its route-boundary behaviour here as well as registering it in `engine-headers.ts`. The default for anything else is inheritance: the framework has one bag, and it does not distinguish user headers from adapter headers (see "Why one bag named `headers`").
+
 ## Halt / continue contract
 
 Persisting an exchange = serializing `{ body, headers }`. Resuming an exchange = `new DefaultExchange(context, { body, headers })` on the resuming process, where `context` is a fresh `CraftContext`.
