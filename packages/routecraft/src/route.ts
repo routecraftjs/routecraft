@@ -44,7 +44,13 @@ import {
   validateInputOrThrow,
   type ValidationDeps,
 } from "./pipeline/validation.ts";
-import { runPipeline, type ExecutorDeps } from "./pipeline/executor.ts";
+import {
+  runDetachedPipeline,
+  runPipeline,
+  type DetachedResult,
+  type ExecutorDeps,
+} from "./pipeline/executor.ts";
+import type { SuspendableStep } from "./suspension/sites.ts";
 
 // Re-exported for existing imports (builder.ts and @internal consumers).
 export { buildCacheCheckStep, buildCacheStoreStep, buildThrottleCheckStep };
@@ -300,6 +306,21 @@ export type RouteDefinition<T = unknown> = {
    * @internal
    */
   readonly concurrency?: ConcurrencyController[];
+
+  /**
+   * Every `.suspend()` the route can reach, resolved once at build time and
+   * in pre-order. Each step carries the {@link SuspendSite} naming its
+   * address and its continuation, which is what a resume addresses: the
+   * continuation cannot be a closure captured at suspend time, because
+   * execution two happens in a different process.
+   *
+   * Absent (rather than empty) on a route that never suspends, so the
+   * common case costs nothing and `context.start()` can tell "no suspends"
+   * from "suspends, needs a runtime" without walking anything.
+   *
+   * @internal
+   */
+  suspendSteps?: SuspendableStep[];
 };
 
 /**
@@ -359,6 +380,47 @@ export interface Route<T = unknown> {
    * @internal
    */
   onDrain(callback: () => void): void;
+
+  /**
+   * Run `steps` against a revived exchange as a first-class run of this
+   * route: its own `exchange:started` / `:completed` pair, the route-scope
+   * `.error()` handler, and `.output()` validation before completion.
+   *
+   * The entry point for execution two. The steps handed in are the parked
+   * exchange's continuation, so the route resumes partway down its pipeline
+   * without re-running what already ran, and without re-running the
+   * pre-from filter chain (authorize, parse, input, throttle, cache), all
+   * of which belong to execution one.
+   *
+   * @param exchange - The rehydrated exchange, already bound to this route
+   * @param steps - The continuation, in execution order
+   * @internal
+   */
+  runContinuation(
+    exchange: Exchange,
+    steps: Step<Adapter>[],
+  ): Promise<DetachedResult>;
+
+  /**
+   * Push an error into this route's error channel for an exchange that is
+   * not currently running in it.
+   *
+   * The resume path uses it so a revival failure (an expired suspension, a
+   * continuation that changed under a parked exchange) reaches the
+   * SUSPENDED route's `.error()` handler rather than only the ingress
+   * route's. That is the difference between a route that can notify the
+   * approver and re-ask, and an approver left at a dead link.
+   *
+   * @param exchange - The exchange the failure concerns
+   * @param error - The failure to route
+   * @param operation - Step label reported on the error events
+   * @internal
+   */
+  enterErrorChannel(
+    exchange: Exchange,
+    error: unknown,
+    operation: string,
+  ): Promise<void>;
 
   /**
    * Build a forward function the route uses to delegate from an
@@ -871,8 +933,13 @@ export class DefaultRoute implements Route {
       // Framework-level output validation runs on successful, non-dropped
       // exchanges before we declare completion. A failure falls through the
       // same path as a thrown step: errorHandler if set, else a failed result.
+      // A parked exchange is exempt from both: its body is the `Suspended`
+      // acknowledgment rather than the route's declared output (the two
+      // arms of the route's `Output | Suspended` type), and its terminal
+      // event was `route:exchange:suspended`. The source still receives the
+      // exchange, which is how each transport renders the acknowledgment.
       let finalResult = result;
-      if (!result.failed && !result.dropped) {
+      if (!result.failed && !result.dropped && !result.suspended) {
         const outputSchemas = this.definition.discovery?.output;
         if (outputSchemas?.body || outputSchemas?.headers) {
           try {
@@ -883,18 +950,27 @@ export class DefaultRoute implements Route {
             );
             finalResult = { ...result, exchange: validated };
           } catch (err) {
-            finalResult = await handleOutputValidationFailure(
-              this.validationDeps(),
-              result.exchange,
-              err,
-              startTime,
-              outputSchemas,
-            );
+            // `suspended` is false by construction here: this arm only runs
+            // for a non-suspended result.
+            finalResult = {
+              suspended: false,
+              ...(await handleOutputValidationFailure(
+                this.validationDeps(),
+                result.exchange,
+                err,
+                startTime,
+                outputSchemas,
+              )),
+            };
           }
         }
       }
 
-      if (!finalResult.failed && !finalResult.dropped) {
+      if (
+        !finalResult.failed &&
+        !finalResult.dropped &&
+        !finalResult.suspended
+      ) {
         const duration = Date.now() - startTime;
         const correlationId = exchange.headers[
           HeadersKeys.CORRELATION_ID
@@ -925,6 +1001,74 @@ export class DefaultRoute implements Route {
     tracked.finally(() => this.inFlight.delete(tracked));
 
     return handlerPromise;
+  }
+
+  /**
+   * Run a revived exchange through its continuation. See
+   * {@link Route.runContinuation}.
+   *
+   * Tracked as in-flight work so `drain()` (and therefore shutdown) waits
+   * for execution two, which arrives out of band and would otherwise be
+   * invisible to the route that owns it.
+   *
+   * @internal
+   */
+  runContinuation(
+    exchange: Exchange,
+    steps: Step<Adapter>[],
+  ): Promise<DetachedResult> {
+    const run = runDetachedPipeline(this.executorDeps(), steps, exchange);
+    this.trackTask(run);
+    return run;
+  }
+
+  /**
+   * Push an error into this route's error channel. See
+   * {@link Route.enterErrorChannel}.
+   *
+   * Implemented as a one-step pipeline whose step throws, rather than by
+   * calling the handler directly, so a revival failure produces exactly the
+   * events a step failure produces (`route:step:error`,
+   * `route:error-handler:invoked` / `:recovered` / `:failed`, or the
+   * default `route:error` + `context:error` + `route:exchange:failed`
+   * path). A second, hand-rolled error path would drift from that one.
+   *
+   * @internal
+   */
+  async enterErrorChannel(
+    exchange: Exchange,
+    error: unknown,
+    operation: string,
+  ): Promise<void> {
+    const deps: ExecutorDeps = {
+      routeId: this.definition.id,
+      context: this.context,
+      route: this,
+      // The re-ask handler forwards as the SUSPENDED exchange, so its
+      // `forward()` carries that exchange's headers: the correlation of the
+      // work being re-asked about, and its principal, which came back from
+      // the store marked restored. A target declaring `.authorize()` refuses
+      // it for that reason (RC5043), which is the correct answer: nothing
+      // re-verified that identity across the park.
+      buildForward: (caller: Exchange) => this.buildForward(caller),
+      definition: {
+        preParseFilters: [],
+        postParseFilters: [],
+        postFromFilters: [],
+        steps: [
+          {
+            operation: OperationType.PROCESS,
+            label: operation,
+            adapter: { adapterId: "routecraft.operation.resume" },
+            execute: () => Promise.reject(error),
+          },
+        ],
+        ...(this.definition.errorHandler
+          ? { errorHandler: this.definition.errorHandler }
+          : {}),
+      },
+    };
+    await runPipeline(deps, exchange, Date.now());
   }
 
   /**

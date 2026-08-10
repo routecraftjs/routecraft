@@ -25,8 +25,8 @@ import {
  *
  * @template T - Current body type
  */
-export type TapCallable<T = unknown> = (
-  exchange: Exchange<T>,
+export type TapCallable<T = unknown, Ex extends Exchange<T> = Exchange<T>> = (
+  exchange: Ex,
   ctx?: SendContext,
 ) => unknown;
 
@@ -37,8 +37,8 @@ export type TapCallable<T = unknown> = (
  *
  * @template T - Current body type
  */
-export type TapTarget<T = unknown> =
-  Destination<T> | Enricher<T, unknown> | TapCallable<T>;
+export type TapTarget<T = unknown, Ex extends Exchange<T> = Exchange<T>> =
+  Destination<T> | Enricher<T, unknown> | TapCallable<T, Ex>;
 
 /**
  * Step that runs a destination (or enricher) as a side effect without changing

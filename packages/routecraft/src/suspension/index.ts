@@ -54,3 +54,13 @@ export type {
   SuspensionStoreConfig,
   SuspensionTestSeams,
 } from "./config.ts";
+
+export { isSuspended } from "./suspended.ts";
+export type { Suspended } from "./suspended.ts";
+
+export { SuspensionHeaders } from "./exchange-state.ts";
+export type { SuspensionAffordance } from "./exchange-state.ts";
+
+export type { Duration, DurationUnit } from "./duration.ts";
+
+export type { ResumeAcknowledgment, ResumeRequest } from "./revive.ts";

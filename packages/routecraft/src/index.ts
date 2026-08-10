@@ -190,6 +190,9 @@ export {
 
 export { type HeaderSetter } from "./operations/header.ts";
 
+export { type SuspendOptions } from "./operations/suspend.ts";
+export { type ResumeMapper } from "./operations/resume.ts";
+
 export { type CallableAuthenticator } from "./operations/authenticate.ts";
 
 export {
@@ -498,12 +501,20 @@ export {
   SUSPENSION_SECRET_ENV,
   SUSPENSION_STORE_ENV,
   SqliteSuspensionStore,
+  SuspensionHeaders,
+  isSuspended,
   suspensionPlugin,
 } from "./suspension/index.ts";
 export type {
+  Duration,
+  DurationUnit,
   NewSuspension,
   PendingSuspensionSummary,
   PrincipalRef,
+  ResumeAcknowledgment,
+  ResumeRequest,
+  Suspended,
+  SuspensionAffordance,
   SerializedExchange,
   SerializedOutcome,
   Suspension,

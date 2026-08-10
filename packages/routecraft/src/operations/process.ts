@@ -36,8 +36,12 @@ import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
  * @template T - Current body type
  * @template R - Result body type (default T)
  */
-export type CallableProcessor<T = unknown, R = T> = (
-  exchange: Exchange<T>,
+export type CallableProcessor<
+  T = unknown,
+  R = T,
+  Ex extends Exchange<T> = Exchange<T>,
+> = (
+  exchange: Ex,
   ctx?: StepSignalContext,
 ) => Promise<Exchange<R>> | Exchange<R>;
 

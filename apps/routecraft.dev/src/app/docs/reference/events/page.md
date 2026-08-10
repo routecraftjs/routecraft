@@ -53,10 +53,15 @@ Fired per exchange, scoped to the capability that owns it. `routeId` is the capa
 | `route:exchange:failed` | Exchange encountered an unrecoverable error | `{ routeId, exchangeId, correlationId, duration, error }` |
 | `route:exchange:dropped` | Exchange intentionally removed from the pipeline | `{ routeId, exchangeId, correlationId, reason }` |
 | `route:exchange:restored` | Exchange restored from cache, skipping steps | `{ routeId, exchangeId, correlationId, source }` |
+| `route:exchange:suspended` | Exchange parked at a [`.suspend()`](/docs/reference/operations/suspend); execution one ends here | `{ routeId, exchangeId, correlationId, suspensionId, position, expiresAt? }` |
+| `route:exchange:resumed` | A parked exchange was revived and its continuation is about to run | `{ routeId, exchangeId, correlationId, suspensionId, position, resumedBy? }` |
+| `route:exchange:expired` | A suspension stopped being resumable because its `ttl` elapsed | `{ routeId, exchangeId, correlationId, suspensionId, expiresAt }` |
 
 The `exchangeId` field is the exchange's own ID, not the correlation ID. Use `correlationId` to group related exchanges (e.g. a parent and its split children share the same correlation ID).
 
-**Lifecycle guarantee:** every `exchange:started` is eventually followed by exactly one of `completed`, `failed`, or `dropped`.
+**Lifecycle guarantee:** every `exchange:started` is eventually followed by exactly one of `completed`, `failed`, `dropped`, or `suspended`.
+
+A parked exchange runs twice, and the events say so. Execution one is `started` then `suspended`. When the answer arrives, `resumed` fires, followed by execution two's own `started` and its `completed` / `failed` / `dropped`. Both runs carry the same `exchangeId` and `correlationId`, which is what lets a consumer stitch them together; `suspensionId` identifies the park itself.
 
 ## Operation events
 

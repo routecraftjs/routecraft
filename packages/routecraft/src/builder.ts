@@ -30,6 +30,7 @@ import { BatchConsumer } from "./consumers/batch.ts";
 import { type Source, type SourceLike, toSource } from "./operations/from.ts";
 import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
+import { resolveSuspendSites } from "./suspension/sites.ts";
 import {
   type Splitter,
   type CallableSplitter,
@@ -1706,6 +1707,11 @@ export class RouteBuilder<
     this.assertNoPendingWrappers("build");
     for (const route of this.routes) {
       assertRouteScopeCacheCompatibility(route);
+      // Resolving suspend sites is also where a `.suspend()` in a position
+      // that cannot be revived is refused, so it runs on every build rather
+      // than only when the route turns out to suspend.
+      const suspendSteps = resolveSuspendSites(route);
+      if (suspendSteps.length > 0) route.suspendSteps = suspendSteps;
     }
     logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;

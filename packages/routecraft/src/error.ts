@@ -88,6 +88,13 @@ export interface ErrorCodeRegistry {
   RC5043: RCMeta;
   RC5044: RCMeta;
   RC5045: RCMeta;
+  RC5046: RCMeta;
+  RC5047: RCMeta;
+  RC5048: RCMeta;
+  RC5049: RCMeta;
+  RC5050: RCMeta;
+  RC5051: RCMeta;
+  RC5052: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -353,7 +360,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Unsupported step outcome",
     suggestion:
-      "A step returned a StepOutcome kind the engine cannot schedule yet. The 'suspend' kind is reserved for the route-level suspend/resume feature and is not implemented; no built-in step produces it. If you wrote a custom step, return a supported outcome (continue, complete, drop, branch, fanOut). Retrying will not help.",
+      "A step returned a StepOutcome the engine cannot schedule. Either the kind is one this build does not know, or a 'suspend' outcome arrived without the request the executor needs to park the exchange (only the framework's own `.suspend()` step produces one). If you wrote a custom step, return a supported outcome (continue, complete, drop, branch, fanOut). Retrying will not help.",
     docs: `${DOCS_BASE}#rc-5032`,
     retryable: false,
   },
@@ -464,6 +471,62 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
       "Another writer held the suspension store's write lock for longer than the busy timeout. Unlike RC5044 this is transient: the competing write finishes and the same call succeeds, so it is registered retryable and a .retry() wrapper re-attempts it. Persistent contention means more than one process is writing the same store file; give each its own store, or move to a backend built for concurrent writers.",
     docs: `${DOCS_BASE}#rc-5045`,
     retryable: true,
+  },
+  RC5046: {
+    category: "Runtime",
+    message: "Suspension not found",
+    suggestion:
+      "The resume token verified, but the store holds no suspension under that id. The record was purged by retention, the process is pointed at a different store than the one that parked the exchange (an in-memory store after a restart, a different sqlite path), or the id was resumed against the wrong deployment. Check `suspension: { store }` names the same location on every node.",
+    docs: `${DOCS_BASE}#rc-5046`,
+    retryable: false,
+  },
+  RC5047: {
+    category: "Runtime",
+    message: "Suspension expired",
+    suggestion:
+      "The answer arrived after the suspension's `ttl` elapsed, so the parked exchange is no longer resumable. This is catchable: the suspended route's own `.error()` handler receives this error and can notify the approver and re-ask. Raise `ttl` on `.suspend()` if the window is genuinely too short for the people answering.",
+    docs: `${DOCS_BASE}#rc-5047`,
+    retryable: false,
+  },
+  RC5048: {
+    category: "Runtime",
+    message: "Suspension continuation changed",
+    suggestion:
+      "The steps after the suspend point (or the `expect` schema) changed while the exchange was parked, so the stored approval no longer authorizes what would now run. Resuming is refused before any of those steps execute. This is catchable: the suspended route's `.error()` handler receives it and can re-ask with a fresh suspension. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so deployments that park approvals for days should pin those.",
+    docs: `${DOCS_BASE}#rc-5048`,
+    retryable: false,
+  },
+  RC5049: {
+    category: "Runtime",
+    message: "Suspension result rejected",
+    suggestion:
+      "The candidate result handed to `.resume()` failed the `expect` schema declared on the suspending `.suspend()`. The suspension is left resumable, so a corrected answer still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the answer, while validation happens at revival because only the suspension knows the schema.",
+    docs: `${DOCS_BASE}#rc-5049`,
+    retryable: false,
+  },
+  RC5050: {
+    category: "Runtime",
+    message: "Suspension denied",
+    suggestion:
+      "The suspension was marked denied before this resume arrived, typically because the run carrying the parked exchange was cancelled. A denied suspension is terminal; the work must be re-submitted as a new exchange rather than resumed.",
+    docs: `${DOCS_BASE}#rc-5050`,
+    retryable: false,
+  },
+  RC5051: {
+    category: "Definition",
+    message: "Suspend not supported at this position",
+    suggestion:
+      "A `.suspend()` was declared where the framework cannot durably park and revive the exchange: inside `.split()` (a durable aggregator would have to track N outstanding children across restarts), inside a `.multicast()` / `.dispatch()` path (those exchanges are not the route's primary flow), or under a step-scope wrapper. Split the work into per-item child capabilities, each its own exchange suspending independently, or move the suspend onto the main flow or a `.choice()` branch of it.",
+    docs: `${DOCS_BASE}#rc-5051`,
+    retryable: false,
+  },
+  RC5052: {
+    category: "Definition",
+    message: "Suspension runtime not configured",
+    suggestion:
+      "A route in this context can reach a durable `.suspend()`, but nothing configured where parked exchanges are stored or how resume tokens are signed. Add `suspension: {}` to `defineConfig` to take the defaults (sqlite plus the `ROUTECRAFT_SUSPENSION_SECRET` environment variable), or `suspension: { store, secret }` to be explicit. It is deliberately not implicit: a durable suspend that silently parks into memory loses everything it promised on the next restart.",
+    docs: `${DOCS_BASE}#rc-5052`,
+    retryable: false,
   },
   RC9901: {
     category: "Runtime",

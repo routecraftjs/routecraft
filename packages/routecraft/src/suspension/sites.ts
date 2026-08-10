@@ -1,0 +1,204 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { rcError } from "../error.ts";
+import { OperationType } from "../exchange.ts";
+import { NESTED_STEPS } from "../dsl-symbol.ts";
+import type { Adapter, Step } from "../types.ts";
+import type { RouteDefinition } from "../route.ts";
+
+/**
+ * Where a `.suspend()` sits in a route, and what runs when it is resumed.
+ *
+ * Resolved once at `craft().build()` time and stored on the route
+ * definition, for one reason: execution two happens in a different process,
+ * so the continuation cannot be a closure captured at suspend time. It has
+ * to be re-derivable from the route definition alone, and a site is exactly
+ * that derivation.
+ */
+export interface SuspendSite {
+  /**
+   * Stable address of the suspending step within the route.
+   *
+   * The index of the step in a pre-order walk of the route's step tree, not
+   * an index into `definition.steps`: a suspend inside a `.choice()` branch
+   * is a real position that a flat index cannot name. Two processes running
+   * the same route source derive the same numbers, which is all the address
+   * has to guarantee. The record's `position` field carries it, and
+   * `position + 1` onward is {@link SuspendSite.continuation}.
+   */
+  readonly position: number;
+  /**
+   * The steps that run on resume, flattened in execution order.
+   *
+   * For a suspend on the main flow this is simply the steps after it. For a
+   * suspend inside a `.choice()` branch it is the rest of that branch
+   * followed by the steps after the choice, which is the same sequence the
+   * executor would have run had the exchange never parked (a matched branch
+   * rejoins the main flow).
+   */
+  readonly continuation: ReadonlyArray<Step<Adapter>>;
+}
+
+/**
+ * What a `suspend` outcome hands the executor.
+ *
+ * The step resolves the pieces (its schema, its expiry, its site) and the
+ * executor owns the effects (serialize, hash, store, emit), which keeps
+ * every scheduling decision in one place, as with every other outcome kind.
+ *
+ * It lives here rather than beside the operation because `types.ts` names
+ * it on the `StepOutcome` union, and `types.ts` is the dependency root: it
+ * does not import from `operations/`.
+ *
+ * @internal
+ */
+export interface SuspendRequest {
+  /** Live schema the eventual answer is validated against. */
+  readonly expect: StandardSchemaV1;
+  /** Resolved TTL in milliseconds, when one was declared. */
+  readonly expiresInMs?: number;
+  /** Where this suspend sits, and what runs on resume. */
+  readonly site: SuspendSite;
+}
+
+/**
+ * A step that can park the exchange. Implemented by the `.suspend()` step;
+ * declared here so the walk can recognise one without importing the
+ * operation (which imports this module back).
+ *
+ * @internal
+ */
+export interface SuspendableStep extends Step<Adapter> {
+  readonly operation: OperationType.SUSPEND;
+  /**
+   * The live `expect` schema. Read back off the step at resume time to
+   * validate the candidate answer, because a Standard Schema cannot be
+   * persisted with the record.
+   */
+  readonly expect: StandardSchemaV1;
+  /** Assigned by {@link resolveSuspendSites}. Absent means the step is not reachable from a built route. */
+  site?: SuspendSite;
+}
+
+/**
+ * One nested sub-pipeline of a step, as reported through
+ * {@link NESTED_STEPS}.
+ *
+ * `rejoins` is the load-bearing field. A `.choice()` branch flows back into
+ * the main pipeline when it matches, so a suspend inside one has a
+ * well-defined continuation that spans the branch tail and the main tail. A
+ * `.multicast()` path or a `.dispatch()` target runs as an isolated nested
+ * pipeline whose exchange is not the route's primary flow, so there is no
+ * such continuation and a suspend inside one is refused.
+ */
+export interface NestedSteps {
+  readonly steps: ReadonlyArray<Step<Adapter>>;
+  readonly rejoins: boolean;
+}
+
+/** A step that carries nested sub-pipelines. @internal */
+interface NestingStep extends Step<Adapter> {
+  [NESTED_STEPS](): ReadonlyArray<NestedSteps>;
+}
+
+/**
+ * Resolve every `.suspend()` site in a route, refusing the positions where
+ * a durable park cannot be revived.
+ *
+ * Runs at build time so an incoherent route fails on the deploy that
+ * introduced it rather than on the first large payout. Assigns each
+ * suspending step its {@link SuspendSite} as a side effect, because the
+ * step is what the executor holds when the outcome comes back.
+ *
+ * @param route - A finalised route definition
+ * @returns Every suspending step in the route, in pre-order, each carrying
+ *   the site it was assigned
+ * @throws RC5051 when a `.suspend()` sits somewhere it cannot be revived
+ *   from: inside an unbalanced `.split()`, or inside a `.multicast()` /
+ *   `.dispatch()` path.
+ *
+ * @internal
+ */
+export function resolveSuspendSites(route: RouteDefinition): SuspendableStep[] {
+  const found: SuspendableStep[] = [];
+  const counter = { next: 0 };
+  walk(route, route.steps, [], found, counter, {
+    splitDepth: 0,
+    sealed: false,
+  });
+  return found;
+}
+
+/**
+ * Walk a step array in execution order, assigning positions and sites.
+ *
+ * @param tail - Steps that run after this array finishes, already flattened.
+ *   A branch inherits the tail of the step that contains it, which is what
+ *   makes a branch-local continuation span the main flow too.
+ * @param scope - `splitDepth` counts `.split()` calls not yet balanced by an
+ *   `.aggregate()`; `sealed` marks a sub-pipeline that never rejoins.
+ *
+ * @internal
+ */
+function walk(
+  route: RouteDefinition,
+  steps: ReadonlyArray<Step<Adapter>>,
+  tail: ReadonlyArray<Step<Adapter>>,
+  found: SuspendableStep[],
+  counter: { next: number },
+  scope: { splitDepth: number; sealed: boolean },
+): void {
+  let splitDepth = scope.splitDepth;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
+    const position = counter.next++;
+    const after = [...steps.slice(i + 1), ...tail];
+
+    if (step.operation === OperationType.SPLIT) splitDepth++;
+    else if (step.operation === OperationType.AGGREGATE && splitDepth > 0) {
+      splitDepth--;
+    }
+
+    if (step.operation === OperationType.SUSPEND) {
+      if (splitDepth > 0) {
+        throw refuse(
+          route.id,
+          "inside a .split() that no .aggregate() balances. Reviving one parked child would mean tracking every outstanding sibling across restarts, which is a distributed coordination problem in disguise. Split the work into per-item child capabilities instead: each is its own exchange and suspends independently",
+        );
+      }
+      if (scope.sealed) {
+        throw refuse(
+          route.id,
+          "inside a .multicast() path or .dispatch() target. Those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin. Move the suspend onto the main flow, or onto a .choice() branch of it",
+        );
+      }
+      const suspend = step as SuspendableStep;
+      suspend.site = { position, continuation: after };
+      found.push(suspend);
+      continue;
+    }
+
+    for (const nested of nestedOf(step)) {
+      walk(route, nested.steps, nested.rejoins ? after : [], found, counter, {
+        splitDepth,
+        sealed: scope.sealed || !nested.rejoins,
+      });
+    }
+  }
+}
+
+/**
+ * Sub-pipelines a step carries, or none.
+ *
+ * @internal
+ */
+function nestedOf(step: Step<Adapter>): ReadonlyArray<NestedSteps> {
+  const nesting = (step as Partial<NestingStep>)[NESTED_STEPS];
+  return typeof nesting === "function" ? nesting.call(step as NestingStep) : [];
+}
+
+/** @internal */
+function refuse(routeId: string, where: string): Error {
+  return rcError("RC5051", undefined, {
+    message: `Route "${routeId}" declares a .suspend() ${where}.`,
+  });
+}

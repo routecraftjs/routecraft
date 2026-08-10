@@ -452,10 +452,10 @@ If the caller should receive a value, recover with a body in `.error()` instead 
 Unsupported step outcome
 
 **Why it happens**  
-A step returned a `StepOutcome` whose `kind` the engine cannot schedule. In practice this only happens with a custom step: the built-in steps always return a supported kind. The `suspend` kind is declared on the outcome union (reserved for the future route-level suspend/resume feature) but is not implemented yet, so the executor rejects it rather than silently dropping the exchange. This is **not retryable**: the same step returns the same outcome every time.
+A step returned a `StepOutcome` the engine cannot schedule. In practice this only happens with a custom step: the built-in steps always return a supported kind. Either the kind is one this build does not know, or a `suspend` outcome arrived without the request the executor parks from, which only the framework's own [`.suspend()`](/docs/reference/operations/suspend) step can produce. This is **not retryable**: the same step returns the same outcome every time.
 
 **Suggestion**  
-Return one of the supported outcomes from your step: `continue`, `complete`, `drop`, `branch`, or `fanOut`. Suspend/resume is not available yet; follow the tracking issue for when `suspend` becomes producible.
+Return one of the supported outcomes from your step: `continue`, `complete`, `drop`, `branch`, or `fanOut`. To park an exchange, use `.suspend()` rather than hand-rolling the outcome: the executor needs the site the builder assigns to work out what would run on resume.
 
 ## RC5033
 Dedupe key derivation failed
@@ -602,6 +602,71 @@ Another writer held the suspension store's write lock for longer than the busy t
 
 **Suggestion**  
 Unlike [`RC5044`](#rc-5044) this is transient, so it is registered retryable and a `.retry()` wrapper re-attempts it. If it persists, the store file has more than one writer: give each process its own store, or move to a backend built for concurrent writers once one ships.
+
+## RC5046
+Suspension not found
+
+**Why it happens**  
+The resume token verified, but the store holds no suspension under that id. Either the record was purged by retention, or this process is pointed at a different store than the one that parked the exchange (an in-memory store after a restart, a different SQLite path), or the suspended route is not registered in the context doing the resuming.
+
+**Suggestion**  
+Check that `suspension.store` names the same location on every node, and that the context running `.resume()` also has the suspended route registered: resume re-enters that route's pipeline, so it has to be there.
+
+## RC5047
+Suspension expired
+
+**Why it happens**  
+The answer arrived after the suspension's `ttl` elapsed, so the parked exchange is no longer resumable.
+
+**Suggestion**  
+This is catchable rather than terminal: the suspended route's own `.error()` handler receives it and can notify the approver and re-ask with a fresh suspension. Raise `ttl` on `.suspend()` if the window is genuinely too short for the people answering.
+
+## RC5048
+Suspension continuation changed
+
+**Why it happens**  
+The steps after the suspend point, or the `expect` schema, changed while the exchange was parked. The stored approval no longer authorizes what would now run, so resuming is refused before any of those steps execute.
+
+Editing a step BEFORE the suspend point does not trigger this: those steps already ran, and changing them cannot affect what happens after the resume.
+
+**Suggestion**  
+Catch it in the suspended route's route-scope `.error()` and re-ask. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so a deployment that parks approvals for days should pin those; see [Configuration → suspension](/docs/reference/configuration#suspension).
+
+## RC5049
+Suspension result rejected
+
+**Why it happens**  
+The candidate result handed to `.resume()` failed the `expect` schema declared on the suspending `.suspend()`.
+
+**Suggestion**  
+The suspension is left resumable, so a corrected answer still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the answer, while validation happens at revival because only the suspension knows the schema.
+
+## RC5050
+Suspension denied
+
+**Why it happens**  
+The suspension was marked denied before this resume arrived, typically because the run carrying the parked exchange was cancelled.
+
+**Suggestion**  
+A denied suspension is terminal. Re-submit the work as a new exchange rather than resuming.
+
+## RC5051
+Suspend not supported at this position
+
+**Why it happens**  
+A `.suspend()` was declared where the framework cannot durably park and revive the exchange: inside a `.split()` that no `.aggregate()` balances, or inside a `.multicast()` path or `.dispatch()` target.
+
+**Suggestion**  
+Split the work into per-item child capabilities, each its own exchange suspending independently, or move the suspend onto the main flow or a `.choice()` branch of it. Raised at `craft()` build time, so it fails on the deploy that introduced it.
+
+## RC5052
+Suspension runtime not configured
+
+**Why it happens**  
+A route in this context can reach a durable `.suspend()`, but nothing configured where parked exchanges are stored or how resume tokens are signed.
+
+**Suggestion**  
+Add `suspension: {}` to `defineConfig` to take the defaults, or `suspension: { store, secret }` to be explicit. It is deliberately not implicit: a durable suspend that silently parks into memory loses everything it promised on the next restart.
 
 ## RC9901
 Unknown error

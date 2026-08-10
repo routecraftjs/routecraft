@@ -699,19 +699,21 @@ describe(".error() step scope: dual-mode wrapper", () => {
   });
 
   /**
-   * @case A step returns the reserved `suspend` outcome before suspend/resume is implemented
-   * @preconditions Custom wrapper step returns { kind: "suspend", exchange } from execute
+   * @case A custom step returns a `suspend` outcome without the request the executor parks from
+   * @preconditions Custom wrapper step returns { kind: "suspend", exchange } with no `request`
    * @expectedResult Executor rejects it with RC5032 (fails loud) instead of silently dropping the exchange; the sink is never reached
    */
-  test("suspend outcome is rejected with RC5032 until the feature lands", async () => {
+  test("suspend outcome without a request is rejected with RC5032", async () => {
     const suspendingStep = (inner: Step<Adapter>): Step<Adapter> => ({
       operation: inner.operation,
       adapter: inner.adapter,
       label: "suspending-step",
-      // Forward-compat stub: the kind is declared on the union but no
-      // built-in step produces it yet, so the executor must reject it.
+      // Only `.suspend()` can produce a coherent request (it needs the
+      // site the build-time walk assigned), so a hand-rolled outcome
+      // without one must fail loud rather than park an exchange nothing
+      // could revive.
       async execute(exchange: Exchange): Promise<StepOutcome> {
-        return { kind: "suspend", exchange };
+        return { kind: "suspend", exchange } as unknown as StepOutcome;
       },
     });
 
