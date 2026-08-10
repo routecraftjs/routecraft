@@ -32,7 +32,6 @@ Default to `bun:test`. No current unit test uses vitest; a new vitest file is ju
 | `vi.hoisted` / `vi.importActual` complex module mocks | Different hoisting semantics; per-file workaround needed. |
 | `toMatchObject` followed by access to matched fields | Bun:test mutates the actual object, replacing matched fields with matcher refs. Use a shallow-copy match or restructure the test. |
 | `jose` remote JWKS over real HTTP | `fetchImpl` resolves differently under Bun. Investigate later. |
-| MCP stdio subprocess / stream tests | Spawns real child processes; migration deferred. |
 
 Ink-testing-library renderers and ESLint `RuleTester` both work under bun:test with the binding pattern shown in `packages/eslint-plugin-routecraft/test/*.bun.test.ts`. They are no longer blockers.
 

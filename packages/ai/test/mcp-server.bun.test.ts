@@ -16,6 +16,7 @@ import { ROUTECRAFT_DEFAULT_ICONS } from "../src/mcp/default-icon.ts";
 import { buildAuthHeaders } from "../src/mcp/build-auth-headers.ts";
 import { z } from "zod";
 import http from "node:http";
+import { rpcBody } from "./fixtures/rpc-body.ts";
 
 const MCP_STORE_KEY =
   MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
@@ -400,7 +401,7 @@ describe("McpServer", () => {
   });
 
   describe("HTTP transport", () => {
-    /** Start HTTP server with given route builders; returns post helper and port. Call initSession() to get session id. */
+    /** Start HTTP server with given route builders; returns post helper and port. Call initHandshake() to run the 2025-era handshake. */
     async function startHttpServer(
       routes: AnyRouteBuilder[],
       serverOptions: {
@@ -451,7 +452,6 @@ describe("McpServer", () => {
 
       function post(
         body: string,
-        sessionId?: string,
         extraHeaders?: Record<string, string>,
       ): Promise<{
         statusCode: number;
@@ -464,7 +464,6 @@ describe("McpServer", () => {
             Accept: "application/json, text/event-stream",
             Connection: "close",
           };
-          if (sessionId) headers["mcp-session-id"] = sessionId;
           if (extraHeaders) Object.assign(headers, extraHeaders);
           const req = http.request(
             {
@@ -480,7 +479,7 @@ describe("McpServer", () => {
               res.on("end", () =>
                 resolve({
                   statusCode: res.statusCode ?? 0,
-                  body: data,
+                  body: rpcBody(data),
                   headers: res.headers as Record<
                     string,
                     string | string[] | undefined
@@ -572,23 +571,28 @@ describe("McpServer", () => {
         });
       }
 
-      async function initSession(
+      /**
+       * Perform the 2025-era `initialize` handshake and assert the server
+       * answers it without minting a session. Protocol revision 2026-07-28
+       * removed `Mcp-Session-Id`, and the SDK's stateless serving of 2025-era
+       * traffic mints none either, so callers thread `undefined` onward and
+       * every later request stands alone.
+       */
+      async function initHandshake(
         authHeaders?: Record<string, string>,
-      ): Promise<string> {
+      ): Promise<void> {
         const initBody = JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
           method: "initialize",
           params: INIT_PARAMS,
         });
-        const res = await post(initBody, undefined, authHeaders);
+        const res = await post(initBody, authHeaders);
         expect(res.statusCode).toBe(200);
-        const sid = res.headers["mcp-session-id"];
-        expect(sid).toBeDefined();
-        return Array.isArray(sid) ? sid[0] : (sid as string);
+        expect(res.headers["mcp-session-id"]).toBeUndefined();
       }
 
-      return { post, get, options, port, initSession };
+      return { post, get, options, port, initHandshake };
     }
 
     /**
@@ -597,7 +601,7 @@ describe("McpServer", () => {
      * @expectedResult HTTP 200 and tools array contains the route
      */
     test("listens and responds to POST /mcp tools/list", async () => {
-      const { post, initSession } = await startHttpServer([
+      const { post, initHandshake } = await startHttpServer([
         craft()
           .id("http-tool")
           .description("Tool exposed over HTTP")
@@ -605,14 +609,14 @@ describe("McpServer", () => {
           .to(noop()),
       ]);
 
-      const sessionId = await initSession();
+      await initHandshake();
       const listBody = JSON.stringify({
         jsonrpc: "2.0",
         id: 2,
         method: "tools/list",
         params: {},
       });
-      const response = await post(listBody, sessionId);
+      const response = await post(listBody);
       expect(response.statusCode).toBe(200);
       const parsed = JSON.parse(response.body);
       expect(parsed.result).toBeDefined();
@@ -712,7 +716,7 @@ describe("McpServer", () => {
      * @expectedResult The parsed response body contains the annotations object on the matching tool
      */
     test("tools/list forwards annotations on the wire", async () => {
-      const { post, initSession } = await startHttpServer([
+      const { post, initHandshake } = await startHttpServer([
         craft()
           .id("annotated-http-tool")
           .description("Tool with annotations over HTTP")
@@ -730,14 +734,14 @@ describe("McpServer", () => {
           .to(noop()),
       ]);
 
-      const sessionId = await initSession();
+      await initHandshake();
       const listBody = JSON.stringify({
         jsonrpc: "2.0",
         id: 2,
         method: "tools/list",
         params: {},
       });
-      const response = await post(listBody, sessionId);
+      const response = await post(listBody);
       expect(response.statusCode).toBe(200);
       const parsed = JSON.parse(response.body);
       const tools = parsed.result.tools as Array<{
@@ -762,7 +766,7 @@ describe("McpServer", () => {
      */
     test("tools/call passes arguments as object in exchange body", async () => {
       let receivedBody: unknown;
-      const { post, initSession } = await startHttpServer([
+      const { post, initHandshake } = await startHttpServer([
         craft()
           .id("capture-tool")
           .description("Capture body for test")
@@ -774,14 +778,14 @@ describe("McpServer", () => {
           .to(noop()),
       ]);
 
-      const sessionId = await initSession();
+      await initHandshake();
       const callBody = JSON.stringify({
         jsonrpc: "2.0",
         id: 3,
         method: "tools/call",
         params: { name: "capture-tool", arguments: { user: "World" } },
       });
-      const callRes = await post(callBody, sessionId);
+      const callRes = await post(callBody);
       expect(callRes.statusCode).toBe(200);
       const callParsed = JSON.parse(callRes.body);
       if (callParsed.error) {
@@ -800,7 +804,7 @@ describe("McpServer", () => {
      * @expectedResult Result carries structuredContent equal to the body, with a mirrored text content block, so spec-compliant clients that require structuredContent for tools advertising an outputSchema accept the response
      */
     test("tools/call returns structuredContent for a route with .output()", async () => {
-      const { post, initSession } = await startHttpServer([
+      const { post, initHandshake } = await startHttpServer([
         craft()
           .id("structured-echo")
           .description("Echoes the value back with a declared output schema")
@@ -810,14 +814,14 @@ describe("McpServer", () => {
           .transform((body) => ({ value: body.value })),
       ]);
 
-      const sessionId = await initSession();
+      await initHandshake();
       const callBody = JSON.stringify({
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
         params: { name: "structured-echo", arguments: { value: "hi" } },
       });
-      const callRes = await post(callBody, sessionId);
+      const callRes = await post(callBody);
       expect(callRes.statusCode).toBe(200);
       const callParsed = JSON.parse(callRes.body);
       if (callParsed.error) {
@@ -840,7 +844,7 @@ describe("McpServer", () => {
      * @expectedResult Result has only the text content block; structuredContent is absent because no outputSchema is advertised
      */
     test("tools/call omits structuredContent without .output()", async () => {
-      const { post, initSession } = await startHttpServer([
+      const { post, initHandshake } = await startHttpServer([
         craft()
           .id("plain-echo")
           .description("Echoes the value back without an output schema")
@@ -849,14 +853,14 @@ describe("McpServer", () => {
           .transform((body) => ({ value: body.value })),
       ]);
 
-      const sessionId = await initSession();
+      await initHandshake();
       const callBody = JSON.stringify({
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
         params: { name: "plain-echo", arguments: { value: "hi" } },
       });
-      const callRes = await post(callBody, sessionId);
+      const callRes = await post(callBody);
       expect(callRes.statusCode).toBe(200);
       const callParsed = JSON.parse(callRes.body);
       if (callParsed.error) {
@@ -879,7 +883,7 @@ describe("McpServer", () => {
      * @expectedResult Route receives str as string and obj as object (not stringified)
      */
     test("tools/call passes string and object args with correct types", async () => {
-      const { post, initSession } = await startHttpServer([
+      const { post, initHandshake } = await startHttpServer([
         craft()
           .id("echo-args")
           .description("Echo argument types and values for test")
@@ -899,7 +903,7 @@ describe("McpServer", () => {
           .to(noop()),
       ]);
 
-      const sessionId = await initSession();
+      await initHandshake();
       const toolArgs = { str: "hello", obj: { a: 1, b: 2 } };
       const callBody = JSON.stringify({
         jsonrpc: "2.0",
@@ -907,7 +911,7 @@ describe("McpServer", () => {
         method: "tools/call",
         params: { name: "echo-args", arguments: toolArgs },
       });
-      const callRes = await post(callBody, sessionId);
+      const callRes = await post(callBody);
       expect(callRes.statusCode).toBe(200);
       const callParsed = JSON.parse(callRes.body);
       if (callParsed.error) {
@@ -997,7 +1001,7 @@ describe("McpServer", () => {
           method: "initialize",
           params: INIT_PARAMS,
         });
-        const res = await post(initBody, undefined, {
+        const res = await post(initBody, {
           Authorization: "Bearer wrong-token",
         });
         expect(res.statusCode).toBe(401);
@@ -1024,7 +1028,7 @@ describe("McpServer", () => {
           method: "initialize",
           params: INIT_PARAMS,
         });
-        const res = await post(initBody, undefined, {
+        const res = await post(initBody, {
           Authorization: "Bearer valid-token",
         });
         expect(res.statusCode).toBe(200);
@@ -1051,7 +1055,7 @@ describe("McpServer", () => {
           method: "initialize",
           params: INIT_PARAMS,
         });
-        const res = await post(initBody, undefined, {
+        const res = await post(initBody, {
           Authorization: "bearer valid-token",
         });
         expect(res.statusCode).toBe(200);
@@ -1096,7 +1100,7 @@ describe("McpServer", () => {
           method: "initialize",
           params: INIT_PARAMS,
         });
-        const res = await post(initBody, undefined, {
+        const res = await post(initBody, {
           Authorization: "Bearer async-valid",
         });
         expect(res.statusCode).toBe(200);
@@ -1122,7 +1126,7 @@ describe("McpServer", () => {
           method: "initialize",
           params: INIT_PARAMS,
         });
-        const res = await post(initBody, undefined, {
+        const res = await post(initBody, {
           Authorization: "Bearer any-token",
         });
         expect(res.statusCode).toBe(401);
@@ -1171,6 +1175,35 @@ describe("McpServer", () => {
         });
 
         /**
+         * @case auth is configured but resolves no verifier, so every request is refused
+         * @preconditions McpServer constructed directly (bypassing the mcpPlugin validation that requires a `validator`) with an auth object that has none; POST /mcp with a valid-looking bearer
+         * @expectedResult 401, and the refusal is observable: an error log naming the misconfiguration and an auth:rejected event with reason "no_verifier". A blanket 401 with no log and no event is indistinguishable from a server nobody holds a token for
+         */
+        test("emits when auth resolves no verifier", async () => {
+          const rejections: Array<Record<string, unknown>> = [];
+          const { post } = await startHttpServer([], {
+            auth: {} as import("../src/mcp/types.ts").McpHttpAuthOptions,
+          });
+          t.ctx.on("auth:rejected", (payload) => {
+            rejections.push(payload.details as Record<string, unknown>);
+          });
+
+          const res = await post(initBody, { Authorization: "Bearer any" });
+          expect(res.statusCode).toBe(401);
+
+          expect(rejections.some((r) => r["reason"] === "no_verifier")).toBe(
+            true,
+          );
+          expect(
+            t.logger.error.mock.calls.some(
+              (c) =>
+                (c[0] as Record<string, unknown> | undefined)?.["reason"] ===
+                "no_verifier",
+            ),
+          ).toBe(true);
+        });
+
+        /**
          * @case A non-bearer scheme (client not yet authenticated) logs at debug, not warn
          * @preconditions McpServer with validator auth; POST /mcp with a Basic Authorization header
          * @expectedResult 401; debug logged with reason "unsupported_scheme"; no warn for that message
@@ -1180,7 +1213,7 @@ describe("McpServer", () => {
             auth: { validator: () => validPrincipal },
           });
 
-          const res = await post(initBody, undefined, {
+          const res = await post(initBody, {
             Authorization: "Basic dXNlcjpwYXNz",
           });
           expect(res.statusCode).toBe(401);
@@ -1214,7 +1247,7 @@ describe("McpServer", () => {
             },
           });
 
-          const res = await post(initBody, undefined, {
+          const res = await post(initBody, {
             Authorization: "Bearer expired-token",
           });
           expect(res.statusCode).toBe(401);
@@ -1250,7 +1283,7 @@ describe("McpServer", () => {
             },
           });
 
-          const res = await post(initBody, undefined, {
+          const res = await post(initBody, {
             Authorization: "Bearer bad-token",
           });
           expect(res.statusCode).toBe(401);
@@ -1546,17 +1579,14 @@ describe("McpServer", () => {
 
     describe("RFC 9728 protected-resource metadata (OAuth-proxy mode)", () => {
       /**
-       * @case OAuth-proxy mode rejects port: 0 with no explicit resource.url
-       * @preconditions oauth({...}) auth, port: 0, no resource.url
-       * @expectedResult startHttpServer throws a TypeError mentioning port and resource.url; the SDK middleware would otherwise bake :0 into advertised URLs
+       * @case oauth() auth works on an ephemeral port with no explicit resource.url
+       * @preconditions oauth({...}) auth, port: 0, no resource.url; GET the protected-resource metadata
+       * @expectedResult The document advertises the bound port rather than `:0`. Resolution is per request now that no middleware closes over the URL at mount time, so the old startup guard against `port: 0` is gone.
        */
-      test("rejects port: 0 with no resource.url", async () => {
+      test("resolves the bound port on an ephemeral port", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
         const authConfig = oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: async () => ({
             kind: "oauth" as const,
             scheme: "bearer" as const,
@@ -1564,14 +1594,13 @@ describe("McpServer", () => {
             clientId: "u",
             expiresAt: Math.floor(Date.now() / 1000) + 60,
           }),
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
-          }),
         });
-        await expect(startHttpServer([], { auth: authConfig })).rejects.toThrow(
-          /port|resource\.url/i,
-        );
+        const { get, port } = await startHttpServer([], { auth: authConfig });
+        const res = await get("/.well-known/oauth-protected-resource");
+        expect(res.statusCode).toBe(200);
+        const doc = JSON.parse(res.body) as { resource: string };
+        expect(doc.resource).toContain(`:${port}`);
+        expect(doc.resource).not.toContain(":0/");
       });
 
       /**
@@ -1582,20 +1611,13 @@ describe("McpServer", () => {
       test("OAuth-proxy mode serves the unified metadata shape (has bearer_methods_supported)", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
         const authConfig = oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: async () => ({
             kind: "oauth" as const,
             scheme: "bearer" as const,
             subject: "u",
             clientId: "u",
             expiresAt: Math.floor(Date.now() / 1000) + 60,
-          }),
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
           }),
         });
         const { get } = await startHttpServer([], {
@@ -1695,7 +1717,6 @@ describe("McpServer", () => {
             method: "initialize",
             params: INIT_PARAMS,
           }),
-          undefined,
           { Origin: LOOPBACK_ORIGIN },
         );
         expect(res.statusCode).toBe(401);
@@ -1894,7 +1915,6 @@ describe("McpServer", () => {
             method: "initialize",
             params: INIT_PARAMS,
           }),
-          undefined,
           { Origin: LOOPBACK_ORIGIN },
         );
         expect(res.statusCode).toBe(200);
@@ -1909,11 +1929,11 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case `initialize` response exposes Mcp-Session-Id so a browser-side follow-up can echo it
-       * @preconditions Default cors policy; loopback Origin; the SDK runs in stateful mode (sessionIdGenerator set in createSession), so Mcp-Session-Id is emitted on `initialize`
-       * @expectedResult Access-Control-Expose-Headers contains "Mcp-Session-Id" (and "WWW-Authenticate", and "Last-Event-ID"). Without this, browser MCP clients read Mcp-Session-Id as undefined and the second request fails with 400 from the SDK transport.
+       * @case `initialize` mints no session and exposes only WWW-Authenticate
+       * @preconditions Default cors policy; loopback Origin; serving is stateless, so no Mcp-Session-Id is emitted on any request
+       * @expectedResult No Mcp-Session-Id header, and Access-Control-Expose-Headers lists WWW-Authenticate but neither the removed Mcp-Session-Id nor Last-Event-ID
        */
-      test("initialize exposes Mcp-Session-Id for browser clients", async () => {
+      test("initialize mints no session and exposes only WWW-Authenticate", async () => {
         const { post } = await startHttpServer([]);
         const res = await post(
           JSON.stringify({
@@ -1922,36 +1942,35 @@ describe("McpServer", () => {
             method: "initialize",
             params: INIT_PARAMS,
           }),
-          undefined,
           { Origin: LOOPBACK_ORIGIN },
         );
         expect(res.statusCode).toBe(200);
-        // Sanity: the SDK actually emitted a session id.
-        expect(res.headers["mcp-session-id"]).toBeDefined();
-        // And the CORS exposure listing tells the browser it can read it.
+        expect(res.headers["mcp-session-id"]).toBeUndefined();
         const expose = res.headers["access-control-expose-headers"];
         const exposeStr = Array.isArray(expose) ? expose.join(", ") : expose;
         expect(exposeStr).toBeDefined();
-        expect(exposeStr).toContain("Mcp-Session-Id");
-        expect(exposeStr!.toLowerCase()).toContain("www-authenticate");
-        expect(exposeStr).toContain("Last-Event-ID");
+        // Header names are case-insensitive, so the negative assertions match
+        // lowercased: a regression re-adding either under a different casing
+        // must not slip through.
+        const exposeLower = exposeStr!.toLowerCase();
+        expect(exposeLower).toContain("www-authenticate");
+        expect(exposeLower).not.toContain("mcp-session-id");
+        expect(exposeLower).not.toContain("last-event-id");
       });
 
       /**
-       * @case Two-request flow: a follow-up tools/list with the echoed Mcp-Session-Id succeeds with CORS headers intact
-       * @preconditions Default cors policy; loopback Origin; valid initialize then a subsequent tools/list with the captured Mcp-Session-Id
-       * @expectedResult Both responses are 200; the second response also carries Access-Control-Allow-Origin -- proving the CORS contract holds across the stateful session lifecycle, not just on initialize
+       * @case A standalone tools/list carries CORS headers with no prior handshake
+       * @preconditions Default cors policy; loopback Origin; tools/list posted as the very first request, with no initialize before it
+       * @expectedResult 200 with Access-Control-Allow-Origin -- proving the CORS contract holds on any request in isolation, which is what a stateless endpoint behind a load balancer actually serves
        */
-      test("two-step session: tools/list after initialize keeps CORS headers", async () => {
-        const { post, initSession } = await startHttpServer([
+      test("standalone tools/list keeps CORS headers without a handshake", async () => {
+        const { post } = await startHttpServer([
           craft()
             .id("two-step-tool")
-            .description("Tool for the two-step CORS test")
+            .description("Tool for the standalone CORS test")
             .from(mcp())
             .to(noop()),
         ]);
-        const sessionId = await initSession({ Origin: LOOPBACK_ORIGIN });
-        expect(sessionId).toBeDefined();
         const res = await post(
           JSON.stringify({
             jsonrpc: "2.0",
@@ -1959,7 +1978,6 @@ describe("McpServer", () => {
             method: "tools/list",
             params: {},
           }),
-          sessionId,
           { Origin: LOOPBACK_ORIGIN },
         );
         expect(res.statusCode).toBe(200);
@@ -1982,7 +2000,6 @@ describe("McpServer", () => {
             method: "initialize",
             params: INIT_PARAMS,
           }),
-          undefined,
           { Origin: "https://evil.example" },
         );
         expect(res.statusCode).toBe(200);
@@ -2008,7 +2025,6 @@ describe("McpServer", () => {
             method: "initialize",
             params: INIT_PARAMS,
           }),
-          undefined,
           { Origin: "https://evil.example" },
         );
         expect(res.statusCode).toBe(401);
@@ -2022,20 +2038,13 @@ describe("McpServer", () => {
       async function buildOAuthAuth() {
         const { oauth } = await import("../src/mcp/oauth.ts");
         return oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: async () => ({
             kind: "oauth" as const,
             scheme: "bearer" as const,
             subject: "u",
             clientId: "u",
             expiresAt: Math.floor(Date.now() / 1000) + 60,
-          }),
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
           }),
         });
       }
@@ -2076,7 +2085,6 @@ describe("McpServer", () => {
             method: "initialize",
             params: INIT_PARAMS,
           }),
-          undefined,
           { Origin: LOOPBACK_ORIGIN },
         );
         expect(res.statusCode).toBe(401);
@@ -2255,13 +2263,7 @@ describe("McpServer", () => {
         });
         const res = await post(initBody);
         expect(res.statusCode).toBe(200);
-        // The streamable-http transport may return the response either as
-        // plain JSON or as a single SSE `data:` line; handle both.
-        const trimmed = res.body.trim();
-        const jsonStr = trimmed.startsWith("data: ")
-          ? trimmed.slice(6).split("\n")[0]!
-          : trimmed;
-        const parsed = JSON.parse(jsonStr) as {
+        const parsed = JSON.parse(res.body) as {
           result: { serverInfo: { name: string; title?: string } };
         };
         expect(parsed.result.serverInfo.name).toBe("routecraft");
@@ -2283,11 +2285,7 @@ describe("McpServer", () => {
         });
         const res = await post(initBody);
         expect(res.statusCode).toBe(200);
-        const trimmed = res.body.trim();
-        const jsonStr = trimmed.startsWith("data: ")
-          ? trimmed.slice(6).split("\n")[0]!
-          : trimmed;
-        const parsed = JSON.parse(jsonStr) as {
+        const parsed = JSON.parse(res.body) as {
           result: { serverInfo: { name: string; title?: string } };
         };
         expect(parsed.result.serverInfo.title).toBeUndefined();
@@ -2302,7 +2300,7 @@ describe("McpServer", () => {
        */
       test("function userinfo enriches the principal in validator mode", async () => {
         let capturedPrincipal: Principal | undefined;
-        const { post, initSession } = await startHttpServer(
+        const { post, initHandshake } = await startHttpServer(
           [
             craft()
               .id("userinfo-capture")
@@ -2330,7 +2328,7 @@ describe("McpServer", () => {
           },
         );
 
-        const sessionId = await initSession({ Authorization: "Bearer t" });
+        await initHandshake({ Authorization: "Bearer t" });
         const callRes = await post(
           JSON.stringify({
             jsonrpc: "2.0",
@@ -2338,7 +2336,6 @@ describe("McpServer", () => {
             method: "tools/call",
             params: { name: "userinfo-capture", arguments: {} },
           }),
-          sessionId,
           { Authorization: "Bearer t" },
         );
         expect(callRes.statusCode).toBe(200);
@@ -2378,7 +2375,7 @@ describe("McpServer", () => {
        */
       test("no userinfo leaves the principal unenriched", async () => {
         let capturedPrincipal: Principal | undefined;
-        const { post, initSession } = await startHttpServer(
+        const { post, initHandshake } = await startHttpServer(
           [
             craft()
               .id("noenrich-capture")
@@ -2402,7 +2399,7 @@ describe("McpServer", () => {
           },
         );
 
-        const sessionId = await initSession({ Authorization: "Bearer t" });
+        await initHandshake({ Authorization: "Bearer t" });
         await post(
           JSON.stringify({
             jsonrpc: "2.0",
@@ -2410,7 +2407,6 @@ describe("McpServer", () => {
             method: "tools/call",
             params: { name: "noenrich-capture", arguments: {} },
           }),
-          sessionId,
           { Authorization: "Bearer t" },
         );
 
@@ -2432,10 +2428,7 @@ describe("McpServer", () => {
         let capturedHeaders: Record<string, unknown> | undefined;
 
         const authConfig = oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: async (token) => {
             expect(token).toBe("rich-token");
             return {
@@ -2453,13 +2446,9 @@ describe("McpServer", () => {
               claims: { sub: "user-42", custom: "value" },
             };
           },
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
-          }),
         });
 
-        const { post, initSession } = await startHttpServer(
+        const { post, initHandshake } = await startHttpServer(
           [
             craft()
               .id("oauth-capture")
@@ -2478,7 +2467,7 @@ describe("McpServer", () => {
           },
         );
 
-        const sessionId = await initSession({
+        await initHandshake({
           Authorization: "Bearer rich-token",
         });
         const callRes = await post(
@@ -2488,7 +2477,6 @@ describe("McpServer", () => {
             method: "tools/call",
             params: { name: "oauth-capture", arguments: {} },
           }),
-          sessionId,
           { Authorization: "Bearer rich-token" },
         );
         expect(callRes.statusCode).toBe(200);
@@ -2519,6 +2507,45 @@ describe("McpServer", () => {
       });
 
       /**
+       * @case oauth() advertises its Authorization Server and mounts none of its own
+       * @preconditions McpServer with oauth({ issuer }) and a fixed resource url; GET the protected-resource metadata and the RFC 8414 authorization-server path
+       * @expectedResult The RFC 9728 document names the issuer under authorization_servers so clients discover the real IdP, and the authorization-server path 404s because Routecraft is a Resource Server and mounts no OAuth endpoints of its own
+       */
+      test("advertises the issuer and mounts no authorization server", async () => {
+        const { oauth } = await import("../src/mcp/oauth.ts");
+        const authConfig = oauth({
+          issuer: "http://localhost:9999",
+          verify: async () => ({
+            kind: "oauth" as const,
+            scheme: "bearer" as const,
+            subject: "s",
+            clientId: "c",
+            scopes: [],
+            expiresAt: Math.floor(Date.now() / 1000) + 600,
+          }),
+        });
+
+        const { get } = await startHttpServer([], {
+          auth: authConfig,
+          resource: { url: "http://localhost:9999" },
+        });
+
+        const metadata = await get("/.well-known/oauth-protected-resource");
+        expect(metadata.statusCode).toBe(200);
+        const doc = JSON.parse(metadata.body) as {
+          authorization_servers?: string[];
+        };
+        expect(doc.authorization_servers).toEqual(["http://localhost:9999"]);
+
+        // Routecraft proxies no OAuth endpoints: clients run the flow against
+        // the issuer the document above names.
+        const as = await get("/.well-known/oauth-authorization-server");
+        expect(as.statusCode).toBe(404);
+        expect((await get("/authorize")).statusCode).toBe(404);
+        expect((await get("/token")).statusCode).toBe(404);
+      });
+
+      /**
        * @case Minimal Principal carries only the fields verify returned; absent fields stay undefined on the principal
        * @preconditions McpServer with oauth(); verify returns only required fields (kind, scheme, subject, clientId, scopes)
        * @expectedResult ex.principal has subject, clientId, scheme, scopes set; email/name/issuer/audience are undefined on the structured object
@@ -2528,10 +2555,7 @@ describe("McpServer", () => {
         let capturedPrincipal: Principal | undefined;
 
         const authConfig = oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: async () => ({
             kind: "oauth" as const,
             scheme: "bearer" as const,
@@ -2541,13 +2565,9 @@ describe("McpServer", () => {
             // expiresAt is required by the MCP SDK's requireBearerAuth middleware.
             expiresAt: Math.floor(Date.now() / 1000) + 600,
           }),
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
-          }),
         });
 
-        const { post, initSession } = await startHttpServer(
+        const { post, initHandshake } = await startHttpServer(
           [
             craft()
               .id("oauth-minimal")
@@ -2565,7 +2585,7 @@ describe("McpServer", () => {
           },
         );
 
-        const sessionId = await initSession({
+        await initHandshake({
           Authorization: "Bearer any",
         });
         const callRes = await post(
@@ -2575,7 +2595,6 @@ describe("McpServer", () => {
             method: "tools/call",
             params: { name: "oauth-minimal", arguments: {} },
           }),
-          sessionId,
           { Authorization: "Bearer any" },
         );
         expect(callRes.statusCode).toBe(200);
@@ -2596,7 +2615,7 @@ describe("McpServer", () => {
        * @preconditions McpServer with oauth() auth; verify is cast to bypass the OAuthPrincipal
        *                type contract and return a principal without expiresAt (simulating a
        *                dynamically wired plugin or `as any` escape hatch in user code)
-       * @expectedResult HTTP 401 response; auth:rejected event emitted with reason "missing_expires_at"
+       * @expectedResult HTTP 401 response and an auth:rejected event; oauth() wraps the verifier so a principal with no expiry is refused rather than treated as never expiring
        */
       test("rejects principal without expiresAt and emits auth:rejected", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
@@ -2614,17 +2633,10 @@ describe("McpServer", () => {
         });
 
         const authConfig = oauth({
-          endpoints: {
-            authorizationUrl: "http://localhost:9999/authorize",
-            tokenUrl: "http://localhost:9999/token",
-          },
+          issuer: "http://localhost:9999",
           verify: unsafeVerify as unknown as Parameters<
             typeof oauth
           >[0]["verify"],
-          client: async (clientId) => ({
-            client_id: clientId,
-            redirect_uris: ["http://localhost:3000/callback"],
-          }),
         });
 
         t = await testContext().store(MCP_STORE_KEY, true).build();
@@ -2690,10 +2702,11 @@ describe("McpServer", () => {
         expect(res.statusCode).toBeGreaterThanOrEqual(400);
         expect(rejections).toHaveLength(1);
         expect(rejections[0]).toMatchObject({
-          reason: "missing_expires_at",
+          // `invalid_token`: the refusal now comes from the verifier wrapper
+          // `oauth()` installs, so it classifies like any other rejected token.
+          reason: "invalid_token",
           scheme: "bearer",
           source: "mcp",
-          path: "oauth",
         });
       });
     });
@@ -2707,7 +2720,7 @@ describe("McpServer", () => {
       test("jwt principal carries jwt-specific fields", async () => {
         let capturedPrincipal: Principal | undefined;
 
-        const { post, initSession } = await startHttpServer(
+        const { post, initHandshake } = await startHttpServer(
           [
             craft()
               .id("jwt-capture")
@@ -2738,7 +2751,7 @@ describe("McpServer", () => {
           },
         );
 
-        const sessionId = await initSession({
+        await initHandshake({
           Authorization: "Bearer jwt",
         });
         const callRes = await post(
@@ -2748,7 +2761,6 @@ describe("McpServer", () => {
             method: "tools/call",
             params: { name: "jwt-capture", arguments: {} },
           }),
-          sessionId,
           { Authorization: "Bearer jwt" },
         );
         expect(callRes.statusCode).toBe(200);
@@ -2774,7 +2786,7 @@ describe("McpServer", () => {
       test("custom principal omits jwt-only fields", async () => {
         let capturedPrincipal: Principal | undefined;
 
-        const { post, initSession } = await startHttpServer(
+        const { post, initHandshake } = await startHttpServer(
           [
             craft()
               .id("apikey-capture")
@@ -2798,7 +2810,7 @@ describe("McpServer", () => {
           },
         );
 
-        const sessionId = await initSession({
+        await initHandshake({
           Authorization: "Bearer key",
         });
         const callRes = await post(
@@ -2808,7 +2820,6 @@ describe("McpServer", () => {
             method: "tools/call",
             params: { name: "apikey-capture", arguments: {} },
           }),
-          sessionId,
           { Authorization: "Bearer key" },
         );
         expect(callRes.statusCode).toBe(200);
@@ -2832,14 +2843,7 @@ describe("McpServer", () => {
           method: "initialize",
           params: INIT_PARAMS,
         });
-        const oauthEndpoints = {
-          authorizationUrl: "http://localhost:9999/authorize",
-          tokenUrl: "http://localhost:9999/token",
-        };
-        const oauthClient = async (clientId: string) => ({
-          client_id: clientId,
-          redirect_uris: ["http://localhost:3000/callback"],
-        });
+        const oauthIssuer = "http://localhost:9999";
 
         /**
          * @case An expired token on the OAuth verifier path returns 401 and logs at debug
@@ -2854,16 +2858,15 @@ describe("McpServer", () => {
           );
           const { post } = await startHttpServer([], {
             auth: oauth({
-              endpoints: oauthEndpoints,
+              issuer: oauthIssuer,
               verify: async () => {
                 throw expiredError;
               },
-              client: oauthClient,
             }),
             resource: { url: "http://localhost:9999" },
           });
 
-          const res = await post(initBody, undefined, {
+          const res = await post(initBody, {
             Authorization: "Bearer expired-token",
           });
           // A token-validation failure is surfaced as InvalidTokenError so the
@@ -2880,7 +2883,6 @@ describe("McpServer", () => {
           expect(debugCall).toBeDefined();
           expect(debugCall?.[0]).toMatchObject({
             reason: "expired",
-            path: "oauth",
           });
           expect(
             t.logger.warn.mock.calls.some(
@@ -2898,16 +2900,15 @@ describe("McpServer", () => {
           const { oauth } = await import("../src/mcp/oauth.ts");
           const { post } = await startHttpServer([], {
             auth: oauth({
-              endpoints: oauthEndpoints,
+              issuer: oauthIssuer,
               verify: async () => {
                 throw new Error("invalid signature");
               },
-              client: oauthClient,
             }),
             resource: { url: "http://localhost:9999" },
           });
 
-          const res = await post(initBody, undefined, {
+          const res = await post(initBody, {
             Authorization: "Bearer bad-token",
           });
           expect(res.statusCode).toBe(401);
@@ -2922,7 +2923,6 @@ describe("McpServer", () => {
           expect(warnCall).toBeDefined();
           expect(warnCall?.[0]).toMatchObject({
             reason: "invalid_token",
-            path: "oauth",
           });
           expect(
             t.logger.debug.mock.calls.some(
@@ -2941,14 +2941,13 @@ describe("McpServer", () => {
           const rejections: Array<Record<string, unknown>> = [];
           const { post } = await startHttpServer([], {
             auth: oauth({
-              endpoints: oauthEndpoints,
+              issuer: oauthIssuer,
               verify: async () => {
                 throw rcError(
                   "RC5021",
                   new Error("userinfo endpoint unreachable"),
                 );
               },
-              client: oauthClient,
             }),
             resource: { url: "http://localhost:9999" },
           });
@@ -2956,7 +2955,7 @@ describe("McpServer", () => {
             rejections.push(payload.details as Record<string, unknown>);
           });
 
-          const res = await post(initBody, undefined, {
+          const res = await post(initBody, {
             Authorization: "Bearer some-token",
           });
           // A server-side failure must not be reported to the client as an
@@ -2985,16 +2984,15 @@ describe("McpServer", () => {
           });
           const { post } = await startHttpServer([], {
             auth: oauth({
-              endpoints: oauthEndpoints,
+              issuer: oauthIssuer,
               verify: async () => {
                 throw jwksTimeout;
               },
-              client: oauthClient,
             }),
             resource: { url: "http://localhost:9999" },
           });
 
-          const res = await post(initBody, undefined, {
+          const res = await post(initBody, {
             Authorization: "Bearer some-token",
           });
           expect(res.statusCode).toBe(500);
@@ -3033,83 +3031,6 @@ describe("McpServer", () => {
       });
       expect(events[0]!["port"]).toBeTypeOf("number");
       expect((events[0]!["port"] as number) > 0).toBe(true);
-    });
-
-    /**
-     * @case session:created event is emitted when HTTP session initializes
-     * @preconditions McpServer with HTTP transport; send initialize request
-     * @expectedResult Event emitted with sessionId string
-     */
-    test("emits plugin:mcp:session:created on initialize", async () => {
-      t = await testContext()
-        .routes([
-          craft().id("evt-tool").description("test").from(mcp()).to(noop()),
-        ])
-        .store(MCP_STORE_KEY, true)
-        .build();
-      server = new McpServer(t.ctx, {
-        transport: "http",
-        port: 0,
-        host: "127.0.0.1",
-      });
-
-      const sessions: string[] = [];
-      t.ctx.on("plugin:mcp:session:created", (payload) => {
-        const d = payload.details as { sessionId: string };
-        sessions.push(d.sessionId);
-      });
-
-      const total = t.ctx.getRoutes().length;
-      const routesReady = new Promise<void>((resolve, reject) => {
-        let ready = 0;
-        const timeout = setTimeout(() => reject(new Error("Timeout")), 3000);
-        t.ctx.on("route:started", () => {
-          ready++;
-          if (ready >= total) {
-            clearTimeout(timeout);
-            resolve();
-          }
-        });
-      });
-      void t.ctx.start();
-      await routesReady;
-      await server.start();
-      const port = server.getHttpPort()!;
-
-      // Send initialize to trigger session creation
-      await new Promise<void>((resolve, reject) => {
-        const req = http.request(
-          {
-            host: "127.0.0.1",
-            port,
-            path: "/mcp",
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json, text/event-stream",
-            },
-          },
-          (res) => {
-            let data = "";
-            res.on("data", (chunk) => (data += chunk));
-            res.on("end", () => resolve());
-          },
-        );
-        req.on("error", reject);
-        req.write(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
-            params: INIT_PARAMS,
-          }),
-        );
-        req.end();
-      });
-
-      expect(sessions).toHaveLength(1);
-      expect(sessions[0]).toBeTypeOf("string");
-      expect(sessions[0]!.length).toBeGreaterThan(0);
     });
 
     /**
@@ -3208,8 +3129,8 @@ describe("McpServer", () => {
       await server.start();
       const port = server.getHttpPort()!;
 
-      // Initialize session
-      const initRes = await new Promise<{
+      // Legacy-era initialize handshake; the server answers it statelessly
+      await new Promise<{
         statusCode: number;
         headers: Record<string, string | string[] | undefined>;
       }>((resolve, reject) => {
@@ -3247,8 +3168,6 @@ describe("McpServer", () => {
         req.end();
       });
 
-      const sessionId = initRes.headers["mcp-session-id"] as string;
-
       // Call the tool
       await new Promise<void>((resolve, reject) => {
         const req = http.request(
@@ -3260,7 +3179,6 @@ describe("McpServer", () => {
             headers: {
               "Content-Type": "application/json",
               Accept: "application/json, text/event-stream",
-              "mcp-session-id": sessionId,
             },
           },
           (res) => {
@@ -3328,8 +3246,8 @@ describe("McpServer", () => {
       await server.start();
       const port = server.getHttpPort()!;
 
-      // Initialize session
-      const initRes = await new Promise<{
+      // Legacy-era initialize handshake; the server answers it statelessly
+      await new Promise<{
         headers: Record<string, string | string[] | undefined>;
       }>((resolve, reject) => {
         const req = http.request(
@@ -3361,8 +3279,6 @@ describe("McpServer", () => {
         req.end();
       });
 
-      const sessionId = initRes.headers["mcp-session-id"] as string;
-
       // Call a tool that does not exist
       await new Promise<void>((resolve, reject) => {
         const req = http.request(
@@ -3374,7 +3290,6 @@ describe("McpServer", () => {
             headers: {
               "Content-Type": "application/json",
               Accept: "application/json, text/event-stream",
-              "mcp-session-id": sessionId,
             },
           },
           (res) => {
@@ -3452,8 +3367,8 @@ describe("McpServer", () => {
       await server.start();
       const port = server.getHttpPort()!;
 
-      // Initialize session
-      const initRes = await new Promise<{
+      // Legacy-era initialize handshake; the server answers it statelessly
+      await new Promise<{
         headers: Record<string, string | string[] | undefined>;
       }>((resolve, reject) => {
         const req = http.request(
@@ -3485,8 +3400,6 @@ describe("McpServer", () => {
         req.end();
       });
 
-      const sessionId = initRes.headers["mcp-session-id"] as string;
-
       // Call the tool
       await new Promise<void>((resolve, reject) => {
         const req = http.request(
@@ -3498,7 +3411,6 @@ describe("McpServer", () => {
             headers: {
               "Content-Type": "application/json",
               Accept: "application/json, text/event-stream",
-              "mcp-session-id": sessionId,
             },
           },
           (res) => {

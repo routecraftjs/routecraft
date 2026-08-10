@@ -1,9 +1,5 @@
 import type { Exchange, Tag } from "@routecraft/routecraft";
-import type {
-  OAuthPrincipal,
-  Principal,
-  ValidatorAuthOptions,
-} from "@routecraft/routecraft";
+import type { Principal, ValidatorAuthOptions } from "@routecraft/routecraft";
 import type { ToolGuard } from "../fn/types.ts";
 import { TOOL_NAME_PATTERN } from "../tool-name.ts";
 import type { McpCorsOptions } from "./cors.ts";
@@ -129,8 +125,8 @@ declare module "@routecraft/routecraft" {
   interface RoutecraftHeaders {
     /** The MCP tool name that triggered this exchange. */
     "routecraft.mcp.tool"?: string;
-    /** The MCP session identifier. */
-    "routecraft.mcp.session"?: string;
+    /** Correlation id for the single MCP request that produced this exchange. */
+    "routecraft.mcp.request"?: string;
   }
 }
 
@@ -187,53 +183,21 @@ export type McpClientServerConfig = McpClientHttpConfig | McpClientStdioConfig;
 export enum McpHeadersKeys {
   /** The MCP tool name that triggered this exchange. */
   TOOL = "routecraft.mcp.tool",
-  /** The MCP session identifier. */
-  SESSION = "routecraft.mcp.session",
-}
-
-/**
- * OAuth client info supplied to the `oauth()` factory via the `client` option.
- * Mirrors the MCP SDK's `OAuthClientInformationFull` with only the fields routecraft needs.
- *
- * Field names use snake_case to match the OAuth 2.0 Dynamic Client Registration
- * specification (RFC 7591) and the MCP SDK's `OAuthClientInformationFull`.
- */
-export interface OAuthClientInfo {
-  /** The client identifier. */
-  client_id: string;
-  /** Allowed redirect URIs for authorization code flow. */
-  redirect_uris: string[];
-  /** Human-readable client name. */
-  client_name?: string;
-  /** Client secret (for confidential clients). */
-  client_secret?: string;
-}
-
-/**
- * Endpoint URLs for the upstream OAuth provider (used by the proxy).
- */
-export interface OAuthProxyEndpoints {
-  /** Authorization endpoint URL. */
-  authorizationUrl: string;
-  /** Token endpoint URL. */
-  tokenUrl: string;
-  /** Token revocation endpoint URL. */
-  revocationUrl?: string;
-  /** Dynamic client registration endpoint URL. */
-  registrationUrl?: string;
+  /** Correlation id for the single MCP request that produced this exchange. */
+  REQUEST = "routecraft.mcp.request",
 }
 
 /**
  * Protected-resource (RFC 9728) metadata for the MCP server.
  *
- * Used by both validator-mode and OAuth-proxy auth to populate
+ * Used by every auth helper to populate
  * `/.well-known/oauth-protected-resource` and the `resource_metadata`
  * parameter on 401 responses. Orthogonal to the auth mode: identifies WHAT
  * is being protected, not HOW it authenticates.
  *
  * When omitted entirely, the framework still advertises a baseline metadata
- * document built from the bound URL and (in validator mode) the IdP issuer
- * surfaced by `jwks()` / `jwt()`.
+ * document built from the bound URL and the IdP issuer surfaced by
+ * `jwks()` / `jwt()` / `oauth()`.
  */
 export interface McpResourceOptions {
   /**
@@ -257,64 +221,41 @@ export interface McpResourceOptions {
 }
 
 /**
- * OAuth provider auth: full OAuth 2.1 server flow with proxy to upstream IdP.
- * Mounts discovery, authorization, token, and revocation endpoints alongside `/mcp`.
- * Uses the MCP SDK's `ProxyOAuthServerProvider` and `mcpAuthRouter` internally.
- *
- * Protected-resource metadata (`resource`, `scopes_supported`, etc.) lives on
- * `mcpPlugin({ resource })`, not here -- it is orthogonal to the auth mode.
- */
-export interface OAuthAuthOptions {
-  /** Discriminant for the union. Always `"oauth"`. */
-  provider: "oauth";
-  /** Base URL for OAuth endpoints (defaults to the resolved resource URL). */
-  baseUrl?: string | URL;
-  /** Upstream OAuth provider endpoints to proxy. */
-  endpoints: OAuthProxyEndpoints;
-  /**
-   * Verify an access token and return a populated {@link OAuthPrincipal}.
-   * Called on every authenticated request to `/mcp`.
-   *
-   * The returned principal flows through to route exchanges as
-   * `headers["routecraft.auth.principal"]` (surfaced via the `ex.principal`
-   * getter). `expiresAt` is part of the type contract because the MCP
-   * SDK's bearer middleware requires it.
-   */
-  verifyAccessToken: (token: string) => Promise<OAuthPrincipal>;
-  /**
-   * Look up a registered OAuth client by ID.
-   * Return `undefined` to reject the client.
-   */
-  getClient: (clientId: string) => Promise<OAuthClientInfo | undefined>;
-  /** Scopes required on every request to `/mcp`. Enforcement policy, not metadata. */
-  requiredScopes?: string[];
-  /**
-   * IdP issuer surfaced from the `verify` helper (`jwks()` / `jwt()`). Read by
-   * the server to resolve the OIDC Discovery document when plugin-level
-   * `mcpPlugin({ userinfo: true })` is configured. Not user-set; populated by
-   * the `oauth()` factory.
-   */
-  issuer?: string | string[];
-}
-
-/**
  * Authentication options for the MCP HTTP server.
  * Only applies when `transport` is `"http"`. Ignored for stdio.
  *
- * Two strategies are supported:
- * - `Validator`: simple bearer token check via `jwt()` / `jwks()` / or custom function.
- * - `OAuth`: full OAuth 2.1 server flow via `oauth()`, proxying to an upstream IdP.
+ * The MCP server is an OAuth 2.0 **Resource Server**: it verifies bearer
+ * tokens and advertises its Authorization Server via RFC 9728 metadata, so
+ * clients run the OAuth flow directly against the IdP. Build the options with
+ * `jwks()`, `jwt()`, a custom validator, or the `oauth()` helper (which layers
+ * `requiredScopes` and issuer advertisement over any of those).
  */
-export type McpHttpAuthOptions = ValidatorAuthOptions | OAuthAuthOptions;
-
-/**
- * Type guard: returns `true` when auth is configured for OAuth provider mode.
- */
-export function isOAuthAuth(
-  auth: McpHttpAuthOptions,
-): auth is OAuthAuthOptions {
-  return "provider" in auth && auth.provider === "oauth";
-}
+export type McpHttpAuthOptions = ValidatorAuthOptions & {
+  /**
+   * IdP issuer(s) advertised as `authorization_servers` in the RFC 9728
+   * protected-resource metadata, and used to resolve the OIDC Discovery
+   * document for plugin-level `mcpPlugin({ userinfo: true })`. Surfaced
+   * automatically by `jwks()` / `jwt()` / `oauth()`.
+   */
+  issuer?: string | string[];
+  /**
+   * Scopes required on every request to `/mcp`. A token missing any of them
+   * is refused with `403 insufficient_scope` (RFC 6750 §3.1), distinct from
+   * the `401` an unauthenticated or invalid token receives.
+   *
+   * Enforcement policy, not metadata: advertise the scopes a client may ask
+   * for via `mcpPlugin({ resource: { scopesSupported } })`.
+   */
+  requiredScopes?: string[];
+  /**
+   * Clock skew allowed when the server re-checks the verified principal's
+   * `expiresAt`. Surfaced automatically by `jwks()` / `jwt()` / `oauth()` from
+   * the tolerance the verifier itself applied, so the gate does not refuse a
+   * token the verifier accepted within skew. Defaults to `0`, matching
+   * `authorize({ clockToleranceSec })`.
+   */
+  clockToleranceSec?: number;
+};
 
 /**
  * A function that provides a bearer token for outbound requests.
@@ -403,8 +344,8 @@ export interface McpPluginOptions {
   /**
    * Protected-resource (RFC 9728) metadata for the HTTP transport. When set,
    * the server advertises `/.well-known/oauth-protected-resource` and adds
-   * `resource_metadata="..."` to 401 `WWW-Authenticate` headers. Used by both
-   * validator and OAuth-proxy auth modes; ignored for stdio.
+   * `resource_metadata="..."` to 401 `WWW-Authenticate` headers. Used by every
+   * auth helper; ignored for stdio.
    *
    * When omitted, baseline metadata is still served (deriving `resource` from
    * the bound URL and `authorization_servers` from the validator's IdP

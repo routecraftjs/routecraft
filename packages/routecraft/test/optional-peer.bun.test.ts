@@ -43,6 +43,53 @@ describe("loadOptionalPeer", () => {
   });
 
   /**
+   * @case A longer package sharing the requested package's prefix is quoted earlier in the same message
+   * @preconditions Loader rejects with ERR_MODULE_NOT_FOUND whose message quotes `@scope/pkg-extra` before `@scope/pkg`
+   * @expectedResult Still throws RC5017. Only the first occurrence used to be examined, so the boundary check failed against `-extra` and the real, later occurrence was never reached, degrading the install hint into a raw ERR_MODULE_NOT_FOUND
+   */
+  test("matches a later occurrence when an earlier one shares the prefix", async () => {
+    const cause = Object.assign(
+      new Error(
+        "Cannot find package '@scope/pkg-extra' imported from /app/a.js. " +
+          "Cannot find package '@scope/pkg' imported from /app/b.js",
+      ),
+      { code: "ERR_MODULE_NOT_FOUND" },
+    );
+
+    await expect(
+      loadOptionalPeer(
+        async () => {
+          throw cause;
+        },
+        { adapterName: "fake", packageName: "@scope/pkg" },
+      ),
+    ).rejects.toMatchObject({ rc: "RC5017" });
+  });
+
+  /**
+   * @case Only a longer package sharing the prefix is missing
+   * @preconditions Loader rejects with ERR_MODULE_NOT_FOUND naming `@scope/pkg-extra` and never the requested `@scope/pkg`
+   * @expectedResult Rethrows the original error verbatim. Scanning every occurrence must not loosen the boundary check into a prefix match, which would claim the wrong package is absent
+   */
+  test("rethrows when only a prefix-sharing package is missing", async () => {
+    const cause = Object.assign(
+      new Error(
+        "Cannot find package '@scope/pkg-extra' imported from /app/a.js",
+      ),
+      { code: "ERR_MODULE_NOT_FOUND" },
+    );
+
+    await expect(
+      loadOptionalPeer(
+        async () => {
+          throw cause;
+        },
+        { adapterName: "fake", packageName: "@scope/pkg" },
+      ),
+    ).rejects.toBe(cause);
+  });
+
+  /**
    * @case Error preserves cause and brand
    * @preconditions Loader rejects with a missing-module error
    * @expectedResult Thrown error is a branded RoutecraftError carrying the original cause

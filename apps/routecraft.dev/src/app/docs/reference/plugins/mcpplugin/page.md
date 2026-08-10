@@ -21,7 +21,11 @@ const config: CraftConfig = {
     mcpPlugin({
       transport: 'http',
       port: 3001,
-      auth: jwt({ secret: process.env.JWT_SECRET! }),
+      auth: jwt({
+        secret: process.env.JWT_SECRET!,
+        issuer: 'https://idp.example.com',
+        audience: 'https://mcp.example.com',
+      }),
       clients: {
         browser: {
           url: 'http://127.0.0.1:8089/mcp',
@@ -134,10 +138,19 @@ import { mcpPlugin, jwt } from '@routecraft/ai'
 **HMAC (HS256 / HS384 / HS512):**
 
 ```ts
-auth: jwt({ secret: process.env.JWT_SECRET! })
+auth: jwt({
+  secret: process.env.JWT_SECRET!,
+  issuer: 'https://idp.example.com',
+  audience: 'https://mcp.example.com',
+})
 
 // Explicit algorithm
-auth: jwt({ algorithm: 'HS384', secret: process.env.JWT_SECRET! })
+auth: jwt({
+  algorithm: 'HS384',
+  secret: process.env.JWT_SECRET!,
+  issuer: 'https://idp.example.com',
+  audience: 'https://mcp.example.com',
+})
 ```
 
 **RSA (RS256):**
@@ -148,8 +161,12 @@ import fs from 'node:fs'
 auth: jwt({
   algorithm: 'RS256',
   publicKey: fs.readFileSync('./public.pem', 'utf-8'),
+  issuer: 'https://idp.example.com',
+  audience: 'https://mcp.example.com',
 })
 ```
+
+`issuer` and `audience` are required on every `jwt()` / `jwks()` call: without them the server would accept a token minted by a different IdP, or for a different resource.
 
 **Custom validator:**
 
@@ -157,7 +174,7 @@ auth: jwt({
 auth: {
   validator: async (token) => {
     const user = await db.verifyApiKey(token)
-    if (!user) return null
+    if (!user) throw new Error('unknown key')
     return {
       kind: 'api-key',
       scheme: 'api-key',
@@ -168,69 +185,37 @@ auth: {
 }
 ```
 
-## OAuth 2.1 with `oauth()`
+## OAuth with `oauth()`
 
-`oauth()` mounts a full OAuth 2.1 server flow that proxies to an upstream IdP. Pass a `jwt` config to let the factory handle JWKS fetching, signature verification, issuer and audience checks, and claim mapping (requires the optional peer dependency `jose`). For opaque tokens, introspection, or fully custom verification, pass your own `verifyAccessToken` callback instead.
+The MCP server is an OAuth 2.0 **Resource Server**. `oauth()` verifies bearer tokens, enforces required scopes, and advertises the Authorization Server through RFC 9728 metadata so clients run the authorization flow directly against your IdP. Routecraft mounts no `/authorize`, `/token`, `/register` or `/revoke` endpoints of its own.
 
-**Built-in JWT verification (recommended):**
-
-```ts
-import { mcpPlugin, oauth } from '@routecraft/ai'
-
-auth: oauth({
-  issuerUrl: 'https://mcp.example.com',
-  endpoints: {
-    authorizationUrl: 'https://idp.example.com/authorize',
-    tokenUrl: 'https://idp.example.com/token',
-  },
-  jwt: {
-    jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
-    issuer: 'https://idp.example.com',
-    audience: 'https://mcp.example.com',
-  },
-  client: {
-    client_id: 'my-mcp-server',
-    redirect_uris: ['http://localhost:3000/callback'],
-  },
-})
-```
-
-`issuer` and `audience` are required, so the server cannot silently accept tokens from a different IdP or minted for a different resource. The factory maps standard JWT claims (`sub`, `client_id`, `email`, `name`, `iss`, `aud`, `scope`, `roles`, `exp`) to `OAuthPrincipal` fields automatically; the resolved principal surfaces on the structured `routecraft.auth.principal` exchange header and is exposed ergonomically via the `ex.principal` getter.
-
-`client` accepts either a static `OAuthClientInfo` (matched on `client_id`; unknown IDs are rejected) or a supplier `(clientId) => Promise<OAuthClientInfo | undefined>` for dynamic lookup against a database or registry.
-
-**`OAuthJwtConfig` fields:**
+**`OAuthFactoryOptions` fields:**
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `jwksUrl` | `string \| URL` | Yes | JWKS endpoint the IdP publishes; keys are fetched and rotated by `jose`'s `createRemoteJWKSet` |
-| `issuer` | `string` | Yes | Expected `iss` claim; tokens from other issuers are rejected |
-| `audience` | `string \| string[]` | Yes | Expected `aud` claim; the token must include at least one of these values |
-| `clockTolerance` | `number \| string` | No | Skew tolerance applied to `exp`/`nbf` validation (seconds as a number, or a string like `"5s"`); default: no tolerance |
-| `claims` | `OAuthJwtClaimMappers` | No | Per-claim overrides for non-standard IdPs (see below) |
+| `verify` | `OAuthValidatorAuthOptions \| OAuthTokenVerifier` | Yes | `jwks(...)`, `jwt(...)`, or a raw `(token) => OAuthPrincipal` for opaque tokens and introspection. Runs on every request |
+| `issuer` | `string \| string[]` | Only for a raw `verify` | Authorization Server issuer advertised as `authorization_servers`. Supplied automatically by `jwks()` / `jwt()` |
+| `requiredScopes` | `string[]` | No | Every request must carry all of them; a token missing any is refused with `403 insufficient_scope` |
+| `clockToleranceSec` | `number` | No | Skew allowed when the server re-checks the verified principal's `expiresAt`. Supplied automatically by `jwks()` / `jwt()`; pass it only when `verify` is a raw function that tolerates skew of its own. Defaults to `0` |
 
-**`OAuthJwtClaimMappers` fields.** Each maps a verified payload to the corresponding `OAuthPrincipal` field when the IdP uses non-standard claim names:
-
-| Field | Default when omitted |
-|-------|----------------------|
-| `subject` | `payload.sub`, then `payload.client_id`, then `payload.azp` |
-| `clientId` | `payload.client_id`, then `payload.azp` |
-| `scopes` | space-split `payload.scope` |
-
-`email`, `name`, and `roles` are not mappable here. They are read from the standard claim names (`email`, `name`, `roles`) when present in the token. For identity fields that do not live in the bearer (most IdPs do not put them there), use the [`userinfo` option on `mcpPlugin({})`](/docs/advanced/securing-capabilities#principal-enrichment-via-userinfo): function variant for custom mappings, OIDC Discovery or an explicit URL for the standard `/userinfo` endpoint.
-
-**Claim overrides for non-standard IdPs:**
+**JWKS-backed verification (recommended):**
 
 ```ts
-jwt: {
-  jwksUrl: 'https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys',
-  issuer: 'https://login.microsoftonline.com/<tenant>/v2.0',
-  audience: '<app-id>',
-  claims: {
-    subject: (p) => p.oid as string,
-  },
-}
+import { mcpPlugin, oauth, jwks } from '@routecraft/ai'
+
+auth: oauth({
+  verify: jwks({
+    jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
+    issuer: 'https://idp.example.com',
+    audience: 'https://mcp.example.com',
+  }),
+  requiredScopes: ['mcp:invoke'],
+})
 ```
+
+`issuer` and `audience` are required on `jwks()` / `jwt()`, so the server cannot silently accept tokens from a different IdP or minted for a different resource. Standard claims (`sub`, `client_id`, `email`, `name`, `iss`, `aud`, `scope`, `roles`, `exp`) map to `OAuthPrincipal` fields automatically; the resolved principal surfaces on the structured `routecraft.auth.principal` exchange header and via the `ex.principal` getter. For non-standard IdPs, pass `claims` mappers to `jwks()` / `jwt()`; see [Securing capabilities](/docs/advanced/securing-capabilities).
+
+Passing `jwks(...)` straight to `auth` works identically. Reach for `oauth()` when you want `requiredScopes` enforcement or an explicit issuer.
 
 **Custom verification (opaque tokens, introspection, etc.):**
 
@@ -241,16 +226,13 @@ import { jwtVerify, createRemoteJWKSet } from 'jose'
 const jwks = createRemoteJWKSet(new URL('https://idp.example.com/.well-known/jwks.json'))
 
 auth: oauth({
-  issuerUrl: 'https://mcp.example.com',
-  endpoints: {
-    authorizationUrl: 'https://idp.example.com/authorize',
-    tokenUrl: 'https://idp.example.com/token',
-  },
-  verifyAccessToken: async (token) => {
+  issuer: 'https://idp.example.com',
+  verify: async (token) => {
     const { payload } = await jwtVerify(token, jwks, {
       issuer: 'https://idp.example.com',
       audience: 'https://mcp.example.com',
     })
+    if (typeof payload.exp !== 'number') throw new Error('token has no exp')
     return {
       kind: 'oauth',
       scheme: 'bearer',
@@ -260,39 +242,12 @@ auth: oauth({
       claims: payload as Record<string, unknown>,
     }
   },
-  client: async (clientId) => await db.clients.findByClientId(clientId),
 })
 ```
 
-`expiresAt` is required by the MCP SDK's bearer middleware; omit it and every request is rejected with 401. Pass **either** `jwt` or `verifyAccessToken`, never both.
+`expiresAt` is required on a principal returned through `oauth()`: a principal without a finite numeric expiry has no bounded validity window and is refused. A principal whose expiry has already passed is refused at the gate whichever auth mode produced it. The boundary is inclusive and compared in whole seconds, so a principal whose `expiresAt` equals the current second is already expired, matching RFC 7519 section 4.1.4.
 
-The `client` supplier (when you pass a function rather than a static object) is invoked **per request** by the OAuth proxy provider during every authorize/token/revoke call. Cache or preload registry reads so the hot path stays fast.
-
-**HTTP client config (`McpClientHttpConfig`):**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `url` | `string` | Yes | Full URL of the remote MCP server |
-| `auth` | `McpClientAuthOptions` | No | Auth credentials sent on every request to this server |
-
-**McpClientAuthOptions:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `token` | `string \| string[] \| (() => string \| Promise<string>)` | Bearer token, array of tokens (round-robin), or provider function called per request |
-| `headers` | `Record<string, string>` | Additional request headers; overrides `token` if `Authorization` is set |
-
-**Stdio client config (`McpClientStdioConfig`):**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `transport` | `'stdio'` | Yes | Must be `'stdio'` to select subprocess mode |
-| `command` | `string` | Yes | Executable to spawn (e.g. `'node'`, `'npx'`) |
-| `args` | `string[]` | No | Arguments passed to the command |
-| `env` | `Record<string, string>` | No | Environment variables for the child process |
-| `cwd` | `string` | No | Working directory for the child process |
-
-Stdio clients are spawned when the context starts and stopped on teardown. If the subprocess exits unexpectedly, the plugin automatically restarts it with exponential backoff (`restartDelayMs * restartBackoffMultiplier ^ attempt`). The restart counter resets after a successful reconnection.
+`verify` runs on **every request**. Revision 2026-07-28 is stateless, so there is no session in which a past verification could be cached; keep introspection calls fast or cache them yourself.
 
 ## Proxying client tools
 

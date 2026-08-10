@@ -58,12 +58,32 @@ const MockClient = mock().mockImplementation(function (
   };
 });
 
-mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
-  Client: MockClient,
-}));
+// `mock.module` is process-global, so mock Routecraft's own SDK-loader seam
+// rather than `@modelcontextprotocol/client` itself: mocking the shared package
+// would hand the mock `Client` to every other suite in the run, including the
+// interop tests that must drive the real SDK. Only the stdio loaders are
+// overridden; the HTTP loader keeps its real implementation.
+const realSdk = await import("../src/mcp/sdk.ts");
+const { MCP_CLIENT_INFO } = realSdk;
 
-mock.module("@modelcontextprotocol/sdk/client/stdio.js", () => ({
-  StdioClientTransport: MockTransport,
+const realClientSdk = await realSdk.loadMcpClientSdk("mcp (test)");
+const realClientStdioSdk = await realSdk.loadMcpClientStdioSdk("mcp (test)");
+
+mock.module("../src/mcp/sdk.ts", () => ({
+  ...realSdk,
+  // Each loader keeps the real module's other exports and swaps only the
+  // symbol under test. `loadMcpClientSdk` also provides
+  // `StreamableHTTPClientTransport` to `connectMcpHttpClient`, so returning a
+  // bare `{ Client }` here would make every HTTP-path test in the same process
+  // construct `new undefined(...)`.
+  loadMcpClientSdk: mock().mockResolvedValue({
+    ...realClientSdk,
+    Client: MockClient,
+  }),
+  loadMcpClientStdioSdk: mock().mockResolvedValue({
+    ...realClientStdioSdk,
+    StdioClientTransport: MockTransport,
+  }),
 }));
 
 function createLogger() {
@@ -159,8 +179,11 @@ describe("StdioClientManager", () => {
         stderr: "pipe",
       }),
     );
+    // Asserted against the shared constant, not a literal: the advertised
+    // version is the real package version so remote servers can tell
+    // Routecraft releases apart in their telemetry.
     expect(MockClient).toHaveBeenCalledWith(
-      { name: "routecraft-mcp-client", version: "1.0.0" },
+      MCP_CLIENT_INFO,
       expect.objectContaining({ capabilities: {} }),
     );
     expect(mockConnect).toHaveBeenCalledTimes(1);

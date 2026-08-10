@@ -5,11 +5,7 @@ export type {
   McpClientHttpConfig,
 } from "./adapters/mcp/index.ts";
 export { oauth } from "./oauth.ts";
-export type {
-  OAuthFactoryOptions,
-  OAuthClientSupplier,
-  OAuthVerifier,
-} from "./oauth.ts";
+export type { OAuthFactoryOptions, OAuthVerifier } from "./oauth.ts";
 export type { UserinfoFn, UserinfoOption } from "./userinfo.ts";
 export type { McpCorsOptions, McpCorsOriginResolver } from "./cors.ts";
 export { mcpPlugin } from "./plugin.ts";
@@ -23,7 +19,6 @@ export {
   MCP_STDIO_MANAGERS,
   MCP_TOOL_NAME_PATTERN,
   MCP_TOOL_REGISTRY,
-  isOAuthAuth,
   type McpLocalToolEntry,
   type McpOptions,
   type McpPluginOptions,
@@ -39,8 +34,5 @@ export {
   type McpIcon,
   type McpToolRegistryEntry,
   type McpToolResult,
-  type OAuthAuthOptions,
-  type OAuthClientInfo,
-  type OAuthProxyEndpoints,
 } from "./types.ts";
 export { validateWithSchema } from "./validate-options.ts";

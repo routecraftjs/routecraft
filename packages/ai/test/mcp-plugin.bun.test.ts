@@ -213,6 +213,79 @@ describe("MCP Plugin Integration", () => {
 
   describe("validation", () => {
     /**
+     * @case The removed OAuth authorization-server proxy config is refused at construction
+     * @preconditions auth carries the pre-2026 shape ({ provider: "oauth", endpoints, verifyAccessToken, getClient })
+     * @expectedResult validateMcpPluginOptions throws with the migration. That shape has no `validator`, so it would otherwise start cleanly and then refuse every request with 401
+     */
+    test("rejects the removed OAuth proxy auth shape", () => {
+      expect(() =>
+        mcpPlugin({
+          transport: "http",
+          auth: {
+            provider: "oauth",
+            endpoints: {
+              authorizationUrl: "https://idp.example.com/authorize",
+              tokenUrl: "https://idp.example.com/token",
+            },
+            verifyAccessToken: async () => ({}),
+            getClient: async () => undefined,
+          } as never,
+        }),
+      ).toThrow(/resource server|oauth\(\{ verify/i);
+    });
+
+    /**
+     * @case A scope that cannot appear in a WWW-Authenticate challenge is refused at construction
+     * @preconditions auth.requiredScopes contains a value with a space and one with a quote
+     * @expectedResult validateMcpPluginOptions throws, so a misconfiguration surfaces at startup rather than as a corrupted header on the first 403
+     */
+    test("rejects requiredScopes that break the challenge grammar", () => {
+      for (const scope of ["has space", 'has"quote']) {
+        expect(() =>
+          mcpPlugin({
+            transport: "http",
+            auth: {
+              validator: async () => ({
+                kind: "custom" as const,
+                scheme: "bearer" as const,
+                subject: "u",
+              }),
+              requiredScopes: [scope],
+            } as never,
+          }),
+        ).toThrow(/scope/i);
+      }
+    });
+
+    /**
+     * @case A clock tolerance the expiry gate cannot use is refused at construction
+     * @preconditions auth.clockToleranceSec is NaN, negative, or not a number
+     * @expectedResult validateMcpPluginOptions throws. The gate fails closed on a non-finite tolerance, so any of these would otherwise refuse every authenticated request at runtime
+     */
+    test("rejects a clockToleranceSec the expiry gate cannot apply", () => {
+      for (const clockToleranceSec of [
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        -1,
+        "30",
+      ]) {
+        expect(() =>
+          mcpPlugin({
+            transport: "http",
+            auth: {
+              validator: async () => ({
+                kind: "custom" as const,
+                scheme: "bearer" as const,
+                subject: "u",
+              }),
+              clockToleranceSec,
+            } as never,
+          }),
+        ).toThrow(/clockToleranceSec/);
+      }
+    });
+
+    /**
      * @case A client name containing the wire separator fails at registration
      * @preconditions Client registered as "a__b"
      * @expectedResult RC5003 at mcpPlugin() naming the separator, rather than every tool on the client vanishing at dispatch

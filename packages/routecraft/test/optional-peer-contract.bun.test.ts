@@ -18,14 +18,7 @@ const SANCTIONED_EXCEPTIONS: ReadonlyArray<{
   fileSuffix: string;
   specifier: string;
   reason: string;
-}> = [
-  {
-    fileSuffix: "ai/src/mcp/server.ts",
-    specifier: "@modelcontextprotocol/sdk/server/streamableHttp.js",
-    reason:
-      "distinguishes a missing sub-export on older SDK versions from a missing package and falls back silently; loadOptionalPeer would turn the wanted fallback into an RC5017 throw",
-  },
-];
+}> = [];
 
 /** Recursively collect all .ts files under a directory. */
 function walk(dir: string): string[] {

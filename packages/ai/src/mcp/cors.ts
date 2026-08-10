@@ -83,20 +83,17 @@ interface ResolvedMcpCors {
  *   `Content-Type`, and `MCP-Protocol-Version` are the headers MCP clients
  *   send today, but the spec permits more and we do not want to gate.
  * - `Access-Control-Expose-Headers` (non-preflight only): the response headers
- *   browser clients must be able to read.
- *   - `WWW-Authenticate` -- RFC 9728 `resource_metadata` hint on a 401.
- *   - `Mcp-Session-Id` -- emitted by the SDK on `initialize` in stateful mode
- *     (see `server.ts` createSession). The MCP spec requires clients to echo
- *     this value on every subsequent request; browsers cannot read it
- *     cross-origin without it being exposed.
- *   - `Last-Event-ID` -- SSE resume cursor; required for browser-based SSE
- *     reconnection.
+ *   browser clients must be able to read. Only `WWW-Authenticate` (the
+ *   RFC 9728 `resource_metadata` hint on a 401) qualifies: protocol revision
+ *   2026-07-28 removed both `Mcp-Session-Id` (no protocol-level sessions) and
+ *   SSE resumability (`Last-Event-ID`), and the stateless serving of 2025-era
+ *   traffic mints neither, so nothing else is ever emitted to read.
  *
  * @internal
  */
 const ALLOW_METHODS = "GET, POST, OPTIONS";
 const ALLOW_HEADERS = "*";
-const EXPOSE_HEADERS = "WWW-Authenticate, Mcp-Session-Id, Last-Event-ID";
+const EXPOSE_HEADERS = "WWW-Authenticate";
 
 /**
  * Hostnames recognised as loopback by the default policy.
@@ -299,12 +296,10 @@ export const PROTECTED_RESOURCE_METADATA_PATH =
  * the canonical client probe is `/.well-known/oauth-protected-resource/api/mcp`.
  * Both metadata URLs serve the identical document.
  *
- * The path-suffixed URL is derived dynamically because the MCP SDK's
- * `mcpAuthRouter` mounts its own path-aware doc at the same SDK-derived URL
- * (`/.well-known/oauth-protected-resource${rsPath}`); we must register our
- * handler at the same URL to shadow it and preserve the
- * "identical JSON regardless of auth mode" promise in
- * `.standards/security.md` §6.
+ * The path-suffixed URL is derived dynamically from `resource.url` so a
+ * non-default resource path still answers at the URL RFC 9728 §3 tells a
+ * client to probe, preserving the "identical JSON at every advertised URL"
+ * promise in `.standards/security.md` §6.
  *
  * Returns the set of owned paths (always includes `/mcp`, `/mcp/`, and the
  * root metadata path; conditionally includes the path-suffixed metadata path).

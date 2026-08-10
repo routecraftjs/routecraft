@@ -27,17 +27,18 @@
     "ai": "^6.0.230"
   },
   "devDependencies": {
-    "@routecraft/routecraft": "workspace:*",
-    "@sinonjs/fake-timers": "^11.3.1",
-    "@types/sinonjs__fake-timers": "^15.0.1",
     "@ai-sdk/anthropic": "^3.0.98",
     "@ai-sdk/google": "^3.0.95",
     "@ai-sdk/openai": "^3.0.86",
     "@ai-sdk/openai-compatible": "^1.0.46",
     "@huggingface/transformers": "^3.8.1",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@openrouter/ai-sdk-provider": "^2.10.0",
-    "express": "^5.2.1",
+    "@routecraft/routecraft": "workspace:*",
+    "@sinonjs/fake-timers": "^11.3.1",
+    "@types/sinonjs__fake-timers": "^15.0.1",
     "jose": "^6.2.3",
     "ollama-ai-provider-v2": "^3.6.0",
     "vitest": "^4.1.10",
@@ -50,10 +51,11 @@
     "@ai-sdk/openai": "^3.0.37",
     "@ai-sdk/openai-compatible": "^1.0.46",
     "@huggingface/transformers": "^3.8.1",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@openrouter/ai-sdk-provider": "^2.2.3",
     "@routecraft/routecraft": ">=0.6.0 <1.0.0",
-    "express": "^5.0.0",
     "ollama-ai-provider-v2": "^3.3.1",
     "yaml": "^2.8.0"
   },
@@ -88,13 +90,16 @@
     "@huggingface/transformers": {
       "optional": true
     },
-    "@modelcontextprotocol/sdk": {
+    "@modelcontextprotocol/client": {
+      "optional": true
+    },
+    "@modelcontextprotocol/node": {
+      "optional": true
+    },
+    "@modelcontextprotocol/server": {
       "optional": true
     },
     "@openrouter/ai-sdk-provider": {
-      "optional": true
-    },
-    "express": {
       "optional": true
     },
     "ollama-ai-provider-v2": {

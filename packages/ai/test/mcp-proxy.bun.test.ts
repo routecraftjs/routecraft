@@ -12,6 +12,7 @@ import {
 import type { McpRawToolResult, McpTool } from "../src/mcp/types.ts";
 import type { FnHandlerContext } from "../src/fn/types.ts";
 import http from "node:http";
+import { rpcResult } from "./fixtures/rpc-body.ts";
 
 type StoreKey = keyof import("@routecraft/routecraft").StoreRegistry;
 
@@ -797,17 +798,6 @@ describe("MCP tool proxying over HTTP with auth", () => {
     });
   }
 
-  /** Extract the JSON-RPC result payload from a JSON or SSE response body. */
-  function parseRpcResult(body: string): Record<string, unknown> {
-    const jsonLine = body.startsWith("event:")
-      ? (body
-          .split("\n")
-          .find((line) => line.startsWith("data:"))
-          ?.slice(5) ?? "{}")
-      : body;
-    return (JSON.parse(jsonLine) as { result: Record<string, unknown> }).result;
-  }
-
   /**
    * @case Guard sees the authenticated MCP caller's principal and can authorise by role
    * @preconditions HTTP server with a token validator mapping admin-token to an admin-role principal; proxied tool guarded on the admin role
@@ -845,22 +835,6 @@ describe("MCP tool proxying over HTTP with auth", () => {
     const port = server.getHttpPort()!;
 
     async function callTool(token: string): Promise<Record<string, unknown>> {
-      const auth = { Authorization: `Bearer ${token}` };
-      const init = await post(
-        port,
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: {
-            protocolVersion: "2024-11-05",
-            capabilities: {},
-            clientInfo: { name: "test", version: "1.0.0" },
-          },
-        }),
-        auth,
-      );
-      expect(init.statusCode).toBe(200);
       const call = await post(
         port,
         JSON.stringify({
@@ -869,10 +843,10 @@ describe("MCP tool proxying over HTTP with auth", () => {
           method: "tools/call",
           params: { name: "get_document", arguments: { id: "42" } },
         }),
-        { ...auth, "mcp-session-id": init.sessionId! },
+        { Authorization: `Bearer ${token}` },
       );
       expect(call.statusCode).toBe(200);
-      return parseRpcResult(call.body);
+      return rpcResult(call.body);
     }
 
     const adminResult = await callTool("admin-token");

@@ -6,7 +6,7 @@ Authenticate the HTTP endpoints that expose your capabilities, and enrich the ca
 
 ## When you need this
 
-Stdio transport runs as a local subprocess with no network surface, so it needs no authentication. The moment you switch a capability to the HTTP transport (a long-running server multiple clients reach over the network), you must secure it. This page covers every authentication mode Routecraft ships, from a static signing key to a full OAuth 2.1 proxy, plus identity enrichment, discovery metadata, and CORS.
+Stdio transport runs as a local subprocess with no network surface, so it needs no authentication. The moment you switch a capability to the HTTP transport (a long-running server multiple clients reach over the network), you must secure it. This page covers every authentication mode Routecraft ships, from a static signing key to OAuth 2.0 resource-server verification, plus identity enrichment, discovery metadata, and CORS.
 
 For wiring the server itself and pointing clients at it, see [Running an MCP server](/docs/advanced/expose-as-mcp). For a concrete, copyable capability, see the [MCP example](/docs/examples/mcp).
 
@@ -86,7 +86,7 @@ auth: jwks({
 
 ## Custom validator
 
-For API keys, opaque tokens, or any other scheme, pass a `validator` function. Throw to reject (any thrown error returns 401); return a `Principal` to accept:
+For API keys, opaque tokens, or any other scheme, pass a `validator` function. Throw to reject; return a `Principal` to accept. A rejected credential answers `401`, but a throw that names an infrastructure failure (an unreachable JWKS endpoint, a failed `userinfo` fetch) answers `500` on every auth mode, so a client retries rather than discarding a credential that is probably valid:
 
 ```ts
 auth: {
@@ -105,12 +105,12 @@ auth: {
 
 The returned `Principal` is a flat object tagged with `kind` (`"jwt"`, `"jwks"`, `"oauth"`, or `"custom"`). It rides on the exchange as a structured `routecraft.auth.principal` header and is exposed ergonomically via the `ex.principal` getter.
 
-## OAuth 2.1 proxy (`oauth()`)
+## OAuth resource server (`oauth()`)
 
-For the full OAuth 2.1 Authorization Code flow with an upstream IdP, use `oauth()`. It proxies the authorization and token endpoints and validates incoming bearer tokens. It requires `express` and (for JWKS verification) `jose` as optional peer dependencies:
+A Routecraft MCP server is an OAuth 2.0 **Resource Server**. It verifies bearer tokens, enforces required scopes, and advertises its Authorization Server through RFC 9728 metadata; clients run the authorization flow directly against your IdP. Routecraft does not proxy `/authorize`, `/token`, `/register` or `/revoke`, so there is no web framework to install: `jose` (for JWKS verification) is the only optional peer.
 
 ```sh
-bun add express jose
+bun add jose
 ```
 
 Compose `oauth()` with `jwks()` (or a raw verifier function) via the `verify` option. The protected-resource identity (`resource.url`) lives on the plugin, not on `oauth()`:
@@ -122,31 +122,28 @@ mcpPlugin({
   transport: 'http',
   resource: { url: 'https://mcp.example.com' },
   auth: oauth({
-    endpoints: {
-      authorizationUrl: 'https://idp.example.com/oauth/authorize',
-      tokenUrl: 'https://idp.example.com/oauth/token',
-    },
     verify: jwks({
       jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
       issuer: 'https://idp.example.com',
       audience: 'https://mcp.example.com',
     }),
-    client: {
-      client_id: 'my-mcp-server',
-      redirect_uris: ['http://localhost:3000/callback'],
-    },
+    // Refused with 403 insufficient_scope when the token lacks any of these.
+    requiredScopes: ['mcp:invoke'],
   }),
 })
 ```
+
+`oauth()` is a thin layer over the same options `jwks()` and `jwt()` produce: reach for it when you want `requiredScopes` enforcement or an explicit issuer, and pass the validator straight to `auth` otherwise. The issuer comes from the `verify` helper automatically; pass `issuer` explicitly when `verify` is a raw function, since nothing else names the IdP for clients to discover.
 
 For opaque tokens or custom introspection, pass a raw `verify` function instead:
 
 ```ts
 auth: oauth({
-  endpoints: { authorizationUrl: '...', tokenUrl: '...' },
+  issuer: 'https://idp.example.com',
   verify: async (token) => {
     const info = await myIntrospectionCall(token)
     if (!info.active) throw new Error('token inactive')
+    if (typeof info.exp !== 'number') throw new Error('token has no exp')
     return {
       kind: 'oauth',
       scheme: 'bearer',
@@ -155,13 +152,12 @@ auth: oauth({
       expiresAt: info.exp,
     }
   },
-  client: async (clientId) => await db.clients.findByClientId(clientId),
 })
 ```
 
-`client` accepts either a static `OAuthClientInfo` (unknown IDs are rejected) or a `(clientId) => Promise<OAuthClientInfo | undefined>` supplier for dynamic lookup. The supplier is called per request during the OAuth flow, so cache or preload registry reads to keep the hot path fast.
+`verify` runs on **every** request: revision 2026-07-28 is stateless, so there is no session in which a past verification could be cached. Keep introspection calls fast, or cache them yourself.
 
-`expiresAt` is required by the MCP SDK's bearer middleware; the server will throw if the verifier returns a principal without it.
+`expiresAt` is required on a principal returned through `oauth()`: a principal without a finite numeric expiry has no bounded validity window, so it is refused rather than admitted indefinitely. A principal whose expiry has already passed is refused at the gate whichever auth mode produced it. The boundary is inclusive and compared in whole seconds, so a principal whose `expiresAt` equals the current second is already expired, matching RFC 7519 section 4.1.4.
 
 The populated `Principal` rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter, e.g. `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`.
 
@@ -169,7 +165,7 @@ The populated `Principal` rides on the exchange as a single structured header (`
 
 OAuth access tokens are intentionally thin: they authorize but rarely identify. Identity fields needed to gate routes (`email`, `name`, `roles`, org membership) usually live behind the IdP's userinfo endpoint, not in the token itself. The optional `userinfo` option on `mcpPlugin({})` runs after `auth` verifies the token and merges enrichment onto the verified principal.
 
-`userinfo` is **plugin-level and orthogonal to the auth mode**: it works with `jwks()` / `jwt()` (validator mode), a custom `{ validator }`, and `oauth()`. This is the path for IdPs like WorkOS AuthKit where OAuth proxy mode is not viable (no server-side DCR) but you still need identity beyond the thin token.
+`userinfo` is **plugin-level and orthogonal to the auth mode**: it works with `jwks()` / `jwt()`, a custom `{ validator }`, and `oauth()`. This is the path for IdPs like WorkOS AuthKit where the token itself is thin but you still need richer identity.
 
 Three shapes are accepted; choose exactly one.
 
@@ -231,9 +227,9 @@ See the [mcpPlugin reference](/docs/reference/plugins/mcpplugin) for the full `P
 
 ## Protected-resource metadata (RFC 9728)
 
-Auto-discovering MCP clients (Claude.ai custom connectors, MCP Inspector, `mcp-remote`, Claude Desktop) probe `/mcp`, receive a 401, then fetch `/.well-known/oauth-protected-resource` to find out which authorization server to use. The framework serves this RFC 9728 metadata document in both validator and OAuth-proxy auth modes, and appends a `resource_metadata="..."` parameter to the 401 `WWW-Authenticate` header so clients know where the document lives.
+Auto-discovering MCP clients (Claude.ai custom connectors, MCP Inspector, `mcp-remote`, Claude Desktop) probe `/mcp`, receive a 401, then fetch `/.well-known/oauth-protected-resource` to find out which authorization server to use. The framework serves this RFC 9728 metadata document whichever auth helper you use, and appends a `resource_metadata="..."` parameter to the 401 `WWW-Authenticate` header so clients know where the document lives.
 
-Protected-resource identity is configured on the plugin, not on the auth helper. It is orthogonal to the auth mode: the same `resource: {...}` block works whether you use `jwt()` / `jwks()` (validator mode) or `oauth()` (proxy mode).
+Protected-resource identity is configured on the plugin, not on the auth helper. It is orthogonal to the auth mode: the same `resource: {...}` block works whether you use `jwt()` / `jwks()` directly or via `oauth()`.
 
 ```ts
 mcpPlugin({
@@ -255,11 +251,11 @@ mcpPlugin({
 })
 ```
 
-The metadata document populates `authorization_servers` from the validator's `issuer` (surfaced by `jwks()` / `jwt()`) when present. Custom validators with no declared issuer omit the field, which RFC 9728 allows. OAuth-proxy mode derives `authorization_servers` from the MCP SDK's `mcpAuthRouter`.
+The metadata document populates `authorization_servers` from the auth options' `issuer`, surfaced by `jwks()` / `jwt()` / `oauth()`. A custom validator with no declared issuer omits the field, which RFC 9728 allows, though clients then have no way to discover where to authenticate.
 
 When `resource.url` is omitted, the framework advertises the bound `http://{host}:{port}/mcp`. This is fine for local dev but should be overridden in production with the public-facing URL clients use to reach the server. In production, `resource.url` must be HTTPS or the plugin throws at startup.
 
-The motivating case is IdPs that do not support server-side Dynamic Client Registration (DCR) and therefore cannot use OAuth proxy mode -- WorkOS AuthKit is the canonical example. In that setup, validator mode (`auth: jwks(...)`) is the only correct integration, and the RFC 9728 metadata document is what lets MCP clients still auto-discover the IdP.
+This is how MCP clients auto-discover your IdP. Protocol revision 2026-07-28 deprecated Dynamic Client Registration in favour of Client ID Metadata Documents, so the discovery document plus a direct flow against the IdP is the supported shape for every provider, including ones like WorkOS AuthKit that never offered server-side DCR.
 
 ## CORS
 
@@ -269,7 +265,7 @@ The default policy is **loopback-only**: a browser request whose `Origin` is on 
 
 Server-to-server callers (`curl`, `mcp-remote`, the MCP CLI) do not send an `Origin` header and are unaffected by this policy regardless of configuration.
 
-The option surface is intentionally minimal: only `origin` is configurable. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`*`), and exposed headers (`WWW-Authenticate, Mcp-Session-Id, Last-Event-ID`) so browser clients can read the RFC 9728 `resource_metadata` hint on a 401 and follow discovery, echo the SDK-issued `Mcp-Session-Id` on every request after `initialize` (stateful transport), and resume SSE streams via `Last-Event-ID`. Preflight responses also carry `Access-Control-Allow-Private-Network: true` so Chrome PNA crossings (e.g. a hosted browser client tunnelled to a local MCP server) are not blocked.
+The option surface is intentionally minimal: only `origin` is configurable. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`*`), and exposed headers (`WWW-Authenticate`) so browser clients can read the RFC 9728 `resource_metadata` hint on a 401 and follow discovery. Protocol revision 2026-07-28 removed both sessions and SSE resumability, so `Mcp-Session-Id` and `Last-Event-ID` are never emitted and are not exposed. Preflight responses also carry `Access-Control-Allow-Private-Network: true` so Chrome PNA crossings (e.g. a hosted browser client tunnelled to a local MCP server) are not blocked.
 
 ```ts
 // Default: no config needed for local browser MCP tooling
@@ -309,7 +305,7 @@ mcpPlugin({
 })
 ```
 
-The OAuth-proxy mode's SDK-owned endpoints (`/register`, `/token`, `/revoke`, the SDK's own metadata) keep their own permissive CORS handling from the MCP SDK. The `cors` slot governs only the routes the framework owns (`/mcp` and the protected-resource metadata).
+The `cors` slot governs the routes the framework owns: `/mcp` and the protected-resource metadata. Routecraft mounts no OAuth endpoints of its own, so there is nothing else on the origin to police.
 
 ## Agents acting on behalf of users
 

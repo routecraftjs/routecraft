@@ -14,7 +14,7 @@ import { rcError, type Principal } from "@routecraft/routecraft";
  * raw upstream response surfaced, return `{ userinfoClaims: ... }`.
  *
  * The `principal` parameter is typed as {@link Principal} because enrichment
- * works in both validator and OAuth-proxy modes. When the verifier is
+ * works with every auth helper. When the verifier is
  * `jwks()` / `jwt()` / `oauth()`, the principal carries `expiresAt` at
  * runtime (it is an `OAuthPrincipal`); a custom `{ validator }` may not.
  */
@@ -388,10 +388,10 @@ function liftOidcClaims(payload: Record<string, unknown>): Partial<Principal> {
  * request. Only the enrichment payload is memoised, keyed by
  * SHA-256(token) and TTL'd to `principal.expiresAt`.
  *
- * Generic over the principal type so the same wrapper serves validator
- * mode (`jwks()` / `jwt()` / custom `{ validator }`) and OAuth-proxy mode
- * (`oauth()`); the caller supplies the base verifier and the IdP `issuer`
- * (needed only for `userinfo: true` OIDC Discovery).
+ * Generic over the principal type so the same wrapper serves every auth
+ * helper (`jwks()` / `jwt()` / a custom `{ validator }` / `oauth()`); the
+ * caller supplies the base verifier and the IdP `issuer` (needed only for
+ * `userinfo: true` OIDC Discovery).
  *
  * Concurrent first-callers for the same token share a single in-flight
  * enrichment promise, so the IdP receives one userinfo fetch per
