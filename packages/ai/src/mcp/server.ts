@@ -952,7 +952,24 @@ export class McpServer {
       authOptions && "validator" in authOptions
         ? (this.validatorVerifier ?? this.buildValidatorVerifier())
         : null;
-    if (!verifier) return { ok: false, status: 401, presented: false };
+    if (!verifier) {
+      // `auth` is configured but yields no verifier, so every request is
+      // refused. Unreachable through `mcpPlugin`, which rejects auth without a
+      // `validator` at construction, but `McpServer` can be built directly.
+      // Refusing is right; refusing silently is not, because a blanket 401 with
+      // no log and no event looks identical to a server nobody has a token for.
+      const detail = {
+        reason: "no_verifier",
+        scheme: "bearer",
+        source: "mcp",
+      };
+      this.context.logger.error(
+        detail,
+        "Auth rejected: auth is configured but resolved no verifier; every request will be refused",
+      );
+      this.context.emit("auth:rejected", detail);
+      return { ok: false, status: 401, presented: false };
+    }
 
     const rawHeader = req.headers["authorization"];
     if (!rawHeader || Array.isArray(rawHeader)) {

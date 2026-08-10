@@ -1175,6 +1175,35 @@ describe("McpServer", () => {
         });
 
         /**
+         * @case auth is configured but resolves no verifier, so every request is refused
+         * @preconditions McpServer constructed directly (bypassing the mcpPlugin validation that requires a `validator`) with an auth object that has none; POST /mcp with a valid-looking bearer
+         * @expectedResult 401, and the refusal is observable: an error log naming the misconfiguration and an auth:rejected event with reason "no_verifier". A blanket 401 with no log and no event is indistinguishable from a server nobody holds a token for
+         */
+        test("emits when auth resolves no verifier", async () => {
+          const rejections: Array<Record<string, unknown>> = [];
+          const { post } = await startHttpServer([], {
+            auth: {} as import("../src/mcp/types.ts").McpHttpAuthOptions,
+          });
+          t.ctx.on("auth:rejected", (payload) => {
+            rejections.push(payload.details as Record<string, unknown>);
+          });
+
+          const res = await post(initBody, { Authorization: "Bearer any" });
+          expect(res.statusCode).toBe(401);
+
+          expect(rejections.some((r) => r["reason"] === "no_verifier")).toBe(
+            true,
+          );
+          expect(
+            t.logger.error.mock.calls.some(
+              (c) =>
+                (c[0] as Record<string, unknown> | undefined)?.["reason"] ===
+                "no_verifier",
+            ),
+          ).toBe(true);
+        });
+
+        /**
          * @case A non-bearer scheme (client not yet authenticated) logs at debug, not warn
          * @preconditions McpServer with validator auth; POST /mcp with a Basic Authorization header
          * @expectedResult 401; debug logged with reason "unsupported_scheme"; no warn for that message
