@@ -74,7 +74,11 @@ A principal that came back from the store with the parked exchange is marked res
 
 ## Revival failures
 
-Each of these throws in the ingress route, so the answerer gets a typed error, and (where a suspended route is identifiable) additionally re-enters the **suspended** route's error channel, so a route-scope `.error()` can notify the approver and re-ask instead of leaving them at a dead link.
+Each of these throws in the ingress route, so the answerer gets a typed error.
+
+Three of them additionally re-enter the **suspended** route's error channel, so a route-scope `.error()` there can notify the approver and re-ask instead of leaving them at a dead link: `RC5047`, `RC5048` and `RC5050`. Those are changes in the world the suspended route has to react to, and none of them is something a caller can provoke on demand.
+
+`RC5049` deliberately stays in the ingress route. A malformed answer is a per-request input error, the suspension stays resumable, and routing it through the suspended route would let anyone holding a token drive that route's re-ask path (approver notifications included) with junk. Shaping a reply to a bad answer belongs to the ingress route's own `.error()` handler, which is where the answerer's channel is.
 
 | Code | Cause |
 |------|-------|
@@ -82,7 +86,7 @@ Each of these throws in the ingress route, so the answerer gets a typed error, a
 | [`RC5046`](/docs/reference/errors#rc-5046) | The token verifies but the store holds no such suspension, or its route is not registered in this context. |
 | [`RC5047`](/docs/reference/errors#rc-5047) | The suspension's `ttl` elapsed. |
 | [`RC5048`](/docs/reference/errors#rc-5048) | The steps after the suspend point (or the `expect` schema) changed while the exchange was parked, so the stored approval no longer authorizes what would run. Refused before any of those steps execute. |
-| [`RC5049`](/docs/reference/errors#rc-5049) | The answer does not satisfy `expect`. The suspension stays resumable, so a corrected answer still works. |
+| [`RC5049`](/docs/reference/errors#rc-5049) | The answer does not satisfy `expect`. Ingress route only. The suspension stays resumable, so a corrected answer still works. |
 | [`RC5050`](/docs/reference/errors#rc-5050) | The suspension was denied, typically because the run carrying it was cancelled. |
 
 ## Related

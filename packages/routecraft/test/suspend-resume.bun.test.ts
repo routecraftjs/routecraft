@@ -264,15 +264,24 @@ describe("suspend and resume", () => {
   /**
    * @case An answer that does not satisfy the suspending step's expect schema
    * @preconditions A parked payout; the resume presents { approved: "yes" }
-   * @expectedResult RC5049 in the ingress route, nothing after the suspend runs, and the suspension stays resumable so a corrected answer still works
+   * @expectedResult RC5049 in the ingress route ONLY (the suspended route's own .error() never sees it), nothing after the suspend runs, and the suspension stays resumable so a corrected answer completes normally
    */
   test("an answer that fails expect is refused with RC5049 and leaves the suspension resumable", async () => {
     const ran: unknown[] = [];
+    const caught: unknown[] = [];
     t = await testContext()
       .with(suspending())
       .routes([
         craft()
           .id("payout")
+          // The suspended route must NOT see a malformed answer: it is a
+          // per-request input error, not a change in the world worth
+          // re-asking about, and routing it here would let any token holder
+          // drive this handler (and the notification it sends) with junk.
+          .error((err) => {
+            caught.push(err);
+            return { reasked: true };
+          })
           .from(direct())
           .suspend({ expect: Approval })
           .tap((ex) => {
@@ -298,13 +307,18 @@ describe("suspend and resume", () => {
       }),
     ).rejects.toMatchObject({ rc: "RC5049" });
     expect(ran).toHaveLength(0);
+    expect(caught).toHaveLength(0);
 
-    const acknowledgment = await t.client.sendDirect("answers", {
+    // Still resumable: the answerer corrects the payload and the
+    // continuation runs exactly as it would have the first time.
+    const acknowledgment = (await t.client.sendDirect("answers", {
       token: parked.token,
       result: { approved: true },
-    });
-    expect(acknowledgment).toMatchObject({ status: "resumed" });
+    })) as { status: string; outcome: { status: string } };
+    expect(acknowledgment.status).toBe("resumed");
+    expect(acknowledgment.outcome.status).toBe("completed");
     expect(ran).toHaveLength(1);
+    expect(caught).toHaveLength(0);
   });
 
   /**

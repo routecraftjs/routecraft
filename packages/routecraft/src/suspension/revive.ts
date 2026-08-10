@@ -79,15 +79,19 @@ export interface ResumeAcknowledgment {
  * 4. Its route is still registered and still leads to the same
  *    continuation (`RC5048`), so an approval cannot authorize steps that
  *    were edited under it.
- * 5. The answer satisfies the suspending step's `expect` (`RC5049`).
+ * 5. The answer satisfies the suspending step's `expect` (`RC5049`, in
+ *    the ingress route only).
  * 6. The compare-and-swap out of `suspended` is won here and not by a
  *    concurrent resume or the expiry sweeper.
  *
- * Failures that leave an approver stranded (expiry, a changed continuation,
- * a denied suspension, a rejected answer) additionally re-enter the
- * SUSPENDED route's error channel, so a route-scope `.error()` can notify
- * and re-ask instead of the answer vanishing into the ingress route's own
- * failure. The ingress caller still sees the typed error.
+ * Every failure throws in the ingress route. A failure that leaves the
+ * approver STRANDED (an expiry, a changed continuation, a denied
+ * suspension) additionally re-enters the suspended route's error channel,
+ * because only that route can notify and re-ask. A rejected answer
+ * (`RC5049`) deliberately does not: it is a per-request input error rather
+ * than a change in the world, the suspension stays resumable, and routing
+ * it through the suspended route would let any token holder drive that
+ * route's re-ask path with junk.
  *
  * @param context - The context reviving the exchange (the ingress route's)
  * @param request - Token plus candidate answer
@@ -185,14 +189,17 @@ export async function reviveSuspension(
   // parked exchange was already refused above.
   const result = await validateAgainst(site.expect, request.result);
   if (!result.ok) {
-    throw await reask(
-      context,
-      route,
-      suspension,
-      rcError("RC5049", result.message, {
-        message: `The answer for suspension "${id}" does not satisfy the expect schema: ${result.message}`,
-      }),
-    );
+    // Ingress only, deliberately: unlike an expiry or a changed
+    // continuation, a malformed answer is not a change in the world the
+    // suspended route has to react to. It is a per-request input error, and
+    // re-entering the suspended route's error channel for it would hand any
+    // token holder a lever to drive that route's re-ask path (approver
+    // notifications included) with junk. The suspension is left resumable,
+    // so the answerer simply corrects the payload; shaping a reply to a bad
+    // answer is the ingress route's own `.error()` handler's job.
+    throw rcError("RC5049", result.message, {
+      message: `The answer for suspension "${id}" does not satisfy the expect schema: ${result.message}`,
+    });
   }
 
   const resumedAt = new Date();

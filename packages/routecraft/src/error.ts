@@ -500,7 +500,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Suspension result rejected",
     suggestion:
-      "The candidate result handed to `.resume()` failed the `expect` schema declared on the suspending `.suspend()`. The suspension is left resumable, so a corrected answer still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the answer, while validation happens at revival because only the suspension knows the schema.",
+      "The candidate result handed to `.resume()` failed the `expect` schema declared on the suspending `.suspend()`. The suspension is left resumable, so a corrected answer still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the answer, while validation happens at revival because only the suspension knows the schema. Unlike an expiry or a changed continuation, this is raised in the RESUME INGRESS route only: a malformed answer is a per-request input error, not a change the suspended route has to re-ask about. Handle it with an `.error()` on the ingress route if the answerer deserves a reply.",
     docs: `${DOCS_BASE}#rc-5049`,
     retryable: false,
   },
