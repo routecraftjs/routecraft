@@ -12,12 +12,16 @@ const TURNDOWN_PEER = { adapterName: "WebFetch", packageName: "turndown" };
 /**
  * The slice of turndown this module uses.
  *
- * Declared structurally rather than imported from `@types/turndown`
- * because turndown is CJS with `export =`: its types resolve to the
- * class in type position but to a namespace carrying `.default` in value
- * position, and the two disagree under `verbatimModuleSyntax`. Naming
- * the two methods we call sidesteps that and costs nothing, since a
- * wider surface would be unused anyway.
+ * Named structurally because turndown is CJS with `export =`: its types
+ * resolve to the class in type position but to a namespace carrying
+ * `.default` in value position, and the two disagree. Declaring the two
+ * methods we call sidesteps that and costs nothing, since a wider
+ * surface would be unused anyway.
+ *
+ * `@types/turndown` is still a required devDependency despite this. The
+ * `import("turndown")` below needs a module declaration to exist at all,
+ * and without one the import is an implicit `any` and `tsc` fails with
+ * TS7016. Do not drop the dependency on the strength of this interface.
  */
 interface MarkdownConverter {
   turndown(html: string): string;

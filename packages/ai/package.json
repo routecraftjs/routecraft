@@ -41,6 +41,7 @@
     "@routecraft/routecraft": "workspace:*",
     "@sinonjs/fake-timers": "^11.3.1",
     "@types/sinonjs__fake-timers": "^15.0.1",
+    "@types/turndown": "^5.0.6",
     "jose": "^6.2.8",
     "linkedom": "^0.18.13",
     "ollama-ai-provider-v2": "^3.6.0",
