@@ -110,6 +110,18 @@ Two more refusals happen outside build time, each as early as it can be known an
 Suspension guarantees durability from a **declared** suspend point. It is not general crash recovery: if the process dies at step 4 of a route that never reached a `.suspend()`, that exchange is gone. Routecraft does not checkpoint at every step boundary.
 {% /callout %}
 
+## Resilience on the continuation
+
+A resume runs the continuation **below** the [pre-from filter chain](/docs/advanced/filter-chain#a-resumed-exchange-re-enters-below-the-chain): route-scope `.error()` still applies, the rest of the chain does not, because the exchange entered the route once and that was execution one. Declare resilience inside the continuation (step-scope wrappers, optionally grouped by wrapping a `.choice()`), or hand the work to a route that has its own chain with `.to(direct('...'))`.
+
+Two limits are worth knowing before you rely on this for money:
+
+**A resume is spent whether or not the continuation succeeds.** `.resume()` wins the store's compare-and-swap before running anything, so a continuation that throws records a `failed` terminal and a second answer with the same token receives that cached failure rather than a second run. This is what makes "did this already run?" answerable across a restart, and it means a failing continuation needs a `.error()` handler or its own retry, not a re-click from the approver.
+
+**A process that dies mid-continuation does not resume itself.** The record reads `resumed` with no terminal outcome, and nothing re-drives it; a later answer with the same token is told the first resume never recorded an outcome. Recovering that automatically needs a lease on the `resumed` state, which is not implemented. Until then, treat a `resumed` record with no terminal as needing an operator, and keep continuations short where the work is not idempotent.
+
+**Expiry is discovered lazily.** A `ttl` is enforced when a late answer arrives, not by a background sweeper: an unanswered suspension sits in the store past its deadline and its route is not told until someone presents a token. The sweeper that fires it on time is slice 3 of the epic. Until it lands, do not build a "nobody approved in 72 hours, escalate" flow on `ttl` alone: the escalation only runs if the approver eventually clicks a dead link.
+
 ## Related
 
 - [`.resume()`](/docs/reference/operations/resume) -- the other half.
