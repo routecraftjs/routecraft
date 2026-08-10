@@ -47,6 +47,19 @@ forward(routeId: string, payload: unknown): Promise<unknown>
 
 `forward` is async. The error handler waits for the target capability to finish processing and returns whatever that capability produces. This means you can use the target's result as the recovery value for the failed capability.
 
+### `forward` runs as the caller
+
+A forwarded call carries the failing exchange's headers, so the target sees the same authenticated principal and the same correlation id as the capability that forwarded to it. A target declaring `.authorize()` therefore accepts a forward that the caller was itself authorized to make, and the whole hop stays on one trace.
+
+This is unconditional and cannot escalate: it is the same identity the calling capability was already running under. A capability that needs to act as something else establishes that explicitly with `.authenticate()`.
+
+Two consequences worth knowing:
+
+- A target with a strict `.input({ headers })` schema now sees the caller's headers, so a schema that rejects unknown keys can refuse a forward.
+- Forwarding a principal whose expiry has passed surfaces the expiry error rather than a missing-principal `RC5012`.
+
+The same applies to the `forward` handed to a `.circuitBreaker()` fallback and to `client.forward()` in an agent block resolver.
+
 ### Example: delegate to a dedicated error capability
 
 ```ts

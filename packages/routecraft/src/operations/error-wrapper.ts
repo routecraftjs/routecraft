@@ -94,7 +94,7 @@ export class ErrorWrapperStep<
       }
 
       try {
-        const forward = route?.getForward();
+        const forward = route?.getForward(exchange);
         if (!forward) {
           // Should not happen in normal pipelines (route is always
           // bound), but fail loudly rather than silently mis-recover.
