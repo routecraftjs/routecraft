@@ -165,14 +165,14 @@ export function suspensionIdOf(
  */
 export function readSequence(headers: ExchangeHeaders): number {
   const raw = headers[SuspensionHeaders.SEQUENCE];
-  // Bounded below MAX_SAFE_INTEGER, not merely at it: the park writes
-  // `sequence + 1`, and a counter that cannot advance would give the next
-  // park of the same exchange the id this one already used, which the
-  // store rejects as a duplicate rather than parking.
+  // Every value this returns must survive a round trip through a park, which
+  // writes `sequence + 1`: bounding at MAX_SAFE_INTEGER would accept a value
+  // whose successor this same guard rejects, resetting the counter to 0 and
+  // handing the next park an id the first one already used.
   return typeof raw === "number" &&
     Number.isSafeInteger(raw) &&
     raw >= 0 &&
-    raw < Number.MAX_SAFE_INTEGER
+    raw < Number.MAX_SAFE_INTEGER - 1
     ? raw
     : 0;
 }

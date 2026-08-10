@@ -813,6 +813,128 @@ describe("suspend and resume", () => {
   });
 
   /**
+   * @case The route lost its .suspend() entirely, rather than changing its tail
+   * @preconditions The exchange parks; the redeployed route has no .suspend() at the stored position; the token is then replayed
+   * @expectedResult The stored denial reason names the cause it was actually refused for, so the RC5050 a replay reads back does not report a changed continuation for a route that no longer suspends at all
+   */
+  test("a removed suspend site records its own denial reason", async () => {
+    const store = new MemorySuspensionStore();
+    const shared = {
+      suspension: { store, secret: SECRET },
+    } as unknown as CraftConfig;
+
+    const parkContext = await testContext()
+      .with(shared)
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ expect: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await parkContext.startAndWaitReady();
+    const parked = asSuspended(
+      await parkContext.client.sendDirect("payout", {
+        amountCents: 25_000,
+        payee: "acme",
+      }),
+    );
+    await parkContext.stop();
+
+    t = await testContext()
+      .with(shared)
+      .routes([
+        // The approval step is gone: this route no longer suspends at all.
+        craft().id("payout").from(direct()).to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const answer = () =>
+      t!.client.sendDirect("answers", {
+        token: parked.token,
+        result: { approved: true },
+      });
+
+    await expect(answer()).rejects.toMatchObject({ rc: "RC5048" });
+    await expect(answer()).rejects.toMatchObject({
+      rc: "RC5050",
+      message: expect.stringContaining("suspend site removed"),
+    });
+  });
+
+  /**
+   * @case A continuation refusal that loses its compare-and-swap to a concurrent sweep
+   * @preconditions The route changed under a parked exchange, and the record reaches a terminal state between the read and the denial
+   * @expectedResult The losing request reports the winner's terminal state (RC5047) rather than its own RC5048, matching the expiry and duplicate paths: whoever won the transition says what happened
+   */
+  test("a denial that loses the race reports the winner's outcome", async () => {
+    /** A store whose denial always arrives second, as a sweep would make it. */
+    class SweptStore extends MemorySuspensionStore {
+      override async markDenied(id: string, reason?: string) {
+        await this.markExpired(id);
+        return super.markDenied(id, reason);
+      }
+    }
+
+    const store = new SweptStore();
+    const shared = {
+      suspension: { store, secret: SECRET },
+    } as unknown as CraftConfig;
+
+    const parkContext = await testContext()
+      .with(shared)
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ expect: Approval })
+          .transform((body) => ({ paid: (body as Payout).amountCents }))
+          .to(noop()),
+      ])
+      .build();
+    await parkContext.startAndWaitReady();
+    const parked = asSuspended(
+      await parkContext.client.sendDirect("payout", {
+        amountCents: 25_000,
+        payee: "acme",
+      }),
+    );
+    await parkContext.stop();
+
+    const caught: unknown[] = [];
+    t = await testContext()
+      .with(shared)
+      .routes([
+        craft()
+          .id("payout")
+          .error((err) => {
+            caught.push(err);
+            return { reasked: true };
+          })
+          .from(direct())
+          .suspend({ expect: Approval })
+          .transform((body) => ({ paid: (body as Payout).amountCents * 2 }))
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    await expect(
+      t.client.sendDirect("answers", {
+        token: parked.token,
+        result: { approved: true },
+      }),
+    ).rejects.toMatchObject({ rc: "RC5047" });
+    // The sweep owned the notification, so this request must not send a
+    // second one for the same suspension.
+    expect(caught).toHaveLength(0);
+  });
+
+  /**
    * @case A resume-only ingress in a context with no suspension runtime
    * @preconditions A route ending in .resume() and no `suspension` config; no route suspends
    * @expectedResult The context refuses to start with RC5052, rather than becoming live and rejecting every answer at request time

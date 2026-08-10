@@ -174,11 +174,12 @@ export async function reviveSuspension(
 
   const site = findSite(route, suspension);
   if (!site) {
-    throw await refuseContinuation(
+    return await refuseContinuation(
       context,
       runtime.store,
       route,
       suspension,
+      "suspend site removed",
       `Route "${suspension.routeId}" no longer has a .suspend() at position ${suspension.position}.`,
     );
   }
@@ -196,11 +197,12 @@ export async function reviveSuspension(
     describeExpect(site.expect),
   );
   if (current !== suspension.continuationHash) {
-    throw await refuseContinuation(
+    return await refuseContinuation(
       context,
       runtime.store,
       route,
       suspension,
+      "continuation changed",
       `Route "${suspension.routeId}" changed after position ${suspension.position} while this exchange was parked, so the stored answer no longer authorizes what would run.`,
     );
   }
@@ -325,12 +327,21 @@ async function refuseContinuation(
   store: SuspensionStore,
   route: Route,
   suspension: Suspension,
+  reason: string,
   message: string,
-): Promise<Error> {
+): Promise<ResumeAcknowledgment> {
   const error = rcError("RC5048", undefined, { message });
-  const cas = await store.markDenied(suspension.id, "continuation changed");
-  if (!cas.won) return error;
-  return reask(context, route, suspension, error);
+  const cas = await store.markDenied(suspension.id, reason);
+  if (!cas.won) {
+    // Whoever won the transition says what happened, as on the expiry and
+    // duplicate paths. A replay that lost to the denial has to read back the
+    // stored `deniedReason` rather than this request's RC5048, and an answer
+    // that won `markResumed` on the way in was accepted: reporting a changed
+    // continuation for it would describe work that is running as refused.
+    if (cas.suspension) return settled(cas.suspension);
+    throw error;
+  }
+  throw await reask(context, route, suspension, error);
 }
 
 /**
