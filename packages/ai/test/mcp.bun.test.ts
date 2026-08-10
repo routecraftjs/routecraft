@@ -239,7 +239,7 @@ describe("mcp() DSL function", () => {
       { op: "ping" },
       {
         [McpHeadersKeys.TOOL]: "merge-tool",
-        [McpHeadersKeys.SESSION]: "sess-1",
+        [McpHeadersKeys.REQUEST]: "req-1",
         "routecraft.auth.principal": principal,
         "x-tenant": "acme",
       },
@@ -251,7 +251,7 @@ describe("mcp() DSL function", () => {
       unknown
     >;
     expect(headers[McpHeadersKeys.TOOL]).toBe("merge-tool");
-    expect(headers[McpHeadersKeys.SESSION]).toBe("sess-1");
+    expect(headers[McpHeadersKeys.REQUEST]).toBe("req-1");
     expect(headers["routecraft.auth.principal"]).toMatchObject({
       subject: "user-42",
     });

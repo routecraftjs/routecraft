@@ -1,10 +1,9 @@
 import {
   isRoutecraftError,
-  loadOptionalPeer,
   rcError,
   type CraftContext,
 } from "@routecraft/routecraft";
-import { buildAuthHeaders } from "./build-auth-headers.ts";
+import { connectMcpHttpClient } from "./sdk.ts";
 import { extractContent } from "./extract-content.ts";
 import {
   ADAPTER_MCP_CLIENT_SERVERS,
@@ -150,63 +149,13 @@ export async function callRemoteToolRaw(
   args: Record<string, unknown>,
   auth?: McpClientAuthOptions,
 ): Promise<McpRawToolResult> {
-  const clientModule = (await loadOptionalPeer(
-    () => import("@modelcontextprotocol/sdk/client/index.js"),
-    {
-      adapterName: "mcp (http client)",
-      packageName: "@modelcontextprotocol/sdk",
-    },
-  )) as unknown as {
-    Client: new (
-      info: { name: string; version: string },
-      options?: { capabilities?: Record<string, unknown> },
-    ) => unknown;
-  };
-  const transportModule = (await loadOptionalPeer(
-    () => import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-    {
-      adapterName: "mcp (http client)",
-      packageName: "@modelcontextprotocol/sdk",
-    },
-  )) as unknown as {
-    StreamableHTTPClientTransport: new (
-      url: URL,
-      options?: {
-        sessionId?: string;
-        requestInit?: { headers?: Record<string, string> };
-      },
-    ) => unknown;
-  };
-
-  let transport: unknown;
-  let client: unknown;
+  let connection: Awaited<ReturnType<typeof connectMcpHttpClient>> | undefined;
   try {
-    const url = new URL(serverUrl);
-    const headers = await buildAuthHeaders(auth);
-    const transportOptions = headers ? { requestInit: { headers } } : undefined;
-    transport = new transportModule.StreamableHTTPClientTransport(
-      url,
-      transportOptions,
-    );
-    client = new clientModule.Client(
-      { name: "routecraft-mcp-client", version: "1.0.0" },
-      { capabilities: {} },
-    );
-    await (client as unknown as { connect(t: unknown): Promise<void> }).connect(
-      transport,
-    );
-    const callTool = (
-      client as unknown as {
-        callTool(params: {
-          name: string;
-          arguments?: Record<string, unknown>;
-        }): Promise<McpRawToolResult>;
-      }
-    ).callTool;
-    return await callTool.call(client, {
+    connection = await connectMcpHttpClient(new URL(serverUrl), auth);
+    return (await connection.client.callTool({
       name: toolName,
       arguments: args,
-    });
+    })) as McpRawToolResult;
   } catch (cause) {
     // Wrap SDK / transport / network errors as RC5003 with the original
     // attached as `cause`, matching the Error and Logging Policy
@@ -220,37 +169,18 @@ export async function callRemoteToolRaw(
       message: `mcp dispatch: failed to call tool "${toolName}" at "${serverUrl}".`,
     });
   } finally {
-    // `client` and `transport` may be undefined when an early step
-    // inside the try block (URL parsing, auth header building,
-    // transport / client construction) threw before they were
-    // assigned. Guard each cleanup with a truthy check.
-    if (client) {
-      const clientCleanup = client as {
-        close?: () => void | Promise<void>;
-        disconnect?: () => void | Promise<void>;
-      };
-      const closeOrDisconnect = clientCleanup.close ?? clientCleanup.disconnect;
-      if (typeof closeOrDisconnect === "function") {
-        try {
-          await Promise.resolve(closeOrDisconnect.call(client));
-        } catch {
-          // Ignore cleanup errors so original error propagates
-        }
-      }
+    // `connection` stays undefined when URL parsing or the handshake threw;
+    // a failed handshake already closed its own transport. Cleanup errors are
+    // swallowed so the original failure propagates.
+    try {
+      await connection?.client.close();
+    } catch {
+      // Ignore cleanup errors so original error propagates
     }
-    if (transport) {
-      const transportCleanup = transport as {
-        close?: () => void | Promise<void>;
-        destroy?: () => void;
-      };
-      const closeOrDestroy = transportCleanup.close ?? transportCleanup.destroy;
-      if (typeof closeOrDestroy === "function") {
-        try {
-          await Promise.resolve(closeOrDestroy.call(transport));
-        } catch {
-          // Ignore cleanup errors so original error propagates
-        }
-      }
+    try {
+      await connection?.transport.close();
+    } catch {
+      // Ignore cleanup errors so original error propagates
     }
   }
 }

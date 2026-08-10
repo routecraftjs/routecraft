@@ -1,6 +1,11 @@
-import { loadOptionalPeer } from "@routecraft/routecraft";
 import type { McpRawToolResult, McpTool } from "./types.ts";
 import { extractContent } from "./extract-content.ts";
+import {
+  loadMcpClientSdk,
+  loadMcpClientStdioSdk,
+  MCP_CLIENT_INFO,
+  MCP_VERSION_NEGOTIATION,
+} from "./sdk.ts";
 
 export interface StdioClientManagerOptions {
   serverId: string;
@@ -79,20 +84,8 @@ export class StdioClientManager {
       this.restartTimer = null;
     }
 
-    const clientMod = await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/client/index.js"),
-      {
-        adapterName: "mcp (stdio client)",
-        packageName: "@modelcontextprotocol/sdk",
-      },
-    );
-    const stdioMod = await loadOptionalPeer(
-      () => import("@modelcontextprotocol/sdk/client/stdio.js"),
-      {
-        adapterName: "mcp (stdio client)",
-        packageName: "@modelcontextprotocol/sdk",
-      },
-    );
+    const clientMod = await loadMcpClientSdk("mcp (stdio client)");
+    const stdioMod = await loadMcpClientStdioSdk("mcp (stdio client)");
 
     const { serverId, command, args, env, cwd } = this.options;
 
@@ -143,32 +136,33 @@ export class StdioClientManager {
     }
 
     // Create client with listChanged support for auto tool refresh
-    this.client = new clientMod.Client(
-      { name: "routecraft-mcp-client", version: "1.0.0" },
-      {
-        capabilities: {},
-        listChanged: {
-          tools: {
-            onChanged: (_error: unknown, tools: unknown) => {
-              if (
-                tools &&
-                Array.isArray((tools as { tools: unknown[] }).tools)
-              ) {
-                this.tools = (tools as { tools: McpTool[] }).tools;
-                this.onToolsUpdated(serverId, this.tools);
-                this.onEvent(`plugin:mcp:client:${serverId}:tools:listed`, {
-                  serverId,
-                  toolCount: this.tools.length,
-                });
-              } else {
-                // Server notified of change but SDK couldn't fetch; re-list manually
-                void this.refreshTools();
-              }
-            },
+    this.client = new clientMod.Client(MCP_CLIENT_INFO, {
+      capabilities: {},
+      versionNegotiation: MCP_VERSION_NEGOTIATION,
+      listChanged: {
+        tools: {
+          onChanged: (error: unknown, tools: unknown) => {
+            if (tools && Array.isArray((tools as { tools: unknown[] }).tools)) {
+              this.tools = (tools as { tools: McpTool[] }).tools;
+              this.onToolsUpdated(serverId, this.tools);
+              this.onEvent(`plugin:mcp:client:${serverId}:tools:listed`, {
+                serverId,
+                toolCount: this.tools.length,
+              });
+            } else {
+              // Server notified of change but SDK couldn't fetch; re-list
+              // manually. Log the cause so a persistently broken push path is
+              // distinguishable from a healthy one that simply re-lists.
+              this.logger.debug(
+                { err: error, serverId },
+                "listChanged delivered no tools; re-listing manually",
+              );
+              void this.refreshTools();
+            }
           },
         },
       },
-    ) as unknown as McpSdkClient;
+    }) as unknown as McpSdkClient;
 
     // Connect (performs MCP initialize handshake)
     await this.client.connect(this.transport);

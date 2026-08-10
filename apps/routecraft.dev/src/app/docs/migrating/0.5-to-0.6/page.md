@@ -29,7 +29,11 @@ Architecture changes:
 
 16. **The adapter role model: `Source` / `Destination` / `Enricher` (the option laws).** `Destination.send` is strictly void; the new `Enricher.fetch` slot owns mid-route reads. `.enrich()` with no aggregator now REPLACES the body, the file family drops `mode` (`append: true` / `delete: true` instead, and `.to(jsonl({ path }))` now overwrites by default), json's transformer extraction key is renamed `pointer`, and send receipts (mail, carddav) move from body replacement to `routecraft.<adapter>.*` headers. See [section 16](#16-the-adapter-role-model).
 
+17. **MCP is stateless, and `oauth()` becomes a resource server.** `mcpPlugin` adopts protocol revision 2026-07-28: no sessions, a fresh server instance per request, and the SDK v1 peer replaced by the v2 package split. `oauth({ endpoints, client, verifyAccessToken })` becomes `oauth({ verify, issuer?, requiredScopes? })` and no longer mounts authorization-server endpoints; point clients at your IdP. Token expiry is now enforced on every auth mode and the boundary is inclusive, so a token whose `exp` equals the current second is expired. Session events and `McpHeadersKeys.SESSION` are removed. See [section 17](#17-mcp-stateless).
+
 Routes built only from the DSL (`craft().from(...).transform(...).to(...)`) with framework adapters need changes for the agent/tools/mail surface (1-4) where used, event subscriptions (5), builder call order that was already a runtime error (9), adapter header constants (12), and every `.enrich()` / file-family / mail-send call site (16). The rest affects adapter authors and advanced integrations.
+
+If you expose capabilities over MCP, or use `jwt()` / `jwks()` / `oauth()` anywhere, read [section 17](#17-mcp-stateless): the auth changes there can turn a previously-accepted request into a `401`.
 
 Three behavioural notes that are not API changes: context store seeding for `cron`/`direct`/`mail` config now happens in `initPlugins()` (called automatically by `start()`) instead of the `CraftContext` constructor; plugin teardown plus `registerTeardown` callbacks now unwind in reverse (LIFO) order; and `.input()` validation now runs inside the [filter chain](/docs/advanced/filter-chain) (position #4) instead of eagerly in the consumer handler, so an invalid message is routable through the route-scope `.error()` handler and an unrecovered failure emits `route:exchange:failed` (previously `route:exchange:dropped`) while still rejecting the sender.
 
@@ -872,7 +876,92 @@ This is additive: every call that compiled before still compiles and behaves ide
 - **Peer floor raised.** `@routecraft/ai`, `@routecraft/os`, and `@routecraft/testing` require `@routecraft/routecraft >=0.6.0`, because their declarations reference the role-model types. Upgrade core together with them.
 - **`@routecraft/testing`.** `spy()` gains a `fetch` face (recording into `calls.enrich` and returning the current body), and a `mockAdapter` `send` handler's return value now follows the step's slot resolution: used by a fetch-resolved step, discarded by a send-resolved `.to()`.
 
-## 17. What is new in 0.6.0
+## 17. MCP: the stateless revision, and `oauth()` becomes a resource server {% #17-mcp-stateless %}
+
+`mcpPlugin` adopts [MCP protocol revision 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28), which removes protocol-level sessions. The server now builds a fresh instance per request, so any replica can answer any request without sticky sessions. Most of the migration is mechanical, but **the auth surface changes shape and expiry handling is stricter**, so read section 17.2 even if nothing else here applies to you.
+
+### 17.1 Install the v2 SDK packages
+
+The optional peer `@modelcontextprotocol/sdk` (v1) is replaced by the v2 package split. Install the ones your surfaces use:
+
+| Surface | Packages |
+|---------|----------|
+| `mcpPlugin({ transport: 'http' })` | `@modelcontextprotocol/server`, `@modelcontextprotocol/node` |
+| `mcpPlugin({ transport: 'stdio' })` | `@modelcontextprotocol/server` |
+| Outbound clients (`mcpPlugin({ clients })`, `mcp()`, agent tool dispatch) | `@modelcontextprotocol/client` |
+
+`express` is no longer a peer at all. A missing package reports `RC5017` with the install hint.
+
+### 17.2 `oauth()` no longer proxies your Authorization Server {% #17-2-oauth-resource-server %}
+
+This is the change most likely to break a working deployment.
+
+`oauth()` used to mount `/authorize`, `/token`, `/register` and `/revoke` and broker the flow on your behalf. It is now a pure OAuth 2.0 Resource Server gate: it verifies bearer tokens, enforces scopes, and advertises your IdP through RFC 9728 metadata. Clients run the flow directly against the IdP.
+
+```ts
+// Before (0.5.x)
+mcpPlugin({
+  transport: 'http',
+  auth: oauth({
+    endpoints: { authorizationUrl: 'https://idp.example.com/authorize', tokenUrl: 'https://idp.example.com/token' },
+    client: { id: 'mcp-server', secret: process.env.OAUTH_CLIENT_SECRET },
+    verifyAccessToken: async (token) => introspect(token),
+  }),
+})
+
+// After (0.6.0)
+mcpPlugin({
+  transport: 'http',
+  auth: oauth({
+    verify: jwks({
+      jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
+      issuer: 'https://idp.example.com',
+      audience: 'https://mcp.example.com',
+    }),
+    requiredScopes: ['mcp:invoke'],
+  }),
+})
+```
+
+`verify` accepts `jwks(...)`, `jwt(...)`, or a raw `(token) => Principal`. With a raw function you must also pass `issuer`, because nothing else names the IdP a client should authenticate with. `requiredScopes` is optional; a token missing one is refused with `403 insufficient_scope` naming the missing scope.
+
+Removed with the proxy: `OAuthAuthOptions`, `OAuthProxyEndpoints`, `OAuthClientInfo`, `OAuthClientSupplier`, `isOAuthAuth`. Passing the old option shape is refused at construction with the migration message rather than starting a server that fails every request.
+
+**What to reconfigure.** Point your MCP clients at the IdP's own authorization and token endpoints. They can discover them from `authorization_servers` in `/.well-known/oauth-protected-resource`, which Routecraft still serves, and from the `resource_metadata` hint on a `401`. If you relied on Dynamic Client Registration through the proxy, register clients with your IdP instead; revision 2026-07-28 deprecates DCR in favour of Client ID Metadata Documents.
+
+Validator auth (`jwt()`, `jwks()`, a custom `{ validator }`) is unaffected and needs no changes.
+
+### 17.3 Expiry is enforced on every auth mode, and the boundary is inclusive {% #17-3-expiry %}
+
+Two behaviour changes that can turn a previously-accepted request into a `401`:
+
+- **A principal whose `expiresAt` has elapsed, is missing, or is not a finite number is refused with `401`**, whichever auth mode produced it. Previously the SDK's bearer middleware enforced this only on the OAuth path, and `authorize()` only when a route declared an expiry requirement, so an expired token could reach any capability that did not. A custom validator that returns a principal without `expiresAt` now fails through `oauth()`; give it one.
+- **The comparison is inclusive and floored to whole seconds.** A token whose `exp` equals the current second is expired, matching jose (`exp <= now - tolerance`) and RFC 7519 section 4.1.4, which requires the current time to be *before* `exp`. `jwt()` previously accepted such a token for one further second and now does not; `jwks()` already behaved this way, because jose enforced it.
+
+If you have tokens minted with very short lifetimes and clients that cut the refresh fine, this last second is the one that will bite. Configure skew explicitly:
+
+```ts
+auth: oauth({
+  verify: jwks({ jwksUrl, issuer, audience, clockToleranceSec: 30 }),
+})
+```
+
+`jwt()` and `jwks()` now surface their configured `clockToleranceSec` on the options they return, and `oauth()` carries it through, so the server's expiry gate applies exactly the skew the verifier applied. You only pass `clockToleranceSec` to `oauth()` directly when `verify` is a raw function that tolerates skew of its own. A non-finite or negative value is rejected at construction.
+
+### 17.4 Sessions are gone: events, headers, CORS
+
+- `plugin:mcp:session:created` and `plugin:mcp:session:closed` are removed. There are no sessions to observe. Use `plugin:mcp:tool:called` / `:completed` / `:failed` for per-call observability.
+- `McpHeadersKeys.SESSION` and the `routecraft.mcp.session` exchange header are removed. Read `McpHeadersKeys.REQUEST` (`routecraft.mcp.request`) instead, a per-request correlation id. There is no alias, because the old key never identified a session and its value shape changed with this release.
+- `Access-Control-Expose-Headers` no longer lists `Mcp-Session-Id` or `Last-Event-ID`; the revision removed both sessions and SSE resumability. Only `WWW-Authenticate` is exposed.
+- Successful authentication logs at `debug` rather than `info`, since it now fires once per tool call rather than once per session. The `auth:success` event is unchanged and remains the signal to subscribe to.
+
+### 17.5 Compatibility
+
+2025-era clients keep working. A request carrying no per-request `_meta` envelope is served through the SDK's stateless 2025 path from the same factory, and outbound clients negotiate with `server/discover` before falling back to the `initialize` handshake.
+
+One wire-level note: 2025-era exchanges over HTTP are answered as a single SSE frame rather than a plain JSON body. Both are valid Streamable HTTP and every MCP client handles both, so this only affects code that parses the raw response body itself.
+
+## 18. What is new in 0.6.0
 
 For context, no migration required:
 

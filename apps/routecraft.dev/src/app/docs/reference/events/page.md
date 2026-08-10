@@ -349,13 +349,6 @@ Events emitted by the MCP plugin during server and tool lifecycle. Subscribe to 
 | `plugin:mcp:server:listening` | HTTP server is ready to accept connections | `{ host, port, path }` |
 | `plugin:mcp:server:tools:exposed` | Tool list logged for the first time | `{ tools, count }` |
 
-### Session events
-
-| Event | When it fires | Details |
-| --- | --- | --- |
-| `plugin:mcp:session:created` | New HTTP client session initialized | `{ sessionId }` |
-| `plugin:mcp:session:closed` | HTTP client session transport closed | `{ sessionId }` |
-
 ### Tool call events
 
 | Event | When it fires | Details |

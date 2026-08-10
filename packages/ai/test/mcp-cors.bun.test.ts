@@ -220,16 +220,19 @@ describe("MCP CORS helper", () => {
         "http://localhost:6274",
       );
       expect(headers["Vary"]).toBe("Origin");
-      // Browser MCP clients need three response headers exposed:
-      //   - WWW-Authenticate so the RFC 9728 hint on 401 is readable
-      //   - Mcp-Session-Id because the stateful SDK transport requires it
-      //     on every request after `initialize`
-      //   - Last-Event-ID for SSE resume
+      // WWW-Authenticate is the only header a browser MCP client still needs
+      // to read: it carries the RFC 9728 hint on a 401. Protocol revision
+      // 2026-07-28 removed both sessions and SSE resumability, so
+      // Mcp-Session-Id and Last-Event-ID are never emitted and must not be
+      // advertised as readable.
       const expose = headers["Access-Control-Expose-Headers"];
       expect(expose).toBeDefined();
-      expect(expose).toContain("WWW-Authenticate");
-      expect(expose).toContain("Mcp-Session-Id");
-      expect(expose).toContain("Last-Event-ID");
+      // Matched lowercased: header names are case-insensitive, so a regression
+      // re-adding a removed header under different casing must still fail.
+      const exposeLower = expose!.toLowerCase();
+      expect(exposeLower).toContain("www-authenticate");
+      expect(exposeLower).not.toContain("mcp-session-id");
+      expect(exposeLower).not.toContain("last-event-id");
     });
 
     /**

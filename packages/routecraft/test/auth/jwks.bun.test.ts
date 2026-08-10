@@ -370,4 +370,28 @@ describe("jwks()", () => {
       expect(result.issuer).toEqual(issuers);
     });
   });
+
+  describe("clock tolerance propagation", () => {
+    /**
+     * @case jwks() surfaces its clock tolerance so a downstream expiry check can match it
+     * @preconditions jwks({ clockToleranceSec: 45, ... }), and a second call omitting the option
+     * @expectedResult The configured value is exposed; omitting it leaves the field absent rather than defaulting to 0, so a consumer can tell "not configured" from "zero"
+     */
+    test("clock tolerance is exposed on the returned options", () => {
+      const configured = jwks({
+        jwksUrl: "http://localhost/jwks.json",
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        clockToleranceSec: 45,
+      });
+      expect(configured.clockToleranceSec).toBe(45);
+
+      const unset = jwks({
+        jwksUrl: "http://localhost/jwks.json",
+        issuer: ISSUER,
+        audience: AUDIENCE,
+      });
+      expect(unset.clockToleranceSec).toBeUndefined();
+    });
+  });
 });

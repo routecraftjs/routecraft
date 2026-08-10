@@ -31,21 +31,14 @@ async function serveJwks(jwkSet: {
 
 /** Handy stub for required factory options used across tests. */
 const BASE_OPTIONS = {
-  endpoints: {
-    authorizationUrl: "http://localhost:9999/authorize",
-    tokenUrl: "http://localhost:9999/token",
-  },
-  client: {
-    client_id: "test-client",
-    redirect_uris: ["http://localhost:3000/callback"],
-  },
+  issuer: "https://idp.example.com",
 };
 
 describe("oauth() factory", () => {
   /**
-   * @case Custom TokenVerifier function is wired directly as verifyAccessToken
+   * @case Custom TokenVerifier function is wired directly as validator
    * @preconditions Options pass a raw (token) => Principal function as verify
-   * @expectedResult Returned config's verifyAccessToken invokes the function; returned principal matches
+   * @expectedResult Returned config's validator invokes the function; returned principal matches
    */
   test("accepts a raw TokenVerifier function as verify", async () => {
     const verify = async (): Promise<OAuthPrincipal> => ({
@@ -57,15 +50,15 @@ describe("oauth() factory", () => {
     });
 
     const result = oauth({ ...BASE_OPTIONS, verify });
-    const principal = await result.verifyAccessToken("any-token");
+    const principal = await result.validator("any-token");
     expect(principal.subject).toBe("u");
     expect(principal.clientId).toBe("c");
   });
 
   /**
-   * @case ValidatorAuthOptions (from jwks()) is composed into verifyAccessToken
+   * @case ValidatorAuthOptions (from jwks()) is composed into validator
    * @preconditions Options pass a jwks() result as verify
-   * @expectedResult Factory wires up the validator; verifyAccessToken delegates to it
+   * @expectedResult Factory wires up the validator; validator delegates to it
    */
   test("accepts a ValidatorAuthOptions (from jwks()) as verify", async () => {
     const { publicKey, privateKey } = await generateKeyPair("RS256");
@@ -92,7 +85,7 @@ describe("oauth() factory", () => {
         .setExpirationTime("1h")
         .sign(privateKey);
 
-      const principal = await config.verifyAccessToken(token);
+      const principal = await config.validator(token);
       expect(principal.subject).toBe("user-42");
       expect(principal.kind).toBe("jwks");
     } finally {
@@ -101,86 +94,128 @@ describe("oauth() factory", () => {
   });
 
   /**
-   * @case A static `client` option rejects unknown client IDs
-   * @preconditions Options pass a static OAuthClientInfo with client_id "allowed"
-   * @expectedResult getClient("allowed") resolves to the static object; getClient("other") resolves to undefined
+   * @case A jwks()/jwt() verify config supplies the issuer automatically
+   * @preconditions Options pass a validator config carrying its own issuer and no explicit `issuer`
+   * @expectedResult The returned options advertise that issuer, so RFC 9728 metadata names the Authorization Server without the caller repeating it
    */
-  test("static client rejects unknown client IDs", async () => {
-    const verify = async (): Promise<OAuthPrincipal> => ({
-      kind: "custom",
-      scheme: "bearer",
-      subject: "u",
-      clientId: "allowed",
-      expiresAt: Math.floor(Date.now() / 1000) + 60,
-    });
+  test("derives the issuer from a validator verify config", () => {
     const result = oauth({
-      ...BASE_OPTIONS,
-      client: {
-        client_id: "allowed",
-        redirect_uris: ["http://localhost:3000/callback"],
+      verify: {
+        validator: async (): Promise<OAuthPrincipal> => ({
+          kind: "jwks",
+          scheme: "bearer",
+          subject: "u",
+          expiresAt: 9999999999,
+        }),
+        issuer: "https://derived.example.com",
       },
-      verify,
     });
-    await expect(result.getClient("allowed")).resolves.toMatchObject({
-      client_id: "allowed",
-    });
-    await expect(result.getClient("other")).resolves.toBeUndefined();
+    expect(result.issuer).toBe("https://derived.example.com");
   });
 
   /**
-   * @case A supplier `client` option is invoked per request with the incoming client_id
-   * @preconditions Options pass an async supplier that returns a registration record only for a specific ID
-   * @expectedResult Supplier is called with the exact clientId; missing entries surface as undefined
+   * @case An explicit issuer wins over the one carried by the verify config
+   * @preconditions Options pass both a validator config with an issuer and an explicit `issuer`
+   * @expectedResult The explicit value is advertised
    */
-  test("supplier client is invoked per lookup", async () => {
-    const calls: string[] = [];
-    const verify = async (): Promise<OAuthPrincipal> => ({
-      kind: "custom",
-      scheme: "bearer",
-      subject: "u",
-      clientId: "u",
-      expiresAt: Math.floor(Date.now() / 1000) + 60,
-    });
+  test("explicit issuer overrides the verify config's", () => {
     const result = oauth({
-      ...BASE_OPTIONS,
-      client: async (id) => {
-        calls.push(id);
-        return id === "known"
-          ? { client_id: "known", redirect_uris: ["http://x"] }
-          : undefined;
+      issuer: "https://explicit.example.com",
+      verify: {
+        validator: async (): Promise<OAuthPrincipal> => ({
+          kind: "jwks",
+          scheme: "bearer",
+          subject: "u",
+          expiresAt: 9999999999,
+        }),
+        issuer: "https://derived.example.com",
       },
-      verify,
     });
-    await expect(result.getClient("known")).resolves.toMatchObject({
-      client_id: "known",
-    });
-    await expect(result.getClient("missing")).resolves.toBeUndefined();
-    expect(calls).toEqual(["known", "missing"]);
+    expect(result.issuer).toBe("https://explicit.example.com");
   });
 
   /**
-   * @case oauth() carries only proxy-mechanics fields on the returned options (no protected-resource metadata)
-   * @preconditions Options include verify and client; no resource metadata is accepted by the factory
-   * @expectedResult Returned config has provider/endpoints/verify/client but no resourceIssuerUrl / scopesSupported / serviceDocumentationUrl / resourceName fields
+   * @case A raw verifier without an issuer is rejected at construction
+   * @preconditions Options pass a plain (token) => Principal function and no `issuer`
+   * @expectedResult oauth() throws, because nothing would name the Authorization Server in the metadata document and clients could not discover where to authenticate
    */
-  test("returns proxy-mechanics fields only (no resource metadata)", () => {
-    const verify = async (): Promise<OAuthPrincipal> => ({
-      kind: "custom",
-      scheme: "bearer",
-      subject: "u",
-      expiresAt: 9999999999,
-    });
-    const result = oauth({ ...BASE_OPTIONS, verify });
-    expect(result.provider).toBe("oauth");
-    expect(result.endpoints.authorizationUrl).toBe(
-      BASE_OPTIONS.endpoints.authorizationUrl,
+  test("requires an issuer when verify is a plain function", () => {
+    expect(() =>
+      oauth({
+        verify: async (): Promise<OAuthPrincipal> => ({
+          kind: "custom",
+          scheme: "bearer",
+          subject: "u",
+          expiresAt: 9999999999,
+        }),
+      }),
+    ).toThrow(TypeError);
+  });
+
+  /**
+   * @case An issuer that is present but blank is rejected at construction
+   * @preconditions Options pass an empty string, a whitespace-only string, an empty array, and an array with a blank member
+   * @expectedResult oauth() throws in every case. A blank issuer is as undiscoverable as a missing one: it would publish an unusable `authorization_servers` entry rather than failing loudly
+   */
+  test("requires the issuer to be non-empty", () => {
+    for (const issuer of ["", "   ", [], ["https://idp.example.com", "  "]]) {
+      expect(() =>
+        oauth({
+          issuer,
+          verify: async (): Promise<OAuthPrincipal> => ({
+            kind: "custom",
+            scheme: "bearer",
+            subject: "u",
+            expiresAt: 9999999999,
+          }),
+        }),
+      ).toThrow(TypeError);
+    }
+  });
+
+  /**
+   * @case requiredScopes are carried through, and omitted when empty
+   * @preconditions One call passes requiredScopes, another passes an empty array
+   * @expectedResult The populated array is carried verbatim; the empty array is treated as unset so no scope gate is installed
+   */
+  test("carries requiredScopes and drops an empty array", () => {
+    const verify = {
+      validator: async (): Promise<OAuthPrincipal> => ({
+        kind: "jwks" as const,
+        scheme: "bearer" as const,
+        subject: "u",
+        expiresAt: 9999999999,
+      }),
+      issuer: "https://idp.example.com",
+    };
+    expect(
+      oauth({ verify, requiredScopes: ["a", "b"] }).requiredScopes,
+    ).toEqual(["a", "b"]);
+    expect(oauth({ verify, requiredScopes: [] })).not.toHaveProperty(
+      "requiredScopes",
     );
-    expect(typeof result.verifyAccessToken).toBe("function");
-    expect(typeof result.getClient).toBe("function");
-    expect(result).not.toHaveProperty("resourceIssuerUrl");
-    expect(result).not.toHaveProperty("scopesSupported");
-    expect(result).not.toHaveProperty("serviceDocumentationUrl");
-    expect(result).not.toHaveProperty("resourceName");
+  });
+
+  /**
+   * @case oauth() returns resource-server options only, with no authorization-server surface
+   * @preconditions A minimal valid config
+   * @expectedResult The result carries validator and issuer but none of the removed proxy fields, so nothing mounts an authorization server beside /mcp
+   */
+  test("returns resource-server options with no proxy surface", () => {
+    const result = oauth({
+      issuer: "https://idp.example.com",
+      verify: async (): Promise<OAuthPrincipal> => ({
+        kind: "custom",
+        scheme: "bearer",
+        subject: "u",
+        expiresAt: 9999999999,
+      }),
+    });
+    expect(typeof result.validator).toBe("function");
+    expect(result.issuer).toBe("https://idp.example.com");
+    expect(result).not.toHaveProperty("provider");
+    expect(result).not.toHaveProperty("endpoints");
+    expect(result).not.toHaveProperty("getClient");
   });
 });
 
@@ -188,7 +223,7 @@ describe("oauth({ verify: jwks(...) }) end-to-end", () => {
   /**
    * @case Built-in jwks() verify config verifies an RS256 token and produces a fully populated Principal
    * @preconditions Local HTTP server serves a JWKS with a single RS256 public key; token carries all standard claims
-   * @expectedResult verifyAccessToken returns a Principal with kind "jwks" and all identity fields mapped
+   * @expectedResult validator returns a Principal with kind "jwks" and all identity fields mapped
    */
   test("verifies a JWKS-signed token and maps claims", async () => {
     const { publicKey, privateKey } = await generateKeyPair("RS256");
@@ -222,7 +257,7 @@ describe("oauth({ verify: jwks(...) }) end-to-end", () => {
         .setExpirationTime("1h")
         .sign(privateKey);
 
-      const principal = await config.verifyAccessToken(token);
+      const principal = await config.validator(token);
       expect(principal.kind).toBe("jwks");
       expect(principal.subject).toBe("user-42");
       expect(principal.clientId).toBe("client-abc");
@@ -241,7 +276,7 @@ describe("oauth({ verify: jwks(...) }) end-to-end", () => {
   /**
    * @case Token signed with the wrong audience is rejected so cross-audience replay is impossible via the built-in path
    * @preconditions JWKS endpoint serves a valid key; token aud does not include the configured audience
-   * @expectedResult verifyAccessToken rejects (throws)
+   * @expectedResult validator rejects (throws)
    */
   test("rejects a token with a mismatched aud", async () => {
     const { publicKey, privateKey } = await generateKeyPair("RS256");
@@ -269,7 +304,7 @@ describe("oauth({ verify: jwks(...) }) end-to-end", () => {
         .setExpirationTime("1h")
         .sign(privateKey);
 
-      await expect(config.verifyAccessToken(token)).rejects.toThrow();
+      await expect(config.validator(token)).rejects.toThrow();
     } finally {
       await close();
     }

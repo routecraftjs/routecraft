@@ -53,13 +53,39 @@ function isMissingExpectedPackage(
   }
   const message = (cause as { message?: unknown }).message;
   if (typeof message !== "string") return false;
-  // Node phrasings observed in the wild:
-  //   ESM: `Cannot find package 'pkg' imported from /path`
-  //   ESM bare: `Cannot find module '/abs/path/pkg/index.js' imported from ...`
-  //   CJS: `Cannot find module 'pkg'`
-  // Match the package name surrounded by quotes so we do not mistake
-  // a transitive-dep miss inside the same package for a missing peer.
-  return (
-    message.includes(`'${packageName}'`) || message.includes(`"${packageName}"`)
-  );
+  // Phrasings observed in the wild:
+  //   Node ESM:  `Cannot find package 'pkg' imported from /path`
+  //   CJS:       `Cannot find module 'pkg'`
+  //   Bun:       `Cannot find module 'pkg/subpath' from '/path'`
+  // Node names the package even when the import used a subpath; Bun quotes the
+  // full specifier. Accept the quoted name with an optional subpath suffix so a
+  // subpath loader (`pkg/stdio`) still yields RC5017 on Bun instead of a raw
+  // ERR_MODULE_NOT_FOUND. The quote-or-slash boundary keeps this from matching
+  // a longer package name that merely starts with the same characters, and the
+  // opening quote keeps a transitive-dep miss inside the same package from
+  // being mistaken for the peer itself. The resolved-path phrasing
+  // (`Cannot find module '/abs/path/pkg/index.js'`) is deliberately NOT
+  // matched: it means the package resolved but its entry file is missing,
+  // which is a broken install rather than an absent peer, and an install hint
+  // would send the user down the wrong path.
+  // Every occurrence is examined, not just the first: a message may quote a
+  // longer name sharing our prefix before it quotes ours (`'@scope/pkg-extra'`
+  // ahead of `'@scope/pkg'`), and stopping at the first hit would fail the
+  // boundary check against the wrong one and degrade RC5017 into a raw
+  // ERR_MODULE_NOT_FOUND.
+  return QUOTES.some((quote) => {
+    const needle = `${quote}${packageName}`;
+    for (
+      let start = message.indexOf(needle);
+      start !== -1;
+      start = message.indexOf(needle, start + 1)
+    ) {
+      const next = message[start + needle.length];
+      if (next === quote || next === "/") return true;
+    }
+    return false;
+  });
 }
+
+/** Quote characters a runtime may wrap a specifier in. */
+const QUOTES = ["'", '"'] as const;

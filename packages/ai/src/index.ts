@@ -71,7 +71,6 @@ export {
 // MCP DSL, adapter, and types
 export {
   defaultArgs,
-  isOAuthAuth,
   mcp,
   oauth,
   McpHeadersKeys,
@@ -95,11 +94,7 @@ export {
   type McpIcon,
   type McpToolRegistryEntry,
   type McpToolResult,
-  type OAuthAuthOptions,
-  type OAuthClientInfo,
-  type OAuthClientSupplier,
   type OAuthFactoryOptions,
-  type OAuthProxyEndpoints,
   type OAuthVerifier,
   type UserinfoFn,
   type UserinfoOption,

@@ -144,6 +144,9 @@ export function jwks(options: JwksOptions): OAuthValidatorAuthOptions {
 
   return {
     issuer: options.issuer,
+    ...(options.clockToleranceSec !== undefined && {
+      clockToleranceSec: options.clockToleranceSec,
+    }),
     validator: async (token: string) => {
       if (joseMod === null) {
         joseMod = await __jwksLoaders.loadJose();

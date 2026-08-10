@@ -100,7 +100,16 @@ export default {
 }
 ```
 
-Start the server with `craft run`, then point your AI client at it. Anything reachable over the network must be authenticated: see [Securing capabilities](/docs/advanced/securing-capabilities) for every auth mode (`jwt()`, `jwks()`, custom validators, the OAuth 2.1 proxy), identity enrichment, RFC 9728 discovery metadata, and CORS.
+Start the server with `craft run`, then point your AI client at it. Anything reachable over the network must be authenticated: see [Securing capabilities](/docs/advanced/securing-capabilities) for every auth mode (`jwt()`, `jwks()`, custom validators, and `oauth()` as a resource-server gate), identity enrichment, RFC 9728 discovery metadata, and CORS.
+
+### Scaling out
+
+The HTTP transport is stateless. Following [MCP revision 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28), there is no `initialize` handshake and no `Mcp-Session-Id`: every request carries its own protocol version, client identity, and capabilities, and Routecraft builds a fresh server instance to answer it. Two consequences worth planning around:
+
+- **Any replica can answer any request.** Run as many processes as you like behind a plain round-robin load balancer. No sticky sessions, no shared session store.
+- **Auth is enforced per request.** A credential is verified on every call rather than once per session, so a revoked token stops working immediately rather than at the end of a session.
+
+Clients that only speak the 2025 revision keep working unchanged; they are served through the stateless 2025 path and simply do not get the newer revision's features.
 
 ### Claude Desktop (HTTP)
 
@@ -147,7 +156,7 @@ Start the server with `craft run`, then point your AI client at it. Anything rea
 
 ## Server identity and branding
 
-When a client like Claude adds your server, it renders the server's identity from the MCP `initialize` handshake. Configure it on `mcpPlugin` (or the `mcp` key of `defineConfig`):
+When a client like Claude adds your server, it renders the server's identity from `serverInfo`, returned by `server/discover` for 2026-07-28 clients and by the `initialize` handshake for 2025-era ones. Configure it on `mcpPlugin` (or the `mcp` key of `defineConfig`):
 
 ```ts
 // craft.config.ts
@@ -161,7 +170,7 @@ export default {
       version: '2.1.0',                          // serverInfo.version
       description: 'Acme operations over MCP.',  // serverInfo.description
       websiteUrl: 'https://acme.example.com',    // serverInfo.websiteUrl
-      instructions: 'Call orders_search before orders_refund.', // initialize.instructions
+      instructions: 'Call orders_search before orders_refund.', // server capabilities, not serverInfo
       icons: [
         { src: 'https://acme.example.com/icon.svg', mimeType: 'image/svg+xml' },
         { src: 'data:image/png;base64,...', mimeType: 'image/png', sizes: ['48x48'], theme: 'light' },

@@ -444,6 +444,26 @@ describe("jwt()", () => {
     });
   });
 
+  describe("clock tolerance propagation", () => {
+    /**
+     * @case jwt() surfaces its clock tolerance so a downstream expiry check can match it
+     * @preconditions jwt({ clockToleranceSec: 45, ... }), and a second call omitting the option
+     * @expectedResult The configured value is exposed; omitting it leaves the field absent rather than defaulting to 0, so a consumer can tell "not configured" from "zero"
+     */
+    test("clock tolerance is exposed on the returned options", () => {
+      const configured = jwt({
+        secret: SECRET,
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        clockToleranceSec: 45,
+      });
+      expect(configured.clockToleranceSec).toBe(45);
+
+      const unset = jwt({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE });
+      expect(unset.clockToleranceSec).toBeUndefined();
+    });
+  });
+
   describe("temporal claims", () => {
     const PAST = Math.floor(Date.now() / 1000) - 3600;
     const FAR_FUTURE = Math.floor(Date.now() / 1000) + 7200;
