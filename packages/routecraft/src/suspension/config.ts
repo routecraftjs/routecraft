@@ -13,6 +13,12 @@ import {
   resolveSigningSecret,
 } from "./tokens.ts";
 import type { SuspensionStore } from "./types.ts";
+import { type Duration, parseDuration } from "./duration.ts";
+import {
+  DEFAULT_SWEEP_INTERVAL,
+  DEFAULT_SUSPENSION_TTL,
+  SuspensionSweeper,
+} from "./sweeper.ts";
 
 /**
  * Environment variable naming where parked exchanges are persisted. Either
@@ -67,6 +73,22 @@ export interface SuspensionConfig {
    * `defineConfig` in code.
    */
   secret?: string;
+  /**
+   * How long a suspension stays resumable when `.suspend()` names no `ttl`.
+   *
+   * Defaults to {@link DEFAULT_SUSPENSION_TTL}. Set `"never"` to opt a
+   * context out of default expiry entirely, which means an unanswered
+   * suspension is kept until something else retires it.
+   */
+  defaultTtl?: Duration | "never";
+  /**
+   * How often the sweeper looks for overdue suspensions.
+   *
+   * Defaults to {@link DEFAULT_SWEEP_INTERVAL}. TTLs are measured in hours,
+   * so sub-minute precision buys nothing; the knob exists for tests and for
+   * deployments that want expiry noticed sooner.
+   */
+  sweepInterval?: Duration;
 }
 
 /**
@@ -114,6 +136,12 @@ export interface SuspensionRuntime {
    * restart-durability test is written).
    */
   readonly ownsStore: boolean;
+  /**
+   * Milliseconds a suspension stays resumable when `.suspend()` names no
+   * `ttl`. Undefined when the context opted out with `defaultTtl: "never"`,
+   * which is the only way to park something with no deadline at all.
+   */
+  readonly defaultTtlMs?: number;
 }
 
 /**
@@ -140,6 +168,12 @@ export async function createSuspensionRuntime(
   context: CraftContext,
   config: SuspensionConfig & SuspensionTestSeams = {},
 ): Promise<SuspensionRuntime> {
+  const configuredTtl = config.defaultTtl ?? DEFAULT_SUSPENSION_TTL;
+  const defaultTtlMs =
+    configuredTtl === "never"
+      ? undefined
+      : parseDuration(configuredTtl, "suspension.defaultTtl");
+
   const signer = resolveSigningSecret({
     ...(config.secret !== undefined ? { secret: config.secret } : {}),
     allowEphemeral: config.allowEphemeralSecret ?? isDevelopmentRuntime(),
@@ -165,7 +199,13 @@ export async function createSuspensionRuntime(
     typeof configured === "object" &&
     "create" in configured
   ) {
-    return { store: configured, signer, backend: "custom", ownsStore: false };
+    return {
+      store: configured,
+      signer,
+      backend: "custom",
+      ownsStore: false,
+      ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
+    };
   }
   if (configured === "memory") {
     return {
@@ -173,6 +213,7 @@ export async function createSuspensionRuntime(
       signer,
       backend: "memory",
       ownsStore: true,
+      ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
     };
   }
 
@@ -202,6 +243,7 @@ export async function createSuspensionRuntime(
       signer,
       backend: "memory",
       ownsStore: true,
+      ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
     };
   }
 }
@@ -213,6 +255,8 @@ export async function createSuspensionRuntime(
  * but only a store it opened itself.
  */
 export function suspensionPlugin(config: SuspensionConfig = {}): CraftPlugin {
+  let sweeper: SuspensionSweeper | undefined;
+
   return {
     name: "suspension",
     async apply(ctx: CraftContext) {
@@ -221,7 +265,27 @@ export function suspensionPlugin(config: SuspensionConfig = {}): CraftPlugin {
         await createSuspensionRuntime(ctx, config),
       );
     },
+    async start(ctx: CraftContext) {
+      const runtime = ctx.getStore(SUSPENSION_RUNTIME);
+      if (!runtime) return;
+      sweeper = new SuspensionSweeper(
+        ctx,
+        runtime.store,
+        parseDuration(
+          config.sweepInterval ?? DEFAULT_SWEEP_INTERVAL,
+          "suspension.sweepInterval",
+        ),
+      );
+      // Before the interval, and awaited: what expired during the outage
+      // reaches its routes ahead of anything new arriving.
+      await sweeper.scanOnStart();
+      sweeper.start();
+    },
     async teardown(ctx: CraftContext) {
+      // First, because an interval outliving its store would sweep against
+      // a closed handle.
+      sweeper?.stop();
+      sweeper = undefined;
       const runtime = ctx.getStore(SUSPENSION_RUNTIME);
       if (runtime?.ownsStore) await runtime.store.close();
     },

@@ -19,6 +19,7 @@ import type {
   PrincipalRef,
   SerializedOutcome,
   Suspension,
+  SuspensionCasResult,
   SuspensionStore,
 } from "./types.ts";
 
@@ -145,14 +146,17 @@ export async function reviveSuspension(
   // send the approver another notification: an outbound-message amplifier
   // driven by a party the token does not authenticate. Winning the CAS is
   // the right to notify, and the sweeper competes for the same right.
-  if (
-    suspension.expiresAt !== undefined &&
-    suspension.expiresAt.getTime() <= Date.now()
-  ) {
-    const expiry = rcError("RC5047", undefined, {
-      message: `Suspension "${id}" expired at ${suspension.expiresAt.toISOString()}.`,
-    });
-    const cas = await runtime.store.markExpired(id);
+  const deadline = suspension.expiresAt;
+  if (deadline !== undefined && deadline.getTime() <= Date.now()) {
+    const { cas, error } = await expireSuspension(
+      context,
+      runtime.store,
+      route,
+      {
+        ...suspension,
+        expiresAt: deadline,
+      },
+    );
     if (!cas.won) {
       // The winner is not necessarily the sweeper. A concurrent resume can
       // win `markResumed` right on the deadline, and that answer WAS
@@ -160,16 +164,8 @@ export async function reviveSuspension(
       // negative about work that is running. Whoever won says what
       // happened.
       if (cas.suspension) return settled(cas.suspension);
-      throw expiry;
     }
-    context.emit("route:exchange:expired", {
-      routeId: suspension.routeId,
-      exchangeId: exchangeIdOf(suspension),
-      correlationId: correlationIdOf(suspension),
-      suspensionId: id,
-      expiresAt: suspension.expiresAt,
-    });
-    throw await reask(context, route, suspension, expiry);
+    throw error;
   }
 
   const site = findSite(route, suspension);
@@ -469,6 +465,50 @@ function settled(suspension: Suspension): ResumeAcknowledgment {
  *
  * @internal
  */
+/** A suspension the store gave a deadline, which is the only kind that expires. */
+export type ExpiringSuspension = Suspension & { expiresAt: Date };
+
+/**
+ * Retire an overdue suspension and tell its route, exactly once.
+ *
+ * Shared by the two things that can discover an expiry: a late answer
+ * arriving at `.resume()`, and the sweeper. Both must reach the same
+ * outcome, and only one of them may notify, which is what the
+ * compare-and-swap decides. The loser gets the post-attempt record back
+ * and reports what the winner did rather than its own view, so an answer
+ * that won `markResumed` on the deadline is reported as resumed, not
+ * expired.
+ *
+ * Returns rather than throws: the sweeper is not answering anyone, so an
+ * expiry is not exceptional to it. The caller decides whether the error is
+ * a return value or a throw.
+ *
+ * @internal
+ */
+export async function expireSuspension(
+  context: CraftContext,
+  store: SuspensionStore,
+  route: Route,
+  suspension: ExpiringSuspension,
+): Promise<{ cas: SuspensionCasResult; error: Error }> {
+  const deadline = suspension.expiresAt;
+  const error = rcError("RC5047", undefined, {
+    message: `Suspension "${suspension.id}" expired at ${deadline.toISOString()}.`,
+  });
+  const cas = await store.markExpired(suspension.id);
+  if (!cas.won) return { cas, error };
+
+  context.emit("route:exchange:expired", {
+    routeId: suspension.routeId,
+    exchangeId: exchangeIdOf(suspension),
+    correlationId: correlationIdOf(suspension),
+    suspensionId: suspension.id,
+    expiresAt: deadline,
+  });
+  await reask(context, route, suspension, error);
+  return { cas, error };
+}
+
 async function reask(
   context: CraftContext,
   route: Route,
