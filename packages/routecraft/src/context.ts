@@ -63,11 +63,23 @@ export type MergedOptions<T> = {
 };
 
 /**
- * A plugin configures the context at startup and can register cleanup when the
- * context stops. apply(ctx) runs before routes are registered (initPlugins()).
- * teardown(ctx) runs when the context stops, after routes have drained.
- * Plugins that only need init can omit teardown; use ctx.registerTeardown()
- * from apply() for one-off cleanup callbacks.
+ * A plugin configures the context and may own work for as long as it runs.
+ *
+ * Three phases, each answering a different question:
+ *
+ * - `apply(ctx)` wires the context, before routes are registered
+ *   (`initPlugins()`). Nothing is running yet.
+ * - `start(ctx)` begins work, after every route has started. Optional.
+ * - `teardown(ctx)` releases whatever the other two acquired, when the
+ *   context stops and routes have drained. Optional.
+ *
+ * The split matters for anything with a lifetime. A plugin that opens a
+ * handle does it in `apply()`; a plugin that starts a timer or drives routes
+ * does it in `start()`, because at `apply()` time there are no routes to
+ * drive. Either way `teardown()` is what releases it.
+ *
+ * Plugins needing neither can omit both; use `ctx.registerTeardown()` from
+ * `apply()` for one-off cleanup callbacks.
  */
 export interface CraftPlugin {
   /**
@@ -84,6 +96,21 @@ export interface CraftPlugin {
    */
   dependsOn?: string[];
   apply(ctx: CraftContext): void | Promise<void>;
+  /**
+   * Called once per context start, after every route has been started, in
+   * plugin registration order. Awaited. Optional.
+   *
+   * This is where a plugin owning a background task belongs, because
+   * `apply()` runs at build time when no route is running yet. A plugin
+   * that starts something here MUST stop it in {@link CraftPlugin.teardown}:
+   * a live interval keeps the process alive with no visible cause.
+   *
+   * A throw fails `context.start()`. The context then shuts down (routes
+   * aborted and drained, every plugin torn down in reverse order) and the
+   * original error is rethrown unchanged, so a plugin that fails to start
+   * cannot leave a half-running context behind.
+   */
+  start?(ctx: CraftContext): void | Promise<void>;
   /** Called when the context stops, after routes have drained. Optional. */
   teardown?(ctx: CraftContext): void | Promise<void>;
 }
@@ -371,6 +398,43 @@ export class CraftContext {
         this.logger.error(
           { pluginIndex, err },
           "Plugin threw during initPlugins. Check stack and plugin implementation.",
+        );
+        this.emit("context:error", { error: err });
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Run every plugin's optional `start()`, in registration order.
+   *
+   * Separate from {@link CraftContext.initPlugins} because the two phases
+   * answer different questions. `apply()` wires the context and runs at
+   * build time; `start()` begins work and needs the routes running. The
+   * suspension sweeper is the first consumer: it re-enters a route's error
+   * channel when a parked exchange expires, which is not something that can
+   * be done against a route that has not started.
+   *
+   * A throw propagates to `context.start()`, which shuts the context down
+   * before rethrowing it unchanged. Unwinding a partially started context
+   * is deliberately the existing shutdown path rather than a second
+   * mechanism, so a plugin's stop logic has one home. Build-time unwind of
+   * applied-but-not-started plugins is tracked separately in #565.
+   */
+  private async startPlugins(): Promise<void> {
+    for (const [pluginIndex, plugin] of this.plugins.entries()) {
+      const candidate = plugin as CraftPlugin | undefined;
+      if (typeof candidate?.start !== "function") continue;
+      try {
+        await candidate.start(this);
+      } catch (err) {
+        this.logger.error(
+          {
+            pluginIndex,
+            pluginId: this.getPluginId(candidate, pluginIndex),
+            err,
+          },
+          "Plugin threw during start(). The context will not start.",
         );
         this.emit("context:error", { error: err });
         throw err;
@@ -719,7 +783,7 @@ export class CraftContext {
 
     this.logger.debug({}, "Starting all routes");
     this.emit("context:started", {});
-    return Promise.allSettled(
+    const running = Promise.allSettled(
       this.routes.map(async (route) => {
         try {
           this.logger.info({ route: route.definition.id }, "Starting route");
@@ -747,7 +811,28 @@ export class CraftContext {
           throw error;
         }
       }),
-    )
+    );
+
+    // After the routes, because a plugin's background task may drive them:
+    // the suspension sweeper re-enters a route's error channel, which needs
+    // that route running. `allSettled` above is already attached, so the
+    // route promises stay handled even when a plugin refuses to start.
+    // Guarded rather than awaited unconditionally: a context with no
+    // `start()` hook must keep the zero-added-delay property the idempotent
+    // check above exists to preserve.
+    if (
+      this.plugins.some((p) => typeof (p as CraftPlugin)?.start === "function")
+    ) {
+      try {
+        await this.startPlugins();
+      } catch (err) {
+        await this.stop();
+        await running;
+        throw err;
+      }
+    }
+
+    return running
       .then((results) => {
         // Skip if shutdown was already triggered (e.g. via signal handler)
         if (this.shutdownPromise) return this.shutdownPromise;
