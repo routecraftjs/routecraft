@@ -227,28 +227,36 @@ export function getProjectDiscoverers(): readonly RegisteredProjectDiscoverer[] 
  * Everything still pending when the sort deadlocks is blocked, but most
  * of it may be blocked merely by sitting downstream of the cycle. Naming
  * those in the error sends the reader hunting through `after`
- * declarations that are perfectly fine. Repeatedly dropping entries
- * nothing else pending depends on peels away that downstream tail and
- * leaves the entries that depend on each other.
+ * declarations that are perfectly fine.
+ *
+ * A folder is on a cycle exactly when it can reach itself by following
+ * `after` edges, which is the definition rather than an approximation of
+ * it: peeling away entries nothing depends on looks equivalent but keeps
+ * a bridge between two separate cycles, and that bridge is innocent.
  *
  * @internal
  */
 function cycleMembers(
   pending: readonly RegisteredProjectDiscoverer[],
 ): string[] {
-  let members = [...pending];
-  for (;;) {
-    const names = new Set(members.map((entry) => entry.folder));
-    const depended = new Set(
-      members.flatMap((entry) =>
-        entry.after.filter((folder) => names.has(folder)),
-      ),
+  const byFolder = new Map(pending.map((entry) => [entry.folder, entry]));
+  const reaches = (
+    from: string,
+    target: string,
+    seen: Set<string>,
+  ): boolean => {
+    if (seen.has(from)) return false;
+    seen.add(from);
+    const entry = byFolder.get(from);
+    if (!entry) return false;
+    return entry.after.some(
+      (folder) => folder === target || reaches(folder, target, seen),
     );
-    const next = members.filter((entry) => depended.has(entry.folder));
-    if (next.length === members.length) break;
-    members = next;
-  }
-  return members.map((entry) => entry.folder).sort();
+  };
+  return pending
+    .filter((entry) => reaches(entry.folder, entry.folder, new Set()))
+    .map((entry) => entry.folder)
+    .sort();
 }
 
 /**

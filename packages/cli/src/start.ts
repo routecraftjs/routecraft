@@ -147,48 +147,52 @@ export async function startCommand(
       ? watchFirstExchange(context)
       : undefined;
 
-    // `context.start()` deliberately never resolves while a server
-    // ingress is held open (see Route.start), so `--once` has to race
-    // it rather than await it: awaiting first would mean the flag only
-    // worked on projects that were going to exit anyway.
-    const started = context.start();
-    if (firstExchange === undefined) {
-      await started;
-      return reportStartup(startupErrors());
-    }
+    try {
+      // `context.start()` deliberately never resolves while a server
+      // ingress is held open (see Route.start), so `--once` has to race
+      // it rather than await it: awaiting first would mean the flag only
+      // worked on projects that were going to exit anyway.
+      const started = context.start();
+      if (firstExchange === undefined) {
+        await started;
+        return reportStartup(startupErrors.read());
+      }
 
-    const timeout = options.timeoutMs;
-    const outcome = await Promise.race([
-      firstExchange,
-      // Every route finished on its own before any exchange landed.
-      started.then(() => "drained" as const),
-      ...(timeout === undefined ? [] : [expire(timeout)]),
-    ]);
+      const timeout = options.timeoutMs;
+      const outcome = await Promise.race([
+        firstExchange,
+        // Every route finished on its own before any exchange landed.
+        started.then(() => "drained" as const),
+        ...(timeout === undefined ? [] : [expire(timeout)]),
+      ]);
 
-    if (outcome === "drained") {
-      await started;
-      return reportStartup(startupErrors());
-    }
-    if (outcome === "timeout") {
+      if (outcome === "drained") {
+        await started;
+        return reportStartup(startupErrors.read());
+      }
+      if (outcome === "timeout") {
+        await context.stop();
+        // Same reason as the shutdown path below: a route rejecting during
+        // stop must not turn a diagnosed timeout into an unhandled rejection.
+        await started.catch(() => undefined);
+        return fail(
+          `No exchange reached a terminal outcome within ${String(timeout)}ms. Nothing in this project produced one; check that a source actually fires, or raise --timeout.`,
+        );
+      }
+      logger.info(`Exchange ${outcome}; shutting down (--once).`);
       await context.stop();
-      // Same reason as the shutdown path below: a route rejecting during
-      // stop must not turn a diagnosed timeout into an unhandled rejection.
+      // Attach the start rejection so a route failure during shutdown is
+      // reported rather than surfacing as an unhandled rejection.
       await started.catch(() => undefined);
-      return fail(
-        `No exchange reached a terminal outcome within ${String(timeout)}ms. Nothing in this project produced one; check that a source actually fires, or raise --timeout.`,
-      );
+      if (outcome === "failed") {
+        return fail(
+          "The first exchange failed. See the logged error for the cause.",
+        );
+      }
+      return reportStartup(startupErrors.read());
+    } finally {
+      startupErrors.off();
     }
-    logger.info(`Exchange ${outcome}; shutting down (--once).`);
-    await context.stop();
-    // Attach the start rejection so a route failure during shutdown is
-    // reported rather than surfacing as an unhandled rejection.
-    await started.catch(() => undefined);
-    if (outcome === "failed") {
-      return fail(
-        "The first exchange failed. See the logged error for the cause.",
-      );
-    }
-    return reportStartup(startupErrors());
   } catch (error: unknown) {
     return fail(messageOf(error));
   }
@@ -398,7 +402,10 @@ function watchFirstExchange(context: CraftContext): Promise<ExchangeOutcome> {
  * command reports a clean boot for a project that did not boot, which
  * is the one thing a CI gate must never do.
  */
-function watchStartupErrors(context: CraftContext): () => string[] {
+function watchStartupErrors(context: CraftContext): {
+  read: () => string[];
+  off: () => void;
+} {
   const failed: string[] = [];
   const off = context.on("context:error", (event) => {
     // Listeners receive the event envelope, not the payload: the details
@@ -419,12 +426,11 @@ function watchStartupErrors(context: CraftContext): () => string[] {
     const id = details?.route?.definition?.id;
     if (id !== undefined) failed.push(id);
   });
-  // Reading is the last thing the command does with it, so unsubscribe
-  // there rather than leaving a listener on a context a caller may hold.
-  return () => {
-    off();
-    return failed;
-  };
+  // Disposal is separate from reading because most exit paths report a
+  // failure without reading, and a programmatic caller keeps the context
+  // after the command returns. The caller unsubscribes in a finally so
+  // no path leaves the listener attached.
+  return { read: () => failed, off };
 }
 
 /**

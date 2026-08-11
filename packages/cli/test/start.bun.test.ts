@@ -122,30 +122,28 @@ describe("CLI start command", () => {
 
   /**
    * @case A runtime exchange failure is not reported as a failed boot
-   * @preconditions A route that starts cleanly and then fails its exchange,
-   *   beside one that completes
-   * @expectedResult The command does not claim routes failed to start. The
-   *   pipeline emits context:error with a route for a failed exchange too, so
-   *   counting those would fail a command whose project started perfectly
+   * @preconditions One capability that starts cleanly and then throws inside
+   *   its pipeline. Run without --once so start() drains every route and the
+   *   outcome is the startup verdict rather than a race between exchanges
+   * @expectedResult Success. The pipeline emits context:error carrying a route
+   *   for a failed exchange as well as for a route that never came up, so
+   *   counting both would fail a command whose project started perfectly
    */
   test("does not report a runtime exchange failure as a startup failure", async () => {
     const root = makeProject({
       "craft.config.ts": EMPTY_CONFIG,
-      "capabilities/healthy.ts": routeFile("healthy"),
       "capabilities/throws.ts": [
         `import { craft, simple, log } from "@routecraft/routecraft";`,
         `export default craft()`,
         `  .id("throws")`,
         `  .from(simple("hi"))`,
-        `  .step(() => { throw new Error("exchange blew up"); })`,
+        `  .transform(() => { throw new Error("exchange blew up"); })`,
         `  .to(log());`,
         "",
       ].join("\n"),
     });
-    const result = await startCommand(root, { once: true, timeoutMs: 5_000 });
-    if (result.success === false) {
-      expect(result.message).not.toMatch(/failed to start/);
-    }
+    const result = await startCommand(root);
+    expect(result).toMatchObject({ success: true });
   });
 
   /**

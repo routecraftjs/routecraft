@@ -122,7 +122,14 @@ function collectModules(
     // symlinked capability would be dropped without a word. Resolve file
     // links and load them; leave directory links unfollowed, which is
     // what keeps the walk loop-free and matches the markdown walk.
-    if (entry.isFile() || entry.isSymbolicLink()) {
+    if (entry.isFile()) {
+      if (isImportableModule(entry.name)) out.push(child);
+      continue;
+    }
+    if (entry.isSymbolicLink()) {
+      // Only a link needs the follow-the-target stat; a regular file is
+      // already proven to be one, and statting it again would let a file
+      // that vanished mid-walk disappear silently.
       if (isImportableModule(entry.name) && isFile(child)) out.push(child);
       continue;
     }
