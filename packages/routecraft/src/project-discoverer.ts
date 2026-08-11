@@ -34,6 +34,17 @@ export interface ProjectDiscoveryContext {
    * earlier. Never mutated.
    */
   readonly config: Readonly<CraftConfig>;
+  /**
+   * The project's own configuration, before any discoverer contributed.
+   *
+   * This is the one that answers "did the project declare this?", which
+   * {@link config} cannot: by the time a later discoverer runs, an
+   * earlier one's fragment is indistinguishable from something the
+   * author wrote. Use it for precedence decisions and for reporting
+   * where a value came from; use `config` to see what is actually in
+   * effect.
+   */
+  readonly declared: Readonly<CraftConfig>;
 }
 
 /**
@@ -175,30 +186,38 @@ export function registerProjectDiscoverer(
  */
 export function getProjectDiscoverers(): readonly RegisteredProjectDiscoverer[] {
   const registered = getRegistry();
+  const pending = [...registered.values()];
   const out: RegisteredProjectDiscoverer[] = [];
   const done = new Set<string>();
-  const visiting = new Set<string>();
 
-  const visit = (entry: RegisteredProjectDiscoverer, trail: string[]): void => {
-    if (done.has(entry.folder)) return;
-    if (visiting.has(entry.folder)) {
+  // Kahn rather than a depth-first walk: emitting a dependency the
+  // moment it is reached would hoist it above independent discoverers
+  // that registered earlier, so an unrelated registration could reorder
+  // two entries that have nothing to do with each other, and ordering
+  // here decides which fragment merges over which. Repeatedly taking
+  // the earliest-registered entry whose dependencies have all run keeps
+  // registration order as the only tiebreak.
+  while (pending.length > 0) {
+    const index = pending.findIndex((entry) =>
+      entry.after.every(
+        // A dependency nobody registered is satisfied: the package that
+        // would have claimed the folder simply is not installed.
+        (folder) => !registered.has(folder) || done.has(folder),
+      ),
+    );
+    if (index === -1) {
       throw rcError("RC5003", undefined, {
-        message: `Project discoverers form a dependency cycle: ${[...trail, entry.folder].join(" -> ")}. One of the "after" declarations has to go; no run order can satisfy a cycle.`,
+        message: `Project discoverers form a dependency cycle among: ${pending
+          .map((entry) => entry.folder)
+          .join(
+            ", ",
+          )}. One of the "after" declarations has to go; no run order can satisfy a cycle.`,
       });
     }
-    visiting.add(entry.folder);
-    for (const dependency of entry.after) {
-      const next = registered.get(dependency);
-      // A dependency nobody registered is satisfied: the package that
-      // would have claimed the folder simply is not installed.
-      if (next) visit(next, [...trail, entry.folder]);
-    }
-    visiting.delete(entry.folder);
+    const [entry] = pending.splice(index, 1) as [RegisteredProjectDiscoverer];
     done.add(entry.folder);
     out.push(entry);
-  };
-
-  for (const entry of registered.values()) visit(entry, []);
+  }
   return out;
 }
 

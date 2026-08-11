@@ -88,6 +88,25 @@ describe("registerProjectDiscoverer", () => {
   });
 
   /**
+   * @case An unrelated dependency does not reorder two independent discoverers
+   * @preconditions A depends on C, then independent B, then C are registered;
+   *   B and C have no dependency between them
+   * @expectedResult B still precedes C, because only their registration order
+   *   relates them; a depth-first walk would hoist C above B on its way to A
+   */
+  test("a dependency does not reorder independent discoverers", () => {
+    registerProjectDiscoverer("__testA", async () => ({}), {
+      after: ["__testC"],
+    });
+    registerProjectDiscoverer("__testB", async () => ({}));
+    registerProjectDiscoverer("__testC", async () => ({}));
+    const folders = getProjectDiscoverers()
+      .map((d) => d.folder)
+      .filter((f) => f.startsWith("__test"));
+    expect(folders).toEqual(["__testB", "__testC", "__testA"]);
+  });
+
+  /**
    * @case A dependency on a folder nobody registered is satisfied, not an error
    * @preconditions A discoverer declaring after: ["__testAbsent"], which nothing registers
    * @expectedResult It still runs; the missing package simply is not installed

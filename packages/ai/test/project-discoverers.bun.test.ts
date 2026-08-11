@@ -91,6 +91,7 @@ describe("project discoverers", () => {
           contentRoot: root,
           projectRoot: root,
           config: out,
+          declared: config,
         }),
       );
     }
@@ -227,6 +228,34 @@ describe("project discoverers", () => {
     const error = await discover(root).catch((err: unknown) => err);
     expect(error).toMatchObject({ rc: "AI1004" });
     expect((error as Error).message).toMatch(/\.\/nope/);
+  });
+
+  /**
+   * @case A config-set blocks.skills stops the frontmatter refs being resolved at all
+   * @preconditions The config declares the agent's blocks.skills, and the same
+   *   agent's frontmatter carries a ref that would fail to resolve
+   * @expectedResult The boot succeeds with the config's skills, because code
+   *   winning has to mean the ignored path is never walked, not merely that
+   *   its result is discarded after it has already thrown
+   */
+  test("a configured blocks.skills suppresses ref resolution entirely", async () => {
+    const root = makeProject({
+      "agents/triage.md": agentFile("triage", "skills:\n  - ./nope\n"),
+    });
+    const config = await discover(root, {
+      agent: {
+        agents: {
+          triage: {
+            description: "Declared in code",
+            system: "You are triage.",
+            blocks: { skills: { house: { mode: "inject", value: "Config." } } },
+          },
+        },
+      },
+    });
+    expect(skillBody(config.agent?.agents?.["triage"], "house")).toBe(
+      "Config.",
+    );
   });
 
   /**

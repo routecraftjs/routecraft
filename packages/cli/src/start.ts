@@ -135,19 +135,27 @@ export async function startCommand(
     context.setStore(RUNNER_ARGV, []);
     shutdownHandler(context);
 
+    // Both watchers subscribe before the first route runs. `start()`
+    // emits synchronously before it yields, so anything installed after
+    // the call can miss the very events it exists to observe.
+    const startupErrors = watchStartupErrors(context);
+    const firstExchange = options.once
+      ? watchFirstExchange(context)
+      : undefined;
+
     // `context.start()` deliberately never resolves while a server
     // ingress is held open (see Route.start), so `--once` has to race
     // it rather than await it: awaiting first would mean the flag only
     // worked on projects that were going to exit anyway.
     const started = context.start();
-    if (!options.once) {
+    if (firstExchange === undefined) {
       await started;
-      return { success: true };
+      return reportStartup(startupErrors());
     }
 
     const timeout = options.timeoutMs;
     const outcome = await Promise.race([
-      watchFirstExchange(context),
+      firstExchange,
       // Every route finished on its own before any exchange landed.
       started.then(() => "drained" as const),
       ...(timeout === undefined ? [] : [expire(timeout)]),
@@ -155,7 +163,7 @@ export async function startCommand(
 
     if (outcome === "drained") {
       await started;
-      return { success: true };
+      return reportStartup(startupErrors());
     }
     if (outcome === "timeout") {
       await context.stop();
@@ -168,9 +176,12 @@ export async function startCommand(
     // Attach the start rejection so a route failure during shutdown is
     // reported rather than surfacing as an unhandled rejection.
     await started.catch(() => undefined);
-    return outcome === "failed"
-      ? fail("The first exchange failed. See the logged error for the cause.")
-      : { success: true };
+    if (outcome === "failed") {
+      return fail(
+        "The first exchange failed. See the logged error for the cause.",
+      );
+    }
+    return reportStartup(startupErrors());
   } catch (error: unknown) {
     return fail(messageOf(error));
   }
@@ -226,8 +237,16 @@ function expire(ms: number): Promise<"timeout"> {
  */
 function pickContentRoot(root: string): string {
   const src = join(root, "src");
-  const rootHas = CONVENTION_FOLDERS.some((f) => isDirectory(join(root, f)));
-  const srcHas = CONVENTION_FOLDERS.some((f) => isDirectory(join(src, f)));
+  // Registered folders count too, so a project whose only convention
+  // folder comes from an ecosystem package still resolves its layout.
+  // Without them, a `src/`-nested project holding just that folder would
+  // fall back to the root and boot without what the discoverer provides.
+  const folders = [
+    ...CONVENTION_FOLDERS,
+    ...getProjectDiscoverers().map((d) => d.folder),
+  ];
+  const rootHas = folders.some((f) => isDirectory(join(root, f)));
+  const srcHas = folders.some((f) => isDirectory(join(src, f)));
   if (rootHas && srcHas) {
     logger.warn(
       `Convention folders exist both at "${root}" and "${src}". Using the root-level layout; the ones under "src" are ignored. Move them into one place.`,
@@ -251,13 +270,20 @@ async function applyDiscoverers(
   config: CraftConfig,
 ): Promise<CraftConfig> {
   const discoverers = getProjectDiscoverers();
+  const declared = config;
   let out = config;
   for (const { folder, discover } of discoverers) {
     const directory = join(contentRoot, folder);
     if (!isDirectory(directory)) continue;
     out = mergeProjectConfig(
       out,
-      await discover({ directory, contentRoot, projectRoot, config: out }),
+      await discover({
+        directory,
+        contentRoot,
+        projectRoot,
+        config: out,
+        declared,
+      }),
     );
   }
   const registered = new Set(discoverers.map((d) => d.folder));
@@ -322,27 +348,62 @@ async function loadCapabilities(
   return out;
 }
 
+/** How the first exchange ended, for the `--once` shutdown decision. */
+type ExchangeOutcome = "completed" | "failed" | "dropped" | "suspended";
+
 /**
  * Resolve on the first exchange that reaches a terminal outcome on any
- * route. `--once` treats a failure and a drop as terminal too, so a CI
- * smoke check reports instead of hanging until it is killed.
+ * route. `--once` treats a failure, a drop and a suspension as terminal
+ * alongside a completion, so a CI smoke check reports instead of
+ * hanging until it is killed.
+ *
+ * A suspension is terminal for the run that produced it: the exchange
+ * parks durably and `route:exchange:suspended` takes the place of
+ * `:completed`, so waiting for a completion that is not coming is the
+ * same hang under a different name.
+ *
+ * Subscribe before starting the context, never after: `start()` runs a
+ * synchronous prefix before it yields, so a source that produces an
+ * exchange during route startup would fire into a watcher that does not
+ * exist yet.
  */
-function watchFirstExchange(
-  context: CraftContext,
-): Promise<"completed" | "failed" | "dropped"> {
+function watchFirstExchange(context: CraftContext): Promise<ExchangeOutcome> {
   return new Promise((settle) => {
     const offs: Array<() => void> = [];
-    const finish =
-      (outcome: "completed" | "failed" | "dropped") => (): void => {
-        for (const off of offs) off();
-        settle(outcome);
-      };
+    const finish = (outcome: ExchangeOutcome) => (): void => {
+      for (const off of offs) off();
+      settle(outcome);
+    };
     offs.push(
       context.on("route:exchange:completed", finish("completed")),
       context.on("route:exchange:failed", finish("failed")),
       context.on("route:exchange:dropped", finish("dropped")),
+      context.on("route:exchange:suspended", finish("suspended")),
     );
   });
+}
+
+/**
+ * Collect route startup failures.
+ *
+ * `context.start()` settles every route rather than racing them, so it
+ * resolves even when a route threw on the way up. Without this the
+ * command reports a clean boot for a project that did not boot, which
+ * is the one thing a CI gate must never do.
+ */
+function watchStartupErrors(context: CraftContext): () => string[] {
+  const failed: string[] = [];
+  context.on("context:error", (event) => {
+    // Listeners receive the event envelope, not the payload: the route
+    // is one level down, under `details`.
+    const id = (
+      event as {
+        details?: { route?: { definition?: { id?: string } } };
+      }
+    ).details?.route?.definition?.id;
+    if (id !== undefined) failed.push(id);
+  });
+  return () => failed;
 }
 
 /**
@@ -367,6 +428,18 @@ function describe(value: unknown): string {
   if (value === undefined) return "no default export";
   if (value === null) return "null";
   return Array.isArray(value) ? "an array" : typeof value;
+}
+
+/**
+ * Turn collected startup failures into the command's result. A boot
+ * where a route never came up is a failed boot, whatever the surviving
+ * routes went on to do.
+ */
+function reportStartup(failedRoutes: readonly string[]): RunResult {
+  if (failedRoutes.length === 0) return { success: true };
+  return fail(
+    `${String(failedRoutes.length)} route(s) failed to start: ${failedRoutes.join(", ")}. See the logged errors for the cause.`,
+  );
 }
 
 function fail(message: string): RunResult {

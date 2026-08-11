@@ -5,10 +5,20 @@ import { config as loadDotenv } from "dotenv";
 /**
  * Loads environment variables from .env files
  *
+ * An explicit `path` always resolves against the working directory,
+ * because that is what a relative path typed on the command line means.
+ * The conventional `.env` / `.env.local` pair resolves against
+ * `defaultsFrom`, so `craft start ./apps/eywa` picks up that project's
+ * own environment rather than the one beside the shell.
+ *
  * @param path Optional path to .env file. If not specified, loads .env and .env.local (if they exist)
+ * @param defaultsFrom Directory the conventional .env files are read from. Defaults to the working directory
  * @returns The parsed dotenv config result
  */
-export function loadEnvFile(path?: string) {
+export function loadEnvFile(
+  path?: string,
+  defaultsFrom: string = process.cwd(),
+) {
   const dotenvOpts = { quiet: true };
   if (path) {
     // Explicit path provided - load that file only
@@ -31,7 +41,7 @@ export function loadEnvFile(path?: string) {
   // No path provided - load .env, then .env.local (with override)
   // Load .env first
   const envResult = loadDotenv({
-    path: resolve(process.cwd(), ".env"),
+    path: resolve(defaultsFrom, ".env"),
     ...dotenvOpts,
   });
   if (envResult.parsed) {
@@ -44,7 +54,7 @@ export function loadEnvFile(path?: string) {
 
   // Load .env.local next, allowing it to override .env values
   const envLocalResult = loadDotenv({
-    path: resolve(process.cwd(), ".env.local"),
+    path: resolve(defaultsFrom, ".env.local"),
     override: true,
     ...dotenvOpts,
   });

@@ -312,8 +312,8 @@ async function composeAgentSkills(
  * leaves resolve as `skills__<name>` and an agent can drop the whole
  * set with `blocks: { skills: false }`.
  */
-registerProjectDiscoverer(SKILLS_FOLDER, async ({ directory, config }) => {
-  if (config.agent?.defaultOptions?.blocks?.[SKILLS_FOLDER] !== undefined) {
+registerProjectDiscoverer(SKILLS_FOLDER, async ({ directory, declared }) => {
+  if (declared.agent?.defaultOptions?.blocks?.[SKILLS_FOLDER] !== undefined) {
     logger.info(
       `Skills: "agent.defaultOptions.blocks.skills" is set in ${CONFIG_FILE}; "${directory}" not loaded.`,
     );
@@ -343,15 +343,23 @@ registerProjectDiscoverer(SKILLS_FOLDER, async ({ directory, config }) => {
  */
 registerProjectDiscoverer(
   AGENTS_FOLDER,
-  async ({ directory, contentRoot, config }) => {
-    const declared = config.agent?.agents ?? {};
+  async ({ directory, contentRoot, config, declared: declaredConfig }) => {
+    const declared = declaredConfig.agent?.agents ?? {};
     const houseBlocks = houseSkillGroup(config);
     const houseDirectory = join(contentRoot, SKILLS_FOLDER);
+    // The config wins over the folder, so a project that declared the
+    // house set is the source even when a skills/ folder also exists:
+    // that folder was skipped, and naming it here would send a reader
+    // looking for a shadowing skill in a directory nothing read.
+    const houseFromConfig =
+      declaredConfig.agent?.defaultOptions?.blocks?.[SKILLS_FOLDER] !==
+      undefined;
     const house: SkillSource | undefined = houseBlocks
       ? {
-          label: isDirectory(houseDirectory)
-            ? displayPath(contentRoot, houseDirectory)
-            : "agent.defaultOptions.blocks.skills",
+          label:
+            !houseFromConfig && isDirectory(houseDirectory)
+              ? displayPath(contentRoot, houseDirectory)
+              : "agent.defaultOptions.blocks.skills",
           blocks: houseBlocks,
         }
       : undefined;
@@ -369,8 +377,20 @@ registerProjectDiscoverer(
       )
         ? declared[file.name]
         : undefined;
-      const composed = await composeAgentSkills(file, house, contentRoot);
       const from = displayPath(contentRoot, file.source);
+
+      // Before composing, not after: resolving a ref the config has
+      // already overridden can fail the boot on a path whose result
+      // would have been discarded, which is not what code-wins means.
+      if (declaredAgent?.blocks?.[SKILLS_FOLDER] !== undefined) {
+        const configFields = Object.keys(declaredAgent).sort().join(", ");
+        logger.info(
+          `Agent "${file.name}": ${configFields} from ${CONFIG_FILE}, including blocks.skills; the "skills:" refs in ${from} are not loaded.`,
+        );
+        continue;
+      }
+
+      const composed = await composeAgentSkills(file, house, contentRoot);
       const skillsProvenance =
         composed === undefined
           ? undefined
@@ -381,12 +401,6 @@ registerProjectDiscoverer(
         if (composed === undefined) {
           logger.info(
             `Agent "${file.name}": ${configFields} from ${CONFIG_FILE}; ${from} contributes nothing further.`,
-          );
-          continue;
-        }
-        if (declaredAgent.blocks?.[SKILLS_FOLDER] !== undefined) {
-          logger.info(
-            `Agent "${file.name}": ${configFields} from ${CONFIG_FILE}, including blocks.skills; the "skills:" refs in ${from} are not loaded.`,
           );
           continue;
         }

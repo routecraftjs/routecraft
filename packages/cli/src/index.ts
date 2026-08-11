@@ -142,19 +142,33 @@ program
   .action(async (dir: string | undefined, options) => {
     applyGlobalLogOptions();
 
+    const { resolve: resolvePath } = await import("node:path");
+    const projectRoot = resolvePath(process.cwd(), dir ?? ".");
+
     const { loadEnvFile } = await import("./util.js");
-    if (options.env !== undefined) {
-      loadEnvFile(options.env);
-    } else {
-      loadEnvFile();
-    }
+    // The conventional .env pair belongs to the project being started,
+    // not to whatever directory the shell happens to sit in.
+    loadEnvFile(options.env, projectRoot);
 
     const { startCommand } = await import("./start.js");
     const timeoutMs =
       options.timeout === undefined ? undefined : Number(options.timeout);
-    if (timeoutMs !== undefined && !Number.isFinite(timeoutMs)) {
+    if (
+      timeoutMs !== undefined &&
+      (!Number.isFinite(timeoutMs) || timeoutMs < 1)
+    ) {
       // eslint-disable-next-line no-console
-      console.error(`--timeout must be a number of milliseconds.`);
+      console.error(
+        `--timeout must be a number of milliseconds, at least 1. Received "${String(options.timeout)}".`,
+      );
+      setImmediate(() => process.exit(1));
+      return;
+    }
+    if (timeoutMs !== undefined && options.once !== true) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `--timeout bounds the wait for the first exchange, which only --once waits for. Add --once, or drop --timeout.`,
+      );
       setImmediate(() => process.exit(1));
       return;
     }

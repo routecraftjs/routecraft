@@ -116,7 +116,7 @@ Options:
 | `[dir]` | Project root. Defaults to the current directory |
 | `--env <path>` | Load environment variables from a .env file |
 | `--once` | Shut down cleanly after the first exchange reaches a terminal outcome on any route |
-| `--timeout <ms>` | With `--once`, give up and exit non-zero after this many milliseconds |
+| `--timeout <ms>` | Give up and exit non-zero after this many milliseconds. Requires `--once`, and must be at least 1 |
 
 What it loads, and in what order:
 
@@ -133,9 +133,14 @@ Code wins and convention fills the gaps: whatever `craft.config.ts` declares is 
 discovery supplies only what it left out. Every discovered capability, plugin and agent is
 logged with the file it came from.
 
-`--once` is for CI smoke checks and cron-style one-shot invocations. A failure and a drop
-count as terminal alongside a completion, so a broken exchange reports instead of hanging
-until the job is killed; a first exchange that failed exits non-zero.
+`--once` is for CI smoke checks and cron-style one-shot invocations. A failure, a drop and a
+suspension all count as terminal alongside a completion, so a broken or parked exchange
+reports instead of hanging until the job is killed; a first exchange that failed exits
+non-zero.
+
+A route that throws on the way up fails the command too, in either mode. Starting settles
+every route rather than racing them, so a project can come up with one route dead and the
+rest healthy; `start` reports that as a failed boot rather than a clean one.
 
 Pair it with `--timeout <ms>` in CI. Without one, a project whose sources never produce an
 exchange waits indefinitely, which reports as a killed job rather than as a diagnosis; with

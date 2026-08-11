@@ -1,5 +1,5 @@
 import { readdirSync, statSync } from "node:fs";
-import { extname, join, relative } from "node:path";
+import { extname, join, relative, sep } from "node:path";
 import type { CraftPlugin } from "@routecraft/routecraft";
 
 /**
@@ -67,8 +67,17 @@ function isSkippedProjectDirectory(name: string): boolean {
  */
 function isImportableModule(name: string): boolean {
   if (!MODULE_EXTENSIONS.includes(extname(name))) return false;
-  if (name.endsWith(".d.ts")) return false;
+  if (/\.d\.[cm]?ts$/.test(name)) return false;
   return !/\.(test|spec)\.[^.]+$/.test(name);
+}
+
+/**
+ * Order two paths by code unit, never by locale. `localeCompare`
+ * answers a different question on a different machine, and this order
+ * decides registration order, which decides config precedence.
+ */
+function byPath(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /**
@@ -121,7 +130,7 @@ function collectModules(
  * is a grouping folder.
  */
 export function discoverCapabilityModules(dir: string): string[] {
-  return collectModules(dir, capabilityFile).sort((a, b) => a.localeCompare(b));
+  return collectModules(dir, capabilityFile).sort(byPath);
 }
 
 /**
@@ -129,7 +138,7 @@ export function discoverCapabilityModules(dir: string): string[] {
  * sentinel form, because a plugin is one module.
  */
 export function discoverPluginModules(dir: string): string[] {
-  return collectModules(dir).sort((a, b) => a.localeCompare(b));
+  return collectModules(dir).sort(byPath);
 }
 
 /**
@@ -138,7 +147,9 @@ export function discoverPluginModules(dir: string): string[] {
  */
 export function displayPath(root: string, path: string): string {
   const rel = relative(root, path);
-  return rel === "" || rel.startsWith("..") ? path : rel;
+  // A leading `..` segment, not a `..` prefix: a directory legitimately
+  // named `..shared` is inside the root and should read as relative.
+  return rel === "" || rel === ".." || rel.startsWith(`..${sep}`) ? path : rel;
 }
 
 /** Filename stem of the project configuration file. */

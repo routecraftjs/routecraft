@@ -96,6 +96,31 @@ describe("CLI start command", () => {
   }
 
   /**
+   * @case A route that throws on the way up fails the command
+   * @preconditions One capability whose source throws from its subscribe,
+   *   beside a healthy one
+   * @expectedResult Failure naming the dead route, because context.start()
+   *   settles every route and resolves even when one of them rejected
+   */
+  test("reports a route that failed to start as a failed boot", async () => {
+    const root = makeProject({
+      "craft.config.ts": EMPTY_CONFIG,
+      "capabilities/healthy.ts": routeFile("healthy"),
+      "capabilities/broken.ts": [
+        `import { craft, log } from "@routecraft/routecraft";`,
+        `const exploding = {`,
+        `  subscribe() { throw new Error("source refused to start"); },`,
+        `};`,
+        `export default craft().id("broken").from(exploding).to(log());`,
+        "",
+      ].join("\n"),
+    });
+    const result = await startCommand(root, { once: true, timeoutMs: 5_000 });
+    expect(result).toMatchObject({ success: false, code: 1 });
+    expect(result.success === false && result.message).toMatch(/broken/);
+  });
+
+  /**
    * @case A project without a config file fails with an actionable message
    * @preconditions Directory holding capabilities but no craft.config.ts
    * @expectedResult Failure naming craft.config.ts and pointing at craft run

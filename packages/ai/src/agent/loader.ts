@@ -477,9 +477,11 @@ export async function loadAgentFiles(path: string): Promise<LoadedAgentFile[]> {
  *
  * Body of the file becomes `system`. Other Claude subagent fields
  * (`permissionMode`, `mcpServers`, `hooks`, `memory`, `background`,
- * `effort`, `isolation`, `color`, `initialPrompt`, ...) throw
- * `RC5003` "not yet supported" at load and will land in follow-up
- * stories as the runtime gains the underlying features.
+ * `effort`, `isolation`, `color`, `initialPrompt`, ...) are ignored
+ * with one warning each and will land in follow-up stories as the
+ * runtime gains the underlying features. Tolerating them is the point:
+ * an unchanged `.claude/agents/` tree has to boot, and a key this
+ * runtime has not implemented yet is not a mistake in the file.
  *
  * `skills` is validated as a list of strings and otherwise passed
  * through: resolving a ref into blocks needs the house skill folder
