@@ -346,7 +346,7 @@ function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
     // no allow cannot be honoured, and an agent that inherits the very
     // tools its file denies is the worst possible reading of the file.
     throw rcError("RC5003", undefined, {
-      message: `Markdown file "${source}": "disallowedTools" is set but "tools" is not, and a deny list alone cannot be honoured: a per-agent tool list replaces the context default outright rather than narrowing it, so this agent would inherit the very tools it denies. List the tools this agent may use in "tools", or drop "disallowedTools".`,
+      message: `Markdown file "${source}": "disallowedTools" is set but "tools" is not, and a deny list alone cannot be honoured: a per-agent tool list replaces the context default outright rather than narrowing it, so this agent would inherit the very tools it denies. List the tools this agent may use in "tools", or drop "disallowedTools". Honouring a deny list against inherited defaults is tracked in routecraftjs/routecraft#583.`,
     });
   }
   // Frontmatter carries only the boolean form; the function-renderer
@@ -470,16 +470,16 @@ export async function loadAgentFiles(path: string): Promise<LoadedAgentFile[]> {
  * |               |          | `provider:model` form only)            |
  * | `maxTurns`    | no       | `AgentRegisteredOptions.maxTurns`      |
  * | `tools`       | no       | `tools(stringArray)`                   |
+ * | `disallowedTools` | no   | removals from this agent's own `tools` |
  * | `principal`   | no       | `AgentRegisteredOptions.principal`     |
  * |               |          | (boolean only; renderer via override)  |
  * | `skills`      | no       | declaration consumed by `craft start`  |
  *
  * Body of the file becomes `system`. Other Claude subagent fields
- * (`disallowedTools`, `permissionMode`, `mcpServers`, `hooks`,
- * `memory`, `background`, `effort`, `isolation`, `color`,
- * `initialPrompt`, ...) throw `RC5003` "not yet supported" at load
- * and will land in follow-up stories as the runtime gains the
- * underlying features.
+ * (`permissionMode`, `mcpServers`, `hooks`, `memory`, `background`,
+ * `effort`, `isolation`, `color`, `initialPrompt`, ...) throw
+ * `RC5003` "not yet supported" at load and will land in follow-up
+ * stories as the runtime gains the underlying features.
  *
  * `skills` is validated as a list of strings and otherwise passed
  * through: resolving a ref into blocks needs the house skill folder

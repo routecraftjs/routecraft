@@ -143,7 +143,8 @@ one, the command exits non-zero saying nothing reached a terminal outcome in tim
 
 Two limits worth knowing. `--once` settles on the first terminal exchange on **any** route, so
 on a project with a heartbeat timer beside the route you meant to exercise, the timer can win
-the race. Scoping the wait to a single route is tracked as a follow-up. And a project with a
+the race. Scoping the wait to a single route is tracked in
+[#584](https://github.com/routecraftjs/routecraft/issues/584). And a project with a
 server ingress (`http`, `direct`, `mcp`) never finishes starting by design, which is why
 `--once` races the first exchange against startup rather than waiting for startup to complete.
 
