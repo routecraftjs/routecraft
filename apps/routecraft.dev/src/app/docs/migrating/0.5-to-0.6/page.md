@@ -541,7 +541,7 @@ Every hierarchical event name loses its identity segment. The payload already ca
 | `route:<id>:cache:hit` / `:miss` / `:stored` / `:failed` | `route:cache:hit` / `:miss` / `:stored` / `:failed` |
 | `route:<id>:operation:choice:matched` / `:unmatched` | `route:operation:choice:matched` / `:unmatched` |
 | `route:<id>:agent:*` (all agent events) | `route:agent:*` (same suffixes) |
-| `plugin:<pluginId>:starting` / `:started` / `:stopping` / `:stopped` | `plugin:starting` / ... (`pluginId` in payload); `plugin:<pluginId>:registered` is removed (subscribe to `plugin:starting`) |
+| `plugin:<pluginId>:starting` / `:started` / `:stopping` / `:stopped` | `plugin:starting` / ... (`pluginId` in payload); `plugin:<pluginId>:registered` is removed. Since 0.7 the apply-phase pair is `plugin:applying` / `plugin:applied` |
 | `context:*`, `auth:*`, `agent:registered`, `agent:tool:registered` | unchanged |
 
 Migrate by table lookup, not regex: several route ids contain words like `batch` or `started`, and a regex will corrupt names (`route:my-batch:stopped` must become `route:stopped`, but `route:r1:batch:stopped` must become `route:batch:stopped`).

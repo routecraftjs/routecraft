@@ -13,6 +13,7 @@ Internal development standards for Routecraft contributors (human and AI). These
 | [Naming Policy](./naming-policy.md) | Source/Destination vs Server/Client naming, schema field names (`input`/`output`), prompt-source field names |
 | [Error and Logging Policy](./error-and-logging-policy.md) | Throw/boundary rules, structured logging, level semantics, error code philosophy |
 | [Type Safety and Schemas](./type-safety-and-schemas.md) | Type flow policy, factory option types (no `Partial<>` on factory args), Standard Schema usage, plugin vs config vs store guidance |
+| [Plugin Lifecycle](./plugin-lifecycle.md) | The three phases (`apply` / `start` / `teardown`), which work belongs in each, what a `start()` hook may do, ordering and failure semantics, readiness via `whenStarted()` |
 | [Testing](./testing.md) | Runner conventions, JSDoc-on-every-test, helpers from `@routecraft/testing`, lifecycle pattern, assertion patterns |
 | [CI/CD](./ci-cd.md) | PR gates, hook policy, peer-dependency rules, optional peer dependencies, release flow |
 | [Package Boundaries](./package-boundaries.md) | Standards-in-core vs vendors-grouped-by-ecosystem, the bounded package count, core dependency policy (minimal-dependency ambition with pragmatic exceptions), packages created on first adapter |

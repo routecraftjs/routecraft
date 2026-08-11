@@ -186,7 +186,7 @@ function contractSuite(
 
     /**
      * @case A resume racing the sweeper resolves to one outcome
-     * @preconditions One suspended record; markResumed and markExpired started together
+     * @preconditions One suspended record; markResumed and claimExpiry started together
      * @expectedResult Exactly one wins, and the stored status matches the winner
      */
     test("a resume and an expiry cannot both win", async () => {
@@ -195,14 +195,14 @@ function contractSuite(
         record({ expiresAt: new Date("2026-08-10T09:00:01Z") }),
       );
 
-      const [resumed, expired] = await Promise.all([
+      const [resumed, claimed] = await Promise.all([
         store.markResumed("sus-1", { at: new Date() }),
-        store.markExpired("sus-1"),
+        store.claimExpiry("sus-1", new Date()),
       ]);
 
-      expect([resumed.won, expired.won].filter(Boolean)).toHaveLength(1);
+      expect([resumed.won, claimed.won].filter(Boolean)).toHaveLength(1);
       const stored = await store.get("sus-1");
-      expect(stored?.status).toBe(resumed.won ? "resumed" : "expired");
+      expect(stored?.status).toBe(resumed.won ? "resumed" : "expiring");
     });
 
     /**
@@ -246,6 +246,7 @@ function contractSuite(
     test("refuses to resume a suspension that already left the suspended state", async () => {
       store = await open();
       await store.create(record());
+      await store.claimExpiry("sus-1", new Date());
       await store.markExpired("sus-1");
 
       const result = await store.markResumed("sus-1", { at: new Date() });
@@ -255,19 +256,104 @@ function contractSuite(
     });
 
     /**
-     * @case Cancelling a run denies its parked exchange
-     * @preconditions A suspended record; markDenied with a reason
-     * @expectedResult Status is denied and the reason is stored
+     * @case Denial is a claim first, an outcome second
+     * @preconditions A suspended record; claimExpiry then markDenied
+     * @expectedResult The claim records when it was taken, and the finalize stores the reason. markDenied from a bare suspended record loses, because finalizing an unclaimed record would skip the delivery step the claim exists to make crash-safe
      */
-    test("markDenied records the reason", async () => {
+    test("markDenied finalizes a claim and records the reason", async () => {
       store = await open();
       await store.create(record());
 
-      const result = await store.markDenied("sus-1", "run cancelled");
+      const unclaimed = await store.markDenied("sus-1", "too eager");
+      expect(unclaimed.won).toBe(false);
 
+      const claimedAt = new Date("2026-08-11T09:00:00.000Z");
+      const claim = await store.claimExpiry("sus-1", claimedAt);
+      expect(claim.won).toBe(true);
+      expect(claim.suspension?.status).toBe("expiring");
+      expect(claim.suspension?.claimedAt?.toISOString()).toBe(
+        claimedAt.toISOString(),
+      );
+
+      const result = await store.markDenied("sus-1", "run cancelled");
       expect(result.won).toBe(true);
       expect(result.suspension?.status).toBe("denied");
       expect(result.suspension?.deniedReason).toBe("run cancelled");
+    });
+
+    /**
+     * @case A stale claim is released for redelivery, a fresh one honoured
+     * @preconditions Two expiring records, one claimed before the cutoff and one after
+     * @expectedResult Only the stale claim flips back to suspended with its claimedAt cleared, so the next sweep redelivers exactly the work whose deliverer died
+     */
+    test("releaseExpiring flips back only stale claims", async () => {
+      store = await open();
+      await store.create(record({ id: "stale" }));
+      await store.create(record({ id: "fresh" }));
+      await store.claimExpiry("stale", new Date("2026-08-11T08:00:00.000Z"));
+      await store.claimExpiry("fresh", new Date("2026-08-11T09:30:00.000Z"));
+
+      const released = await store.releaseExpiring(
+        new Date("2026-08-11T09:00:00.000Z"),
+      );
+
+      expect(released).toBe(1);
+      const stale = await store.get("stale");
+      expect(stale?.status).toBe("suspended");
+      expect(stale?.claimedAt).toBeUndefined();
+      expect((await store.get("fresh"))?.status).toBe("expiring");
+    });
+
+    /**
+     * @case The expiry scan pages on a keyset cursor
+     * @preconditions Four due records sharing deadlines so the id tiebreak matters
+     * @expectedResult Pages come back in (expiresAt, id) order, each page strictly after the cursor, and a record the caller left suspended is not re-read by a later page. That is what makes an unretirable prefix unable to starve the records behind it
+     */
+    test("findExpired pages strictly past a cursor", async () => {
+      store = await open();
+      const early = new Date("2026-08-11T08:00:00.000Z");
+      const late = new Date("2026-08-11T09:00:00.000Z");
+      await store.create(record({ id: "b", expiresAt: early }));
+      await store.create(record({ id: "a", expiresAt: early }));
+      await store.create(record({ id: "d", expiresAt: late }));
+      await store.create(record({ id: "c", expiresAt: late }));
+      const now = new Date("2026-08-12T09:00:00.000Z");
+
+      const first = await store.findExpired(now, 2);
+      expect(first.map((entry) => entry.id)).toEqual(["a", "b"]);
+
+      // Nothing was retired: the first page's records are still suspended.
+      // The cursor, not their state, is what keeps them off the next page.
+      const last = first[first.length - 1]!;
+      const second = await store.findExpired(now, 2, {
+        expiresAt: last.expiresAt!,
+        id: last.id,
+      });
+      expect(second.map((entry) => entry.id)).toEqual(["c", "d"]);
+
+      const rest = await store.findExpired(now, 2, {
+        expiresAt: second[1]!.expiresAt!,
+        id: second[1]!.id,
+      });
+      expect(rest).toEqual([]);
+    });
+
+    /**
+     * @case A cursor a backend would have to guess at is refused
+     * @preconditions An invalid Date and an empty id
+     * @expectedResult Both reject rather than being interpreted
+     */
+    test("findExpired refuses a malformed cursor", async () => {
+      store = await open();
+      await expect(
+        store.findExpired(new Date(), 10, {
+          expiresAt: new Date(Number.NaN),
+          id: "x",
+        }),
+      ).rejects.toThrow(expect.objectContaining({ rc: "RC5044" }));
+      await expect(
+        store.findExpired(new Date(), 10, { expiresAt: new Date(), id: "" }),
+      ).rejects.toThrow(expect.objectContaining({ rc: "RC5044" }));
     });
 
     /**
@@ -337,17 +423,17 @@ function contractSuite(
       );
       await store.markResumed("already-resumed", { at: new Date() });
 
-      const due = await store.findExpired(now);
+      const due = await store.findExpired(now, 100);
 
       expect(due.map((entry) => entry.id)).toEqual(["due"]);
     });
 
     /**
      * @case One sweep pass can be bounded after a long downtime
-     * @preconditions Three due records; findExpired called with limit 2
-     * @expectedResult Two records come back, oldest first
+     * @preconditions Three due records sharing a deadline; findExpired called with limit 2
+     * @expectedResult Two records come back in (expiresAt, id) order, which is the strict total order the cursor pages on
      */
-    test("findExpired honours the limit, oldest first", async () => {
+    test("findExpired honours the limit in cursor order", async () => {
       store = await open();
       const due = new Date("2026-08-12T09:00:00.000Z");
       await store.create(
@@ -378,6 +464,53 @@ function contractSuite(
       );
 
       expect(swept.map((entry) => entry.id)).toEqual(["a", "b"]);
+    });
+
+    /**
+     * @case A resume that never recorded an outcome is reported as crash residue
+     * @preconditions Three records: one still parked, one resumed and settled, one resumed with no terminal
+     * @expectedResult Only the resumed-with-no-terminal record is returned. It is invisible to findExpired (it is no longer suspended) and its approval is already spent, so the boot summary is the only place it can ever surface
+     */
+    test("reports resumes that never recorded an outcome", async () => {
+      store = await open();
+      await store.create(record({ id: "still-parked" }));
+      await store.create(record({ id: "settled" }));
+      await store.create(record({ id: "stranded" }));
+
+      await store.markResumed("settled", { at: new Date() });
+      await store.recordTerminal("settled", terminal);
+      await store.markResumed("stranded", { at: new Date() });
+
+      const crashResidue = await store.resumedWithoutTerminal();
+
+      expect(crashResidue.map((entry) => entry.id)).toEqual(["stranded"]);
+    });
+
+    /**
+     * @case Stranded resumes come back oldest first and honour a limit
+     * @preconditions Two stranded records parked at different times, read back with a limit of one
+     * @expectedResult The older one. The boot summary reports the oldest age, so the ordering is what makes that figure mean anything
+     */
+    test("orders stranded resumes oldest first", async () => {
+      store = await open();
+      await store.create(
+        record({
+          id: "older",
+          suspendedAt: new Date("2026-08-01T09:00:00.000Z"),
+        }),
+      );
+      await store.create(
+        record({
+          id: "newer",
+          suspendedAt: new Date("2026-08-09T09:00:00.000Z"),
+        }),
+      );
+      await store.markResumed("older", { at: new Date() });
+      await store.markResumed("newer", { at: new Date() });
+
+      const bounded = await store.resumedWithoutTerminal(1);
+
+      expect(bounded.map((entry) => entry.id)).toEqual(["older"]);
     });
 
     /**
@@ -461,6 +594,7 @@ function contractSuite(
       await store.create(record({ id: "old-parked", suspendedAt: old }));
       await store.create(record({ id: "recent-settled", suspendedAt: recent }));
       await store.markResumed("old-settled", { at: new Date() });
+      await store.claimExpiry("recent-settled", new Date());
       await store.markDenied("recent-settled", "cancelled");
 
       const purged = await store.purgeSettled(
@@ -471,6 +605,28 @@ function contractSuite(
       expect(await store.get("old-settled")).toBeUndefined();
       expect(await store.get("old-parked")).toBeDefined();
       expect(await store.get("recent-settled")).toBeDefined();
+    });
+
+    /**
+     * @case A live delivery claim is never reclaimed by retention
+     * @preconditions One old record moved to expiring, its claim still held
+     * @expectedResult purgeSettled leaves it alone. Purging a claim
+     *   mid-delivery would strand the finalize against a row that no longer
+     *   exists, and the sweeper would report a redelivery for a record that
+     *   is gone
+     */
+    test("purgeSettled never touches an expiring claim", async () => {
+      store = await open();
+      const old = new Date("2026-07-01T09:00:00.000Z");
+      await store.create(record({ id: "claimed", suspendedAt: old }));
+      await store.claimExpiry("claimed", new Date());
+
+      const purged = await store.purgeSettled(
+        new Date("2026-08-01T00:00:00.000Z"),
+      );
+
+      expect(purged).toBe(0);
+      expect((await store.get("claimed"))?.status).toBe("expiring");
     });
 
     /**

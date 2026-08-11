@@ -13,6 +13,14 @@ import {
   resolveSigningSecret,
 } from "./tokens.ts";
 import type { SuspensionStore } from "./types.ts";
+import { type Duration, parseDuration } from "./duration.ts";
+import {
+  DEFAULT_EXPIRY_LEASE,
+  DEFAULT_SUSPENSION_RETENTION,
+  DEFAULT_SWEEP_INTERVAL,
+  DEFAULT_SUSPENSION_TTL,
+  SuspensionSweeper,
+} from "./sweeper.ts";
 
 /**
  * Environment variable naming where parked exchanges are persisted. Either
@@ -67,6 +75,41 @@ export interface SuspensionConfig {
    * `defineConfig` in code.
    */
   secret?: string;
+  /**
+   * How long a suspension stays resumable when `.suspend()` names no `ttl`.
+   *
+   * Defaults to {@link DEFAULT_SUSPENSION_TTL}. Set `"never"` to opt a
+   * context out of default expiry entirely, which means an unanswered
+   * suspension is kept until something else retires it.
+   */
+  defaultTtl?: Duration | "never";
+  /**
+   * How often the sweeper looks for overdue suspensions.
+   *
+   * Defaults to {@link DEFAULT_SWEEP_INTERVAL}. TTLs are measured in hours,
+   * so sub-minute precision buys nothing; the knob exists for tests and for
+   * deployments that want expiry noticed sooner.
+   */
+  sweepInterval?: Duration;
+  /**
+   * How long an expiry-delivery claim is honoured before the sweeper
+   * releases it for redelivery.
+   *
+   * Defaults to {@link DEFAULT_EXPIRY_LEASE}. Only a crash mid-delivery
+   * ever spends this; keep it comfortably longer than the slowest `.error()`
+   * handler, because a lease shorter than a slow handler would make one
+   * healthy process double-deliver by itself.
+   */
+  expiryLease?: Duration;
+  /**
+   * How long settled suspensions (resumed, expired, denied) are kept before
+   * the sweeper purges them.
+   *
+   * Defaults to {@link DEFAULT_SUSPENSION_RETENTION}. Set `"never"` to keep
+   * everything, which is the audit-trail configuration; the store then
+   * grows with every exchange that ever suspended.
+   */
+  retention?: Duration | "never";
 }
 
 /**
@@ -114,6 +157,22 @@ export interface SuspensionRuntime {
    * restart-durability test is written).
    */
   readonly ownsStore: boolean;
+  /**
+   * Milliseconds a suspension stays resumable when `.suspend()` names no
+   * `ttl`. Undefined when the context opted out with `defaultTtl: "never"`,
+   * which is the only way to park something with no deadline at all.
+   */
+  readonly defaultTtlMs?: number;
+  /**
+   * Milliseconds between sweeps. Resolved here rather than in the plugin's
+   * `start()` hook so a malformed duration fails while the context is still
+   * being built, which is the rule the rest of this config already follows.
+   */
+  readonly sweepIntervalMs: number;
+  /** Milliseconds an expiry-delivery claim is honoured before redelivery. */
+  readonly expiryLeaseMs: number;
+  /** Milliseconds settled records are kept. Undefined means keep forever. */
+  readonly retentionMs?: number;
 }
 
 /**
@@ -140,6 +199,26 @@ export async function createSuspensionRuntime(
   context: CraftContext,
   config: SuspensionConfig & SuspensionTestSeams = {},
 ): Promise<SuspensionRuntime> {
+  const configuredTtl = config.defaultTtl ?? DEFAULT_SUSPENSION_TTL;
+  const defaultTtlMs =
+    configuredTtl === "never"
+      ? undefined
+      : parseDuration(configuredTtl, "suspension.defaultTtl");
+
+  const sweepIntervalMs = parseDuration(
+    config.sweepInterval ?? DEFAULT_SWEEP_INTERVAL,
+    "suspension.sweepInterval",
+  );
+  const expiryLeaseMs = parseDuration(
+    config.expiryLease ?? DEFAULT_EXPIRY_LEASE,
+    "suspension.expiryLease",
+  );
+  const configuredRetention = config.retention ?? DEFAULT_SUSPENSION_RETENTION;
+  const retentionMs =
+    configuredRetention === "never"
+      ? undefined
+      : parseDuration(configuredRetention, "suspension.retention");
+
   const signer = resolveSigningSecret({
     ...(config.secret !== undefined ? { secret: config.secret } : {}),
     allowEphemeral: config.allowEphemeralSecret ?? isDevelopmentRuntime(),
@@ -150,6 +229,26 @@ export async function createSuspensionRuntime(
       `Suspension resume tokens are signed with an ephemeral key. Tokens minted by this process become unverifiable when it restarts. Set ${SUSPENSION_SECRET_ENV} before deploying.`,
     );
   }
+
+  /**
+   * One shape for every exit. Four hand-written literals is how
+   * `defaultTtlMs` came to be silently dropped on the sqlite branch, which
+   * is the backend the production default uses.
+   */
+  const runtime = (
+    store: SuspensionStore,
+    backend: SuspensionRuntime["backend"],
+    ownsStore: boolean,
+  ): SuspensionRuntime => ({
+    store,
+    signer,
+    backend,
+    ownsStore,
+    sweepIntervalMs,
+    expiryLeaseMs,
+    ...(retentionMs !== undefined ? { retentionMs } : {}),
+    ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
+  });
 
   // A present-but-empty environment variable means unset, not "open the
   // working directory as a database". `resolveSigningSecret` treats a blank
@@ -165,15 +264,10 @@ export async function createSuspensionRuntime(
     typeof configured === "object" &&
     "create" in configured
   ) {
-    return { store: configured, signer, backend: "custom", ownsStore: false };
+    return runtime(configured, "custom", false);
   }
   if (configured === "memory") {
-    return {
-      store: new MemorySuspensionStore(),
-      signer,
-      backend: "memory",
-      ownsStore: true,
-    };
+    return runtime(new MemorySuspensionStore(), "memory", true);
   }
 
   const path =
@@ -190,19 +284,14 @@ export async function createSuspensionRuntime(
       { backend: "sqlite", driver: store.driver, path },
       "Suspension store opened",
     );
-    return { store, signer, backend: "sqlite", ownsStore: true };
+    return runtime(store, "sqlite", true);
   } catch (err) {
     if (explicit) throw err;
     context.logger.warn(
       { err, path },
       "No durable suspension store available; parked exchanges will NOT survive a restart. Install better-sqlite3 (Node) or configure suspension: { store } to keep suspensions durable.",
     );
-    return {
-      store: new MemorySuspensionStore(),
-      signer,
-      backend: "memory",
-      ownsStore: true,
-    };
+    return runtime(new MemorySuspensionStore(), "memory", true);
   }
 }
 
@@ -213,6 +302,13 @@ export async function createSuspensionRuntime(
  * but only a store it opened itself.
  */
 export function suspensionPlugin(config: SuspensionConfig = {}): CraftPlugin {
+  // Keyed by context, not a plain closure variable: one plugin instance can
+  // serve two contexts in the same process (a `defineConfig` export reused
+  // across tests), and a single slot would let the second start overwrite
+  // the first sweeper, leaving its interval running against a store that is
+  // about to close.
+  const sweepers = new WeakMap<CraftContext, SuspensionSweeper>();
+
   return {
     name: "suspension",
     async apply(ctx: CraftContext) {
@@ -221,7 +317,26 @@ export function suspensionPlugin(config: SuspensionConfig = {}): CraftPlugin {
         await createSuspensionRuntime(ctx, config),
       );
     },
+    async start(ctx: CraftContext) {
+      const runtime = ctx.getStore(SUSPENSION_RUNTIME);
+      if (!runtime) return;
+      const sweeper = new SuspensionSweeper(ctx, runtime.store, {
+        intervalMs: runtime.sweepIntervalMs,
+        leaseMs: runtime.expiryLeaseMs,
+        ...(runtime.retentionMs !== undefined
+          ? { retentionMs: runtime.retentionMs }
+          : {}),
+      });
+      sweepers.set(ctx, sweeper);
+      // Before the interval, and awaited: what expired during the outage
+      // reaches its routes ahead of anything new arriving.
+      await sweeper.scanOnStart();
+      sweeper.start();
+    },
     async teardown(ctx: CraftContext) {
+      // Awaited before the store closes; see SuspensionSweeper.stop().
+      await sweepers.get(ctx)?.stop();
+      sweepers.delete(ctx);
       const runtime = ctx.getStore(SUSPENSION_RUNTIME);
       if (runtime?.ownsStore) await runtime.store.close();
     },

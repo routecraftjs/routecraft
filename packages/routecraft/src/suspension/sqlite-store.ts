@@ -3,7 +3,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import { encodePersistable } from "./serialize.ts";
-import { assertSweepLimit } from "./memory-store.ts";
+import { assertScanCursor, assertSweepLimit } from "./memory-store.ts";
 import {
   type ResolvedSqliteDriver,
   type SqliteDatabase,
@@ -11,6 +11,7 @@ import {
   resolveSqliteDriver,
 } from "./sqlite-driver.ts";
 import type {
+  ExpiredScanCursor,
   NewSuspension,
   PendingSuspensionSummary,
   PrincipalRef,
@@ -36,7 +37,7 @@ export const DEFAULT_SUSPENSION_DB_PATH = ".routecraft/suspensions.db";
  * Schema version this build writes. Bumped whenever
  * {@link MIGRATIONS} grows an entry.
  */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /**
  * How long a writer waits for a competing write lock before giving up.
@@ -77,6 +78,12 @@ const MIGRATIONS: ReadonlyArray<string> = [
    );
    CREATE INDEX suspensions_sweep ON suspensions (status, expires_at);
    CREATE INDEX suspensions_pending ON suspensions (status, suspended_at);`,
+  // v2: the expiring delivery claim and the keyset sweep cursor. The sweep
+  // index gains id so `(status, expires_at, id)` pages are index-served in
+  // cursor order.
+  `ALTER TABLE suspensions ADD COLUMN claimed_at INTEGER;
+   DROP INDEX IF EXISTS suspensions_sweep;
+   CREATE INDEX suspensions_sweep ON suspensions (status, expires_at, id);`,
 ];
 
 /**
@@ -226,11 +233,20 @@ export class SqliteSuspensionStore implements SuspensionStore {
     );
   }
 
+  async claimExpiry(id: string, at: Date): Promise<SuspensionCasResult> {
+    return this.#transition(
+      id,
+      `UPDATE suspensions SET status = 'expiring', claimed_at = ?
+        WHERE id = ? AND status = 'suspended'`,
+      [at.getTime()],
+    );
+  }
+
   async markExpired(id: string): Promise<SuspensionCasResult> {
     return this.#transition(
       id,
       `UPDATE suspensions SET status = 'expired'
-        WHERE id = ? AND status = 'suspended'`,
+        WHERE id = ? AND status = 'expiring'`,
       [],
     );
   }
@@ -239,9 +255,25 @@ export class SqliteSuspensionStore implements SuspensionStore {
     return this.#transition(
       id,
       `UPDATE suspensions SET status = 'denied', denied_reason = ?
-        WHERE id = ? AND status = 'suspended'`,
+        WHERE id = ? AND status = 'expiring'`,
       [reason ?? null],
     );
+  }
+
+  async releaseExpiring(before: Date): Promise<number> {
+    return guard("release stale expiry claims", () => {
+      this.#db
+        .prepare(
+          `UPDATE suspensions SET status = 'suspended', claimed_at = NULL
+            WHERE status = 'expiring' AND claimed_at <= ?`,
+        )
+        .run(before.getTime());
+      return (
+        this.#db.prepare("SELECT changes() AS changed").get() as {
+          changed: number;
+        }
+      ).changed;
+    });
   }
 
   async recordTerminal(id: string, terminal: SerializedOutcome): Promise<void> {
@@ -252,21 +284,60 @@ export class SqliteSuspensionStore implements SuspensionStore {
     });
   }
 
-  async findExpired(now: Date, limit?: number): Promise<Suspension[]> {
+  async findExpired(
+    now: Date,
+    limit: number,
+    after?: ExpiredScanCursor,
+  ): Promise<Suspension[]> {
     assertSweepLimit(limit);
+    assertScanCursor(after);
     return guard("scan for expired suspensions", () => {
+      // The expanded `(a > x OR (a = x AND b > y))` form rather than
+      // row-value syntax, which would put a floor on the SQLite version.
+      const rows = after
+        ? this.#db
+            .prepare(
+              `SELECT * FROM suspensions
+                WHERE status = 'suspended'
+                  AND expires_at IS NOT NULL
+                  AND expires_at <= ?
+                  AND (expires_at > ? OR (expires_at = ? AND id > ?))
+                ORDER BY expires_at ASC, id ASC
+                LIMIT ?`,
+            )
+            .all(
+              now.getTime(),
+              after.expiresAt.getTime(),
+              after.expiresAt.getTime(),
+              after.id,
+              limit,
+            )
+        : this.#db
+            .prepare(
+              `SELECT * FROM suspensions
+                WHERE status = 'suspended'
+                  AND expires_at IS NOT NULL
+                  AND expires_at <= ?
+                ORDER BY expires_at ASC, id ASC
+                LIMIT ?`,
+            )
+            .all(now.getTime(), limit);
+      return rows.map((row) => toSuspension(row as SuspensionRow));
+    });
+  }
+
+  async resumedWithoutTerminal(limit?: number): Promise<Suspension[]> {
+    assertSweepLimit(limit);
+    return guard("scan for stranded resumes", () => {
       const rows = this.#db
         .prepare(
           `SELECT * FROM suspensions
-          WHERE status = 'suspended'
-            AND expires_at IS NOT NULL
-            AND expires_at <= ?
+          WHERE status = 'resumed'
+            AND terminal IS NULL
           ORDER BY suspended_at ASC
           LIMIT ?`,
         )
-        // A negative LIMIT means "no limit" in SQLite, which is exactly the
-        // semantics of an omitted bound here.
-        .all(now.getTime(), limit ?? -1);
+        .all(limit ?? -1);
       return rows.map((row) => toSuspension(row as SuspensionRow));
     });
   }
@@ -292,7 +363,8 @@ export class SqliteSuspensionStore implements SuspensionStore {
       this.#db
         .prepare(
           `DELETE FROM suspensions
-          WHERE status <> 'suspended' AND suspended_at < ?`,
+          WHERE status IN ('resumed', 'expired', 'denied')
+            AND suspended_at < ?`,
         )
         .run(before.getTime());
       return (
@@ -494,6 +566,7 @@ interface SuspensionRow {
   status: string;
   suspended_at: number;
   expires_at: number | null;
+  claimed_at: number | null;
   resumed_at: number | null;
   resumed_by: string | null;
   denied_reason: string | null;
@@ -519,6 +592,7 @@ function toSuspension(row: SuspensionRow): Suspension {
     status: row.status as SuspensionStatus,
     suspendedAt: new Date(row.suspended_at),
     ...(row.expires_at !== null ? { expiresAt: new Date(row.expires_at) } : {}),
+    ...(row.claimed_at != null ? { claimedAt: new Date(row.claimed_at) } : {}),
     ...(row.resumed_at !== null ? { resumedAt: new Date(row.resumed_at) } : {}),
     ...(row.resumed_by !== null
       ? { resumedBy: JSON.parse(row.resumed_by) as PrincipalRef }

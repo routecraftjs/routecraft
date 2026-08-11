@@ -19,6 +19,7 @@ import type {
   PrincipalRef,
   SerializedOutcome,
   Suspension,
+  SuspensionCasResult,
   SuspensionStore,
 } from "./types.ts";
 
@@ -145,14 +146,17 @@ export async function reviveSuspension(
   // send the approver another notification: an outbound-message amplifier
   // driven by a party the token does not authenticate. Winning the CAS is
   // the right to notify, and the sweeper competes for the same right.
-  if (
-    suspension.expiresAt !== undefined &&
-    suspension.expiresAt.getTime() <= Date.now()
-  ) {
-    const expiry = rcError("RC5047", undefined, {
-      message: `Suspension "${id}" expired at ${suspension.expiresAt.toISOString()}.`,
-    });
-    const cas = await runtime.store.markExpired(id);
+  const deadline = suspension.expiresAt;
+  if (deadline !== undefined && deadline.getTime() <= Date.now()) {
+    const { cas, error } = await expireSuspension(
+      context,
+      runtime.store,
+      route,
+      {
+        ...suspension,
+        expiresAt: deadline,
+      },
+    );
     if (!cas.won) {
       // The winner is not necessarily the sweeper. A concurrent resume can
       // win `markResumed` right on the deadline, and that answer WAS
@@ -160,16 +164,8 @@ export async function reviveSuspension(
       // negative about work that is running. Whoever won says what
       // happened.
       if (cas.suspension) return settled(cas.suspension);
-      throw expiry;
     }
-    context.emit("route:exchange:expired", {
-      routeId: suspension.routeId,
-      exchangeId: exchangeIdOf(suspension),
-      correlationId: correlationIdOf(suspension),
-      suspensionId: id,
-      expiresAt: suspension.expiresAt,
-    });
-    throw await reask(context, route, suspension, expiry);
+    throw error;
   }
 
   const site = findSite(route, suspension);
@@ -328,7 +324,19 @@ export async function reviveSuspension(
     }
     throw error;
   }
-  await runtime.store.recordTerminal(id, outcome);
+  try {
+    await runtime.store.recordTerminal(id, outcome);
+  } catch (err) {
+    // The work is DONE: destinations fired and the outcome below is true.
+    // Throwing here would tell the answerer the work failed after it
+    // succeeded, and the boot scan would later count the record as a
+    // half-run continuation. A missing cached outcome only costs a
+    // duplicate resume its cached answer.
+    route.logger.error(
+      { suspensionId: id, err },
+      "Could not cache the terminal outcome of a completed revival. The work finished; a duplicate resume will be told the outcome is unrecorded.",
+    );
+  }
 
   return {
     status: "resumed",
@@ -366,7 +374,10 @@ async function refuseContinuation(
   message: string,
 ): Promise<ResumeAcknowledgment> {
   const error = rcError("RC5048", undefined, { message });
-  const cas = await store.markDenied(suspension.id, reason);
+  // Same claim-deliver-finalize shape as expiry, for the same crash: a
+  // denial finalized before its re-ask was delivered would strand the
+  // approver at a dead link with no signal.
+  const cas = await store.claimExpiry(suspension.id, new Date());
   if (!cas.won) {
     // Whoever won the transition says what happened, as on the expiry and
     // duplicate paths. A replay that lost to the denial has to read back the
@@ -376,7 +387,9 @@ async function refuseContinuation(
     if (cas.suspension) return settled(cas.suspension);
     throw error;
   }
-  throw await reask(context, route, suspension, error);
+  await reask(context, route, suspension, error);
+  await store.markDenied(suspension.id, reason);
+  throw error;
 }
 
 /**
@@ -436,19 +449,91 @@ function settled(suspension: Suspension): ResumeAcknowledgment {
     };
   }
 
-  // No re-ask here, deliberately. The record is ALREADY terminal, so
-  // whoever moved it there (the sweeper, a cancellation, an earlier resume
-  // that lost no race) owned the notification and has sent it. Re-entering
-  // the route's error channel per arriving replay would notify the approver
+  // No re-ask here, deliberately. The record is ALREADY settled or claimed,
+  // so whoever moved it there (the sweeper, a cancellation, an earlier
+  // resume that lost no race) owns the notification. Re-entering the
+  // route's error channel per arriving replay would notify the approver
   // once per request rather than once per event, from a token anyone who
   // saw the original link still holds.
-  throw suspension.status === "expired"
+  //
+  // An `expiring` claim is disambiguated by WHEN it was taken, not by the
+  // clock now: an expiry claim is only ever taken once the deadline has
+  // passed, and a denial claim only while it has not, so the claim
+  // timestamp against the deadline says which flow owns the record. The
+  // current time would flip a denial claim into an "expiry" merely because
+  // its slow re-ask crossed the deadline while running.
+  const claimRef = suspension.claimedAt ?? new Date();
+  const expiryClaim =
+    suspension.expiresAt !== undefined &&
+    claimRef.getTime() >= suspension.expiresAt.getTime();
+  throw suspension.status === "expired" ||
+    (suspension.status === "expiring" && expiryClaim)
     ? rcError("RC5047", undefined, {
         message: `Suspension "${suspension.id}" expired before an answer arrived.`,
       })
     : rcError("RC5050", undefined, {
         message: `Suspension "${suspension.id}" was denied${suspension.deniedReason ? `: ${suspension.deniedReason}` : ""}.`,
       });
+}
+
+/** A suspension the store gave a deadline, which is the only kind that expires. */
+export type ExpiringSuspension = Suspension & { expiresAt: Date };
+
+/**
+ * Retire an overdue suspension and tell its route, exactly once.
+ *
+ * Shared by the two things that can discover an expiry: a late answer
+ * arriving at `.resume()`, and the sweeper. Both must reach the same
+ * outcome, and only one of them may notify, which is what the
+ * compare-and-swap decides. The loser gets the post-attempt record back
+ * and reports what the winner did rather than its own view, so an answer
+ * that won `markResumed` on the deadline is reported as resumed, not
+ * expired.
+ *
+ * Returns rather than throws: the sweeper is not answering anyone, so an
+ * expiry is not exceptional to it. The caller decides whether the error is
+ * a return value or a throw.
+ *
+ * @internal
+ */
+export async function expireSuspension(
+  context: CraftContext,
+  store: SuspensionStore,
+  route: Route,
+  suspension: ExpiringSuspension,
+): Promise<{ cas: SuspensionCasResult; error: Error }> {
+  const deadline = suspension.expiresAt;
+  const error = rcError("RC5047", undefined, {
+    message: `Suspension "${suspension.id}" expired at ${deadline.toISOString()}.`,
+  });
+  // Claim, deliver, finalize. The claim is what makes a crash mid-delivery
+  // healable: a record left `expiring` is released back to `suspended` once
+  // its lease elapses and the next sweep redelivers it, where a record
+  // finalized before delivery would be terminal with its approver never
+  // told. The cost is that a crash AFTER delivery but before finalize
+  // redelivers once; notification is at-least-once by design.
+  const cas = await store.claimExpiry(suspension.id, new Date());
+  if (!cas.won) return { cas, error };
+
+  context.emit("route:exchange:expired", {
+    routeId: suspension.routeId,
+    exchangeId: exchangeIdOf(suspension),
+    correlationId: correlationIdOf(suspension),
+    suspensionId: suspension.id,
+    expiresAt: deadline,
+  });
+  await reask(context, route, suspension, error);
+  const finalized = await store.markExpired(suspension.id);
+  if (!finalized.won) {
+    // Single-node, so the only way to lose a finalize is a lease release
+    // racing an extremely slow delivery. The next sweep pass redelivers,
+    // which is the at-least-once trade already made above.
+    context.logger.warn(
+      { suspensionId: suspension.id },
+      "An expiry claim was released before its delivery finalized, so the next sweep will redeliver it.",
+    );
+  }
+  return { cas, error };
 }
 
 /**

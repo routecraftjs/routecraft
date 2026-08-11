@@ -45,6 +45,7 @@ export interface ErrorCodeRegistry {
   RC1001: RCMeta;
   RC1002: RCMeta;
   RC1003: RCMeta;
+  RC1004: RCMeta;
   RC2001: RCMeta;
   RC2002: RCMeta;
   RC3001: RCMeta;
@@ -131,6 +132,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "Namespaces must match /^[A-Z][A-Z0-9]{1,7}$/, 'RC' is reserved for core, each namespace is claimable by exactly one package, and every code must be the namespace followed by exactly four digits. If two packages claim the same namespace, report the collision to both package owners.",
     docs: `${DOCS_BASE}#rc-1003`,
+    retryable: false,
+  },
+  RC1004: {
+    category: "Definition",
+    message: "Context already stopped",
+    suggestion:
+      "A CraftContext is single-use: once stopped, its routes and controllers are gone for good. Build a fresh context from your config instead of restarting a stopped one.",
+    docs: `${DOCS_BASE}#rc-1004`,
     retryable: false,
   },
   RC2001: {

@@ -82,6 +82,7 @@ export async function parkExchange(
     expect,
   );
   const suspendedAt = new Date();
+  const ttlMs = request.expiresInMs ?? runtime.defaultTtlMs;
   const record: NewSuspension = {
     id,
     routeId,
@@ -96,8 +97,12 @@ export async function parkExchange(
       exchange: serialized,
     }),
     suspendedAt,
-    ...(request.expiresInMs !== undefined
-      ? { expiresAt: new Date(suspendedAt.getTime() + request.expiresInMs) }
+    // Per-suspend `ttl` first, then the context default. A suspension with
+    // no deadline at all is only reachable through `defaultTtl: "never"`,
+    // because an approval nobody answers should eventually reach the route
+    // that asked for it rather than sit in the store forever.
+    ...(ttlMs !== undefined
+      ? { expiresAt: new Date(suspendedAt.getTime() + ttlMs) }
       : {}),
   };
 

@@ -528,6 +528,7 @@ export {
 export type {
   Duration,
   DurationUnit,
+  ExpiredScanCursor,
   NewSuspension,
   PendingSuspensionSummary,
   PrincipalRef,

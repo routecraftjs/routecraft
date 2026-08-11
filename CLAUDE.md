@@ -36,6 +36,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [Naming Policy](.standards/naming-policy.md) -- Source/Destination vs Server/Client conventions
 - [Error and Logging Policy](.standards/error-and-logging-policy.md) -- throw/boundary rules, log levels, error codes
 - [Type Safety and Schemas](.standards/type-safety-and-schemas.md) -- type flow, Standard Schema, plugin vs config
+- [Plugin Lifecycle](.standards/plugin-lifecycle.md) -- the three phases (`apply` / `start` / `teardown`), which work belongs in each, ordering and failure semantics, readiness via `whenStarted()`
 - [Testing](.standards/testing.md) -- runner conventions, JSDoc-on-every-test, helpers, lifecycle, assertion patterns
 - [CI/CD](.standards/ci-cd.md) -- PR gates, hook policy, peer-dependency rules, release flow
 - [Package Boundaries](.standards/package-boundaries.md) -- standards-in-core vs vendors-grouped-by-ecosystem, bounded package count, core dependency policy (minimal-dependency ambition with pragmatic exceptions), packages created on first adapter

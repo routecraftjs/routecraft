@@ -63,6 +63,15 @@ An ecosystem package called `registerErrorCodes()` with an invalid namespace, a 
 **Suggestion**  
 Namespaces must match `/^[A-Z][A-Z0-9]{1,7}$/` and every code must be the namespace followed by exactly four digits (e.g. `AI1001`). If two installed packages claim the same namespace, report the collision to both package owners; consumers cannot resolve it locally.
 
+## RC1004
+Context already stopped
+
+**Why it happens**  
+`context.start()` was called on a context that has already been stopped. A context is single-use: its route controllers are built once and are gone after a stop, so a restart would report ready over routes that can no longer serve, and background work such as the suspension sweeper would retire records into them.
+
+**Suggestion**  
+Build a fresh context from your config instead of restarting a stopped one. The process is the real restart unit; `craft run` already behaves this way.
+
 ## RC2001
 Invalid operation type
 
@@ -667,7 +676,7 @@ Check that `suspension.store` names the same location on every node, and that th
 Suspension expired
 
 **Why it happens**  
-The answer arrived after the suspension's `ttl` elapsed, so the parked exchange is no longer resumable.
+The suspension's `ttl` elapsed, so the parked exchange is no longer resumable. Either a late answer arrived and was refused, or the background sweeper retired the suspension on its own schedule with no answer ever arriving, which is the case a `ttl` mostly exists for.
 
 **Suggestion**  
 This is catchable rather than terminal: the suspended route's own `.error()` handler receives it and can notify the approver and re-ask with a fresh suspension. Raise `ttl` on `.suspend()` if the window is genuinely too short for the people answering.
