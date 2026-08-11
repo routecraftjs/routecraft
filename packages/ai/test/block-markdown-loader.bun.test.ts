@@ -202,6 +202,52 @@ describe("skills() markdown loader", () => {
   });
 
   /**
+   * @case Dependency and dot directories are never scanned for skills
+   * @preconditions node_modules and a dot-folder each hold a well-formed SKILL.md
+   * @expectedResult Only the real skill loads
+   */
+  test("skips node_modules and dot directories", async () => {
+    const dir = makeDir({
+      "tone.md": "---\nname: tone\ndescription: Tone\n---\nBe brief.",
+      "node_modules/pkg/SKILL.md":
+        "---\nname: pkg\ndescription: Vendored\n---\nVendored body.",
+      ".cache/stale/SKILL.md":
+        "---\nname: stale\ndescription: Stale\n---\nStale body.",
+    });
+    expect(Object.keys(await skills({ source: dir }))).toEqual(["tone"]);
+  });
+
+  /**
+   * @case Flat files and nested bundles come back in a deterministic path order
+   * @preconditions A flat a-b.md alongside a nested a/SKILL.md, whose relative
+   *   order differs between a filename sort and a path sort
+   * @expectedResult Insertion order follows the path, which is what inject-mode
+   *   prompt concatenation and duplicate reporting rely on
+   */
+  test("orders documents by path", async () => {
+    const dir = makeDir({
+      "a-b.md": "---\nname: a-b\ndescription: Flat\n---\nFlat body.",
+      "a/SKILL.md": "---\nname: a\ndescription: Bundle\n---\nBundle body.",
+    });
+    expect(Object.keys(await skills({ source: dir }))).toEqual(["a-b", "a"]);
+  });
+
+  /**
+   * @case A skill named __proto__ registers as a real key
+   * @preconditions A bundle directory literally named __proto__
+   * @expectedResult The skill appears in the record instead of vanishing into
+   *   the object's prototype
+   */
+  test("a __proto__ skill name does not vanish", async () => {
+    const dir = makeDir({
+      "__proto__/SKILL.md":
+        "---\nname: __proto__\ndescription: Odd\n---\nOdd body.",
+    });
+    const loaded = await skills({ source: dir });
+    expect(Object.keys(loaded)).toEqual(["__proto__"]);
+  });
+
+  /**
    * @case skills() validates its own options surface
    * @preconditions Missing/empty source string and invalid mode strings
    * @expectedResult Throws AI1003 with a clear authoring-time message

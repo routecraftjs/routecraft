@@ -155,6 +155,8 @@ Grouping isolates collisions (a skill named `tone` resolves to `skills__tone`, d
 
 The agent markdown loader (`agents("./agents")`) used to accept a `skills:` frontmatter field. That field is now rejected with `RC5003` "not yet supported" because blocks accept function-form resolvers that YAML cannot express. Set `blocks` on the registered agent in code instead, either via the per-agent `overrides` map handed to `agents()` or via the agent's call site.
 
+> The key returns in 0.7.0 with different semantics: it declares **where skills come from** (local paths and `npm:` package refs) rather than naming blocks, and the project runtime resolves it. See [`agents()`](/docs/reference/plugins/agentplugin#loading-agents-from-markdown-agents).
+
 **Before (0.5.x):** `agents/researcher.md`
 
 ```md

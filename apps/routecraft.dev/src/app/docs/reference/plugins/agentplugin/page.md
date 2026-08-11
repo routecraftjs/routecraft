@@ -79,6 +79,49 @@ Agents loaded from markdown via [`agents("./dir")`](/docs/reference/adapters/age
 
 See the [`agent`](/docs/reference/adapters/agent) adapter for usage patterns.
 
+## Loading agents from markdown (`agents()`) {% #loading-agents-from-markdown-agents %}
+
+`agents("./agents")` walks a directory and returns a `Record<name, AgentRegisteredOptions>` ready to hand to `agentPlugin({ agents })`. The walk follows the Claude Code `.claude/agents/` convention, so an existing tree loads unmodified.
+
+```text
+agents
+├── triage.md                   # flat agent, any depth
+├── review
+│   └── security.md             # grouping folder, walked
+└── aria                        # agent bundle
+    ├── AGENT.md
+    └── skills                  # aria's skills, never agents
+        └── refund-policy.md
+```
+
+| Layout | Rule |
+|--------|------|
+| Flat file (`<anything>.md`) | One agent, at any depth. Identity is the frontmatter `name`; the filename and the folders above it are grouping and carry no identity. |
+| Bundle (`<name>/AGENT.md`) | Exactly one agent. The directory is not descended into for further agents, and it can hold assets scoped to that agent. This is the one place the relaxed filename rule does not apply: the frontmatter `name` must match the bundle directory name. |
+| Reserved (`skills/`) | Never scanned for agents, at any depth under `agents/`. The folder belongs to the enclosing bundle and is loaded by `skills()`. |
+
+`node_modules` and dot-directories are skipped at every level. A symlink to a file is followed, so a tree assembled by linking shared definitions loads; a symlink to a directory is not, which is what keeps the walk loop-free.
+
+Duplicate `name` values anywhere in the tree throw `RC5003` naming both files. Identity is deliberately strict here: a silently shadowed agent definition surfaces months later as "why is this agent behaving like the other one".
+
+Passing a single `.md` path loads that one file.
+
+### The `skills:` frontmatter key
+
+An agent file may declare where its skills come from:
+
+```md
+---
+name: zoe
+description: Handles customer conversations
+skills:
+  - ./skills
+  - npm:@devoptixnl/claude-skills/devoptix
+---
+```
+
+Entries are local paths (relative to the agent file) or `npm:` package refs. `agents()` validates the list and surfaces it verbatim; it does not resolve it. Resolving a ref needs the house `skills/` folder and the bundle's own folder, neither of which a bare `agents()` call is given, so the key is a declaration for the project runtime to consume. When you call `agents()` yourself, attach skills through the `blocks` override.
+
 ## Agent blocks
 
 Blocks are an agent's contribution to its system context, expressed as a `Blocks` record (`{ [name: string]: BlockBody | Blocks | false }`) keyed by block name. A value is either a single block (a `BlockBody` leaf) or a nested `Blocks` group. A leaf is either always injected into the system prompt (`mode: "inject"`) or surfaced as a synthetic loader tool the model invokes on demand (`mode: "progressive"`, the default for `skills`). They replace the 0.5 `skills` field and unify with memory, identity, instructions, and any future system-prompt contribution.
