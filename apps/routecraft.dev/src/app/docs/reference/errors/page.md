@@ -8,6 +8,17 @@ Core codes use the `RC` namespace. Ecosystem packages own their codes under regi
 
 Each error includes a code, message, a brief suggestion, and underlying error. A code is its owner's namespace followed by four digits: core codes follow `RCcnnn` where `c` is category and `nnn` is the number, and ecosystem packages use their registered namespace (`AI1001`). Adapters throw them with specific message and suggestion overrides via `rcError(rc, cause, { message, suggestion })`. When the framework logs an error, structured meta (`rc`, `message`, `suggestion`, `causeMessage`, `causeStack`) is included so you can search and alert in your log aggregator.
 
+## Range allocation
+
+Within a namespace, the leading digit reserves a range for one subsystem, so two features landing in parallel cannot mint the same code. Claim the next range here before using it.
+
+| Range | Owner | Covers |
+| --- | --- | --- |
+| `RC****` | `@routecraft/routecraft` | Core: routes, exchanges, adapters, auth, suspension. The digit after `RC` is the category, not a subsystem range. |
+| `AI1xxx` | `@routecraft/ai` | Agent blocks and configuration |
+| `AI2xxx` | `@routecraft/ai` | MCP boundary: tool results returned to a client |
+| `AI3xxx` | `@routecraft/ai` | Built-in agent tools |
+
 The `Retry` column shows whether the [`retry`](/docs/reference/operations/retry) wrapper will retry this error by default. Codes marked `No` typically represent permanent failures (bad input, configuration errors) that won't succeed on retry.
 
 {% error-table /%}
@@ -405,6 +416,31 @@ A block's shape is invalid at construction:
 - Inject-mode blocks: `{ mode: "inject", value: <string | function> }`.
 - Progressive-mode blocks: `{ mode: "progressive", description: "...", value: <string | function> }`.
 - Use the `BlockMode` and `BlockLifetime` types exported from `@routecraft/ai` to catch typos at the type level.
+
+## AI2001
+MCP tool output violated its declared schema
+
+**Why it happens**  
+A route exposed with `.from(mcp())` declares `.output({ body })`, which the MCP server advertises as that tool's `outputSchema`, and the body it returned does not satisfy it. Clients parse `structuredContent` against the advertised schema, so the server refuses to publish the result and returns `isError: true` with the failing fields instead.
+
+The route's own output validation reports a violation it catches as [RC5002](#rc-5002). `AI2001` is the same contract enforced at the boundary that advertised the schema, covering results that reached the server without passing through that validation: a tool registered directly in the local tool registry, rather than by a `.from(mcp())` route. A body the route already validated is not re-checked, because validation replaces the body with the schema's output and a transforming schema rejects its own output.
+
+**Suggestion**  
+- Fix the route so its result matches the declared shape, or widen `.output()` to describe what the route actually returns.
+- Drop the `.output()` declaration if the tool's result shape is genuinely open; nothing is advertised and nothing is checked.
+
+## AI2002
+MCP tool declined the request
+
+**Why it happens**  
+The route behind an MCP tool dropped the exchange instead of completing it: a `.filter()` rejected it, a `.choice()` matched no branch, or an error handler returned `recovery.drop()`. A dropped exchange resolves with the body it came in with, so there is no result to return and the request body is not one.
+
+This is the MCP-side equivalent of [RC5031](#rc-5031) on the direct and forward surfaces. The call comes back as `isError: true` saying the tool declined, and never as a successful result carrying the caller's own arguments back.
+
+**Suggestion**  
+- Give the route a branch that produces a result the caller can use (an empty list, an explicit not-found shape) if the caller should receive a value.
+- Recover with a body in `.error()` rather than dropping, when the drop is an error path.
+- Keep the drop if declining is genuinely correct for that input; the client sees an error result, which is the honest answer.
 
 ## RC5028
 Cache provider failed

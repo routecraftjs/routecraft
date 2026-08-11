@@ -345,7 +345,7 @@ Emitted by auth-enabled adapters (currently MCP HTTP) on every auth attempt. The
 
 ## MCP plugin events
 
-Events emitted by the MCP plugin during server and tool lifecycle. Subscribe to the exact names (`plugin:mcp:tool:called` / `completed` / `failed`) for broad observability, or use the catch-all `"*"`.
+Events emitted by the MCP plugin during server and tool lifecycle. Subscribe to the exact names (`plugin:mcp:tool:called` / `completed` / `failed` / `declined`) for broad observability, or use the catch-all `"*"`.
 
 ### Server events
 
@@ -361,6 +361,9 @@ Events emitted by the MCP plugin during server and tool lifecycle. Subscribe to 
 | `plugin:mcp:tool:called` | Tool invocation started | `{ tool, args, proxied?, serverId?, remoteTool? }` |
 | `plugin:mcp:tool:completed` | Tool invocation succeeded | `{ tool, proxied?, serverId?, remoteTool? }` |
 | `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error, proxied?, serverId?, remoteTool? }` |
+| `plugin:mcp:tool:declined` | The route ran and dropped the exchange instead of producing a result | `{ tool, reason }` |
+
+`declined` is deliberately not `failed`. A tool whose route filters (a guard branch, a "only answer for X" predicate) declines as a matter of course, and counting those as errors would make an error-rate alert fire on ordinary traffic. The caller still receives `isError: true`, because MCP has no other channel to say "no result"; see [AI2002](/docs/reference/errors#ai-2002). It fires for local routes only and carries no provenance fields: a proxied call has no exchange of ours to drop, and a remote error result is reported as `failed`.
 
 For tools proxied from registered clients via [`mcpPlugin({ proxy })`](/docs/reference/plugins/mcpplugin#proxying-client-tools), the same three events fire with `proxied: true`, the registered client id as `serverId`, and the tool's name on the remote server as `remoteTool` (`tool` is the exposed, possibly renamed, name). A proxied call whose remote result carries `isError: true` fires `plugin:mcp:tool:failed`.
 

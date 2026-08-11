@@ -63,7 +63,30 @@ All other tool metadata (title, description, input / output schemas) comes from 
 | `.title('...')` | `tool.title` | Optional display title |
 | `.description('...')` | `tool.description` | **Required** for MCP source routes |
 | `.input({ body, headers })` | `tool.inputSchema` + runtime check | `body` validation is framework-enforced; `headers` validated values merge over the originals |
-| `.output({ body, headers })` | `tool.outputSchema` + runtime check | Framework-enforced before the primary destination fires |
+| `.output({ body, headers })` | `tool.outputSchema` + runtime check | Advertised to clients and enforced on the way out (see below) |
+
+**Output enforcement:**
+
+A route that declares `.output({ body })` advertises that schema as the tool's `outputSchema`, and a client is entitled to parse the result's `structuredContent` against it. The server therefore checks the body it is about to publish and refuses to return one the schema rejects:
+
+```ts
+craft()
+  .id('list-users')
+  .description('List users')
+  .output({ body: z.object({ users: z.array(z.object({ id: z.string() })) }) })
+  .from(mcp())
+  .transform(loadUsers);
+```
+
+If `loadUsers` returns something else, the call comes back as `isError: true` naming the failing fields rather than as a result contradicting the advertised schema.
+
+Two checks stand behind that promise. The route's own output validation runs first and covers every result it completes, reporting a violation as [RC5002](/docs/reference/errors#rc-5002). The server then checks anything that reached it without passing through that validation, and reports those as [AI2001](/docs/reference/errors#ai-2001). A body the route already validated is not checked twice: validation replaces the body with the schema's output, so a schema that transforms (`z.string().transform(...)`, `.pipe()`) would reject the value it just produced.
+
+A tool whose route declares no `.output()` advertises no schema, so nothing is checked and its result passes through as-is.
+
+**Declined calls:**
+
+A route that drops the exchange (a `.filter()` rejecting, a `.choice()` matching no branch, an error handler returning `recovery.drop()`) has produced no result. The call comes back as `isError: true` saying the tool declined the request (`AI2002`), which mirrors [RC5031](/docs/reference/errors#rc-5031) on the direct and forward surfaces. This applies to every tool, declared output or not.
 
 **McpToolAnnotations (optional hint fields, all booleans unless noted):**
 

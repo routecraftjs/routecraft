@@ -39,7 +39,9 @@ export {
   HeadersKeys,
   type HeaderValue,
   type HeaderLiteral,
+  isDropped,
   OperationType,
+  wasOutputValidated,
   type RoutecraftHeaders,
 } from "./exchange.ts";
 
@@ -305,6 +307,8 @@ export {
   formatSchemaIssues,
   RC,
 } from "./error.ts";
+
+export { validateAgainst } from "./pipeline/validation.ts";
 
 export {
   isCraftContext,

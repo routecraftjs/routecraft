@@ -237,6 +237,108 @@ const errors: ErrorRow[] = [
     message: 'Unknown error',
     retryable: true,
   },
+  {
+    code: 'RC1003',
+    category: 'Definition',
+    message: 'Error code registration failed',
+    retryable: false,
+  },
+  {
+    code: 'RC5018',
+    category: 'Adapter',
+    message: 'HTTP source request rejected',
+    retryable: false,
+  },
+  {
+    code: 'RC5019',
+    category: 'Adapter',
+    message: 'HTTP server bind failed',
+    retryable: false,
+  },
+  {
+    code: 'RC5039',
+    category: 'Adapter',
+    message: 'HTTP webhook signature verification failed',
+    retryable: false,
+  },
+  {
+    code: 'RC5040',
+    category: 'Definition',
+    message: 'Resume-token signing secret not configured',
+    retryable: false,
+  },
+  {
+    code: 'RC5041',
+    category: 'Runtime',
+    message: 'Resume token rejected',
+    retryable: false,
+  },
+  {
+    code: 'RC5042',
+    category: 'Runtime',
+    message: 'Exchange cannot be persisted for suspension',
+    retryable: false,
+  },
+  {
+    code: 'RC5043',
+    category: 'Adapter',
+    message: 'Principal restored from a suspension',
+    retryable: false,
+  },
+  {
+    code: 'RC5044',
+    category: 'Runtime',
+    message: 'Suspension store operation failed',
+    retryable: false,
+  },
+  {
+    code: 'RC5045',
+    category: 'Runtime',
+    message: 'Suspension store busy',
+    retryable: true,
+  },
+  {
+    code: 'RC5046',
+    category: 'Runtime',
+    message: 'Suspension not found',
+    retryable: false,
+  },
+  {
+    code: 'RC5047',
+    category: 'Runtime',
+    message: 'Suspension expired',
+    retryable: false,
+  },
+  {
+    code: 'RC5048',
+    category: 'Runtime',
+    message: 'Suspension continuation changed',
+    retryable: false,
+  },
+  {
+    code: 'RC5049',
+    category: 'Runtime',
+    message: 'Suspension result rejected',
+    retryable: false,
+  },
+  {
+    code: 'RC5050',
+    category: 'Runtime',
+    message: 'Suspension denied',
+    retryable: false,
+  },
+  {
+    code: 'RC5051',
+    category: 'Definition',
+    message: 'Suspend not supported at this position',
+    retryable: false,
+  },
+  {
+    code: 'RC5052',
+    category: 'Definition',
+    message: 'Suspension runtime not configured',
+    retryable: false,
+  },
   // Ecosystem namespaces (registered via registerErrorCodes). @routecraft/ai
   // owns AI*; AI1001-AI1003 replaced the retired core codes RC5025-RC5027.
   {
@@ -255,6 +357,18 @@ const errors: ErrorRow[] = [
     code: 'AI1003',
     category: 'Adapter',
     message: 'Agent block misconfigured',
+    retryable: false,
+  },
+  {
+    code: 'AI2001',
+    category: 'Adapter',
+    message: 'MCP tool output violated its declared schema',
+    retryable: false,
+  },
+  {
+    code: 'AI2002',
+    category: 'Adapter',
+    message: 'MCP tool declined the request',
     retryable: false,
   },
 ]

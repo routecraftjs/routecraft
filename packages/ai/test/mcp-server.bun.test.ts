@@ -3,15 +3,21 @@ import { McpServer } from "../src/mcp/server.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
+  DefaultExchange,
   direct,
   jwks,
   noop,
   rcError,
   type AnyRouteBuilder,
+  type CraftConfig,
   type Principal,
 } from "@routecraft/routecraft";
 import { mcp } from "../src/index.ts";
-import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
+import {
+  MCP_LOCAL_TOOL_REGISTRY,
+  MCP_PLUGIN_REGISTERED,
+  type McpLocalToolEntry,
+} from "../src/mcp/types.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "../src/mcp/default-icon.ts";
 import { buildAuthHeaders } from "../src/mcp/build-auth-headers.ts";
 import { z } from "zod";
@@ -44,6 +50,22 @@ describe("McpServer", () => {
       await t.stop();
     }
   });
+
+  /**
+   * Build a context holding `routes`, start it, and return an McpServer
+   * reading from it. The server is constructed after start because the local
+   * tool registry is read per call rather than captured at construction, so a
+   * tool registered later is still callable.
+   */
+  async function serve(
+    routes: AnyRouteBuilder[] = [],
+    options?: ConstructorParameters<typeof McpServer>[1],
+  ): Promise<McpServer> {
+    t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
+    await t.startAndWaitReady();
+    server = new McpServer(t.ctx, options);
+    return server;
+  }
 
   /**
    * @case McpServer construction with default and custom options
@@ -3638,6 +3660,354 @@ describe("McpServer", () => {
         source: "mcp",
       });
       expect(JSON.stringify(rejections[0])).not.toContain(token);
+    });
+  });
+
+  describe("advertised output enforcement", () => {
+    /** Shape of the tool result the server hands back to a client. */
+    type ToolResult = {
+      content: Array<{ type: string; text: string }>;
+      structuredContent?: Record<string, unknown>;
+      isError?: boolean;
+    };
+
+    /** Call a tool the way the SDK does, bypassing the JSON-RPC transport. */
+    async function callTool(
+      srv: McpServer,
+      tool: string,
+      args: Record<string, unknown>,
+    ): Promise<ToolResult> {
+      return (await (
+        srv as unknown as {
+          handleToolCall(
+            tool: string,
+            args: Record<string, unknown>,
+            principal: undefined,
+          ): Promise<ToolResult>;
+        }
+      ).handleToolCall(tool, args, undefined)) as ToolResult;
+    }
+
+    /**
+     * Serve one tool straight from the local registry, with a handler that
+     * returns `body` without a route behind it. Isolates the MCP boundary
+     * from the route pipeline's own `.output()` validation.
+     */
+    async function serveUnvalidated(body: unknown): Promise<McpServer> {
+      const srv = await serve();
+      t.ctx.setStore(
+        MCP_LOCAL_TOOL_REGISTRY,
+        new Map([
+          [
+            "unchecked",
+            {
+              endpoint: "unchecked",
+              description: "Returns a body nobody validated",
+              output: { body: z.object({ total: z.number() }) },
+              handler: async (exchange) =>
+                DefaultExchange.rewrap(exchange, { body }),
+            } satisfies McpLocalToolEntry,
+          ],
+        ]),
+      );
+      return srv;
+    }
+
+    /**
+     * @case An unvalidated result is published as the schema's output, not as the value handed in
+     * @preconditions Local registry entry whose declared output transforms a string into a Date, with a handler returning the untransformed string and no route to validate it
+     * @expectedResult The published body carries the transformed value, so a client parsing structuredContent against the advertised schema sees what it was promised rather than the input shape
+     */
+    test("publishes the validated value when the boundary does the validating", async () => {
+      t = await testContext().store(MCP_STORE_KEY, true).build();
+      await t.startAndWaitReady();
+      t.ctx.setStore(
+        MCP_LOCAL_TOOL_REGISTRY,
+        new Map([
+          [
+            "unchecked",
+            {
+              endpoint: "unchecked",
+              description: "Returns a body nobody validated",
+              output: {
+                body: z.object({
+                  at: z.string().transform((s) => new Date(s)),
+                }),
+              },
+              handler: async (exchange) =>
+                DefaultExchange.rewrap(exchange, {
+                  body: { at: "2026-01-01T00:00:00.000Z" },
+                }),
+            } satisfies McpLocalToolEntry,
+          ],
+        ]),
+      );
+      server = new McpServer(t.ctx);
+
+      const result = await callTool(server, "unchecked", {});
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toEqual({
+        at: new Date("2026-01-01T00:00:00.000Z"),
+      });
+    });
+
+    /**
+     * @case A tool result that does not satisfy the advertised outputSchema is refused at the MCP boundary
+     * @preconditions Local registry entry declaring an output body schema, whose handler resolves with a body that violates it without a route (so no route-level output validation runs)
+     * @expectedResult isError true and the validation message names the failing field, so the server never publishes a body contradicting what tools/list advertised
+     */
+    test("refuses a body the advertised schema rejects", async () => {
+      const srv = await serveUnvalidated({ total: "lots" });
+
+      const result = await callTool(srv, "unchecked", {});
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]!.text).toContain(
+        'MCP tool "unchecked" returned a body that does not match its declared output schema',
+      );
+      expect(result.content[0]!.text).toContain("total");
+      expect(result.structuredContent).toBeUndefined();
+    });
+
+    /**
+     * @case A dropped exchange is declined rather than answered, on a tool that declares an output
+     * @preconditions Route declares .output() and drops the exchange in a filter, so the request body resolves untouched
+     * @expectedResult isError true saying the tool declined the request, not a schema violation, and no structuredContent or echoed request body
+     */
+    test("declines a dropped call on a tool with a declared output", async () => {
+      const srv = await serve([
+        craft()
+          .id("dropper")
+          .description("Drops the exchange instead of completing it")
+          .output({ body: z.object({ total: z.number() }) })
+          .from<{ value: string }>(mcp())
+          .filter(() => false)
+          .transform(() => ({ total: 1 })),
+      ]);
+
+      const result = await callTool(srv, "dropper", { value: "hi" });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]!.text).toContain(
+        'MCP tool "dropper" declined the request and produced no result',
+      );
+      expect(result.content[0]!.text).not.toContain("output schema");
+      expect(result.content[0]!.text).not.toContain("hi");
+      expect(result.structuredContent).toBeUndefined();
+    });
+
+    /**
+     * @case A dropped exchange is declined rather than answered, on a tool with no declared output
+     * @preconditions Route declares no .output() and drops the exchange in a filter
+     * @expectedResult isError true saying the tool declined the request, so an undeclared tool is guarded the same way rather than echoing the request back as its result
+     */
+    test("declines a dropped call on a tool without a declared output", async () => {
+      const srv = await serve([
+        craft()
+          .id("silent-dropper")
+          .description("Drops the exchange and declares no output schema")
+          .from<{ value: string }>(mcp())
+          .filter(() => false)
+          .transform(() => ({ anything: true })),
+      ]);
+
+      const result = await callTool(srv, "silent-dropper", { value: "hi" });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]!.text).toContain(
+        'MCP tool "silent-dropper" declined the request and produced no result',
+      );
+      expect(result.content[0]!.text).not.toContain("hi");
+      expect(result.structuredContent).toBeUndefined();
+    });
+
+    /**
+     * @case A decline is reported as declined, not as a failure
+     * @preconditions Listeners on plugin:mcp:tool:declined, :failed and :completed; route drops the exchange in a filter; spy logger captures levels
+     * @expectedResult The declined event fires with the tool name and reason, neither failed nor completed fires, and nothing is logged at error level, so an error-rate alert does not fire on a tool that filters as a matter of course
+     */
+    test("emits tool:declined rather than tool:failed on a drop", async () => {
+      const srv = await serve([
+        craft()
+          .id("filtering-tool")
+          .description("Declines every call by design")
+          .from<{ value: string }>(mcp())
+          .filter(() => false),
+      ]);
+
+      const declined: Array<Record<string, unknown>> = [];
+      const failed: Array<Record<string, unknown>> = [];
+      const completed: Array<Record<string, unknown>> = [];
+      t.ctx.on("plugin:mcp:tool:declined", (payload) => {
+        declined.push(payload.details as Record<string, unknown>);
+      });
+      t.ctx.on("plugin:mcp:tool:failed", (payload) => {
+        failed.push(payload.details as Record<string, unknown>);
+      });
+      t.ctx.on("plugin:mcp:tool:completed", (payload) => {
+        completed.push(payload.details as Record<string, unknown>);
+      });
+
+      const result = await callTool(srv, "filtering-tool", { value: "hi" });
+
+      expect(result.isError).toBe(true);
+      expect(declined).toHaveLength(1);
+      expect(declined[0]).toMatchObject({ tool: "filtering-tool" });
+      expect(String(declined[0]!["reason"])).toContain("declined the request");
+      expect(failed).toHaveLength(0);
+      expect(completed).toHaveLength(0);
+      expect(t.logger.error.mock.calls).toHaveLength(0);
+    });
+
+    /**
+     * @case A route whose output schema transforms is published, not rejected
+     * @preconditions Route declares .output() with a schema whose output type differs from its input type (string transformed to Date), and returns a body the schema accepts
+     * @expectedResult No error; the transformed value is published. The route's own validation replaced the body with the schema's output, and re-running the schema over that output at the boundary would reject the value the route just produced
+     */
+    test("publishes a result whose output schema transforms the value", async () => {
+      const srv = await serve([
+        craft()
+          .id("transforming")
+          .description("Output schema transforms a string into a Date")
+          .output({
+            body: z.object({ at: z.string().transform((s) => new Date(s)) }),
+          })
+          .from<{ at: string }>(mcp())
+          .transform((body) => ({ at: body.at })),
+      ]);
+
+      const result = await callTool(srv, "transforming", {
+        at: "2026-01-01T00:00:00.000Z",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toEqual({
+        at: new Date("2026-01-01T00:00:00.000Z"),
+      });
+    });
+
+    /**
+     * @case A run that parks at a .suspend() answers with its acknowledgment, not a schema violation
+     * @preconditions Route declares .output() and reaches .suspend() before producing that output, with an in-memory suspension store
+     * @expectedResult No error; the Suspended acknowledgment is published. The pipeline deliberately skips output validation for a parked run, so the boundary must not enforce the declared output against an acknowledgment that was never meant to satisfy it
+     */
+    test("publishes the acknowledgment when the route suspends", async () => {
+      t = await testContext()
+        .with({ suspension: {} } as unknown as CraftConfig)
+        .store(MCP_STORE_KEY, true)
+        .routes([
+          craft()
+            .id("approve-payout")
+            .description("Parks for approval before paying out")
+            .output({ body: z.object({ paid: z.boolean() }) })
+            .from<{ amount: number }>(mcp())
+            .suspend({ expect: z.object({ approved: z.boolean() }) })
+            .transform(() => ({ paid: true })),
+        ])
+        .build();
+      await t.startAndWaitReady();
+      server = new McpServer(t.ctx);
+
+      const result = await callTool(server, "approve-payout", { amount: 100 });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({ status: "suspended" });
+    });
+
+    /**
+     * @case A conforming result is published unchanged
+     * @preconditions Route declares .output() with a defaulted field and returns a body the schema accepts
+     * @expectedResult No error; structuredContent carries the route's body with the default applied exactly once
+     */
+    test("publishes a conforming result unchanged", async () => {
+      const srv = await serve([
+        craft()
+          .id("conforming")
+          .description("Returns a body its output schema accepts")
+          .output({
+            body: z.object({
+              value: z.string(),
+              seen: z.number().default(1),
+            }),
+          })
+          .from<{ value: string }>(mcp())
+          .transform((body) => ({ value: body.value })),
+      ]);
+
+      const result = await callTool(srv, "conforming", { value: "hi" });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toEqual({ value: "hi", seen: 1 });
+    });
+
+    /**
+     * @case A tool whose route declares no output is not checked
+     * @preconditions Route without .output() completes with a body no schema describes
+     * @expectedResult The body passes through with no error, because no outputSchema was advertised for a client to trust
+     */
+    test("leaves a tool without a declared output unchecked", async () => {
+      const srv = await serve([
+        craft()
+          .id("undeclared")
+          .description("Declares no output schema")
+          .from<{ value: string }>(mcp())
+          .transform(() => ({ anything: true })),
+      ]);
+
+      const result = await callTool(srv, "undeclared", { value: "hi" });
+
+      expect(result.isError).toBeUndefined();
+      expect(JSON.parse(result.content[0]!.text)).toEqual({ anything: true });
+    });
+
+    /**
+     * @case An output-schema violation is reported as a failed tool call
+     * @preconditions Listeners on plugin:mcp:tool:completed and plugin:mcp:tool:failed; tool served straight from the registry returns a body its declared schema rejects
+     * @expectedResult The failed event fires carrying the tool name and the violation, and no completed event is emitted
+     */
+    test("emits tool:failed and no tool:completed on a violation", async () => {
+      const srv = await serveUnvalidated({ total: "lots" });
+
+      const failed: Array<Record<string, unknown>> = [];
+      const completed: Array<Record<string, unknown>> = [];
+      t.ctx.on("plugin:mcp:tool:failed", (payload) => {
+        failed.push(payload.details as Record<string, unknown>);
+      });
+      t.ctx.on("plugin:mcp:tool:completed", (payload) => {
+        completed.push(payload.details as Record<string, unknown>);
+      });
+
+      const result = await callTool(srv, "unchecked", {});
+
+      expect(result.isError).toBe(true);
+      expect(completed).toHaveLength(0);
+      expect(failed).toHaveLength(1);
+      expect(failed[0]).toMatchObject({ tool: "unchecked" });
+      expect(String(failed[0]!["error"])).toContain("output schema");
+      expect(t.logger.error.mock.calls.length).toBeGreaterThan(0);
+    });
+
+    /**
+     * @case A route that completes with a body its own .output() rejects still surfaces as a failed tool call
+     * @preconditions Route declares .output() and transforms to a body the schema rejects, so the route pipeline's output validation fails the exchange before the MCP boundary sees it
+     * @expectedResult isError true carrying the field-level validation message, so enforcement holds on the completed path as well
+     */
+    test("surfaces a route-level output violation as isError", async () => {
+      const srv = await serve([
+        craft()
+          .id("violator")
+          .description("Returns a body its output schema rejects")
+          .output({ body: z.object({ total: z.number() }) })
+          .from<{ value: string }>(mcp())
+          .transform(() => ({ total: "lots" })),
+      ]);
+
+      const result = await callTool(srv, "violator", { value: "hi" });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]!.text).toContain("total");
+      expect(result.structuredContent).toBeUndefined();
     });
   });
 
