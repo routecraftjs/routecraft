@@ -1,17 +1,40 @@
 #!/usr/bin/env node
 
 /**
- * Materialises src/lib/docs-catalogue.generated.ts: for every docs channel, the
- * set of routes that actually have a page, plus the heading anchors of the few
- * pages whose reference tables link into them.
+ * Materialises the per-channel reference catalogues under src/lib/generated/:
+ * the rows each docs channel's own data files declare, plus the heading anchors
+ * the rows link into.
  *
- * The reference index components (operations, adapters, plugins, errors,
- * events) are part of the site shell, not of the versioned docs tree, so they
- * are NOT frozen to the released tag on deploy. Without this catalogue they
- * advertise whatever main knows about, which publishes unreleased API on the
- * released channel and links to pages that only exist on /docs/next. Driving
- * every row off the channel's own pages keeps an index honest by construction:
- * a row renders exactly when the channel documents it.
+ * WHY THIS EXISTS
+ *
+ * /docs publishes the last released version and /docs/next publishes main, but
+ * both are one build, and the components that render the reference tables are
+ * part of the site shell, which is never frozen to the released tag. Any row
+ * data held inside those components therefore describes main on both channels:
+ * an operation added after the release is published as though it shipped, a
+ * description edited on main rewrites released docs, and an entry deleted on
+ * main vanishes from docs that still document it.
+ *
+ * So the rows are not held in the components. They live in
+ * src/app/docs/_data/*.json, inside the tree the release freeze replaces, and
+ * generate-docs-next.mjs copies them into the next channel alongside the pages.
+ * This script reads whichever copy each channel carries and emits it as a typed
+ * module per catalogue (one file each, so a page only bundles its own rows).
+ *
+ * A row and its page are checked against each other: every operation, adapter,
+ * and plugin must have a reference page on its channel, and every error code
+ * and event namespace must have a heading to link to. A mismatch fails the
+ * build rather than silently dropping the row, because on the channels that own
+ * their data a mismatch is an authoring error, not a version difference.
+ *
+ * THE FALLBACK
+ *
+ * Releases tagged before _data existed freeze a docs tree with no data files at
+ * all. Rather than publish empty tables, such a channel falls back to the
+ * repository's own data, pruned to the entries that channel documents: the
+ * pages are still frozen, so presence still tells us what shipped, and only
+ * edits to a surviving row can leak. Remove `fallbackRows` (and this note) once
+ * the oldest tag the release workflow will freeze carries src/app/docs/_data.
  *
  * The anchor map is keyed by the normalised heading text (lowercase,
  * alphanumeric only) and resolves to the id Markdoc actually renders, which is
@@ -34,16 +57,95 @@ import { slugifyWithCounter } from '@sindresorhus/slugify'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
 const DOCS_DIR = path.join(ROOT, 'src', 'app', 'docs')
-const OUT_FILE = path.join(ROOT, 'src', 'lib', 'docs-catalogue.generated.ts')
+const DATA_DIR = path.join(DOCS_DIR, '_data')
+const OUT_DIR = path.join(ROOT, 'src', 'lib', 'generated')
 
-// Pages whose headings are addressed as anchors by an index component. Only
-// these are scanned; emitting every heading on the site would bloat the bundle
-// for no reader.
-const ANCHOR_ROUTES = ['reference/errors', 'reference/events']
+const CHANNELS = ['latest', 'next']
+
+/**
+ * One catalogue per data file. `page` names the reference folder each row must
+ * have a page in; `anchorsIn` names the page each row must have a heading on.
+ * Exactly one of the two applies: a row either owns a page or is a section of
+ * a shared page.
+ */
+const CATALOGUES = [
+  {
+    file: 'operations.json',
+    module: 'operations',
+    typeName: 'OperationRow',
+    key: (row) => row.name,
+    page: 'reference/operations',
+    fields: {
+      name: 'string',
+      category: 'string',
+      signature: 'string',
+      description: 'string',
+      planned: 'boolean?',
+    },
+  },
+  {
+    file: 'adapters.json',
+    module: 'adapters',
+    typeName: 'AdapterRow',
+    key: (row) => row.name,
+    page: 'reference/adapters',
+    fields: {
+      name: 'string',
+      category: 'string',
+      roles: 'string[]',
+      description: 'string',
+    },
+  },
+  {
+    file: 'plugins.json',
+    module: 'plugins',
+    typeName: 'PluginRow',
+    key: (row) => row.name,
+    page: 'reference/plugins',
+    fields: {
+      number: 'string',
+      name: 'string',
+      module: 'string',
+      hint: 'string',
+      description: 'string',
+    },
+  },
+  {
+    file: 'errors.json',
+    module: 'errors',
+    typeName: 'ErrorRow',
+    key: (row) => row.code,
+    anchorsIn: 'reference/errors',
+    fields: {
+      code: 'string',
+      category: 'string',
+      message: 'string',
+      retryable: 'boolean',
+    },
+  },
+  {
+    file: 'events.json',
+    module: 'events',
+    typeName: 'EventNamespaceRow',
+    key: (row) => row.anchor,
+    anchorsIn: 'reference/events',
+    fields: {
+      pattern: 'string',
+      events: 'string[]',
+      anchor: 'string',
+      note: 'string?',
+    },
+  },
+]
 
 /** Lookup key for an anchor: comparable across `RC1001`, `rc-1001`, `RC 1001`. */
 function normaliseHeading(value) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+/** Slug for a row that owns a page, matching src/lib/slug.ts. */
+function rowSlug(value) {
+  return value.toLowerCase().replace(/\s+/g, '-')
 }
 
 /**
@@ -91,44 +193,160 @@ function locate(file) {
   return { channel: 'latest', route }
 }
 
-const channels = {
-  latest: { pages: [], anchors: {} },
-  next: { pages: [], anchors: {} },
-}
+// --- Walk the pages of every channel -----------------------------------------
+
+const pages = Object.fromEntries(
+  CHANNELS.map((channel) => [channel, { routes: new Set(), anchors: {} }]),
+)
+
+const anchorRoutes = CATALOGUES.map((c) => c.anchorsIn).filter(Boolean)
 
 for (const file of glob.sync('**/page.md', { cwd: DOCS_DIR })) {
   const { channel, route } = locate(file)
-  const catalogue = channels[channel]
-  catalogue.pages.push(route)
-  if (ANCHOR_ROUTES.includes(route)) {
-    catalogue.anchors[route] = pageAnchors(
+  pages[channel].routes.add(route)
+  if (anchorRoutes.includes(route)) {
+    pages[channel].anchors[route] = pageAnchors(
       fs.readFileSync(path.join(DOCS_DIR, file), 'utf8'),
     )
   }
 }
 
-for (const catalogue of Object.values(channels)) {
-  catalogue.pages.sort()
+// --- Resolve each channel's rows ---------------------------------------------
+
+/** The `_data` directory a channel carries, or null when it predates them. */
+function dataDir(channel) {
+  const dir =
+    channel === 'next' ? path.join(DOCS_DIR, 'next', '_data') : DATA_DIR
+  return fs.existsSync(dir) ? dir : null
 }
 
-const source = `// Generated by scripts/generate-docs-catalogue.mjs -- do not edit by hand.
-// Read it through src/lib/docs-catalogue.ts, never directly.
-
-export interface GeneratedChannelCatalogue {
-  /** Channel-relative routes that have a page, e.g. \`reference/operations/split\`. */
-  pages: string[]
-  /** Route -> normalised heading text -> the anchor id Markdoc renders. */
-  anchors: Record<string, Record<string, string>>
+function readRows(dir, catalogue) {
+  const file = path.join(dir, catalogue.file)
+  if (!fs.existsSync(file)) return null
+  return JSON.parse(fs.readFileSync(file, 'utf8'))
 }
 
-export const generatedDocsCatalogue: Record<string, GeneratedChannelCatalogue> =
-  ${JSON.stringify(channels, null, 2).replace(/\n/g, '\n  ')}
-`
+/** Whether a channel documents a row: its own page, or a heading on a shared one. */
+function documents(channel, catalogue, row) {
+  if (catalogue.page) {
+    return pages[channel].routes.has(
+      `${catalogue.page}/${rowSlug(catalogue.key(row))}`,
+    )
+  }
+  const anchors = pages[channel].anchors[catalogue.anchorsIn] ?? {}
+  return Boolean(anchors[normaliseHeading(catalogue.key(row))])
+}
 
-fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true })
-fs.writeFileSync(OUT_FILE, source, 'utf8')
+/** See "THE FALLBACK" above: prune the repository's rows to what shipped. */
+function fallbackRows(channel, catalogue) {
+  const rows = readRows(DATA_DIR, catalogue) ?? []
+  return rows.filter((row) => documents(channel, catalogue, row))
+}
 
-console.log(
-  `Generated the docs catalogue: ${channels.latest.pages.length} page(s) on latest, ` +
-    `${channels.next.pages.length} on next.`,
+function validate(channel, catalogue, rows) {
+  const undocumented = rows.filter((row) => !documents(channel, catalogue, row))
+  if (undocumented.length === 0) return
+
+  const what = catalogue.page
+    ? `has no page under ${catalogue.page}/`
+    : `has no heading on ${catalogue.anchorsIn}`
+  throw new Error(
+    `${catalogue.file} on the ${channel} channel: ` +
+      `${undocumented.map((row) => catalogue.key(row)).join(', ')} ${what}. ` +
+      `Every row must be documented on its own channel.`,
+  )
+}
+
+const resolved = Object.fromEntries(CHANNELS.map((channel) => [channel, {}]))
+const fellBack = []
+
+for (const channel of CHANNELS) {
+  const dir = dataDir(channel)
+  for (const catalogue of CATALOGUES) {
+    const own = dir ? readRows(dir, catalogue) : null
+    if (own) {
+      validate(channel, catalogue, own)
+      resolved[channel][catalogue.module] = own
+    } else {
+      resolved[channel][catalogue.module] = fallbackRows(channel, catalogue)
+      fellBack.push(`${channel}/${catalogue.module}`)
+    }
+  }
+}
+
+// --- Emit ---------------------------------------------------------------------
+
+const FIELD_TYPES = {
+  string: 'string',
+  'string?': 'string | undefined',
+  boolean: 'boolean',
+  'boolean?': 'boolean | undefined',
+  'string[]': 'string[]',
+}
+
+function rowInterface(catalogue) {
+  const fields = Object.entries(catalogue.fields)
+    .map(([name, kind]) => {
+      const optional = kind.endsWith('?')
+      return `  ${name}${optional ? '?' : ''}: ${FIELD_TYPES[kind]}`
+    })
+    .join('\n')
+  return `export interface ${catalogue.typeName} {\n${fields}\n}`
+}
+
+const banner =
+  '// Generated by scripts/generate-docs-catalogue.mjs -- do not edit by hand.\n' +
+  '// The rows come from src/app/docs/_data/, which the release freeze pins to\n' +
+  '// the released tag. Edit the data there, never this file.\n'
+
+fs.rmSync(OUT_DIR, { recursive: true, force: true })
+fs.mkdirSync(OUT_DIR, { recursive: true })
+
+for (const catalogue of CATALOGUES) {
+  const byChannel = Object.fromEntries(
+    CHANNELS.map((channel) => [channel, resolved[channel][catalogue.module]]),
+  )
+  fs.writeFileSync(
+    path.join(OUT_DIR, `docs-${catalogue.module}.ts`),
+    `${banner}
+${rowInterface(catalogue)}
+
+export const ${catalogue.module}ByChannel: Record<string, ${catalogue.typeName}[]> =
+  ${JSON.stringify(byChannel, null, 2).replace(/\n/g, '\n  ')}
+`,
+    'utf8',
+  )
+}
+
+const anchorsByChannel = Object.fromEntries(
+  CHANNELS.map((channel) => [channel, pages[channel].anchors]),
 )
+
+fs.writeFileSync(
+  path.join(OUT_DIR, 'docs-anchors.ts'),
+  `${banner}
+/** Channel -> route -> normalised heading text -> the anchor id Markdoc renders. */
+export const anchorsByChannel: Record<
+  string,
+  Record<string, Record<string, string>>
+> =
+  ${JSON.stringify(anchorsByChannel, null, 2).replace(/\n/g, '\n  ')}
+`,
+  'utf8',
+)
+
+const counts = CHANNELS.map(
+  (channel) =>
+    `${channel}: ${CATALOGUES.reduce(
+      (n, c) => n + resolved[channel][c.module].length,
+      0,
+    )} row(s) across ${pages[channel].routes.size} page(s)`,
+).join(', ')
+
+console.log(`Generated the docs catalogues (${counts}).`)
+if (fellBack.length > 0) {
+  console.log(
+    `  Fell back to the repository data for: ${fellBack.join(', ')} ` +
+      `(that channel predates src/app/docs/_data).`,
+  )
+}

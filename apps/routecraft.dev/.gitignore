@@ -43,7 +43,7 @@ next-env.d.ts
 /src/app/docs/next/
 
 # generated per-channel docs catalogue (see scripts/generate-docs-catalogue.mjs, run in prebuild)
-/src/lib/docs-catalogue.generated.ts
+/src/lib/generated/
 
 # generated per-route SEO shims (see scripts/generate-route-shims.mjs, run in prebuild)
 /src/app/docs/**/layout.tsx

@@ -225,24 +225,35 @@ at the latest `v*` tag, having first snapshotted main into `src/app/docs/next`. 
 else in the site (home, blog, changelog, and every React component) always builds from main,
 which is what lets a blog post ship without cutting a release.
 
-Two rules follow, and both have been violated before:
+Three rules follow, and all three have been violated before:
 
 - **The freeze is a replace, not an overlay.** `git checkout <tag> -- <path>` restores what
   the tag carries and silently keeps anything added since, so pages written after the release
   used to publish on `/docs` as though they had shipped. The workflow wipes the paths first.
   Any future step that pins content to a ref must do the same.
-- **An index component may only advertise what its channel documents.** The reference
-  catalogues (`operations-index`, `adapter-grid`, `plugin-index`, `error-table`,
-  `event-namespaces`) are components, so they are never frozen. They must therefore derive
-  their rows from `src/lib/docs-catalogue.ts`, which is generated from the pages each channel
-  actually carries. A row renders when its page or heading exists on that channel, and never
-  otherwise. Do not add a hand-maintained "unreleased" flag to these tables; the channel's own
-  pages are the source of truth.
+- **Versioned content lives under `src/app/docs`, never in a component.** That is the whole
+  rule, and it covers data as well as prose: the rows behind the reference catalogues
+  (`operations-index`, `adapter-grid`, `plugin-index`, `error-table`, `event-namespaces`) live
+  in `src/app/docs/_data/*.json` and reach the components through
+  `src/lib/docs-catalogue.ts`. Row data held in a component is frozen by nothing, so an added
+  entry publishes as released, an **edited description or signature rewrites released docs**,
+  and a deleted entry vanishes from docs that still document it. Presence checks alone do not
+  catch the middle case; only pinning the data does.
+- **A row and its page are checked against each other.** `generate-docs-catalogue.mjs` fails
+  the build when an operation, adapter, or plugin has no reference page, or an error code or
+  event namespace has no heading to link to. On a channel that owns its data a mismatch is an
+  authoring mistake, so it is an error, not a silently dropped row. Anchors are resolved
+  through the catalogue rather than hand-built, because Markdoc slugifies `## RC1001` to
+  `rc-1001`.
 
 The channel reaches a component as a `channel` attribute on the Markdoc tag, injected into the
-copied pages by `scripts/generate-docs-next.mjs`. Add a new reference catalogue and it needs
-the same attribute, the same catalogue lookup, and `withDocsChannel` on every link it renders,
-or it will dump `/docs/next` readers back onto the released channel.
+copied pages by `scripts/generate-docs-next.mjs`. Add a new reference catalogue and it needs a
+data file under `_data`, an entry in `CATALOGUES`, the same attribute, and `withDocsChannel` on
+every link it renders, or it will dump `/docs/next` readers back onto the released channel.
+
+One transitional wrinkle: tags cut before `_data` existed freeze a docs tree without it, so
+that channel falls back to the repository's data pruned to the pages it documents. Drop
+`fallbackRows` once the oldest freezable tag carries `src/app/docs/_data`.
 
 ## Operational constraint: redirects
 

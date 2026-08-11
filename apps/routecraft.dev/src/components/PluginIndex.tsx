@@ -2,7 +2,7 @@ import Link from 'next/link'
 
 import { slug } from '@/lib/slug'
 
-import { documentsPage } from '@/lib/docs-catalogue'
+import { type PluginRow, plugins } from '@/lib/docs-catalogue'
 import {
   type DocsChannelName,
   docsChannelHref,
@@ -10,70 +10,9 @@ import {
 } from '@/lib/docs-channel'
 import { type Section } from '@/lib/sections'
 
-interface Plugin {
-  number: string
-  name: string
-  module: string
-  hint: string
-  description: string
-}
-
-const plugins: Plugin[] = [
-  {
-    number: '01',
-    name: 'llmPlugin',
-    module: '@routecraft/ai',
-    hint: 'Language models.',
-    description:
-      'Configure provider keys, default models, and global LLM defaults for every agent and llm() call in the context.',
-  },
-  {
-    number: '02',
-    name: 'embeddingPlugin',
-    module: '@routecraft/ai',
-    hint: 'Vectors.',
-    description:
-      'Wire an embedding provider for the embedding() destination and downstream clustering with cosine().',
-  },
-  {
-    number: '03',
-    name: 'mcpPlugin',
-    module: '@routecraft/ai',
-    hint: 'MCP server runtime.',
-    description:
-      'Expose mcp() capabilities over Model Context Protocol, with JWT, OAuth 2.1, and bearer-token verification built in.',
-  },
-  {
-    number: '04',
-    name: 'agentPlugin',
-    module: '@routecraft/ai',
-    hint: 'Agent registry and harness.',
-    description:
-      'Register named agents, the tools they can call, and shared defaults like system prompt and principal context.',
-  },
-  {
-    number: '05',
-    name: 'httpPlugin',
-    module: '@routecraft/routecraft',
-    hint: 'HTTP server runtime.',
-    description:
-      'Expose routes over HTTP via the http() source. Bun.serve native on Bun, node:http shim on Node; JWT, JWKS, or API-key auth at the plugin boundary.',
-  },
-]
-
 /** The reference page a plugin row links to, relative to the channel root. */
-function pluginRoute(plugin: Plugin): string {
+function pluginRoute(plugin: PluginRow): string {
   return `reference/plugins/${slug(plugin.name)}`
-}
-
-/**
- * The plugins this channel documents. `plugins` ships with the site shell,
- * which always builds from main, while /docs is frozen to the last released
- * tag: a plugin that only exists on main would otherwise be listed as released
- * and link to a page the released channel does not carry.
- */
-function channelPlugins(channel: DocsChannelName): Array<Plugin> {
-  return plugins.filter((plugin) => documentsPage(channel, pluginRoute(plugin)))
 }
 
 /**
@@ -85,7 +24,7 @@ function channelPlugins(channel: DocsChannelName): Array<Plugin> {
 export function pluginIndexTocSections(
   channel: DocsChannelName = 'latest',
 ): Array<Section> {
-  return channelPlugins(channel).map((p) => ({
+  return plugins(channel).map((p) => ({
     level: 2 as const,
     id: `plugin-${slug(p.name)}`,
     title: p.name,
@@ -102,7 +41,7 @@ export function PluginIndex({
 
   return (
     <ol className="not-prose mt-8 list-none">
-      {channelPlugins(channel).map((p, i) => (
+      {plugins(channel).map((p, i) => (
         <li
           key={p.name}
           id={`plugin-${slug(p.name)}`}

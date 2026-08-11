@@ -1,80 +1,21 @@
-import { resolveAnchor } from '@/lib/docs-catalogue'
+import { eventNamespaces, resolveAnchor } from '@/lib/docs-catalogue'
 import { type DocsChannelName } from '@/lib/docs-channel'
 
 /** The page this map indexes, relative to the channel root. */
 const EVENTS_ROUTE = 'reference/events'
-
-interface NamespaceGroup {
-  pattern: string
-  events: string[]
-  anchor: string
-  note?: string
-}
-
-const groups: NamespaceGroup[] = [
-  {
-    pattern: 'context:*',
-    events: ['starting', 'started', 'stopping', 'stopped'],
-    anchor: 'context-events',
-  },
-  {
-    pattern: 'route:*',
-    events: ['registered', 'starting', 'started', 'stopping', 'stopped'],
-    anchor: 'route-events',
-  },
-  {
-    pattern: 'route:{routeId}:exchange:*',
-    events: ['started', 'completed', 'failed', 'dropped', 'restored'],
-    anchor: 'exchange-events',
-  },
-  {
-    pattern: 'route:{routeId}:op:*',
-    events: [
-      'adapter',
-      'batch',
-      'split',
-      'aggregate',
-      'retry',
-      'choice',
-      'error',
-      'agent',
-      'source:parse',
-    ],
-    anchor: 'operation-events',
-    note: 'Each operation emits its own started / completed / failed.',
-  },
-  {
-    pattern: 'plugin:{pluginId}:*',
-    events: ['registered', 'starting', 'started', 'stopping', 'stopped'],
-    anchor: 'plugin-events',
-  },
-  {
-    pattern: 'auth:*',
-    events: ['success', 'rejected'],
-    anchor: 'authentication-events',
-  },
-  {
-    pattern: 'plugin:mcp:*',
-    events: ['server', 'session', 'tool'],
-    anchor: 'mcp-plugin-events',
-    note: 'server (listening, tools:exposed), session (created, closed), tool (called, completed, failed).',
-  },
-]
 
 export function EventNamespaces({
   channel = 'latest',
 }: {
   channel?: DocsChannelName
 }) {
-  // Each row jumps to its section on this channel's events page. A namespace
-  // the channel does not document resolves to nothing and drops out, which
-  // keeps the released channel free of namespaces that only exist on main.
-  const visible = groups
-    .map((g) => ({
-      ...g,
-      anchor: resolveAnchor(channel, EVENTS_ROUTE, g.anchor),
-    }))
-    .filter((g): g is NamespaceGroup & { anchor: string } => Boolean(g.anchor))
+  // Each row jumps to its section on this channel's events page. The generator
+  // guarantees the heading exists, so resolving the id here only translates the
+  // declared anchor into the one Markdoc renders.
+  const visible = eventNamespaces(channel).map((g) => ({
+    ...g,
+    anchor: resolveAnchor(channel, EVENTS_ROUTE, g.anchor) ?? g.anchor,
+  }))
   const total = visible.reduce((n, g) => n + g.events.length, 0)
   return (
     <div className="not-prose mt-8 border border-ink/15 bg-paper-deep/30">

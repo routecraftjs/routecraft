@@ -84,4 +84,20 @@ for (const file of files) {
   count++
 }
 
-console.log(`Generated ${count} page(s) for the next docs channel.`)
+// The reference row data is versioned content too: it sits under docs/ so the
+// release freeze pins it to the released tag, which means the next channel
+// needs its own copy of main's. See scripts/generate-docs-catalogue.mjs.
+const DATA_DIR = path.join(DOCS_DIR, '_data')
+let dataCount = 0
+if (fs.existsSync(DATA_DIR)) {
+  for (const file of glob.sync('*.json', { cwd: DATA_DIR })) {
+    const dest = path.join(NEXT_DIR, '_data', file)
+    fs.mkdirSync(path.dirname(dest), { recursive: true })
+    fs.copyFileSync(path.join(DATA_DIR, file), dest)
+    dataCount++
+  }
+}
+
+console.log(
+  `Generated ${count} page(s) and ${dataCount} data file(s) for the next docs channel.`,
+)
