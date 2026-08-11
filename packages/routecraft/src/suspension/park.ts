@@ -72,6 +72,12 @@ export async function parkExchange(
   });
 
   const expect = describeExpect(request.expect);
+  if (expect.degraded) {
+    exchange.logger.warn(
+      { routeId, position: request.site.position },
+      "The expect schema advertises a JSON Schema extension that produced nothing, so this suspension cannot detect a changed expect: only the step tail is covered. Zod throws for a Date, a bigint or any transform.",
+    );
+  }
   const serialized = serializeExchange(parking);
   // The suspending step heads the array so `continuationHash`'s
   // "position + 1 onward" lands exactly on the site's continuation. The

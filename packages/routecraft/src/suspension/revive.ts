@@ -272,27 +272,47 @@ export async function reviveSuspension(
     throw await reask(context, route, suspension, expiry);
   }
 
-  const exchange = rehydrate(context, route, suspension, {
-    result: result.value,
-    resumedAt,
-    ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
-  });
+  // Everything from here is under one catch, because this resume has won
+  // `markResumed` and nothing else will ever settle the record. A throw
+  // between the transition and `recordTerminal` (a stored exchange the
+  // deserializer refuses, a `route:exchange:resumed` subscriber that fails)
+  // would otherwise leave the suspension `resumed` with no terminal
+  // forever, and every later answer would be told the first resume has not
+  // recorded an outcome yet. Recording the failure keeps a replay
+  // idempotent, which is the contract a claimed suspension owes.
+  let outcome: SerializedOutcome;
+  try {
+    const exchange = rehydrate(context, route, suspension, {
+      result: result.value,
+      resumedAt,
+      ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
+    });
 
-  context.emit("route:exchange:resumed", {
-    routeId: suspension.routeId,
-    exchangeId: exchange.id,
-    correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-    suspensionId: id,
-    position: suspension.position,
-    ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
-  });
+    context.emit("route:exchange:resumed", {
+      routeId: suspension.routeId,
+      exchangeId: exchange.id,
+      correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+      suspensionId: id,
+      position: suspension.position,
+      ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
+    });
 
-  const outcome = await runContinuation(
-    route,
-    exchange,
-    site.site.continuation,
-    resumedAt,
-  );
+    outcome = await runContinuation(
+      route,
+      exchange,
+      site.site.continuation,
+      resumedAt,
+    );
+  } catch (error) {
+    await runtime.store.recordTerminal(id, {
+      status: "failed",
+      error: {
+        message: error instanceof Error ? error.message : "the revival failed",
+      },
+      at: resumedAt,
+    });
+    throw error;
+  }
   await runtime.store.recordTerminal(id, outcome);
 
   return {

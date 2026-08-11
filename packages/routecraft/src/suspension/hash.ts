@@ -123,13 +123,21 @@ export function describeExpect(schema: StandardSchemaV1): SuspensionExpect {
       };
     }
   )["~standard"];
-  const jsonSchema =
-    render(standard?.jsonSchema?.output) ?? render(standard?.jsonSchema?.input);
-  // With a JSON Schema rendering the hash tracks the actual contract, so a
-  // widened field moves it. Without one there is nothing to read: fall back
-  // to the vendor and version, which at least catches a swapped schema
-  // library, and let the resume-time validation against the live schema be
-  // the real check.
+  const arms = [standard?.jsonSchema?.output, standard?.jsonSchema?.input];
+  const jsonSchema = render(arms[0]) ?? render(arms[1]);
+  // Without a rendering there is nothing schema-specific to hash, so the
+  // descriptor falls back to vendor and version. That fallback is identical
+  // for every schema the vendor produces, which means the changed-`expect`
+  // half of the compatibility check cannot fire for this suspension: only
+  // the step tail is still covered.
+  //
+  // The two ways to get here are not equally expected, and the caller is
+  // told which. A library with no `jsonSchema` extension at all never had a
+  // rendering to lose. A library that OFFERS the extension and then yields
+  // nothing has lost one it advertised, and that is worth a word at the park
+  // rather than a surprise at the approver's click.
+  const degraded =
+    jsonSchema === undefined && arms.some((a) => a !== undefined);
   const identity =
     jsonSchema !== undefined
       ? { jsonSchema }
@@ -140,28 +148,57 @@ export function describeExpect(schema: StandardSchemaV1): SuspensionExpect {
   return {
     hash: sha256(canonical(identity)),
     ...(jsonSchema !== undefined ? { jsonSchema } : {}),
+    ...(degraded ? { degraded: true } : {}),
   };
 }
 
 /**
+ * JSON Schema dialect asked of a producer.
+ *
+ * Standard JSON Schema types both arms as `(options: { target }) => …`, so
+ * the argument is required rather than optional: an implementation is
+ * entitled to read `options.target` and throw without it. Zod 4 tolerates
+ * the omission, which is why calling with no argument looked correct.
+ * Pinned rather than configurable, because the value is folded into
+ * `continuationHash`: letting it vary would change every stored digest.
+ */
+const JSON_SCHEMA_TARGET = "draft-2020-12";
+
+/**
  * Resolve one arm of the `~standard.jsonSchema` extension.
  *
- * The arm is either the rendered schema or a producer for it. A producer
- * is vendor code, so a throwing one yields no rendering rather than failing
- * the suspend: the rendering is descriptive, and the live schema is what
+ * The arm is either the rendered schema or a producer for it. A producer is
+ * vendor code, so a throwing one yields no rendering rather than failing the
+ * suspend: the rendering is descriptive, and the live schema is what
  * validation actually runs against.
+ *
+ * A producer is called with the spec's options first and then, if that
+ * throws, with none. The second attempt covers an implementation predating
+ * the options argument; the first covers one that requires it. Both matter
+ * because an arm that yields nothing does not merely lose the rendering: the
+ * descriptor falls back to vendor and version, which is identical for every
+ * schema that vendor produces, so the changed-`expect` half of the
+ * compatibility check goes silently dead.
  *
  * @internal
  */
 function render(arm: unknown): unknown {
   if (arm === undefined || arm === null) return undefined;
   if (typeof arm !== "function") return arm;
-  try {
-    const produced = (arm as () => unknown)();
-    return produced === null ? undefined : produced;
-  } catch {
-    return undefined;
+  const producer = arm as (options?: { target: string }) => unknown;
+  for (const call of [
+    () => producer({ target: JSON_SCHEMA_TARGET }),
+    () => producer(),
+  ]) {
+    try {
+      const produced = call();
+      if (produced !== null && produced !== undefined) return produced;
+    } catch {
+      // Try the next calling convention; an arm that yields nothing at all
+      // is reported by the caller rather than here.
+    }
   }
+  return undefined;
 }
 
 /**
