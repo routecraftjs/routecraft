@@ -689,18 +689,37 @@ describe("agents() markdown loader", () => {
   });
 
   /**
-   * @case disallowedTools without tools warns rather than silently doing nothing
-   * @preconditions Only disallowedTools is set
-   * @expectedResult A warning explains that a per-agent list replaces the default
+   * @case A deny list with no allow list fails the load rather than failing open
+   * @preconditions Only disallowedTools is set, so the agent would inherit the
+   *   context default including the tools the file denies
+   * @expectedResult Throws RC5003 explaining why it cannot be honoured and what
+   *   to write instead
    */
-  test("disallowedTools without tools warns", async () => {
+  test("disallowedTools without tools throws", async () => {
     const dir = makeDir({
       "x.md":
         "---\nname: x\ndescription: d\ndisallowedTools: Bash\n---\nsystem",
     });
-    await agents(dir);
-    const warned = warn.mock.calls.map((c: unknown[]) => String(c[0])).join("");
-    expect(warned).toMatch(/"disallowedTools" is set but "tools" is not/);
+    const error = await agents(dir).catch((err: unknown) => err);
+    expect(error).toMatchObject({ rc: "RC5003" });
+    expect((error as Error).message).toMatch(
+      /deny list alone cannot be honoured/,
+    );
+  });
+
+  /**
+   * @case A model naming an Object.prototype member is rejected
+   * @preconditions model: constructor, which a bare table lookup would resolve
+   *   to a function off the prototype chain
+   * @expectedResult Throws RC5003 rather than accepting a function as a model id
+   */
+  test("rejects a model that names a prototype member", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\nmodel: constructor\n---\nsystem",
+    });
+    await expect(agents(dir)).rejects.toThrow(
+      /neither a known alias .* nor a full "provider:model" reference/,
+    );
   });
 
   /**

@@ -86,7 +86,12 @@ describe("project discoverers", () => {
       if (!existsSync(directory)) continue;
       out = mergeProjectConfig(
         out,
-        await discovererFor(folder)(directory, out),
+        await discovererFor(folder)({
+          directory,
+          contentRoot: root,
+          projectRoot: root,
+          config: out,
+        }),
       );
     }
     return out;

@@ -1,9 +1,11 @@
 import { readdirSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
+import type { CraftPlugin } from "@routecraft/routecraft";
 
 /**
- * Module extensions the project runtime will import. Mirrors what
- * `craft run` accepts for its entry file.
+ * Module extensions the CLI will import, shared by `run` (its entry
+ * file) and `start` (every discovered module) so one path is never
+ * classified two ways.
  *
  * @internal
  */
@@ -43,7 +45,7 @@ export function isDirectory(path: string): boolean {
 }
 
 /** True when `path` exists and is a file. */
-export function isFile(path: string): boolean {
+function isFile(path: string): boolean {
   try {
     return statSync(path).isFile();
   } catch {
@@ -51,7 +53,7 @@ export function isFile(path: string): boolean {
   }
 }
 
-function isSkippedDirectory(name: string): boolean {
+function isSkippedProjectDirectory(name: string): boolean {
   return name.startsWith(".") || SKIPPED_DIRECTORIES.has(name);
 }
 
@@ -63,7 +65,7 @@ function isSkippedDirectory(name: string): boolean {
  * segment pair, so `route.test.ts` and `route.bun.test.ts` are both
  * excluded.
  */
-export function isImportableModule(name: string): boolean {
+function isImportableModule(name: string): boolean {
   if (!MODULE_EXTENSIONS.includes(extname(name))) return false;
   if (name.endsWith(".d.ts")) return false;
   return !/\.(test|spec)\.[^.]+$/.test(name);
@@ -83,70 +85,51 @@ function capabilityFile(dir: string): string | undefined {
 }
 
 /**
- * Walk a `capabilities/` tree and return every module that should be
- * imported, in path order.
+ * Walk a convention folder and return every module to import, in path
+ * order.
  *
- * Two forms are recognised, and they can be mixed in one tree:
- *
- * - **Folder form.** A directory holding `route.ts` is one capability.
- *   The file is imported and the directory is not descended into, so
- *   colocated tests, fixtures and private helpers are never loaded.
- * - **Single-file form.** Any other importable module is one
- *   capability on its own.
- *
- * A directory that is neither is a grouping folder (a domain) and is
- * walked.
+ * `claim` lets a directory stand for one unit rather than being walked
+ * into: the capability walk passes {@link capabilityFile}, so a folder
+ * holding `route.ts` yields that file and its colocated tests, fixtures
+ * and helpers are never seen. The root is never offered to `claim`,
+ * which is what keeps `capabilities/` itself from being mistaken for a
+ * capability.
  */
-export function discoverCapabilityModules(dir: string): string[] {
+function collectModules(
+  dir: string,
+  claim?: (directory: string) => string | undefined,
+): string[] {
   const out: string[] = [];
-  const walk = (current: string): void => {
-    const sentinel = capabilityFile(current);
-    if (sentinel !== undefined) {
-      out.push(sentinel);
-      return;
-    }
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const child = join(current, entry.name);
-      if (entry.isDirectory()) {
-        if (isSkippedDirectory(entry.name)) continue;
-        walk(child);
-        continue;
-      }
-      if (entry.isFile() && isImportableModule(entry.name)) out.push(child);
-    }
-  };
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const child = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (isSkippedDirectory(entry.name)) continue;
-      walk(child);
+      if (isSkippedProjectDirectory(entry.name)) continue;
+      const claimed = claim?.(child);
+      if (claimed !== undefined) out.push(claimed);
+      else out.push(...collectModules(child, claim));
       continue;
     }
     if (entry.isFile() && isImportableModule(entry.name)) out.push(child);
   }
-  return out.sort((a, b) => a.localeCompare(b));
+  return out;
 }
 
 /**
- * Walk a `plugins/` tree and return every module that should be
- * imported, in path order. Subfolders are grouping only; there is no
+ * Walk a `capabilities/` tree. Two forms, mixable in one tree: a
+ * directory holding `route.ts` is one capability, and any other
+ * importable module is a single-file capability. Every other directory
+ * is a grouping folder.
+ */
+export function discoverCapabilityModules(dir: string): string[] {
+  return collectModules(dir, capabilityFile).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Walk a `plugins/` tree. Subfolders are grouping only; there is no
  * sentinel form, because a plugin is one module.
  */
 export function discoverPluginModules(dir: string): string[] {
-  const out: string[] = [];
-  const walk = (current: string): void => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const child = join(current, entry.name);
-      if (entry.isDirectory()) {
-        if (isSkippedDirectory(entry.name)) continue;
-        walk(child);
-        continue;
-      }
-      if (entry.isFile() && isImportableModule(entry.name)) out.push(child);
-    }
-  };
-  walk(dir);
-  return out.sort((a, b) => a.localeCompare(b));
+  return collectModules(dir).sort((a, b) => a.localeCompare(b));
 }
 
 /**
@@ -178,7 +161,7 @@ export function findConfigFile(root: string): string | undefined {
  * callable `apply`. Structural rather than branded, matching how the
  * context itself consumes plugins.
  */
-export function isPluginInstance(value: unknown): boolean {
+export function isPluginInstance(value: unknown): value is CraftPlugin {
   return (
     typeof value === "object" &&
     value !== null &&

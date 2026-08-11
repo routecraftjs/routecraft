@@ -21,7 +21,7 @@ Requires the optional peer `tsdav` (DAV client): `bun add tsdav`. A missing peer
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
 
-export default defineConfig({
+export const craftConfig = defineConfig({
   carddav: {
     accounts: {
       default: {

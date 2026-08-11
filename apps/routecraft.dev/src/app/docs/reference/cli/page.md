@@ -103,7 +103,7 @@ instead of a hand-written barrel file. Where `run` executes one entry file, `sta
 plugins, agents, and skills.
 
 ```bash
-craft start [dir] [--env <.env path>] [--once]
+craft start [dir] [--env <.env path>] [--once] [--timeout <ms>]
 ```
 
 With no argument it starts the project in the current directory. Both the root-level and the
@@ -116,6 +116,7 @@ Options:
 | `[dir]` | Project root. Defaults to the current directory |
 | `--env <path>` | Load environment variables from a .env file |
 | `--once` | Shut down cleanly after the first exchange reaches a terminal outcome on any route |
+| `--timeout <ms>` | With `--once`, give up and exit non-zero after this many milliseconds |
 
 What it loads, and in what order:
 
@@ -123,8 +124,9 @@ What it loads, and in what order:
    export is accepted with a warning. Importing this file is what pulls ecosystem packages
    into the module graph.
 2. `plugins/`, one plugin instance per module.
-3. Folder discoverers, in their registered order. `@routecraft/ai` claims `skills/` and then
-   `agents/`, so an agent can compose the house skills rather than replacing them.
+3. Folder discoverers, ordered by the dependencies they declare. `@routecraft/ai` claims
+   `skills/` and `agents/`, and the agents discoverer declares `after: ["skills"]` so an
+   agent can compose the house skills rather than replacing them.
 4. `capabilities/`, one or more routes per capability.
 
 Code wins and convention fills the gaps: whatever `craft.config.ts` declares is kept, and
@@ -133,9 +135,17 @@ logged with the file it came from.
 
 `--once` is for CI smoke checks and cron-style one-shot invocations. A failure and a drop
 count as terminal alongside a completion, so a broken exchange reports instead of hanging
-until the job is killed; a first exchange that failed exits non-zero. A project whose sources
-never produce an exchange (an HTTP server with no traffic, say) will wait, which is what makes
-`--once` a smoke check rather than a timeout.
+until the job is killed; a first exchange that failed exits non-zero.
+
+Pair it with `--timeout <ms>` in CI. Without one, a project whose sources never produce an
+exchange waits indefinitely, which reports as a killed job rather than as a diagnosis; with
+one, the command exits non-zero saying nothing reached a terminal outcome in time.
+
+Two limits worth knowing. `--once` settles on the first terminal exchange on **any** route, so
+on a project with a heartbeat timer beside the route you meant to exercise, the timer can win
+the race. Scoping the wait to a single route is tracked as a follow-up. And a project with a
+server ingress (`http`, `direct`, `mcp`) never finishes starting by design, which is why
+`--once` races the first exchange against startup rather than waiting for startup to complete.
 
 ```bash
 craft start ./apps/eywa --once

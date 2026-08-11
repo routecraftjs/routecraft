@@ -4,6 +4,37 @@
 // `./context.ts` would resolve to a separate module identity and miss the
 // augmentations.
 import type { CraftConfig } from "@routecraft/routecraft";
+import { rcError } from "./error.ts";
+
+/**
+ * Everything a discoverer is given about the folder it matched and the
+ * project around it.
+ *
+ * Passed as one object rather than positional arguments so the contract
+ * can grow (a logger, a dry-run flag) without breaking every ecosystem
+ * package that implements one, and so a discoverer never has to derive
+ * a path the runner already knows. Deriving `contentRoot` from
+ * `directory` looks harmless but bakes in an invariant the runner does
+ * not promise.
+ */
+export interface ProjectDiscoveryContext {
+  /** Absolute path of the discovered folder. */
+  readonly directory: string;
+  /**
+   * Absolute path of the content root the folder was found under: the
+   * project root, or its `src` when the project uses that layout. A
+   * sibling convention folder lives here.
+   */
+  readonly contentRoot: string;
+  /** Absolute path of the project root, where `craft.config.ts` lives. */
+  readonly projectRoot: string;
+  /**
+   * Configuration accumulated so far: the project's own
+   * `craft.config.ts` plus every fragment from a discoverer that ran
+   * earlier. Never mutated.
+   */
+  readonly config: Readonly<CraftConfig>;
+}
 
 /**
  * Turn a convention folder into a `CraftConfig` fragment.
@@ -14,23 +45,24 @@ import type { CraftConfig } from "@routecraft/routecraft";
  * `skills/` are understood by `@routecraft/ai` without the CLI ever
  * depending on it.
  *
- * `config` is the configuration accumulated so far: the project's own
- * `craft.config.ts` plus every fragment from a lower-ordered
- * discoverer. Two things follow from that:
+ * Two rules follow from being handed the accumulated config:
  *
  * - **Precedence is the discoverer's job.** Code wins and convention
- *   fills the gaps, so a discoverer inspects `config` and declines to
- *   produce anything the project already declared.
- * - **Discoverers can build on each other.** The `agents` discoverer
- *   reads the house skills the `skills` discoverer contributed, because
- *   it runs at a higher order.
+ *   fills the gaps, so a discoverer inspects `ctx.config` and declines
+ *   to produce anything the project already declared.
+ * - **Return the contribution, not the base.** The merge preserves what
+ *   is already there, so a fragment should carry only what the
+ *   discoverer adds. Copying existing values back into the fragment is
+ *   redundant and, for an array-valued field, duplicates entries.
  *
- * @param directory - Absolute path of the discovered folder
- * @param config - Configuration accumulated so far, never mutated
+ * The return type is `Partial<CraftConfig>`, which is shallow: it
+ * cannot express "a partial value nested inside a record". A fragment
+ * that patches one entry of `agent.agents` is still a patch, and may
+ * need a cast at the boundary. That is a limitation of the type, not
+ * permission to return complete values you did not compute.
  */
 export type ProjectDiscoverer = (
-  directory: string,
-  config: Readonly<CraftConfig>,
+  ctx: ProjectDiscoveryContext,
 ) => Promise<Partial<CraftConfig>>;
 
 /**
@@ -38,13 +70,22 @@ export type ProjectDiscoverer = (
  */
 export interface ProjectDiscovererOptions {
   /**
-   * Run order, ascending, defaulting to `0`. Ties keep registration
-   * order. Set it when a discoverer needs another one's fragment to
-   * already be in `config`: `@routecraft/ai` orders `skills` ahead of
-   * `agents` so an agent bundle can compose the house skills rather
-   * than silently replacing them.
+   * Folder names whose fragments must already be in `ctx.config` when
+   * this discoverer runs. Declaring the dependency beats picking a
+   * number: it says which discoverer you need rather than where you
+   * hope to sit, and a third party can target a folder name without
+   * importing a constant it cannot see.
+   *
+   * Two edge semantics, both deliberate:
+   *
+   * - A name nobody registered is a **satisfied** constraint, not an
+   *   error. A discoverer that composes another's output when present
+   *   must still run when that package is absent.
+   * - A cycle is an **error**, raised by {@link getProjectDiscoverers},
+   *   because no run order can satisfy it and silently picking one
+   *   would make the outcome depend on import order.
    */
-  order?: number;
+  after?: readonly string[];
 }
 
 /**
@@ -52,11 +93,11 @@ export interface ProjectDiscovererOptions {
  */
 export interface RegisteredProjectDiscoverer {
   /** Folder name, relative to the project's content root. */
-  folder: string;
-  /** Run order, ascending. */
-  order: number;
+  readonly folder: string;
+  /** Folder names that must run before this one. */
+  readonly after: readonly string[];
   /** The discoverer itself. */
-  discover: ProjectDiscoverer;
+  readonly discover: ProjectDiscoverer;
 }
 
 /**
@@ -87,8 +128,8 @@ function getRegistry(): Map<string, RegisteredProjectDiscoverer> {
  * Register a discoverer for one convention folder.
  *
  * Ecosystem packages call this at module load time from a side-effect
- * import, the same way {@link registerConfigApplier} promotes a config
- * key. Registering the same folder twice replaces the previous
+ * import, the same way `registerConfigApplier` promotes a config key.
+ * Registering the same folder twice replaces the previous
  * registration: last writer wins.
  *
  * Registration happens on **import**, which is worth stating plainly
@@ -99,14 +140,14 @@ function getRegistry(): Map<string, RegisteredProjectDiscoverer> {
  *
  * @param folder - Folder name relative to the project's content root
  * @param discoverer - Builds a config fragment from that folder
- * @param options - Run order
+ * @param options - Declared dependencies on other folders
  *
  * @example
  * ```typescript
  * registerProjectDiscoverer(
  *   "agents",
- *   async (dir, config) => ({ agent: { agents: await load(dir, config) } }),
- *   { order: 20 },
+ *   async (ctx) => ({ agent: { agents: await load(ctx) } }),
+ *   { after: ["skills"] },
  * );
  * ```
  */
@@ -117,19 +158,48 @@ export function registerProjectDiscoverer(
 ): void {
   getRegistry().set(folder, {
     folder,
-    order: options.order ?? 0,
+    after: options.after ?? [],
     discover: discoverer,
   });
 }
 
 /**
- * Get the registered discoverers in run order: ascending `order`, then
- * registration order for ties.
+ * Get the registered discoverers in run order.
+ *
+ * Sorted so every declared `after` dependency runs first, with
+ * registration order preserved between independent entries so the
+ * result is stable. A dependency on a folder nobody registered is
+ * satisfied by definition.
+ *
+ * @throws RC5003 when the declared dependencies form a cycle.
  */
 export function getProjectDiscoverers(): readonly RegisteredProjectDiscoverer[] {
-  // Registration order is Map insertion order, and Array.prototype.sort
-  // is stable, so sorting by `order` alone preserves it within a tier.
-  return [...getRegistry().values()].sort((a, b) => a.order - b.order);
+  const registered = getRegistry();
+  const out: RegisteredProjectDiscoverer[] = [];
+  const done = new Set<string>();
+  const visiting = new Set<string>();
+
+  const visit = (entry: RegisteredProjectDiscoverer, trail: string[]): void => {
+    if (done.has(entry.folder)) return;
+    if (visiting.has(entry.folder)) {
+      throw rcError("RC5003", undefined, {
+        message: `Project discoverers form a dependency cycle: ${[...trail, entry.folder].join(" -> ")}. One of the "after" declarations has to go; no run order can satisfy a cycle.`,
+      });
+    }
+    visiting.add(entry.folder);
+    for (const dependency of entry.after) {
+      const next = registered.get(dependency);
+      // A dependency nobody registered is satisfied: the package that
+      // would have claimed the folder simply is not installed.
+      if (next) visit(next, [...trail, entry.folder]);
+    }
+    visiting.delete(entry.folder);
+    done.add(entry.folder);
+    out.push(entry);
+  };
+
+  for (const entry of registered.values()) visit(entry, []);
+  return out;
 }
 
 /**
@@ -179,6 +249,26 @@ export function mergeProjectConfig(
   ) as CraftConfig;
 }
 
+/**
+ * Write a key without going through a setter. `out[key] = value` would
+ * hit `Object.prototype.__proto__` for a key of that name, silently
+ * dropping the entry and changing the object's prototype; the spread
+ * that seeded `out` defines it as a real own property, so the two
+ * halves of this function have to agree.
+ */
+function define(
+  target: Record<string | symbol, unknown>,
+  key: string | symbol,
+  value: unknown,
+): void {
+  Object.defineProperty(target, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+}
+
 function mergeRecords(
   base: Record<string, unknown>,
   fragment: Record<string, unknown>,
@@ -186,19 +276,17 @@ function mergeRecords(
   // Spread and `Reflect.ownKeys` rather than `Object.entries` so own
   // symbol keys survive on both sides; see isMergeableRecord.
   const out: Record<string, unknown> = { ...base };
+  const target = out as Record<string | symbol, unknown>;
   for (const key of Reflect.ownKeys(fragment) as Array<string | symbol>) {
     const value = (fragment as Record<string | symbol, unknown>)[key];
     if (value === undefined) continue;
-    const current = (out as Record<string | symbol, unknown>)[key];
+    const current = target[key];
     if (isMergeableRecord(current) && isMergeableRecord(value)) {
-      (out as Record<string | symbol, unknown>)[key] = mergeRecords(
-        current,
-        value,
-      );
+      define(target, key, mergeRecords(current, value));
     } else if (Array.isArray(current) && Array.isArray(value)) {
-      (out as Record<string | symbol, unknown>)[key] = [...current, ...value];
+      define(target, key, [...current, ...value]);
     } else {
-      (out as Record<string | symbol, unknown>)[key] = value;
+      define(target, key, value);
     }
   }
   return out;

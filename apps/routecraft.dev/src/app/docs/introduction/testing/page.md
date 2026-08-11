@@ -38,7 +38,7 @@ For a new project, use a single `vitest.config.mjs` at the project root:
 ```js
 import { defineConfig } from "vitest/config";
 
-export default defineConfig({
+export const craftConfig = defineConfig({
   test: {
     environment: "node",
     coverage: { provider: "v8", reporter: ["text", "lcov"] },

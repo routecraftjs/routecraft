@@ -16,7 +16,7 @@ Tools discovered from remote MCP servers (stdio clients and HTTP clients) are co
 import { mcpPlugin, jwt } from '@routecraft/ai'
 import type { CraftConfig } from '@routecraft/routecraft'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   plugins: [
     mcpPlugin({
       transport: 'http',
@@ -45,7 +45,6 @@ const config: CraftConfig = {
   ],
 }
 
-export default config
 ```
 
 **Options:**

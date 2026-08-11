@@ -266,7 +266,12 @@ function resolveModel(value: unknown, source: string): LlmModelId | undefined {
     });
   }
   if (value === "inherit") return undefined;
-  const alias = MODEL_ALIASES[value];
+  // `Object.hasOwn` rather than a bare lookup: frontmatter is
+  // file-controlled, and `model: constructor` would otherwise resolve
+  // to a function off Object.prototype and be returned as a model id.
+  const alias = Object.hasOwn(MODEL_ALIASES, value)
+    ? MODEL_ALIASES[value]
+    : undefined;
   if (alias !== undefined) return alias;
   if (!value.includes(":")) {
     throw rcError("RC5003", undefined, {
@@ -336,9 +341,13 @@ function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
       source,
     ) ?? [];
   if (disallowed.length > 0 && toolRefs === undefined) {
-    logger.warn(
-      `Markdown file "${source}": "disallowedTools" is set but "tools" is not. A per-agent tool list replaces the context default outright rather than narrowing it, so this deny list has nothing to apply to.`,
-    );
+    // Fail loud rather than fail open. A per-agent list replaces the
+    // context default outright rather than narrowing it, so a deny with
+    // no allow cannot be honoured, and an agent that inherits the very
+    // tools its file denies is the worst possible reading of the file.
+    throw rcError("RC5003", undefined, {
+      message: `Markdown file "${source}": "disallowedTools" is set but "tools" is not, and a deny list alone cannot be honoured: a per-agent tool list replaces the context default outright rather than narrowing it, so this agent would inherit the very tools it denies. List the tools this agent may use in "tools", or drop "disallowedTools".`,
+    });
   }
   // Frontmatter carries only the boolean form; the function-renderer
   // form is a closure YAML cannot express and is supplied via the

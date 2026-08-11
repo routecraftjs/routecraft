@@ -14,7 +14,7 @@ Registers LLM provider credentials in the context store. Required when any capab
 import { llmPlugin } from '@routecraft/ai'
 import type { CraftConfig } from '@routecraft/routecraft'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   plugins: [
     llmPlugin({
       providers: {
@@ -25,7 +25,6 @@ const config: CraftConfig = {
   ],
 }
 
-export default config
 ```
 
 **Options:**

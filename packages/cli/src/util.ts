@@ -66,3 +66,16 @@ export function loadEnvFile(path?: string) {
   }
   return envLocalResult;
 }
+
+/**
+ * Turn a thrown value into a printable message. Non-Error throws (Bun's
+ * `ResolveMessage` for a missing package, most usefully) still carry a
+ * message, so surfacing it beats reporting "Unknown error". Shared by
+ * `run` and `start` because both fail the same ways.
+ */
+export function messageOf(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return typeof error === "object" && error !== null && "message" in error
+    ? String((error as { message: unknown }).message)
+    : String(error);
+}

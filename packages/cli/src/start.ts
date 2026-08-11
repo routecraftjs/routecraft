@@ -2,6 +2,8 @@ import { join, resolve } from "node:path";
 import {
   ContextBuilder,
   getProjectDiscoverers,
+  isRouteBuilder,
+  isRouteDefinition,
   logger,
   mergeProjectConfig,
   shutdownHandler,
@@ -13,6 +15,7 @@ import {
   type RouteDefinition,
 } from "@routecraft/routecraft";
 import { collectRoutes, type RunResult } from "./run.js";
+import { messageOf } from "./util.js";
 import {
   CONFIG_STEM,
   discoverCapabilityModules,
@@ -53,6 +56,13 @@ export interface StartOptions {
    * outcome on any route. For CI smoke checks and one-shot runs.
    */
   once?: boolean;
+  /**
+   * Give up after this many milliseconds and exit non-zero. Without it
+   * a project whose sources never produce an exchange waits forever,
+   * which for a CI gate reports as a job timeout rather than as a
+   * diagnosis.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -75,7 +85,6 @@ export interface StartOptions {
 export async function startCommand(
   dir: string | undefined,
   options: StartOptions = {},
-  cliArgs: string[] = [],
 ): Promise<RunResult> {
   const root = resolve(process.cwd(), dir ?? ".");
   if (!isDirectory(root)) {
@@ -109,7 +118,7 @@ export async function startCommand(
       });
     }
 
-    config = await applyDiscoverers(contentRoot, config);
+    config = await applyDiscoverers(root, contentRoot, config);
 
     const builder = new ContextBuilder().with(config);
 
@@ -121,18 +130,44 @@ export async function startCommand(
     }
 
     const { context } = await builder.build();
-    context.setStore(RUNNER_ARGV, cliArgs);
+    // `start` has no trailing-argument passthrough the way `run` does,
+    // so the key is present and empty rather than absent.
+    context.setStore(RUNNER_ARGV, []);
     shutdownHandler(context);
 
-    const firstExchange = options.once
-      ? watchFirstExchange(context)
-      : undefined;
-    await context.start();
-    if (firstExchange === undefined) return { success: true };
+    // `context.start()` deliberately never resolves while a server
+    // ingress is held open (see Route.start), so `--once` has to race
+    // it rather than await it: awaiting first would mean the flag only
+    // worked on projects that were going to exit anyway.
+    const started = context.start();
+    if (!options.once) {
+      await started;
+      return { success: true };
+    }
 
-    const outcome = await firstExchange;
+    const timeout = options.timeoutMs;
+    const outcome = await Promise.race([
+      watchFirstExchange(context),
+      // Every route finished on its own before any exchange landed.
+      started.then(() => "drained" as const),
+      ...(timeout === undefined ? [] : [expire(timeout)]),
+    ]);
+
+    if (outcome === "drained") {
+      await started;
+      return { success: true };
+    }
+    if (outcome === "timeout") {
+      await context.stop();
+      return fail(
+        `No exchange reached a terminal outcome within ${String(timeout)}ms. Nothing in this project produced one; check that a source actually fires, or raise --timeout.`,
+      );
+    }
     logger.info(`Exchange ${outcome}; shutting down (--once).`);
     await context.stop();
+    // Attach the start rejection so a route failure during shutdown is
+    // reported rather than surfacing as an unhandled rejection.
+    await started.catch(() => undefined);
     return outcome === "failed"
       ? fail("The first exchange failed. See the logged error for the cause.")
       : { success: true };
@@ -159,10 +194,9 @@ async function loadConfig(configPath: string): Promise<CraftConfig> {
     );
     return module.default;
   }
-  logger.warn(
-    `${configPath}: exports neither "craftConfig" nor a config object as default. Continuing with an empty configuration; folder discovery still runs.`,
+  throw new Error(
+    `exports neither "craftConfig" nor a config object as default. Add \`export const craftConfig = defineConfig({ ... })\`; without it no plugin or ecosystem package this project needs is in the module graph.`,
   );
-  return {};
 }
 
 function isConfigObject(value: unknown): value is CraftConfig {
@@ -170,8 +204,19 @@ function isConfigObject(value: unknown): value is CraftConfig {
     typeof value === "object" &&
     value !== null &&
     !Array.isArray(value) &&
-    typeof (value as { build?: unknown }).build !== "function"
+    // Brand guards rather than duck-typing `build`: a route default
+    // export is the realistic mistake here, and core already exports
+    // the means to recognise one.
+    !isRouteBuilder(value) &&
+    !isRouteDefinition(value)
   );
+}
+
+/** Resolve to `"timeout"` after `ms`, without holding the event loop open. */
+function expire(ms: number): Promise<"timeout"> {
+  return new Promise((settle) => {
+    setTimeout(() => settle("timeout"), ms).unref?.();
+  });
 }
 
 /**
@@ -201,6 +246,7 @@ function pickContentRoot(root: string): string {
  * rather than booting a project with an agent quietly missing.
  */
 async function applyDiscoverers(
+  projectRoot: string,
   contentRoot: string,
   config: CraftConfig,
 ): Promise<CraftConfig> {
@@ -209,7 +255,10 @@ async function applyDiscoverers(
   for (const { folder, discover } of discoverers) {
     const directory = join(contentRoot, folder);
     if (!isDirectory(directory)) continue;
-    out = mergeProjectConfig(out, await discover(directory, out));
+    out = mergeProjectConfig(
+      out,
+      await discover({ directory, contentRoot, projectRoot, config: out }),
+    );
   }
   const registered = new Set(discoverers.map((d) => d.folder));
   for (const folder of DISCOVERED_FOLDERS) {
@@ -230,7 +279,7 @@ async function loadPlugins(root: string, dir: string): Promise<CraftPlugin[]> {
   const out: CraftPlugin[] = [];
   for (const file of discoverPluginModules(dir)) {
     const where = displayPath(root, file);
-    const module = (await import(file)) as { default?: unknown };
+    const module = await importModule(file, where);
     const exported = module.default;
     if (isPluginInstance(exported)) {
       out.push(exported as CraftPlugin);
@@ -260,7 +309,7 @@ async function loadCapabilities(
   const out: (RouteDefinition | AnyRouteBuilder)[] = [];
   for (const file of discoverCapabilityModules(dir)) {
     const where = displayPath(root, file);
-    const module = (await import(file)) as { default?: unknown };
+    const module = await importModule(file, where);
     const collected = collectRoutes(module.default);
     if (!collected.ok) {
       throw new Error(`${where}: ${collected.reason}`);
@@ -296,19 +345,28 @@ function watchFirstExchange(
   });
 }
 
+/**
+ * Import a discovered module, attributing a failure to the file that
+ * caused it. `start` walks a whole tree, so "which file" is the only
+ * question a bare resolver error leaves unanswered.
+ */
+async function importModule(
+  file: string,
+  where: string,
+): Promise<{ default?: unknown }> {
+  try {
+    return (await import(file)) as { default?: unknown };
+  } catch (error: unknown) {
+    throw new Error(`${where}: failed to import. ${messageOf(error)}`, {
+      cause: error,
+    });
+  }
+}
+
 function describe(value: unknown): string {
   if (value === undefined) return "no default export";
   if (value === null) return "null";
   return Array.isArray(value) ? "an array" : typeof value;
-}
-
-function messageOf(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  // Non-Error throws (e.g. Bun's ResolveMessage for a missing package)
-  // still carry a message; surface it instead of "Unknown error".
-  return typeof error === "object" && error !== null && "message" in error
-    ? String((error as { message: unknown }).message)
-    : String(error);
 }
 
 function fail(message: string): RunResult {

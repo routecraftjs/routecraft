@@ -45,7 +45,7 @@ describe("registerProjectDiscoverer", () => {
   /**
    * @case A registered discoverer is retrievable by folder name
    * @preconditions One discoverer registered for "__testFolder"
-   * @expectedResult getProjectDiscoverers includes it with the default order
+   * @expectedResult getProjectDiscoverers includes it with no declared dependency
    */
   test("registers a discoverer for a folder", () => {
     const discover = async (): Promise<Partial<CraftConfig>> => ({});
@@ -53,18 +53,20 @@ describe("registerProjectDiscoverer", () => {
     const found = getProjectDiscoverers().find(
       (d) => d.folder === "__testFolder",
     );
-    expect(found).toMatchObject({ folder: "__testFolder", order: 0 });
+    expect(found).toMatchObject({ folder: "__testFolder", after: [] });
     expect(found?.discover).toBe(discover);
   });
 
   /**
-   * @case Discoverers run in ascending order regardless of registration order
-   * @preconditions Two discoverers registered high-order first
-   * @expectedResult The lower order comes first in the returned list
+   * @case A declared dependency runs first regardless of registration order
+   * @preconditions The dependent discoverer is registered before the one it needs
+   * @expectedResult The dependency comes first in the returned list
    */
-  test("returns discoverers in ascending order", () => {
-    registerProjectDiscoverer("__testLate", async () => ({}), { order: 20 });
-    registerProjectDiscoverer("__testEarly", async () => ({}), { order: 10 });
+  test("returns discoverers in dependency order", () => {
+    registerProjectDiscoverer("__testLate", async () => ({}), {
+      after: ["__testEarly"],
+    });
+    registerProjectDiscoverer("__testEarly", async () => ({}));
     const folders = getProjectDiscoverers()
       .map((d) => d.folder)
       .filter((f) => f.startsWith("__test"));
@@ -72,17 +74,55 @@ describe("registerProjectDiscoverer", () => {
   });
 
   /**
-   * @case Equal orders keep registration order
-   * @preconditions Two discoverers registered with no explicit order
+   * @case Independent discoverers keep registration order
+   * @preconditions Two discoverers with no declared dependency
    * @expectedResult The first registered comes first
    */
-  test("ties keep registration order", () => {
+  test("independent discoverers keep registration order", () => {
     registerProjectDiscoverer("__testA", async () => ({}));
     registerProjectDiscoverer("__testB", async () => ({}));
     const folders = getProjectDiscoverers()
       .map((d) => d.folder)
       .filter((f) => f === "__testA" || f === "__testB");
     expect(folders).toEqual(["__testA", "__testB"]);
+  });
+
+  /**
+   * @case A dependency on a folder nobody registered is satisfied, not an error
+   * @preconditions A discoverer declaring after: ["__testAbsent"], which nothing registers
+   * @expectedResult It still runs; the missing package simply is not installed
+   */
+  test("an unregistered dependency is a satisfied constraint", () => {
+    registerProjectDiscoverer("__testOrphan", async () => ({}), {
+      after: ["__testAbsent"],
+    });
+    expect(
+      getProjectDiscoverers().some((d) => d.folder === "__testOrphan"),
+    ).toBe(true);
+  });
+
+  /**
+   * @case A dependency cycle is an error rather than an arbitrary order
+   * @preconditions Two discoverers each declaring the other in after
+   * @expectedResult getProjectDiscoverers throws RC5003 naming the cycle
+   */
+  test("a dependency cycle throws", () => {
+    registerProjectDiscoverer("__testA", async () => ({}), {
+      after: ["__testB"],
+    });
+    registerProjectDiscoverer("__testB", async () => ({}), {
+      after: ["__testA"],
+    });
+    const error = (() => {
+      try {
+        getProjectDiscoverers();
+        return undefined;
+      } catch (err: unknown) {
+        return err;
+      }
+    })();
+    expect(error).toMatchObject({ rc: "RC5003" });
+    expect((error as Error).message).toMatch(/dependency cycle/);
   });
 
   /**
@@ -169,6 +209,23 @@ describe("mergeProjectConfig", () => {
       (base as unknown as { agent: { agents: Record<string, number> } }).agent
         .agents,
     ).toEqual({ a: 1 });
+  });
+
+  /**
+   * @case A fragment key named __proto__ survives as a real own key
+   * @preconditions A null-prototype fragment carrying an own "__proto__" key
+   * @expectedResult The key is defined on the result rather than routed through
+   *   the prototype setter, and the result's prototype is unchanged
+   */
+  test("a __proto__ key in a fragment is defined, not set", () => {
+    const fragment = Object.create(null) as Record<string, unknown>;
+    fragment["__proto__"] = { polluted: true };
+    const merged = mergeProjectConfig(
+      {} as CraftConfig,
+      fragment as unknown as Partial<CraftConfig>,
+    ) as unknown as Record<string, unknown>;
+    expect(Object.hasOwn(merged, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(merged)).toBe(Object.prototype);
   });
 
   /**

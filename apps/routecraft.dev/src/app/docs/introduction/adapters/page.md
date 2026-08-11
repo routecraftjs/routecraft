@@ -82,11 +82,10 @@ Many adapters support **merged options**: they merge their own per-call options 
 // craft.config.ts
 import type { CraftConfig } from '@routecraft/routecraft'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   cron: { timezone: 'UTC', jitterMs: 2000 },
 }
 
-export default config
 ```
 
 ```ts

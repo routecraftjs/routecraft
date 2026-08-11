@@ -214,8 +214,8 @@ describe("CLI start command", () => {
     const { registerProjectDiscoverer } =
       await import("@routecraft/routecraft");
     let seen: string | undefined;
-    registerProjectDiscoverer("agents", async (directory) => {
-      seen = directory;
+    registerProjectDiscoverer("agents", async (ctx) => {
+      seen = ctx.directory;
       return {};
     });
     const root = makeProject({
@@ -257,6 +257,68 @@ describe("CLI start command", () => {
     const warned =
       warn?.mock.calls.map((c: unknown[]) => String(c[0])).join("\n") ?? "";
     expect(warned).toMatch(/craftConfig/);
+  });
+
+  /**
+   * @case --once settles even when a server ingress holds the context open
+   * @preconditions A project with both a direct() ingress (which never resolves
+   *   its subscription) and a finite source that produces one exchange
+   * @expectedResult startCommand resolves rather than hanging. Awaiting
+   *   context.start() before the exchange watcher would block here forever,
+   *   which is the shape --once exists to avoid.
+   */
+  test("--once settles with a server ingress holding the context open", async () => {
+    const root = makeProject({
+      "craft.config.ts": EMPTY_CONFIG,
+      "capabilities/inbox.ts": [
+        `import { craft, direct, log } from "@routecraft/routecraft";`,
+        `export default craft().id("inbox").from(direct()).to(log());`,
+        "",
+      ].join("\n"),
+      "capabilities/tick.ts": routeFile("tick"),
+    });
+    const result = await startCommand(root, { once: true, timeoutMs: 10_000 });
+    expect(result).toMatchObject({ success: true });
+  });
+
+  /**
+   * @case --timeout turns a project that produces nothing into a diagnosis
+   * @preconditions Only a server ingress, so no exchange ever reaches a
+   *   terminal outcome
+   * @expectedResult Fails non-zero naming the timeout, rather than waiting
+   *   for the CI job to be killed
+   */
+  test("--timeout fails when no exchange arrives", async () => {
+    const root = makeProject({
+      "craft.config.ts": EMPTY_CONFIG,
+      "capabilities/inbox.ts": [
+        `import { craft, direct, log } from "@routecraft/routecraft";`,
+        `export default craft().id("inbox").from(direct()).to(log());`,
+        "",
+      ].join("\n"),
+    });
+    const result = await startCommand(root, { once: true, timeoutMs: 250 });
+    expect(result).toMatchObject({ success: false, code: 1 });
+    expect(result.success === false && result.message).toMatch(
+      /No exchange reached a terminal outcome within 250ms/,
+    );
+  });
+
+  /**
+   * @case A config file exporting neither shape fails rather than booting empty
+   * @preconditions craft.config.ts exports a wrongly-named const
+   * @expectedResult Failure naming the expected export, not a silent empty config
+   */
+  test("errors when craft.config.ts exports neither shape", async () => {
+    const root = makeProject({
+      "craft.config.ts": `export const config = {};\n`,
+      "capabilities/health.ts": routeFile("health"),
+    });
+    const result = await startCommand(root);
+    expect(result).toMatchObject({ success: false });
+    expect(result.success === false && result.message).toMatch(
+      /exports neither "craftConfig" nor a config object/,
+    );
   });
 
   /**

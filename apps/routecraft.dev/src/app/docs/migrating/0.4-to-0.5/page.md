@@ -90,11 +90,10 @@ craft run mcp-server.js --log-level silent
 ```ts
 import type { CraftConfig } from "@routecraft/routecraft"
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   plugins: [...],
   routes: [...],
 }
-export default config
 ```
 
 **After (0.5.0):**
@@ -103,7 +102,7 @@ export default config
 import { defineConfig } from "@routecraft/routecraft"
 import "@routecraft/ai" // side-effect import enables first-class llm/agent/mcp/embedding keys
 
-export default defineConfig({
+export const craftConfig = defineConfig({
   llm: { providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY } } },
   agent: { defaultOptions: { model: "anthropic:claude-opus-4-7" } },
   routes: [...],

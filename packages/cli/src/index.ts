@@ -135,6 +135,10 @@ program
     "--once",
     "Shut down after the first exchange reaches a terminal outcome",
   )
+  .option(
+    "--timeout <ms>",
+    "With --once, give up and exit non-zero after this many milliseconds",
+  )
   .action(async (dir: string | undefined, options) => {
     applyGlobalLogOptions();
 
@@ -146,7 +150,18 @@ program
     }
 
     const { startCommand } = await import("./start.js");
-    const result = await startCommand(dir, { once: options.once === true });
+    const timeoutMs =
+      options.timeout === undefined ? undefined : Number(options.timeout);
+    if (timeoutMs !== undefined && !Number.isFinite(timeoutMs)) {
+      // eslint-disable-next-line no-console
+      console.error(`--timeout must be a number of milliseconds.`);
+      setImmediate(() => process.exit(1));
+      return;
+    }
+    const result = await startCommand(dir, {
+      once: options.once === true,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    });
     if (!result.success) {
       if (result.message) {
         // eslint-disable-next-line no-console

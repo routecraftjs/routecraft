@@ -10,8 +10,8 @@ import {
   type AnyRouteBuilder,
   type RouteDefinition,
 } from "@routecraft/routecraft";
-
-const SUPPORTED_EXTENSIONS = [".mjs", ".js", ".cjs", ".ts"] as const;
+import { MODULE_EXTENSIONS } from "./project.js";
+import { messageOf } from "./util.js";
 
 /**
  * Result of a CLI command that boots a context. `success: false`
@@ -39,14 +39,11 @@ export async function runCommand(
   const absFilePath = resolve(process.cwd(), filePath);
   const ext = extname(absFilePath);
 
-  // Validate file extension
-  if (
-    !SUPPORTED_EXTENSIONS.includes(ext as (typeof SUPPORTED_EXTENSIONS)[number])
-  ) {
+  if (!MODULE_EXTENSIONS.includes(ext)) {
     return {
       success: false,
       code: 1,
-      message: `Error: Only the following file types are supported: ${SUPPORTED_EXTENSIONS.join(", ")}`,
+      message: `Error: Only the following file types are supported: ${MODULE_EXTENSIONS.join(", ")}`,
     };
   }
 
@@ -83,16 +80,7 @@ export async function runCommand(
 
     return { success: true };
   } catch (error: unknown) {
-    if (error instanceof Error) {
-      logger.error(`Failed to run ${absFilePath}: ${error.message}`);
-      return { success: false, code: 1, message: error.message };
-    }
-    // Non-Error throws (e.g. Bun's ResolveMessage for a missing package)
-    // still carry a message; surface it instead of "Unknown error".
-    const message =
-      typeof error === "object" && error !== null && "message" in error
-        ? String((error as { message: unknown }).message)
-        : String(error);
+    const message = messageOf(error);
     logger.error(`Failed to run ${absFilePath}: ${message}`);
     return { success: false, code: 1, message };
   }

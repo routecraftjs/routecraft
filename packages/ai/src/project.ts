@@ -45,18 +45,6 @@ const PACKAGE_REF_PREFIX = "npm:";
 const CONFIG_FILE = "craft.config.ts";
 
 /**
- * Run order for the two discoverers this package registers. `agents`
- * runs second so it can read the house skills the `skills` discoverer
- * contributed: a per-agent block replaces a same-named default rather
- * than merging into it, so an agent with its own skills has to compose
- * the house set explicitly or it would silently lose it.
- *
- * @internal
- */
-const SKILLS_ORDER = 10;
-const AGENTS_ORDER = 20;
-
-/**
  * One resolved contribution to an agent's skill set, kept with the
  * place it came from so a collision can name both sides.
  *
@@ -108,6 +96,19 @@ function houseSkillGroup(config: Readonly<CraftConfig>): Blocks | undefined {
 }
 
 /**
+ * npm package names, per the registry's own rules. Validated before
+ * the specifier reaches `require.resolve`, because Node treats
+ * anything starting with `.` as a relative path: `npm:..` would
+ * otherwise resolve against the agent file's directory and point the
+ * skills loader at the project itself, which is exactly the trust
+ * boundary the `npm:` form promises to hold.
+ *
+ * @internal
+ */
+const PACKAGE_NAME =
+  /^(?:@[a-z0-9-*~][a-z0-9-*._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+
+/**
  * Split a package ref into the package name and the subpath after it.
  * Scoped names take two segments, everything else one.
  *
@@ -149,7 +150,9 @@ function resolvePackageRoot(name: string, fromFile: string): string {
       message: `Skills package "${name}" is not installed (resolved from "${fromFile}"). Add it to the project's dependencies: bun add ${name}`,
     });
   }
-  for (let up = dir; ; up = dirname(up)) {
+  // Bounded climb, matching `package-info.ts` in core: a malformed
+  // install should fail with a message rather than walk to the root.
+  for (let up = dir, depth = 0; depth < 32; up = dirname(up), depth += 1) {
     const manifest = join(up, "package.json");
     if (existsSync(manifest)) {
       try {
@@ -202,6 +205,11 @@ function resolveSkillsRef(ref: string, agentFile: string): string {
       });
     }
     const { name, subpath } = splitPackageRef(spec);
+    if (!PACKAGE_NAME.test(name)) {
+      throw rcError("AI1004", undefined, {
+        message: `Skills ref "${ref}" declared in "${agentFile}" is not a package name. Use "npm:<package>" or "npm:<package>/<subpath>" for an installed package, or a plain relative path for a folder beside the agent file.`,
+      });
+    }
     const root = resolvePackageRoot(name, agentFile);
     if (subpath) {
       const within = resolve(root, subpath);
@@ -277,7 +285,11 @@ async function composeAgentSkills(
   if (own.length === 0) return undefined;
 
   const sources = house ? [house, ...own] : own;
-  const out: Blocks = {};
+  // Null-prototype map: a skill named `__proto__` would otherwise set
+  // the object's prototype instead of registering, which drops the
+  // skill silently and leaves a record the config merge treats as a
+  // value rather than a shape.
+  const out = Object.create(null) as Blocks;
   const origin = new Map<string, string>();
   for (const source of sources) {
     for (const [name, block] of Object.entries(source.blocks)) {
@@ -300,25 +312,21 @@ async function composeAgentSkills(
  * leaves resolve as `skills__<name>` and an agent can drop the whole
  * set with `blocks: { skills: false }`.
  */
-registerProjectDiscoverer(
-  SKILLS_FOLDER,
-  async (directory, config) => {
-    if (config.agent?.defaultOptions?.blocks?.[SKILLS_FOLDER] !== undefined) {
-      logger.info(
-        `Skills: "agent.defaultOptions.blocks.skills" is set in craft.config.ts; "${directory}" not loaded.`,
-      );
-      return {};
-    }
-    const loaded = await skills({ source: directory });
+registerProjectDiscoverer(SKILLS_FOLDER, async ({ directory, config }) => {
+  if (config.agent?.defaultOptions?.blocks?.[SKILLS_FOLDER] !== undefined) {
     logger.info(
-      `Skills: loaded ${Object.keys(loaded).length} house skill(s) from "${directory}".`,
+      `Skills: "agent.defaultOptions.blocks.skills" is set in ${CONFIG_FILE}; "${directory}" not loaded.`,
     );
-    return {
-      agent: { defaultOptions: { blocks: { [SKILLS_FOLDER]: loaded } } },
-    };
-  },
-  { order: SKILLS_ORDER },
-);
+    return {};
+  }
+  const loaded = await skills({ source: directory });
+  logger.info(
+    `Skills: loaded ${Object.keys(loaded).length} house skill(s) from "${directory}".`,
+  );
+  return {
+    agent: { defaultOptions: { blocks: { [SKILLS_FOLDER]: loaded } } },
+  };
+});
 
 /**
  * Agents: every definition under `agents/` is registered, and each
@@ -335,9 +343,8 @@ registerProjectDiscoverer(
  */
 registerProjectDiscoverer(
   AGENTS_FOLDER,
-  async (directory, config) => {
+  async ({ directory, contentRoot, config }) => {
     const declared = config.agent?.agents ?? {};
-    const contentRoot = dirname(directory);
     const houseBlocks = houseSkillGroup(config);
     const houseDirectory = join(contentRoot, SKILLS_FOLDER);
     const house: SkillSource | undefined = houseBlocks
@@ -349,7 +356,12 @@ registerProjectDiscoverer(
         }
       : undefined;
 
-    const discovered: Record<string, AgentRegisteredOptions> = {};
+    // Null-prototype for the same reason as the skill map above: a
+    // frontmatter `name` of `__proto__` must register as a real key.
+    const discovered = Object.create(null) as Record<
+      string,
+      Partial<AgentRegisteredOptions>
+    >;
     for (const file of await loadAgentFiles(directory)) {
       const declaredAgent = Object.prototype.hasOwnProperty.call(
         declared,
@@ -378,12 +390,11 @@ registerProjectDiscoverer(
           );
           continue;
         }
+        // Only the contribution. The merge preserves the fields the
+        // project declared, so copying them back would be redundant and
+        // would duplicate entries once any agent field is array-valued.
         discovered[file.name] = {
-          ...declaredAgent,
-          blocks: {
-            ...declaredAgent.blocks,
-            [SKILLS_FOLDER]: composed.blocks,
-          },
+          blocks: { [SKILLS_FOLDER]: composed.blocks },
         };
         logger.info(
           `Agent "${file.name}": ${configFields} from ${CONFIG_FILE}, ${skillsProvenance}.`,
@@ -407,7 +418,16 @@ registerProjectDiscoverer(
           : `Agent "${file.name}": loaded from ${from}, ${skillsProvenance}.`,
       );
     }
-    return { agent: { agents: discovered } };
+    // A fragment is a patch: for an agent the project declared, only
+    // `blocks.skills` is contributed and the merge supplies the rest.
+    // `Partial<CraftConfig>` is shallow, so it cannot express a partial
+    // value inside `agents`; one cast here beats padding every entry
+    // out to a complete agent it is not.
+    return {
+      agent: {
+        agents: discovered as Record<string, AgentRegisteredOptions>,
+      },
+    };
   },
-  { order: AGENTS_ORDER },
+  { after: [SKILLS_FOLDER] },
 );
