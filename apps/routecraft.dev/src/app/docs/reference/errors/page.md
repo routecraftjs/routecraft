@@ -719,6 +719,8 @@ A route in this context can reach a durable `.suspend()`, but nothing configured
 **Suggestion**  
 Add `suspension: {}` to `defineConfig` to take the defaults, or `suspension: { store, secret }` to be explicit. It is deliberately not implicit: a durable suspend that silently parks into memory loses everything it promised on the next restart.
 
+`suspension: {}` applies defaults; it does not supply a signing secret. In production, set `secret` or the `ROUTECRAFT_SUSPENSION_SECRET` environment variable, or startup fails with [`RC5040`](#rc-5040) instead. An ephemeral key is minted only for tests and development, because a key that dies with the process makes every outstanding resume token unverifiable across exactly the restart suspension exists to survive.
+
 ## RC9901
 Unknown error
 

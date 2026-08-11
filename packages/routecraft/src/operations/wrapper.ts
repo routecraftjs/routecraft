@@ -114,7 +114,7 @@ export abstract class WrapperStep<
     if (NON_WRAPPABLE_OPERATIONS.has(inner.operation)) {
       throw rcError("RC5003", undefined, {
         message:
-          `Wrapper operations (.error() / .retry() / .timeout() / .cache() / .delay()) cannot wrap "${inner.operation}" steps. ` +
+          `Wrapper operations (.error() / .retry() / .timeout() / .throttle() / .circuitBreaker() / .concurrency() / .cache() / .delay()) cannot wrap "${inner.operation}" steps. ` +
           `Aggregate consumes pending siblings (shared join state), split fans out children, debounce holds exchanges ` +
           `outside the queue for a later detached release, and suspend parks the exchange durably outside this process; ` +
           `all have semantics that conflict with per-execution wrapper recovery. Wrap the steps downstream of ` +
