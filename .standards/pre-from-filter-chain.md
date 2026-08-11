@@ -16,7 +16,7 @@ Outside in: `error` → `authorize` → `parse` → `input` → `throttle`
 `cacheCheck` → user pipeline → `cacheStore`.
 
 The full contract is documented user-facing at
-`apps/routecraft.dev/src/app/docs/advanced/filter-chain/page.md`
+`apps/routecraft.dev/app/content/docs/advanced/filter-chain/index.mdx`
 (site: `/docs/advanced/filter-chain`): the chain table with
 per-position rejection RC codes, why the order is fixed
 (deterministic gates above resilience wrappers, cache below them),

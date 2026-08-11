@@ -30,7 +30,9 @@ describe("AI error codes", () => {
     // The rows live under src/app/docs so the release freeze pins them to the
     // version they describe; ErrorTable.tsx renders whatever this file declares.
     const rows = JSON.parse(
-      await read("../../../apps/routecraft.dev/src/app/docs/_data/errors.json"),
+      await read(
+        "../../../apps/routecraft.dev/app/content/docs/_data/errors.json",
+      ),
     ) as Array<{ code: string }>;
     const listed = new Set(rows.map((row) => row.code));
 
@@ -41,12 +43,12 @@ describe("AI error codes", () => {
 
   /**
    * @case Every AI code has a section on the error reference page
-   * @preconditions Codes registered in src/errors.ts; errors/page.md read from disk
+   * @preconditions Codes registered in src/errors.ts; errors/index.mdx read from disk
    * @expectedResult Each AI code has its own heading, so the docs link on the error meta resolves to a real section
    */
   test("every AI code has an error reference section", async () => {
     const page = await read(
-      "../../../apps/routecraft.dev/src/app/docs/reference/errors/page.md",
+      "../../../apps/routecraft.dev/app/content/docs/reference/errors/index.mdx",
     );
     const documented = new Set(
       Array.from(page.matchAll(/^## (AI\d{4})$/gm), (match) => match[1]),

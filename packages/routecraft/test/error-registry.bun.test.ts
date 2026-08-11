@@ -44,7 +44,7 @@ describe("error-code registry", () => {
     const rows = JSON.parse(
       await readFile(
         new URL(
-          "../../../apps/routecraft.dev/src/app/docs/_data/errors.json",
+          "../../../apps/routecraft.dev/app/content/docs/_data/errors.json",
           import.meta.url,
         ),
         "utf8",

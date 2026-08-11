@@ -79,7 +79,7 @@ Packages are created by hand; there is no generator. Copy the shape of an existi
 2. Never add a `sideEffects` allowlist to a package that registers anything via side-effect imports (config appliers, DSL sugar, adapter registries). Core shipped this bug: its allowlist named only the dist entry points, so esbuild pruned every `registerConfigApplier` side-effect import out of the bundle and `defineConfig({ mail: {...} })` silently no-opped at runtime. Bundle-size wins must come from somewhere else. If the package relies on side-effect registration, add a post-build guard that imports the built bundles and asserts the registrations are live (core's `packages/routecraft/scripts/verify-dist.mjs`, run for both ESM and CJS in its `build` script, is the reference).
 3. `bun install` (the root `workspaces` glob picks the directory up automatically; `bun run --filter '*' build`, `bun run test`, typecheck, and `changeset publish` all walk the workspace).
 4. Add a size-limit entry in the root config if the package ships to users.
-5. Add a docs page under `apps/routecraft.dev/src/app/docs/` and a row to the CLAUDE.md package table.
+5. Add a docs page under `apps/routecraft.dev/app/content/docs/` and a row to the CLAUDE.md package table.
 6. Add an introducing changeset: `bunx changeset` (minor, "Introduce @routecraft/<name>"). Decide whether the package joins the fixed core train in `.changeset/config.json` or versions independently (default: independently).
 
 Nothing needs registering in workflows: there are no per-package publish loops or version scripts anymore.
@@ -122,7 +122,7 @@ The pre-existing migration backlog tracked in [#287](https://github.com/routecra
 
 ## 8. Local pre-PR checklist
 
-The user-facing copy of this checklist lives in the contribution guide (`apps/routecraft.dev/src/app/docs/community/contribution-guide/page.md`); keep the two in sync.
+The user-facing copy of this checklist lives in the contribution guide (`apps/routecraft.dev/app/content/docs/community/contribution-guide/index.mdx`); keep the two in sync.
 
 Run before opening a PR; matches what CI runs:
 
