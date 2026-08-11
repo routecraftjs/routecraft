@@ -308,6 +308,56 @@ describe("the filter chain on a resumed continuation", () => {
   });
 
   /**
+   * @case A reject-mode bulkhead still only delays a continuation when retry and timeout wrap it
+   * @preconditions .retry() and .timeout() alongside .concurrency({ max: 1, mode: "reject" }) on a suspending route; two exchanges parked, then resumed together
+   * @expectedResult Both continuations complete. The bulkhead segment is built from the deps that carry the waiting form, and the nested definitions retry and timeout run under carry no concurrency position of their own, so no inner segment is built that could refuse
+   */
+  test("retry and timeout above the bulkhead do not restore refusal", async () => {
+    let ran = 0;
+
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .timeout(2_000)
+          .concurrency({ max: 1, mode: "reject" })
+          .from(direct())
+          .suspend({ expect: Approval })
+          .process(async (ex) => {
+            ran++;
+            await sleep(40);
+            return ex;
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = [
+      asSuspended(await t.client.sendDirect("payout", { amountCents: 10_000 })),
+      asSuspended(await t.client.sendDirect("payout", { amountCents: 20_000 })),
+    ];
+    const receipts = (await Promise.all(
+      parked.map((suspension) =>
+        t!.client.sendDirect("answers", {
+          token: suspension.token,
+          result: { approved: true },
+        }),
+      ),
+    )) as Array<{ outcome: { status: string; error?: { rc?: string } } }>;
+
+    expect(receipts.map((r) => r.outcome.status)).toEqual([
+      "completed",
+      "completed",
+    ]);
+    expect(receipts.every((r) => r.outcome.error?.rc !== "RC5026")).toBe(true);
+    expect(ran).toBe(2);
+  });
+
+  /**
    * @case A route shut down while a continuation waits for a bulkhead slot
    * @preconditions .concurrency({ max: 1 }) with a slow continuation holding the only slot; a second continuation queued behind it when the route stops
    * @expectedResult The queued continuation is admitted with a no-op slot rather than failed. A teardown it did not cause must not spend its approval, which is the same refusal-below-the-claim rule that put the bulkhead in waiting form
