@@ -1,36 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
-import {
-  craft,
-  direct,
-  isSuspended,
-  noop,
-  type CraftConfig,
-  type Suspended,
-} from "../src/index.ts";
+import { craft, direct, noop } from "../src/index.ts";
+import { asSuspended, suspending } from "./helpers/suspension.ts";
 import { CHAIN_SURVIVAL } from "../src/pipeline/chain-policy.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const Approval = z.object({ approved: z.boolean() });
-
-/** A context whose suspension runtime is the in-memory backend. */
-function suspending(): { suspension: Record<string, never> } & CraftConfig {
-  return { suspension: {} } as {
-    suspension: Record<string, never>;
-  } & CraftConfig;
-}
-
-/** Read the acknowledgment execution one answered with. */
-function asSuspended(value: unknown): Suspended {
-  if (!isSuspended(value)) {
-    throw new Error(
-      `expected a Suspended acknowledgment, got ${String(value)}`,
-    );
-  }
-  return value;
-}
 
 /**
  * Which pre-from filter chain positions apply to execution two.
@@ -234,6 +211,50 @@ describe("the filter chain on a resumed continuation", () => {
   });
 
   /**
+   * @case A continuation abandoned by the route deadline stops below a bulkhead
+   * @preconditions A route with route-scope .timeout() and .concurrency(), a continuation whose first step outlives the deadline and a second step that records whether it ran
+   * @expectedResult The step after the abandoned one never runs. The deadline records a failed terminal against a suspension the resume already claimed, so continuing past it would execute the payout after telling the answerer it failed, and the approval cannot be re-spent
+   */
+  test("an abandoned continuation stops rather than running past its deadline", async () => {
+    let after = 0;
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .timeout(150)
+          .concurrency({ max: 5 })
+          .from(direct())
+          .suspend({ expect: Approval })
+          .process(async (ex) => {
+            await sleep(600);
+            return ex;
+          })
+          .process((ex) => {
+            after++;
+            return ex;
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(
+      await t.client.sendDirect("payout", { amountCents: 10_000 }),
+    );
+    const receipt = (await t.client.sendDirect("answers", {
+      token: parked.token,
+      result: { approved: true },
+    })) as { outcome: { status: string; error?: { rc?: string } } };
+
+    expect(receipt.outcome.status).toBe("failed");
+    expect(receipt.outcome.error?.rc).toBe("RC5011");
+    await sleep(700);
+    expect(after).toBe(0);
+  });
+
+  /**
    * @case A saturated bulkhead delays a resumed continuation rather than refusing it
    * @preconditions .concurrency({ max: 1, mode: "reject" }) on a route with a suspend before a slow step; two exchanges parked, then resumed together so the second finds no free slot
    * @expectedResult Both continuations run and complete. A refusal here would be RC5026 recorded as the suspension's terminal outcome, destroying an approval for work that never ran, because the resume claims the suspension before the continuation starts. The bound still holds: the second waits for the slot the first is holding
@@ -395,5 +416,16 @@ describe("the filter chain on a resumed continuation", () => {
     // answer to one of the questions, which is the failure per-kind reasons
     // exist to prevent.
     expect(new Set(reasons).size).toBe(declared);
+
+    // The executor derives `admissionMustWait` from this flag, so it is the
+    // record and not a `kind` comparison that decides which runs a bulkhead
+    // may refuse.
+    const mayNotBeRefused = Object.entries(CHAIN_SURVIVAL).flatMap(
+      ([field, kinds]) =>
+        Object.entries(kinds)
+          .filter(([, policy]) => policy.mustNotRefuse === true)
+          .map(([kind]) => `${field}.${kind}`),
+    );
+    expect(mayNotBeRefused).toEqual(["concurrency.resume"]);
   });
 });

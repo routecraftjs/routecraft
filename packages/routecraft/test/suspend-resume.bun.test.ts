@@ -16,8 +16,8 @@ import {
   type CraftConfig,
   type EventName,
   type Exchange,
-  type Suspended,
 } from "../src/index.ts";
+import { asSuspended, suspending } from "./helpers/suspension.ts";
 
 /**
  * A signing secret for the two-context tests, which share one store across
@@ -34,23 +34,6 @@ const Approval = z.object({
 interface Payout {
   amountCents: number;
   payee: string;
-}
-
-/**
- * A context whose suspension runtime is the in-memory backend with an
- * ephemeral signing key. `testContext()` substitutes both as soon as a
- * `suspension` block is present, so every suspending test declares one.
- */
-function suspending(): { suspension: Record<string, never> } & CraftConfig {
-  return { suspension: {} } as {
-    suspension: Record<string, never>;
-  } & CraftConfig;
-}
-
-/** Read the acknowledgment execution one answered with. */
-function asSuspended(value: unknown): Suspended {
-  expect(isSuspended(value)).toBe(true);
-  return value as Suspended;
 }
 
 describe("suspend and resume", () => {
@@ -200,9 +183,9 @@ describe("suspend and resume", () => {
    */
   test("a changed continuation re-enters the route error channel with RC5048", async () => {
     const store = new MemorySuspensionStore();
-    const shared = {
+    const shared: CraftConfig = {
       suspension: { store, secret: SECRET },
-    } as unknown as CraftConfig;
+    };
 
     const parkContext = await testContext()
       .with(shared)
@@ -757,9 +740,9 @@ describe("suspend and resume", () => {
    */
   test("a changed continuation re-asks exactly once across replays", async () => {
     const store = new MemorySuspensionStore();
-    const shared = {
+    const shared: CraftConfig = {
       suspension: { store, secret: SECRET },
-    } as unknown as CraftConfig;
+    };
 
     const parkContext = await testContext()
       .with(shared)
@@ -819,9 +802,9 @@ describe("suspend and resume", () => {
    */
   test("a removed suspend site records its own denial reason", async () => {
     const store = new MemorySuspensionStore();
-    const shared = {
+    const shared: CraftConfig = {
       suspension: { store, secret: SECRET },
-    } as unknown as CraftConfig;
+    };
 
     const parkContext = await testContext()
       .with(shared)
@@ -880,9 +863,9 @@ describe("suspend and resume", () => {
     }
 
     const store = new SweptStore();
-    const shared = {
+    const shared: CraftConfig = {
       suspension: { store, secret: SECRET },
-    } as unknown as CraftConfig;
+    };
 
     const parkContext = await testContext()
       .with(shared)

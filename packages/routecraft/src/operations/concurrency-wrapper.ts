@@ -356,6 +356,13 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
    * reintroduce it under a different name. The limit itself still holds,
    * because the semaphore is the route's own and is shared with every other
    * caller. Read `maxQueue` as bounding the exchanges that CAN be shed.
+   *
+   * Two gaps that flag does not close, both worth knowing before sizing
+   * `max`: the wait is unbounded in TIME as well as in depth, so a saturated
+   * pool holds each waiter (and whatever answered it) until a slot frees or
+   * the route stops; and a `key` selector that throws still raises `RC5003`
+   * from below, because the partition has to be resolved before the mode is
+   * consulted.
    */
   async acquire(
     exchange: Exchange,
@@ -365,31 +372,13 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
   ): Promise<{ release: () => void; key?: string }> {
     const { semaphore, key } = this.stateFor(route).semaphoreFor(exchange);
 
-    // A caller that cannot absorb a refusal queues for the same slot instead
-    // of being turned away. A resumed continuation is the case: its
-    // suspension is already claimed, so RC5026 here would record a failed
-    // terminal and destroy an approval for work that never ran. The limit is
-    // still the limit, because the semaphore is shared with the ingress leg.
     if (opts.mustWait) {
       const free = semaphore.tryAcquire();
       if (free) {
         hooks.onAcquired(false, semaphore.inUse, key);
         return { release: free, ...(key !== undefined ? { key } : {}) };
       }
-      hooks.onQueued(semaphore.waiting + 1, key);
-      try {
-        const release = await semaphore.acquire(hooks.signal);
-        hooks.onAcquired(true, semaphore.inUse, key);
-        return { release, ...(key !== undefined ? { key } : {}) };
-      } catch (err) {
-        if (!(err instanceof SleepAbortedError)) throw err;
-        // Route shutdown while queued admits the exchange with a no-op
-        // release, exactly as queue mode does. Failing it here would be the
-        // outcome this flag exists to prevent: a caller that cannot absorb a
-        // refusal would lose its claimed work to a teardown it did not cause.
-        hooks.onAcquired(true, semaphore.inUse, key);
-        return { release: () => {}, ...(key !== undefined ? { key } : {}) };
-      }
+      return this.#joinWaitLine(semaphore, hooks, key);
     }
 
     if (this.#options.mode === "reject") {
@@ -419,6 +408,25 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
       });
     }
 
+    return this.#joinWaitLine(semaphore, hooks, key);
+  }
+
+  /**
+   * Wait FIFO for a slot, shared by queue mode and `mustWait`. Only the
+   * decision to join differs between them; the wait itself must not.
+   *
+   * Route shutdown while queued admits the exchange with a no-op release so
+   * teardown processes it rather than dropping it. No slot is charged
+   * (`inUse` excludes this exchange), but the balanced `acquired` ->
+   * `released` pair still fires so the `queued` event has a matching
+   * terminal; suppressing them would leave an orphaned `queued` and
+   * unbalance queue-depth accounting at teardown.
+   */
+  async #joinWaitLine(
+    semaphore: Semaphore,
+    hooks: ConcurrencyHooks,
+    key: string | undefined,
+  ): Promise<{ release: () => void; key?: string }> {
     hooks.onQueued(semaphore.waiting + 1, key);
     try {
       const release = await semaphore.acquire(hooks.signal);
@@ -426,12 +434,6 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
       return { release, ...(key !== undefined ? { key } : {}) };
     } catch (err) {
       if (!(err instanceof SleepAbortedError)) throw err;
-      // Route shutdown while queued: admit the exchange (with a no-op
-      // release) so teardown processes it rather than dropping it. No slot
-      // is charged (`inUse` excludes this exchange), but we still emit the
-      // balanced `acquired` -> `released` pair so the `queued` event already
-      // fired above has a matching terminal; suppressing them would leave an
-      // orphaned `queued` and unbalance queue-depth accounting at teardown.
       hooks.onAcquired(true, semaphore.inUse, key);
       return { release: () => {}, ...(key !== undefined ? { key } : {}) };
     }

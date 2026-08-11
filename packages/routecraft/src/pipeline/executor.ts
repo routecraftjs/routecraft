@@ -24,7 +24,8 @@ import {
 import { buildInputValidationStep, buildParseStep } from "./synthetic-steps.ts";
 import { applyOutputStage } from "./validation.ts";
 import {
-  type DetachedDefinition,
+  CHAIN_SURVIVAL,
+  type ExecutedDefinition,
   type DetachedKind,
   detachedDefinition,
 } from "./chain-policy.ts";
@@ -69,7 +70,7 @@ export interface ExecutorDeps {
    * point of deriving the policy from `RouteDefinition` is that there is
    * only one.
    */
-  definition: DetachedDefinition;
+  definition: ExecutedDefinition;
   /** Build a forward callable whose target inherits `caller`'s headers. */
   buildForward: (caller: Exchange) => ForwardFn;
   /**
@@ -98,13 +99,12 @@ export interface ExecutorDeps {
   abortSignal?: AbortSignal;
   /**
    * When set, route-scope `.concurrency()` queues this run for a slot
-   * rather than refusing it.
+   * rather than refusing it. Resolved from `CHAIN_SURVIVAL.concurrency`,
+   * which is where a kind declares whether it can absorb a refusal.
    *
-   * A resumed continuation has already claimed its suspension, so an
-   * `RC5026` refusal would record a failed terminal and destroy an approval
-   * for work that never ran. The bound still holds: the semaphore is the
-   * route's own, shared with the ingress leg, so this waits for the same
-   * slot rather than escaping the limit.
+   * The bound still holds: the semaphore is the route's own, shared with
+   * the ingress leg, so this waits for the same slot rather than escaping
+   * the limit.
    *
    * @internal
    */
@@ -848,6 +848,10 @@ function segmentResultToOutcome(result: {
  *   propagating -- one failing path neither rejects `runPaths` nor disturbs
  *   the others -- while still forwarding any outer `abortSignal` so a
  *   route-scope timeout can stop in-flight paths.
+ *
+ * The empty definition is deliberately outside `CHAIN_SURVIVAL`: a nested
+ * segment is not a re-entry, so it has nothing to declare per position. The
+ * invocation above it already applied the chain.
  */
 function nestedDeps(
   deps: ExecutorDeps,
@@ -969,7 +973,9 @@ export function runDetachedPipeline(
       route: deps.route,
       buildForward: deps.buildForward,
       definition: detachedDefinition(routeDefinition, downstream, kind),
-      ...(kind === "resume" ? { admissionMustWait: true } : {}),
+      ...(CHAIN_SURVIVAL.concurrency[kind].mustNotRefuse
+        ? { admissionMustWait: true }
+        : {}),
     };
     let result = await runPipeline(nested, releaseExchange, start);
 
@@ -1136,7 +1142,8 @@ function buildRetrySegmentStep(
     label: "retry",
     adapter: RETRY_SEGMENT_ADAPTER,
     skipStepEvents: true,
-    async execute(exchange) {
+    async execute(exchange, ctx) {
+      const abandon = ctx?.signal ?? deps.abortSignal;
       const correlationId = exchange.headers[
         HeadersKeys.CORRELATION_ID
       ] as string;
@@ -1150,13 +1157,21 @@ function buildRetrySegmentStep(
       const result = await executeWithRetry(
         () =>
           runPipeline(
-            nestedDeps(deps, segment, { rethrowUnhandled: true }),
+            nestedDeps(deps, segment, {
+              rethrowUnhandled: true,
+              abortSignal: abandon,
+            }),
             exchange,
             Date.now(),
           ),
         options,
         {
-          signal: deps.route.signal,
+          // An abandoned run must stop sleeping between attempts, not just
+          // stop scheduling steps: a backoff outlives the deadline that
+          // abandoned it.
+          signal: abandon
+            ? AbortSignal.any([deps.route.signal, abandon])
+            : deps.route.signal,
           onStarted: () => {
             deps.context.emit("route:retry:started", {
               ...scoped,
@@ -1223,7 +1238,8 @@ function buildCircuitBreakerSegmentStep(
     label: "circuitBreaker",
     adapter: CIRCUIT_BREAKER_SEGMENT_ADAPTER,
     skipStepEvents: true,
-    async execute(exchange) {
+    async execute(exchange, ctx) {
+      const abandon = ctx?.signal ?? deps.abortSignal;
       const correlationId = exchange.headers[
         HeadersKeys.CORRELATION_ID
       ] as string;
@@ -1258,7 +1274,10 @@ function buildCircuitBreakerSegmentStep(
         async () =>
           segmentResultToOutcome(
             await runPipeline(
-              nestedDeps(deps, segment, { rethrowUnhandled: true }),
+              nestedDeps(deps, segment, {
+                rethrowUnhandled: true,
+                abortSignal: abandon,
+              }),
               exchange,
               Date.now(),
             ),
@@ -1291,7 +1310,13 @@ function buildConcurrencySegmentStep(
     label: "concurrency",
     adapter: CONCURRENCY_SEGMENT_ADAPTER,
     skipStepEvents: true,
-    async execute(exchange) {
+    async execute(exchange, ctx) {
+      // The segment step is built once, when the chain is assembled, but an
+      // abandon signal belongs to a single execution: an outer `.timeout()`
+      // mints a fresh controller per attempt and hands it down through the
+      // step context. Reading it from the build-time `deps` would always
+      // read the signal that existed before any attempt started.
+      const abandon = ctx?.signal ?? deps.abortSignal;
       const correlationId = exchange.headers[
         HeadersKeys.CORRELATION_ID
       ] as string;
@@ -1314,8 +1339,8 @@ function buildConcurrencySegmentStep(
           // while this exchange is still parked in the bulkhead queue);
           // otherwise the abandoned attempt would keep holding a queue
           // position and briefly take a slot it can no longer use.
-          signal: deps.abortSignal
-            ? AbortSignal.any([deps.route.signal, deps.abortSignal])
+          signal: abandon
+            ? AbortSignal.any([deps.route.signal, abandon])
             : deps.route.signal,
           ...concurrencyEmitHooks(deps.context, scoped, true),
         },
@@ -1324,7 +1349,7 @@ function buildConcurrencySegmentStep(
             await runPipeline(
               nestedDeps(deps, segment, {
                 rethrowUnhandled: true,
-                abortSignal: deps.abortSignal,
+                abortSignal: abandon,
               }),
               exchange,
               Date.now(),

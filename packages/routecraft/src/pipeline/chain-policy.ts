@@ -5,11 +5,17 @@ import type { Adapter, Step } from "../types.ts";
  * Fields of {@link RouteDefinition} that are not pre-from chain positions.
  *
  * This list is the only place that says "this field is not part of the
- * chain". Everything else on the definition IS a chain position and must
- * declare, in {@link CHAIN_SURVIVAL}, whether it survives each kind of
- * detached run. Adding a field to `RouteDefinition` therefore fails the
- * build until it is either excluded here or given a policy, which is what
- * stops a future position from silently not applying.
+ * chain". Every other field IS one, and must declare in
+ * {@link CHAIN_SURVIVAL} whether it survives each kind of detached run, so
+ * adding a field to `RouteDefinition` fails the build until it is either
+ * excluded here or given a policy.
+ *
+ * The forcing is keyed by FIELD, and a field is not the same unit as a
+ * chain position, so three cases sit outside it and still need a human:
+ * `parse` (#3) is not on the definition at all, `input` (#4) lives under
+ * `discovery`, and the three filter arrays each hold an arbitrary number of
+ * positions that share one answer. A position added inside one of those
+ * arrays inherits its neighbour's policy without breaking the build.
  */
 type NonChainField =
   | "id"
@@ -21,7 +27,7 @@ type NonChainField =
   | "usesResume";
 
 /** A pre-from filter chain position, as carried on the route definition. */
-export type ChainField = Exclude<keyof RouteDefinition, NonChainField>;
+type ChainField = Exclude<keyof RouteDefinition, NonChainField>;
 
 /**
  * The runs that re-enter a route partway down its pipeline.
@@ -43,6 +49,11 @@ export type DetachedKind = "resume" | "debounce" | "errorChannel";
 /** Whether one chain position survives one kind of detached run, and why. */
 interface KindPolicy {
   readonly survives: boolean;
+  /**
+   * This run may not be REFUSED admission by the position: it queues
+   * instead. Only meaningful where {@link KindPolicy.survives} is true.
+   */
+  readonly mustNotRefuse?: boolean;
   /** Stated per kind: the same position is off for different reasons. */
   readonly why: string;
 }
@@ -62,6 +73,13 @@ interface KindPolicy {
  * resume claims its suspension before the continuation starts, so a refusal
  * becomes that suspension's terminal outcome and spends an approval on work
  * that never ran. A position that BOUNDS work already underway is safe.
+ *
+ * `timeout` (#8) satisfies the rule only in the common case. It wraps the
+ * bulkhead rather than sitting inside it, so on a route declaring both, a
+ * deadline can elapse while the continuation is still queued for a slot and
+ * fail work that never started. Narrowing that needs the chain order to
+ * differ per kind, which the fixed-order contract in
+ * `.standards/pre-from-filter-chain.md` does not currently allow.
  */
 export const CHAIN_SURVIVAL: Readonly<
   Record<ChainField, Readonly<Record<DetachedKind, KindPolicy>>>
@@ -125,71 +143,72 @@ export const CHAIN_SURVIVAL: Readonly<
   throttle: {
     resume: {
       survives: false,
-      why: "throttle (#5). It admits new work into the route; a parked exchange was admitted on execution one. Answer arrival is governed by the resume ingress route's own throttle.",
+      why: "It admits new work into the route; a parked exchange was admitted on execution one. Answer arrival is governed by the resume ingress route's own throttle.",
     },
     debounce: {
       survives: false,
-      why: "throttle (#5). The exchange was admitted on arrival; the hold was the route's own doing, not a second admission.",
+      why: "The exchange was admitted on arrival; the hold was the route's own doing, not a second admission.",
     },
     errorChannel: {
       survives: false,
-      why: "throttle (#5). Rate-limiting a failure report would drop the report, not the load.",
+      why: "Rate-limiting a failure report would drop the report, not the load.",
     },
   },
   circuitBreaker: {
     resume: {
       survives: false,
-      why: "circuitBreaker (#6). It fast-fails, and a continuation runs after the suspension is claimed, so a refusal here would record a failed terminal and spend the approval. Its home is the resume ingress route's chain, which wraps .resume() and so refuses above that transition.",
+      why: "It fast-fails, and a continuation runs after the suspension is claimed, so a refusal here would record a failed terminal and spend the approval. Its home is the resume ingress route's chain, which wraps .resume() and so refuses above that transition.",
     },
     debounce: {
       survives: false,
-      why: "circuitBreaker (#6). A released exchange has been held once already; fast-failing it discards work the route chose to keep.",
+      why: "A released exchange has been held once already; fast-failing it discards work the route chose to keep.",
     },
     errorChannel: {
       survives: false,
-      why: "circuitBreaker (#6). An open breaker must not suppress the report of a failure.",
+      why: "An open breaker must not suppress the report of a failure.",
     },
   },
   retry: {
     resume: {
       survives: true,
-      why: "retry (#7). Retrying a continuation is the wanted behaviour and is safe against the transition: attempts run before any terminal outcome is recorded, so a retried continuation never spends an approval.",
+      why: "Retrying a continuation is the wanted behaviour and is safe against the transition: attempts run before any terminal outcome is recorded, so a retried continuation never spends an approval.",
     },
     debounce: {
       survives: false,
-      why: "retry (#7). Left off as shipped. A release is one settled decision by the debounce window, and re-running it would repeat side effects the window exists to collapse.",
+      why: "A release is one settled decision by the debounce window, and re-running it would repeat side effects the window exists to collapse.",
     },
     errorChannel: {
       survives: false,
-      why: "retry (#7). Re-running a handler would re-notify per attempt, which is the amplifier the exactly-once transitions exist to prevent.",
+      why: "Re-running a handler would re-notify per attempt, which is the amplifier the exactly-once transitions exist to prevent.",
     },
   },
   timeout: {
     resume: {
       survives: true,
-      why: "timeout (#8). Bounds execution two. Distinct from a suspension's ttl, which is a store-side expiry rather than a per-attempt deadline in this process.",
+      why: "Bounds execution two. Distinct from a suspension's ttl, which is a store-side expiry rather than a per-attempt deadline in this process.",
     },
     debounce: {
       survives: false,
-      why: "timeout (#8). Left off as shipped. The release is detached from the arrival whose deadline this describes.",
+      why: "The release is detached from the arrival whose deadline this describes.",
     },
     errorChannel: {
       survives: false,
-      why: "timeout (#8). A handler that runs long should finish reporting rather than be abandoned mid-notification.",
+      why: "A handler that runs long should finish reporting rather than be abandoned mid-notification.",
     },
   },
   concurrency: {
     resume: {
       survives: true,
-      why: "concurrency (#8.5). A bulkhead bounds simultaneous work in the route against a downstream, and a continuation is that work. Carried in waiting form only: it queues for the route's own semaphore rather than refusing, because a refusal below the claim would spend an approval.",
+      mustNotRefuse: true,
+      why: "A bulkhead bounds simultaneous work in the route against a downstream, and a continuation is that work. It queues for the route's own semaphore rather than refusing, because a refusal below the claim would spend an approval. The wait is unbounded in time, and a `key` selector that throws still refuses.",
     },
     debounce: {
       survives: false,
-      why: "concurrency (#8.5). Left off as shipped, and a bulkhead that can refuse would discard a release the window already decided to make.",
+      why: "A bulkhead that can refuse would discard a release the window already decided to make.",
     },
     errorChannel: {
       survives: false,
-      why: "concurrency (#8.5). A failure report must not queue behind the work it is reporting on.",
+      why: "A failure report must not queue behind the work it is reporting on.",
     },
   },
 };
@@ -198,13 +217,13 @@ export const CHAIN_SURVIVAL: Readonly<
 const CHAIN_FIELDS = Object.keys(CHAIN_SURVIVAL) as ChainField[];
 
 /**
- * What a detached run executes under: the chain positions it carries, plus
- * its own steps.
+ * What a run executes under: the chain positions it carries, plus its own
+ * steps. Every run has one, detached or not.
  *
  * `ExecutorDeps["definition"]` is this same type, so the set of fields the
  * executor consumes and the set the policy classifies cannot drift apart.
  */
-export type DetachedDefinition = Pick<RouteDefinition, ChainField | "steps">;
+export type ExecutedDefinition = Pick<RouteDefinition, ChainField | "steps">;
 
 /** Chain positions whose absence is an empty array rather than undefined. */
 const emptyChain = (): Pick<
@@ -232,7 +251,7 @@ export function detachedDefinition(
   source: Pick<RouteDefinition, ChainField>,
   steps: ReadonlyArray<Step<Adapter>>,
   kind: DetachedKind,
-): DetachedDefinition {
+): ExecutedDefinition {
   const carried: Partial<Pick<RouteDefinition, ChainField>> = {};
   for (const field of CHAIN_FIELDS) {
     if (!CHAIN_SURVIVAL[field][kind].survives) continue;
