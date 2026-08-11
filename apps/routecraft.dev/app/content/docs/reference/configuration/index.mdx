@@ -117,7 +117,7 @@ When omitted, direct endpoints use the built-in in-memory channel (single-consum
 
 ### http
 
-Configures the HTTP server that backs the [`http()` source](/docs/reference/adapters#http). Setting this key starts a listener when the context starts (Bun.serve on Bun, `node:http` on Node 22+). See [httpPlugin](/docs/reference/plugins#httpplugin) for the full behaviour.
+Configures the HTTP server that backs the [`http()` source](/docs/reference/adapters#adapter-http). Setting this key starts a listener when the context starts (Bun.serve on Bun, `node:http` on Node 22+). See [httpPlugin](/docs/reference/plugins#plugin-httpplugin) for the full behaviour.
 
 ```ts
 import { defineConfig, jwt } from '@routecraft/routecraft'

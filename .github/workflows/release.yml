@@ -390,6 +390,11 @@ jobs:
           FREEZE_TAG: ${{ steps.docver.outputs.freeze_tag }}
         run: bun apps/routecraft.dev/scripts/verify-docs-freeze.ts "$FREEZE_TAG"
 
+      # Both channels multiply every mistake, and a moved page is easy to ship
+      # and hard to notice, so this runs against the artifact too.
+      - name: Check internal links
+        run: bun run --filter routecraft.dev check:links
+
       - name: Log in to GHCR
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}

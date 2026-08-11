@@ -89,5 +89,11 @@ For a production build without Docker, `bun run build` then `bun run start`.
 ```sh
 bun run typecheck
 bun run lint
-bun run test        # Playwright
+bun run test         # Playwright, against a server you have already started
+bun run check:links  # internal links, against .output/public
 ```
+
+`test` and `check:links` read the built site, so run `bun run build` and
+`bun run start` first. The acceptance suite compares against `baseline/`, which
+is what production served before the migration; point it elsewhere with
+`BASE_URL=https://routecraft.dev bun run test`.
