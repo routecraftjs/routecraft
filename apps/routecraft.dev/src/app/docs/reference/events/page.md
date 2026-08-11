@@ -23,7 +23,7 @@ All events share the same envelope:
 | Event | When it fires | Details |
 | --- | --- | --- |
 | `context:starting` | Before the context starts | `{}` |
-| `context:started` | After all capabilities have started | `{}` |
+| `context:started` | After context initialization, BEFORE any route or plugin `start()` hook has run. For readiness, await `ctx.whenStarted()` | `{}` |
 | `context:stopping` | Before shutdown begins | `{ reason? }` |
 | `context:stopped` | After all capabilities have stopped | `{}` |
 
@@ -327,16 +327,20 @@ Plugin events are scoped to a plugin ID.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:starting` | The plugin's `apply()` hook is about to run, while the context is being built | `{ pluginId, pluginIndex }` |
-| `plugin:started` | The plugin's `apply()` hook returned | `{ pluginId, pluginIndex }` |
-| `plugin:start:starting` | The plugin's `start()` hook is about to run, after every route is up | `{ pluginId, pluginIndex }` |
-| `plugin:start:started` | The plugin's `start()` hook resolved | `{ pluginId, pluginIndex }` |
+| `plugin:applying` | The plugin's `apply()` hook is about to run, while the context is being built | `{ pluginId, pluginIndex }` |
+| `plugin:applied` | The plugin's `apply()` hook returned | `{ pluginId, pluginIndex }` |
+| `plugin:starting` | The plugin's `start()` hook is about to run, after every route is up | `{ pluginId, pluginIndex }` |
+| `plugin:started` | The plugin's `start()` hook resolved | `{ pluginId, pluginIndex }` |
 | `plugin:stopping` | Plugin is about to stop | `{ pluginId, pluginIndex }` |
 | `plugin:stopped` | Plugin has stopped | `{ pluginId, pluginIndex }` |
 
-The two pairs bracket two different phases. `plugin:starting` / `plugin:started` bracket `apply()`, which runs while the context is being built and before any route exists. `plugin:start:starting` / `plugin:start:started` bracket the optional `start()` hook, which runs after every route has signalled readiness. A plugin can take either phase without the other, so neither pair implies the other fired. See the [plugin lifecycle](/docs/reference/plugins#lifecycle).
+The event vocabulary matches the lifecycle: applying, starting, stopping. `plugin:applying` / `plugin:applied` bracket `apply()`, which runs while the context is being built and before any route exists; `plugin:starting` / `plugin:started` bracket the optional `start()` hook, which runs after every route has signalled readiness. A plugin can take either phase without the other, so neither pair implies the other fired. See the [plugin lifecycle](/docs/reference/plugins#lifecycle).
 
-A failing `start()` hook emits `context:error` and no `plugin:start:started`, and the context shuts down rather than reporting itself running. `context:started` fires when the routes are asked to start, which is earlier than both: for "the context is up and its plugins have finished starting", await `ctx.whenStarted()` rather than watching for an event.
+{% callout type="warning" title="plugin:started changed meaning in 0.7" %}
+Before 0.7 `plugin:starting` / `plugin:started` bracketed `apply()`. They now bracket the `start()` hook, and the apply pair is `plugin:applying` / `plugin:applied`. An existing subscriber keeps compiling and keeps firing, but later than it used to.
+{% /callout %}
+
+A failing `start()` hook emits `context:error` and no `plugin:started`, and the context shuts down rather than reporting itself running. `context:started` fires before any route or plugin `start()` hook has run, which makes it the wrong readiness signal: for "the context is up and its plugins have finished starting", await `ctx.whenStarted()` rather than watching for an event.
 
 ## Authentication events
 

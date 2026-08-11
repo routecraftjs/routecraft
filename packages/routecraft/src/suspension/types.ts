@@ -367,6 +367,11 @@ export interface SuspensionStore {
    * for is the boot summary after an outage, which is the first moment
    * anyone could learn such a record exists.
    *
+   * The asymmetry with the `expiring` lease is deliberate: expiry
+   * NOTIFICATIONS heal by redelivery because re-sending a nag is safe,
+   * while this residue is a half-run CONTINUATION and is only ever
+   * reported.
+   *
    * @param limit - Cap on records returned. Omit for all of them.
    */
   resumedWithoutTerminal(limit?: number): Promise<Suspension[]>;

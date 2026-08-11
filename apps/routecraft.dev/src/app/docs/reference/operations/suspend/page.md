@@ -126,7 +126,9 @@ Two limits are worth knowing before you rely on this for money:
 
 **Expiry fires within a sweep interval of the deadline, not on it.** A background sweeper retires overdue suspensions on a schedule ([`sweepInterval`](/docs/reference/configuration#suspension), 60 seconds by default), so a "nobody approved in 72 hours, escalate" flow runs whether or not anyone ever clicks the link. It also scans at startup, before the context reports ready, so whatever came due while the process was down reaches its routes ahead of new traffic. What it does not give you is a deadline honoured to the second: a suspension is retired on the first sweep after its `ttl` elapses.
 
-Retiring a suspension emits [`route:exchange:expired`](/docs/reference/events) and re-enters the route's error channel with [`RC5047`](/docs/reference/errors#rc-5047), exactly once. The sweeper competes for the same transition a late answer competes for, so an approval landing on the deadline is either accepted or expired, never both, and only the winner notifies.
+Retiring a suspension emits [`route:exchange:expired`](/docs/reference/events) and re-enters the route's error channel with [`RC5047`](/docs/reference/errors#rc-5047). The sweeper competes for the same transition a late answer competes for, so an approval landing on the deadline is either accepted or expired, never both, and only the winner notifies.
+
+**Expiry notification is at-least-once, not exactly-once.** Delivery is claim-then-notify-then-finalize, so a process that dies mid-delivery leaves a claim the sweeper releases after [`expiryLease`](/docs/reference/configuration#suspension) (60 minutes by default) and redelivers: the approver hears about the expiry despite the crash. The accepted cost is the other crash window; a process that dies after notifying but before finalizing redelivers one duplicate escalation once the lease elapses. Make the `.error()` re-ask path tolerant of a repeat, the way any notification handler should be.
 
 ## Related
 

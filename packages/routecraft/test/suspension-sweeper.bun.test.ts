@@ -769,4 +769,195 @@ describe("the suspension sweeper", () => {
     expect((await store.get("sus-after-stop"))?.status).toBe("suspended");
     await store.close();
   });
+
+  /**
+   * @case A claim whose holder died is redelivered after its lease
+   * @preconditions A record left expiring with a stale claim, in a context whose route can re-ask
+   * @expectedResult The sweep releases it back to suspended and the same pass retires it, so the approver hears about the expiry despite the crash. Without the lease the record would sit in a state nothing looks at, stranded with zero operator signal
+   */
+  test("redelivers a claim whose deliverer died", async () => {
+    const store = new MemorySuspensionStore();
+    const reasked: unknown[] = [];
+
+    t = await testContext()
+      .with(suspendingWith(store))
+      .routes([
+        craft()
+          .id("payout")
+          .error((err) => {
+            reasked.push(err);
+            return { reasked: true };
+          })
+          .from(direct())
+          .suspend({ expect: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    // A crash mid-delivery: claimed two hours ago, never finalized.
+    await store.create(overdue("sus-crashed"));
+    await store.claimExpiry(
+      "sus-crashed",
+      new Date(Date.now() - 2 * 60 * 60 * 1000),
+    );
+
+    const sweeper = new SuspensionSweeper(t.ctx, store, sweeperOptions);
+    expect(await sweeper.sweep()).toBe(1);
+
+    expect((await store.get("sus-crashed"))?.status).toBe("expired");
+    expect(reasked).toHaveLength(1);
+  });
+
+  /**
+   * @case A fresh claim is honoured, not stolen
+   * @preconditions A record claimed a moment ago, within the lease
+   * @expectedResult The sweep leaves it expiring and retires nothing. A lease shorter than a slow error handler would make one healthy process double-deliver by itself, which is why the release only takes stale claims
+   */
+  test("leaves a claim still within its lease alone", async () => {
+    const store = new MemorySuspensionStore();
+
+    t = await testContext()
+      .with(suspendingWith(store))
+      .routes([
+        craft()
+          .id("payout")
+          .error(() => ({ reasked: true }))
+          .from(direct())
+          .suspend({ expect: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    await store.create(overdue("sus-claimed"));
+    await store.claimExpiry("sus-claimed", new Date());
+
+    const sweeper = new SuspensionSweeper(t.ctx, store, sweeperOptions);
+    expect(await sweeper.sweep()).toBe(0);
+
+    expect((await store.get("sus-claimed"))?.status).toBe("expiring");
+  });
+
+  /**
+   * @case The load-bearing joint: an answer meeting a claimed or released record
+   * @preconditions One parked exchange whose record is put through claim, then release, with answers presented at each stage
+   * @expectedResult A token presented while the record is expiring reads RC5047, and after the flip-back the answer is still refused because the record is past its deadline. The flip-back is only safe because both reads refuse; if either accepted, a crash window would let a dead approval run
+   */
+  test("an answer is refused while expiring and after the flip-back", async () => {
+    const store = new MemorySuspensionStore();
+    const continued: unknown[] = [];
+
+    t = await testContext()
+      .with(suspendingWith(store))
+      .routes([
+        craft()
+          .id("payout")
+          .error(() => ({ reasked: true }))
+          .from(direct())
+          .suspend({ expect: Approval, ttl: "1ms" })
+          .tap((ex) => {
+            continued.push(ex.body);
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(
+      await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
+    );
+    await sleep(5);
+
+    // Stage one: mid-delivery. The claim is held elsewhere.
+    await store.claimExpiry(parked.suspensionId, new Date());
+    await expect(
+      t.client.sendDirect("answers", {
+        token: parked.token,
+        result: { approved: true },
+      }),
+    ).rejects.toMatchObject({ rc: "RC5047" });
+
+    // Stage two: the deliverer died and the lease released the claim. The
+    // record is suspended again, but past its deadline, so the lazy check
+    // refuses the answer rather than reviving dead work.
+    await store.releaseExpiring(new Date(Date.now() + 1));
+    expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
+    await expect(
+      t.client.sendDirect("answers", {
+        token: parked.token,
+        result: { approved: true },
+      }),
+    ).rejects.toMatchObject({ rc: "RC5047" });
+
+    expect(continued).toHaveLength(0);
+  });
+
+  /**
+   * @case Settled records past retention are purged by the boot scan
+   * @preconditions A record settled 100 days ago and one settled yesterday, with the default retention
+   * @expectedResult Only the old one is purged, at startup, with nothing else driving it. Settled records hold a full serialized exchange each and nothing else ever removes one
+   */
+  test("purges settled records past retention at boot", async () => {
+    const store = new MemorySuspensionStore();
+    const day = 24 * 60 * 60 * 1000;
+    await store.create(
+      overdue("sus-ancient", { suspendedAt: new Date(Date.now() - 100 * day) }),
+    );
+    await store.claimExpiry("sus-ancient", new Date());
+    await store.markExpired("sus-ancient");
+    await store.create(
+      overdue("sus-recent", {
+        suspendedAt: new Date(Date.now() - day),
+        expiresAt: new Date(Date.now() + day),
+      }),
+    );
+    await store.claimExpiry("sus-recent", new Date());
+    await store.markExpired("sus-recent");
+
+    t = await testContext()
+      .with(suspendingWith(store))
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ expect: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    expect(await store.get("sus-ancient")).toBeUndefined();
+    expect(await store.get("sus-recent")).toBeDefined();
+  });
+
+  /**
+   * @case An audit deployment opts out of retention
+   * @preconditions retention: "never" and a record settled 100 days ago
+   * @expectedResult The boot scan leaves it in place. Keep-everything is a legitimate configuration and has to be explicit now that the default purges
+   */
+  test("retention never keeps settled records forever", async () => {
+    const store = new MemorySuspensionStore();
+    const day = 24 * 60 * 60 * 1000;
+    await store.create(
+      overdue("sus-ancient", { suspendedAt: new Date(Date.now() - 100 * day) }),
+    );
+    await store.claimExpiry("sus-ancient", new Date());
+    await store.markExpired("sus-ancient");
+
+    t = await testContext()
+      .with(suspendingWith(store, { retention: "never" }))
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ expect: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    expect(await store.get("sus-ancient")).toBeDefined();
+  });
 });

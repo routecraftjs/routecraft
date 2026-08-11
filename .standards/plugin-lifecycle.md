@@ -56,9 +56,11 @@ or task to carry it.
 - A throwing `start()` fails `context.start()` with the original error,
   unwrapped. A context that could not start must never report itself as
   running.
-- Plugins that already started are torn down before the error surfaces,
-  in the usual reverse order. Without that, a plugin that started an
-  interval keeps the process alive after a boot that failed.
+- The unwind is the ordinary shutdown path, so EVERY applied plugin is
+  torn down in reverse order, not only those whose `start()` ran. A
+  `teardown()` must therefore tolerate its own `start()` never having run.
+  Without the unwind, a plugin that started an interval keeps the process
+  alive after a boot that failed.
 - A teardown that throws during the unwind is logged and does not replace
   the start error. The operator needs the cause of the failed boot, not
   whatever the cleanup hit on the way out.
@@ -83,7 +85,15 @@ is still coming up and every `start()` hook has finished, and rejects with
 the original error if a hook or the config refuses. A single route that
 fails to come up is not observable there, because `start()` keeps the
 remaining routes running by design; a probe that must know one specific
-route is serving watches `route:started` for it.
+route is serving watches `route:started` for it. The wait on route
+readiness is bounded (30 seconds): a source that never calls `ready()` and
+never emits delays the plugin phase by that bound rather than holding the
+context down forever.
+
+A context is single-use. `start()` after `stop()` refuses with `RC1004`,
+because route controllers are built once and a restart would report ready
+over dead routes; concurrent `start()` calls join one boot. The process is
+the restart unit.
 
 `@routecraft/testing`'s `startAndWaitReady()` and `test()` await it, so a
 test asserting on work a `start()` hook does is not racing it.

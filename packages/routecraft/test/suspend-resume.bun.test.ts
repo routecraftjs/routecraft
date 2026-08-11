@@ -17,7 +17,7 @@ import {
   type EventName,
   type Exchange,
 } from "../src/index.ts";
-import { asSuspended, suspending } from "./helpers/suspension.ts";
+import { asSuspended, storeWith, suspending } from "./helpers/suspension.ts";
 
 /**
  * A signing secret for the two-context tests, which share one store across
@@ -1191,5 +1191,113 @@ describe("suspend and resume", () => {
     await t.drain();
 
     expect(seen).toEqual(["undefined", "true"]);
+  });
+
+  /**
+   * @case An answer that arrives in time but validates past the deadline
+   * @preconditions .suspend({ ttl: "40ms" }) with an expect schema whose async validate sleeps well past it; the answer is presented before the deadline
+   * @expectedResult RC5047 in the ingress route, a failed terminal carrying RC5047, and one re-ask. The deadline is re-checked AFTER winning markResumed because validation is user code that can await; without the re-check a slow validation would run the continuation past the window its route declared closed
+   */
+  test("a slow validation cannot carry an answer past the deadline", async () => {
+    const caught: unknown[] = [];
+    const continued: unknown[] = [];
+    const SlowApproval = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: async (value: unknown) => {
+          await new Promise((resolve) => setTimeout(resolve, 120));
+          return { value };
+        },
+      },
+    };
+
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .error((err) => {
+            caught.push(err);
+            return { reasked: true };
+          })
+          .from(direct())
+          .suspend({ expect: SlowApproval as never, ttl: "40ms" })
+          .tap((ex) => {
+            continued.push(ex.body);
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(
+      await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
+    );
+
+    // Presented immediately, so the entry deadline check passes; the
+    // validation sleep is what carries the clock past the deadline.
+    await expect(
+      t.client.sendDirect("answers", {
+        token: parked.token,
+        result: { approved: true },
+      }),
+    ).rejects.toMatchObject({ rc: "RC5047" });
+
+    expect(continued).toHaveLength(0);
+    expect(caught).toHaveLength(1);
+    const runtime = t.ctx.getStore(SUSPENSION_RUNTIME);
+    const record = await runtime?.store.get(parked.suspensionId);
+    expect(record?.status).toBe("resumed");
+    expect(record?.terminal?.status).toBe("failed");
+    expect(record?.terminal?.error?.rc).toBe("RC5047");
+  });
+
+  /**
+   * @case The terminal cache write fails after a continuation succeeded
+   * @preconditions A store whose recordTerminal throws once execution two completes
+   * @expectedResult The answerer still receives the completed acknowledgment. The work is done and destinations fired, so a transient store error at that moment must not report the work as failed; the only cost is that a duplicate resume is told the outcome is unrecorded
+   */
+  test("a failed terminal cache write does not fail a completed resume", async () => {
+    const backing = new MemorySuspensionStore();
+    const store = storeWith(backing, {
+      recordTerminal: async (id, terminal) => {
+        if (terminal.status === "completed") {
+          throw new Error("the database went away");
+        }
+        return backing.recordTerminal(id, terminal);
+      },
+    });
+
+    t = await testContext()
+      .with({ suspension: { store } } as CraftConfig)
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ expect: Approval })
+          .transform((body) => ({ paid: (body as Payout).amountCents }))
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(
+      await t.client.sendDirect("payout", {
+        amountCents: 25_000,
+        payee: "acme",
+      }),
+    );
+
+    const acknowledgment = (await t.client.sendDirect("answers", {
+      token: parked.token,
+      result: { approved: true },
+    })) as { status: string; outcome: { status: string } };
+
+    expect(acknowledgment.status).toBe("resumed");
+    expect(acknowledgment.outcome.status).toBe("completed");
+    expect((await backing.get(parked.suspensionId))?.terminal).toBeUndefined();
   });
 });

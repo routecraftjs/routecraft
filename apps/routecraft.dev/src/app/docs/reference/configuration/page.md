@@ -160,6 +160,8 @@ export const craftConfig = defineConfig({
 | `secret` | `string` | -- | HMAC secret for signing resume tokens. Prefer the environment variable below; this field is for deployments that fetch secrets at boot and pass them in code. |
 | `defaultTtl` | `Duration \| "never"` | `72h` | How long a suspension stays resumable when [`.suspend()`](/docs/reference/operations/suspend) names no `ttl` of its own. `"never"` opts the context out of default expiry entirely, so an unanswered suspension is kept until something else retires it. |
 | `sweepInterval` | `Duration` | `60s` | How often the sweeper looks for overdue suspensions. TTLs are measured in hours, so sub-minute precision buys nothing; the knob is for tests and for deployments that want expiry noticed sooner. |
+| `expiryLease` | `Duration` | `60m` | How long an expiry-delivery claim is honoured before the sweeper releases it for redelivery. Only a crash mid-delivery ever spends it; keep it longer than your slowest `.error()` handler, or one healthy process will double-deliver by itself. |
+| `retention` | `Duration \| "never"` | `90d` | How long settled suspensions (resumed, expired, denied) are kept before the sweeper purges them. `"never"` keeps everything for audit deployments, and the store then grows with every exchange that ever suspended. |
 
 The `store` and `secret` settings are also readable from the environment, which is how a container deployment supplies them. `defaultTtl` and `sweepInterval` are config-only:
 
