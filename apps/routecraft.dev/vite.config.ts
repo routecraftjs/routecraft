@@ -57,8 +57,12 @@ export default defineConfig({
       prerender: { enabled: true, crawlLinks: false },
       pages: [
         '/',
+        '/blog/',
+        '/changelog/',
+        '/cheat-sheet/',
         ...contentRoutes('docs', '/docs'),
         ...contentRoutes('docs-next', '/docs/next'),
+        ...contentRoutes('blog', '/blog'),
       ].map((path) => ({ path })),
     }),
     viteReact(),

@@ -25,6 +25,8 @@ export interface DocsModule {
   default: ComponentType
   frontmatter?: DocsFrontmatter
   toc?: TocEntry[]
+  /** Names of components on the page that contribute their own outline. */
+  outlines?: string[]
 }
 
 export interface DocsPage {

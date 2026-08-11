@@ -48,7 +48,20 @@ function visibleText(node: Heading): string {
 }
 
 /**
- * Assigns heading ids and exports the page's table of contents as `toc`.
+ * Reference catalogues that render their own outline.
+ *
+ * They are components rather than markdown headings, so a page built around one
+ * would otherwise publish an empty "On this page" sidebar.
+ */
+const OUTLINE_COMPONENTS = new Set([
+  'OperationsIndex',
+  'AdapterGrid',
+  'PluginIndex',
+])
+
+/**
+ * Assigns heading ids and exports the page's table of contents as `toc`, plus
+ * the outline-owning components it uses as `outlines`.
  *
  * An explicit `\{#custom-id}` marker wins. The brace is escaped in content
  * because MDX would otherwise read `{...}` as an expression, so by the time
@@ -58,6 +71,12 @@ export function remarkDocsHeadings() {
   return (tree: Root) => {
     const slugify = slugifyWithCounter()
     const toc: TocEntry[] = []
+    const outlines: string[] = []
+
+    visit(tree, 'mdxJsxFlowElement', (node: { name?: string | null }) => {
+      if (node.name && OUTLINE_COMPONENTS.has(node.name))
+        outlines.push(node.name)
+    })
 
     visit(tree, 'heading', (node: Heading) => {
       const last = node.children.at(-1)
@@ -90,7 +109,10 @@ export function remarkDocsHeadings() {
       }
     })
 
-    const value = `export const toc = ${JSON.stringify(toc)}`
+    const value = [
+      `export const toc = ${JSON.stringify(toc)}`,
+      `export const outlines = ${JSON.stringify(outlines)}`,
+    ].join('\n')
 
     tree.children.unshift({
       type: 'mdxjsEsm',

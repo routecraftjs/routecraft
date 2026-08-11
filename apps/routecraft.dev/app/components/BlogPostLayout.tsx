@@ -1,5 +1,4 @@
 import { AppLink } from '@/components/AppLink'
-import { type Node } from '@markdoc/markdoc'
 
 import { Prose } from '@/components/Prose'
 import { TableOfContents } from '@/components/TableOfContents'
@@ -7,7 +6,7 @@ import { BlogMeta } from '@/components/BlogMeta'
 import { BlogCoverInline } from '@/components/BlogCover'
 import { LightboxImage } from '@/components/Lightbox'
 import { RelatedPosts } from '@/components/RelatedPosts'
-import { collectSections } from '@/lib/sections'
+import { type Section } from '@/lib/sections'
 import {
   formatBlogDate,
   getAllBlogPosts,
@@ -64,13 +63,13 @@ function resolveSlugAndFigure(frontmatter: BlogPostFrontmatter): {
 export function BlogPostLayout({
   children,
   frontmatter,
-  nodes,
+  sections,
 }: {
   children: React.ReactNode
   frontmatter: BlogPostFrontmatter
-  nodes: Array<Node>
+  sections: Array<Section>
 }) {
-  const tableOfContents = collectSections(nodes)
+  const tableOfContents = sections
   const date = typeof frontmatter.date === 'string' ? frontmatter.date : ''
   const { slug, figureNumber } = resolveSlugAndFigure(frontmatter)
 

@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "bun run generate && bun --bun vite dev",
     "generate": "bun scripts/generate-docs-next.ts && bun scripts/generate-docs-catalogue.ts && bun scripts/generate-raw-docs.ts",
-    "prebuild": "bun run generate",
-    "build": "bun --bun vite build",
+    "build": "bun run generate && bun --bun vite build",
     "start": "bun run .output/server/index.mjs",
     "figures:export": "bun scripts/export-figures.ts",
     "typecheck": "tsr generate && tsc --noEmit",

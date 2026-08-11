@@ -1,26 +1,42 @@
-# Build context is the repository root, because the site is a workspace member
-# and bun resolves the lockfile from there:
+# The build context is the repository root, because the site is a bun workspace
+# member and the lockfile lives there:
 #   docker build -f apps/routecraft.dev/Dockerfile -t routecraft-dev .
 FROM oven/bun:1 AS base
 WORKDIR /repo
 
 # --- Dependencies ---
-# The manifests land in their own layer so a content-only change does not
-# reinstall the toolchain.
+# Manifests land in their own layer so a content-only change does not reinstall
+# the toolchain. Every workspace member listed in the lockfile has to be present
+# for a frozen install to resolve, which is why examples and packages come too.
 FROM base AS deps
 COPY package.json bun.lock bunfig.toml ./
 COPY apps/routecraft.dev/package.json apps/routecraft.dev/
+COPY examples/package.json examples/
 COPY packages packages
 RUN bun install --frozen-lockfile
 
 # --- Build ---
 FROM deps AS build
+
+# Vite inlines VITE_* at build time, so these are build arguments rather than
+# runtime environment. The docs version is what the channel switcher shows.
+ARG VITE_DOC_VERSION
+ARG VITE_BASE_URL=https://routecraft.dev
+ARG VITE_POSTHOG_KEY
+ARG VITE_POSTHOG_HOST
+ENV VITE_DOC_VERSION=$VITE_DOC_VERSION \
+    VITE_BASE_URL=$VITE_BASE_URL \
+    VITE_POSTHOG_KEY=$VITE_POSTHOG_KEY \
+    VITE_POSTHOG_HOST=$VITE_POSTHOG_HOST
+
 COPY . .
 RUN bun install --frozen-lockfile
 WORKDIR /repo/apps/routecraft.dev
 RUN bun run build
 
 # --- Production ---
+# The server bundle carries everything it needs, so the image ships .output and
+# nothing else: no source, no node_modules, no build toolchain.
 FROM base AS production
 ENV NODE_ENV=production
 WORKDIR /app
