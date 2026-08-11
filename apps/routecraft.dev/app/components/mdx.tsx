@@ -1,6 +1,6 @@
 import { MDXProvider } from '@mdx-js/react'
 import { createContext, isValidElement, useContext } from 'react'
-import type { ComponentProps, ReactElement, ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 
 import { AdapterGrid } from '@/components/AdapterGrid'
 import { AppLink } from '@/components/AppLink'
@@ -41,24 +41,28 @@ function readCodeElement(children: ReactNode): {
   code: string
   language: string
 } {
-  const pre = children as ReactElement<{ children?: ReactNode }>
-  const codeElement = isValidElement(pre)
-    ? (pre.props as { children?: ReactNode }).children
-    : children
+  // A fence arrives as the `code` element; the same fence inside a `CodeTab`
+  // arrives wrapped in its `pre`. Descend until the children are the source.
+  let node: ReactNode = children
 
-  if (!isValidElement(codeElement)) {
-    return { code: typeof children === 'string' ? children : '', language: '' }
+  while (isValidElement(node)) {
+    const props = node.props as { className?: string; children?: ReactNode }
+
+    if (typeof props.children === 'string') {
+      return {
+        // MDX keeps the fence's closing newline; Markdoc did not hand one over.
+        code: props.children.replace(/\n$/, ''),
+        language: /language-([\w-]+)/.exec(props.className ?? '')?.[1] ?? '',
+      }
+    }
+
+    node = props.children
   }
 
-  const props = codeElement.props as {
-    className?: string
-    children?: ReactNode
+  return {
+    code: typeof children === 'string' ? children : '',
+    language: '',
   }
-  const language = /language-([\w-]+)/.exec(props.className ?? '')?.[1] ?? ''
-  const code = typeof props.children === 'string' ? props.children : ''
-
-  // MDX keeps the fence's closing newline; Markdoc did not hand one over.
-  return { code: code.replace(/\n$/, ''), language }
 }
 
 function MdxPre({ children }: { children?: ReactNode }) {

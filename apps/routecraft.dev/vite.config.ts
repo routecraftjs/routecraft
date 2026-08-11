@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import { nitro } from 'nitro/vite'
 import viteReact from '@vitejs/plugin-react'
@@ -45,6 +45,41 @@ function contentRoutes(directory: string, prefix: string): string[] {
   return routes
 }
 
+/**
+ * The MDX plugin, taught to leave `?raw` imports alone.
+ *
+ * It runs before Vite's own handling, so without this it also claims imports
+ * that asked for the file's text: the blog metadata, the search index and the
+ * copy-page markdown all read their sources raw and would receive a compiled
+ * module instead of a string.
+ */
+function rawAwareMdx(): Plugin {
+  const plugin = mdx({
+    providerImportSource: '@mdx-js/react',
+    remarkPlugins: [
+      remarkFrontmatter,
+      [remarkMdxFrontmatter, { name: 'frontmatter' }],
+      remarkDocsHeadings,
+    ],
+  })
+
+  const transform = plugin.transform as unknown as
+    | ((code: string, id: string) => unknown)
+    | { handler: (code: string, id: string) => unknown }
+    | undefined
+
+  return {
+    ...plugin,
+    enforce: 'pre',
+    transform(this: unknown, code: string, id: string) {
+      if (id.includes('?raw')) return null
+      const handler =
+        typeof transform === 'function' ? transform : transform?.handler
+      return handler?.call(this, code, id)
+    },
+  } as Plugin
+}
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -68,16 +103,6 @@ export default defineConfig({
     viteReact(),
     nitro({ preset: 'bun' }),
     tailwindcss(),
-    {
-      enforce: 'pre',
-      ...mdx({
-        providerImportSource: '@mdx-js/react',
-        remarkPlugins: [
-          remarkFrontmatter,
-          [remarkMdxFrontmatter, { name: 'frontmatter' }],
-          remarkDocsHeadings,
-        ],
-      }),
-    },
+    rawAwareMdx(),
   ],
 })
