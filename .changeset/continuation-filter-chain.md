@@ -1,5 +1,5 @@
 ---
-"@routecraft/routecraft": patch
+"@routecraft/routecraft": minor
 ---
 
 Resumed continuations honour the filter chain, and the detached definition is derived per position (#580).
@@ -9,6 +9,8 @@ A resumed exchange's continuation ran under a `RouteDefinition` assembled as an 
 **`.concurrency()` now bounds resumed continuations.** This is the user-visible fix. A route declaring `.concurrency({ max: 5 })` because a downstream tolerates five calls at a time was getting five ingress executions **plus unbounded resumes** against that same downstream, so a batch of approvals landing together could overrun the limit the bulkhead exists to enforce. Ingress executions and resumed continuations now compete for the same limiter.
 
 **`.retry()` and `.timeout()` now apply to execution two.** Both are safe against the store transition: attempts and deadlines run before any terminal outcome is recorded, so a retried continuation never spends the approval it was answering.
+
+**Upgrade note.** A route that already declares route-scope `.retry()` alongside a `.suspend()` gains at-least-once execution of the steps after the suspend point, where the chain previously did not reach them. That is the same guarantee those retries already gave the steps before the suspend, but it is new for the continuation and needs no opt-in, so make continuation steps idempotent or move side effects a downstream cannot absorb twice behind a step-scope wrapper you control. This is why the bump is `minor` rather than `patch`: previously documented "does not run" behaviour becomes "runs".
 
 **Which positions apply is now declared, not inherited.** `pipeline/chain-policy.ts` keys a survival record by `Exclude<keyof RouteDefinition, NonChainField>`, so every chain position states an answer for a resume and for a debounce release separately, each with its reason recorded beside it. Adding any field to `RouteDefinition` fails the build until it is classified, which is what stops a future chain position from silently not applying to continuations.
 

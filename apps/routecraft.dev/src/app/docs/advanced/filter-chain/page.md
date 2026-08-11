@@ -139,7 +139,7 @@ Inside the continuation, step-scope wrappers work normally, and because a wrappe
 
 ```ts
 .suspend({ expect: Approval, ttl: '72h' })
-.retry({ attempts: 3 })
+.retry({ maxAttempts: 3 })
 .choice(otherwise((b) => b
   .transform(executePayout)
   .to(ledger())
@@ -155,8 +155,8 @@ When you want the positions that stay off, hand the continuation to a route that
 craft()
   .id('execute-payout')
   .authorize({ scopes: ['payouts:execute'] })
-  .circuitBreaker({ threshold: 5 })
-  .retry({ attempts: 3 })
+  .circuitBreaker({ failureThreshold: 5 })
+  .retry({ maxAttempts: 3 })
   .from(direct())
   .transform(executePayout)
   .to(ledger())
