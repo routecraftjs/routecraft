@@ -613,6 +613,27 @@ describe("describeExpect", () => {
   });
 
   /**
+   * @case An extension object that carries no arm at all
+   * @preconditions `~standard.jsonSchema` is present but empty, so neither `output` nor `input` exists to call
+   * @expectedResult Degraded. The library advertised the extension and delivered no rendering, which is the distinction the flag draws: keying on the arms instead would read this as a library that never offered one, and the hash is just as inert either way
+   */
+  test("an arm-less extension object is degraded", () => {
+    const advertisedButEmpty = {
+      "~standard": {
+        version: 1,
+        vendor: "empty",
+        validate: (value: unknown) => ({ value }),
+        jsonSchema: {},
+      },
+    } as unknown as StandardSchemaV1;
+
+    const described = describeExpect(advertisedButEmpty);
+
+    expect(described.jsonSchema).toBeUndefined();
+    expect(described.degraded).toBe(true);
+  });
+
+  /**
    * @case A schema library with no JSON Schema extension at all
    * @preconditions `~standard` carries no `jsonSchema` arm
    * @expectedResult Not marked degraded. There was never a rendering to lose, so this is the benign fallback rather than a library failing to deliver what it advertised
