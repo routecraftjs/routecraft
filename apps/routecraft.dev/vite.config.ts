@@ -10,7 +10,7 @@ import mdx from '@mdx-js/rollup'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkGfm from 'remark-gfm'
 import remarkMdxFrontmatter from 'remark-mdx-frontmatter'
-import { remarkDocsHeadings } from './app/lib/mdx-plugins'
+import { remarkDocsHeadings, remarkUnwrapImages } from './app/lib/mdx-plugins'
 
 const appDirectory = fileURLToPath(new URL('./app', import.meta.url))
 
@@ -64,6 +64,7 @@ function rawAwareMdx(): Plugin {
       remarkGfm,
       [remarkMdxFrontmatter, { name: 'frontmatter' }],
       remarkDocsHeadings,
+      remarkUnwrapImages,
     ],
   })
 

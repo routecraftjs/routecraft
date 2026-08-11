@@ -48,6 +48,30 @@ function visibleText(node: Heading): string {
 }
 
 /**
+ * Lifts a lone image out of its paragraph.
+ *
+ * Markdown images are inline, so a picture on its own line still parses into a
+ * paragraph. The lightbox that renders them is a block element, and a block
+ * inside a paragraph is invalid HTML: the browser closes the paragraph early
+ * while React keeps the nesting, and hydration fails on that page. The old
+ * build shipped the same broken markup.
+ */
+export function remarkUnwrapImages() {
+  return (tree: Root) => {
+    visit(tree, 'paragraph', (node, index, parent) => {
+      if (!parent || index === undefined) return
+
+      const meaningful = node.children.filter(
+        (child) => child.type !== 'text' || child.value.trim() !== '',
+      )
+      if (meaningful.length !== 1 || meaningful[0].type !== 'image') return
+
+      parent.children[index] = meaningful[0]
+    })
+  }
+}
+
+/**
  * Reference catalogues that render their own outline.
  *
  * They are components rather than markdown headings, so a page built around one

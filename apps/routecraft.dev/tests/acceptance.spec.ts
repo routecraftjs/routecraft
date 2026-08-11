@@ -156,6 +156,9 @@ test.describe('site shell', () => {
   })
 
   test('search opens and returns a result', async ({ page }) => {
+    // The index is assembled in the browser on first open, so this is slower
+    // than a navigation and gets flaky when the workers all land at once.
+    test.slow()
     await page.goto('/docs/introduction/')
     await page
       .getByRole('button', { name: /search/i })
@@ -225,6 +228,47 @@ test.describe('responsive layout', () => {
       }
     })
   }
+})
+
+test.describe('runtime health', () => {
+  test('no console errors, page errors or failed requests', async ({
+    page,
+  }) => {
+    test.slow()
+    const problems: string[] = []
+
+    page.on('pageerror', (error) =>
+      problems.push(`pageerror on ${page.url()}: ${error.message}`),
+    )
+    page.on('console', (message) => {
+      if (message.type() === 'error' || message.type() === 'warning') {
+        problems.push(`${message.type()} on ${page.url()}: ${message.text()}`)
+      }
+    })
+    page.on('requestfailed', (request) =>
+      problems.push(
+        `request failed ${request.url()}: ${request.failure()?.errorText}`,
+      ),
+    )
+
+    // One page of every shape: a hydration mismatch shows up per template, and
+    // the blog post template shipped one that the docs pages did not.
+    for (const route of [
+      '/',
+      '/docs/introduction/',
+      '/docs/reference/adapters/cosine/',
+      '/docs/next/introduction/',
+      '/blog/',
+      '/blog/your-first-mcp-server-in-typescript/',
+      '/changelog/',
+      '/cheat-sheet/',
+    ]) {
+      await page.goto(route)
+      await page.waitForLoadState('networkidle')
+    }
+
+    expect(problems).toEqual([])
+  })
 })
 
 test.describe('sitemap', () => {
