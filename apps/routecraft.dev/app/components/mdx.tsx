@@ -67,12 +67,12 @@ function readCodeElement(children: ReactNode): {
 
 function MdxPre({ children }: { children?: ReactNode }) {
   const { code, language } = readCodeElement(children)
-  return <Fence language={language} children={code} />
+  return <Fence language={language}>{code}</Fence>
 }
 
 function MdxCode({ children }: { children?: ReactNode }) {
   if (typeof children !== 'string') return <code>{children}</code>
-  return <InlineCode children={children} />
+  return <InlineCode>{children}</InlineCode>
 }
 
 function MdxCodeTab({

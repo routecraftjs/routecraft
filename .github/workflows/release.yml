@@ -227,15 +227,15 @@ jobs:
       )
     runs-on: ubuntu-latest
     concurrency:
-      group: pages
+      # One image build at a time: two runs pushing `latest` concurrently would
+      # leave the moving tag on whichever finished last rather than on the
+      # newest commit.
+      group: docs-image
       cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     permissions:
       contents: read
-      id-token: write
-      pages: write
+      # Push the site image to GHCR with the job's GITHUB_TOKEN.
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -261,12 +261,12 @@ jobs:
         run: bun install --frozen-lockfile
 
       # The published docs (/docs and /cheat-sheet) track the last released
-      # version, never the in-development code on main. We overlay the docs
-      # and cheat-sheet content from the latest release tag (pushed by the
-      # release job above moments ago when this push cut a release), leaving
-      # the rest of the site (home, blog, changelog) on the main-branch
-      # cadence. This is what lets a blog post or a home-page typo ship
-      # without cutting a release, without leaking unreleased docs.
+      # version, never the in-development code on main. Their content is pinned
+      # to the latest release tag (pushed by the release job above moments ago
+      # when this push cut a release), leaving the rest of the site (home, blog,
+      # changelog) on the main-branch cadence. This is what lets a blog post or
+      # a home-page typo ship without cutting a release, without leaking
+      # unreleased docs.
       #
       # Releases at or before MIN_FREEZE_VERSION predate the current docs styling
       # and do not render with the present shell, so they are never frozen or
@@ -354,62 +354,29 @@ jobs:
           echo "Freeze docs to tag: ${FREEZE_TAG:-<none, using working tree>}"
 
       # Snapshot the in-development docs (the /docs/next channel) from the
-      # checked out (main) content *before* the freeze below overlays /docs with
-      # the released tag. The build then runs with SKIP_DOCS_NEXT so prebuild
-      # does not regenerate next from the now-frozen /docs.
+      # checked out (main) content *before* the freeze below pins /docs to the
+      # released tag. Both this build and the image build then run with
+      # SKIP_DOCS_NEXT so the generator does not overwrite that snapshot with
+      # the frozen content.
       - name: Generate the next docs channel
-        run: node --experimental-strip-types apps/routecraft.dev/scripts/generate-docs-next.mjs
+        run: bun apps/routecraft.dev/scripts/generate-docs-next.ts
 
+      # The script owns the pinned path list, the next-channel preservation and
+      # the conversion of tags cut before the content root moved. It is the same
+      # command a developer runs to reproduce this build locally, so the release
+      # and the local check cannot drift.
       - name: Freeze docs and cheat-sheet to the released ref
         if: steps.docver.outputs.freeze_tag != ''
         env:
           FREEZE_TAG: ${{ steps.docver.outputs.freeze_tag }}
-        run: |
-          set -eo pipefail
-          app=apps/routecraft.dev/src/app
-          public=apps/routecraft.dev/public
-          # Every path here is versioned docs content: the pages, the cheat
-          # sheet, the reference row data under docs/_data, and the screenshots
-          # the pages embed. Anything a docs page renders that is NOT in this
-          # list builds from main and is therefore not pinned to the release.
-          #
-          # `git checkout <tag> -- <path>` is an overlay, not a replace: it
-          # restores what the tag carries and leaves behind anything added
-          # since. Pages written after the release therefore survived the
-          # freeze and published on the released channel as though they had
-          # shipped. Wipe the paths first so the tag's tree is the whole tree.
-          #
-          # The generated next-channel mirrors live inside those paths and were
-          # snapshotted from main a step earlier, so park them across the
-          # replace.
-          staged="$(mktemp -d)"
-          if [ -d "$app/docs/next" ]; then
-            mv "$app/docs/next" "$staged/docs-next"
-          fi
-          if [ -d "$public/screenshots/next" ]; then
-            mv "$public/screenshots/next" "$staged/screenshots-next"
-          fi
-          rm -rf "$app/docs" "$app/cheat-sheet" "$public/screenshots"
-          git checkout "$FREEZE_TAG" -- \
-            "$app/docs" "$app/cheat-sheet" "$public/screenshots"
-          if [ -d "$staged/docs-next" ]; then
-            mv "$staged/docs-next" "$app/docs/next"
-          fi
-          if [ -d "$staged/screenshots-next" ]; then
-            mkdir -p "$public/screenshots"
-            mv "$staged/screenshots-next" "$public/screenshots/next"
-          fi
-          # The changelog moved to a top-level /changelog on the main cadence.
-          # Older release refs still carry it under docs/changelog, so drop that
-          # copy and restore the main-branch redirect stub at the old URL.
-          rm -rf "$app/docs/changelog"
-          git checkout HEAD -- "$app/docs/changelog"
+        run: bun apps/routecraft.dev/scripts/freeze-docs.ts "$FREEZE_TAG"
 
+      # Built here as well as in the image because the verify gate below reads
+      # the prerender output, and a gate that runs after the push would be
+      # reporting on an image that already shipped.
       - name: Build docs
         env:
-          NEXT_PUBLIC_DOC_VERSION: ${{ steps.docver.outputs.label }}
-          NEXT_PUBLIC_POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
-          NEXT_PUBLIC_POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
+          VITE_DOC_VERSION: ${{ steps.docver.outputs.label }}
           # next was snapshotted above from main; do not overwrite it from the
           # frozen /docs during prebuild.
           SKIP_DOCS_NEXT: "1"
@@ -421,13 +388,66 @@ jobs:
       - name: Verify the published docs match the released ref
         env:
           FREEZE_TAG: ${{ steps.docver.outputs.freeze_tag }}
-        run: node --experimental-strip-types apps/routecraft.dev/scripts/verify-docs-freeze.mjs "$FREEZE_TAG"
+        run: bun apps/routecraft.dev/scripts/verify-docs-freeze.ts "$FREEZE_TAG"
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: apps/routecraft.dev/out
+      - name: Log in to GHCR
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+      # The image is the rollback unit: every deploy is a pull of an immutable
+      # <docs-version>-<short-sha> tag, so rolling back is redeploying the
+      # previous one. `latest` is the moving tag Dokploy is configured to pull.
+      - name: Build and push the site image
+        id: image
+        env:
+          DOC_VERSION: ${{ steps.docver.outputs.label }}
+          POSTHOG_KEY: ${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+          POSTHOG_HOST: ${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
+        run: |
+          set -eo pipefail
+          # A registry tag admits [A-Za-z0-9_.-] only, and a git tag name may
+          # legally carry a slash, which a registry reads as a path segment.
+          VERSION="$(printf '%s' "$DOC_VERSION" | tr -c 'A-Za-z0-9_.-' '-')"
+          # The commit this job actually built, not github.sha: on workflow_run
+          # that expression can point at a newer main tip.
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          OWNER="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          IMAGE="ghcr.io/$OWNER/routecraft.dev"
+
+          # The build context is the repository root: the site is a workspace
+          # member and the lockfile lives there. It carries the frozen working
+          # tree, which is why the image build must not regenerate the next
+          # channel from it.
+          docker build \
+            --file apps/routecraft.dev/Dockerfile \
+            --build-arg VITE_DOC_VERSION="$DOC_VERSION" \
+            --build-arg VITE_POSTHOG_KEY="$POSTHOG_KEY" \
+            --build-arg VITE_POSTHOG_HOST="$POSTHOG_HOST" \
+            --build-arg SKIP_DOCS_NEXT=1 \
+            --tag "$IMAGE:$VERSION-$SHORT_SHA" \
+            --tag "$IMAGE:latest" \
+            .
+
+          docker push "$IMAGE:$VERSION-$SHORT_SHA"
+          docker push "$IMAGE:latest"
+          echo "reference=$IMAGE:$VERSION-$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+      # MAINTAINER SETUP: deploying is Dokploy pulling the tag pushed above. Its
+      # webhook URL is per-application and issued by the Dokploy instance, so it
+      # cannot live in this repository; add it as the DOKPLOY_DEPLOY_WEBHOOK
+      # repository secret. Until it is set this step is a no-op and the site
+      # keeps serving the previous image, which is why an unset secret is
+      # reported rather than failed.
+      - name: Trigger the Dokploy deployment
+        env:
+          DOKPLOY_DEPLOY_WEBHOOK: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK }}
+          IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
+        run: |
+          set -eo pipefail
+          if [ -z "$DOKPLOY_DEPLOY_WEBHOOK" ]; then
+            echo "DOKPLOY_DEPLOY_WEBHOOK is not set; pushed $IMAGE_REFERENCE without deploying it."
+            exit 0
+          fi
+          curl --fail --silent --show-error --request POST "$DOKPLOY_DEPLOY_WEBHOOK" >/dev/null
+          echo "Dokploy asked to deploy $IMAGE_REFERENCE."

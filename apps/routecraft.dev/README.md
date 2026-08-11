@@ -1,44 +1,93 @@
-# Syntax
+# routecraft.dev
 
-Syntax is a [Tailwind Plus](https://tailwindcss.com/plus) site template built using [Tailwind CSS](https://tailwindcss.com) and [Next.js](https://nextjs.org).
+The Routecraft website: home, docs, blog, changelog and cheat sheet. TanStack Start on Vite,
+rendered by Nitro, shipped as a container image that Dokploy pulls.
 
-## Getting started
+## Layout
 
-To get started with this template, first install the npm dependencies:
+| Path | What lives there |
+| --- | --- |
+| `app/content/` | Authored content: `docs/`, `blog/`, `changelog/`, `cheat-sheet/`. MDX plus the reference row data under `docs/_data/` |
+| `app/routes/` | The route tree. `/docs/$` and `/docs/next/$` are the two docs channels |
+| `app/components/` | Shell and the MDX component vocabulary (`mdx.tsx`) content may use |
+| `app/lib/` | Content loading, navigation, search, raw-markdown cleaning |
+| `scripts/` | Generators, the release freeze, the freeze verification, figure export |
+| `public/` | Static assets. `screenshots/` is versioned docs content; `images/` is blog-only |
 
-```bash
-npm install
+Content may only use the components registered in `app/components/mdx.tsx`: no imports inside a
+content file and no ad-hoc inline JSX. See
+[`.standards/content-and-docs.md`](../../.standards/content-and-docs.md) for why, and for how
+`/docs` and `/docs/next` are kept apart.
+
+## Running the site
+
+From the repository root:
+
+```sh
+bun install
+bun run docs          # or: bun run dev, from this directory
 ```
 
-Next, run the development server:
+Dev runs the generators first and then Vite, and prints the local URL.
 
-```bash
-npm run dev
+## Generators
+
+Everything derived from content is generated into gitignored paths, so a stale checkout never
+serves stale derivatives. `bun run generate` runs all three, and `dev` and `build` run it for
+you:
+
+| Script | Writes | Purpose |
+| --- | --- | --- |
+| `scripts/generate-docs-next.ts` | `app/content/docs-next/`, `public/screenshots/next/` | The in-development channel: a verbatim copy of the docs tree |
+| `scripts/generate-docs-catalogue.ts` | `app/lib/generated/` | The reference catalogues from `docs/_data/*.json`, checked against the pages that document them |
+| `scripts/generate-raw-docs.ts` | `public/raw/`, `public/llms*.txt` | The plain-markdown mirrors and the LLM bundles |
+| `scripts/generate-og-images.ts` | `public/og/` | Social preview images and the manifest the page heads read |
+| `scripts/generate-sitemap.ts` | `public/sitemap.xml` | Indexable URLs, minus the noindex surfaces |
+| `scripts/generate-robots.ts` | `public/robots.txt` | Crawler policy |
+| `scripts/generate-feed.ts` | `public/feed.xml` | The blog RSS feed |
+
+Set `SKIP_DOCS_NEXT=1` to leave an existing `docs-next` alone. That matters only when the docs
+tree has been frozen to a release tag: without it the next channel would be regenerated from
+the frozen content and publish the released docs twice.
+
+Figures are exported separately and committed, because the site serves the PNGs:
+
+```sh
+bunx playwright install chromium   # once
+bun run build && bun run figures:export
 ```
 
-Finally, open [http://localhost:3000](http://localhost:3000) in your browser to view the website.
+## The local production check
 
-## Customizing
+What CI does, on your machine. Run it before merging anything that touches the release path:
+the freeze, the generators, the prerender list, or the Dockerfile. From this directory:
 
-You can start editing this template by modifying the files in the `/src` folder. The site will auto-update as you edit these files.
+```sh
+bun run generate                                  # snapshot main into the next channel
+bun scripts/freeze-docs.ts v0.6.0                 # pin /docs to a release tag
+docker build -f Dockerfile --build-arg SKIP_DOCS_NEXT=1 -t routecraft-dev ../..
+docker run --rm -p 3000:3000 routecraft-dev
+bun scripts/freeze-docs.ts --restore              # put the working tree back
+```
 
-## Global search
+Notes on each step:
 
-This template includes a global search that's powered by the [FlexSearch](https://github.com/nextapps-de/flexsearch) library. It's available by clicking the search input or by using the `⌘K` shortcut.
+- The freeze rewrites `app/content/docs`, `app/content/cheat-sheet` and `public/screenshots` in
+  place, so **`--restore` is not optional**; run it before you commit anything.
+- The build context is the repository root (`../..`), because the site is a workspace member and
+  the lockfile lives there.
+- `SKIP_DOCS_NEXT=1` keeps the frozen tree from being copied over the next channel, matching
+  what the release workflow does.
+- The image serves on port 3000. Check both `/docs` (the tag's pages) and `/docs/next` (main's).
+- `bun scripts/verify-docs-freeze.ts v0.6.0` asserts exactly that split against `.output/public`
+  after a plain `bun run build`, and is what gates the deploy.
 
-This feature requires no configuration, and works out of the box by automatically scanning your documentation pages to build its index. You can adjust the search parameters by editing the `/src/markdoc/search.mjs` file.
+For a production build without Docker, `bun run build` then `bun run start`.
 
-## License
+## Checks
 
-This site template is a commercial product and is licensed under the [Tailwind Plus license](https://tailwindcss.com/plus/license).
-
-## Learn more
-
-To learn more about the technologies used in this site template, see the following resources:
-
-- [Tailwind CSS](https://tailwindcss.com/docs) - the official Tailwind CSS documentation
-- [Next.js](https://nextjs.org/docs) - the official Next.js documentation
-- [Headless UI](https://headlessui.dev) - the official Headless UI documentation
-- [Markdoc](https://markdoc.io) - the official Markdoc documentation
-- [Algolia Autocomplete](https://www.algolia.com/doc/ui-libraries/autocomplete/introduction/what-is-autocomplete/) - the official Algolia Autocomplete documentation
-- [FlexSearch](https://github.com/nextapps-de/flexsearch) - the official FlexSearch documentation
+```sh
+bun run typecheck
+bun run lint
+bun run test        # Playwright
+```

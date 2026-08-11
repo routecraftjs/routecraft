@@ -44,7 +44,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [Pre-from Filter Chain](.standards/pre-from-filter-chain.md) -- fixed ordered chain at route scope (`error` / `authorize` / `parse` / `input` / `throttle` / `circuitBreaker` / `retry` / `timeout` / `concurrency` / `cacheCheck` / pipeline / `cacheStore`); framework picks the order, and every position is filled by a shipped operation
 - [Security](.standards/security.md) -- JWT / JWKS verification, principal propagation, bearer-token handling, `userinfo` enrichment, RFC 9728 metadata, `authorize()` semantics
 - [API Stability](.standards/api-stability.md) -- the v0 policy: the whole public API is unstable, so we tag only `@internal` and `@deprecated`; per-symbol `@experimental` / `@beta` / `@stable` tiers arrive at v1
-- [Content and Docs](.standards/content-and-docs.md) -- where content belongs across docs and blog (the five surfaces), introduction-vs-advanced depth axis, code-lives-once, nav-matches-folders, the `route.ts` public-surface decision, static-export redirect constraint
+- [Content and Docs](.standards/content-and-docs.md) -- where content belongs across docs and blog (the five surfaces), introduction-vs-advanced depth axis, code-lives-once, nav-matches-folders, the `route.ts` public-surface decision, constrained-MDX authoring rule, redirect constraint
 
 ## Merge Checklist
 
@@ -69,6 +69,6 @@ Routecraft ships Agent Skills (open standard, any agent) at the repo root in `sk
 
 ## Documentation
 
-- Docs site source: `apps/routecraft.dev/src/app/docs/`
+- Docs site content: `apps/routecraft.dev/app/content/docs/` (MDX; see the [app README](apps/routecraft.dev/README.md) to run it)
 - Key reference pages: adapters, operations, configuration, events, errors, plugins, CLI
 - Source of truth is always the code under `packages/*/src/`

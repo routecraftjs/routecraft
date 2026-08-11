@@ -99,7 +99,7 @@ const index = new FlexSearch.Document<IndexedSection>({
   tokenize: 'full',
   document: {
     id: 'url',
-    index: 'content',
+    index: ['content'],
     store: ['title', 'pageTitle'],
   },
   context: { resolution: 9, depth: 2, bidirectional: true },

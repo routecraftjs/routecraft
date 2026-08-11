@@ -28,7 +28,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 > Routecraft's event system is the foundation for metrics, tracing, alerting, and auditing.
 > Every meaningful thing that happens must be observable through events.
 > Event types live in `packages/routecraft/src/types.ts`.
-> Event docs are at `apps/routecraft.dev/src/app/docs/reference/events/page.md`.
+> Event docs are at `apps/routecraft.dev/app/content/docs/reference/events/index.mdx`.
 
 - [ ] New behavior emits events for at least: started, completed/stopped, and failed states
 - [ ] Event names follow the existing hierarchical convention (e.g., `route:{routeId}:operation:{type}:{adapterId}:started`)
@@ -45,8 +45,8 @@ The checklists below apply to **packages that ship code**: anything under `packa
 ## When you add or modify an adapter
 
 > Adapters live in `packages/routecraft/src/adapters/` and `packages/ai/src/`.
-> Reference docs are at `apps/routecraft.dev/src/app/docs/reference/adapters/page.md`.
-> Conceptual docs are at `apps/routecraft.dev/src/app/docs/introduction/adapters/page.md`.
+> Reference docs are at `apps/routecraft.dev/app/content/docs/reference/adapters/index.mdx`.
+> Conceptual docs are at `apps/routecraft.dev/app/content/docs/introduction/adapters/index.mdx`.
 
 - [ ] Add the adapter to the overview table on the reference page
 - [ ] Add a dedicated section with: function signature, description, code example(s), options table (Field | Type | Default | Required | Description)
@@ -63,14 +63,14 @@ The checklists below apply to **packages that ship code**: anything under `packa
 ## When you add or modify an operation
 
 > Operations live in `packages/routecraft/src/operations/`.
-> Reference docs are at `apps/routecraft.dev/src/app/docs/reference/operations/page.md`.
-> Conceptual docs are at `apps/routecraft.dev/src/app/docs/introduction/operations/page.md`.
+> Reference docs are at `apps/routecraft.dev/app/content/docs/reference/operations/index.mdx`.
+> Conceptual docs are at `apps/routecraft.dev/app/content/docs/introduction/operations/index.mdx`.
 
 - [ ] Add the operation to the overview table on the reference page (with correct category)
 - [ ] Add a dedicated section with: method signature (including generics), description, code example(s), key behaviors
 - [ ] Document any incompatibilities (e.g., `batch()` is incompatible with `direct()`)
 - [ ] Add or update the conceptual guide if needed
-- [ ] If the operation is work-in-progress, mark it with `{% badge %}wip{% /badge %}`
+- [ ] If the operation is work-in-progress, say so in the page's `titleBadges` frontmatter (see `reference/operations/loop/index.mdx`)
 
 ## When you add or modify a consumer
 
@@ -82,24 +82,24 @@ The checklists below apply to **packages that ship code**: anything under `packa
 
 ## When you add or modify configuration/context options
 
-> Reference docs are at `apps/routecraft.dev/src/app/docs/reference/configuration/page.md`.
+> Reference docs are at `apps/routecraft.dev/app/content/docs/reference/configuration/index.mdx`.
 
 - [ ] Add new properties to the configuration reference page with type, default, and description
 - [ ] Update code examples to show the new option in use
-- [ ] If it affects lifecycle behavior, update `apps/routecraft.dev/src/app/docs/reference/events/page.md`
+- [ ] If it affects lifecycle behavior, update `apps/routecraft.dev/app/content/docs/reference/events/index.mdx`
 
 ## When you add or modify error codes
 
-> Error reference is at `apps/routecraft.dev/src/app/docs/reference/errors/page.md`.
+> Error reference is at `apps/routecraft.dev/app/content/docs/reference/errors/index.mdx`.
 
 - [ ] Add the error code with description, cause, and suggested fix
 - [ ] Use the code format of the namespace you are adding to: `RC****` for core, or your ecosystem package's registered namespace (`AI****`). Every code is its namespace followed by exactly four digits. Take the next number in the range your subsystem owns, per the range-allocation table on the error reference page, and claim a new range there before using one
-- [ ] Add a row to `apps/routecraft.dev/src/app/docs/_data/errors.json` so the code appears in the interactive table, not only in the page prose. The row is checked against the page: a code with no `## RC****` heading fails the build
+- [ ] Add a row to `apps/routecraft.dev/app/content/docs/_data/errors.json` so the code appears in the interactive table, not only in the page prose. The row is checked against the page: a code with no `## RC****` heading fails the build
 
 ## When you add or modify a plugin
 
-> Reference docs are at `apps/routecraft.dev/src/app/docs/reference/plugins/page.md`.
-> Conceptual docs are at `apps/routecraft.dev/src/app/docs/introduction/plugins/page.md`.
+> Reference docs are at `apps/routecraft.dev/app/content/docs/reference/plugins/index.mdx`.
+> Conceptual docs are at `apps/routecraft.dev/app/content/docs/introduction/plugins/index.mdx`.
 
 - [ ] Add to the reference page with interface, options, and example
 - [ ] Update the conceptual guide if it introduces new plugin patterns
@@ -119,7 +119,21 @@ The checklists below apply to **packages that ship code**: anything under `packa
 
 ## When you add or modify a CLI command
 
-> Reference docs are at `apps/routecraft.dev/src/app/docs/reference/cli/page.md`.
+> Reference docs are at `apps/routecraft.dev/app/content/docs/reference/cli/index.mdx`.
 
 - [ ] Document the command, flags, and usage examples on the CLI reference page
 - [ ] Ensure the CLI smoke test in CI still passes
+
+## When you touch the docs site
+
+> The site is `apps/routecraft.dev`: content under `app/content/`, everything else shell.
+> It ships as a container image built on every main push. Conventions live in
+> [`.standards/content-and-docs.md`](.standards/content-and-docs.md); how to run it is in the
+> [app README](apps/routecraft.dev/README.md).
+
+- [ ] Content uses only the components registered in `app/components/mdx.tsx`. No imports inside a content file, no ad-hoc inline JSX. A component the page needs is registered first
+- [ ] New versioned content is under `app/content/docs` (pages, and row data under `_data`), not in a component. Anything else a docs page renders builds from main and is not pinned to a release
+- [ ] A surface the released channel must pin is added to `PINNED` in `scripts/freeze-docs.ts` and given a next-channel mirror, the way `public/screenshots` has one
+- [ ] A change to the release path (freeze, generators, prerender list, Dockerfile) is exercised locally as a production build: `bun scripts/freeze-docs.ts <tag>`, `docker build`, `docker run`, then `bun scripts/freeze-docs.ts --restore`
+- [ ] A URL that has to move ships its redirect in the same change; prefer repurposing the page in place
+- [ ] Changed figures are re-exported (`bun run figures:export`) and their PNGs committed

@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "bun run generate && bun --bun vite dev",
-    "generate": "bun scripts/generate-docs-next.ts && bun scripts/generate-docs-catalogue.ts && bun scripts/generate-raw-docs.ts",
-    "build": "bun run generate && bun --bun vite build",
+    "generate": "bun scripts/generate-docs-next.ts && bun scripts/generate-docs-catalogue.ts && bun scripts/generate-raw-docs.ts && bun scripts/generate-og-images.ts && bun scripts/generate-sitemap.ts && bun scripts/generate-robots.ts && bun scripts/generate-feed.ts",
+    "build": "rm -rf .output && bun run generate && bun --bun vite build",
     "start": "bun run .output/server/index.mjs",
     "figures:export": "bun scripts/export-figures.ts",
     "typecheck": "tsr generate && tsc --noEmit",

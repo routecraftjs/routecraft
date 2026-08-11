@@ -1,4 +1,10 @@
 import { getBlogPostBySlug, lastModifiedDate } from '@/lib/blog'
+import {
+  OG_IMAGE_HEIGHT,
+  OG_IMAGE_TYPE,
+  OG_IMAGE_WIDTH,
+  blogOgImage,
+} from '@/lib/generated/og-images'
 import { compactMeta, type PageHead, type PageHeadMeta } from '@/lib/page-head'
 import { absoluteUrl, canonicalPath, siteName, siteUrl } from '@/lib/site'
 import { StructuredData } from '@/components/StructuredData'
@@ -37,6 +43,10 @@ export function blogPostMetadata(slug: string): PageHead {
   const canonical = post.canonical ?? url
   const published = isoDate(post.date)
   const modified = isoDate(lastModifiedDate(post))
+  // Built at generate time into public/og/. The Next build served this from
+  // `/blog/<slug>/opengraph-image?<hash>`, a route a static export cannot have;
+  // the query on the static path keeps the same cache-busting behaviour.
+  const image = absoluteUrl(blogOgImage(slug))
 
   return {
     title: `${post.title} - ${siteName}`,
@@ -66,11 +76,21 @@ export function blogPostMetadata(slug: string): PageHead {
         property: 'article:tag',
         content: tag,
       })),
+      { property: 'og:image', content: image },
+      { property: 'og:image:type', content: OG_IMAGE_TYPE },
+      { property: 'og:image:width', content: String(OG_IMAGE_WIDTH) },
+      { property: 'og:image:height', content: String(OG_IMAGE_HEIGHT) },
+      { property: 'og:image:alt', content: post.title },
       { name: 'twitter:card', content: 'summary_large_image' },
       { name: 'twitter:title', content: post.title },
       post.description
         ? { name: 'twitter:description', content: post.description }
         : null,
+      { name: 'twitter:image', content: image },
+      { name: 'twitter:image:alt', content: post.title },
+      { name: 'twitter:image:type', content: OG_IMAGE_TYPE },
+      { name: 'twitter:image:width', content: String(OG_IMAGE_WIDTH) },
+      { name: 'twitter:image:height', content: String(OG_IMAGE_HEIGHT) },
     ]),
     links: [{ rel: 'canonical', href: canonical }],
   }
@@ -100,7 +120,7 @@ export function BlogPostJsonLd({ slug }: { slug: string }) {
     datePublished: published,
     dateModified: modified,
     inLanguage: 'en-US',
-    image: absoluteUrl(`/blog/${slug}/opengraph-image`),
+    image: absoluteUrl(blogOgImage(slug)),
     author: post.author ? { '@type': 'Person', name: post.author } : undefined,
     publisher: {
       '@type': 'Organization',

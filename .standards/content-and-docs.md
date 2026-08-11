@@ -37,7 +37,7 @@ split. Both are concept-led; advanced just goes deeper and may also carry guides
   it. A topic may legitimately appear as reference + guide + example + blog at once, as long
   as each plays only its own role and links to the others.
 - **Navigation matches folders.** A page's nav group and its URL folder must name the same
-  surface. `apps/routecraft.dev/src/lib/navigation.ts` is the source of truth for grouping; keep it aligned with
+  surface. `apps/routecraft.dev/app/lib/navigation.ts` is the source of truth for grouping; keep it aligned with
   the `docs/<surface>/` folder each page lives in.
 - **No silent duplication.** When two pages cover one topic (for example a how-to and a
   catalog), each owns its half. Do not copy a table into both; link to the one that owns it.
@@ -69,16 +69,16 @@ there) and per-site link paths and figure syntax. When editing a cross-posted ar
 apply the edit to both repos in the same round of changes.
 
 Blog diagrams are React components, not images. Each one lives in
-`apps/routecraft.dev/src/components/figures/` and is registered by id in that folder's
+`apps/routecraft.dev/app/components/figures/` and is registered by id in that folder's
 `index.ts`. A figure is drawn on a fixed canvas and scaled by `<ScaledFrame>`, so the
 composition never reflows: the same drawing at every width, just smaller.
 
 A figure is authored across two files. The **drawing** is the `.tsx`; its **words** (`alt`
-and `caption`) live in `apps/routecraft.dev/src/components/figures/manifest.mjs`, keyed by id. That split exists because the
-words have to be readable without loading JSX: the prebuild that writes `public/raw/**` and
-the markdoc cleaner both need them, and the cleaner also runs inside the webpack config where
-TypeScript type stripping is not guaranteed. `apps/routecraft.dev/src/components/figures/index.ts` joins the two and throws if a drawing
-has no entry, so the halves cannot drift apart silently.
+and `caption`) live in `apps/routecraft.dev/app/components/figures/manifest.mjs`, keyed by id. That split exists because the
+words have to be readable without loading JSX: the generator that writes `public/raw/**` and
+the markdown cleaner both need them, and neither may pull a drawing's React tree into a Node
+context. `apps/routecraft.dev/app/components/figures/index.ts` joins the two and throws if a
+drawing has no entry, so the halves cannot drift apart silently.
 
 Every figure ships in two resolutions, because it renders on surfaces with very different
 size budgets:
@@ -86,7 +86,7 @@ size budgets:
 - **`Figure`** is the full drawing. It renders in the browser only, so it may use grid and
   `color-mix`. Type and colour come from the `primitives.tsx` vocabulary and the `palette`
   prop, not from Tailwind classes, so the drawing stays self-contained and a subtree of it
-  can be lifted into a motif. Place it with `{% diagram id="..." /%}` at the point in the
+  can be lifted into a motif. Place it with `<Diagram id="..." />` at the point in the
   prose where the argument needs it.
 - **`Motif`** is the same idea reduced to shapes that survive a 368px index card and a social
   preview. It replaces the cover glyph when a post sets `diagram: <id>` in frontmatter, which
@@ -124,7 +124,7 @@ first measurement and `tailwind.css` carries a `@media (scripting: none)` fallba
 
 ### In raw markdown, a figure is an image
 
-`{% diagram %}` is meaningless off the site, so `apps/routecraft.dev/src/lib/clean-markdoc.mjs` turns it into a real
+`<Diagram />` is meaningless off the site, so `apps/routecraft.dev/app/lib/clean-mdx.ts` turns it into a real
 markdown image of the light PNG, with the figure's `alt` and its caption in italics beneath.
 That is what `public/raw/blog/<slug>.md` and the "copy page" button emit, so a cross-post to
 dev.to or an LLM reading the raw file gets the artwork and a description rather than an
@@ -134,7 +134,7 @@ untouched rather than emitting a link that 404s.
 
 ### At phone width, a figure is a picture
 
-A 1600x900 drawing scaled into a 358px column is complete but unreadable, so `{% diagram %}`
+A 1600x900 drawing scaled into a 358px column is complete but unreadable, so `<Diagram />`
 makes the figure a lightbox trigger: tapping opens the exported PNG full-screen, filling the
 height and panning horizontally, with the dark file served in dark mode. **The exported PNGs
 are therefore part of the site, not just syndication assets** -- a figure whose PNG is stale
@@ -168,8 +168,8 @@ file overwrite another's dark one.
 
 Run it whenever a figure changes, and commit the PNGs; the site itself serves them, so a
 skipped export ships a post whose figure enlarges to the previous drawing. They are checked in
-rather than built in CI so the Pages workflow never has to install a browser. The page and the script agree on
-the output path and the screenshot marker through `apps/routecraft.dev/src/lib/figure-image.ts`; keep new
+rather than built in CI so the release workflow never has to install a browser. The page and the script agree on
+the output path and the screenshot marker through `apps/routecraft.dev/app/lib/figure-image.ts`; keep new
 surfaces reading from there rather than hardcoding `/images/figures/`.
 
 ## Capability project structure (public-surface file)
@@ -190,7 +190,7 @@ internal-free capability (the repo's own `examples/src` deliberately uses the fl
 
 ## Changelog entries
 
-The changelog (`apps/routecraft.dev/src/app/changelog/page.md`) is for a user scanning to decide
+The changelog (`apps/routecraft.dev/app/content/changelog/index.mdx`) is for a user scanning to decide
 **whether and how to upgrade**. It is not a design doc, a reference, or a migration guide. It names
 what changed and points to the surface that owns the detail. This follows the
 [Keep a Changelog](https://keepachangelog.com) convention: entries are written for humans, kept
@@ -202,7 +202,7 @@ Adapters, Telemetry, Docs, etc.). Each bullet is a **bold lead phrase** in user 
 and one sentence of impact. A second sentence is allowed only when a behaviour change has a precise
 condition a user needs to recognise (for example which messages a trust-classification fix now
 treats differently). Lead a breaking bullet with the removed or renamed symbol so a reader grepping
-their code finds it. Rely on the group-level `{% badge color="red" %}Breaking{% /badge %}` rather
+their code finds it. Rely on the group-level `<Badge color="red">Breaking</Badge>` rather
 than repeating "breaking" per bullet.
 
 **What does not go in the changelog** (it lives elsewhere, and the entry links to it):
@@ -220,45 +220,51 @@ notes: the changelog owns the one-line announcement, not the explanation.
 ## Docs channels: what is version-pinned and what is not
 
 `/docs` publishes the **last released** version; `/docs/next` publishes main. The release
-workflow gets there by replacing `src/app/docs` (pages plus `_data`), `src/app/cheat-sheet`
-and `public/screenshots` with their content at the latest `v*` tag, having first snapshotted
-main into `src/app/docs/next` and `public/screenshots/next`. Everything else in the site
-(home, blog, changelog, and every React component) always builds from main, which is what
-lets a blog post ship without cutting a release.
+workflow snapshots main into `app/content/docs-next` and `public/screenshots/next`, then calls
+`apps/routecraft.dev/scripts/freeze-docs.ts <tag>`, which wipes the pinned paths, checks them
+out from the latest `v*` tag, and carries that snapshot across the swap. Everything else in the
+site (home, blog, changelog, every route and every React component) always builds from main,
+which is what lets a blog post ship without cutting a release.
 
 Three rules follow, and all three have been violated before:
 
 - **The freeze is a replace, not an overlay.** `git checkout <tag> -- <path>` restores what
   the tag carries and silently keeps anything added since, so pages written after the release
-  used to publish on `/docs` as though they had shipped. The workflow wipes the paths first.
+  used to publish on `/docs` as though they had shipped. The script wipes the paths first.
   Any future step that pins content to a ref must do the same.
-- **Versioned content lives under `src/app/docs`, never in a component.** That is the whole
-  rule, and it covers data as well as prose: the rows behind the reference catalogues
-  (`operations-index`, `adapter-grid`, `plugin-index`, `error-table`, `event-namespaces`) live
-  in `src/app/docs/_data/*.json` and reach the components through
-  `apps/routecraft.dev/src/lib/docs-catalogue.ts`. Row data held in a component is frozen by nothing, so an added
-  entry publishes as released, an **edited description or signature rewrites released docs**,
-  and a deleted entry vanishes from docs that still document it. Presence checks alone do not
-  catch the middle case; only pinning the data does.
-- **A row and its page are checked against each other.** `apps/routecraft.dev/scripts/generate-docs-catalogue.mjs` fails
+- **Versioned content lives under `app/content/docs`, never in a component.** That is the
+  whole rule, and it covers data as well as prose: the rows behind the reference catalogues
+  (`OperationsIndex`, `AdapterGrid`, `PluginIndex`, `ErrorTable`, `EventNamespaces`) live in
+  `app/content/docs/_data/*.json` and reach the components through
+  `apps/routecraft.dev/app/lib/docs-catalogue.ts`. Row data held in a component is frozen by
+  nothing, so an added entry publishes as released, an **edited description or signature
+  rewrites released docs**, and a deleted entry vanishes from docs that still document it.
+  Presence checks alone do not catch the middle case; only pinning the data does.
+- **A row and its page are checked against each other.** `apps/routecraft.dev/scripts/generate-docs-catalogue.ts` fails
   the build when an operation, adapter, or plugin has no reference page, or an error code or
   event namespace has no heading to link to. On a channel that owns its data a mismatch is an
   authoring mistake, so it is an error, not a silently dropped row. Anchors are resolved
-  through the catalogue rather than hand-built, because Markdoc slugifies `## RC1001` to
+  through the catalogue rather than hand-built, because the heading `## RC1001` slugifies to
   `rc-1001`.
 
-The channel reaches a component as a `channel` attribute on the Markdoc tag, injected into the
-copied pages by `apps/routecraft.dev/scripts/generate-docs-next.mjs`. Add a new reference catalogue and it needs a
-data file under `_data`, an entry in `CATALOGUES`, the same attribute, and `withDocsChannel` on
-every link it renders, or it will dump `/docs/next` readers back onto the released channel.
+**The channel comes from the route, not from the page.** `/docs/$` and `/docs/next/$` are two
+routes over two content roots, and each passes its channel into `MdxComponents`
+(`app/components/mdx.tsx`), which puts it in context. The catalogue components read it there,
+and `/docs/...` links written in content are rewritten to the reading channel by the provider's
+link component. So the next channel is a **verbatim copy** of the pages
+(`apps/routecraft.dev/scripts/generate-docs-next.ts`): nothing is injected into the markup, and
+a page reads identically on both channels. Add a new reference catalogue and it needs a data
+file under `_data`, an entry in `CATALOGUES`, and registration in the MDX provider wrapped in
+`channelBound`, or it will dump `/docs/next` readers back onto the released channel.
 
-**The pinned set is the freeze step's path list**, and nothing else. Today that is
-`src/app/docs` (pages plus `_data`), `src/app/cheat-sheet`, and `public/screenshots` (the only
-assets docs pages embed; `public/images` is blog-only). Anything a docs page renders that is
-not in that list builds from main. When you add a surface the released channel must pin, add
-it to the list and give it a next-channel mirror, the way screenshots have one.
+**The pinned set is `PINNED` in `freeze-docs.ts`**, and nothing else. Today that is
+`app/content/docs` (pages plus `_data`), `app/content/cheat-sheet`, and `public/screenshots`
+(the only assets docs pages embed; `public/images` is blog-only). Anything a docs page renders
+that is not in that list builds from main. When you add a surface the released channel must
+pin, add it to that list and give it a next-channel mirror, the way screenshots have one. The
+list in the script, the one the verify gate reads, and the one named here are one list.
 
-**The sidebar and the raw mirror follow the channel too.** `apps/routecraft.dev/src/lib/navigation.ts` is shell, so
+**The sidebar and the raw mirror follow the channel too.** `apps/routecraft.dev/app/lib/navigation.ts` is shell, so
 `Navigation` filters its entries against the channel's page set; an entry for an unreleased
 page shows on next and never 404s on the released channel. `public/raw/**` mirrors both
 channels (`/raw/docs/**` and `/raw/docs/next/**`, with whole-channel bundles at
@@ -266,25 +272,53 @@ channels (`/raw/docs/**` and `/raw/docs/next/**`, with whole-channel bundles at
 model when testing against the canary. The next mirror stays out of `llms.txt` and the
 sitemap, matching the channel's noindex.
 
-**A deploy asserts all of this rather than trusting it.** `apps/routecraft.dev/scripts/verify-docs-freeze.mjs`
-runs after the build and fails the deploy when the exported `/docs` routes are not exactly the
-freeze tag's page set, when the next channel is empty, or when a next URL reaches the sitemap.
-`/docs/changelog` is its one deliberate exception, documented in the script. If a released
-page needs fixing before the next release, dispatch the workflow with `freeze_ref` rather than
-loosening the freeze.
+**A deploy asserts all of this rather than trusting it.** `apps/routecraft.dev/scripts/verify-docs-freeze.ts`
+runs after the build, against the prerender output in `.output/public`, and fails the deploy
+when the published `/docs` routes are not exactly the freeze tag's page set, when the next
+channel is empty, or when a next URL reaches the sitemap. It runs **before** the image is
+pushed, so a freeze-shaped mistake never reaches the registry. If a released page needs fixing
+before the next release, dispatch the workflow with `freeze_ref` rather than loosening the
+freeze.
 
-One transitional wrinkle: tags cut before `_data` existed freeze a docs tree without it, so
-that channel falls back to the repository's data pruned to the pages it documents. Drop
-`fallbackRows` once the oldest freezable tag carries `src/app/docs/_data`.
+Two transitional wrinkles, both retired by the same event: the first release tag that carries
+`app/content/docs`. Until then, tags cut before `_data` existed freeze a docs tree without it,
+so that channel falls back to the repository's data pruned to the pages it documents
+(`fallbackRows`); and tags cut before the content root moved carry Markdoc, which
+`freezeLegacyTag` converts on the fly and the verify gate reads through its legacy page-file
+name.
 
 If historical majors ever ship (`/docs/v1` alongside latest and next), the successor design is
 to build each channel from its own git ref and merge the exports. That is rejected today
 because it would render the released channel with the released shell, which is exactly what
 `MIN_FREEZE_VERSION` exists to avoid, and it doubles CI on every main push.
 
+## Constrained MDX: content may only use registered components
+
+Docs, blog and changelog pages are MDX, and the only components they may use are the ones
+registered in the provider at `apps/routecraft.dev/app/components/mdx.tsx`. **No imports inside
+a content file, and no ad-hoc inline JSX.** A component a page needs is added to the provider
+first, with a name and props chosen for authors, and only then used in content.
+
+The constraint is what keeps the other rules in this standard true:
+
+- **Content is frozen, components are not.** A page is checked out from a release tag and
+  rendered by a shell built from main. A page that imports a module pins itself to a path that
+  may not exist at that ref, and the failure surfaces as a broken release build rather than
+  where the edit was made.
+- **The raw mirrors have to degrade to markdown.** `apps/routecraft.dev/app/lib/clean-mdx.ts`
+  turns each page into plain markdown for `public/raw/**`, the "copy page" button and the LLM
+  bundles, and a component name that survives that pass is fatal. Every registered component
+  has a stand-in there; an ad-hoc one has none.
+- **One vocabulary, one review surface.** The registered set is also what
+  `scripts/convert-markdoc.ts` targets, so the transitional conversion of pre-migration tags
+  fails loudly on anything outside it instead of shipping best-effort markup.
+
 ## Operational constraint: redirects
 
-The docs site builds with Next.js `output: 'export'` (see `apps/routecraft.dev/next.config.mjs`),
-so `async redirects()` does **not** run: there is no server to honour it. Prefer repurposing a
-page in place over moving or deleting its URL. If a URL must change, the redirect has to be
-handled at the host (Cloudflare), which is outside this repo, so coordinate it explicitly.
+The site ships as a server (Nitro under Bun in the image), so a moved URL can be redirected by
+the app itself and no longer needs host coordination. Still prefer repurposing a page in place
+over moving or deleting its URL: inbound links and LLM-cached URLs outlive our routing. When a
+URL must change, ship the redirect in the same change, and remember that the prerender list is
+derived from the content tree (`contentRoutes` in `apps/routecraft.dev/vite.config.ts`), so a
+redirect that is not backed by a content file has to be a route. Deep links are pinned outside
+this repository in the trailing-slash form, which is part of the contract.

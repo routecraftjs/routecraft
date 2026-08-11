@@ -15,14 +15,13 @@ const CHANNEL_SEGMENT = /^\/docs\/(next|v\d+)(?=\/|$)/
 
 /**
  * The channel a page is rendered on. `latest` is the released channel served at
- * /docs; `next` is the in-development channel served at /docs/next. Markdoc
- * pages carry it as an attribute on the reference index tags, injected into the
- * next channel by scripts/generate-docs-next.mjs, so a component knows which
- * channel it renders in without a client boundary.
+ * /docs; `next` is the in-development channel served at /docs/next. The route
+ * that loaded the page decides it and the MDX provider puts it in context, so
+ * the copied next-channel content stays byte-identical to the released pages.
  */
 export type DocsChannelName = 'latest' | 'next'
 
-/** Props every reference index tag receives (see src/markdoc/tags.js). */
+/** Props every reference catalogue component receives. */
 export interface DocsChannelProps {
   channel?: DocsChannelName
 }
@@ -35,7 +34,7 @@ export function docsChannelFromPathname(pathname: string): DocsChannelName {
   return asDocsChannel(pathname.match(CHANNEL_SEGMENT)?.[1])
 }
 
-/** Narrow an untrusted Markdoc attribute to a channel name. */
+/** Narrow an untrusted value to a channel name. */
 export function asDocsChannel(value: unknown): DocsChannelName {
   return value === 'next' ? 'next' : 'latest'
 }

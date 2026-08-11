@@ -9,6 +9,12 @@ import { Layout } from '@/components/Layout'
 import { Providers } from '@/components/Providers'
 import { StructuredData } from '@/components/StructuredData'
 import {
+  OG_IMAGE_HEIGHT,
+  OG_IMAGE_TYPE,
+  OG_IMAGE_WIDTH,
+  rootOgImage,
+} from '@/lib/generated/og-images'
+import {
   organization,
   siteDescription,
   siteName,
@@ -39,6 +45,11 @@ const websiteJsonLd = {
   description: siteDescription,
 }
 
+// The site's social card, inherited by every route that does not set its own.
+// Blog posts override the whole group in `blogPostMetadata`.
+const socialImage = `${siteUrl}${rootOgImage}`
+const socialImageAlt = `${siteName} - ${siteTagline}`
+
 export const Route = createRootRoute({
   head: () => ({
     meta: [
@@ -47,6 +58,19 @@ export const Route = createRootRoute({
       { title: `${siteName} - ${siteTagline}` },
       { name: 'description', content: siteDescription },
       { name: 'application-name', content: siteName },
+      { property: 'og:image', content: socialImage },
+      { property: 'og:image:type', content: OG_IMAGE_TYPE },
+      { property: 'og:image:width', content: String(OG_IMAGE_WIDTH) },
+      { property: 'og:image:height', content: String(OG_IMAGE_HEIGHT) },
+      { property: 'og:image:alt', content: socialImageAlt },
+      // Without a card type X renders no image at all, so it travels with the
+      // image rather than with the rest of the Twitter metadata.
+      { name: 'twitter:card', content: 'summary_large_image' },
+      { name: 'twitter:image', content: socialImage },
+      { name: 'twitter:image:alt', content: socialImageAlt },
+      { name: 'twitter:image:type', content: OG_IMAGE_TYPE },
+      { name: 'twitter:image:width', content: String(OG_IMAGE_WIDTH) },
+      { name: 'twitter:image:height', content: String(OG_IMAGE_HEIGHT) },
     ],
     links: [
       { rel: 'stylesheet', href: appStyles },
