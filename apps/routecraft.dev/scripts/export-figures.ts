@@ -38,7 +38,7 @@ import {
   FIGURE_IMAGE_DIR,
   FIGURE_THEMES,
   figureImagePath,
-} from '../src/lib/figure-image'
+} from '../app/lib/figure-image'
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = path.join(appRoot, 'out')

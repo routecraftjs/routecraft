@@ -104,14 +104,12 @@ export function Lightbox({
               onClick={() => setOpen(false)}
               className="flex w-full cursor-zoom-out overflow-auto"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={image}
                 alt={alt}
                 className={clsx(ARTWORK, imageDark && 'dark:hidden')}
               />
               {imageDark ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={imageDark}
                   alt={alt}
@@ -161,7 +159,6 @@ export function LightboxImage({
       image={src}
       className={className}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt={alt}

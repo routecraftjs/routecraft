@@ -28,7 +28,6 @@ export function BlogCard({
           style={{ aspectRatio: '1200 / 630' }}
         >
           {post.image ? (
-            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={post.image}
               alt={post.imageAlt ?? post.title}

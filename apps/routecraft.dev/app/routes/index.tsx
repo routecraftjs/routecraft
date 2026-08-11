@@ -550,7 +550,6 @@ function Reading({ post }: { post: BlogPostMeta }) {
             </div>
             <figure className="relative my-0 hidden overflow-hidden border-l border-ink/15 lg:block">
               {post.image ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={post.image}
                   alt={post.imageAlt ?? post.title}
