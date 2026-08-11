@@ -56,3 +56,9 @@ next-env.d.ts
 
 # Acceptance baseline: raw captured HTML, re-fetchable, derived into baseline/text
 /baseline/html/
+
+# Vite / TanStack Start build output
+/.output/
+/.nitro/
+/.tanstack/
+app/routeTree.gen.ts
