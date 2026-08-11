@@ -160,9 +160,9 @@ export interface Suspension {
   /** When the sweeper will expire this suspension. Absent means no TTL. */
   readonly expiresAt?: Date;
   /**
-   * When the current `expiring` delivery claim was taken. Cleared when a
-   * stale claim is released; kept on a finalized record as the audit of
-   * when its notification was delivered.
+   * When the current `expiring` delivery claim was taken, which is BEFORE
+   * the notification: it is a claim timestamp, not proof of delivery.
+   * Cleared when a stale claim is released; kept on a finalized record.
    */
   readonly claimedAt?: Date;
   readonly status: SuspensionStatus;
@@ -283,6 +283,12 @@ export interface SuspensionStore {
    * holder that dies mid-delivery is healed by
    * {@link SuspensionStore.releaseExpiring} rather than leaving the record
    * stuck.
+   *
+   * A released EXPIRY claim is overdue, so the next sweep redelivers it. A
+   * released DENIAL claim is not, so its redelivery waits for the next
+   * replay of the token, or for the deadline, whichever comes first; the
+   * proactive nag is lost only for a record that has no deadline and is
+   * never replayed, which is the pre-lease behaviour for every crash.
    */
   claimExpiry(id: string, at: Date): Promise<SuspensionCasResult>;
 

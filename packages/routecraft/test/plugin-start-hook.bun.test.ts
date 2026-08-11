@@ -315,6 +315,46 @@ describe("the plugin start hook", () => {
   });
 
   /**
+   * @case A stop() arriving while routes are still coming up
+   * @preconditions One source that never signals readiness, a plugin with a start() hook, and stop() called while start() waits
+   * @expectedResult The start() hook never runs and whenStarted() rejects. Shutdown has already torn the plugins down at that point, so a hook run late would begin work on a stopped context with nothing left to ever tear it down
+   */
+  test("a stop during startup skips the start hooks and settles readiness", async () => {
+    let hookRan = false;
+    const plugin: CraftPlugin = {
+      name: "late",
+      apply() {},
+      start() {
+        hookRan = true;
+      },
+    };
+
+    t = await testContext()
+      .with({ plugins: [plugin] })
+      .routes([
+        craft()
+          .id("quiet")
+          // Never calls ready() and never emits, so readiness only settles
+          // when the stop aborts the route.
+          .from(
+            (sub) =>
+              new Promise<void>((resolve) => {
+                sub.signal.addEventListener("abort", () => resolve());
+              }),
+          )
+          .to(noop()),
+      ])
+      .build();
+
+    void t.ctx.start().catch(() => {});
+    const ready = t.ctx.whenStarted();
+    await t.ctx.stop();
+
+    await expect(ready).rejects.toMatchObject({ rc: "RC1004" });
+    expect(hookRan).toBe(false);
+  });
+
+  /**
    * @case A throwing teardown during the unwind does not mask the start failure
    * @preconditions A first plugin whose teardown throws, and a second whose start() throws
    * @expectedResult context.start() still rejects with the start error, not the teardown error. The operator needs the cause of the failed boot, not whatever the cleanup hit on the way out

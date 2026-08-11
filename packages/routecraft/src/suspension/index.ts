@@ -1,4 +1,5 @@
 export type {
+  ExpiredScanCursor,
   NewSuspension,
   PendingSuspensionSummary,
   PrincipalRef,

@@ -731,8 +731,11 @@ describe("the suspension sweeper", () => {
       .build());
     await context.startAndWaitReady();
 
+    // Written only after shutdown has begun, so no interval tick can race
+    // the record before the stopping guard is what this test observes.
+    const stopping = context.stop();
     await store.create(overdue("sus-at-shutdown"));
-    await context.stop();
+    await stopping;
     // Well past several sweep intervals: nothing may claim it after this.
     await sleep(100);
 
@@ -892,6 +895,40 @@ describe("the suspension sweeper", () => {
     ).rejects.toMatchObject({ rc: "RC5047" });
 
     expect(continued).toHaveLength(0);
+  });
+
+  /**
+   * @case An answer meeting a denial claim mid-delivery
+   * @preconditions A record with a far-future deadline moved to expiring, as refuseContinuation does while its re-ask is in flight
+   * @expectedResult RC5050, not RC5047. An expiry claim is only ever taken on an overdue record, so a claim on a live deadline is a denial being delivered, and telling the answerer their approval timed out would misreport a route change as their lateness
+   */
+  test("a claim on a live deadline reads as denied, not expired", async () => {
+    const store = new MemorySuspensionStore();
+
+    t = await testContext()
+      .with(suspendingWith(store))
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ expect: Approval, ttl: "1h" })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(
+      await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
+    );
+    await store.claimExpiry(parked.suspensionId, new Date());
+
+    await expect(
+      t.client.sendDirect("answers", {
+        token: parked.token,
+        result: { approved: true },
+      }),
+    ).rejects.toMatchObject({ rc: "RC5050" });
   });
 
   /**

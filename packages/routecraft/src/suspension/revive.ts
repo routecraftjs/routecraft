@@ -454,11 +454,19 @@ function settled(suspension: Suspension): ResumeAcknowledgment {
   // resume that lost no race) owns the notification. Re-entering the
   // route's error channel per arriving replay would notify the approver
   // once per request rather than once per event, from a token anyone who
-  // saw the original link still holds. An `expiring` claim reads as expired
-  // for the same reason a finalized record does: the deadline has passed
-  // and its delivery is owned elsewhere, so the answer is refused whether
-  // the claim finalizes or is released.
-  throw suspension.status === "expired" || suspension.status === "expiring"
+  // saw the original link still holds.
+  //
+  // An `expiring` claim is disambiguated by the deadline it shares the
+  // record with: an expiry claim is only ever taken on an overdue record,
+  // so a claim on a record whose deadline has not passed (or that has
+  // none) can only be a denial mid-delivery, and reporting IT as expired
+  // would tell the answerer their approval timed out when the route
+  // changed under it.
+  const overdue =
+    suspension.expiresAt !== undefined &&
+    suspension.expiresAt.getTime() <= Date.now();
+  throw suspension.status === "expired" ||
+    (suspension.status === "expiring" && overdue)
     ? rcError("RC5047", undefined, {
         message: `Suspension "${suspension.id}" expired before an answer arrived.`,
       })

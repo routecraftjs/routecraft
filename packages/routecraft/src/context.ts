@@ -965,14 +965,36 @@ export class CraftContext {
     // when a plugin refuses to start.
     try {
       await routes.ready;
-      await this.startPlugins();
+      // Re-checked after the wait: a stop() arriving while routes were
+      // still coming up has already torn the plugins down, and a start()
+      // hook run now would begin work on a stopped context with nothing
+      // left to ever tear it down.
+      if (!this.hasStopped) await this.startPlugins();
     } catch (err) {
       started.reject(err);
-      await this.stop();
+      try {
+        await this.stop();
+      } catch (stopErr) {
+        // The unwind's own failure must not replace the boot error: the
+        // operator needs the cause of the failed start, not what the
+        // cleanup hit on the way out.
+        this.logger.error(
+          { err: stopErr },
+          "Shutdown after a failed start also failed; reporting the start error.",
+        );
+      }
       await running;
       throw err;
     }
-    started.resolve();
+    if (this.hasStopped) {
+      started.reject(
+        rcError("RC1004", undefined, {
+          message: "The context was stopped before it finished starting.",
+        }),
+      );
+    } else {
+      started.resolve();
+    }
 
     return running
       .then((results) => {
@@ -1042,6 +1064,14 @@ export class CraftContext {
   async stop(): Promise<void> {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.hasStopped = true;
+    // Settles readiness for a context stopped before it ever became ready,
+    // so a probe observes termination instead of waiting forever. A no-op
+    // when the deferred already settled, which is every ordinary shutdown.
+    this.ensureStartedDeferred().reject(
+      rcError("RC1004", undefined, {
+        message: "The context was stopped before it finished starting.",
+      }),
+    );
     this.shutdownPromise = this.performShutdown();
     return this.shutdownPromise;
   }

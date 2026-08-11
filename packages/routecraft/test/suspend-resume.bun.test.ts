@@ -1195,7 +1195,7 @@ describe("suspend and resume", () => {
 
   /**
    * @case An answer that arrives in time but validates past the deadline
-   * @preconditions .suspend({ ttl: "40ms" }) with an expect schema whose async validate sleeps well past it; the answer is presented before the deadline
+   * @preconditions .suspend({ ttl: "200ms" }) with an expect schema whose async validate sleeps well past it; the answer is presented before the deadline
    * @expectedResult RC5047 in the ingress route, a failed terminal carrying RC5047, and one re-ask. The deadline is re-checked AFTER winning markResumed because validation is user code that can await; without the re-check a slow validation would run the continuation past the window its route declared closed
    */
   test("a slow validation cannot carry an answer past the deadline", async () => {
@@ -1206,7 +1206,10 @@ describe("suspend and resume", () => {
         version: 1,
         vendor: "test",
         validate: async (value: unknown) => {
-          await new Promise((resolve) => setTimeout(resolve, 120));
+          // Comfortably past the 200ms ttl; the ttl itself is generous so a
+          // slow CI cannot let the answer ARRIVE after the deadline, which
+          // would exercise the entry check instead of the post-CAS one.
+          await new Promise((resolve) => setTimeout(resolve, 450));
           return { value };
         },
       },
@@ -1222,7 +1225,7 @@ describe("suspend and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: SlowApproval as never, ttl: "40ms" })
+          .suspend({ expect: SlowApproval as never, ttl: "200ms" })
           .tap((ex) => {
             continued.push(ex.body);
           })

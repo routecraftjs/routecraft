@@ -1068,7 +1068,9 @@ export interface EventDetailsMap {
   /** The plugin's `apply()` hook returned. */
   "plugin:applied": { pluginId: string; pluginIndex: number };
   /**
-   * The plugin's `start()` hook is about to run, after every route is up.
+   * The plugin's `start()` hook is about to run, after every route has
+   * signalled readiness or the readiness backstop elapsed, so it is not
+   * proof that every source is listening.
    * Until 0.7 this pair bracketed `apply()`; that phase is now
    * `plugin:applying` / `plugin:applied`, so the event vocabulary matches
    * the lifecycle: applying, starting, stopping.
