@@ -170,6 +170,60 @@ test.describe('site shell', () => {
   })
 })
 
+test.describe('content rendering', () => {
+  test('reference tables render as tables', async ({ page }) => {
+    await page.goto('/docs/reference/adapters/cosine/')
+    // MDX does not parse GitHub Flavored Markdown by default, and losing it
+    // turned every options table into paragraphs of pipes.
+    expect(await page.locator('table').count()).toBeGreaterThan(0)
+    await expect(page.locator('table th').first()).toBeVisible()
+  })
+
+  test('the blog index keeps its header and featured posts', async ({
+    page,
+  }) => {
+    await page.goto('/blog/')
+    await expect(page.locator('h1')).toBeVisible()
+    const featured = page.getByText('Featured', { exact: true })
+    await expect(featured).toBeVisible()
+  })
+
+  test('every route sets its own title', async ({ page }) => {
+    for (const route of ['/blog/', '/changelog/', '/cheat-sheet/']) {
+      await page.goto(route)
+      const title = await page.title()
+      expect(title, `${route} inherited the root title`).not.toBe(
+        'Routecraft - AI Automation as Code',
+      )
+    }
+  })
+})
+
+test.describe('responsive layout', () => {
+  for (const width of [375, 414, 768, 1024]) {
+    test(`no horizontal overflow at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+
+      for (const route of [
+        '/docs/introduction/',
+        '/docs/reference/adapters/cosine/',
+        '/blog/',
+      ]) {
+        await page.goto(route)
+        const overflow = await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth -
+            document.documentElement.clientWidth,
+        )
+        expect(
+          overflow,
+          `${route} overflows at ${width}px`,
+        ).toBeLessThanOrEqual(1)
+      }
+    })
+  }
+})
+
 test.describe('sitemap', () => {
   test('never advertises the next channel', async ({ request }) => {
     const body = await (await request.get('/sitemap.xml')).text()

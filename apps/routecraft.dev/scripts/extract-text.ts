@@ -54,27 +54,30 @@ export function htmlToText(html: string): string {
     .trim()
 }
 
-const [htmlDir, outDir] = process.argv.slice(2)
+// Guarded so `htmlToText` can be imported by other scripts.
+if (import.meta.main) {
+  const [htmlDir, outDir] = process.argv.slice(2)
 
-if (!htmlDir || !outDir) {
-  console.error('Usage: bun scripts/extract-text.ts <html-dir> <out-dir>')
-  process.exit(1)
+  if (!htmlDir || !outDir) {
+    console.error('Usage: bun scripts/extract-text.ts <html-dir> <out-dir>')
+    process.exit(1)
+  }
+
+  let count = 0
+
+  for await (const file of new Glob('**/index.html').scan({
+    cwd: htmlDir,
+    absolute: true,
+  })) {
+    const text = htmlToText(await readFile(file, 'utf8'))
+    const target = join(
+      outDir,
+      relative(htmlDir, file).replace(/index\.html$/, 'index.txt'),
+    )
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, `${text}\n`)
+    count += 1
+  }
+
+  console.log(`Extracted text from ${count} page(s)`)
 }
-
-let count = 0
-
-for await (const file of new Glob('**/index.html').scan({
-  cwd: htmlDir,
-  absolute: true,
-})) {
-  const text = htmlToText(await readFile(file, 'utf8'))
-  const target = join(
-    outDir,
-    relative(htmlDir, file).replace(/index\.html$/, 'index.txt'),
-  )
-  await mkdir(dirname(target), { recursive: true })
-  await writeFile(target, `${text}\n`)
-  count += 1
-}
-
-console.log(`Extracted text from ${count} page(s)`)

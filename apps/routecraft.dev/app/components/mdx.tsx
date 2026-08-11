@@ -117,6 +117,20 @@ function MdxLink({ href = '', ...props }: ComponentProps<'a'>) {
 }
 
 /**
+ * Markdown images open in a lightbox so diagrams and screenshots can be
+ * inspected at full resolution, which is what the Markdoc image node did.
+ */
+function MdxImage({ src, alt, title }: ComponentProps<'img'>) {
+  if (typeof src !== 'string') return null
+  return <LightboxImage src={src} alt={alt ?? ''} caption={title} />
+}
+
+/** Header cells carry their scope, as the Markdoc table node set. */
+function MdxTableHeader(props: ComponentProps<'th'>) {
+  return <th scope="col" {...props} />
+}
+
+/**
  * Lead copy is authored as a markdown block between `<Lead>` tags, so MDX hands
  * this component paragraphs rather than phrasing content. A `<p>` wrapper would
  * nest a paragraph inside a paragraph, which the HTML parser flattens into
@@ -168,6 +182,8 @@ const components = {
   a: MdxLink,
   pre: MdxPre,
   code: MdxCode,
+  img: MdxImage,
+  th: MdxTableHeader,
   Lead,
   Callout,
   Badge,

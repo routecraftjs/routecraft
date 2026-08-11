@@ -1,3 +1,5 @@
+import { Suspense } from 'react'
+
 import { DocsLayout } from '@/components/DocsLayout'
 import { MdxComponents } from '@/components/mdx'
 import { adapterGridTocSections } from '@/components/AdapterGrid'
@@ -63,11 +65,16 @@ export function DocsPageView({
   return (
     <DocsLayout frontmatter={page.frontmatter} sections={sections}>
       <MdxComponents channel={channel}>
-        {/* Not created here: docsComponent is a lookup into a map of lazy
-            components built once at module scope, so the type is stable across
-            renders and the page keeps its state. */}
-        {/* eslint-disable-next-line react-hooks/static-components */}
-        <Content />
+        {/* The fallback holds the column open. Page modules load lazily, and an
+            empty article lets the flex row redistribute, which moves the
+            navigation and the outline sideways until the chunk arrives. */}
+        <Suspense fallback={<div className="min-h-screen" />}>
+          {/* Not created here: docsComponent is a lookup into a map of lazy
+              components built once at module scope, so the type is stable
+              across renders and the page keeps its state. */}
+          {/* eslint-disable-next-line react-hooks/static-components */}
+          <Content />
+        </Suspense>
       </MdxComponents>
     </DocsLayout>
   )
