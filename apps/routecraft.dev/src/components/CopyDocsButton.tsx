@@ -105,7 +105,7 @@ export function CopyDocsButton() {
   }
 
   function getAllDocsFullUrl() {
-    const rawUrl = getAllDocsRawUrl(basePath)
+    const rawUrl = getAllDocsRawUrl(basePath, pathname)
     return `${window.location.origin}${rawUrl}`
   }
 

@@ -77,9 +77,13 @@ export default function withDocsMarkdown(nextConfig = {}) {
                 return prefix + '/raw' + normalized + '.md'
               }
 
-              export function getAllDocsRawUrl(basePath) {
+              // The whole-channel bundle for the channel the reader is on, so
+              // "copy all docs" from /docs/next hands over the in-development
+              // set rather than the released one.
+              export function getAllDocsRawUrl(basePath, pathname) {
                 let prefix = basePath || ''
-                return prefix + '/raw/docs.md'
+                let isNext = typeof pathname === 'string' && /^\\/docs\\/next(\\/|$)/.test(pathname)
+                return prefix + (isNext ? '/raw/docs-next.md' : '/raw/docs.md')
               }
             `
           }),

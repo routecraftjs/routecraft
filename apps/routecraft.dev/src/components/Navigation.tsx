@@ -3,7 +3,9 @@ import { usePathname } from 'next/navigation'
 import clsx from 'clsx'
 
 import { navigation } from '@/lib/navigation'
+import { documentsHref } from '@/lib/docs-catalogue'
 import {
+  docsChannelFromPathname,
   docsChannelPrefix,
   stripDocsChannel,
   withDocsChannel,
@@ -27,10 +29,29 @@ export function Navigation({
   const channelPrefix = docsChannelPrefix(trimmed)
   const pathname = stripDocsChannel(trimmed)
 
+  // The config is shell, so it lists every page main knows about. Drop the
+  // entries this channel has no page for: on the released channel that is a
+  // page written after the release, which would otherwise be a 404 in the
+  // sidebar. Sections that end up empty disappear with their links.
+  const channel = docsChannelFromPathname(trimmed)
+  // The section's own href needs the same test as its children: an unfiltered
+  // header link is still a link to a page this channel does not carry. Dropping
+  // it leaves the plain heading, which the render below already handles.
+  const sections = navigation
+    .map((section) => ({
+      ...section,
+      href:
+        section.href && documentsHref(channel, section.href)
+          ? section.href
+          : undefined,
+      links: section.links.filter((link) => documentsHref(channel, link.href)),
+    }))
+    .filter((section) => section.links.length > 0)
+
   return (
     <nav className={clsx('text-sm', className)}>
       <ul role="list" className="space-y-10">
-        {navigation.map((section) => (
+        {sections.map((section) => (
           <li key={section.title}>
             <div className="flex items-center gap-3">
               <span

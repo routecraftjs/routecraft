@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * Generates clean markdown files in public/raw/ for each docs page
- * and a combined all-docs file at public/raw/docs.md.
+ * Generates clean markdown files in public/raw/ for every docs page, on both
+ * channels, plus a combined bundle per channel:
+ *
+ *   released      public/raw/docs/**.md      public/raw/docs.md, public/llms-full.txt
+ *   development   public/raw/docs/next/**.md public/raw/docs-next.md, public/llms-full-next.txt
+ *
+ * The next-channel outputs exist so the in-development docs can be handed to a
+ * model when testing against the canary. They are deliberately absent from
+ * llms.txt and the sitemap, matching that channel's noindex.
  *
  * Run as: node --experimental-strip-types scripts/generate-raw-docs.mjs
  */
@@ -58,20 +65,24 @@ function isUnpublished(md) {
   return Boolean(data.draft) || data.published === false
 }
 
-// Build a map of url -> { title, cleaned markdown }
+// Build a map of url -> { title, cleaned markdown }, per channel. The
+// in-development channel gets the same treatment as the released one: it is the
+// canary readers (and their models) work against before a release, so leaving it
+// out of the mirror is what made every /raw/docs/next/*.md a 404.
 const pages = new Map()
+const nextPages = new Map()
 
-const files = glob
-  .sync('**/page.md', { cwd: APP_DIR })
-  .filter((file) => !file.startsWith('docs/next/'))
-  .sort()
+const files = glob.sync('**/page.md', { cwd: APP_DIR }).sort()
 for (const file of files) {
   const url = file === 'page.md' ? '/' : `/${file.replace(/\/page\.md$/, '')}`
   const md = fs.readFileSync(path.join(APP_DIR, file), 'utf8')
   if (isUnpublished(md)) continue
   const title = extractTitle(md)
   const cleaned = cleanMarkdoc(md, title)
-  pages.set(url, { title, cleaned })
+  // Bounded on a segment: a sibling page like /docs/next-steps is a released
+  // page, not the in-development channel.
+  const isNextChannel = url === '/docs/next' || url.startsWith('/docs/next/')
+  ;(isNextChannel ? nextPages : pages).set(url, { title, cleaned })
 }
 
 // Clean the output directory before regenerating. This script owns public/raw
@@ -82,48 +93,76 @@ for (const file of files) {
 fs.rmSync(OUT_DIR, { recursive: true, force: true })
 
 // Write individual page files
-for (const [url, { cleaned }] of pages) {
-  const relPath = url === '/' ? 'index.md' : `${url.replace(/^\//, '')}.md`
-  const outPath = path.join(OUT_DIR, relPath)
-  fs.mkdirSync(path.dirname(outPath), { recursive: true })
-  fs.writeFileSync(outPath, cleaned, 'utf8')
-}
-
-// Write combined docs.md in navigation order, skipping excluded pages
-const parts = []
-const seen = new Set()
-for (const { section, pages: urls } of NAV_ORDER) {
-  const sectionPages = urls.filter((u) => !SKIP_IN_COMBINED.has(u))
-  if (sectionPages.length === 0) continue
-  parts.push(`# ${section}\n`)
-  for (const url of sectionPages) {
-    if (seen.has(url)) continue
-    seen.add(url)
-    const page = pages.get(url)
-    if (!page) continue
-    parts.push(page.cleaned)
+function writePages(pageMap) {
+  for (const [url, { cleaned }] of pageMap) {
+    const relPath = url === '/' ? 'index.md' : `${url.replace(/^\//, '')}.md`
+    const outPath = path.join(OUT_DIR, relPath)
+    fs.mkdirSync(path.dirname(outPath), { recursive: true })
+    fs.writeFileSync(outPath, cleaned, 'utf8')
   }
 }
-// Include any pages not in navigation (excluding root and skipped)
-for (const [url, { cleaned }] of pages) {
-  if (url === '/' || seen.has(url) || SKIP_IN_COMBINED.has(url)) continue
-  parts.push(cleaned)
+
+writePages(pages)
+writePages(nextPages)
+
+// Combine a channel's pages in navigation order, skipping excluded pages.
+// `toChannelUrl` maps a nav href onto the channel serving it, so the next
+// channel is assembled in the same order from its own copies.
+function combinePages(pageMap, toChannelUrl = (url) => url) {
+  const parts = []
+  const seen = new Set()
+  // The skip list holds channel-less nav hrefs; the page map is keyed by
+  // channel URLs. Map the list once, so the second loop below can compare
+  // like with like instead of re-prefixing a key that is already prefixed.
+  const skip = new Set([...SKIP_IN_COMBINED].map(toChannelUrl))
+  for (const { section, pages: urls } of NAV_ORDER) {
+    const sectionPages = urls.filter((u) => !SKIP_IN_COMBINED.has(u))
+    if (sectionPages.length === 0) continue
+    const sectionParts = []
+    for (const url of sectionPages) {
+      const channelUrl = toChannelUrl(url)
+      if (seen.has(channelUrl)) continue
+      seen.add(channelUrl)
+      const page = pageMap.get(channelUrl)
+      if (!page) continue
+      sectionParts.push(page.cleaned)
+    }
+    if (sectionParts.length === 0) continue
+    parts.push(`# ${section}\n`, ...sectionParts)
+  }
+  // Include any pages not in navigation (excluding root and skipped)
+  for (const [url, { cleaned }] of pageMap) {
+    if (url === '/' || seen.has(url) || skip.has(url)) continue
+    parts.push(cleaned)
+  }
+  return condense(parts.join('\n'))
 }
 
-let combined = parts.join('\n')
+// Token-reduction passes for LLM consumption.
+function condense(text) {
+  return (
+    text
+      // 1. Remove duplicate consecutive H1 headings (section title + page title)
+      .replace(/^(# .+)\n\n# .+$/gm, '$1')
+      // 2. Strip image lines (LLMs cannot see images)
+      .replace(/^!\[.*?\]\(.*?\)\n?/gm, '')
+      // 3. Keep only bun install blocks, strip npm/yarn/pnpm variants
+      .replace(/\*\*(?:npm|yarn|pnpm):?\*\*:?\n```\w*\n.*?\n```\n?/gs, '')
+      // 4. Collapse whitespace
+      .replace(/\n{3,}/g, '\n\n')
+      .trim() + '\n'
+  )
+}
 
-// Token-reduction passes for LLM consumption:
-// 1. Remove duplicate consecutive H1 headings (section title + page title)
-combined = combined.replace(/^(# .+)\n\n# .+$/gm, '$1')
-// 2. Strip image lines (LLMs cannot see images)
-combined = combined.replace(/^!\[.*?\]\(.*?\)\n?/gm, '')
-// 3. Keep only bun install blocks, strip npm/yarn/pnpm variants
-combined = combined.replace(
-  /\*\*(?:npm|yarn|pnpm):?\*\*:?\n```\w*\n.*?\n```\n?/gs,
-  '',
+const combined = combinePages(pages)
+
+// The same bundle for the in-development channel. Nav hrefs are channel-less,
+// so they are rebased onto /docs/next to find each page's copy.
+const nextCombined = combinePages(nextPages, (url) =>
+  url === '/docs' || url.startsWith('/docs/')
+    ? url.replace('/docs', '/docs/next')
+    : url,
 )
-// 4. Collapse whitespace
-combined = combined.replace(/\n{3,}/g, '\n\n').trim() + '\n'
 
 // -- Shared constants for generated docs headers --
 const BASE_URL = 'https://routecraft.dev'
@@ -156,6 +195,32 @@ fs.writeFileSync(docsPath, withHeader, 'utf8')
 
 const llmsFullPath = path.join(ROOT, 'public', 'llms-full.txt')
 fs.writeFileSync(llmsFullPath, withHeader, 'utf8')
+
+// -- The same pair for the in-development channel --
+// Kept out of llms.txt and the sitemap: /docs/next is noindex, and a model
+// pointed at the site's index should get the released docs. This bundle is for
+// deliberately testing against the canary, so it is addressed directly.
+const nextNotice =
+  '> These are the in-development docs for the next Routecraft release, built from the main ' +
+  'branch. They describe API that has not shipped yet. For the released documentation, see ' +
+  `<${BASE_URL}/llms-full.txt>.`
+
+const nextWithHeader =
+  [
+    `# Routecraft (next)`,
+    nextNotice,
+    `## Links\n\n${PROJECT_LINKS}`,
+    '---',
+  ].join('\n\n') +
+  '\n\n' +
+  nextCombined
+
+fs.writeFileSync(path.join(OUT_DIR, 'docs-next.md'), nextWithHeader, 'utf8')
+fs.writeFileSync(
+  path.join(ROOT, 'public', 'llms-full-next.txt'),
+  nextWithHeader,
+  'utf8',
+)
 
 // -- Generate llms.txt (structured index with links to raw markdown) --
 
@@ -218,6 +283,8 @@ fs.writeFileSync(llmsPath, llmsTxt, 'utf8')
 
 const pageCount = pages.size
 const sizeKb = Math.round(Buffer.byteLength(combined) / 1024)
+const nextSizeKb = Math.round(Buffer.byteLength(nextCombined) / 1024)
 console.log(
-  `Generated ${pageCount} raw markdown files, docs.md (${sizeKb} KB), llms.txt, and llms-full.txt in public/`,
+  `Generated ${pageCount} raw markdown files, docs.md (${sizeKb} KB), llms.txt, and llms-full.txt in public/, ` +
+    `plus ${nextPages.size} for the next channel with docs-next.md (${nextSizeKb} KB) and llms-full-next.txt`,
 )

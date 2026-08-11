@@ -3,6 +3,7 @@ import path from 'path'
 import type { Metadata } from 'next'
 
 import { parseFrontmatter } from '@/lib/frontmatter'
+import { documentsHref } from '@/lib/docs-catalogue'
 import { canonicalPath, siteName } from '@/lib/site'
 
 // Per-doc metadata, read from the page's frontmatter and lead paragraph at
@@ -52,7 +53,15 @@ export function docMetadata(route: string): Metadata {
   // engines consolidate on the released page rather than the preview.
   const isNext = route === 'next' || route.startsWith('next/')
   const latestRoute = isNext ? route.replace(/^next\/?/, '') : route
-  const url = canonicalPath(latestRoute ? `/docs/${latestRoute}` : '/docs')
+  const latestHref = latestRoute ? `/docs/${latestRoute}` : '/docs'
+  // A page that only exists on the next channel documents unreleased API, so
+  // it has no released equivalent to consolidate on; pointing at one would
+  // canonicalise to a URL that 404s. Those pages canonicalise to themselves.
+  const canonicalHref =
+    isNext && !documentsHref('latest', latestHref)
+      ? `/docs/${route}`
+      : latestHref
+  const url = canonicalPath(canonicalHref)
   // Absolute title: nested doc layouts each set a title, so the root template
   // ('%s - Routecraft') doesn't cascade reliably. Spell it out instead.
   const fullTitle = `${title} · Docs - ${siteName}`

@@ -94,7 +94,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 
 - [ ] Add the error code with description, cause, and suggested fix
 - [ ] Use the code format of the namespace you are adding to: `RC****` for core, or your ecosystem package's registered namespace (`AI****`). Every code is its namespace followed by exactly four digits. Take the next number in the range your subsystem owns, per the range-allocation table on the error reference page, and claim a new range there before using one
-- [ ] Add a row to `apps/routecraft.dev/src/components/ErrorTable.tsx` so the code appears in the interactive table, not only in the page prose
+- [ ] Add a row to `apps/routecraft.dev/src/app/docs/_data/errors.json` so the code appears in the interactive table, not only in the page prose. The row is checked against the page: a code with no `## RC****` heading fails the build
 
 ## When you add or modify a plugin
 

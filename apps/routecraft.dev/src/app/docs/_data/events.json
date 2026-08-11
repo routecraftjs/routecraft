@@ -1,0 +1,49 @@
+[
+  {
+    "pattern": "context:*",
+    "events": ["starting", "started", "stopping", "stopped"],
+    "anchor": "context-events"
+  },
+  {
+    "pattern": "route:*",
+    "events": ["registered", "starting", "started", "stopping", "stopped"],
+    "anchor": "route-events"
+  },
+  {
+    "pattern": "route:{routeId}:exchange:*",
+    "events": ["started", "completed", "failed", "dropped", "restored"],
+    "anchor": "exchange-events"
+  },
+  {
+    "pattern": "route:{routeId}:op:*",
+    "events": [
+      "adapter",
+      "batch",
+      "split",
+      "aggregate",
+      "retry",
+      "choice",
+      "error",
+      "agent",
+      "source:parse"
+    ],
+    "anchor": "operation-events",
+    "note": "Each operation emits its own started / completed / failed."
+  },
+  {
+    "pattern": "plugin:{pluginId}:*",
+    "events": ["registered", "starting", "started", "stopping", "stopped"],
+    "anchor": "plugin-events"
+  },
+  {
+    "pattern": "auth:*",
+    "events": ["success", "rejected"],
+    "anchor": "authentication-events"
+  },
+  {
+    "pattern": "plugin:mcp:*",
+    "events": ["server", "session", "tool"],
+    "anchor": "mcp-plugin-events",
+    "note": "server (listening, tools:exposed), session (created, closed), tool (called, completed, failed)."
+  }
+]

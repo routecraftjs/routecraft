@@ -3,8 +3,9 @@
   "version": "0.6.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack",
-    "prebuild": "node --experimental-strip-types scripts/generate-docs-next.mjs && node --experimental-strip-types scripts/generate-raw-docs.mjs && node --experimental-strip-types scripts/generate-route-shims.mjs",
+    "dev": "bun run generate && next dev --webpack",
+    "generate": "node --experimental-strip-types scripts/generate-docs-next.mjs && node --experimental-strip-types scripts/generate-docs-catalogue.mjs && node --experimental-strip-types scripts/generate-raw-docs.mjs && node --experimental-strip-types scripts/generate-route-shims.mjs",
+    "prebuild": "bun run generate",
     "build": "next build --webpack",
     "start": "bunx serve@latest out",
     "figures:export": "bun scripts/export-figures.ts",
