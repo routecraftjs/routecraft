@@ -272,27 +272,62 @@ export async function reviveSuspension(
     throw await reask(context, route, suspension, expiry);
   }
 
-  const exchange = rehydrate(context, route, suspension, {
-    result: result.value,
-    resumedAt,
-    ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
-  });
+  // Everything from here is under one catch, because this resume has won
+  // `markResumed` and nothing else will ever settle the record. A throw
+  // between the transition and `recordTerminal` (a stored exchange the
+  // deserializer refuses, a `route:exchange:resumed` subscriber that fails)
+  // would otherwise leave the suspension `resumed` with no terminal
+  // forever, and every later answer would be told the first resume has not
+  // recorded an outcome yet. Recording the failure keeps a replay
+  // idempotent, which is the contract a claimed suspension owes.
+  let outcome: SerializedOutcome;
+  try {
+    const exchange = rehydrate(context, route, suspension, {
+      result: result.value,
+      resumedAt,
+      ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
+    });
 
-  context.emit("route:exchange:resumed", {
-    routeId: suspension.routeId,
-    exchangeId: exchange.id,
-    correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-    suspensionId: id,
-    position: suspension.position,
-    ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
-  });
+    context.emit("route:exchange:resumed", {
+      routeId: suspension.routeId,
+      exchangeId: exchange.id,
+      correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+      suspensionId: id,
+      position: suspension.position,
+      ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
+    });
 
-  const outcome = await runContinuation(
-    route,
-    exchange,
-    site.site.continuation,
-    resumedAt,
-  );
+    outcome = await runContinuation(
+      route,
+      exchange,
+      site.site.continuation,
+      resumedAt,
+    );
+  } catch (error) {
+    // Best-effort, and the ordering is the point: the original error must
+    // reach the ingress route whatever the store does. A throw from
+    // `recordTerminal` here would mask it AND leave the record unsettled,
+    // reproducing one level up the condition this block exists to remove.
+    // `rc` is carried like the expiry path carries RC5047, so a duplicate
+    // resume and an operator dashboard see the code rather than prose.
+    const failure = error as { rc?: string; message?: string } | undefined;
+    try {
+      await runtime.store.recordTerminal(id, {
+        status: "failed",
+        error: {
+          ...(typeof failure?.rc === "string" ? { rc: failure.rc } : {}),
+          message: failure?.message ?? "the revival failed",
+        },
+        at: resumedAt,
+      });
+    } catch (unrecorded) {
+      route.logger.error(
+        { suspensionId: id, err: unrecorded },
+        "Could not record the terminal outcome of a failed revival. The suspension stays resumed with no outcome and needs an operator.",
+      );
+    }
+    throw error;
+  }
   await runtime.store.recordTerminal(id, outcome);
 
   return {

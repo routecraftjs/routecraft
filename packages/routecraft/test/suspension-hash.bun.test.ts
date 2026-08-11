@@ -533,10 +533,10 @@ describe("describeExpect", () => {
 
   /**
    * @case A lazy producer that throws
-   * @preconditions The extension's producer is vendor code that fails
-   * @expectedResult The suspend is not failed by it: no rendering is claimed, and a hash is still produced
+   * @preconditions The extension's producer is vendor code that fails under every calling convention
+   * @expectedResult The suspend is not failed by it: no rendering is claimed and a hash is still produced, but the descriptor is marked degraded so the park can say the changed-expect check is inert for this schema rather than leaving it silently so
    */
-  test("survives a JSON Schema producer that throws", () => {
+  test("marks a JSON Schema producer that throws as degraded", () => {
     const hostile = {
       "~standard": {
         version: 1,
@@ -553,6 +553,104 @@ describe("describeExpect", () => {
     const described = describeExpect(hostile);
 
     expect(described.jsonSchema).toBeUndefined();
+    expect(described.hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(described.degraded).toBe(true);
+  });
+
+  /**
+   * @case A producer that requires the options argument the spec defines
+   * @preconditions The extension's producer reads `options.target` and throws without it, which Standard JSON Schema permits
+   * @expectedResult The rendering is obtained and two structurally different schemas hash differently. Calling with no argument would have thrown, collapsing both to the vendor fallback and disabling the changed-expect check for every schema from that library
+   */
+  test("calls producers with the target the spec requires", () => {
+    const requiresOptions = (title: string): StandardSchemaV1 =>
+      ({
+        "~standard": {
+          version: 1,
+          vendor: "strict",
+          validate: (value: unknown) => ({ value }),
+          jsonSchema: {
+            output: (options?: { target?: string }) => {
+              if (!options?.target) throw new Error("target is required");
+              return { type: "object", title, $schema: options.target };
+            },
+          },
+        },
+      }) as unknown as StandardSchemaV1;
+
+    const first = describeExpect(requiresOptions("approval"));
+    const second = describeExpect(requiresOptions("rejection"));
+
+    expect(first.jsonSchema).toBeDefined();
+    expect(first.degraded).toBeUndefined();
+    expect(first.hash).not.toBe(second.hash);
+  });
+
+  /**
+   * @case A producer predating the options argument
+   * @preconditions The extension's producer throws when handed the spec's options and yields a schema when called with none
+   * @expectedResult The rendering is still obtained, from the second attempt. Calling with options only would lose the rendering for such a library and collapse every one of its schemas to the vendor fallback, which is the same failure as calling with none only, in the other direction
+   */
+  test("falls back to calling a producer with no arguments", () => {
+    const optionsUnaware = {
+      "~standard": {
+        version: 1,
+        vendor: "legacy",
+        validate: (value: unknown) => ({ value }),
+        jsonSchema: {
+          output: (options?: unknown) => {
+            if (options !== undefined) throw new Error("no options expected");
+            return { type: "object", title: "legacy" };
+          },
+        },
+      },
+    } as unknown as StandardSchemaV1;
+
+    const described = describeExpect(optionsUnaware);
+
+    expect(described.jsonSchema).toEqual({ type: "object", title: "legacy" });
+    expect(described.degraded).toBeUndefined();
+  });
+
+  /**
+   * @case An extension object that carries no arm at all
+   * @preconditions `~standard.jsonSchema` is present but empty, so neither `output` nor `input` exists to call
+   * @expectedResult Degraded. The library advertised the extension and delivered no rendering, which is the distinction the flag draws: keying on the arms instead would read this as a library that never offered one, and the hash is just as inert either way
+   */
+  test("an arm-less extension object is degraded", () => {
+    const advertisedButEmpty = {
+      "~standard": {
+        version: 1,
+        vendor: "empty",
+        validate: (value: unknown) => ({ value }),
+        jsonSchema: {},
+      },
+    } as unknown as StandardSchemaV1;
+
+    const described = describeExpect(advertisedButEmpty);
+
+    expect(described.jsonSchema).toBeUndefined();
+    expect(described.degraded).toBe(true);
+  });
+
+  /**
+   * @case A schema library with no JSON Schema extension at all
+   * @preconditions `~standard` carries no `jsonSchema` arm
+   * @expectedResult Not marked degraded. There was never a rendering to lose, so this is the benign fallback rather than a library failing to deliver what it advertised
+   */
+  test("a library without the extension is not degraded", () => {
+    const plain = {
+      "~standard": {
+        version: 1,
+        vendor: "plain",
+        validate: (value: unknown) => ({ value }),
+      },
+    } as unknown as StandardSchemaV1;
+
+    const described = describeExpect(plain);
+
+    expect(described.jsonSchema).toBeUndefined();
+    expect(described.degraded).toBeUndefined();
     expect(described.hash).toMatch(/^[0-9a-f]{64}$/);
   });
 });

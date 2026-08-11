@@ -103,6 +103,17 @@ export async function parkExchange(
 
   await runtime.store.create(record);
 
+  // After the durable write, not before: this file's ordering promises that
+  // nothing is announced that cannot be resumed, and a park that fails at
+  // serialization or the store write must not leave an operator a warning
+  // about a suspension that never existed.
+  if (expect.degraded) {
+    parking.logger.warn(
+      { suspensionId: id, routeId, position: request.site.position },
+      "The expect schema advertises a JSON Schema extension that produced nothing, so this suspension cannot detect a changed expect: only the step tail is covered. Zod throws for a Date, a bigint or any transform.",
+    );
+  }
+
   const suspended: Suspended = createSuspended({
     suspensionId: id,
     token: runtime.signer.mint(id),

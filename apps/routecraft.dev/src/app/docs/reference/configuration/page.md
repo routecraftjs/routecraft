@@ -36,7 +36,7 @@ export const craftConfig = defineConfig({
 | `http` | `HttpPluginOptions` | No | -- | Serve routes over HTTP for the `http()` source ([details](#http)) |
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
-| `suspension` | `SuspensionConfig` | No | -- | Where parked exchanges are stored and how resume tokens are signed ([details](#suspension)) |
+| `suspension` | `SuspensionConfig` | Only when a route can reach `.suspend()` or `.resume()` | -- | Where parked exchanges are stored and how resume tokens are signed. A context with a suspendable route and no `suspension` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#suspension)) |
 | `plugins` | `CraftPlugin[]` | No | -- | Custom plugins to initialize before routes are registered |
 
 ### Ecosystem keys (added by `@routecraft/ai`)
