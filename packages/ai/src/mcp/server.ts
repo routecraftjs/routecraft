@@ -55,6 +55,11 @@ import {
   loadMcpServerSdk,
   loadMcpServerStdioSdk,
 } from "./sdk.ts";
+import {
+  advertisedOutputArms,
+  declinedError,
+  enforceAdvertisedOutput,
+} from "./tool-result-guards.ts";
 
 /**
  * MCP SDK `AuthInfo` shape. Imported as a type so nothing is required at
@@ -1327,10 +1332,11 @@ export class McpServer {
     if (entry.title !== undefined) {
       tool.title = entry.title;
     }
-    if (entry.output?.body !== undefined) {
-      tool.outputSchema = this.schemaToJsonSchema(
-        entry.output.body,
-      ) as NonNullable<McpTool["outputSchema"]>;
+    const outputArms = advertisedOutputArms(entry);
+    if (outputArms.length > 0) {
+      tool.outputSchema = this.schemaToJsonSchema(outputArms[0]) as NonNullable<
+        McpTool["outputSchema"]
+      >;
     }
     if (entry.annotations !== undefined) {
       tool.annotations = entry.annotations;
@@ -1380,6 +1386,30 @@ export class McpServer {
       return { type: "object", additionalProperties: true };
     }
     return { type: "object" };
+  }
+
+  /**
+   * Report a declined tool call: the route ran and chose not to answer.
+   *
+   * Kept off the failure path deliberately. Core models a drop as its own
+   * lifecycle outcome beside completed and failed, and a tool whose job is to
+   * filter would otherwise write an error-level line and a `tool:failed`
+   * event on every ordinary rejection, paging anyone with an error-rate alert
+   * on normal traffic. MCP has no channel but `isError` to tell the caller,
+   * so the wire result matches a failure while the log and the event do not.
+   */
+  private declineToolCall(toolName: string, error: Error): McpToolCallResult {
+    const message = toolErrorLogMessage(error);
+    this.context.logger.warn({ tool: toolName, err: error }, message);
+    this.context.emit(`plugin:mcp:tool:declined`, {
+      tool: toolName,
+      reason: message,
+    });
+
+    return {
+      content: [{ type: "text", text: `Error: ${message}` }],
+      isError: true,
+    };
   }
 
   /**
@@ -1454,10 +1484,23 @@ export class McpServer {
 
       const resultExchange = await entry.handler(exchange);
 
+      // A decline is the route's answer, not a failure, so it returns here
+      // rather than throwing into the catch below.
+      const declined = declinedError(entry, resultExchange);
+      if (declined) return this.declineToolCall(toolName, declined);
+
+      // Publishes what the schema accepted, not what the handler offered:
+      // for a transforming schema those differ, and the client was promised
+      // the schema's output.
+      const publishedBody = await enforceAdvertisedOutput(
+        entry,
+        resultExchange,
+      );
+
       const resultText =
-        typeof resultExchange.body === "string"
-          ? resultExchange.body
-          : JSON.stringify(resultExchange.body);
+        typeof publishedBody === "string"
+          ? publishedBody
+          : JSON.stringify(publishedBody);
 
       this.context.emit(`plugin:mcp:tool:completed`, {
         tool: toolName,
@@ -1477,15 +1520,12 @@ export class McpServer {
         content: [{ type: "text", text: resultText }],
       };
       if (
-        entry.output?.body !== undefined &&
-        typeof resultExchange.body === "object" &&
-        resultExchange.body !== null &&
-        !Array.isArray(resultExchange.body)
+        advertisedOutputArms(entry).length > 0 &&
+        typeof publishedBody === "object" &&
+        publishedBody !== null &&
+        !Array.isArray(publishedBody)
       ) {
-        result.structuredContent = resultExchange.body as Record<
-          string,
-          unknown
-        >;
+        result.structuredContent = publishedBody as Record<string, unknown>;
       }
       return result;
     } catch (error) {

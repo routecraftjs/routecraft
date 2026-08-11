@@ -10,6 +10,7 @@ import { logger, childBindings } from "./logger.ts";
 import type { Route } from "./route.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
 import type { Principal } from "./auth/types.ts";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   type SuspensionAffordance,
   SuspensionHeaders,
@@ -371,6 +372,25 @@ type ExchangeInternals = {
    */
   dropped?: boolean;
   /**
+   * The schema the route's `.output({ body })` validation accepted this
+   * exchange's body against. Stored on internals so it survives the `rewrap`
+   * that carries the validated value, and so a request/reply adapter can tell
+   * a body the route vouched for from one that reached it another way.
+   *
+   * The schema itself rather than a boolean: "some schema accepted this" is
+   * not the question a downstream enforcer is asking. It wants to know
+   * whether *its* contract was the one checked, so an exchange validated
+   * elsewhere cannot walk past a different contract unexamined.
+   *
+   * Load-bearing beyond bookkeeping: validation replaces the body with the
+   * schema's output, and a schema whose output type differs from its input
+   * type rejects its own output, so anything downstream that re-runs the
+   * same schema must know not to.
+   *
+   * @internal
+   */
+  outputValidatedAgainst?: StandardSchemaV1;
+  /**
    * Set when the exchange parked at a `.suspend()`. Read after
    * `runPipeline` returns to skip `.output()` validation and
    * `exchange:completed`: execution one ends with the `Suspended`
@@ -558,6 +578,44 @@ export function emitExchangeDropped(
 }
 
 /**
+ * Record the schema the route's declared output validation accepted this
+ * exchange's body against. Idempotent. Called by `applyOutputValidation` only.
+ *
+ * @internal
+ */
+export function markOutputValidated(
+  exchange: Exchange,
+  schema: StandardSchemaV1,
+): void {
+  const internals = internalsOf(exchange);
+  if (internals) internals.outputValidatedAgainst = schema;
+}
+
+/**
+ * Returns true if the route's `.output({ body })` validation accepted this
+ * exchange's body against `schema` specifically.
+ *
+ * A request/reply source adapter that enforces the same schema at its own
+ * protocol boundary reads this to avoid validating twice. The second run is
+ * not merely redundant: validation replaces the body with the schema's
+ * output value, so a schema that transforms (`z.string().transform(...)`,
+ * `.pipe()`) rejects the very value it just produced.
+ *
+ * The schema is compared by identity, so an exchange validated against some
+ * other contract does not count as validated against this one.
+ *
+ * @param exchange - The exchange to test, or any rewrap of it
+ * @param schema - The schema the caller is about to enforce
+ * @returns Whether the route already validated this body against that schema
+ */
+export function wasOutputValidated(
+  exchange: Exchange,
+  schema: StandardSchemaV1,
+): boolean {
+  return internalsOf(exchange)?.outputValidatedAgainst === schema;
+}
+
+/**
  * Mark an exchange as parked at a `.suspend()`. Idempotent. Called by the
  * executor once the suspension is durably stored, never before: the flag
  * suppresses the exchange's completion accounting, so setting it for a park
@@ -584,7 +642,16 @@ export function isSuspendedRun(exchange: Exchange): boolean {
  * Returns true if the exchange (or any rewrap of it sharing the same
  * internals) has been marked as dropped.
  *
- * @internal
+ * A request/reply source adapter reads this to tell "the route declined
+ * this request" apart from "the route produced this result": a dropped
+ * exchange resolves with the body it came in with, so an adapter that does
+ * not check hands the caller its own request back as if it were an answer.
+ * `CraftClient.sendDirect` and the route-scope `forward` both raise RC5031
+ * on it; an adapter outside core translates it into whatever its protocol
+ * uses to decline.
+ *
+ * @param exchange - The exchange to test, or any rewrap of it
+ * @returns Whether the exchange was dropped rather than completed
  */
 export function isDropped(exchange: Exchange): boolean {
   return internalsOf(exchange)?.dropped === true;

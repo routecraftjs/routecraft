@@ -5,6 +5,7 @@ import {
   type ExchangeHeaders,
   HeadersKeys,
   DefaultExchange,
+  markOutputValidated,
 } from "../exchange.ts";
 import { rcError, formatSchemaIssues } from "../error.ts";
 import type { ErrorHandler, ForwardFn, Route } from "../route.ts";
@@ -29,21 +30,55 @@ export interface ValidationDeps {
  * value on success (schemas can legitimately transform to `undefined`,
  * so presence of the `value` key is what decides success, not truthiness)
  * or a human-readable message on failure.
+ *
+ * Exported for adapter and plugin authors who validate at a protocol
+ * boundary and need the failure as a message to hand back over the wire
+ * rather than as a thrown error.
+ *
+ * The validated value carries the schema's output type, which for a
+ * transforming schema is not the type that went in. `issues` accompanies
+ * `message` so a caller can build a structured rejection (a JSON-RPC
+ * `error.data`, an HTTP 422 field map) instead of only a sentence.
+ *
+ * @param schema - The Standard Schema to validate with
+ * @param value - The value to validate
+ * @returns `{ ok: true, value }` with the validated (possibly transformed)
+ *   value, or `{ ok: false, message, issues }` with the failure both
+ *   formatted and raw
+ *
+ * @example
+ * ```ts
+ * const result = await validateAgainst(schema, exchange.body);
+ * if (!result.ok) return { isError: true, message: result.message };
+ * ```
  */
-export async function validateAgainst(
-  schema: StandardSchemaV1,
+export async function validateAgainst<S extends StandardSchemaV1>(
+  schema: S,
   value: unknown,
-): Promise<{ ok: true; value: unknown } | { ok: false; message: string }> {
+): Promise<
+  | { ok: true; value: StandardSchemaV1.InferOutput<S> }
+  | {
+      ok: false;
+      message: string;
+      issues: readonly StandardSchemaV1.Issue[];
+    }
+> {
   let result = schema["~standard"].validate(value);
   if (result instanceof Promise) result = await result;
   const issues = (result as { issues?: unknown }).issues;
   if (issues !== undefined && issues !== null) {
-    return { ok: false, message: formatSchemaIssues(issues) };
+    return {
+      ok: false,
+      message: formatSchemaIssues(issues),
+      issues: issues as readonly StandardSchemaV1.Issue[],
+    };
   }
   const successResult = result as { value?: unknown };
   return {
     ok: true,
-    value: "value" in successResult ? successResult.value : value,
+    value: ("value" in successResult
+      ? successResult.value
+      : value) as StandardSchemaV1.InferOutput<S>,
   };
 }
 
@@ -253,6 +288,7 @@ export async function applyOutputValidation(
       });
     }
     current = DefaultExchange.rewrap(current, { body: res.value });
+    markOutputValidated(current, schemas.body);
   }
   if (schemas.headers) {
     const res = await validateAgainst(schemas.headers, current.headers);
