@@ -38,9 +38,16 @@ next-env.d.ts
 /public/raw/
 /public/llms.txt
 /public/llms-full.txt
+/public/llms-full-next.txt
 
 # generated in-development docs channel (see scripts/generate-docs-next.mjs, run in prebuild)
 /src/app/docs/next/
+
+# generated per-channel docs catalogue (see scripts/generate-docs-catalogue.mjs, run in prebuild)
+/src/lib/generated/
+
+# generated next-channel screenshot mirror (see scripts/generate-docs-next.mjs, run in prebuild)
+/public/screenshots/next/
 
 # generated per-route SEO shims (see scripts/generate-route-shims.mjs, run in prebuild)
 /src/app/docs/**/layout.tsx

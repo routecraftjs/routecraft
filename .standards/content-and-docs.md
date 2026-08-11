@@ -217,6 +217,71 @@ carrying detail that belongs in the migration guide or reference. Cut it to the 
 out. This is the same "no silent duplication" and "code lives once" discipline applied to release
 notes: the changelog owns the one-line announcement, not the explanation.
 
+## Docs channels: what is version-pinned and what is not
+
+`/docs` publishes the **last released** version; `/docs/next` publishes main. The release
+workflow gets there by replacing `src/app/docs` (pages plus `_data`), `src/app/cheat-sheet`
+and `public/screenshots` with their content at the latest `v*` tag, having first snapshotted
+main into `src/app/docs/next` and `public/screenshots/next`. Everything else in the site
+(home, blog, changelog, and every React component) always builds from main, which is what
+lets a blog post ship without cutting a release.
+
+Three rules follow, and all three have been violated before:
+
+- **The freeze is a replace, not an overlay.** `git checkout <tag> -- <path>` restores what
+  the tag carries and silently keeps anything added since, so pages written after the release
+  used to publish on `/docs` as though they had shipped. The workflow wipes the paths first.
+  Any future step that pins content to a ref must do the same.
+- **Versioned content lives under `src/app/docs`, never in a component.** That is the whole
+  rule, and it covers data as well as prose: the rows behind the reference catalogues
+  (`operations-index`, `adapter-grid`, `plugin-index`, `error-table`, `event-namespaces`) live
+  in `src/app/docs/_data/*.json` and reach the components through
+  `apps/routecraft.dev/src/lib/docs-catalogue.ts`. Row data held in a component is frozen by nothing, so an added
+  entry publishes as released, an **edited description or signature rewrites released docs**,
+  and a deleted entry vanishes from docs that still document it. Presence checks alone do not
+  catch the middle case; only pinning the data does.
+- **A row and its page are checked against each other.** `apps/routecraft.dev/scripts/generate-docs-catalogue.mjs` fails
+  the build when an operation, adapter, or plugin has no reference page, or an error code or
+  event namespace has no heading to link to. On a channel that owns its data a mismatch is an
+  authoring mistake, so it is an error, not a silently dropped row. Anchors are resolved
+  through the catalogue rather than hand-built, because Markdoc slugifies `## RC1001` to
+  `rc-1001`.
+
+The channel reaches a component as a `channel` attribute on the Markdoc tag, injected into the
+copied pages by `apps/routecraft.dev/scripts/generate-docs-next.mjs`. Add a new reference catalogue and it needs a
+data file under `_data`, an entry in `CATALOGUES`, the same attribute, and `withDocsChannel` on
+every link it renders, or it will dump `/docs/next` readers back onto the released channel.
+
+**The pinned set is the freeze step's path list**, and nothing else. Today that is
+`src/app/docs` (pages plus `_data`), `src/app/cheat-sheet`, and `public/screenshots` (the only
+assets docs pages embed; `public/images` is blog-only). Anything a docs page renders that is
+not in that list builds from main. When you add a surface the released channel must pin, add
+it to the list and give it a next-channel mirror, the way screenshots have one.
+
+**The sidebar and the raw mirror follow the channel too.** `apps/routecraft.dev/src/lib/navigation.ts` is shell, so
+`Navigation` filters its entries against the channel's page set; an entry for an unreleased
+page shows on next and never 404s on the released channel. `public/raw/**` mirrors both
+channels (`/raw/docs/**` and `/raw/docs/next/**`, with whole-channel bundles at
+`/raw/docs.md` and `/raw/docs-next.md`), because the in-development docs are what you hand a
+model when testing against the canary. The next mirror stays out of `llms.txt` and the
+sitemap, matching the channel's noindex.
+
+**A deploy asserts all of this rather than trusting it.** `apps/routecraft.dev/scripts/verify-docs-freeze.mjs`
+runs after the build and fails the deploy when the exported `/docs` routes are not exactly the
+freeze tag's page set, when the next channel is empty, or when a next URL reaches the sitemap.
+`/docs/changelog` is its one deliberate exception, documented in the script. If a released
+page needs fixing before the next release, dispatch the workflow with `freeze_ref` rather than
+loosening the freeze.
+
+One transitional wrinkle: tags cut before `_data` existed freeze a docs tree without it, so
+that channel falls back to the repository's data pruned to the pages it documents. Drop
+`fallbackRows` once the oldest freezable tag carries `src/app/docs/_data`.
+
+If historical majors ever ship (`/docs/v1` alongside latest and next), the successor design is
+to build each channel from its own git ref and merge the exports. That is rejected today
+because it would render the released channel with the released shell, which is exactly what
+`MIN_FREEZE_VERSION` exists to avoid, and it doubles CI on every main push.
+
 ## Operational constraint: redirects
 
 The docs site builds with Next.js `output: 'export'` (see `apps/routecraft.dev/next.config.mjs`),

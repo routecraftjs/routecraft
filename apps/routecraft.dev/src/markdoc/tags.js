@@ -11,6 +11,15 @@ import { PluginIndex } from '@/components/PluginIndex'
 import { ErrorTable } from '@/components/ErrorTable'
 import { EventNamespaces } from '@/components/EventNamespaces'
 
+// The reference index tags render catalogues that must match the docs channel
+// they are read on: /docs is frozen to the released tag while these components
+// build from main. `channel` is absent on the released channel (hence the
+// default) and injected as `channel="next"` by scripts/generate-docs-next.mjs
+// when it copies a page into /docs/next. See src/lib/docs-catalogue.ts.
+const channelAttribute = {
+  channel: { type: String, default: 'latest', matches: ['latest', 'next'] },
+}
+
 const tags = {
   callout: {
     attributes: {
@@ -126,22 +135,27 @@ const tags = {
   },
   'adapter-grid': {
     selfClosing: true,
+    attributes: channelAttribute,
     render: AdapterGrid,
   },
   'operations-index': {
     selfClosing: true,
+    attributes: channelAttribute,
     render: OperationsIndex,
   },
   'plugin-index': {
     selfClosing: true,
+    attributes: channelAttribute,
     render: PluginIndex,
   },
   'error-table': {
     selfClosing: true,
+    attributes: channelAttribute,
     render: ErrorTable,
   },
   'event-namespaces': {
     selfClosing: true,
+    attributes: channelAttribute,
     render: EventNamespaces,
   },
 }

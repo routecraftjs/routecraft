@@ -2,58 +2,19 @@ import Link from 'next/link'
 
 import { slug } from '@/lib/slug'
 
+import { type PluginRow, plugins } from '@/lib/docs-catalogue'
+import {
+  type DocsChannelName,
+  type DocsChannelProps,
+  docsChannelHref,
+  withDocsChannel,
+} from '@/lib/docs-channel'
 import { type Section } from '@/lib/sections'
 
-interface Plugin {
-  number: string
-  name: string
-  module: string
-  hint: string
-  description: string
+/** The reference page a plugin row links to, relative to the channel root. */
+function pluginRoute(plugin: PluginRow): string {
+  return `reference/plugins/${slug(plugin.name)}`
 }
-
-const plugins: Plugin[] = [
-  {
-    number: '01',
-    name: 'llmPlugin',
-    module: '@routecraft/ai',
-    hint: 'Language models.',
-    description:
-      'Configure provider keys, default models, and global LLM defaults for every agent and llm() call in the context.',
-  },
-  {
-    number: '02',
-    name: 'embeddingPlugin',
-    module: '@routecraft/ai',
-    hint: 'Vectors.',
-    description:
-      'Wire an embedding provider for the embedding() destination and downstream clustering with cosine().',
-  },
-  {
-    number: '03',
-    name: 'mcpPlugin',
-    module: '@routecraft/ai',
-    hint: 'MCP server runtime.',
-    description:
-      'Expose mcp() capabilities over Model Context Protocol, with JWT, OAuth 2.1, and bearer-token verification built in.',
-  },
-  {
-    number: '04',
-    name: 'agentPlugin',
-    module: '@routecraft/ai',
-    hint: 'Agent registry and harness.',
-    description:
-      'Register named agents, the tools they can call, and shared defaults like system prompt and principal context.',
-  },
-  {
-    number: '05',
-    name: 'httpPlugin',
-    module: '@routecraft/routecraft',
-    hint: 'HTTP server runtime.',
-    description:
-      'Expose routes over HTTP via the http() source. Bun.serve native on Bun, node:http shim on Node; JWT, JWKS, or API-key auth at the plugin boundary.',
-  },
-]
 
 /**
  * Right-sidebar "On this page" sections for the plugin index. The
@@ -61,8 +22,10 @@ const plugins: Plugin[] = [
  * derive the page outline from the AST; this mirrors the rendered
  * per-plugin row ids instead.
  */
-export function pluginIndexTocSections(): Array<Section> {
-  return plugins.map((p) => ({
+export function pluginIndexTocSections(
+  channel: DocsChannelName = 'latest',
+): Array<Section> {
+  return plugins(channel).map((p) => ({
     level: 2 as const,
     id: `plugin-${slug(p.name)}`,
     title: p.name,
@@ -70,10 +33,12 @@ export function pluginIndexTocSections(): Array<Section> {
   }))
 }
 
-export function PluginIndex() {
+export function PluginIndex({ channel = 'latest' }: DocsChannelProps) {
+  const channelPrefix = docsChannelHref(channel)
+
   return (
     <ol className="not-prose mt-8 list-none">
-      {plugins.map((p, i) => (
+      {plugins(channel).map((p, i) => (
         <li
           key={p.name}
           id={`plugin-${slug(p.name)}`}
@@ -83,7 +48,7 @@ export function PluginIndex() {
           }
         >
           <Link
-            href={`/docs/reference/plugins/${slug(p.name)}`}
+            href={withDocsChannel(`/docs/${pluginRoute(p)}`, channelPrefix)}
             className="group grid grid-cols-[auto_1fr_auto] items-baseline gap-x-6 py-7 transition"
           >
             <span className="font-editorial text-[1.5rem] text-cobalt-500/55 italic tabular-nums transition group-hover:text-cobalt-500">

@@ -1,199 +1,14 @@
 import Link from 'next/link'
 
+import { type AdapterRow, adapters } from '@/lib/docs-catalogue'
+import {
+  type DocsChannelName,
+  type DocsChannelProps,
+  docsChannelHref,
+  withDocsChannel,
+} from '@/lib/docs-channel'
 import { type Section } from '@/lib/sections'
 import { slug } from '@/lib/slug'
-
-type Role = 'Source' | 'Destination' | 'Enricher' | 'Transformer' | 'Processor'
-
-interface Adapter {
-  name: string
-  category: string
-  roles: Role[]
-  description: string
-}
-
-const adapters: Adapter[] = [
-  // Core
-  {
-    name: 'simple',
-    category: 'Core',
-    roles: ['Source'],
-    description: 'Static or dynamic data source from a value or function.',
-  },
-  {
-    name: 'log',
-    category: 'Core',
-    roles: ['Destination'],
-    description: 'Console logging for debugging and inspection.',
-  },
-  {
-    name: 'debug',
-    category: 'Core',
-    roles: ['Destination'],
-    description: 'Verbose dump of the full exchange for development.',
-  },
-  {
-    name: 'timer',
-    category: 'Core',
-    roles: ['Source'],
-    description: 'Recurring source on a fixed interval.',
-  },
-  {
-    name: 'cron',
-    category: 'Core',
-    roles: ['Source'],
-    description: 'Cron-scheduled source with timezone support.',
-  },
-  {
-    name: 'event',
-    category: 'Core',
-    roles: ['Source'],
-    description: 'Internal event bus source for cross-route signalling.',
-  },
-  {
-    name: 'direct',
-    category: 'Core',
-    roles: ['Source', 'Enricher'],
-    description: 'Synchronous route-to-route plumbing with type safety.',
-  },
-  {
-    name: 'http',
-    category: 'Core',
-    roles: ['Source', 'Enricher'],
-    description:
-      'HTTP client for outbound requests and an HTTP server (via defineConfig({ http })) for exposing routes.',
-  },
-
-  // Test
-  {
-    name: 'noop',
-    category: 'Test',
-    roles: ['Destination'],
-    description: 'Discards the exchange. Useful for benchmarks and stubs.',
-  },
-  {
-    name: 'pseudo',
-    category: 'Test',
-    roles: ['Source', 'Destination', 'Processor'],
-    description: 'Typed placeholder for docs, examples, and test wiring.',
-  },
-  {
-    name: 'spy',
-    category: 'Test',
-    roles: ['Destination', 'Enricher', 'Processor'],
-    description: 'Records exchanges and exposes them for test assertions.',
-  },
-
-  // File
-  {
-    name: 'file',
-    category: 'File',
-    roles: ['Source', 'Destination', 'Enricher'],
-    description: 'Read or write a single text file (per-line chunked reads).',
-  },
-  {
-    name: 'directory',
-    category: 'File',
-    roles: ['Source', 'Enricher'],
-    description:
-      'Scan a directory for files, with metadata to filter on; list or per-file.',
-  },
-  {
-    name: 'json',
-    category: 'File',
-    roles: ['Source', 'Destination', 'Enricher', 'Transformer'],
-    description: 'Parse, write, or transform JSON files.',
-  },
-  {
-    name: 'csv',
-    category: 'File',
-    roles: ['Source', 'Destination', 'Enricher', 'Transformer'],
-    description: 'Stream rows from a CSV file or write rows out.',
-  },
-  {
-    name: 'jsonl',
-    category: 'File',
-    roles: ['Source', 'Destination', 'Enricher', 'Transformer'],
-    description: 'Stream JSON Lines records or write a JSONL file.',
-  },
-  {
-    name: 'html',
-    category: 'File',
-    roles: ['Source', 'Destination', 'Enricher', 'Transformer'],
-    description: 'Parse or write HTML, with DOM-style selection helpers.',
-  },
-  {
-    name: 'xml',
-    category: 'File',
-    roles: ['Source', 'Destination', 'Enricher', 'Transformer'],
-    description: 'Parse, write, or transform XML as a plain object.',
-  },
-
-  // Messaging
-  {
-    name: 'mail',
-    category: 'Messaging',
-    roles: ['Source', 'Destination', 'Enricher'],
-    description: 'Receive email via IMAP or send via SMTP.',
-  },
-
-  // Contacts
-  {
-    name: 'carddav',
-    category: 'Contacts',
-    roles: ['Source', 'Destination', 'Enricher'],
-    description:
-      'Read and write contacts over CardDAV. Defaults to Apple iCloud Contacts; works with any CardDAV server.',
-  },
-
-  // Browser
-  {
-    name: 'agentBrowser',
-    category: 'Browser',
-    roles: ['Enricher'],
-    description: 'Drive a real browser session: navigate, click, snapshot.',
-  },
-
-  // AI
-  {
-    name: 'mcp',
-    category: 'AI',
-    roles: ['Source', 'Enricher'],
-    description: 'Expose capabilities as MCP tools or call remote MCP servers.',
-  },
-  {
-    name: 'llm',
-    category: 'AI',
-    roles: ['Enricher'],
-    description: 'Call a language model for text or structured output.',
-  },
-  {
-    name: 'agent',
-    category: 'AI',
-    roles: ['Enricher'],
-    description: 'Run an LLM with a fixed system prompt and tool set.',
-  },
-  {
-    name: 'embedding',
-    category: 'AI',
-    roles: ['Enricher'],
-    description: 'Generate vector embeddings from text.',
-  },
-
-  // Clustering
-  {
-    name: 'group',
-    category: 'Clustering',
-    roles: ['Transformer'],
-    description: 'Group exchanges into batches by key, count, or time.',
-  },
-  {
-    name: 'cosine',
-    category: 'Clustering',
-    roles: ['Transformer'],
-    description: 'Cluster items by cosine similarity of embeddings.',
-  },
-]
 
 const categories = [
   'Core',
@@ -206,12 +21,20 @@ const categories = [
   'Clustering',
 ] as const
 
-const roleClassname: Record<Role, string> = {
+// Keyed by the role strings the data file carries. A role outside this set
+// simply gets the neutral styling rather than `undefined` in the class list,
+// which is what an `as Role` assertion used to hide.
+const roleClassname: Record<string, string> = {
   Source: 'border-cobalt-500/40 text-cobalt-600',
   Destination: 'border-ink/25 text-ink/65',
   Enricher: 'border-ink/25 text-ink/65',
   Transformer: 'border-ink/25 text-ink/65',
   Processor: 'border-ink/25 text-ink/65',
+}
+
+/** The reference page an adapter card links to, relative to the channel root. */
+function adapterRoute(adapter: AdapterRow): string {
+  return `reference/adapters/${slug(adapter.name)}`
 }
 
 /**
@@ -220,13 +43,16 @@ const roleClassname: Record<Role, string> = {
  * derive the page outline from the AST; this mirrors the rendered
  * structure (category header ids, per-adapter card ids) instead.
  */
-export function adapterGridTocSections(): Array<Section> {
+export function adapterGridTocSections(
+  channel: DocsChannelName = 'latest',
+): Array<Section> {
+  const visible = adapters(channel)
   return categories
     .map((category) => ({
       level: 2 as const,
       id: `adapters-${slug(category)}`,
       title: category as string,
-      children: adapters
+      children: visible
         .filter((a) => a.category === category)
         .map((adapter) => ({
           level: 3 as const,
@@ -237,11 +63,14 @@ export function adapterGridTocSections(): Array<Section> {
     .filter((section) => section.children.length > 0)
 }
 
-export function AdapterGrid() {
+export function AdapterGrid({ channel = 'latest' }: DocsChannelProps) {
+  const visible = adapters(channel)
+  const channelPrefix = docsChannelHref(channel)
+
   return (
     <div className="not-prose mt-8 flex flex-col gap-14">
       {categories.map((category) => {
-        const items = adapters.filter((a) => a.category === category)
+        const items = visible.filter((a) => a.category === category)
         if (items.length === 0) return null
         return (
           <section
@@ -271,7 +100,10 @@ export function AdapterGrid() {
                   className="scroll-mt-28 bg-paper lg:scroll-mt-34"
                 >
                   <Link
-                    href={`/docs/reference/adapters/${slug(item.name)}`}
+                    href={withDocsChannel(
+                      `/docs/${adapterRoute(item)}`,
+                      channelPrefix,
+                    )}
                     className="group flex h-full flex-col gap-3 p-5 transition hover:bg-paper-deep/40"
                   >
                     <div className="flex items-baseline justify-between gap-3">
@@ -292,7 +124,7 @@ export function AdapterGrid() {
                           key={role}
                           className={
                             'inline-flex items-center border px-1.5 py-0.5 font-mono text-[0.6rem] tracking-[0.16em] uppercase ' +
-                            roleClassname[role]
+                            (roleClassname[role] ?? roleClassname.Destination)
                           }
                         >
                           {role}
