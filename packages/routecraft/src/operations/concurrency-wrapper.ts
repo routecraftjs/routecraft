@@ -354,8 +354,26 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
     exchange: Exchange,
     route: Route | undefined,
     hooks: ConcurrencyHooks,
+    opts: { mustWait?: boolean } = {},
   ): Promise<{ release: () => void; key?: string }> {
     const { semaphore, key } = this.stateFor(route).semaphoreFor(exchange);
+
+    // A caller that cannot absorb a refusal queues for the same slot instead
+    // of being turned away. A resumed continuation is the case: its
+    // suspension is already claimed, so RC5026 here would record a failed
+    // terminal and destroy an approval for work that never ran. The limit is
+    // still the limit, because the semaphore is shared with the ingress leg.
+    if (opts.mustWait) {
+      const free = semaphore.tryAcquire();
+      if (free) {
+        hooks.onAcquired(false, semaphore.inUse, key);
+        return { release: free, ...(key !== undefined ? { key } : {}) };
+      }
+      hooks.onQueued(semaphore.waiting + 1, key);
+      const release = await semaphore.acquire(hooks.signal);
+      hooks.onAcquired(true, semaphore.inUse, key);
+      return { release, ...(key !== undefined ? { key } : {}) };
+    }
 
     if (this.#options.mode === "reject") {
       const release = semaphore.tryAcquire();
@@ -419,8 +437,14 @@ export async function executeWithConcurrency(
   route: Route | undefined,
   hooks: ConcurrencyHooks,
   run: () => Promise<StepOutcome>,
+  opts: { mustWait?: boolean } = {},
 ): Promise<StepOutcome> {
-  const { release, key } = await controller.acquire(exchange, route, hooks);
+  const { release, key } = await controller.acquire(
+    exchange,
+    route,
+    hooks,
+    opts,
+  );
   const heldStart = Date.now();
   try {
     return await run();

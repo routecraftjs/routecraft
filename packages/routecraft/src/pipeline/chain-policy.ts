@@ -45,11 +45,17 @@ interface ChainSurvival {
  * Which chain positions apply to a run that re-enters partway down.
  *
  * Every position states its answer for both kinds rather than inheriting
- * one, because the two differ: before this existed, a single object literal
- * built for the debounce release also governed resumes, so a route's
- * `.concurrency()` bulkhead bounded ingress executions while resumed
- * continuations ran unbounded against the downstream it exists to protect
- * (#580).
+ * one: a debounce release and a resume disagree about what "entered the
+ * route" means for that exchange, so a position that is right for one can
+ * be wrong for the other.
+ *
+ * One rule governs the resume column. A position that REFUSES work without
+ * attempting it must not sit below the store transition, because the resume
+ * claims its suspension before the continuation starts, so a refusal is
+ * recorded as that suspension's terminal outcome and an approval is spent on
+ * work that never ran. A position that BOUNDS work already underway is safe.
+ * That is why `retry` and `timeout` are carried, `circuitBreaker` is not,
+ * and `concurrency` is carried only in waiting form.
  */
 const CHAIN_SURVIVAL: Readonly<Record<ChainField, ChainSurvival>> = {
   errorHandler: {
@@ -95,7 +101,7 @@ const CHAIN_SURVIVAL: Readonly<Record<ChainField, ChainSurvival>> = {
   concurrency: {
     resume: true,
     debounce: false,
-    why: "concurrency (#8.5). A bulkhead bounds simultaneous work in the route against a downstream, and a continuation is that work.",
+    why: "concurrency (#8.5). A bulkhead bounds simultaneous work in the route against a downstream, and a continuation is that work. Carried in waiting form only: a continuation runs after its suspension is claimed, so a refusal would spend an approval on work that never ran. It queues for the route's own semaphore, so the bound is shared with the ingress leg rather than escaped.",
   },
 };
 
@@ -112,14 +118,14 @@ const CHAIN_FIELDS = Object.keys(CHAIN_SURVIVAL) as ChainField[];
 export type DetachedDefinition = Pick<RouteDefinition, ChainField | "steps">;
 
 /** Chain positions whose absence is an empty array rather than undefined. */
-const EMPTY_CHAIN: Pick<
+const emptyChain = (): Pick<
   RouteDefinition,
   "preParseFilters" | "postParseFilters" | "postFromFilters"
-> = {
+> => ({
   preParseFilters: [],
   postParseFilters: [],
   postFromFilters: [],
-};
+});
 
 /**
  * Build the definition a detached run executes under, position by position.
@@ -145,7 +151,7 @@ export function detachedDefinition(
     const value = source[field];
     if (value !== undefined) Object.assign(carried, { [field]: value });
   }
-  return { ...EMPTY_CHAIN, ...carried, steps: [...steps] };
+  return { ...emptyChain(), ...carried, steps: [...steps] };
 }
 
 /**

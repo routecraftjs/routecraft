@@ -97,6 +97,19 @@ export interface ExecutorDeps {
    * @internal
    */
   abortSignal?: AbortSignal;
+  /**
+   * When set, route-scope `.concurrency()` queues this run for a slot
+   * rather than refusing it.
+   *
+   * A resumed continuation has already claimed its suspension, so an
+   * `RC5026` refusal would record a failed terminal and destroy an approval
+   * for work that never ran. The bound still holds: the semaphore is the
+   * route's own, shared with the ingress leg, so this waits for the same
+   * slot rather than escaping the limit.
+   *
+   * @internal
+   */
+  admissionMustWait?: boolean;
 }
 
 /**
@@ -957,6 +970,7 @@ export function runDetachedPipeline(
       route: deps.route,
       buildForward: deps.buildForward,
       definition: detachedDefinition(routeDefinition, downstream, kind),
+      ...(kind === "resume" ? { admissionMustWait: true } : {}),
     };
     let result = await runPipeline(nested, releaseExchange, start);
 
@@ -1317,6 +1331,7 @@ function buildConcurrencySegmentStep(
               Date.now(),
             ),
           ),
+        { mustWait: deps.admissionMustWait === true },
       );
     },
   };

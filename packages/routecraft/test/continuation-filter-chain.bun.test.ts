@@ -39,7 +39,7 @@ function asSuspended(value: unknown): Suspended {
  * describing an arrival do not run again. The ones that do survive are
  * declared rather than inherited, and this suite is what holds that
  * declaration to its word: a position that silently stops applying is the
- * failure mode it exists to catch (#580).
+ * failure mode it pins against.
  */
 describe("the filter chain on a resumed continuation", () => {
   let t: TestContext | undefined;
@@ -52,7 +52,7 @@ describe("the filter chain on a resumed continuation", () => {
   /**
    * @case Route-scope .concurrency() bounds resumed continuations, not only ingress executions
    * @preconditions A route with route-scope .concurrency({ max: 1 }) and a .suspend() before a slow step; two exchanges parked, then resumed concurrently
-   * @expectedResult The observed peak simultaneity inside the continuation never exceeds the declared max, because both executions compete for the same bulkhead. Before #580 the detached definition carried no concurrency controllers, so resumes ran unbounded against the downstream the limit exists to protect
+   * @expectedResult The observed peak simultaneity inside the continuation never exceeds the declared max, because ingress executions and resumed continuations compete for the same bulkhead, which is the downstream the limit exists to protect
    */
   test("a resumed continuation competes for the route's bulkhead", async () => {
     let inFlight = 0;
@@ -230,6 +230,59 @@ describe("the filter chain on a resumed continuation", () => {
   });
 
   /**
+   * @case A saturated bulkhead delays a resumed continuation rather than refusing it
+   * @preconditions .concurrency({ max: 1, mode: "reject" }) on a route with a suspend before a slow step; two exchanges parked, then resumed together so the second finds no free slot
+   * @expectedResult Both continuations run and complete. A refusal here would be RC5026 recorded as the suspension's terminal outcome, destroying an approval for work that never ran, because the resume claims the suspension before the continuation starts. The bound still holds: the second waits for the slot the first is holding
+   */
+  test("a saturated bulkhead delays a continuation, never refuses it", async () => {
+    let ran = 0;
+    let inFlight = 0;
+    let peak = 0;
+
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .concurrency({ max: 1, mode: "reject" })
+          .from(direct())
+          .suspend({ expect: Approval })
+          .process(async (ex) => {
+            ran++;
+            inFlight++;
+            peak = Math.max(peak, inFlight);
+            await sleep(40);
+            inFlight--;
+            return ex;
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = [
+      asSuspended(await t.client.sendDirect("payout", { amountCents: 10_000 })),
+      asSuspended(await t.client.sendDirect("payout", { amountCents: 20_000 })),
+    ];
+    const receipts = (await Promise.all(
+      parked.map((suspension) =>
+        t!.client.sendDirect("answers", {
+          token: suspension.token,
+          result: { approved: true },
+        }),
+      ),
+    )) as Array<{ outcome: { status: string } }>;
+
+    expect(receipts.map((r) => r.outcome.status)).toEqual([
+      "completed",
+      "completed",
+    ]);
+    expect(ran).toBe(2);
+    expect(peak).toBeLessThanOrEqual(1);
+  });
+
+  /**
    * @case Every chain position declares whether it survives each kind of detached run
    * @preconditions The survival policy, keyed by the chain fields of RouteDefinition
    * @expectedResult The declared set matches the chain exactly, and each position carries a reason. A field added to RouteDefinition widens the key set and fails the build before it reaches this test; this pins the current answers so a silent change to one is visible in the diff
@@ -258,7 +311,7 @@ describe("the filter chain on a resumed continuation", () => {
     ]);
 
     // A debounce release is work the route held back and never admitted, so
-    // it keeps the narrower policy the detached path shipped with.
+    // only the error handler survives it.
     const released = chainFields().filter(
       (field) => chainSurvival(field, "debounce").survives,
     );
