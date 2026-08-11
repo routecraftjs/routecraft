@@ -59,6 +59,13 @@ export class SuspensionSweeper {
    * the same records for as long as the process lives.
    */
   private readonly unowned = new Set<string>();
+  /**
+   * Set the moment shutdown begins, which is earlier than teardown: routes
+   * are aborted and drained before plugins are torn down, so a tick landing
+   * in that window would retire into a route that can no longer notify.
+   */
+  private stopping = false;
+  private offStopping: (() => void) | undefined;
 
   constructor(
     private readonly context: CraftContext,
@@ -96,6 +103,9 @@ export class SuspensionSweeper {
       }
 
       for (const suspension of batch) {
+        // Between retirements, not only between pages: shutdown can begin
+        // mid-batch, and a claim taken after that point notifies nobody.
+        if (this.stopping) return retired;
         const deadline = suspension.expiresAt;
         if (deadline === undefined) {
           stuck.add(suspension.id);
@@ -212,6 +222,9 @@ export class SuspensionSweeper {
   /** Begin the periodic sweep. Idempotent. */
   start(): void {
     if (this.timer) return;
+    this.offStopping = this.context.on("context:stopping", () => {
+      void this.stop();
+    });
     this.timer = setInterval(() => {
       if (this.inFlight) return;
       this.inFlight = this.sweep()
@@ -241,6 +254,9 @@ export class SuspensionSweeper {
    * and nothing left to revisit it.
    */
   async stop(): Promise<void> {
+    this.stopping = true;
+    this.offStopping?.();
+    this.offStopping = undefined;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = undefined;

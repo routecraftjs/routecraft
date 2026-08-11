@@ -743,6 +743,41 @@ describe("the suspension sweeper", () => {
   });
 
   /**
+   * @case Shutdown beginning while a record is due
+   * @preconditions A short sweep interval and an overdue record, with stop() called after the record is written
+   * @expectedResult No retirement lands once shutdown has begun. Routes are aborted and drained before plugins are torn down, so a claim taken in that window settles the record expired while the route that should notify the approver can no longer run
+   */
+  test("claims nothing once shutdown has begun", async () => {
+    const store = new MemorySuspensionStore();
+    const reasked: unknown[] = [];
+
+    const context = await testContext()
+      .with(suspendingWith(store, { sweepInterval: "20ms" }))
+      .routes([
+        craft()
+          .id("payout")
+          .error((err) => {
+            reasked.push(err);
+            return { reasked: true };
+          })
+          .from(direct())
+          .suspend({ expect: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await context.startAndWaitReady();
+
+    await store.create(overdue("sus-at-shutdown"));
+    await context.stop();
+    // Well past several sweep intervals: nothing may claim it after this.
+    await sleep(100);
+
+    expect((await store.get("sus-at-shutdown"))?.status).toBe("suspended");
+    expect(reasked).toHaveLength(0);
+    await store.close();
+  });
+
+  /**
    * @case A context that has been stopped
    * @preconditions A short sweep interval, and an overdue record written after teardown
    * @expectedResult No sweep runs. An interval outliving its context would sweep against a store whose handle is closed, and would re-enter the error channel of routes that are no longer running
