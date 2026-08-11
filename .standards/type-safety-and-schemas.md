@@ -112,7 +112,9 @@ Import only from `@standard-schema/spec` (e.g., `import type { StandardSchemaV1 
 - Something must be **started, stopped, or managed** as a process (lifecycle). Examples: `mcpPlugin` starts the MCP server, spawns stdio subprocesses.
 - Or you want a **typed, validated config helper** that populates the context store. Document it clearly in JSDoc (e.g., "Config only; no lifecycle hooks."). Example: `llmPlugin`.
 
-Plugins may be lifecycle-only, config-helper-only, or both.
+Plugins may be lifecycle-only, config-helper-only, or both. Which hook a
+piece of lifecycle work belongs in is covered in
+[plugin-lifecycle.md](./plugin-lifecycle.md).
 
 ### Context store
 
@@ -127,7 +129,7 @@ Adapters in routes can be:
 
 ### stdio = plugin only
 
-Routes **never** spawn processes. Stdio MCP clients are registered in `mcpPlugin({ clients: { name: { command, args } } })` and managed at `contextStarted` / `contextStopping`. The route API does not expose a stdio option; only HTTP (inline `url` or named `serverId`) is valid in a route.
+Routes **never** spawn processes. Stdio MCP clients are registered in `mcpPlugin({ clients: { name: { command, args } } })` and managed by the plugin's `apply()` / `teardown()` hooks. The route API does not expose a stdio option; only HTTP (inline `url` or named `serverId`) is valid in a route.
 
 ---
 
