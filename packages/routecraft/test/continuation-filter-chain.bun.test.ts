@@ -406,16 +406,11 @@ describe("the filter chain on a resumed continuation", () => {
     const reasons = Object.values(CHAIN_SURVIVAL).flatMap((kinds) =>
       Object.values(kinds).map((policy) => policy.why),
     );
-    const declared = Object.values(CHAIN_SURVIVAL).reduce(
-      (total, kinds) => total + Object.keys(kinds).length,
-      0,
-    );
-    expect(reasons).toHaveLength(declared);
     expect(reasons.every((why) => why.length > 0)).toBe(true);
     // Distinct, not merely present: a reason copied between kinds is a wrong
     // answer to one of the questions, which is the failure per-kind reasons
     // exist to prevent.
-    expect(new Set(reasons).size).toBe(declared);
+    expect(new Set(reasons).size).toBe(reasons.length);
 
     // The executor derives `admissionMustWait` from this flag, so it is the
     // record and not a `kind` comparison that decides which runs a bulkhead
