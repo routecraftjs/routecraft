@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { navigation } from '@/lib/navigation'
 import { documentsHref } from '@/lib/docs-catalogue'
 import {
-  asDocsChannel,
+  docsChannelFromPathname,
   docsChannelPrefix,
   stripDocsChannel,
   withDocsChannel,
@@ -33,9 +33,7 @@ export function Navigation({
   // entries this channel has no page for: on the released channel that is a
   // page written after the release, which would otherwise be a 404 in the
   // sidebar. Sections that end up empty disappear with their links.
-  const channel = asDocsChannel(
-    channelPrefix === '/docs/next' ? 'next' : 'latest',
-  )
+  const channel = docsChannelFromPathname(trimmed)
   const sections = navigation
     .map((section) => ({
       ...section,

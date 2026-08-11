@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { type OperationRow, operations } from '@/lib/docs-catalogue'
 import {
   type DocsChannelName,
+  type DocsChannelProps,
   docsChannelHref,
   withDocsChannel,
 } from '@/lib/docs-channel'
@@ -51,11 +52,7 @@ export function operationsTocSections(
     .filter((section) => section.children.length > 0)
 }
 
-export function OperationsIndex({
-  channel = 'latest',
-}: {
-  channel?: DocsChannelName
-}) {
+export function OperationsIndex({ channel = 'latest' }: DocsChannelProps) {
   const visible = operations(channel)
   const channelPrefix = docsChannelHref(channel)
 

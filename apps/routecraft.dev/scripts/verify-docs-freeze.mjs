@@ -54,7 +54,7 @@ if (!fs.existsSync(OUT_DIR)) {
 // /docs/changelog URL on purpose (it is a page.tsx, so it is not in either
 // channel's page.md set). Excluded from both sides of the comparison rather
 // than special-cased in the diff, so the exception is stated once.
-const MAIN_CADENCE_ROUTES = (route) =>
+const isMainCadenceRoute = (route) =>
   route === 'changelog' || route.startsWith('changelog/')
 
 /** Docs routes the tag documents, as channel-relative paths. */
@@ -69,7 +69,7 @@ function routesAtTag(tag) {
       .split('\n')
       .filter((file) => file.endsWith('/page.md'))
       .map((file) => path.dirname(file.slice(`${APP_DOCS}/`.length)))
-      .filter((route) => !MAIN_CADENCE_ROUTES(route)),
+      .filter((route) => !isMainCadenceRoute(route)),
   )
 }
 
@@ -83,7 +83,7 @@ function routesInBuild() {
     if (route === '' || route === '.') continue
     if (route === 'next' || route.startsWith('next/')) {
       next.add(route.slice('next'.length).replace(/^\//, ''))
-    } else if (!MAIN_CADENCE_ROUTES(route)) {
+    } else if (!isMainCadenceRoute(route)) {
       latest.add(route)
     }
   }

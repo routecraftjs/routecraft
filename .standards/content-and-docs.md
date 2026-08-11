@@ -220,10 +220,11 @@ notes: the changelog owns the one-line announcement, not the explanation.
 ## Docs channels: what is version-pinned and what is not
 
 `/docs` publishes the **last released** version; `/docs/next` publishes main. The release
-workflow gets there by replacing `src/app/docs` and `src/app/cheat-sheet` with their content
-at the latest `v*` tag, having first snapshotted main into `src/app/docs/next`. Everything
-else in the site (home, blog, changelog, and every React component) always builds from main,
-which is what lets a blog post ship without cutting a release.
+workflow gets there by replacing `src/app/docs` (pages plus `_data`), `src/app/cheat-sheet`
+and `public/screenshots` with their content at the latest `v*` tag, having first snapshotted
+main into `src/app/docs/next` and `public/screenshots/next`. Everything else in the site
+(home, blog, changelog, and every React component) always builds from main, which is what
+lets a blog post ship without cutting a release.
 
 Three rules follow, and all three have been violated before:
 

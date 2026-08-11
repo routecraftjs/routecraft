@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * Generates clean markdown files in public/raw/ for each docs page
- * and a combined all-docs file at public/raw/docs.md.
+ * Generates clean markdown files in public/raw/ for every docs page, on both
+ * channels, plus a combined bundle per channel:
+ *
+ *   released      public/raw/docs/**.md      public/raw/docs.md, public/llms-full.txt
+ *   development   public/raw/docs/next/**.md public/raw/docs-next.md, public/llms-full-next.txt
+ *
+ * The next-channel outputs exist so the in-development docs can be handed to a
+ * model when testing against the canary. They are deliberately absent from
+ * llms.txt and the sitemap, matching that channel's noindex.
  *
  * Run as: node --experimental-strip-types scripts/generate-raw-docs.mjs
  */
@@ -72,10 +79,10 @@ for (const file of files) {
   if (isUnpublished(md)) continue
   const title = extractTitle(md)
   const cleaned = cleanMarkdoc(md, title)
-  ;(url.startsWith('/docs/next') ? nextPages : pages).set(url, {
-    title,
-    cleaned,
-  })
+  // Bounded on a segment: a sibling page like /docs/next-steps is a released
+  // page, not the in-development channel.
+  const isNextChannel = url === '/docs/next' || url.startsWith('/docs/next/')
+  ;(isNextChannel ? nextPages : pages).set(url, { title, cleaned })
 }
 
 // Clean the output directory before regenerating. This script owns public/raw
@@ -104,6 +111,10 @@ writePages(nextPages)
 function combinePages(pageMap, toChannelUrl = (url) => url) {
   const parts = []
   const seen = new Set()
+  // The skip list holds channel-less nav hrefs; the page map is keyed by
+  // channel URLs. Map the list once, so the second loop below can compare
+  // like with like instead of re-prefixing a key that is already prefixed.
+  const skip = new Set([...SKIP_IN_COMBINED].map(toChannelUrl))
   for (const { section, pages: urls } of NAV_ORDER) {
     const sectionPages = urls.filter((u) => !SKIP_IN_COMBINED.has(u))
     if (sectionPages.length === 0) continue
@@ -121,8 +132,7 @@ function combinePages(pageMap, toChannelUrl = (url) => url) {
   }
   // Include any pages not in navigation (excluding root and skipped)
   for (const [url, { cleaned }] of pageMap) {
-    if (url === '/' || seen.has(url)) continue
-    if (SKIP_IN_COMBINED.has(toChannelUrl(url))) continue
+    if (url === '/' || seen.has(url) || skip.has(url)) continue
     parts.push(cleaned)
   }
   return condense(parts.join('\n'))

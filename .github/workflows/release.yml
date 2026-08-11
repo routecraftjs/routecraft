@@ -274,6 +274,12 @@ jobs:
       # working tree (labelled with the in-development version).
       - name: Resolve docs release ref
         id: docver
+        env:
+          # Through the environment, never `${{ }}` inside the script: an
+          # expression is expanded into the shell source before bash parses it,
+          # so a dispatched value could close the quote and run commands on a
+          # runner that holds deploy credentials.
+          FREEZE_REF_INPUT: ${{ inputs.freeze_ref }}
         run: |
           set -eo pipefail
           git fetch --tags --force origin >/dev/null 2>&1 || true
@@ -290,8 +296,16 @@ jobs:
 
           # An explicit ref from workflow_dispatch wins: it is how released
           # docs get fixed without waiting for the next npm release.
-          OVERRIDE="${{ inputs.freeze_ref }}"
+          OVERRIDE="$FREEZE_REF_INPUT"
           if [ -n "$OVERRIDE" ]; then
+            # A ref name, and nothing that could be read as shell or forge an
+            # extra key when written to GITHUB_OUTPUT.
+            case "$OVERRIDE" in
+              *[!A-Za-z0-9._/-]*)
+                echo "freeze_ref may only contain A-Z a-z 0-9 . _ / and -" >&2
+                exit 1
+                ;;
+            esac
             if ! git rev-parse --verify --quiet "$OVERRIDE^{commit}" >/dev/null; then
               echo "freeze_ref '$OVERRIDE' is not a ref in this repository." >&2
               exit 1

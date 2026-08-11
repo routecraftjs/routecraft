@@ -64,7 +64,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   // in-development mirror of the latest docs), so it is excluded from the sitemap.
   const docsBaseDir = path.join(process.cwd(), 'src', 'app', 'docs')
   const docPages = collectDocPages(docsBaseDir, '/docs').filter(
-    (page) => !page.url.startsWith('/docs/next'),
+    (page) => page.url !== '/docs/next' && !page.url.startsWith('/docs/next/'),
   )
 
   // Add docs landing page if it exists

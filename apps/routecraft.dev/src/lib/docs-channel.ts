@@ -22,6 +22,19 @@ const CHANNEL_SEGMENT = /^\/docs\/(next|v\d+)(?=\/|$)/
  */
 export type DocsChannelName = 'latest' | 'next'
 
+/** Props every reference index tag receives (see src/markdoc/tags.js). */
+export interface DocsChannelProps {
+  channel?: DocsChannelName
+}
+
+/**
+ * The channel a pathname is being read on. Derived from the URL rather than
+ * passed around, so one compiled component serves both channels.
+ */
+export function docsChannelFromPathname(pathname: string): DocsChannelName {
+  return asDocsChannel(pathname.match(CHANNEL_SEGMENT)?.[1])
+}
+
 /** Narrow an untrusted Markdoc attribute to a channel name. */
 export function asDocsChannel(value: unknown): DocsChannelName {
   return value === 'next' ? 'next' : 'latest'

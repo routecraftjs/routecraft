@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from 'react'
 
-import { errors, resolveAnchor } from '@/lib/docs-catalogue'
-import { type DocsChannelName } from '@/lib/docs-channel'
+import { anchorHref, errors } from '@/lib/docs-catalogue'
+import { type DocsChannelProps } from '@/lib/docs-channel'
 
 /** The page this table indexes, relative to the channel root. */
 const ERRORS_ROUTE = 'reference/errors'
@@ -19,11 +19,7 @@ const categories: ('All' | Category)[] = [
   'Runtime',
 ]
 
-export function ErrorTable({
-  channel = 'latest',
-}: {
-  channel?: DocsChannelName
-}) {
+export function ErrorTable({ channel = 'latest' }: DocsChannelProps) {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<'All' | Category>('All')
 
@@ -36,7 +32,7 @@ export function ErrorTable({
     () =>
       errors(channel).map((e) => ({
         ...e,
-        anchor: resolveAnchor(channel, ERRORS_ROUTE, e.code),
+        href: anchorHref(channel, ERRORS_ROUTE, e.code),
       })),
     [channel],
   )
@@ -121,7 +117,7 @@ export function ErrorTable({
                 >
                   <td className="px-4 py-2.5">
                     <a
-                      href={e.anchor ? `#${e.anchor}` : undefined}
+                      href={e.href}
                       className="font-mono text-[0.85rem] font-semibold text-cobalt-500 hover:text-cobalt-600"
                     >
                       {e.code}

@@ -1,20 +1,16 @@
-import { eventNamespaces, resolveAnchor } from '@/lib/docs-catalogue'
-import { type DocsChannelName } from '@/lib/docs-channel'
+import { anchorHref, eventNamespaces } from '@/lib/docs-catalogue'
+import { type DocsChannelProps } from '@/lib/docs-channel'
 
 /** The page this map indexes, relative to the channel root. */
 const EVENTS_ROUTE = 'reference/events'
 
-export function EventNamespaces({
-  channel = 'latest',
-}: {
-  channel?: DocsChannelName
-}) {
+export function EventNamespaces({ channel = 'latest' }: DocsChannelProps) {
   // Each row jumps to its section on this channel's events page. The generator
   // guarantees the heading exists, so resolving the id here only translates the
   // declared anchor into the one Markdoc renders.
   const visible = eventNamespaces(channel).map((g) => ({
     ...g,
-    anchor: resolveAnchor(channel, EVENTS_ROUTE, g.anchor) ?? g.anchor,
+    href: anchorHref(channel, EVENTS_ROUTE, g.anchor),
   }))
   const total = visible.reduce((n, g) => n + g.events.length, 0)
   return (
@@ -33,7 +29,7 @@ export function EventNamespaces({
           <li key={g.pattern} className="px-5 py-4">
             <div className="flex items-baseline gap-3">
               <a
-                href={`#${g.anchor}`}
+                href={g.href}
                 className="group inline-flex items-baseline gap-2 transition"
               >
                 <span

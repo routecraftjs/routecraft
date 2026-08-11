@@ -5,6 +5,7 @@ import { slug } from '@/lib/slug'
 import { type PluginRow, plugins } from '@/lib/docs-catalogue'
 import {
   type DocsChannelName,
+  type DocsChannelProps,
   docsChannelHref,
   withDocsChannel,
 } from '@/lib/docs-channel'
@@ -32,11 +33,7 @@ export function pluginIndexTocSections(
   }))
 }
 
-export function PluginIndex({
-  channel = 'latest',
-}: {
-  channel?: DocsChannelName
-}) {
+export function PluginIndex({ channel = 'latest' }: DocsChannelProps) {
   const channelPrefix = docsChannelHref(channel)
 
   return (

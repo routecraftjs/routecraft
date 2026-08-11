@@ -54,6 +54,8 @@ import { fileURLToPath } from 'url'
 import glob from 'fast-glob'
 import { slugifyWithCounter } from '@sindresorhus/slugify'
 
+import { anchorKey, slug } from '../src/lib/slug.ts'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
 const DOCS_DIR = path.join(ROOT, 'src', 'app', 'docs')
@@ -138,16 +140,6 @@ const CATALOGUES = [
   },
 ]
 
-/** Lookup key for an anchor: comparable across `RC1001`, `rc-1001`, `RC 1001`. */
-function normaliseHeading(value) {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
-}
-
-/** Slug for a row that owns a page, matching src/lib/slug.ts. */
-function rowSlug(value) {
-  return value.toLowerCase().replace(/\s+/g, '-')
-}
-
 /**
  * Heading ids for a page, as Markdoc renders them (see src/markdoc/nodes.js:
  * one `slugifyWithCounter` per document, applied to the heading text). Markdoc
@@ -175,7 +167,7 @@ function pageAnchors(markdown) {
       .trim()
     if (!text) continue
 
-    anchors[normaliseHeading(text)] = slugify(text)
+    anchors[anchorKey(text)] = slugify(text)
   }
 
   return anchors
@@ -230,16 +222,39 @@ function readRows(dir, catalogue) {
 function documents(channel, catalogue, row) {
   if (catalogue.page) {
     return pages[channel].routes.has(
-      `${catalogue.page}/${rowSlug(catalogue.key(row))}`,
+      `${catalogue.page}/${slug(catalogue.key(row))}`,
     )
   }
   const anchors = pages[channel].anchors[catalogue.anchorsIn] ?? {}
-  return Boolean(anchors[normaliseHeading(catalogue.key(row))])
+  return Boolean(anchors[anchorKey(catalogue.key(row))])
 }
 
-/** See "THE FALLBACK" above: prune the repository's rows to what shipped. */
+/**
+ * Main's rows, from wherever they still exist.
+ *
+ * Not `DATA_DIR`: the freeze replaces src/app/docs wholesale, so on a tag that
+ * predates _data that directory is gone by the time this runs, and reading it
+ * yielded nothing at all. Main's copy survives at the next channel's _data,
+ * which generate-docs-next.mjs writes before the freeze and the workflow parks
+ * across it.
+ */
+function repositoryDataDir() {
+  return [DATA_DIR, path.join(DOCS_DIR, 'next', '_data')].find((dir) =>
+    fs.existsSync(dir),
+  )
+}
+
+/** See "THE FALLBACK" above: prune main's rows to what this channel documents. */
 function fallbackRows(channel, catalogue) {
-  const rows = readRows(DATA_DIR, catalogue) ?? []
+  const dir = repositoryDataDir()
+  if (!dir) {
+    throw new Error(
+      `The ${channel} channel carries no ${catalogue.file} and none was found ` +
+        `at ${DATA_DIR} or the next channel's copy. Publishing an empty ` +
+        `reference table is never correct; fix the data before building.`,
+    )
+  }
+  const rows = readRows(dir, catalogue) ?? []
   return rows.filter((row) => documents(channel, catalogue, row))
 }
 
@@ -270,6 +285,18 @@ for (const channel of CHANNELS) {
     } else {
       resolved[channel][catalogue.module] = fallbackRows(channel, catalogue)
       fellBack.push(`${channel}/${catalogue.module}`)
+    }
+
+    // An empty catalogue is never a legitimate outcome: every channel of this
+    // site documents all five. It is, however, exactly what a broken data path
+    // produces, and it publishes as a blank reference table with a green build.
+    // The first version of the fallback above did precisely that, so the
+    // invariant is asserted rather than assumed.
+    if (resolved[channel][catalogue.module].length === 0) {
+      throw new Error(
+        `${catalogue.file} resolved to zero rows on the ${channel} channel. ` +
+          `That would publish an empty reference table.`,
+      )
     }
   }
 }

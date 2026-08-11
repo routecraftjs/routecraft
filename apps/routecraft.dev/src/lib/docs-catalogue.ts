@@ -9,7 +9,8 @@
 // Reading a catalogue through here rather than importing the generated modules
 // directly keeps the channel lookup (and its fallback) in one place.
 
-import { type DocsChannelName } from '@/lib/docs-channel'
+import { anchorKey } from '@/lib/slug'
+import { type DocsChannelName, docsChannelHref } from '@/lib/docs-channel'
 import { anchorsByChannel } from '@/lib/generated/docs-anchors'
 import { pagesByChannel } from '@/lib/generated/docs-pages'
 import {
@@ -78,22 +79,24 @@ export function documentsHref(channel: DocsChannelName, href: string): boolean {
   return (pagesByChannel[channel] ?? []).includes(route)
 }
 
-/** Lookup key for an anchor: comparable across `RC1001`, `rc-1001`, `RC 1001`. */
-function normaliseHeading(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
-}
-
 /**
- * The anchor id a heading renders as on a page of this channel. Resolving it
- * rather than hand-building one is what keeps `RC1001` pointing at the
- * `rc-1001` that Markdoc actually emits. The generator guarantees every row has
- * its heading, so a miss can only mean a page edited out from under a stale
- * build; such a row links to the page itself rather than a dead fragment.
+ * The href a row uses to reach its section of a page on this channel.
+ *
+ * Resolving the anchor rather than hand-building one is what keeps `RC1001`
+ * pointing at the `rc-1001` that Markdoc actually emits. The generator
+ * guarantees every row has its heading, so a miss can only mean a page edited
+ * out from under a stale build; the row then links to the page itself rather
+ * than to a dead fragment.
+ *
+ * Total by design: an `<a>` with no `href` keeps its link styling but is not
+ * focusable and is not announced as a link, so a miss would silently turn the
+ * error-code column into text that merely looks clickable.
  */
-export function resolveAnchor(
+export function anchorHref(
   channel: DocsChannelName,
   route: string,
   heading: string,
-): string | undefined {
-  return anchorsByChannel[channel]?.[route]?.[normaliseHeading(heading)]
+): string {
+  const id = anchorsByChannel[channel]?.[route]?.[anchorKey(heading)]
+  return id ? `#${id}` : `${docsChannelHref(channel)}/${route}`
 }

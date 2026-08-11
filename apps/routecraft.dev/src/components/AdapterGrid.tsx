@@ -3,13 +3,12 @@ import Link from 'next/link'
 import { type AdapterRow, adapters } from '@/lib/docs-catalogue'
 import {
   type DocsChannelName,
+  type DocsChannelProps,
   docsChannelHref,
   withDocsChannel,
 } from '@/lib/docs-channel'
 import { type Section } from '@/lib/sections'
 import { slug } from '@/lib/slug'
-
-type Role = 'Source' | 'Destination' | 'Enricher' | 'Transformer' | 'Processor'
 
 const categories = [
   'Core',
@@ -22,7 +21,10 @@ const categories = [
   'Clustering',
 ] as const
 
-const roleClassname: Record<Role, string> = {
+// Keyed by the role strings the data file carries. A role outside this set
+// simply gets the neutral styling rather than `undefined` in the class list,
+// which is what an `as Role` assertion used to hide.
+const roleClassname: Record<string, string> = {
   Source: 'border-cobalt-500/40 text-cobalt-600',
   Destination: 'border-ink/25 text-ink/65',
   Enricher: 'border-ink/25 text-ink/65',
@@ -61,11 +63,7 @@ export function adapterGridTocSections(
     .filter((section) => section.children.length > 0)
 }
 
-export function AdapterGrid({
-  channel = 'latest',
-}: {
-  channel?: DocsChannelName
-}) {
+export function AdapterGrid({ channel = 'latest' }: DocsChannelProps) {
   const visible = adapters(channel)
   const channelPrefix = docsChannelHref(channel)
 
@@ -126,7 +124,7 @@ export function AdapterGrid({
                           key={role}
                           className={
                             'inline-flex items-center border px-1.5 py-0.5 font-mono text-[0.6rem] tracking-[0.16em] uppercase ' +
-                            roleClassname[role as Role]
+                            (roleClassname[role] ?? roleClassname.Destination)
                           }
                         >
                           {role}
