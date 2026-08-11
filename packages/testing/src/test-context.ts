@@ -166,7 +166,6 @@ export class TestContext {
           ),
         this.routesReadyTimeoutMs + 100,
       );
-      timeoutId.unref?.();
     });
     return Promise.all([
       this.awaitRoutesReady(),

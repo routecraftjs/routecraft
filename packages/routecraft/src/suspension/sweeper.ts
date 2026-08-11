@@ -363,6 +363,13 @@ export class SuspensionSweeper {
       clearInterval(this.timer);
       this.timer = undefined;
     }
-    await this.inFlight;
+    try {
+      await this.inFlight;
+    } catch {
+      // The boot scan's failure already reached whoever awaited scanOnStart();
+      // re-raising it from every stop() caller would turn one startup error
+      // into an unhandled rejection in the stopping listener and a second
+      // failure in teardown.
+    }
   }
 }
