@@ -34,9 +34,16 @@ export function Navigation({
   // page written after the release, which would otherwise be a 404 in the
   // sidebar. Sections that end up empty disappear with their links.
   const channel = docsChannelFromPathname(trimmed)
+  // The section's own href needs the same test as its children: an unfiltered
+  // header link is still a link to a page this channel does not carry. Dropping
+  // it leaves the plain heading, which the render below already handles.
   const sections = navigation
     .map((section) => ({
       ...section,
+      href:
+        section.href && documentsHref(channel, section.href)
+          ? section.href
+          : undefined,
       links: section.links.filter((link) => documentsHref(channel, link.href)),
     }))
     .filter((section) => section.links.length > 0)

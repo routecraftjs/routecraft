@@ -68,7 +68,13 @@ function routesAtTag(tag) {
     listing
       .split('\n')
       .filter((file) => file.endsWith('/page.md'))
-      .map((file) => path.dirname(file.slice(`${APP_DOCS}/`.length)))
+      .map((file) => {
+        // path.dirname('page.md') is '.', but the built landing page is the
+        // empty route. Left unnormalised, a tag carrying docs/page.md would be
+        // reported as missing on every deploy.
+        const relative = file.slice(`${APP_DOCS}/`.length)
+        return relative === 'page.md' ? '' : path.dirname(relative)
+      })
       .filter((route) => !isMainCadenceRoute(route)),
   )
 }
@@ -80,7 +86,7 @@ function routesInBuild() {
 
   for (const file of glob.sync('docs/**/index.html', { cwd: OUT_DIR })) {
     const route = path.dirname(file).slice('docs/'.length)
-    if (route === '' || route === '.') continue
+    if (route === '.') continue
     if (route === 'next' || route.startsWith('next/')) {
       next.add(route.slice('next'.length).replace(/^\//, ''))
     } else if (!isMainCadenceRoute(route)) {

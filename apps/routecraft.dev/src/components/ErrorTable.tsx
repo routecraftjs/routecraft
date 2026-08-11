@@ -8,20 +8,9 @@ import { type DocsChannelProps } from '@/lib/docs-channel'
 /** The page this table indexes, relative to the channel root. */
 const ERRORS_ROUTE = 'reference/errors'
 
-type Category = 'Definition' | 'DSL' | 'Lifecycle' | 'Adapter' | 'Runtime'
-
-const categories: ('All' | Category)[] = [
-  'All',
-  'Definition',
-  'DSL',
-  'Lifecycle',
-  'Adapter',
-  'Runtime',
-]
-
 export function ErrorTable({ channel = 'latest' }: DocsChannelProps) {
   const [query, setQuery] = useState('')
-  const [category, setCategory] = useState<'All' | Category>('All')
+  const [category, setCategory] = useState<string>('All')
 
   // Every row addresses the `## RCxxxx` section of this channel's errors page.
   // Resolving the id (rather than lowercasing the code) is what makes the link
@@ -35,6 +24,14 @@ export function ErrorTable({ channel = 'latest' }: DocsChannelProps) {
         href: anchorHref(channel, ERRORS_ROUTE, e.code),
       })),
     [channel],
+  )
+
+  // Derived from the rows, not restated here: a category present in the data
+  // but missing from a hard-coded list would render under All with no way to
+  // filter to it, and a removed one would leave a button matching nothing.
+  const categories = useMemo(
+    () => ['All', ...new Set(rows.map((e) => e.category))],
+    [rows],
   )
 
   const filtered = useMemo(() => {
