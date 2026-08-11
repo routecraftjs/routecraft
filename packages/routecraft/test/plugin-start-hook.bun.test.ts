@@ -117,6 +117,32 @@ describe("the plugin start hook", () => {
   });
 
   /**
+   * @case A context is not ready until its start hooks have finished
+   * @preconditions A plugin whose start() takes measurably longer than the routes do to come up
+   * @expectedResult startAndWaitReady() does not resolve first. Readiness that meant only routes-up would let a test assert against work a start hook had not yet done, which is precisely how the suspension sweeper's downtime scan would be raced
+   */
+  test("is not ready until the start hooks have finished", async () => {
+    let finished = false;
+
+    const plugin: CraftPlugin = {
+      name: "slow",
+      apply() {},
+      async start() {
+        await sleep(30);
+        finished = true;
+      },
+    };
+
+    t = await testContext()
+      .with({ plugins: [plugin] })
+      .routes([craft().id("worker").from(direct()).to(noop())])
+      .build();
+    await t.startAndWaitReady();
+
+    expect(finished).toBe(true);
+  });
+
+  /**
    * @case A throwing start() fails context.start() with the original error
    * @preconditions A plugin whose start() throws a recognisable error
    * @expectedResult context.start() rejects with that exact error, unwrapped. The failure semantics are the hook's equivalent of a race test: a plugin that cannot start must not leave a context that reports itself as running

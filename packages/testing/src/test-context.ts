@@ -203,7 +203,14 @@ export class TestContext {
    * `stop()` awaits the promise for teardown.
    */
   async startAndWaitReady(): Promise<void> {
-    const allReady = this.awaitRoutesReady();
+    // Routes up AND every plugin `start()` resolved. Waiting on routes
+    // alone would call a context ready two thirds of the way through its
+    // lifecycle, so a test asserting on work a start hook does (the
+    // suspension sweeper's downtime scan) would race it.
+    const allReady = Promise.all([
+      this.awaitRoutesReady(),
+      this.ctx.whenStarted(),
+    ]);
     this.startedPromise = this.ctx.start();
     // Attach a no-op handler so Node does not report the rejection as
     // unhandled before `stop()` re-awaits the promise.
@@ -220,7 +227,14 @@ export class TestContext {
    */
   async test(options?: TestOptions): Promise<void> {
     const ctx = this.ctx;
-    const allReady = this.awaitRoutesReady();
+    // Routes up AND every plugin `start()` resolved. Waiting on routes
+    // alone would call a context ready two thirds of the way through its
+    // lifecycle, so a test asserting on work a start hook does (the
+    // suspension sweeper's downtime scan) would race it.
+    const allReady = Promise.all([
+      this.awaitRoutesReady(),
+      this.ctx.whenStarted(),
+    ]);
     const started = ctx.start();
     // Shield a synchronous rejection of `started` from becoming an
     // unhandled rejection before the `finally` block re-awaits it.

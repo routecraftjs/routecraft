@@ -238,6 +238,13 @@ export class CraftContext {
   /** Cached shutdown promise so concurrent stop() callers all await the same teardown */
   private shutdownPromise: Promise<void> | null = null;
 
+  /** Backing deferred for {@link CraftContext.whenStarted}. */
+  private startedDeferred?: {
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: unknown) => void;
+  };
+
   /**
    * Create a new CraftContext instance.
    *
@@ -421,6 +428,39 @@ export class CraftContext {
    * mechanism, so a plugin's stop logic has one home. Build-time unwind of
    * applied-but-not-started plugins is tracked separately in #565.
    */
+  /**
+   * Resolves once the context is fully started: routes up AND every plugin
+   * `start()` hook resolved.
+   *
+   * `context.start()` cannot answer this, because it does not resolve until
+   * the routes complete, and an http or cron route completes at shutdown.
+   * Waiting on `route:started` alone answers only two thirds of the
+   * lifecycle, which is why anything needing a started context (a test
+   * harness, a readiness probe) waits here instead.
+   *
+   * A hook that performs bounded startup work is awaited by this, on
+   * purpose: the suspension sweeper's downtime scan has RUN by the time
+   * this resolves, so overdue expiries reach their routes before new
+   * traffic does. Rejects with the original error if a `start()` hook
+   * refused.
+   */
+  whenStarted(): Promise<void> {
+    if (!this.startedDeferred) {
+      let resolve!: () => void;
+      let reject!: (error: unknown) => void;
+      const promise = new Promise<void>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      // Nobody is obliged to await this, and a refused start must not
+      // surface as an unhandled rejection on top of the error start()
+      // already throws.
+      promise.catch(() => {});
+      this.startedDeferred = { promise, resolve, reject };
+    }
+    return this.startedDeferred.promise;
+  }
+
   private async startPlugins(): Promise<void> {
     for (const [pluginIndex, plugin] of this.plugins.entries()) {
       const candidate = plugin as CraftPlugin | undefined;
@@ -826,11 +866,15 @@ export class CraftContext {
       try {
         await this.startPlugins();
       } catch (err) {
+        this.whenStarted();
+        this.startedDeferred?.reject(err);
         await this.stop();
         await running;
         throw err;
       }
     }
+    this.whenStarted();
+    this.startedDeferred?.resolve();
 
     return running
       .then((results) => {
