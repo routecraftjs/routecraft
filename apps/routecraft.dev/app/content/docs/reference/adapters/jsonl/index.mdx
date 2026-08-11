@@ -1,0 +1,128 @@
+---
+title: jsonl
+---
+
+<Lead>
+[← All adapters](/docs/reference/adapters)
+</Lead>
+
+```ts
+jsonl<T, R>(options?: JsonlTransformerOptions): Transformer   // no path: parse a JSONL string in the body
+jsonl<T>(options: JsonlFileOptions & { chunked: true }): JsonlChunkedAdapter<T> // Source<T> & Destination<unknown> & Enricher<unknown, T[]>
+jsonl<T>(options: JsonlFileOptions): JsonlAdapter<T> // Source<T[]> & Destination<unknown> & Enricher<unknown, T[]>
+```
+
+Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per line). One factory, one type; the operation keyword selects the role: `.from()` reads, `.to()` writes, `.enrich()` reads mid-route.
+
+"Presence" means the key was **supplied**, not that it holds something truthy. Only an omitted `path` selects the transformer role; a supplied `path` that is empty or `undefined` is refused with `RC5003` rather than silently demoted to a transformer that would ignore every file option passed alongside it.
+
+**Transformer role** (parse a JSONL string already in the body):
+```ts
+// Parse a JSONL string (e.g. an http() response body) into an array
+.transform(jsonl())
+
+// Pluck the string and write the array to a sub-field
+.transform(jsonl({
+  from: (b) => b.body,
+  to: (b, rows) => ({ ...b, rows })
+}))
+```
+
+**Source role** (read JSONL files):
+```ts
+// Read all lines as array
+.from(jsonl({ path: './events.jsonl' }))
+// Emits: [{ type: 'click', ts: 1 }, { type: 'view', ts: 2 }, ...]
+
+// Per-line emission (chunked)
+.from(jsonl({ path: './events.jsonl', chunked: true }))
+// Emits one exchange per line with JsonlHeaders.LINE and JsonlHeaders.PATH headers
+
+// Custom reviver
+.from(jsonl({
+  path: './data.jsonl',
+  reviver: (key, value) => key === 'date' ? new Date(value) : value
+}))
+```
+
+**Read mid-route** (read + parse a JSONL file partway through a route): The adapter is also an enricher whose `fetch` reads and parses the file, so `.enrich()` can pull the array in. The array replaces the body; pass an aggregator such as `only()` to merge instead. The fetch role accepts dynamic (function) paths. Parse failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to the source role only).
+
+```ts
+// Replace the body with the parsed array
+.enrich(jsonl<Event>({ path: './events.jsonl' }))
+
+// Enrich the body with the parsed array, keeping the existing fields
+.enrich(
+  jsonl<Event>({ path: './events.jsonl' }),
+  only((events) => events, 'events'),
+)
+```
+
+**Destination role** (write JSONL files). The send is void: the body flows through the `.to()` step unchanged.
+
+<Callout type="warning" title="Overwrite is the default">
+
+The send role overwrites the file by default. Appending (the pre-role-model default) is now the explicit opt-in: pass `append: true` for event-log semantics.
+
+</Callout>
+
+```ts
+// Overwrite file (default)
+.to(jsonl({ path: './output.jsonl' }))
+
+// Append to JSONL file (an event log)
+.to(jsonl({ path: './output.jsonl', append: true }))
+
+// Dynamic path with directory creation
+.to(jsonl({
+  path: (exchange) => `./logs/${exchange.body.date}.jsonl`,
+  createDirs: true
+}))
+
+// Custom replacer (omit sensitive fields)
+.to(jsonl({
+  path: './output.jsonl',
+  replacer: (key, value) => key === 'secret' ? undefined : value
+}))
+
+// Delete a JSONL file (idempotent: an already-absent path is a no-op)
+.to(jsonl({ path: (ex) => ex.body.processedPath, delete: true }))
+```
+
+**Transformer options (`JsonlTransformerOptions`, when no `path` provided):**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `from` | `(body) => string` | Uses `body` or `body.body` | Extract the JSONL string from the exchange |
+| `to` | `(body, rows) => R` | Replaces body | Where to put the parsed array |
+| `reviver` | `(key, value) => unknown` | - | Reviver passed to `JSON.parse` |
+
+**File options (`JsonlFileOptions`):**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | `string \| (exchange) => string` | Required | File path. Function (dynamic) paths work for the send/fetch roles; the source role requires a static string |
+| `append` | `boolean` | `false` | Send role: append instead of overwriting; mutually exclusive with `delete` |
+| `delete` | `boolean` | `false` | Send role: delete the file instead of writing (idempotent); mutually exclusive with `append` |
+| `encoding` | `BufferEncoding` | `'utf-8'` | Text encoding |
+| `chunked` | `true` | `false` | Emit one exchange per line instead of a single array (source role only). Must be the literal `true`; a widened `boolean` is a compile error |
+| `createDirs` | `boolean` | `false` | Create parent directories (send role only) |
+| `reviver` | `(key, value) => unknown` | - | Reviver passed to `JSON.parse` (source/fetch roles) |
+| `replacer` | `((key, value) => unknown) \| Array<string \| number> \| null` | - | Replacer passed to `JSON.stringify` (send role) |
+| `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | How to handle a line parse failure (source role only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
+
+Passing both `append: true` and `delete: true` throws `RC5003` at construction.
+
+**Behavior:**
+- **Source** (default): Reads file, splits lines, parses each as JSON, emits `T[]` array. Empty lines are skipped.
+- **Source** (`chunked: true`): Emits one `T` exchange per line with `JsonlHeaders.LINE` (1-based) and `JsonlHeaders.PATH` headers. Chunking concerns the source role only; the send/fetch roles are unchanged. With `onParseError: 'fail'` (default) malformed lines are routed through the route's `.error()` handler and the stream continues; `'abort'` aborts on the first bad line; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
+- **Destination**: Stringifies body to `JSON.stringify(body) + '\n'`. Array bodies write one line per element. Overwrite by default; `append: true` appends.
+
+**Chunked headers:**
+
+| Header | Type | Description |
+|--------|------|-------------|
+| `JsonlHeaders.LINE` (`routecraft.jsonl.line`) | `number` | 1-based line number in the source file |
+| `JsonlHeaders.PATH` (`routecraft.jsonl.path`) | `string` | Path of the source file |
+
+**Exported symbols:** `JsonlHeaders` (chunked-mode header keys, `JsonlHeaders.LINE` / `JsonlHeaders.PATH`); types `JsonlAdapter`, `JsonlChunkedAdapter`, `JsonlFileOptions`, `JsonlTransformerOptions`, `JsonlOptions`

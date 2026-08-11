@@ -1,0 +1,986 @@
+---
+title: Migrating from 0.5.x to 0.6.0
+---
+
+<Lead>
+What changed between Routecraft 0.5.0 and 0.6.0, and how to update.
+</Lead>
+
+0.6.0 is a large release: a set of surface changes plus the architecture pass before v1. The contracts that freeze at v1 changed shape once, now, so they do not have to change after; the engine rework also brings a significant performance improvement to route and event processing.
+
+Surface changes:
+
+1. **`skills` is replaced by a unified `blocks` record.** Skills, memory, identity, instructions, and any future system-prompt contribution are now one primitive.
+2. **Tag selectors on `tools()` are removed.** Programmatic `tools((catalog) => [...])` is the new escape hatch for "give me all read-only tools" style selection.
+3. **The `http()` destination option type is renamed.** `HttpOptions<T>` becomes `HttpClientOptions<T>` now that `http()` is a two-sided adapter (the new HTTP source uses `HttpServerOptions`). Type-only change; runtime behaviour and the `http({...})` call sites are unchanged.
+4. **The mail source moves the envelope from `body` to `routecraft.mail.*` headers.** `.from(mail(...))` now delivers the message content on `exchange.body` and the envelope (from, subject, recipients, ...) on headers, matching the HTTP source.
+
+Architecture changes:
+
+5. **Event names are a fixed set; identity moved into the payload.** `route:<id>:exchange:failed` becomes `route:exchange:failed` with `routeId` in `details`. Wildcard subscriptions are replaced by exact names, the `"*"` catch-all, and the `forRoute()` filter helper.
+6. **Source adapters receive one `Subscription` object.** The positional `subscribe(context, handler, abortController, onReady?, meta?)` signature is gone. `.from()` additionally accepts async generator functions and iterables.
+7. **Custom `Step` implementations return a `StepOutcome`.** Steps no longer receive the engine queue; the executor owns scheduling. Per-execution metadata rides the outcome, not the `Step` instance. Custom aggregators return `{ body, headers? }` instead of a fabricated `Exchange`.
+8. **`@routecraft/ai` error codes are renamed.** `RC5025`/`RC5026`/`RC5027` become `AI1001`/`AI1002`/`AI1003`; ecosystem packages now register their own namespaced codes via `registerErrorCodes()`.
+9. **The builder enforces position in the type system.** `craft()` returns a pre-`from` builder; pipeline operations before `.from()` are now compile errors. Builder generics take a state bag (`RouteBuilder<{ body: T }>`).
+10. **Splitters return child bodies.** `.split()` callbacks return values (or `splitChild(body, headers)`) instead of hand-built `Exchange` instances.
+11. **Consumers take envelopes and a deps bag.** `Consumer.register` receives the `Message` envelope; consumer classes construct from a single `ConsumerDeps` object.
+12. **Header keys are consolidated.** `HeadersKeys` keeps framework keys only; adapter keys move to per-adapter objects (`MailHeaders`, `CronHeaders`, `TimerHeaders`, `FileHeaders`, `CsvHeaders`, `JsonlHeaders`, `CarddavHeaders`). `HEADER_MAIL_*` / `HEADER_CARDDAV_*` constants and `HeaderKeysRegistry` are removed.
+13. **`client.send` is now `client.sendDirect`**, and capability discovery is public: `context.capabilities()` replaces reads of the internal direct registry.
+14. **Naming sweeps.** `CardDAV*` exports become `Carddav*` (acronym casing, per the `Http` precedent); jsonl's `JsonlSourceOptions` / `JsonlDestinationOptions` / `JsonlCombinedOptions` fold into one `JsonlFileOptions`.
+15. **`authorize()` is delegation-aware, and delegation is rejected by default.** The `Principal` gains `actor` / `subjectProfile` / `mayAct` (RFC 8693 `act` semantics), a new `.delegate()` operation marks an agent as acting on a user's behalf, and `authorize()` gains `subject` / `actor` / `maxDelegationDepth` options. The `actor` default is `'none'`: existing routes behave identically for direct callers, but a delegated principal (minted by `.delegate()` or parsed from a token's `act` claim) is rejected with the new `RC5034` until the route declares its permitted actor(s). A missing scope now raises `RC5038` (recoverable insufficiency, with `missing.scopes` on the cause) instead of `RC5015`; role and predicate failures keep `RC5015`. Update any code or alerting that matches on `error.rc` for scope failures, and add `actor:` declarations to routes that agents should reach. `.delegate()` also fails closed on missing consent: a resolver returning `undefined` now STRIPS the subject's direct principal by default (the exchange continues anonymous and a downstream `authorize()` refuses with `RC5012`) instead of passing the caller's full authority onward. Anonymous exchanges, already-delegated principals, and `ai_agent` subjects are untouched. If a pipeline's continuation serves the caller directly and previously relied on the pass-through, add `{ otherwise: 'keep' }` to that `.delegate()` call. Note for Clerk users: Clerk's user-impersonation sessions carry a native `act` claim, so an impersonating admin who previously passed guarded routes as the impersonated user is now rejected with `RC5034` until the route admits an actor. That those sessions were previously indistinguishable from the real user is exactly what this change fixes; declare `actor: ['none', { issuer: '<your Clerk issuer>' }]` (or a narrower matcher) on routes where impersonation should keep working.
+
+16. **The adapter role model: `Source` / `Destination` / `Enricher` (the option laws).** `Destination.send` is strictly void; the new `Enricher.fetch` slot owns mid-route reads. `.enrich()` with no aggregator now REPLACES the body, the file family drops `mode` (`append: true` / `delete: true` instead, and `.to(jsonl({ path }))` now overwrites by default), json's transformer extraction key is renamed `pointer`, and send receipts (mail, carddav) move from body replacement to `routecraft.<adapter>.*` headers. See [section 16](#16-the-adapter-role-model).
+
+17. **MCP is stateless, and `oauth()` becomes a resource server.** `mcpPlugin` adopts protocol revision 2026-07-28: no sessions, a fresh server instance per request, and the SDK v1 peer replaced by the v2 package split. `oauth({ endpoints, client, verifyAccessToken })` becomes `oauth({ verify, issuer?, requiredScopes? })` and no longer mounts authorization-server endpoints; point clients at your IdP. Token expiry is now enforced on every auth mode and the boundary is inclusive, so a token whose `exp` equals the current second is expired. Session events and `McpHeadersKeys.SESSION` are removed. See [section 17](#17-mcp-stateless).
+
+Routes built only from the DSL (`craft().from(...).transform(...).to(...)`) with framework adapters need changes for the agent/tools/mail surface (1-4) where used, event subscriptions (5), builder call order that was already a runtime error (9), adapter header constants (12), and every `.enrich()` / file-family / mail-send call site (16). The rest affects adapter authors and advanced integrations.
+
+If you expose capabilities over MCP, or use `jwt()` / `jwks()` / `oauth()` anywhere, read [section 17](#17-mcp-stateless): the auth changes there can turn a previously-accepted request into a `401`.
+
+Three behavioural notes that are not API changes: context store seeding for `cron`/`direct`/`mail` config now happens in `initPlugins()` (called automatically by `start()`) instead of the `CraftContext` constructor; plugin teardown plus `registerTeardown` callbacks now unwind in reverse (LIFO) order; and `.input()` validation now runs inside the [filter chain](/docs/advanced/filter-chain) (position #4) instead of eagerly in the consumer handler, so an invalid message is routable through the route-scope `.error()` handler and an unrecovered failure emits `route:exchange:failed` (previously `route:exchange:dropped`) while still rejecting the sender.
+
+---
+
+## 1. Agents: `skills` is replaced by `blocks`
+
+`AgentOptions.skills: string[]` and `agentPlugin({ skills })` are removed. They are replaced by a single primitive that covers what skills used to do and unifies it with memory, identity, instructions, and any other system-context contribution: `AgentOptions.blocks: Blocks` (a `Record<string, BlockBody | false>`).
+
+A block body has:
+
+- `mode`: `"inject"` to always concatenate the resolved content into the system prompt as `## <name>\n\n<content>`, or `"progressive"` to surface the block as a synthetic loader tool the model invokes on demand. Progressive blocks require a `description`.
+- `lifetime` (optional, default `"dispatch"`): `"dispatch"` re-runs the resolver on every dispatch; `"context"` runs it once per `CraftContext` and reuses the result.
+- `value`: a static string used verbatim, or a function `(exchange, context, events, client) => string | Promise<string>`. The `client` carries `forward(routeId, payload)`, the same callable route `.error()` handlers receive, so a resolver can delegate to a registered direct route. `events` is reserved (always `[]` today) for a forthcoming exchange-event log.
+
+The block's `name` is the record key, not a field on the body. Names starting with the reserved `_block_` prefix are rejected (`AI1002`).
+
+The big semantic shift: progressive disclosure is now the default for skills. The model sees each skill's name and description in the tool list and loads the body via a tool call only when relevant. This matches Claude Code's actual default. To preserve the legacy "always inject every skill" behaviour, opt into `mode: "inject"`.
+
+### 1.1 Inline `skills` becomes inline `blocks`
+
+**Before (0.5.x):**
+
+```ts
+agent({
+  model: "anthropic:claude-sonnet-4-6",
+  system: "You are an analyst.",
+  skills: ["web-search", "cite-sources"],
+});
+```
+
+**After (0.6.0):**
+
+```ts
+agent({
+  model: "anthropic:claude-sonnet-4-6",
+  system: "You are an analyst.",
+  blocks: {
+    "web-search": {
+      mode: "inject",
+      value: "Always search before answering.",
+    },
+    "cite-sources": {
+      mode: "inject",
+      value: "Always cite your sources.",
+    },
+  },
+});
+```
+
+### 1.2 `agentPlugin({ skills })` is removed; `skills()` returns blocks
+
+`agentPlugin({ skills: { ... } })`, the `Skill` / `SkillRegistry` / `RegisteredSkillName` / `SkillOverride` exports, and the `ADAPTER_SKILL_REGISTRY` symbol are all gone. There is no shim.
+
+`skills({ source, mode?, lifetime? })` keeps the same name as the 0.5 markdown loader but now returns a `Blocks` record you spread into an agent's `blocks: { ... }` map. It reads the same markdown layout (flat `<name>.md` and nested `<name>/SKILL.md`, with the Claude Code frontmatter the old loader accepted). **The default `mode` is `"progressive"`** so the model picks which skills to load.
+
+**Before (0.5.x):**
+
+```ts
+import { agentPlugin, skills } from "@routecraft/ai";
+
+agentPlugin({
+  skills: await skills("./skills"),
+});
+
+agent({
+  model: "anthropic:claude-sonnet-4-6",
+  system: "You are an analyst.",
+  skills: ["web-search"],
+});
+```
+
+**After (0.6.0), progressive disclosure (recommended):**
+
+```ts
+import { agent, skills } from "@routecraft/ai";
+
+agent({
+  model: "anthropic:claude-sonnet-4-6",
+  system: "You are an analyst.",
+  blocks: { ...(await skills({ source: "./skills" })) },
+});
+```
+
+**After (0.6.0), recovering the legacy "concatenate every skill" behaviour:**
+
+```ts
+agent({
+  model: "anthropic:claude-sonnet-4-6",
+  system: "You are an analyst.",
+  blocks: { ...(await skills({ source: "./skills", mode: "inject" })) },
+});
+```
+
+The function signature changed from `skills(path)` to `skills({ source })`. The return type changed from `Record<name, Skill>` to `Blocks`. Both are visible at the call site.
+
+Spreading flattens every skill into the top-level namespace. To keep them grouped under one addressable key, assign the result to a nested block instead of spreading it (see [1.2b](#1-2b-grouping-skills-under-one-key)).
+
+### 1.2b Grouping skills under one key
+
+A `blocks` value may be a single `BlockBody` (a leaf) or a nested `Blocks` record (a group). Assigning `skills({ source })` to a key, rather than spreading it, keeps every skill under that namespace instead of dissolving them into the top level:
+
+```ts
+agent({
+  model: "anthropic:claude-sonnet-4-6",
+  system: "You are an analyst.",
+  blocks: {
+    skills: await skills({ source: "./skills" }), // a named group
+    tone: { mode: "inject", value: "Be terse." }, // a single block
+  },
+});
+```
+
+Groups flatten depth-first into a single canonical name joined by `__`. A skill `onboarding` under the `skills` group resolves to `skills__onboarding` for its system-prompt heading, its loader tool (`_block__load__skills__onboarding`), and its `AgentResult.blocksLoaded` entry. `__` (not `/`) is used because loader tool names reach the provider unsanitised and must match `^[a-zA-Z0-9_-]{1,64}$`.
+
+Grouping isolates collisions (a skill named `tone` resolves to `skills__tone`, distinct from a top-level `tone` block) and lets you remove or replace the whole collection by its top-level key. Two blocks that flatten to the same name are rejected with `AI1002`. The empty-name and reserved-`_block_`-prefix rules apply at every nesting level. Per-member merge inside a group is not supported in 0.6.0: a per-agent group replaces a default group of the same name wholesale, and `skills: false` removes the whole group.
+
+### 1.3 `agents()` markdown loader: `skills:` frontmatter is rejected
+
+The agent markdown loader (`agents("./agents")`) used to accept a `skills:` frontmatter field. That field is now rejected with `RC5003` "not yet supported" because blocks accept function-form resolvers that YAML cannot express. Set `blocks` on the registered agent in code instead, either via the per-agent `overrides` map handed to `agents()` or via the agent's call site.
+
+> The key returns in 0.7.0 with different semantics: it declares **where skills come from** (local paths and `npm:` package refs) rather than naming blocks, and the project runtime resolves it. See [`agents()`](/docs/reference/plugins/agentplugin#loading-agents-from-markdown-agents).
+
+**Before (0.5.x):** `agents/researcher.md`
+
+```md
+---
+name: researcher
+description: Researches things
+model: anthropic:claude-sonnet-4-6
+skills:
+  - web-search
+  - cite-sources
+---
+You are a researcher.
+```
+
+**After (0.6.0):** drop `skills:` from frontmatter, supply blocks via the overrides map:
+
+```ts
+import { agentPlugin, agents, skills } from "@routecraft/ai";
+
+agentPlugin({
+  agents: await agents("./agents", {
+    researcher: {
+      blocks: await skills({ source: "./skills" }),
+    },
+  }),
+});
+```
+
+### 1.4 Resolver-backed blocks (memory, tenant config, identity)
+
+Function-form resolvers receive the live exchange, context, a reserved events list, and a block client. Use `client.forward(routeId, payload)` to delegate to a registered direct route. Use `lifetime: "context"` to evaluate once per `CraftContext` and cache the result across dispatches.
+
+This is the pattern memory adapters will use; it is illustrative, not a shipped builder in 0.6.0.
+
+```ts
+import { craft, direct } from "@routecraft/routecraft";
+import { agent } from "@routecraft/ai";
+
+craft()
+  .id("memory:get")
+  .from(direct())
+  // `.transform(body => body)` is body-in / body-out; the exchange
+  // itself is frozen in 0.6 (copy-on-write), so `ex.body = ...` from
+  // a `.process()` step would throw. Return the new body instead.
+  .transform(async (body) => {
+    const { subject } = body as { subject: string };
+    return await loadMemoryFor(subject);
+  });
+
+agent({
+  model: "anthropic:claude-sonnet-4-6",
+  system: "You are Zoe.",
+  blocks: {
+    memory: {
+      description: "Long-term notes about the operator.",
+      mode: "progressive",
+      lifetime: "context",
+      value: async (exchange, _context, _events, client) => {
+        // Read identity from the typed principal, not from a header.
+        // `exchange.principal` is the verified, framework-tracked
+        // identity (authenticity, expiry, claims); a string header
+        // would bypass those guarantees.
+        const subject = exchange.principal?.subject;
+        if (!subject) return ""; // anonymous: no memory to inject
+        const result = await client.forward("memory:get", { subject });
+        return result as string;
+      },
+    },
+  },
+});
+```
+
+A resolver that needs nothing more than the `CraftContext` can ignore the client and read from the context directly:
+
+```ts
+{
+  blocks: {
+    "tenant-config": {
+      mode: "inject",
+      lifetime: "context",
+      value: (_exchange, context) => {
+        const config = context.services.get(TenantConfig);
+        return `Tenant: ${config.name}`;
+      },
+    },
+  }
+}
+```
+
+### 1.5 Loader tool naming reservation
+
+Progressive blocks are exposed to the model as synthetic tools named `_block__load__<blockName>`. Any user tool (fn id, direct route id, or block name) starting with `_block_` is rejected at construction or dispatch time with `AI1002`. Rename the offending tool or block.
+
+### 1.6 `AgentResult`: tool-call partitioning and `blocksLoaded`
+
+Synthetic block-loader invocations no longer appear on `AgentResult.toolCalls`. They surface on a new `AgentResult.blocksLoaded?: AgentBlockLoadSummary[]` so post-dispatch assertions on the agent's user-tool usage stay clean. Each entry carries `blockName`, `toolName` (the `_block__load__<name>` form), `toolCallId`, and either `output` or `error`.
+
+Observability follows the same split: loader calls emit `route:<id>:agent:block:loaded` and `:agent:block:error` instead of the `:agent:tool:*` events.
+
+### 1.7 Defaults merging and removal via `false`
+
+`agentPlugin({ defaultOptions: { blocks } })` lets a context install shared blocks once. The merge rule differs from how `tools` merges: a per-agent `blocks: { ... }` does **not** replace defaults wholesale. Instead, defaults are merged into the final blocks record by name. A per-agent block whose key matches a default replaces only that entry; non-colliding defaults still apply.
+
+To remove a default from a specific agent, set its name to `false`:
+
+```ts
+agentPlugin({
+  defaultOptions: {
+    blocks: {
+      "house-style": { mode: "inject", value: "Be terse." },
+      safety: { mode: "inject", value: "Refuse harmful requests." },
+    },
+  },
+});
+
+agent({
+  model: "anthropic:claude-sonnet-4-6",
+  system: "You are a friendly assistant.",
+  blocks: {
+    // Override "house-style" with a friendlier framing
+    "house-style": { mode: "inject", value: "Be warm and helpful." },
+    // Drop the "safety" default from this specific agent
+    safety: false,
+  },
+});
+```
+
+A `false` for a name absent from defaults is a no-op so adding or removing defaults later cannot silently break an agent's block list.
+
+### 1.8 Multiple `agentPlugin` installs
+
+Two `agentPlugin` installs that each set `defaultOptions.blocks` now merge additively by name (a name set in both installs throws `RC5003`). This matches the per-agent merge semantics and the mental model that blocks are independent contributions. Other `defaultOptions` fields (`model`, `tools`) still throw on any double-set.
+
+### 1.9 New error codes
+
+| Code     | Meaning                                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------------------------- |
+| `AI1001` | Block resolver threw or returned a non-string. Inject mode aborts the dispatch; progressive mode reports back to the model as a tool error.       |
+| `AI1002` | Block name collides with another block, a user tool, or uses the reserved `_block_` prefix.                   |
+| `AI1003` | Block misconfigured: invalid `mode`, missing `description` on a progressive block, non-string non-function `value`, etc.       |
+
+---
+
+## 2. Tools: tag selectors removed, function-form added
+
+The `{ tagged }` and `{ tagged, from }` selector variants on `tools()` are gone, along with the `tags` override on `directTool({ tags })`.
+
+**The implicit-extension risk is identical between the deleted tag selector and the new builder form.** In both, a future fn registered with a matching tag silently extends the agent's surface. The deletion does not eliminate the risk; it relocates it. The reason this is still worth doing: a declarative selector embedded in framework config (`{ tagged: "read-only" }`) reads as a static piece of configuration to a reviewer, while a `.filter()` in user code reads as obviously dynamic. The risk surfaces at the call site where a code review can spot it, instead of being implicit in the framework's interpretation of a tag.
+
+For the cases where enumeration is impractical, `tools()` now accepts a builder function that receives a `ToolsCatalog` snapshot:
+
+**Before (0.5.x):**
+
+```ts
+agent({
+  tools: tools([{ tagged: "read-only" }]),
+});
+```
+
+**After (0.6.0), explicit (recommended):**
+
+```ts
+agent({
+  tools: tools(["fetchOrder", "getCustomer", "listOrders"]),
+});
+```
+
+**After (0.6.0), programmatic escape hatch:**
+
+```ts
+agent({
+  tools: tools((catalog) =>
+    catalog.fns
+      .filter((f) => f.tags?.includes("read-only"))
+      .map((f) => f.name),
+  ),
+});
+```
+
+The builder receives `{ fns, routes, mcp }`, each a readonly frozen array of `{ name | id | server+tool, description?, tags? }` (entries are deep-frozen so a builder cannot mutate the snapshot). It must return the same `ToolsItem[]` the array form accepts (strings or `{ name, guard?, description? }` objects). Builder errors are wrapped in `RC5003` with the original chained.
+
+### 2.1 `directTool({ tags })` override removed
+
+The `tags` option on `ToolBuilderOverrides` was only meaningful for the now-removed tag selectors. `directTool(routeId, { description, input })` still works for per-binding overrides.
+
+### 2.2 Synthetic tool names normalise on `__` \{#tool-name-normalisation}
+
+Every name the framework composes from parts now uses `__` as its only structural separator. Two of the four forms change:
+
+| Kind | 0.5.x | 0.6.0 |
+|------|-------|-------|
+| fn | `<fnId>` | unchanged |
+| capability | `direct_<routeId>` | `direct__<routeId>` |
+| MCP client tool | `mcp__<server>__<tool>` | unchanged |
+| block loader | `_block_load_<name>` | `_block__load__<name>` |
+
+This is what makes a single underscore inside a segment unambiguous against the prefix boundary. The MCP form already reasoned about this (splitting on the first `__` so a server named `my_company_api` survives); `direct_` had no such boundary, and the block form used single underscores between its own prefix words while using double underscores between name segments, so one name carried two meanings for the same character sequence.
+
+**What to update:** anything that pins a generated tool name. Guards keyed on tool name, assertions on `AgentResult.toolCalls[].toolName` or `blocksLoaded[].toolName`, recorded transcripts, and evals. The authoring grammar is unchanged: keep writing `Direct(<routeId>)` and `MCP(server:tool)`. Markdown agent frontmatter carrying the raw `mcp__server__tool` form still resolves unchanged.
+
+The reserved block namespace stays at the single-underscore `_block_`, one character shorter than what today's names start with, so names in the old shape remain unclaimable.
+
+### 2.3 `Direct(<routeId>)` rejects route ids that are not valid tool names
+
+Tool names must match `/^[A-Za-z0-9_-]{1,64}$/`, the charset every mainstream provider enforces. Route ids are deliberately not constrained that way, and colon-bearing ids are an established convention (`client.forward("memory:get", payload)`).
+
+In 0.5.x, `Direct(memory:get)` produced the tool name `direct_memory:get` and passed it to the provider unsanitised, where it was rejected with an error that named neither the route nor the reference. In 0.6.0 it throws `RC5003` at resolution, naming both.
+
+The ceiling is checked on the final name, not the bare route id, so a 57-character route id now fails because `direct__` pushes it to 65.
+
+An MCP client tool whose remote name cannot form a valid wire name is handled differently: it is dropped from the agent's tool list with a warning rather than throwing. The remote owns that name, so a throw would let one malformed tool fail every dispatch of every agent bound to that server, and because tool selection resolves per dispatch, a remote renaming a tool would become a live outage rather than a startup error. This matches what `mcpPlugin({ proxy })` already does for the same registry entries.
+
+**Fix:** expose the route under a tool-safe alias.
+
+```ts
+agentPlugin({
+  functions: {
+    memoryGet: directTool("memory:get"), // clean name, same capability
+  },
+});
+```
+
+Fn ids reach the provider verbatim with no prefix, so the same constraint now applies to them and is checked when `agentPlugin` registers, rather than surfacing as an opaque provider error on the first dispatch.
+
+### 2.4 `ResolvedTool` gains a required `source` field
+
+`ResolvedTool` now carries `source`, a discriminated union of `{ kind: "fn" | "direct" | "mcp" | "block" }` set by the resolver. This only affects code that hand-constructs a `ResolvedTool` (test fixtures, custom bridges); resolution through `tools([...])` populates it for you.
+
+A `directTool` alias registered under a fn id reports `kind: "direct"`, not `"fn"`. It reaches the same route under a different name, so classifying it as a fn would make aliasing a way around [`toolPolicy`](/docs/reference/plugins/agentplugin#tool-policy).
+
+---
+
+## 3. HTTP: option type renamed for the two-sided adapter
+
+`http()` is now a two-sided adapter: the existing destination (`http({ url })`) plus a new source (`http({ path })`) that exposes a route over HTTP. To follow the Server/Client naming convention for two-sided adapters, the destination's option type is renamed:
+
+- `HttpOptions<T>` -> `HttpClientOptions<T>`
+
+The new source side uses `HttpServerOptions`. This is a type-only change. The `http({...})` factory, its overloads, and runtime behaviour are unchanged, so the only update needed is on explicit type imports.
+
+**Before (0.5.x):**
+
+```ts
+import { http, type HttpOptions } from "@routecraft/routecraft";
+
+const opts: HttpOptions<MyBody> = {
+  method: "POST",
+  url: "https://api.example.com/ingest",
+};
+```
+
+**After (0.6.0):**
+
+```ts
+import { http, type HttpClientOptions } from "@routecraft/routecraft";
+
+const opts: HttpClientOptions<MyBody> = {
+  method: "POST",
+  url: "https://api.example.com/ingest",
+};
+```
+
+If you never imported `HttpOptions` by name (the common case, since `http({...})` infers its argument type), no change is needed. See the [`http()` adapter reference](/docs/reference/adapters/http) for the new source surface.
+
+---
+
+## 4. Mail: envelope moves from `body` to `routecraft.mail.*` headers \{#mail-envelope-headers}
+
+The mail **source** (`.from(mail(folder, options))`) used to deliver one fat object on `exchange.body` that mixed the message content (`body.text`, `body.html`, `attachments`) with the envelope (`from`, `to`, `subject`, `date`, `cc`, `bcc`, `replyTo`, `messageId`, `flags`, `sender`, `rawHeaders`). It now follows the same payload-on-`body`, envelope-on-`headers` convention as the HTTP source:
+
+- **`exchange.body`** is a `MailBody`: just `{ text?, html?, attachments? }`. Attachments are message content, so they stay on the body.
+- **`exchange.headers`** carries the envelope under the `routecraft.mail.*` namespace. The keys are declaration-merged into `RoutecraftHeaders` for autocomplete and exported on the `MailHeaders` key object (`MailHeaders.FROM`, `MailHeaders.SUBJECT`, ...; see [section 12](#12-header-keys-per-adapter-objects)).
+
+Two things this unlocks: `.input({ body })` on a mail route now validates against the message content alone (no need to model envelope fields), and `mail -> transform -> http` collapses to one mental model.
+
+Only the streaming **source** changes. The fetch destination (`.enrich(mail(...))`) still returns `MailMessage[]` with the whole envelope on each element, because a batch fetch cannot split N envelopes across single-valued headers. The send destination input (`MailSendPayload`) is unchanged.
+
+### 4.1 Reading the envelope
+
+**Before (0.5.x):**
+
+```ts
+craft()
+  .from(mail("INBOX", { unseen: true }))
+  .transform((msg) => ({
+    to: "team@example.com",
+    subject: `Fwd: ${msg.subject}`,
+    text: msg.body.text ?? "",
+  }))
+  .to(mail());
+```
+
+**After (0.6.0):**
+
+```ts
+craft()
+  .from(mail("INBOX", { unseen: true }))
+  // The transformer's second argument is the exchange; read the envelope
+  // off its headers. The first argument (the body) is now the MailBody.
+  .transform((body, ex) => ({
+    to: "team@example.com",
+    subject: `Fwd: ${ex.headers["routecraft.mail.subject"]}`,
+    text: body.text ?? "",
+  }))
+  .to(mail());
+```
+
+The field-to-header mapping:
+
+| Before (`ex.body.*`) | After (`ex.headers[...]`)        |
+| -------------------- | -------------------------------- |
+| `body.from`          | `routecraft.mail.from`           |
+| `body.to`            | `routecraft.mail.to` (array)     |
+| `body.cc`            | `routecraft.mail.cc` (array)     |
+| `body.bcc`           | `routecraft.mail.bcc` (array)    |
+| `body.subject`       | `routecraft.mail.subject`        |
+| `body.date`          | `routecraft.mail.date`           |
+| `body.messageId`     | `routecraft.mail.messageId`      |
+| `body.replyTo`       | `routecraft.mail.replyTo`        |
+| `body.flags`         | `routecraft.mail.flags`          |
+| `body.sender`        | `routecraft.mail.sender`         |
+| `body.rawHeaders`    | `routecraft.mail.rawHeaders`     |
+| `body.uid`           | `routecraft.mail.uid` (already)  |
+| `body.folder`        | `routecraft.mail.folder` (already) |
+| `body.text`          | `body.text` (unchanged)          |
+| `body.html`          | `body.html` (unchanged)          |
+| `body.attachments`   | `body.attachments` (unchanged)   |
+
+### 4.2 Filtering on the effective sender
+
+**Before (0.5.x):**
+
+```ts
+.filter((ex) => ex.body.sender?.trust === "verified")
+```
+
+**After (0.6.0):**
+
+```ts
+.filter((ex) => ex.headers["routecraft.mail.sender"]?.trust === "verified")
+```
+
+### 4.3 Downstream IMAP operations are unaffected
+
+`.to(mail({ action: "move", ... }))` and the other IMAP operations already resolved their target from the `routecraft.mail.uid` / `routecraft.mail.folder` headers (or a custom `target` extractor), so chains like `mail source -> filter -> mail move` keep working without change.
+
+### 4.4 Object-form fetch requires `folder`
+
+`MailServerOptions` (IMAP fetch) and `MailClientOptions` (SMTP send) overlap on `host` / `port` / `secure` / `auth` / `account`, so the old object-form overloads could not tell a fetch from a send: the compiler resolved ambiguous calls to the fetch overload while the runtime key-sniffed its way to the send adapter, and the two regularly disagreed. In 0.6.0 the object-form fetch destination requires `folder`, which is the discriminator: an options object with `folder` is a fetch, one without it is a send. Fetch-only keys without `folder` are a compile error, and plain JS gets `RC5003` at construction instead of a guessed side.
+
+**Before (0.5.x):**
+
+```ts
+.enrich(mail({ unseen: true, limit: 10 }))
+```
+
+**After (0.6.0):**
+
+```ts
+.enrich(mail({ folder: "INBOX", unseen: true, limit: 10 }))
+// or keep the shorthand when defaults suffice
+.enrich(mail("INBOX"))
+```
+
+The `mail("INBOX")` string shorthand, the two-argument source form, `{ action }` operations, and bare `mail()` sends are unchanged. Send options gain real typechecking from this: `.to(mail({ host, auth }))` now resolves to `Destination<MailSendPayload, MailSendResult>` instead of the fetch signature, so payload mistakes surface at compile time and no cast is needed.
+
+---
+
+## 5. Events: fixed names, identity in the payload
+
+Every hierarchical event name loses its identity segment. The payload already carried `routeId` (and now always does), so subscriptions become exact names plus payload filtering.
+
+| Old name | 0.6.0 name |
+| --- | --- |
+| `route:<id>:registered` / `:starting` / `:started` / `:stopping` / `:stopped` | `route:registered` / `route:starting` / `route:started` / `route:stopping` / `route:stopped` |
+| `route:<id>:error` / `route:<id>:error:caught` | `route:error` / `route:error:caught` |
+| `route:<id>:exchange:started` / `:completed` / `:failed` / `:dropped` / `:restored` | `route:exchange:started` / `:completed` / `:failed` / `:dropped` / `:restored` |
+| `route:<id>:step:started` / `:completed` / `:failed` | `route:step:started` / `:completed` / `:failed` |
+| `route:<id>:step:<label>:error` | `route:step:error` (step label is `details.operation`) |
+| `route:<id>:batch:started` / `:flushed` / `:stopped` | `route:batch:started` / `:flushed` / `:stopped` |
+| `route:<id>:error-handler:invoked` / `:recovered` / `:failed` | `route:error-handler:invoked` / `:recovered` / `:failed` |
+| `route:<id>:cache:hit` / `:miss` / `:stored` / `:failed` | `route:cache:hit` / `:miss` / `:stored` / `:failed` |
+| `route:<id>:operation:choice:matched` / `:unmatched` | `route:operation:choice:matched` / `:unmatched` |
+| `route:<id>:agent:*` (all agent events) | `route:agent:*` (same suffixes) |
+| `plugin:<pluginId>:starting` / `:started` / `:stopping` / `:stopped` | `plugin:starting` / ... (`pluginId` in payload); `plugin:<pluginId>:registered` is removed (subscribe to `plugin:starting`) |
+| `context:*`, `auth:*`, `agent:registered`, `agent:tool:registered` | unchanged |
+
+Migrate by table lookup, not regex: several route ids contain words like `batch` or `started`, and a regex will corrupt names (`route:my-batch:stopped` must become `route:stopped`, but `route:r1:batch:stopped` must become `route:batch:stopped`).
+
+**Per-route subscriptions** use the `forRoute()` helper (or filter on `details.routeId`):
+
+```ts
+// Before
+ctx.on('route:orders:exchange:failed', ({ details }) => alert(details.error))
+
+// After (0.6.0)
+import { forRoute } from '@routecraft/routecraft'
+ctx.on('route:exchange:failed', forRoute('orders', ({ details }) => alert(details.error)))
+```
+
+**Wildcard patterns** are removed from `ctx.on()` / `ctx.once()`. The only pattern is the catch-all `"*"`, which observes every event. Patterns like `route:*` or `route:**` now throw `RC2001` with migration guidance.
+
+```ts
+// Before: ctx.on('route:*:exchange:*', handler) / ctx.on('**', handler)
+ctx.on('*', (payload) => sink.write(payload._event, payload.details))
+```
+
+The `event()` **source adapter** keeps its pattern support (`event('route:*')` still works there); patterns match against the emitted name behind a single catch-all subscription.
+
+**Ecosystem events** are declared by merging into `EventDetailsMap` (the same pattern as `StoreRegistry`):
+
+```ts
+declare module '@routecraft/routecraft' {
+  interface EventDetailsMap {
+    'plugin:myext:thing:happened': { routeId: string; thing: string }
+  }
+}
+```
+
+## 6. Sources: the `Subscription` object
+
+`CallableSource` collapses from five positional parameters to one object. Everything you had is still there under a named field, plus `complete()` replaces the abort-to-finish idiom:
+
+```ts
+// Before
+async subscribe(context, handler, abortController, onReady) {
+  onReady?.()
+  while (!abortController.signal.aborted) {
+    await handler(await poll(), { 'x-origin': 'poll' })
+  }
+  abortController.abort() // finite source done
+}
+
+// After (0.6.0)
+async subscribe(sub: Subscription<T>) {
+  sub.ready()
+  while (!sub.signal.aborted) {
+    await sub.emit({ message: await poll(), headers: { 'x-origin': 'poll' } })
+  }
+  sub.complete() // finite source done
+}
+```
+
+Field map: `context` -> `sub.context`, `handler(msg, headers, parse, parseFailureMode)` -> `sub.emit({ message, headers, parse, parseFailureMode })`, `abortController.signal` -> `sub.signal`, `abortController.abort()` -> `sub.complete(reason?)`, `onReady?.()` -> `sub.ready()`, `meta` -> `sub.meta` (now always present).
+
+New since the same release, built on this contract:
+
+```ts
+// Generator sources: each yield is one exchange
+.from(async function* (sub) {
+  while (!sub.signal.aborted) yield await poll()
+})
+
+// Bare (async) iterables work too
+.from(someAsyncIterable)
+```
+
+For driving a source directly in unit tests, `@routecraft/testing` adds `testSubscription({ context, handler, abortController })`.
+
+## 7. Custom steps and aggregators
+
+`Step.execute` no longer receives the remaining steps and the engine queue. Steps return what happened; the executor schedules:
+
+```ts
+// Before
+async execute(exchange, remainingSteps, queue) {
+  const next = DefaultExchange.rewrap(exchange, { body: transform(exchange.body) })
+  queue.push({ exchange: next, steps: remainingSteps })
+}
+
+// After (0.6.0)
+async execute(exchange: Exchange): Promise<StepOutcome> {
+  const next = DefaultExchange.rewrap(exchange, { body: transform(exchange.body) })
+  return { kind: 'continue', exchange: next }
+}
+```
+
+Outcomes: `continue` (run remaining steps), `complete` (skip remaining steps, success), `drop` (halted; emit your drop events and `markDropped` first), `branch` (prepend steps, then remaining), `fanOut` (schedule each child). Join-style steps consume pending siblings via the `StepContext` second argument (`ctx.takePending(predicate)`).
+
+Wrapper authors (`WrapperStep` subclasses): `runInner(exchange, ctx)` now returns the inner's `StepOutcome` and there is no `innerQueue` buffer to manage; recovery returns a substitute outcome.
+
+Custom **aggregators** return the combined body (plus optional headers) instead of a fake exchange:
+
+```ts
+// Before: return { ...exchanges[0], body: merged } as Exchange
+// After:
+.aggregate((exchanges) => ({ body: merge(exchanges.map((e) => e.body)) }))
+```
+
+## 8. Error codes: `AI` namespace
+
+`@routecraft/ai`'s agent-block codes moved out of core and were renumbered:
+
+| Old code | 0.6.0 code | Meaning |
+| --- | --- | --- |
+| `RC5025` | `AI1001` | Agent block resolution failed |
+| `RC5026` | `AI1002` | Agent block name collision |
+| `RC5027` | `AI1003` | Agent block misconfigured |
+
+Update any code or alerting that matches on `error.rc`. Core `RC####` codes are otherwise unchanged (one addition: `RC1003`, error-code registration failed).
+
+Ecosystem packages can now own codes under a claimed namespace:
+
+```ts
+declare module '@routecraft/routecraft' {
+  interface ErrorCodeRegistry {
+    ACME1001: RCMeta
+  }
+}
+registerErrorCodes('ACME', { ACME1001: { ... } }, 'my-package')
+```
+
+Namespaces are claimable by exactly one package; `RC` is reserved for core; codes are the namespace plus four digits.
+
+## 9. Builder position is type-enforced
+
+`craft()` returns a pre-`from` builder exposing only the staging methods (`id`, `title`, `description`, `input`, `output`, `tag`, `batch`, `authorize`, route-scope `error` / `cache`) plus `.from()`. Pipeline operations before `.from()` no longer compile (they were already `RC2001` / `RC2002` runtime errors):
+
+```ts
+// Compile error now (was a runtime error)
+craft().transform(fn).from(source)
+
+// Correct order
+craft().id('orders').from(source).transform(fn)
+```
+
+Builder generics also moved to a state bag. If you annotate builder types, `RouteBuilder<T>` becomes `RouteBuilder<{ body: T }>`; for heterogeneous lists of finished builders use `AnyRouteBuilder`. DSL extensions via `registerDsl` augment `StepBuilderBase<S extends BuilderState>` and advance the bag with `Retyped<this, SetBody<S, NewBody>>`.
+
+## 10. Splitters return bodies
+
+`.split()` callbacks return the child values; the framework builds the child exchanges (fresh id, inherited headers, split hierarchy). Per-child header overrides use the `splitChild` envelope:
+
+```ts
+// Before: hand-built child Exchange instances
+.split((exchange) => exchange.body.items.map((item) =>
+  DefaultExchange.rewrap(exchange, { body: item })))
+
+// After (0.6.0): return the bodies
+.split((exchange) => exchange.body.items)
+
+// Per-child header overrides
+.split((exchange) => exchange.body.lines.map((line, i) => splitChild(line, { 'x-line': i })))
+```
+
+## 11. Consumer SPI: envelopes and a deps bag
+
+Custom `Consumer` implementations construct from one `ConsumerDeps` object and register a handler that receives the same `Message` envelope sources enqueue:
+
+```ts
+// Before
+class MyConsumer implements Consumer {
+  constructor(context, definition, channel, options) { ... }
+  register(handler) {
+    this.channel.setHandler((m) => handler(m.message, m.headers, m.parse, m.parseFailureMode))
+  }
+}
+
+// After (0.6.0)
+class MyConsumer implements Consumer {
+  constructor(deps: ConsumerDeps) { ... } // { context, definition, channel, options }
+  register(handler: (envelope: Message) => Promise<Exchange>) {
+    this.channel.setHandler(handler)
+  }
+}
+```
+
+`Message`, `ProcessingQueue`, `ConsumerType`, and `ConsumerDeps` are exported from the barrel. `deps.options` is `unknown`; the consumer owns narrowing its own options.
+
+## 12. Header keys: per-adapter objects
+
+`HeadersKeys` now carries framework keys only (`ID`, `OPERATION`, `ROUTE_ID`, `CORRELATION_ID`, `SPLIT_HIERARCHY`, `AUTH_PRINCIPAL`). Adapter keys live on per-adapter objects exported next to each adapter:
+
+| Old | New |
+| --- | --- |
+| `HeadersKeys.TIMER_*` | `TimerHeaders.*` |
+| `HeadersKeys.CRON_*` | `CronHeaders.*` |
+| `HeadersKeys.FILE_LINE` / `FILE_PATH` | `FileHeaders.LINE` / `FileHeaders.PATH` |
+| `HeadersKeys.CSV_ROW` / `CSV_PATH` | `CsvHeaders.ROW` / `CsvHeaders.PATH` |
+| `HeadersKeys.JSONL_LINE` / `JSONL_PATH` | `JsonlHeaders.LINE` / `JsonlHeaders.PATH` |
+| `HEADER_MAIL_UID`, `HEADER_MAIL_FROM`, ... | `MailHeaders.UID`, `MailHeaders.FROM`, ... |
+| `HEADER_CARDDAV_UID`, ... | `CarddavHeaders.UID`, ... |
+
+The wire keys (`routecraft.timer.time`, `routecraft.mail.uid`, ...) are unchanged, so code that used raw strings keeps working. `HeaderKeysRegistry` is removed: adapters and ecosystem packages declare typed headers by merging into `RoutecraftHeaders` directly. The whole `routecraft.*` header namespace is reserved; `.header()` now rejects every engine-owned key (`routecraft.id`, `routecraft.operation`, `routecraft.route`, `routecraft.split_hierarchy`) up front.
+
+## 13. Client and capability discovery
+
+`CraftClient.send` is renamed `sendDirect`, and its response generic defaults to `unknown` (narrow explicitly):
+
+```ts
+// Before
+const result = await client.send<Req, Res>('greet', { name })
+
+// After (0.6.0)
+const result = await client.sendDirect<Req, Res>('greet', { name })
+```
+
+Capability discovery is public API: `context.capabilities()` returns every discoverable direct endpoint with its route's metadata (`endpoint`, `title`, `description`, `input`, `output`, `tags`). The internals it replaces (`ADAPTER_DIRECT_REGISTRY`, `getDirectChannel`, `sanitizeEndpoint`, `DirectRouteMetadata`) are no longer exported.
+
+Request/reply drops now surface as errors: when the target route discards the exchange (a filter rejects it, or an error handler returns `recovery.drop()`), `client.sendDirect()` and the error-handler `forward()` callable reject with `RC5031` instead of silently resolving with the caller's own request body as the "response".
+
+## 14. Renames: Carddav casing and JsonlFileOptions
+
+Acronyms in identifiers are cased as words (`Http` precedent), so every `CardDAV*` export is now `Carddav*`: `CarddavAdapter`, `CarddavClientManager`, `CarddavOptions`, `CarddavAction`, `CarddavDriverClient`, `CarddavTargetExtractor`, `CarddavWriteResult`, `CarddavDeleteResult`, `CarddavContextConfig`, `CarddavAccountConfig`, `throwCarddavError`, `ResolvedCarddavConnection`. `CARDDAV_CLIENT_MANAGER` and `DEFAULT_CARDDAV_SERVER_URL` are unchanged.
+
+The carddav option types also adopt the two-sided Server/Client naming (matching `MailServerOptions` / `MailClientOptions`): `CardDAVReadOptions` becomes `CarddavServerOptions`, and `CardDAVWriteOptions` / `CardDAVDeleteOptions` fold into a single `CarddavClientOptions` (their fields were identical; the `action` field still distinguishes writes from deletes). Call sites are unchanged; only type annotations need the new names.
+
+The jsonl adapter folds its file options into one type, matching `JsonFileOptions` / `CsvFileOptions`: `JsonlSourceOptions`, `JsonlDestinationOptions`, and `JsonlCombinedOptions` become `JsonlFileOptions`. (The `mode` discriminant this fold originally used is itself removed by the role model; see [section 16](#16-the-adapter-role-model).) Call sites are unchanged; only type annotations need the new name.
+
+## 15. `choice()` variadic `when` / `otherwise` \{#choice-variadic-when-otherwise}
+
+`.choice()` moves from a fluent callback sub-builder to a variadic surface built from standalone `when` / `otherwise` helpers, so `choice`, the new `multicast`, and future branch operations share one path shape. `BranchBuilder` is renamed `PathBuilder` and `ChoiceSubBuilder` is removed.
+
+```ts
+// before (0.5.x): fluent callback sub-builder
+import { craft } from "@routecraft/routecraft";
+
+.choice((c) =>
+  c
+    .when((ex) => ex.body.priority === "urgent", (b) => b.to(urgentQueue))
+    .when((ex) => ex.body.amount > 1000, (b) => b.to(reviewQueue))
+    .otherwise((b) => b.to(errorSink).halt()),
+)
+
+// after (0.6.0): variadic, standalone helpers
+import { craft, when, otherwise } from "@routecraft/routecraft";
+
+.choice(
+  when((ex) => ex.body.priority === "urgent", (b) => b.to(urgentQueue)),
+  when((ex) => ex.body.amount > 1000, (b) => b.to(reviewQueue)),
+  otherwise((b) => b.to(errorSink).halt()),
+)
+```
+
+Each branch is a path: a bare destination or a sub-pipeline callback `(b) => b...`. Predicate ordering, `otherwise`-last evaluation, `halt()`, and the unmatched-drop behaviour are unchanged. When a `when(...)` is passed directly to `.choice(...)`, the predicate body type is still inferred from the route's current body; you only need to annotate (`when<Order>(...)`) when building a descriptor outside the call.
+
+Replace any `import { BranchBuilder } from "@routecraft/routecraft"` with `PathBuilder`. `ChoiceSubBuilder` has no replacement; the standalone `when` / `otherwise` helpers take its place.
+
+## 16. The adapter role model \{#16-the-adapter-role-model}
+
+Adapters now carry up to three role slots, and the operation keyword selects the role: `.from()` subscribes (`Source`), `.to()` / `.tap()` prefer `send` (`Destination`, strictly void) and fall back to `fetch` (`Enricher`), `.enrich()` fetches. Design record: [#532](https://github.com/routecraftjs/routecraft/issues/532).
+
+**`.enrich()` replaces by default.** The old default spread-merged the result onto the body; it now REPLACES the body with the fetched value. Restore merging with `only()`, or ignore the result with `none()`; the `replace()` helper is gone because replace is the default. A fetch resolving `undefined` means "no value" and leaves the body unchanged (return `null` when a miss should be observable). The aggregator type is renamed `DestinationAggregator` to `EnrichAggregator`.
+
+```ts
+// before: HttpResult spread onto the body
+.enrich(http({ url }))
+// after, exact old shape: only() without `into` spreads a plain-object value
+.enrich(http({ url }), only((r) => r))
+// after, usually what you want: pick the field you need under a key
+.enrich(http({ url }), only((r) => r.body, "user"))
+```
+
+The first form reproduces 0.5.x at runtime, but only at runtime: `only()` without `into` returns an unbranded aggregator, so the builder cannot infer the merged shape and the downstream body keeps its pre-enrich type. Reads of the merged-in fields will not type-check. Prefer the second form: passing `into` brands the aggregator, so the body becomes `Current & { user: ... }` and stays type-safe, which is the point of the model.
+
+**The file family drops `mode`.** Position selects the role; send behavior uses flags:
+
+```ts
+// before                                        // after
+.from(file({ path }))                            .from(file({ path }))
+.enrich(json({ path, mode: "read" }), only(...)) .enrich(json({ path }), only(...))
+.to(csv({ path, mode: "append" }))               .to(csv({ path, append: true }))
+.to(file({ path, mode: "delete" }))              .to(file({ path, delete: true }))
+```
+
+`append` and `delete` are mutually exclusive (`RC5003` at construction). The per-mode aliases (`FileReadAdapter`, `CsvReadAdapter`, `JsonReadAdapter`, `JsonlReadAdapter`, `XmlReadAdapter`, `HtmlReadAdapter`) are removed; the combined types (`FileAdapter`, `CsvAdapter` / `CsvChunkedAdapter`, `JsonFileAdapterType`, `JsonlAdapter` / `JsonlChunkedAdapter`, `XmlAdapter`, `HtmlAdapter`) carry all roles.
+
+<Callout type="warning" title="jsonl now overwrites by default">
+
+`.to(jsonl({ path }))` previously appended; it now overwrites, matching the rest of the family. The source text compiles unchanged, so an event log that relied on the old default silently truncates. Add `append: true` to every jsonl send that should keep appending.
+
+</Callout>
+
+The same silent flip applies to `.tap()` on a file-family adapter: `.tap(json({ path, mode: "read" }))` used to read (and discard); after deleting `mode`, `.tap(json({ path }))` resolves to `send` and WRITES. A tap that should read is `.enrich()`'s job; a tap that should observe without touching disk should use a function form.
+
+**json: `pointer` replaces the transformer's `path`.** `path` now always means a file path, and its presence alone selects the file roles (the old slash-sniffing is gone: `json({ path: "config.json" })` is a file adapter now).
+
+```ts
+// before                                   // after
+.transform(json({ path: "data.items" }))   .transform(json({ pointer: "data.items" }))
+```
+
+**Send receipts ride headers, not the body.** `.to(mail())` no longer replaces the body with `MailSendResult` (the type is removed); the body flows through and the receipt lands on `routecraft.mail.sentMessageId`, `.accepted`, `.rejected`, and `.response`. (`routecraft.mail.messageId` remains the SOURCE message's id, so mail-to-mail routes keep their correlation key.) Carddav writes/deletes no longer replace the body with `CarddavWriteResult` / `CarddavDeleteResult` (both removed); the receipt lands on the same `routecraft.carddav.url` / `.uid` / `.etag` keys the read side sets, plus `.created` for insert-vs-update.
+
+**Pull-in adapters are `Enricher`s.** `http` (client), `direct` (client), `mail` (fetch), `carddav` (read), `llm`, `agent`, `embedding`, `mcp` (client), and `agentBrowser` now implement `fetch`; their classes are renamed `*EnricherAdapter` (e.g. `HttpDestinationAdapter` becomes `HttpEnricherAdapter`). Route-level behavior of `.to(http({ url }))` / `.to(direct("x"))` / `.to(llm(...))` is unchanged (the result still replaces the body). Custom destination authors: `send(exchange, ctx?)` must return void and surfaces receipts via `ctx?.setHeader(...)` (`SendContext`); data-producing adapters implement `fetch` instead. `ToResultBody` is removed.
+
+### Writing a custom adapter against the role model
+
+**Rename `getMetadata` to `getSendMetadata` on any send-only adapter.** This is the one change in this section with no compiler signal at all. A step reads only the hook that matches the slot it resolved, so a `getMetadata` left on a `Destination` is never called and its `route:step:completed` events quietly lose their `details.metadata`. (This is not hypothetical: the framework's own mail IMAP operations regressed exactly this way before a test caught it.)
+
+```ts
+// before                                  // after (send-only destination)
+getMetadata() {                            getSendMetadata(receipts?) {
+  return { statusCode: this.lastStatus }     return { statusCode: receipts?.["my.status"] }
+}                                          }
+```
+
+Both hooks are now declared on the public `Adapter` type, so an object-literal adapter can implement them without a type error, and both receive the exchange as a second argument:
+
+- `getMetadata(result, exchange)` fires for fetch-resolved steps.
+- `getSendMetadata(receipts, exchange)` fires for send-resolved `.to()` steps, where `receipts` is the record collected from `ctx.setHeader(...)` (or `undefined` when the send set none).
+
+Derive per-call metadata from those arguments, never from a field written during the call. One adapter instance serves every exchange on a route, so with concurrent exchanges in flight a `this.lastStatus` written by one call is routinely read back by another.
+
+**The receipt sink refuses framework-owned keys.** `ctx.setHeader()` merges onto the continuing exchange, so it enforces the same rule `.header()` does: `routecraft.id`, `routecraft.operation`, `routecraft.route`, and `routecraft.split_hierarchy` are ignored with a warning rather than applied. Adapter-owned `routecraft.<adapter>.*` receipt keys are unaffected.
+
+**Mail's read side no longer splits on argument count.** `mail(folder)` and `mail(folder, options)` used to return different roles (an `Enricher` and a `Source` respectively), which made the argument count a role selector and left one table to memorise. Both now return the same read adapter carrying `subscribe` and `fetch`, and the keyword picks:
+
+```ts
+.from(mail('INBOX'))                        // now valid: subscribe with defaults
+.from(mail('INBOX', { markSeen: true }))    // unchanged
+.enrich(mail('INBOX'))                      // unchanged
+.enrich(mail('INBOX', { unseen: true }))    // now valid: fetch with options
+```
+
+This is additive: every call that compiled before still compiles and behaves identically. Two shapes that were previously compile errors now work. The exported type is `MailFolderAdapter`.
+
+### Smaller breaking details
+
+- **An empty `path` is rejected.** `json({ path: "" })` and `html({ path: "" })` now throw `RC5003` at construction instead of silently falling back to the transformer role and ignoring every file option passed with them.
+- **Mail receipt arrays are `readonly`.** `routecraft.mail.accepted` / `.rejected` are typed `readonly string[]`, matching the frozen `ExchangeHeaders`. Code that pushed onto them compiled and then threw at runtime; it is now a compile error.
+- **Peer floor raised.** `@routecraft/ai`, `@routecraft/os`, and `@routecraft/testing` require `@routecraft/routecraft >=0.6.0`, because their declarations reference the role-model types. Upgrade core together with them.
+- **`@routecraft/testing`.** `spy()` gains a `fetch` face (recording into `calls.enrich` and returning the current body), and a `mockAdapter` `send` handler's return value now follows the step's slot resolution: used by a fetch-resolved step, discarded by a send-resolved `.to()`.
+
+## 17. MCP: the stateless revision, and `oauth()` becomes a resource server \{#17-mcp-stateless}
+
+`mcpPlugin` adopts [MCP protocol revision 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28), which removes protocol-level sessions. The server now builds a fresh instance per request, so any replica can answer any request without sticky sessions. Most of the migration is mechanical, but **the auth surface changes shape and expiry handling is stricter**, so read section 17.2 even if nothing else here applies to you.
+
+### 17.1 Install the v2 SDK packages
+
+The optional peer `@modelcontextprotocol/sdk` (v1) is replaced by the v2 package split. Install the ones your surfaces use:
+
+| Surface | Packages |
+|---------|----------|
+| `mcpPlugin({ transport: 'http' })` | `@modelcontextprotocol/server`, `@modelcontextprotocol/node` |
+| `mcpPlugin({ transport: 'stdio' })` | `@modelcontextprotocol/server` |
+| Outbound clients (`mcpPlugin({ clients })`, `mcp()`, agent tool dispatch) | `@modelcontextprotocol/client` |
+
+`express` is no longer a peer at all. A missing package reports `RC5017` with the install hint.
+
+### 17.2 `oauth()` no longer proxies your Authorization Server \{#17-2-oauth-resource-server}
+
+This is the change most likely to break a working deployment.
+
+`oauth()` used to mount `/authorize`, `/token`, `/register` and `/revoke` and broker the flow on your behalf. It is now a pure OAuth 2.0 Resource Server gate: it verifies bearer tokens, enforces scopes, and advertises your IdP through RFC 9728 metadata. Clients run the flow directly against the IdP.
+
+```ts
+// Before (0.5.x)
+mcpPlugin({
+  transport: 'http',
+  auth: oauth({
+    endpoints: { authorizationUrl: 'https://idp.example.com/authorize', tokenUrl: 'https://idp.example.com/token' },
+    client: { id: 'mcp-server', secret: process.env.OAUTH_CLIENT_SECRET },
+    verifyAccessToken: async (token) => introspect(token),
+  }),
+})
+
+// After (0.6.0)
+mcpPlugin({
+  transport: 'http',
+  auth: oauth({
+    verify: jwks({
+      jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
+      issuer: 'https://idp.example.com',
+      audience: 'https://mcp.example.com',
+    }),
+    requiredScopes: ['mcp:invoke'],
+  }),
+})
+```
+
+`verify` accepts `jwks(...)`, `jwt(...)`, or a raw `(token) => Principal`. With a raw function you must also pass `issuer`, because nothing else names the IdP a client should authenticate with. `requiredScopes` is optional; a token missing one is refused with `403 insufficient_scope` naming the missing scope.
+
+Removed with the proxy: `OAuthAuthOptions`, `OAuthProxyEndpoints`, `OAuthClientInfo`, `OAuthClientSupplier`, `isOAuthAuth`. Passing the old option shape is refused at construction with the migration message rather than starting a server that fails every request.
+
+**What to reconfigure.** Point your MCP clients at the IdP's own authorization and token endpoints. They can discover them from `authorization_servers` in `/.well-known/oauth-protected-resource`, which Routecraft still serves, and from the `resource_metadata` hint on a `401`. If you relied on Dynamic Client Registration through the proxy, register clients with your IdP instead; revision 2026-07-28 deprecates DCR in favour of Client ID Metadata Documents.
+
+Validator auth (`jwt()`, `jwks()`, a custom `{ validator }`) is unaffected and needs no changes.
+
+### 17.3 Expiry is enforced on every auth mode, and the boundary is inclusive \{#17-3-expiry}
+
+Two behaviour changes that can turn a previously-accepted request into a `401`:
+
+- **A principal whose `expiresAt` has elapsed, is missing, or is not a finite number is refused with `401`**, whichever auth mode produced it. Previously the SDK's bearer middleware enforced this only on the OAuth path, and `authorize()` only when a route declared an expiry requirement, so an expired token could reach any capability that did not. A custom validator that returns a principal without `expiresAt` now fails through `oauth()`; give it one.
+- **The comparison is inclusive and floored to whole seconds.** A token whose `exp` equals the current second is expired, matching jose (`exp <= now - tolerance`) and RFC 7519 section 4.1.4, which requires the current time to be *before* `exp`. `jwt()` previously accepted such a token for one further second and now does not; `jwks()` already behaved this way, because jose enforced it.
+
+If you have tokens minted with very short lifetimes and clients that cut the refresh fine, this last second is the one that will bite. Configure skew explicitly:
+
+```ts
+auth: oauth({
+  verify: jwks({ jwksUrl, issuer, audience, clockToleranceSec: 30 }),
+})
+```
+
+`jwt()` and `jwks()` now surface their configured `clockToleranceSec` on the options they return, and `oauth()` carries it through, so the server's expiry gate applies exactly the skew the verifier applied. You only pass `clockToleranceSec` to `oauth()` directly when `verify` is a raw function that tolerates skew of its own. A non-finite or negative value is rejected at construction.
+
+### 17.4 Sessions are gone: events, headers, CORS
+
+- `plugin:mcp:session:created` and `plugin:mcp:session:closed` are removed. There are no sessions to observe. Use `plugin:mcp:tool:called` / `:completed` / `:failed` for per-call observability.
+- `McpHeadersKeys.SESSION` and the `routecraft.mcp.session` exchange header are removed. Read `McpHeadersKeys.REQUEST` (`routecraft.mcp.request`) instead, a per-request correlation id. There is no alias, because the old key never identified a session and its value shape changed with this release.
+- `Access-Control-Expose-Headers` no longer lists `Mcp-Session-Id` or `Last-Event-ID`; the revision removed both sessions and SSE resumability. Only `WWW-Authenticate` is exposed.
+- Successful authentication logs at `debug` rather than `info`, since it now fires once per tool call rather than once per session. The `auth:success` event is unchanged and remains the signal to subscribe to.
+
+### 17.5 Compatibility
+
+2025-era clients keep working. A request carrying no per-request `_meta` envelope is served through the SDK's stateless 2025 path from the same factory, and outbound clients negotiate with `server/discover` before falling back to the `initialize` handshake.
+
+One wire-level note: 2025-era exchanges over HTTP are answered as a single SSE frame rather than a plain JSON body. Both are valid Streamable HTTP and every MCP client handles both, so this only affects code that parses the raw response body itself.
+
+## 18. What is new in 0.6.0
+
+For context, no migration required:
+
+- **HTTP source adapter.** `http({ path, method? })` exposes a route over HTTP, configured via `defineConfig({ http: { port, host, auth } })`. Bun runtimes bind via `Bun.serve`; Node 22+ uses a `node:http` shim. Global auth (`jwt()` / `jwks()` bearer or `apiKey({...})`), per-route `.authorize()`, built-in `/health`, `/ready`, and `/openapi.json` endpoints. See the [`httpPlugin`](/docs/reference/plugins/httpplugin) reference.
+- **`multicast` operation.** `.multicast(...paths)` fans the exchange out to multiple independent paths in parallel (each on a deep clone), waits for all to settle, then continues the original unchanged. See the [`multicast`](/docs/reference/operations/multicast) reference.
+- `skills({ source, mode?, lifetime? })` and `fromFile(path)` builders alongside the new `Blocks` shape.
+- Nested block groups: a `blocks` value may be a `BlockBody` leaf or a nested `Blocks` group, flattened by `__` (see [1.2b](#1-2b-grouping-skills-under-one-key)).
+- `agent:block:loaded` / `agent:block:error` context events.
+- `AgentResult.blocksLoaded`.
+- `tools((catalog) => [...])` builder form with `ToolsCatalog` shape.
+- **`agentPlugin({ toolPolicy })`**: repository-wide admission rules for the agent tool surface, keyed by tool kind (`fn` / `direct` / `mcp`), each `true`, `false`, or a predicate. Omitting it admits everything, so existing contexts are unaffected; supplying it makes the surface an allowlist in which every kind must be decided explicitly (a partial policy is a compile error, because an omitted key would mean denial). Enforced at the single point every agent form converges on, so no agent can opt out. Denials emit `route:agent:tool:denied`. See [tool policy](/docs/reference/plugins/agentplugin#tool-policy).
+- New error codes (`RC5018`, `RC5019` for HTTP; `AI1001`-`AI1003` for agent blocks, see [section 8](#8-error-codes-ai-namespace); `RC1003` for error-code registration).
+- **Recovery directives**: `.error()` handlers (route scope and step scope) may return `recovery.drop(reason?)` to discard the failing exchange (emits `route:exchange:dropped`) or `recovery.rethrow()` to decline recovery, instead of recovering with a body or throwing manually.
+- **`rcError` retryable override**: `rcError(code, cause, { retryable })` flips the retry classification for one occurrence.
+- **Open categories and kinds**: `RCMeta.category` and `Principal.kind` accept ecosystem-defined strings alongside the known values.
+- **Plugin identity**: plugins may declare `name` (used as `pluginId` on events and logs) and reserve `dependsOn` for future ordered initialisation. Note: a plugin instance that already carried an unrelated string `name` property now reports that value as its `pluginId` instead of the constructor name; rename the property or set `name` to the id you want. `context.getRoutes()` returns a copy.

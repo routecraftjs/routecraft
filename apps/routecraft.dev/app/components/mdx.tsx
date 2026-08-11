@@ -1,37 +1,182 @@
 import { MDXProvider } from '@mdx-js/react'
-import type { ReactNode } from 'react'
+import { createContext, isValidElement, useContext } from 'react'
+import type { ComponentProps, ReactElement, ReactNode } from 'react'
+
+import { AdapterGrid } from '@/components/AdapterGrid'
+import { AppLink } from '@/components/AppLink'
+import { Badge } from '@/components/Badge'
+import { Callout } from '@/components/Callout'
+import { CodeTab, CodeTabs } from '@/components/CodeTabs'
+import { ErrorTable } from '@/components/ErrorTable'
+import { EventNamespaces } from '@/components/EventNamespaces'
+import { Fence } from '@/components/Fence'
+import { InlineCode } from '@/components/InlineCode'
+import { LightboxImage } from '@/components/Lightbox'
+import { OperationsIndex } from '@/components/OperationsIndex'
+import { PluginIndex } from '@/components/PluginIndex'
+import { QuickLink, QuickLinks } from '@/components/QuickLinks'
+import { TriggerCycler } from '@/components/TriggerCycler'
+import { Diagram } from '@/components/figures/Diagram'
+import {
+  DOCS_ROOT,
+  docsChannelHref,
+  withDocsChannel,
+  type DocsChannelName,
+} from '@/lib/docs-channel'
+
+const ChannelContext = createContext<DocsChannelName>('latest')
+
+function useChannel(): DocsChannelName {
+  return useContext(ChannelContext)
+}
+
+/**
+ * Pulls the source text and language out of the `pre`/`code` pair MDX produces.
+ *
+ * `Fence` and `CodeTab` were written against Markdoc, which handed them the raw
+ * code as a string. MDX hands them an element tree instead, so the string is
+ * recovered here rather than by rewriting both components.
+ */
+function readCodeElement(children: ReactNode): {
+  code: string
+  language: string
+} {
+  const pre = children as ReactElement<{ children?: ReactNode }>
+  const codeElement = isValidElement(pre)
+    ? (pre.props as { children?: ReactNode }).children
+    : children
+
+  if (!isValidElement(codeElement)) {
+    return { code: typeof children === 'string' ? children : '', language: '' }
+  }
+
+  const props = codeElement.props as {
+    className?: string
+    children?: ReactNode
+  }
+  const language = /language-([\w-]+)/.exec(props.className ?? '')?.[1] ?? ''
+  const code = typeof props.children === 'string' ? props.children : ''
+
+  // MDX keeps the fence's closing newline; Markdoc did not hand one over.
+  return { code: code.replace(/\n$/, ''), language }
+}
+
+function MdxPre({ children }: { children?: ReactNode }) {
+  const { code, language } = readCodeElement(children)
+  return <Fence language={language} children={code} />
+}
+
+function MdxCode({ children }: { children?: ReactNode }) {
+  if (typeof children !== 'string') return <code>{children}</code>
+  return <InlineCode children={children} />
+}
+
+function MdxCodeTab({
+  label,
+  language,
+  children,
+}: {
+  label: string
+  language?: string
+  children?: ReactNode
+}) {
+  const read = readCodeElement(children)
+  return (
+    <CodeTab label={label} language={language ?? read.language}>
+      {read.code}
+    </CodeTab>
+  )
+}
+
+/**
+ * Renders a link inside the channel it was authored in.
+ *
+ * Content authors write channel-relative `/docs/...` hrefs. On the next channel
+ * those resolve to `/docs/next/...`, which the Markdoc build achieved by
+ * rewriting the markdown with a regex when it copied the tree. Doing it here
+ * keeps the copied tree verbatim.
+ */
+function MdxLink({ href = '', ...props }: ComponentProps<'a'>) {
+  const channel = useChannel()
+  const prefix = docsChannelHref(channel)
+  const isInternal = href.startsWith('/')
+
+  if (!isInternal) {
+    return <a href={href} {...props} />
+  }
+
+  const resolved = href.startsWith(DOCS_ROOT)
+    ? withDocsChannel(href, prefix)
+    : href
+
+  return <AppLink href={resolved} {...props} />
+}
 
 function Lead({ children }: { children?: ReactNode }) {
   return <p className="lead">{children}</p>
 }
 
-function QuickLinks({ children }: { children?: ReactNode }) {
-  return (
-    <div className="not-prose grid grid-cols-1 gap-6 sm:grid-cols-2">
-      {children}
-    </div>
-  )
-}
-
-function QuickLink({
-  title,
-  description,
-  href,
+function Figure({
+  src,
+  alt = '',
+  caption,
 }: {
-  title: string
-  description?: string
-  href: string
+  src: string
+  alt?: string
+  caption?: string
 }) {
   return (
-    <div className="group relative rounded-xl border">
-      <a href={href}>{title}</a>
-      {description ? <p>{description}</p> : null}
-    </div>
+    <figure>
+      <LightboxImage src={src} alt={alt} caption={caption} />
+      {caption ? <figcaption>{caption}</figcaption> : null}
+    </figure>
   )
 }
 
-const components = { Lead, QuickLinks, QuickLink }
+/**
+ * The reference catalogues must render the channel they are read on, because
+ * `/docs` is frozen to the released tag while the components build from main.
+ */
+function channelBound<P extends { channel?: DocsChannelName }>(
+  Component: (props: P) => ReactNode,
+) {
+  return function ChannelBound(props: Omit<P, 'channel'>) {
+    const channel = useChannel()
+    return <Component {...({ ...props, channel } as P)} />
+  }
+}
 
-export function MdxComponents({ children }: { children: ReactNode }) {
-  return <MDXProvider components={components}>{children}</MDXProvider>
+const components = {
+  a: MdxLink,
+  pre: MdxPre,
+  code: MdxCode,
+  Lead,
+  Callout,
+  Badge,
+  QuickLinks,
+  QuickLink,
+  CodeTabs,
+  CodeTab: MdxCodeTab,
+  Diagram,
+  Figure,
+  TopologyDiagram: TriggerCycler,
+  AdapterGrid: channelBound(AdapterGrid),
+  OperationsIndex: channelBound(OperationsIndex),
+  PluginIndex: channelBound(PluginIndex),
+  ErrorTable: channelBound(ErrorTable),
+  EventNamespaces: channelBound(EventNamespaces),
+}
+
+export function MdxComponents({
+  channel,
+  children,
+}: {
+  channel: DocsChannelName
+  children: ReactNode
+}) {
+  return (
+    <ChannelContext.Provider value={channel}>
+      <MDXProvider components={components}>{children}</MDXProvider>
+    </ChannelContext.Provider>
+  )
 }

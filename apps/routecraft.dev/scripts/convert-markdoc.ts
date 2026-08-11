@@ -31,6 +31,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
 import { Glob } from 'bun'
 import Markdoc from '@markdoc/markdoc'
+import type { Node } from '@markdoc/markdoc'
 
 interface TagMapping {
   /** Component name the tag renders as in MDX. */
@@ -332,7 +333,7 @@ export function convert(source: string, file: string): string {
 function audit(source: string, output: string, file: string): void {
   const expected = new Map<string, number>()
 
-  function walk(node: Markdoc.Node): void {
+  function walk(node: Node): void {
     if (node.type === 'tag' && node.tag) {
       expected.set(node.tag, (expected.get(node.tag) ?? 0) + 1)
     }

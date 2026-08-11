@@ -1,0 +1,30 @@
+---
+title: Operations
+---
+
+<Lead>
+Every verb in the Routecraft DSL. Each row opens its own reference page with the full signature, options, and examples.
+</Lead>
+
+```ts
+craft()
+  .id('my-route')
+  .from(simple('x'))
+  .filter((s) => s.length > 0)
+  .transform((s) => s + '!')
+  .to(log())
+```
+
+<OperationsIndex />
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Adapters" icon="installation" href="/docs/reference/adapters" description="Sources, destinations, and transformers that connect operations to the outside world." />
+
+<QuickLink title="Events" icon="presets" href="/docs/reference/events" description="The lifecycle events emitted around every operation." />
+
+<QuickLink title="Errors" icon="theming" href="/docs/reference/errors" description="Error codes raised by operations and how to recover them." />
+
+</QuickLinks>

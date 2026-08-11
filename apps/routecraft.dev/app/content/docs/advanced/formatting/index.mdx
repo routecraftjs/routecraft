@@ -1,0 +1,96 @@
+---
+title: Formatting
+---
+
+<Lead>
+Keep Routecraft DSL chains compact with the Prettier plugin.
+</Lead>
+
+Routecraft recommends formatting projects with
+`@routecraft/prettier-plugin-routecraft`. It overrides Prettier's layout for
+fluent builder closures so sub-pipeline path builders inside `.choice()` and
+`.multicast()` keep their parameter on the arrow line instead of indenting a
+level for every closure:
+
+```ts
+.choice(
+  when(isUrgent, (b) => b.to(urgent)),
+  otherwise((b) => b),
+)
+```
+
+## Installation
+
+<CodeTabs>
+
+<CodeTab label="bun" language="bash">
+
+```bash
+bun add -d prettier @routecraft/prettier-plugin-routecraft
+```
+
+</CodeTab>
+
+<CodeTab label="npm" language="bash">
+
+```bash
+npm install -D prettier @routecraft/prettier-plugin-routecraft
+```
+
+</CodeTab>
+
+<CodeTab label="pnpm" language="bash">
+
+```bash
+pnpm add -D prettier @routecraft/prettier-plugin-routecraft
+```
+
+</CodeTab>
+
+<CodeTab label="yarn" language="bash">
+
+```bash
+yarn add -D prettier @routecraft/prettier-plugin-routecraft
+```
+
+</CodeTab>
+
+</CodeTabs>
+
+## Configuration
+
+Add the plugin to your Prettier config:
+
+```js
+// prettier.config.mjs
+export default {
+  plugins: ['@routecraft/prettier-plugin-routecraft'],
+}
+```
+
+Or in `.prettierrc`:
+
+```json
+{
+  "plugins": ["@routecraft/prettier-plugin-routecraft"]
+}
+```
+
+Then format as usual:
+
+```bash
+bunx prettier --write .
+```
+
+The plugin only adjusts Routecraft builder closures; everything else is left to
+Prettier's defaults.
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Linting" icon="presets" href="/docs/advanced/linting" description="Enforce Routecraft authoring best practices with ESLint." />
+
+<QuickLink title="Operations reference" icon="presets" href="/docs/reference/operations" description="The choice, split, and aggregate operations the plugin formats." />
+
+</QuickLinks>
