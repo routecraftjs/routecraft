@@ -28,7 +28,7 @@ craft().id('resume-api').from(http({ path: '/resume', method: 'POST' })).resume(
 
 `.resume()` addresses an **exchange**, not a route. `direct('x')` names a route and enters it through its source; resume names one parked exchange and re-enters its pipeline partway down. That is what lets a mail-born exchange be continued by a chat-born answer: the original source takes no part in execution two, because sources create exchanges rather than revive them.
 
-Any route ending in `.resume()` is a resume ingress: an HTTP webhook, a mail-reply parser, an ops CLI. There is no special resume transport.
+Any route that uses `.resume()` is a resume ingress: an HTTP webhook, a mail-reply parser, an ops CLI. There is no special resume transport, and the route need not end there: steps after the resume see the acknowledgment and can answer the approver's own channel.
 
 ## The boundary
 
@@ -54,6 +54,8 @@ The revived route runs to completion before `.resume()` continues, so the acknow
   "outcome": { "status": "completed", "body": { "paid": true }, "at": "…" }
 }
 ```
+
+`outcome.status` is how execution two ended, so it is not always `completed`: a continuation that reaches a second `.suspend()` reports `suspended` and carries no body, because that body would be the SECOND suspension's acknowledgment and handing approver A approver B's resume token is not a receipt. `dropped` and `failed` are the other two.
 
 A duplicate answer (an approver double-clicks, a webhook is redelivered) returns the first one's cached terminal outcome with `status: "duplicate"` and re-runs nothing.
 

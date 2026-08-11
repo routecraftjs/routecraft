@@ -44,6 +44,18 @@ export interface SuspensionExpect {
   readonly hash: string;
   /** JSON Schema rendering when the schema exposes one. Never used to validate. */
   readonly jsonSchema?: unknown;
+  /**
+   * Set when the schema advertised a `~standard.jsonSchema` extension that
+   * then produced nothing, so {@link SuspensionExpect.hash} identifies only
+   * the vendor rather than the contract.
+   *
+   * The consequence is worth stating where it is read: the step tail is
+   * still hashed, but a widened or narrowed `expect` on such a schema cannot
+   * move the digest, so a resume will not catch it. Zod throws for
+   * unrepresentable types (a `Date`, a `bigint`, any `.transform()`), which
+   * makes this reachable with an ordinary approval schema.
+   */
+  readonly degraded?: boolean;
 }
 
 /**

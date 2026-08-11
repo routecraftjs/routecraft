@@ -9,7 +9,7 @@ Two layers per exchange.
 | Layer | What it holds | Examples | Persistence |
 |---|---|---|---|
 | **State (stored fields)** | `body: T`, `headers: ExchangeHeaders` | the payload, every piece of metadata about the exchange (id, route, correlation, split hierarchy, source-emitted facts, cross-cutting concerns like principal/span/tenant) | serialized verbatim; rehydrated verbatim |
-| **Derivations (getters / methods on `DefaultExchange`)** | `id`, `principal`, `logger`, `suspension` | `get id()` reads `headers["routecraft.id"]`; `get principal()` reads `headers["routecraft.auth.principal"]`; `get logger()` builds a child logger from the framework's base logger and the exchange's id; `get suspension()` reads the `routecraft.suspension.*` keys and mints a resume token from the context's signer | not serialized; reconstructed by instantiating `DefaultExchange` around the rehydrated state |
+| **Derivations (getters / methods on `DefaultExchange`)** | `id`, `principal`, `logger`, `suspension` | `get id()` reads `headers["routecraft.id"]`; `get principal()` reads `headers["routecraft.auth.principal"]`; `get logger()` builds a child logger from the framework's base logger and the exchange's id; `get suspension()` reads the `routecraft.suspension.*` keys and returns the affordance; reading `.token` off it is what mints a resume token from the context's signer, and that read throws RC5052 when the context has no suspension runtime | not serialized; reconstructed by instantiating `DefaultExchange` around the rehydrated state |
 
 Application-wide singletons (adapter clients, plugin state, schedulers) live in `context.store`, which is orthogonal: it outlives any individual exchange.
 
