@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AppLink } from '@/components/AppLink'
 import clsx from 'clsx'
 
 import { type Section, type Subsection } from '@/lib/sections'
 import { Badge } from '@/components/Badge'
 
+/**
+ * The entries link with a plain `<a>` rather than the router, matching
+ * `CheatSheetRail`. A bare `#id` handed to the router is resolved as a location:
+ * `trailingSlash: 'always'` appends a slash past the fragment, and the resolved
+ * path equals the current one so every entry renders as the active link. Both
+ * differ between the server and the client and break hydration, and neither is
+ * wanted for a same-document jump.
+ */
 export function TableOfContents({
   tableOfContents,
 }: {
@@ -73,10 +80,13 @@ export function TableOfContents({
               <span>On this page</span>
             </h2>
             <ol role="list" className="mt-5 space-y-3 text-sm">
-              {tableOfContents.map((section) => (
-                <li key={section.id}>
+              {/* Position, not id: headings whose text is entirely a link get
+                  an empty id (see `remarkDocsHeadings`), so the changelog's
+                  version headings would all key the same. */}
+              {tableOfContents.map((section, index) => (
+                <li key={`${index}-${section.id}`}>
                   <h3 className="flex items-baseline gap-2">
-                    <AppLink
+                    <a
                       href={`#${section.id}`}
                       className={clsx(
                         'transition',
@@ -86,7 +96,7 @@ export function TableOfContents({
                       )}
                     >
                       {section.title}
-                    </AppLink>
+                    </a>
                     {section.badges?.map((b, i) => (
                       <Badge key={i} color={b.color ?? 'yellow'}>
                         {b.text}
@@ -98,10 +108,10 @@ export function TableOfContents({
                       role="list"
                       className="mt-2 space-y-2 border-l border-ink/15 pl-4 text-sm"
                     >
-                      {section.children.map((subSection) => (
-                        <li key={subSection.id}>
+                      {section.children.map((subSection, subIndex) => (
+                        <li key={`${subIndex}-${subSection.id}`}>
                           <div className="flex items-baseline gap-2">
-                            <AppLink
+                            <a
                               href={`#${subSection.id}`}
                               className={clsx(
                                 'transition',
@@ -111,7 +121,7 @@ export function TableOfContents({
                               )}
                             >
                               {subSection.title}
-                            </AppLink>
+                            </a>
                             {subSection.badges?.map((b, i) => (
                               <Badge key={i} color={b.color ?? 'yellow'}>
                                 {b.text}

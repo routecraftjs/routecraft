@@ -80,11 +80,12 @@ function sectionsOf(source: string): Section[] {
   return sections
 }
 
+/** Trailing slash included: it is the form every other link on the site uses. */
 function urlOf(path: string): string {
   const slug = path
     .slice(path.indexOf('/content/docs') + '/content/docs'.length)
     .replace(/\/index\.mdx$/, '')
-  return `/docs${slug}`
+  return `/docs${slug}/`
 }
 
 /** FlexSearch's document type rejects optional fields, hence the empty string. */

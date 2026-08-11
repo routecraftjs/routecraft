@@ -72,3 +72,8 @@ next-env.d.ts
 /.nitro/
 /.tanstack/
 app/routeTree.gen.ts
+
+# Playwright output
+/test-results/
+/playwright-report/
+/blob-report/

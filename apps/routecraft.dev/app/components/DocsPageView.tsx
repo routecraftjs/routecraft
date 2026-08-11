@@ -4,7 +4,9 @@ import { adapterGridTocSections } from '@/components/AdapterGrid'
 import { operationsTocSections } from '@/components/OperationsIndex'
 import { pluginIndexTocSections } from '@/components/PluginIndex'
 import type { DocsChannelName } from '@/lib/docs-channel'
-import type { DocsPage } from '@/lib/docs-content'
+import { docsComponent } from '@/lib/docs-content'
+import type { DocsFrontmatter } from '@/lib/docs-content'
+import type { TocEntry } from '@/lib/mdx-plugins'
 import type { Section } from '@/lib/sections'
 
 /**
@@ -25,17 +27,27 @@ const OUTLINES: Record<string, (channel: DocsChannelName) => Section[]> = {
  * content, which is what lets the next-channel snapshot stay a verbatim copy of
  * the released tree.
  */
+export interface DocsPageData {
+  frontmatter: DocsFrontmatter
+  toc: TocEntry[]
+  outlines: string[]
+}
+
 export function DocsPageView({
   channel,
+  slug,
   page,
 }: {
   channel: DocsChannelName
-  page: DocsPage
+  slug: string
+  page: DocsPageData
 }) {
-  const Content = page.module.default
+  const Content = docsComponent(channel, slug)
+
+  if (!Content) return null
 
   const sections: Section[] = [
-    ...(page.module.toc ?? []).map((entry) => ({
+    ...page.toc.map((entry) => ({
       level: 2 as const,
       id: entry.id,
       title: entry.title,
@@ -45,14 +57,16 @@ export function DocsPageView({
         title: child.title,
       })),
     })),
-    ...(page.module.outlines ?? []).flatMap(
-      (name) => OUTLINES[name]?.(channel) ?? [],
-    ),
+    ...page.outlines.flatMap((name) => OUTLINES[name]?.(channel) ?? []),
   ]
 
   return (
-    <DocsLayout frontmatter={page.module.frontmatter ?? {}} sections={sections}>
+    <DocsLayout frontmatter={page.frontmatter} sections={sections}>
       <MdxComponents channel={channel}>
+        {/* Not created here: docsComponent is a lookup into a map of lazy
+            components built once at module scope, so the type is stable across
+            renders and the page keeps its state. */}
+        {/* eslint-disable-next-line react-hooks/static-components */}
         <Content />
       </MdxComponents>
     </DocsLayout>

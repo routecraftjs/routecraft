@@ -1,0 +1,16 @@
+# Local production check. Run from the repository root:
+#   docker compose -f apps/routecraft.dev/compose.yaml up --build
+#
+# Freeze the released channel first if you want to reproduce a real deploy:
+#   bun apps/routecraft.dev/scripts/freeze-docs.ts v0.6.0
+#   bun apps/routecraft.dev/scripts/freeze-docs.ts --restore
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: apps/routecraft.dev/Dockerfile
+      args:
+        VITE_DOC_VERSION: ${VITE_DOC_VERSION:-dev}
+    ports:
+      - '${PORT:-3000}:3000'
+    restart: unless-stopped

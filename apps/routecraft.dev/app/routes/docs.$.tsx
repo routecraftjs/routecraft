@@ -1,21 +1,33 @@
 import { createFileRoute, notFound } from '@tanstack/react-router'
 
 import { DocsPageView } from '@/components/DocsPageView'
-import { docsPage } from '@/lib/docs-content'
 import { docMetadata } from '@/lib/doc-metadata'
+import { loadDocsPage } from '@/lib/docs-content'
 import { toRouteHead } from '@/lib/route-head'
 
 export const Route = createFileRoute('/docs/$')({
-  head: ({ params }) => toRouteHead(docMetadata(`${params._splat ?? ''}`)),
+  loader: async ({ params }) => {
+    const page = await loadDocsPage('latest', params._splat ?? '')
+    if (!page) throw notFound()
+
+    return {
+      frontmatter: page.frontmatter ?? {},
+      toc: page.toc ?? [],
+      outlines: page.outlines ?? [],
+    }
+  },
+  head: ({ params }) => toRouteHead(docMetadata(params._splat ?? '')),
   component: ReleasedDocsPage,
   notFoundComponent: () => <p>Not found</p>,
 })
 
 function ReleasedDocsPage() {
   const { _splat } = Route.useParams()
-  const page = docsPage('latest', _splat ?? '')
-
-  if (!page) throw notFound()
-
-  return <DocsPageView channel="latest" page={page} />
+  return (
+    <DocsPageView
+      channel="latest"
+      slug={_splat ?? ''}
+      page={Route.useLoaderData()}
+    />
+  )
 }

@@ -162,6 +162,19 @@ function HighlightQuery({ text, query }: { text: string; query: string }) {
   )
 }
 
+/**
+ * Hands a plain click back to the autocomplete item handler.
+ *
+ * A result is a real anchor so it can be opened in a new tab, copied or
+ * middle-clicked, but the client-side router owns ordinary navigation: without
+ * this the browser would also follow the href and reload the whole document.
+ * Modified clicks keep the browser's own behaviour.
+ */
+function onResultClick(event: React.MouseEvent<HTMLAnchorElement>) {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+}
+
 function SearchResult({
   result,
   autocomplete,
@@ -195,35 +208,37 @@ function SearchResult({
         aria-hidden="true"
         className="pointer-events-none absolute top-0 left-0 h-full w-px bg-cobalt-500 opacity-0 transition-opacity group-aria-selected:opacity-100"
       />
-      <div
-        id={`${id}-title`}
-        aria-hidden="true"
-        className="font-editorial text-[1rem] tracking-[-0.005em] text-ink group-aria-selected:text-cobalt-500"
-      >
-        <HighlightQuery text={result.title} query={query} />
-      </div>
-      {hierarchy.length > 0 && (
+      <a href={result.url} onClick={onResultClick} className="block">
         <div
-          id={`${id}-hierarchy`}
+          id={`${id}-title`}
           aria-hidden="true"
-          className="mt-1 truncate font-mono text-[0.65rem] tracking-[0.18em] whitespace-nowrap text-ink/55 uppercase"
+          className="font-editorial text-[1rem] tracking-[-0.005em] text-ink group-aria-selected:text-cobalt-500"
         >
-          {hierarchy.map((item, itemIndex, items) => (
-            <Fragment key={itemIndex}>
-              <HighlightQuery text={item} query={query} />
-              <span
-                className={
-                  itemIndex === items.length - 1
-                    ? 'sr-only'
-                    : 'mx-2 text-ink/25'
-                }
-              >
-                /
-              </span>
-            </Fragment>
-          ))}
+          <HighlightQuery text={result.title} query={query} />
         </div>
-      )}
+        {hierarchy.length > 0 && (
+          <div
+            id={`${id}-hierarchy`}
+            aria-hidden="true"
+            className="mt-1 truncate font-mono text-[0.65rem] tracking-[0.18em] whitespace-nowrap text-ink/55 uppercase"
+          >
+            {hierarchy.map((item, itemIndex, items) => (
+              <Fragment key={itemIndex}>
+                <HighlightQuery text={item} query={query} />
+                <span
+                  className={
+                    itemIndex === items.length - 1
+                      ? 'sr-only'
+                      : 'mx-2 text-ink/25'
+                  }
+                >
+                  /
+                </span>
+              </Fragment>
+            ))}
+          </div>
+        )}
+      </a>
     </li>
   )
 }

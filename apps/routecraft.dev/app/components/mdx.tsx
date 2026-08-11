@@ -116,8 +116,22 @@ function MdxLink({ href = '', ...props }: ComponentProps<'a'>) {
   return <AppLink href={resolved} {...props} />
 }
 
+/**
+ * Lead copy is authored as a markdown block between `<Lead>` tags, so MDX hands
+ * this component paragraphs rather than phrasing content. A `<p>` wrapper would
+ * nest a paragraph inside a paragraph, which the HTML parser flattens into
+ * siblings while React keeps them nested, and hydration fails on every page.
+ *
+ * The wrapper carries the `lead` typography and the block's outer spacing; the
+ * paragraphs inside it drop their own edge margins so the block still measures
+ * exactly as one lead paragraph did.
+ */
 function Lead({ children }: { children?: ReactNode }) {
-  return <p className="lead">{children}</p>
+  return (
+    <div className="lead [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
+      {children}
+    </div>
+  )
 }
 
 function Figure({

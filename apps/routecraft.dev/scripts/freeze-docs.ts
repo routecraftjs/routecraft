@@ -45,7 +45,6 @@ const PRESERVED = [
 /** Where a pre-migration tag kept the same content. */
 const LEGACY = {
   docs: 'apps/routecraft.dev/src/app/docs',
-  cheatSheet: 'apps/routecraft.dev/src/app/cheat-sheet',
   screenshots: 'apps/routecraft.dev/public/screenshots',
 }
 
@@ -88,7 +87,13 @@ async function freezeLegacyTag(tag: string): Promise<void> {
   try {
     await $`git -C ${REPO_ROOT} worktree add --detach ${scratch} ${tag}`.quiet()
 
+    // The cheat sheet is deliberately left on main's copy here. A pre-migration
+    // tag carries it as a Next page component this stack cannot render, so
+    // wiping it would delete the only usable version and break the build.
+    // Holding cheat-sheet edits until the first post-migration tag is the
+    // matching discipline, recorded in MIGRATION.md.
     for (const path of PINNED) {
+      if (path.endsWith('/cheat-sheet')) continue
       await rm(join(REPO_ROOT, path), { recursive: true, force: true })
     }
 
