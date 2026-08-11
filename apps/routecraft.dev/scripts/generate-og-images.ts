@@ -37,77 +37,57 @@ import { type BlogPostMeta, getAllPosts, getPublishedPosts } from './blog-posts'
 import { GENERATED_DIR, PUBLIC_DIR, ROOT } from './paths'
 
 const OUT_DIR = path.join(PUBLIC_DIR, 'og')
-const FONT_CACHE_DIR = path.join(
-  ROOT,
-  'node_modules',
-  '.cache',
-  'routecraft-og',
-  'fonts',
-)
-
 interface FontSpec {
   name: string
   style: 'normal' | 'italic'
   weight: 400 | 700
-  url: string
+  /** Module id of the face, resolved from the lockfile rather than the network. */
+  file: string
 }
 
+/**
+ * Faces are read from the Fontsource packages so an image build needs no
+ * network. Fetching them at build time made every deploy depend on a CDN, and
+ * the image build has no warm cache to fall back on.
+ */
 const FONTS: FontSpec[] = [
   {
     name: 'Fraunces',
     style: 'normal',
     weight: 400,
-    url: 'https://cdn.jsdelivr.net/fontsource/fonts/fraunces@latest/latin-400-normal.ttf',
+    file: '@fontsource/fraunces/files/fraunces-latin-400-normal.woff',
   },
   {
     name: 'Fraunces',
     style: 'normal',
     weight: 700,
-    url: 'https://cdn.jsdelivr.net/fontsource/fonts/fraunces@latest/latin-700-normal.ttf',
+    file: '@fontsource/fraunces/files/fraunces-latin-700-normal.woff',
   },
   {
     name: 'Fraunces',
     style: 'italic',
     weight: 400,
-    url: 'https://cdn.jsdelivr.net/fontsource/fonts/fraunces@latest/latin-400-italic.ttf',
+    file: '@fontsource/fraunces/files/fraunces-latin-400-italic.woff',
   },
   {
     name: 'JetBrains Mono',
     style: 'normal',
     weight: 400,
-    url: 'https://cdn.jsdelivr.net/fontsource/fonts/jetbrains-mono@latest/latin-400-normal.ttf',
+    file: '@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff',
   },
 ]
 
-async function loadFont(spec: FontSpec): Promise<Buffer> {
-  // The URL digest is part of the filename so pointing a face at a different
-  // file invalidates its cache entry instead of quietly reusing the old one.
-  const digest = createHash('sha256').update(spec.url).digest('hex').slice(0, 8)
-  const family = spec.name.toLowerCase().replace(/\s+/g, '-')
-  const cached = path.join(
-    FONT_CACHE_DIR,
-    `${family}-${spec.weight}-${spec.style}-${digest}.ttf`,
-  )
-  if (fs.existsSync(cached)) return fs.readFileSync(cached)
-
-  const response = await fetch(spec.url)
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch font ${spec.url}: ${response.status} ${response.statusText}`,
-    )
-  }
-  const data = Buffer.from(await response.arrayBuffer())
-  fs.mkdirSync(path.dirname(cached), { recursive: true })
-  fs.writeFileSync(cached, data)
-  return data
+function loadFont(spec: FontSpec): Buffer {
+  return fs.readFileSync(Bun.resolveSync(spec.file, ROOT))
 }
+
 
 const fonts = await Promise.all(
   FONTS.map(async (spec) => ({
     name: spec.name,
     style: spec.style,
     weight: spec.weight,
-    data: await loadFont(spec),
+    data: loadFont(spec),
   })),
 )
 

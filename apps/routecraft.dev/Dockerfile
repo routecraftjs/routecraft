@@ -8,12 +8,16 @@ WORKDIR /repo
 # Manifests land in their own layer so a content-only change does not reinstall
 # the toolchain. Every workspace member listed in the lockfile has to be present
 # for a frozen install to resolve, which is why examples and packages come too.
+#
+# Lifecycle scripts are skipped: the core package pulls in better-sqlite3, whose
+# install script compiles native bindings through node-gyp, and this image has
+# no toolchain for that. The docs site never loads it.
 FROM base AS deps
 COPY package.json bun.lock bunfig.toml ./
 COPY apps/routecraft.dev/package.json apps/routecraft.dev/
 COPY examples/package.json examples/
 COPY packages packages
-RUN bun install --frozen-lockfile
+RUN bun install --frozen-lockfile --ignore-scripts
 
 # --- Build ---
 FROM deps AS build
@@ -36,7 +40,7 @@ ARG SKIP_DOCS_NEXT
 ENV SKIP_DOCS_NEXT=$SKIP_DOCS_NEXT
 
 COPY . .
-RUN bun install --frozen-lockfile
+RUN bun install --frozen-lockfile --ignore-scripts
 WORKDIR /repo/apps/routecraft.dev
 RUN bun run build
 

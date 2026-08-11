@@ -8,6 +8,7 @@ import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import mdx from '@mdx-js/rollup'
 import remarkFrontmatter from 'remark-frontmatter'
+import remarkGfm from 'remark-gfm'
 import remarkMdxFrontmatter from 'remark-mdx-frontmatter'
 import { remarkDocsHeadings } from './app/lib/mdx-plugins'
 
@@ -58,6 +59,9 @@ function rawAwareMdx(): Plugin {
     providerImportSource: '@mdx-js/react',
     remarkPlugins: [
       remarkFrontmatter,
+      // Markdoc parsed GFM natively; MDX does not, so without this every table
+      // in the reference docs renders as paragraphs of pipes.
+      remarkGfm,
       [remarkMdxFrontmatter, { name: 'frontmatter' }],
       remarkDocsHeadings,
     ],
