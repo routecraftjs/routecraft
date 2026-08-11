@@ -318,6 +318,20 @@ export const ${catalogue.module}ByChannel: Record<string, ${catalogue.typeName}[
   )
 }
 
+const pagesByChannel = Object.fromEntries(
+  CHANNELS.map((channel) => [channel, [...pages[channel].routes].sort()]),
+)
+
+fs.writeFileSync(
+  path.join(OUT_DIR, 'docs-pages.ts'),
+  `${banner}
+/** Channel -> the channel-relative routes that have a page. */
+export const pagesByChannel: Record<string, string[]> =
+  ${JSON.stringify(pagesByChannel, null, 2).replace(/\n/g, '\n  ')}
+`,
+  'utf8',
+)
+
 const anchorsByChannel = Object.fromEntries(
   CHANNELS.map((channel) => [channel, pages[channel].anchors]),
 )

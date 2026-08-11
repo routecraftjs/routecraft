@@ -153,7 +153,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
   )
   const rawDir = path.join(process.cwd(), 'public', 'raw')
   const rawPages = collectRawMarkdown(rawDir, '/raw').filter(
-    ({ url }) => !crossPostRawUrls.has(url),
+    ({ url }) =>
+      !crossPostRawUrls.has(url) &&
+      // The in-development channel is noindex, and its raw mirror follows the
+      // same rule as its HTML: served for anyone who asks, never advertised.
+      !url.startsWith('/raw/docs/next/') &&
+      url !== '/raw/docs-next.md',
   )
   for (const { url, mtime } of rawPages) {
     routes.push({

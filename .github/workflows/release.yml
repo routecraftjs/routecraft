@@ -16,6 +16,14 @@ on:
     types: [completed]
     branches: ["main"]
   workflow_dispatch:
+    inputs:
+      freeze_ref:
+        description: >-
+          Git ref to publish the released docs channel from. Defaults to the
+          latest eligible v* tag. The escape hatch for fixing released docs
+          without cutting a release: tag a corrected ref and dispatch with it.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -280,6 +288,20 @@ jobs:
               [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
           }
 
+          # An explicit ref from workflow_dispatch wins: it is how released
+          # docs get fixed without waiting for the next npm release.
+          OVERRIDE="${{ inputs.freeze_ref }}"
+          if [ -n "$OVERRIDE" ]; then
+            if ! git rev-parse --verify --quiet "$OVERRIDE^{commit}" >/dev/null; then
+              echo "freeze_ref '$OVERRIDE' is not a ref in this repository." >&2
+              exit 1
+            fi
+            echo "label=$OVERRIDE" >> "$GITHUB_OUTPUT"
+            echo "freeze_tag=$OVERRIDE" >> "$GITHUB_OUTPUT"
+            echo "Docs frozen to the dispatched ref: $OVERRIDE"
+            exit 0
+          fi
+
           # Only tags reachable from the checked-out ref: a v* tag on an
           # abandoned branch must never freeze the published docs.
           LATEST_TAG="$(git tag --merged HEAD -l 'v*' | sort -V | tail -n1)"
@@ -312,22 +334,37 @@ jobs:
         run: |
           set -eo pipefail
           app=apps/routecraft.dev/src/app
+          public=apps/routecraft.dev/public
+          # Every path here is versioned docs content: the pages, the cheat
+          # sheet, the reference row data under docs/_data, and the screenshots
+          # the pages embed. Anything a docs page renders that is NOT in this
+          # list builds from main and is therefore not pinned to the release.
+          #
           # `git checkout <tag> -- <path>` is an overlay, not a replace: it
           # restores what the tag carries and leaves behind anything added
           # since. Pages written after the release therefore survived the
           # freeze and published on the released channel as though they had
           # shipped. Wipe the paths first so the tag's tree is the whole tree.
           #
-          # The generated next channel lives inside docs/ and was snapshotted
-          # from main a step earlier, so park it across the replace.
+          # The generated next-channel mirrors live inside those paths and were
+          # snapshotted from main a step earlier, so park them across the
+          # replace.
           staged="$(mktemp -d)"
           if [ -d "$app/docs/next" ]; then
-            mv "$app/docs/next" "$staged/next"
+            mv "$app/docs/next" "$staged/docs-next"
           fi
-          rm -rf "$app/docs" "$app/cheat-sheet"
-          git checkout "$FREEZE_TAG" -- "$app/docs" "$app/cheat-sheet"
-          if [ -d "$staged/next" ]; then
-            mv "$staged/next" "$app/docs/next"
+          if [ -d "$public/screenshots/next" ]; then
+            mv "$public/screenshots/next" "$staged/screenshots-next"
+          fi
+          rm -rf "$app/docs" "$app/cheat-sheet" "$public/screenshots"
+          git checkout "$FREEZE_TAG" -- \
+            "$app/docs" "$app/cheat-sheet" "$public/screenshots"
+          if [ -d "$staged/docs-next" ]; then
+            mv "$staged/docs-next" "$app/docs/next"
+          fi
+          if [ -d "$staged/screenshots-next" ]; then
+            mkdir -p "$public/screenshots"
+            mv "$staged/screenshots-next" "$public/screenshots/next"
           fi
           # The changelog moved to a top-level /changelog on the main cadence.
           # Older release refs still carry it under docs/changelog, so drop that
@@ -344,6 +381,14 @@ jobs:
           # frozen /docs during prebuild.
           SKIP_DOCS_NEXT: "1"
         run: bun run --filter routecraft.dev build
+
+      # The invariant this whole job exists to uphold, asserted against the
+      # artifact rather than trusted. Every version-pinning bug here has been a
+      # drift between what the freeze was believed to do and what got published.
+      - name: Verify the published docs match the released ref
+        env:
+          FREEZE_TAG: ${{ steps.docver.outputs.freeze_tag }}
+        run: node --experimental-strip-types apps/routecraft.dev/scripts/verify-docs-freeze.mjs "$FREEZE_TAG"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

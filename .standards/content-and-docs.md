@@ -251,9 +251,35 @@ copied pages by `scripts/generate-docs-next.mjs`. Add a new reference catalogue 
 data file under `_data`, an entry in `CATALOGUES`, the same attribute, and `withDocsChannel` on
 every link it renders, or it will dump `/docs/next` readers back onto the released channel.
 
+**The pinned set is the freeze step's path list**, and nothing else. Today that is
+`src/app/docs` (pages plus `_data`), `src/app/cheat-sheet`, and `public/screenshots` (the only
+assets docs pages embed; `public/images` is blog-only). Anything a docs page renders that is
+not in that list builds from main. When you add a surface the released channel must pin, add
+it to the list and give it a next-channel mirror, the way screenshots have one.
+
+**The sidebar and the raw mirror follow the channel too.** `navigation.ts` is shell, so
+`Navigation` filters its entries against the channel's page set; an entry for an unreleased
+page shows on next and never 404s on the released channel. `public/raw/**` mirrors both
+channels (`/raw/docs/**` and `/raw/docs/next/**`, with whole-channel bundles at
+`/raw/docs.md` and `/raw/docs-next.md`), because the in-development docs are what you hand a
+model when testing against the canary. The next mirror stays out of `llms.txt` and the
+sitemap, matching the channel's noindex.
+
+**A deploy asserts all of this rather than trusting it.** `scripts/verify-docs-freeze.mjs`
+runs after the build and fails the deploy when the exported `/docs` routes are not exactly the
+freeze tag's page set, when the next channel is empty, or when a next URL reaches the sitemap.
+`/docs/changelog` is its one deliberate exception, documented in the script. If a released
+page needs fixing before the next release, dispatch the workflow with `freeze_ref` rather than
+loosening the freeze.
+
 One transitional wrinkle: tags cut before `_data` existed freeze a docs tree without it, so
 that channel falls back to the repository's data pruned to the pages it documents. Drop
 `fallbackRows` once the oldest freezable tag carries `src/app/docs/_data`.
+
+If historical majors ever ship (`/docs/v1` alongside latest and next), the successor design is
+to build each channel from its own git ref and merge the exports. That is rejected today
+because it would render the released channel with the released shell, which is exactly what
+`MIN_FREEZE_VERSION` exists to avoid, and it doubles CI on every main push.
 
 ## Operational constraint: redirects
 

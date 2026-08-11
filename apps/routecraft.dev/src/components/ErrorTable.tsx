@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 
-import { type ErrorRow, errors, resolveAnchor } from '@/lib/docs-catalogue'
+import { errors, resolveAnchor } from '@/lib/docs-catalogue'
 import { type DocsChannelName } from '@/lib/docs-channel'
 
 /** The page this table indexes, relative to the channel root. */

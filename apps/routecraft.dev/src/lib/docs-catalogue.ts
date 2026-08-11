@@ -11,6 +11,7 @@
 
 import { type DocsChannelName } from '@/lib/docs-channel'
 import { anchorsByChannel } from '@/lib/generated/docs-anchors'
+import { pagesByChannel } from '@/lib/generated/docs-pages'
 import {
   type AdapterRow,
   adaptersByChannel,
@@ -58,6 +59,23 @@ export function errors(channel: DocsChannelName): ErrorRow[] {
 /** The event namespaces the channel documents. */
 export function eventNamespaces(channel: DocsChannelName): EventNamespaceRow[] {
   return rows(eventsByChannel, channel)
+}
+
+/**
+ * Whether the channel has a page behind a site-relative href.
+ *
+ * The sidebar is shell, so it lists whatever main knows about. On the released
+ * channel that would mean a link to a page the release does not carry (a 404
+ * the moment the freeze stops leaking pages), and after a rename it would mean
+ * a frozen page with no way in. Filtering the nav against the channel's own
+ * pages keeps both honest. Hrefs outside /docs (the changelog, the home page)
+ * are not part of a channel and always pass.
+ */
+export function documentsHref(channel: DocsChannelName, href: string): boolean {
+  if (href === '/docs') return true
+  if (!href.startsWith('/docs/')) return true
+  const route = href.slice('/docs/'.length).replace(/\/$/, '')
+  return (pagesByChannel[channel] ?? []).includes(route)
 }
 
 /** Lookup key for an anchor: comparable across `RC1001`, `rc-1001`, `RC 1001`. */
