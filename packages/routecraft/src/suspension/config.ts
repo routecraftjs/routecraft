@@ -231,7 +231,13 @@ export async function createSuspensionRuntime(
       { backend: "sqlite", driver: store.driver, path },
       "Suspension store opened",
     );
-    return { store, signer, backend: "sqlite", ownsStore: true };
+    return {
+      store,
+      signer,
+      backend: "sqlite",
+      ownsStore: true,
+      ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
+    };
   } catch (err) {
     if (explicit) throw err;
     context.logger.warn(

@@ -447,24 +447,6 @@ function settled(suspension: Suspension): ResumeAcknowledgment {
       });
 }
 
-/**
- * Re-enter the suspended route's error channel with a revival failure, then
- * hand the error back so the ingress route sees it too.
- *
- * Both halves matter. The ingress caller gets a typed error because it
- * asked a question and deserves an answer. The suspended route gets the
- * same error through its own `.error()` handler because it is the only
- * place that can do something useful about it: notify the approver, escalate,
- * or re-ask with a fresh suspension. Without that, a late answer strands the
- * approver at a dead link.
- *
- * The rehydrated exchange is what the handler receives, so it sees the
- * payload the approval was about. Its principal comes back marked restored
- * (see `auth/restored.ts`), so an `authorize()` in a re-ask path refuses it
- * rather than trusting a shape read off disk.
- *
- * @internal
- */
 /** A suspension the store gave a deadline, which is the only kind that expires. */
 export type ExpiringSuspension = Suspension & { expiresAt: Date };
 
@@ -509,6 +491,24 @@ export async function expireSuspension(
   return { cas, error };
 }
 
+/**
+ * Re-enter the suspended route's error channel with a revival failure, then
+ * hand the error back so the ingress route sees it too.
+ *
+ * Both halves matter. The ingress caller gets a typed error because it
+ * asked a question and deserves an answer. The suspended route gets the
+ * same error through its own `.error()` handler because it is the only
+ * place that can do something useful about it: notify the approver, escalate,
+ * or re-ask with a fresh suspension. Without that, a late answer strands the
+ * approver at a dead link.
+ *
+ * The rehydrated exchange is what the handler receives, so it sees the
+ * payload the approval was about. Its principal comes back marked restored
+ * (see `auth/restored.ts`), so an `authorize()` in a re-ask path refuses it
+ * rather than trusting a shape read off disk.
+ *
+ * @internal
+ */
 async function reask(
   context: CraftContext,
   route: Route,

@@ -66,13 +66,24 @@ export class SuspensionSweeper {
    */
   async sweep(now: Date = new Date()): Promise<number> {
     let retired = 0;
+    // Records this pass could not retire. They stay `suspended`, so they
+    // come back at the head of every later page, and the page has to grow
+    // past them: a full page of records this context cannot retire (a route
+    // it does not have, a store refusing the transition) would otherwise be
+    // read forever without the sweep ever reaching what sits behind them.
+    const stuck = new Set<string>();
     for (;;) {
-      const due = await this.store.findExpired(now, SWEEP_BATCH);
-      if (due.length === 0) return retired;
+      const limit = SWEEP_BATCH + stuck.size;
+      const due = await this.store.findExpired(now, limit);
+      const batch = due.filter((suspension) => !stuck.has(suspension.id));
+      if (batch.length === 0) return retired;
 
-      for (const suspension of due) {
+      for (const suspension of batch) {
         const deadline = suspension.expiresAt;
-        if (deadline === undefined) continue;
+        if (deadline === undefined) {
+          stuck.add(suspension.id);
+          continue;
+        }
         const route = this.context.getRouteById(suspension.routeId);
         if (!route) {
           // The store outlives any one deployment, so it can hold work for
@@ -83,6 +94,7 @@ export class SuspensionSweeper {
             { suspensionId: suspension.id, routeId: suspension.routeId },
             `Expired suspension belongs to route "${suspension.routeId}", which this context does not have, so it was left for a context that does. Either that route was renamed or removed while suspensions for it were still parked, or two deployments are sharing one suspension store and should not be.`,
           );
+          stuck.add(suspension.id);
           continue;
         }
         try {
@@ -93,7 +105,9 @@ export class SuspensionSweeper {
             { ...suspension, expiresAt: deadline },
           );
           if (cas.won) retired++;
+          else stuck.add(suspension.id);
         } catch (err) {
+          stuck.add(suspension.id);
           // One route's error handler throwing must not strand the rest of
           // the batch: the sweep is the only thing that will ever visit
           // them.
@@ -104,7 +118,7 @@ export class SuspensionSweeper {
         }
       }
 
-      if (due.length < SWEEP_BATCH) return retired;
+      if (due.length < limit) return retired;
       this.context.logger.info(
         { retired },
         "Still retiring expired suspensions",
