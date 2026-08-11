@@ -49,6 +49,7 @@ import {
   type DetachedResult,
   type ExecutorDeps,
 } from "./pipeline/executor.ts";
+import { detachedDefinition } from "./pipeline/chain-policy.ts";
 import type { SuspendableStep } from "./suspension/sites.ts";
 
 // Re-exported for existing imports (builder.ts and @internal consumers).
@@ -1057,11 +1058,9 @@ export class DefaultRoute implements Route {
       // is the correct answer: nothing re-verified that identity across the
       // park.
       ...this.executorDeps(),
-      definition: {
-        preParseFilters: [],
-        postParseFilters: [],
-        postFromFilters: [],
-        steps: [
+      definition: detachedDefinition(
+        this.definition,
+        [
           {
             operation: OperationType.PROCESS,
             label: operation,
@@ -1073,10 +1072,8 @@ export class DefaultRoute implements Route {
             execute: () => Promise.reject(error),
           },
         ],
-        ...(this.definition.errorHandler
-          ? { errorHandler: this.definition.errorHandler }
-          : {}),
-      },
+        "errorChannel",
+      ),
     };
     const result = await runPipeline(deps, exchange, start);
     if (!result.failed && !result.dropped) {

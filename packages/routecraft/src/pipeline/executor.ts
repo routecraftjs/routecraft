@@ -23,7 +23,11 @@ import {
 } from "../types.ts";
 import { buildInputValidationStep, buildParseStep } from "./synthetic-steps.ts";
 import { applyOutputStage } from "./validation.ts";
-import { type DetachedKind, detachedDefinition } from "./chain-policy.ts";
+import {
+  type DetachedDefinition,
+  type DetachedKind,
+  detachedDefinition,
+} from "./chain-policy.ts";
 import {
   DeadlineExceededError,
   raceWithDeadline,
@@ -45,7 +49,7 @@ import {
   concurrencyEmitHooks,
   executeWithConcurrency,
 } from "../operations/concurrency-wrapper.ts";
-import type { ForwardFn, Route, RouteDefinition } from "../route.ts";
+import type { ForwardFn, Route } from "../route.ts";
 
 /**
  * Dependencies the pipeline executor needs from the owning route. Passed
@@ -57,20 +61,15 @@ export interface ExecutorDeps {
   context: CraftContext;
   /** The owning route, surfaced on error event payloads. */
   route: Route;
-  /** Step arrays and the optional route-scope error handler. */
-  definition: Pick<
-    RouteDefinition,
-    | "preParseFilters"
-    | "postParseFilters"
-    | "steps"
-    | "postFromFilters"
-    | "errorHandler"
-    | "retry"
-    | "timeout"
-    | "throttle"
-    | "circuitBreaker"
-    | "concurrency"
-  >;
+  /**
+   * The chain positions this run executes under, plus its steps.
+   *
+   * Deliberately the same type the detached policy produces. Listing the
+   * fields again here would be a second place to forget one, and the whole
+   * point of deriving the policy from `RouteDefinition` is that there is
+   * only one.
+   */
+  definition: DetachedDefinition;
   /** Build a forward callable whose target inherits `caller`'s headers. */
   buildForward: (caller: Exchange) => ForwardFn;
   /**

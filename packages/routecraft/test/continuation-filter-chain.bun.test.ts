@@ -9,7 +9,7 @@ import {
   type CraftConfig,
   type Suspended,
 } from "../src/index.ts";
-import { chainFields, chainSurvival } from "../src/pipeline/chain-policy.ts";
+import { CHAIN_SURVIVAL } from "../src/pipeline/chain-policy.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -288,37 +288,42 @@ describe("the filter chain on a resumed continuation", () => {
    * @expectedResult The declared set matches the chain exactly, and each position carries a reason. A field added to RouteDefinition widens the key set and fails the build before it reaches this test; this pins the current answers so a silent change to one is visible in the diff
    */
   test("the survival policy covers the chain exactly", () => {
-    expect([...chainFields()].sort()).toEqual([
-      "circuitBreaker",
-      "concurrency",
-      "errorHandler",
-      "postFromFilters",
-      "postParseFilters",
-      "preParseFilters",
-      "retry",
-      "throttle",
-      "timeout",
-    ]);
-
-    const resumed = chainFields().filter(
-      (field) => chainSurvival(field, "resume").survives,
+    const survival = Object.fromEntries(
+      Object.entries(CHAIN_SURVIVAL).map(([field, kinds]) => [
+        field,
+        Object.fromEntries(
+          Object.entries(kinds).map(([kind, policy]) => [
+            kind,
+            policy.survives,
+          ]),
+        ),
+      ]),
     );
-    expect([...resumed].sort()).toEqual([
-      "concurrency",
-      "errorHandler",
-      "retry",
-      "timeout",
-    ]);
 
-    // A debounce release is work the route held back and never admitted, so
-    // only the error handler survives it.
-    const released = chainFields().filter(
-      (field) => chainSurvival(field, "debounce").survives,
+    // Asserted whole rather than as a filtered projection: a field silently
+    // dropped from the record, or a kind silently added to one row and not
+    // another, shows up here as a shape difference rather than passing
+    // because the filter happened not to select it.
+    expect(survival).toEqual({
+      errorHandler: { resume: true, debounce: true, errorChannel: true },
+      preParseFilters: { resume: false, debounce: false, errorChannel: false },
+      postParseFilters: { resume: false, debounce: false, errorChannel: false },
+      postFromFilters: { resume: false, debounce: false, errorChannel: false },
+      throttle: { resume: false, debounce: false, errorChannel: false },
+      circuitBreaker: { resume: false, debounce: false, errorChannel: false },
+      retry: { resume: true, debounce: false, errorChannel: false },
+      timeout: { resume: true, debounce: false, errorChannel: false },
+      concurrency: { resume: true, debounce: false, errorChannel: false },
+    });
+
+    // Every answer states its own reason. The same position is off for
+    // different reasons per kind, so a shared string would be a wrong
+    // answer to two of the three questions.
+    const reasons = Object.values(CHAIN_SURVIVAL).flatMap((kinds) =>
+      Object.values(kinds).map((policy) => policy.why),
     );
-    expect(released).toEqual(["errorHandler"]);
-
-    for (const field of chainFields()) {
-      expect(chainSurvival(field, "resume").why.length).toBeGreaterThan(0);
-    }
+    expect(reasons).toHaveLength(27);
+    expect(reasons.every((why) => why.length > 0)).toBe(true);
+    expect(new Set(reasons).size).toBe(27);
   });
 });

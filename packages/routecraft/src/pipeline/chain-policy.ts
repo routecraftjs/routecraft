@@ -24,97 +24,186 @@ type NonChainField =
 export type ChainField = Exclude<keyof RouteDefinition, NonChainField>;
 
 /**
- * The two runs that re-enter a route partway down its pipeline.
+ * The runs that re-enter a route partway down its pipeline.
  *
- * They are not variants of one thing. A `debounce` release is new work the
- * route held back, so the chain above it has not run for that exchange. A
- * `resume` is execution two of an exchange that entered the route once,
- * days earlier, and was admitted then.
+ * They are not variants of one thing, which is why each states its own
+ * answer per position rather than inheriting a shared one.
+ *
+ * - `resume` is execution two of an exchange that entered the route once,
+ *   possibly days earlier, and was admitted then. Its suspension is already
+ *   claimed by the time the continuation runs.
+ * - `debounce` is work the route deliberately held back. It never entered,
+ *   so the chain above has not run for it at all.
+ * - `errorChannel` is a failure pushed at an exchange that is not running,
+ *   so that the route's own handler can react. It is not the exchange's
+ *   work resuming; it is the route being told something about it.
  */
-export type DetachedKind = "resume" | "debounce";
+export type DetachedKind = "resume" | "debounce" | "errorChannel";
 
-/** Whether one chain position survives each kind of detached run. */
-interface ChainSurvival {
-  readonly resume: boolean;
-  readonly debounce: boolean;
-  /** Why, in the terms the chain docs use. Kept beside the decision. */
+/** Whether one chain position survives one kind of detached run, and why. */
+interface KindPolicy {
+  readonly survives: boolean;
+  /** Stated per kind: the same position is off for different reasons. */
   readonly why: string;
 }
 
 /**
  * Which chain positions apply to a run that re-enters partway down.
  *
- * Every position states its answer for both kinds rather than inheriting
- * one: a debounce release and a resume disagree about what "entered the
- * route" means for that exchange, so a position that is right for one can
- * be wrong for the other.
+ * Every position answers for every kind. That exhaustiveness is enforced by
+ * the type rather than by review: `ChainField` is derived from
+ * `RouteDefinition`, so a new field breaks this record until it is
+ * classified, and `Record<DetachedKind, KindPolicy>` breaks it again if a
+ * new kind of detached run is added without deciding what that position
+ * means for it.
  *
- * One rule governs the resume column. A position that REFUSES work without
- * attempting it must not sit below the store transition, because the resume
- * claims its suspension before the continuation starts, so a refusal is
- * recorded as that suspension's terminal outcome and an approval is spent on
- * work that never ran. A position that BOUNDS work already underway is safe.
- * That is why `retry` and `timeout` are carried, `circuitBreaker` is not,
- * and `concurrency` is carried only in waiting form.
+ * One rule governs the `resume` column. A position that REFUSES work
+ * without attempting it must not sit below the store transition, because a
+ * resume claims its suspension before the continuation starts, so a refusal
+ * becomes that suspension's terminal outcome and spends an approval on work
+ * that never ran. A position that BOUNDS work already underway is safe.
  */
-const CHAIN_SURVIVAL: Readonly<Record<ChainField, ChainSurvival>> = {
+export const CHAIN_SURVIVAL: Readonly<
+  Record<ChainField, Readonly<Record<DetachedKind, KindPolicy>>>
+> = {
   errorHandler: {
-    resume: true,
-    debounce: true,
-    why: "The route still owns the exchange, and a revival failure has nowhere else to go: only the suspended route can notify and re-ask.",
+    resume: {
+      survives: true,
+      why: "The route still owns the exchange, and a revival failure has nowhere else to go: only the suspended route can notify and re-ask.",
+    },
+    debounce: {
+      survives: true,
+      why: "A released exchange is the route's primary flow, so its failures belong to the route's handler like any other.",
+    },
+    errorChannel: {
+      survives: true,
+      why: "Reaching this handler IS the point of the re-entry. Without it there is nothing to push the failure at.",
+    },
   },
   preParseFilters: {
-    resume: false,
-    debounce: false,
-    why: "authorize (#2). A principal restored from the store fails RC5043 by design (#355), so re-running it would refuse every resume. The answerer is authorized live at the resume ingress.",
+    resume: {
+      survives: false,
+      why: "authorize (#2). A principal restored from the store fails RC5043 by design (#355), so re-running it would refuse every resume. The answerer is authorized live at the resume ingress.",
+    },
+    debounce: {
+      survives: false,
+      why: "authorize (#2). The released exchange was authorized when it arrived, before the route held it back.",
+    },
+    errorChannel: {
+      survives: false,
+      why: "authorize (#2). Nothing is being admitted: a failure is being reported about work that already ran.",
+    },
   },
   postParseFilters: {
-    resume: false,
-    debounce: false,
-    why: "cacheCheck (#9). Refused at build alongside a reachable suspend, because a park exits the pipeline this filter wraps.",
+    resume: {
+      survives: false,
+      why: "cacheCheck (#9). Refused at build alongside a reachable suspend, because a park exits the pipeline this filter wraps.",
+    },
+    debounce: {
+      survives: false,
+      why: "cacheCheck (#9). The release re-enters below it, so a check here would key work that is already in flight.",
+    },
+    errorChannel: {
+      survives: false,
+      why: "cacheCheck (#9). A failure report is not a cacheable request.",
+    },
   },
   postFromFilters: {
-    resume: false,
-    debounce: false,
-    why: "cacheStore (#10). The other half of the same refusal.",
+    resume: {
+      survives: false,
+      why: "cacheStore (#10). The other half of the same refusal.",
+    },
+    debounce: {
+      survives: false,
+      why: "cacheStore (#10). No key was taken on the way in, so there is nothing to store against.",
+    },
+    errorChannel: {
+      survives: false,
+      why: "cacheStore (#10). What a re-ask handler returns is a notification, not a cacheable output.",
+    },
   },
   throttle: {
-    resume: false,
-    debounce: false,
-    why: "throttle (#5). It admits new work into the route; a parked exchange was admitted on execution one. Answer arrival is governed by the resume ingress route's own throttle.",
+    resume: {
+      survives: false,
+      why: "throttle (#5). It admits new work into the route; a parked exchange was admitted on execution one. Answer arrival is governed by the resume ingress route's own throttle.",
+    },
+    debounce: {
+      survives: false,
+      why: "throttle (#5). The exchange was admitted on arrival; the hold was the route's own doing, not a second admission.",
+    },
+    errorChannel: {
+      survives: false,
+      why: "throttle (#5). Rate-limiting a failure report would drop the report, not the load.",
+    },
   },
   circuitBreaker: {
-    resume: false,
-    debounce: false,
-    why: "circuitBreaker (#6). As a continuation copy it would fast-fail after the store transition is won, recording a failed terminal and spending the approval. Its correct home is the resume ingress route's chain, which wraps .resume() and so fast-fails above that transition.",
+    resume: {
+      survives: false,
+      why: "circuitBreaker (#6). It fast-fails, and a continuation runs after the suspension is claimed, so a refusal here would record a failed terminal and spend the approval. Its home is the resume ingress route's chain, which wraps .resume() and so refuses above that transition.",
+    },
+    debounce: {
+      survives: false,
+      why: "circuitBreaker (#6). A released exchange has been held once already; fast-failing it discards work the route chose to keep.",
+    },
+    errorChannel: {
+      survives: false,
+      why: "circuitBreaker (#6). An open breaker must not suppress the report of a failure.",
+    },
   },
   retry: {
-    resume: true,
-    debounce: false,
-    why: "retry (#7). Retrying a continuation is the wanted behaviour and is safe against the transition: attempts run before any terminal outcome is recorded, so a retried continuation never spends an approval.",
+    resume: {
+      survives: true,
+      why: "retry (#7). Retrying a continuation is the wanted behaviour and is safe against the transition: attempts run before any terminal outcome is recorded, so a retried continuation never spends an approval.",
+    },
+    debounce: {
+      survives: false,
+      why: "retry (#7). Left off as shipped. A release is one settled decision by the debounce window, and re-running it would repeat side effects the window exists to collapse.",
+    },
+    errorChannel: {
+      survives: false,
+      why: "retry (#7). Re-running a handler would re-notify per attempt, which is the amplifier the exactly-once transitions exist to prevent.",
+    },
   },
   timeout: {
-    resume: true,
-    debounce: false,
-    why: "timeout (#8). Bounds execution two. Distinct from a suspension's ttl, which is a store-side expiry rather than a per-attempt deadline in this process.",
+    resume: {
+      survives: true,
+      why: "timeout (#8). Bounds execution two. Distinct from a suspension's ttl, which is a store-side expiry rather than a per-attempt deadline in this process.",
+    },
+    debounce: {
+      survives: false,
+      why: "timeout (#8). Left off as shipped. The release is detached from the arrival whose deadline this describes.",
+    },
+    errorChannel: {
+      survives: false,
+      why: "timeout (#8). A handler that runs long should finish reporting rather than be abandoned mid-notification.",
+    },
   },
   concurrency: {
-    resume: true,
-    debounce: false,
-    why: "concurrency (#8.5). A bulkhead bounds simultaneous work in the route against a downstream, and a continuation is that work. Carried in waiting form only: a continuation runs after its suspension is claimed, so a refusal would spend an approval on work that never ran. It queues for the route's own semaphore, so the bound is shared with the ingress leg rather than escaped.",
+    resume: {
+      survives: true,
+      why: "concurrency (#8.5). A bulkhead bounds simultaneous work in the route against a downstream, and a continuation is that work. Carried in waiting form only: it queues for the route's own semaphore rather than refusing, because a refusal below the claim would spend an approval.",
+    },
+    debounce: {
+      survives: false,
+      why: "concurrency (#8.5). Left off as shipped, and a bulkhead that can refuse would discard a release the window already decided to make.",
+    },
+    errorChannel: {
+      survives: false,
+      why: "concurrency (#8.5). A failure report must not queue behind the work it is reporting on.",
+    },
   },
 };
 
-/**
- * The chain positions, as a value.
- *
- * `Object.keys` widens to `string[]`, so the assertion restores what the
- * `Record<ChainField, …>` above already guarantees: these keys are exactly
- * the chain fields, no more and no less.
- */
+/** The chain positions, as a value. */
 const CHAIN_FIELDS = Object.keys(CHAIN_SURVIVAL) as ChainField[];
 
-/** What a detached run needs from the route definition it descends from. */
+/**
+ * What a detached run executes under: the chain positions it carries, plus
+ * its own steps.
+ *
+ * `ExecutorDeps["definition"]` is this same type, so the set of fields the
+ * executor consumes and the set the policy classifies cannot drift apart.
+ */
 export type DetachedDefinition = Pick<RouteDefinition, ChainField | "steps">;
 
 /** Chain positions whose absence is an empty array rather than undefined. */
@@ -134,8 +223,7 @@ const emptyChain = (): Pick<
  * position cannot be carried, or dropped, without saying so.
  *
  * @param source - The route's own definition
- * @param steps - The steps this run executes: a continuation, or the
- *   downstream a debounce release flows into
+ * @param steps - The steps this run executes
  * @param kind - Which detached run this is, which selects the policy
  *
  * @internal
@@ -147,29 +235,9 @@ export function detachedDefinition(
 ): DetachedDefinition {
   const carried: Partial<Pick<RouteDefinition, ChainField>> = {};
   for (const field of CHAIN_FIELDS) {
-    if (!CHAIN_SURVIVAL[field][kind]) continue;
+    if (!CHAIN_SURVIVAL[field][kind].survives) continue;
     const value = source[field];
     if (value !== undefined) Object.assign(carried, { [field]: value });
   }
   return { ...emptyChain(), ...carried, steps: [...steps] };
-}
-
-/**
- * Whether a chain position survives a kind of detached run, and why.
- *
- * Exported for the tests that hold the documented table to the code.
- *
- * @internal
- */
-export function chainSurvival(
-  field: ChainField,
-  kind: DetachedKind,
-): { survives: boolean; why: string } {
-  const policy = CHAIN_SURVIVAL[field];
-  return { survives: policy[kind], why: policy.why };
-}
-
-/** Every chain position, for tests that assert the table is exhaustive. */
-export function chainFields(): ReadonlyArray<ChainField> {
-  return CHAIN_FIELDS;
 }
