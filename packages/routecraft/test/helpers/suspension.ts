@@ -27,7 +27,11 @@ export function storeWith(
 ): SuspensionStore {
   return new Proxy(backing, {
     get(target, prop, receiver) {
-      if (prop in overrides) return Reflect.get(overrides, prop, receiver);
+      // Own keys only: `in` would intercept Object.prototype members like
+      // `constructor` and hand back unbound built-ins instead of delegating.
+      if (Object.hasOwn(overrides, prop)) {
+        return Reflect.get(overrides, prop, receiver);
+      }
       const value = Reflect.get(target, prop, target) as unknown;
       // Bound to the real instance: the memory backend's private fields are
       // only reachable with it as `this`.

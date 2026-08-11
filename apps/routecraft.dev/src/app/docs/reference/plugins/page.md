@@ -40,7 +40,7 @@ The factories listed above remain available unchanged. Use them via `plugins: []
 
 ## Lifecycle
 
-A plugin has three optional hooks. Which one a piece of work belongs in is decided by what has to already exist for that work to be correct.
+A plugin has one required hook, `apply(ctx)`, and two optional ones, `start(ctx)` and `teardown(ctx)`. Which one a piece of work belongs in is decided by what has to already exist for that work to be correct.
 
 | Hook | Runs | The routes are | Use it for |
 |------|------|----------------|------------|
@@ -78,11 +78,11 @@ export function heartbeatPlugin(everyMs = 60_000): CraftPlugin {
 }
 ```
 
-Most plugins need none of these: a plugin that only supplies typed, validated defaults to the context store is a config helper, and `apply` alone covers it.
+Most plugins need only the required hook: a plugin that supplies typed, validated defaults to the context store is a config helper, and `apply` alone covers it.
 
 A plugin instance may be applied and started against more than one context in a process, so per-run state a hook creates must be keyed by the `ctx` it was handed rather than held in a closure slot.
 
-Hooks run in registration order and each is awaited before the next plugin's, at both `apply` and `start`. A hook that throws during `start` fails `context.start()` with the original error, and the plugins that already started are torn down before it surfaces.
+Hooks run in registration order and each is awaited before the next plugin's, at both `apply` and `start`. A hook that throws during `start` fails `context.start()` with the original error, and every applied plugin is torn down in reverse order before it surfaces, including plugins whose `start()` never ran, so a `teardown()` must clean up what `apply()` opened without assuming its `start()` happened.
 
 `start` is awaited, so the context is not ready until every hook has resolved. Use it for startup work that finishes: the suspension plugin scans for suspensions that expired while the process was down, so those escalations reach their routes before new traffic does. Work that does not finish (a poll loop, a subscription) is begun in `start` and left to the plugin's own timer, as above, rather than awaited inside the hook.
 

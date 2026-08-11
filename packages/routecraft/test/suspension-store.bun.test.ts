@@ -608,6 +608,28 @@ function contractSuite(
     });
 
     /**
+     * @case A live delivery claim is never reclaimed by retention
+     * @preconditions One old record moved to expiring, its claim still held
+     * @expectedResult purgeSettled leaves it alone. Purging a claim
+     *   mid-delivery would strand the finalize against a row that no longer
+     *   exists, and the sweeper would report a redelivery for a record that
+     *   is gone
+     */
+    test("purgeSettled never touches an expiring claim", async () => {
+      store = await open();
+      const old = new Date("2026-07-01T09:00:00.000Z");
+      await store.create(record({ id: "claimed", suspendedAt: old }));
+      await store.claimExpiry("claimed", new Date());
+
+      const purged = await store.purgeSettled(
+        new Date("2026-08-01T00:00:00.000Z"),
+      );
+
+      expect(purged).toBe(0);
+      expect((await store.get("claimed"))?.status).toBe("expiring");
+    });
+
+    /**
      * @case A parked exchange is never reclaimed by retention, however old
      * @preconditions One long-parked, still-suspended record
      * @expectedResult purgeSettled leaves it alone; only the sweeper may

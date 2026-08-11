@@ -149,7 +149,31 @@ export class TestContext {
    * installed before any route can emit.
    */
   private awaitContextReady(): Promise<unknown> {
-    return Promise.all([this.awaitRoutesReady(), this.ctx.whenStarted()]);
+    // Both halves are bounded. `awaitRoutesReady` carries its own timeout
+    // with the routes-specific message; the `whenStarted` bound covers a
+    // plugin start() hook that never resolves, which would otherwise hang
+    // the test until the runner's timeout with no cause named. The grace
+    // margin lets the routes timeout fire first when routes are the cause,
+    // so the more specific message wins.
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const bounded = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(
+        () =>
+          reject(
+            new Error(
+              "Timeout waiting for the context to start (routes started, but a plugin start() hook did not resolve)",
+            ),
+          ),
+        this.routesReadyTimeoutMs + 100,
+      );
+      timeoutId.unref?.();
+    });
+    return Promise.all([
+      this.awaitRoutesReady(),
+      Promise.race([this.ctx.whenStarted(), bounded]),
+    ]).finally(() => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    });
   }
 
   /**

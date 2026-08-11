@@ -163,7 +163,7 @@ export const craftConfig = defineConfig({
 | `expiryLease` | `Duration` | `60m` | How long an expiry-delivery claim is honoured before the sweeper releases it for redelivery. Only a crash mid-delivery ever spends it; keep it longer than your slowest `.error()` handler, or one healthy process will double-deliver by itself. |
 | `retention` | `Duration \| "never"` | `90d` | How long settled suspensions (resumed, expired, denied) are kept before the sweeper purges them. `"never"` keeps everything for audit deployments, and the store then grows with every exchange that ever suspended. |
 
-The `store` and `secret` settings are also readable from the environment, which is how a container deployment supplies them. `defaultTtl` and `sweepInterval` are config-only:
+The `store` and `secret` settings are also readable from the environment, which is how a container deployment supplies them. `defaultTtl`, `sweepInterval`, `expiryLease` and `retention` are config-only:
 
 | Variable | Purpose |
 |----------|---------|

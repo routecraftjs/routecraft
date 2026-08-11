@@ -82,7 +82,7 @@ const MIGRATIONS: ReadonlyArray<string> = [
   // index gains id so `(status, expires_at, id)` pages are index-served in
   // cursor order.
   `ALTER TABLE suspensions ADD COLUMN claimed_at INTEGER;
-   DROP INDEX suspensions_sweep;
+   DROP INDEX IF EXISTS suspensions_sweep;
    CREATE INDEX suspensions_sweep ON suspensions (status, expires_at, id);`,
 ];
 
@@ -363,7 +363,8 @@ export class SqliteSuspensionStore implements SuspensionStore {
       this.#db
         .prepare(
           `DELETE FROM suspensions
-          WHERE status <> 'suspended' AND suspended_at < ?`,
+          WHERE status IN ('resumed', 'expired', 'denied')
+            AND suspended_at < ?`,
         )
         .run(before.getTime());
       return (

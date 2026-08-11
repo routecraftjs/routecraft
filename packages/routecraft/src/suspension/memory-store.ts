@@ -206,7 +206,15 @@ export class MemorySuspensionStore implements SuspensionStore {
   async purgeSettled(before: Date): Promise<number> {
     let purged = 0;
     for (const [id, record] of this.#records) {
-      if (record.status === "suspended") continue;
+      // Terminal states by name, never "not suspended": `expiring` is a live
+      // delivery claim, and purging one mid-delivery would strand the
+      // finalize against a row that no longer exists.
+      if (
+        record.status !== "resumed" &&
+        record.status !== "expired" &&
+        record.status !== "denied"
+      )
+        continue;
       if (record.suspendedAt.getTime() >= before.getTime()) continue;
       this.#records.delete(id);
       purged++;

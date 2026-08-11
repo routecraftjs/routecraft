@@ -45,12 +45,13 @@ describe("the plugin start hook", () => {
       .with({ plugins: [plugin] })
       .routes([craft().id("worker").from(direct()).to(noop())])
       .build();
+    t.ctx.on("route:started", () => {
+      order.push("route");
+    });
     await t.startAndWaitReady();
     order.push("ready");
 
-    expect(order.indexOf("apply")).toBeGreaterThanOrEqual(0);
-    expect(order.indexOf("start")).toBeGreaterThan(order.indexOf("apply"));
-    expect(order).toContain("start");
+    expect(order).toEqual(["apply", "route", "start", "ready"]);
   });
 
   /**
@@ -157,10 +158,10 @@ describe("the plugin start hook", () => {
       },
     };
 
-    const context = await testContext()
+    const context = (t = await testContext()
       .with({ plugins: [plugin] })
       .routes([craft().id("worker").from(direct()).to(noop())])
-      .build();
+      .build());
 
     await expect(context.ctx.start()).rejects.toThrow(
       "sweeper could not open its schedule",
@@ -191,10 +192,10 @@ describe("the plugin start hook", () => {
       },
     };
 
-    const context = await testContext()
+    const context = (t = await testContext()
       .with({ plugins: [holder, refuses] })
       .routes([craft().id("worker").from(direct()).to(noop())])
-      .build();
+      .build());
 
     await context.ctx.start().catch(() => {});
 
@@ -207,7 +208,7 @@ describe("the plugin start hook", () => {
    * @expectedResult whenStarted() rejects with that error. A readiness signal that only settles once the plugin phase is reached leaves the two most common startup failures pending forever, so a broken process reports "still starting" instead of failing
    */
   test("whenStarted rejects when the context refuses its config", async () => {
-    const context = await testContext()
+    const context = (t = await testContext()
       .routes([
         craft()
           .id("payout")
@@ -215,7 +216,7 @@ describe("the plugin start hook", () => {
           .suspend({ expect: { "~standard": undefined } as never })
           .to(noop()),
       ])
-      .build();
+      .build());
 
     const ready = context.ctx.whenStarted();
     await expect(context.ctx.start()).rejects.toThrow();
@@ -335,10 +336,10 @@ describe("the plugin start hook", () => {
       },
     };
 
-    const context = await testContext()
+    const context = (t = await testContext()
       .with({ plugins: [holder, refuses] })
       .routes([craft().id("worker").from(direct()).to(noop())])
-      .build();
+      .build());
 
     await expect(context.ctx.start()).rejects.toThrow("the real cause");
   });

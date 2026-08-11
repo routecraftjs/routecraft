@@ -99,7 +99,14 @@ export class SuspensionSweeper {
     private readonly context: CraftContext,
     private readonly store: SuspensionStore,
     private readonly options: SweeperOptions,
-  ) {}
+  ) {
+    // Subscribed at construction, not in start(): the boot scan runs before
+    // the interval is armed, and a shutdown arriving during that scan must
+    // stop it from claiming records whose routes are already draining.
+    this.offStopping = this.context.on("context:stopping", () => {
+      void this.stop();
+    });
+  }
 
   /**
    * Retire every suspension already overdue at `now`.
@@ -274,7 +281,13 @@ export class SuspensionSweeper {
     await this.inFlight;
   }
 
-  /** @internal */
+  /**
+   * Throws on a store failure, deliberately: the boot scan is awaited by the
+   * plugin's start() hook, and a store that cannot answer at boot is the
+   * loud-degradation case the suspension config already fails on.
+   *
+   * @internal
+   */
   private async runStartScan(): Promise<void> {
     const retired = await this.sweep();
     const summary = await this.store.pending();
@@ -314,9 +327,6 @@ export class SuspensionSweeper {
   /** Begin the periodic sweep. Idempotent. */
   start(): void {
     if (this.timer) return;
-    this.offStopping = this.context.on("context:stopping", () => {
-      void this.stop();
-    });
     this.timer = setInterval(() => {
       if (this.inFlight) return;
       this.inFlight = this.sweep()

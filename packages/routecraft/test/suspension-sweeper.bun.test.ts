@@ -678,7 +678,7 @@ describe("the suspension sweeper", () => {
       },
     });
 
-    const context = await testContext()
+    const context = (t = await testContext()
       .with(suspendingWith(store, { sweepInterval: "20ms" }))
       .routes([
         craft()
@@ -688,7 +688,7 @@ describe("the suspension sweeper", () => {
           .suspend({ expect: Approval })
           .to(noop()),
       ])
-      .build();
+      .build());
     await context.startAndWaitReady();
 
     // The store is supplied, so the plugin does not own it and would not
@@ -715,7 +715,7 @@ describe("the suspension sweeper", () => {
     const store = new MemorySuspensionStore();
     const reasked: unknown[] = [];
 
-    const context = await testContext()
+    const context = (t = await testContext()
       .with(suspendingWith(store, { sweepInterval: "20ms" }))
       .routes([
         craft()
@@ -728,7 +728,7 @@ describe("the suspension sweeper", () => {
           .suspend({ expect: Approval })
           .to(noop()),
       ])
-      .build();
+      .build());
     await context.startAndWaitReady();
 
     await store.create(overdue("sus-at-shutdown"));
@@ -749,7 +749,7 @@ describe("the suspension sweeper", () => {
   test("stops sweeping once the context is torn down", async () => {
     const store = new MemorySuspensionStore();
 
-    const context = await testContext()
+    const context = (t = await testContext()
       .with(suspendingWith(store, { sweepInterval: "20ms" }))
       .routes([
         craft()
@@ -759,7 +759,7 @@ describe("the suspension sweeper", () => {
           .suspend({ expect: Approval })
           .to(noop()),
       ])
-      .build();
+      .build());
     await context.startAndWaitReady();
     await context.stop();
 
