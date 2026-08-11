@@ -29,3 +29,27 @@ coverage/
 apps/routecraft.dev/src/app/blog/*/layout.tsx
 apps/routecraft.dev/src/app/blog/*/opengraph-image.tsx
 apps/routecraft.dev/src/app/docs/**/layout.tsx
+
+# Vite / TanStack Start build output
+**/.output/
+**/.nitro/
+**/.tanstack/
+**/routeTree.gen.ts
+
+# Captured production baseline for the docs acceptance suite: verbatim copies
+# of what the live site serves, so reformatting them would destroy the
+# comparison they exist for.
+apps/routecraft.dev/baseline/
+
+# Playwright run output
+**/test-results/
+**/playwright-report/
+
+# Generated at build time
+apps/routecraft.dev/app/lib/generated/
+
+# Authored docs and blog content. MDX block-versus-inline semantics depend on
+# where the line breaks fall, so reflowing it changes the rendered DOM, and the
+# raw markdown mirrors published under /raw are these bytes with the components
+# stripped. Content is reviewed as prose, not reformatted as code.
+apps/routecraft.dev/app/content/

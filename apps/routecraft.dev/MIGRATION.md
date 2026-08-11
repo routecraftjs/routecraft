@@ -4,8 +4,10 @@ Working document for the migration branch. Supersedes the v1 plan. It records th
 rulings taken before implementation started, the corrections that came out of
 validating v1 against this repository, and the acceptance baselines.
 
-Delete this file in the final commit before the PR goes up. Its durable content
-belongs in `.standards/content-and-docs.md` and the app README.
+The durable rules now live in `.standards/content-and-docs.md`, the app README
+and `DEFINITION_OF_DONE.md`. What remains here is why the migration was shaped
+this way, and the two transitional mechanisms that retire together at the first
+post-migration tag.
 
 ## Base commit
 
@@ -28,14 +30,18 @@ step gains a transitional branch:
   tree to produce the content root the new stack expects.
 
 The shim is deleted together with the `fallbackRows` transitional path in
-`generate-docs-catalogue.mjs`, at the same moment, once the oldest freezable tag
+`generate-docs-catalogue.ts`, at the same moment, once the oldest freezable tag
 carries the new content root. Issue #600 is the natural home for that cleanup.
+
+Verified end to end against the real `v0.6.0` tag: 119 released pages converted
+from Markdoc, 121 on the next channel from main, unreleased pages absent from
+`/docs` and present on `/docs/next`, the deploy gate green, and the published
+URL set identical to the captured production sitemap.
 
 ### R2. The cheat sheet stays version-pinned
 
-It is in the freeze path list today (`src/app/cheat-sheet`) and stays in it. Its
-content moves out of the hardcoded 544-line `page.tsx` into the frozen content
-root so it freezes like any other page.
+It was in the freeze path list and stays in it, now as
+`app/content/cheat-sheet`, so it freezes like any other versioned content.
 
 Transitional caveat, for the window between this merge and the v0.7.0 tag: v0.6.0
 carries only the old `.tsx`, so the released cheat sheet renders from main's
@@ -76,7 +82,7 @@ Validated against the repository. Each of these was wrong or unsupported in v1.
 | "Two next/font imports" | One import statement, three font families | Three font families to port |
 | "The only async components are opengraph-image files" | `src/app/figures/[id]/page.tsx` is also async; only one `opengraph-image.tsx` is committed, the per-post ones are generated shims | Figures route needs the same treatment |
 | Content is docs and blog | `src/app/changelog/page.md` is also Markdoc, and is the sole user of the `badge` tag | Changelog is in conversion scope |
-| Freeze path list is docs content plus screenshots | It is `src/app/docs`, `src/app/cheat-sheet`, `public/screenshots`, and the freeze restores main's `docs/changelog` redirect stub afterwards | Both the freeze and the verify gate must keep the changelog exception |
+| Freeze path list is docs content plus screenshots | It also carries the cheat sheet, and the old freeze had to restore a `docs/changelog` redirect stub that lived inside the pinned tree | The stub is now a route rather than content, so the exception is gone; `/docs/changelog` is a server redirect |
 
 Sizing figures in v1 (tag instance counts) were measured against a built tree
 with the generated `docs/next` copy present and counted closing tags. They are
@@ -104,8 +110,10 @@ Captured from production before any change, in `apps/routecraft.dev/baseline/`:
 - `raw/**`, all 123 per-page mirrors plus `raw/docs.md` and `raw/docs-next.md`
 - `llms.txt`, `llms-full.txt`, `llms-full-next.txt`
 
-The directory is committed so the acceptance harness is reproducible, and is
-deleted in the same commit as this file once the harness is green.
+The directory stays committed: `tests/acceptance.spec.ts` reads the URL and
+anchor baselines from it on every run, so it is part of the suite rather than
+scaffolding. It is also the only record of what production served once DNS
+moves off GitHub Pages.
 
 ## Re-syncing docs written during the window
 
