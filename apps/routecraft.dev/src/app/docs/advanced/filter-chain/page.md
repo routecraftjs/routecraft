@@ -110,9 +110,11 @@ path (`route:<id>:error` + `context:error` + `exchange:failed`).
 The route is **not** stopped -- the next exchange processes
 normally.
 
-### A resumed exchange re-enters below the chain
+### A resumed exchange re-enters partway down the chain
 
 When a route [suspends](/docs/reference/operations/suspend) and is later resumed, execution two runs the continuation only: the steps after the suspend point. It is the same exchange (same id, same correlation id) in the same route, but it did not enter the route again, so the positions that describe an arrival do not re-run.
+
+Nothing is left standing to fall back into: execution one unwound its chain when it parked. The framework builds a **fresh chain** for execution two out of the positions declared to survive, keeping their relative order, and runs the continuation inside it. That nesting is why `timeout` still wraps `concurrency` on a resume.
 
 Every position states its own answer. This is a declaration in the framework, not a side effect of how a continuation happens to be executed, so a position cannot quietly stop applying.
 

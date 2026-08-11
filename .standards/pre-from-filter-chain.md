@@ -153,7 +153,7 @@ follow-up (see `.standards/resilience-wrappers.md` section 7).
 
 ---
 
-## 7. Resume re-enters below the chain
+## 7. Resume re-enters partway down the chain
 
 Three runs re-enter a route partway down its pipeline: a `.resume()` reviving a `.suspend()`, a `.debounce()` release, and an `enterErrorChannel()` re-entry pushing a failure at an exchange that is not running. None re-enters the chain by traversing it, so which positions apply is **declared per position** in `pipeline/chain-policy.ts` rather than implied by how the run is executed.
 
