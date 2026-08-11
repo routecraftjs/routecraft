@@ -360,6 +360,12 @@ const errors: ErrorRow[] = [
     retryable: false,
   },
   {
+    code: 'AI1004',
+    category: 'Adapter',
+    message: 'Skills source could not be resolved',
+    retryable: false,
+  },
+  {
     code: 'AI2001',
     category: 'Adapter',
     message: 'MCP tool output violated its declared schema',
