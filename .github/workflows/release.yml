@@ -306,8 +306,24 @@ jobs:
                 exit 1
                 ;;
             esac
-            if ! git rev-parse --verify --quiet "$OVERRIDE^{commit}" >/dev/null; then
-              echo "freeze_ref '$OVERRIDE' is not a ref in this repository." >&2
+            # A release tag, not any ref. The hatch exists to publish a
+            # CORRECTED release, so pointing it at main or a branch would
+            # publish unreleased docs as the released channel, and the verify
+            # step could not tell (it compares the build against this same ref).
+            case "$OVERRIDE" in
+              v*) ;;
+              *)
+                echo "freeze_ref must be a v* release tag, not '$OVERRIDE'." >&2
+                exit 1
+                ;;
+            esac
+            if ! git rev-parse --verify --quiet "refs/tags/$OVERRIDE" >/dev/null; then
+              echo "freeze_ref '$OVERRIDE' is not a tag in this repository." >&2
+              exit 1
+            fi
+            # The same styling floor the automatic path enforces.
+            if ! version_gt "$OVERRIDE" "$MIN_FREEZE_VERSION"; then
+              echo "freeze_ref '$OVERRIDE' is not newer than $MIN_FREEZE_VERSION." >&2
               exit 1
             fi
             echo "label=$OVERRIDE" >> "$GITHUB_OUTPUT"

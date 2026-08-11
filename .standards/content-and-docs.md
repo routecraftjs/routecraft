@@ -236,11 +236,11 @@ Three rules follow, and all three have been violated before:
   rule, and it covers data as well as prose: the rows behind the reference catalogues
   (`operations-index`, `adapter-grid`, `plugin-index`, `error-table`, `event-namespaces`) live
   in `src/app/docs/_data/*.json` and reach the components through
-  `src/lib/docs-catalogue.ts`. Row data held in a component is frozen by nothing, so an added
+  `apps/routecraft.dev/src/lib/docs-catalogue.ts`. Row data held in a component is frozen by nothing, so an added
   entry publishes as released, an **edited description or signature rewrites released docs**,
   and a deleted entry vanishes from docs that still document it. Presence checks alone do not
   catch the middle case; only pinning the data does.
-- **A row and its page are checked against each other.** `generate-docs-catalogue.mjs` fails
+- **A row and its page are checked against each other.** `apps/routecraft.dev/scripts/generate-docs-catalogue.mjs` fails
   the build when an operation, adapter, or plugin has no reference page, or an error code or
   event namespace has no heading to link to. On a channel that owns its data a mismatch is an
   authoring mistake, so it is an error, not a silently dropped row. Anchors are resolved
@@ -248,7 +248,7 @@ Three rules follow, and all three have been violated before:
   `rc-1001`.
 
 The channel reaches a component as a `channel` attribute on the Markdoc tag, injected into the
-copied pages by `scripts/generate-docs-next.mjs`. Add a new reference catalogue and it needs a
+copied pages by `apps/routecraft.dev/scripts/generate-docs-next.mjs`. Add a new reference catalogue and it needs a
 data file under `_data`, an entry in `CATALOGUES`, the same attribute, and `withDocsChannel` on
 every link it renders, or it will dump `/docs/next` readers back onto the released channel.
 
@@ -258,7 +258,7 @@ assets docs pages embed; `public/images` is blog-only). Anything a docs page ren
 not in that list builds from main. When you add a surface the released channel must pin, add
 it to the list and give it a next-channel mirror, the way screenshots have one.
 
-**The sidebar and the raw mirror follow the channel too.** `navigation.ts` is shell, so
+**The sidebar and the raw mirror follow the channel too.** `apps/routecraft.dev/src/lib/navigation.ts` is shell, so
 `Navigation` filters its entries against the channel's page set; an entry for an unreleased
 page shows on next and never 404s on the released channel. `public/raw/**` mirrors both
 channels (`/raw/docs/**` and `/raw/docs/next/**`, with whole-channel bundles at
@@ -266,7 +266,7 @@ channels (`/raw/docs/**` and `/raw/docs/next/**`, with whole-channel bundles at
 model when testing against the canary. The next mirror stays out of `llms.txt` and the
 sitemap, matching the channel's noindex.
 
-**A deploy asserts all of this rather than trusting it.** `scripts/verify-docs-freeze.mjs`
+**A deploy asserts all of this rather than trusting it.** `apps/routecraft.dev/scripts/verify-docs-freeze.mjs`
 runs after the build and fails the deploy when the exported `/docs` routes are not exactly the
 freeze tag's page set, when the next channel is empty, or when a next URL reaches the sitemap.
 `/docs/changelog` is its one deliberate exception, documented in the script. If a released

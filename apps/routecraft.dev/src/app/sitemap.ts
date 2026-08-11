@@ -158,6 +158,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       // The in-development channel is noindex, and its raw mirror follows the
       // same rule as its HTML: served for anyone who asks, never advertised.
       !url.startsWith('/raw/docs/next/') &&
+      url !== '/raw/docs/next.md' &&
       url !== '/raw/docs-next.md',
   )
   for (const { url, mtime } of rawPages) {

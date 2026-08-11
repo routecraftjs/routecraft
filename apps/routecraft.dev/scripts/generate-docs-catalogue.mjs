@@ -158,7 +158,10 @@ function pageAnchors(markdown) {
     }
     if (inFence) continue
 
-    const heading = line.match(/^#{2,6}\s+(.+?)\s*$/)
+    // Every level, not just h2 and below: Markdoc runs one slugifyWithCounter
+    // per document across all headings, so skipping h1 would shift the counter
+    // suffixes on duplicate headings and hide a row documented by an h1.
+    const heading = line.match(/^#{1,6}\s+(.+?)\s*$/)
     if (!heading) continue
 
     const text = heading[1]
