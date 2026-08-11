@@ -127,6 +127,18 @@ export class MemorySuspensionStore implements SuspensionStore {
     return bounded.map(clone);
   }
 
+  async resumedWithoutTerminal(limit?: number): Promise<Suspension[]> {
+    assertSweepLimit(limit);
+    const stranded = [...this.#records.values()]
+      .filter(
+        (record) =>
+          record.status === "resumed" && record.terminal === undefined,
+      )
+      .sort((a, b) => a.suspendedAt.getTime() - b.suspendedAt.getTime());
+    const bounded = limit === undefined ? stranded : stranded.slice(0, limit);
+    return bounded.map(clone);
+  }
+
   async pending(): Promise<PendingSuspensionSummary> {
     let count = 0;
     let oldest: Date | undefined;

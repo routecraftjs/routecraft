@@ -285,6 +285,27 @@ export interface SuspensionStore {
   pending(): Promise<PendingSuspensionSummary>;
 
   /**
+   * Records stuck at `resumed` with no terminal outcome, oldest first.
+   *
+   * This is crash residue. A resume wins the compare-and-swap out of
+   * `suspended` BEFORE running the continuation and records the outcome
+   * after, so a record in this state means the process died between the two.
+   * The approval is spent, the work half ran, and nothing will ever revisit
+   * it: it is invisible to {@link SuspensionStore.findExpired}, which only
+   * looks at `suspended` records.
+   *
+   * DIAGNOSTIC ONLY. Do not build automatic recovery on this. Re-running a
+   * continuation whose side effects may have half happened needs a lease on
+   * the `resumed` state and idempotent continuations, which is the
+   * admission-and-idempotency work tracked separately. What this method is
+   * for is the boot summary after an outage, which is the first moment
+   * anyone could learn such a record exists.
+   *
+   * @param limit - Cap on records returned. Omit for all of them.
+   */
+  resumedWithoutTerminal(limit?: number): Promise<Suspension[]>;
+
+  /**
    * Delete settled suspensions (`resumed`, `expired`, `denied`) that were
    * parked before `before`, and report how many went.
    *

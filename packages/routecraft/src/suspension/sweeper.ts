@@ -26,6 +26,14 @@ export const DEFAULT_SUSPENSION_TTL = "72h";
 const SWEEP_BATCH = 100;
 
 /**
+ * Stranded resumes fetched for the boot summary.
+ *
+ * Bounded because this is a report, not a work queue: past a certain point
+ * the count is the signal and the ids stop being individually actionable.
+ */
+const STRANDED_REPORT = 100;
+
+/**
  * Drives expiry for one context.
  *
  * Expiry has to be pushed rather than pulled. A `ttl` exists so a route can
@@ -73,7 +81,7 @@ export class SuspensionSweeper {
           // so it is left for the deployment that owns it.
           this.context.logger.warn(
             { suspensionId: suspension.id, routeId: suspension.routeId },
-            "Expired suspension belongs to a route this context does not have; leaving it for a context that does.",
+            `Expired suspension belongs to route "${suspension.routeId}", which this context does not have, so it was left for a context that does. Either that route was renamed or removed while suspensions for it were still parked, or two deployments are sharing one suspension store and should not be.`,
           );
           continue;
         }
@@ -116,6 +124,8 @@ export class SuspensionSweeper {
   async scanOnStart(): Promise<void> {
     const retired = await this.sweep();
     const summary = await this.store.pending();
+    const stranded = await this.store.resumedWithoutTerminal(STRANDED_REPORT);
+
     this.context.logger.info(
       {
         retiredOnStart: retired,
@@ -123,9 +133,28 @@ export class SuspensionSweeper {
         ...(summary.oldest !== undefined
           ? { oldestSuspendedAt: summary.oldest.toISOString() }
           : {}),
+        stranded: stranded.length,
+        ...(stranded[0] !== undefined
+          ? { oldestStrandedAt: stranded[0].suspendedAt.toISOString() }
+          : {}),
       },
       "Suspension store scanned",
     );
+
+    if (stranded.length > 0) {
+      // Reported, never re-driven. Each of these spent its approval and may
+      // have half applied its side effects, so an operator decides what
+      // happens to it. Ids at debug because the count is what an alert
+      // watches and the ids are what an investigation needs.
+      this.context.logger.warn(
+        { stranded: stranded.length },
+        "Suspensions were resumed but never recorded an outcome, so a process died mid-continuation. Their approvals are spent and nothing will retry them; each needs an operator.",
+      );
+      this.context.logger.debug(
+        { suspensionIds: stranded.map((record) => record.id) },
+        "Stranded suspension ids",
+      );
+    }
   }
 
   /** Begin the periodic sweep. Idempotent. */

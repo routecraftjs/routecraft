@@ -271,6 +271,22 @@ export class SqliteSuspensionStore implements SuspensionStore {
     });
   }
 
+  async resumedWithoutTerminal(limit?: number): Promise<Suspension[]> {
+    assertSweepLimit(limit);
+    return guard("scan for stranded resumes", () => {
+      const rows = this.#db
+        .prepare(
+          `SELECT * FROM suspensions
+          WHERE status = 'resumed'
+            AND terminal IS NULL
+          ORDER BY suspended_at ASC
+          LIMIT ?`,
+        )
+        .all(limit ?? -1);
+      return rows.map((row) => toSuspension(row as SuspensionRow));
+    });
+  }
+
   async pending(): Promise<PendingSuspensionSummary> {
     return guard("summarise pending suspensions", () => {
       const row = this.#db

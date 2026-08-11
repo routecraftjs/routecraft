@@ -381,6 +381,53 @@ function contractSuite(
     });
 
     /**
+     * @case A resume that never recorded an outcome is reported as crash residue
+     * @preconditions Three records: one still parked, one resumed and settled, one resumed with no terminal
+     * @expectedResult Only the resumed-with-no-terminal record is returned. It is invisible to findExpired (it is no longer suspended) and its approval is already spent, so the boot summary is the only place it can ever surface
+     */
+    test("reports resumes that never recorded an outcome", async () => {
+      store = await open();
+      await store.create(record({ id: "still-parked" }));
+      await store.create(record({ id: "settled" }));
+      await store.create(record({ id: "stranded" }));
+
+      await store.markResumed("settled", { at: new Date() });
+      await store.recordTerminal("settled", terminal);
+      await store.markResumed("stranded", { at: new Date() });
+
+      const crashResidue = await store.resumedWithoutTerminal();
+
+      expect(crashResidue.map((entry) => entry.id)).toEqual(["stranded"]);
+    });
+
+    /**
+     * @case Stranded resumes come back oldest first and honour a limit
+     * @preconditions Two stranded records parked at different times, read back with a limit of one
+     * @expectedResult The older one. The boot summary reports the oldest age, so the ordering is what makes that figure mean anything
+     */
+    test("orders stranded resumes oldest first", async () => {
+      store = await open();
+      await store.create(
+        record({
+          id: "older",
+          suspendedAt: new Date("2026-08-01T09:00:00.000Z"),
+        }),
+      );
+      await store.create(
+        record({
+          id: "newer",
+          suspendedAt: new Date("2026-08-09T09:00:00.000Z"),
+        }),
+      );
+      await store.markResumed("older", { at: new Date() });
+      await store.markResumed("newer", { at: new Date() });
+
+      const bounded = await store.resumedWithoutTerminal(1);
+
+      expect(bounded.map((entry) => entry.id)).toEqual(["older"]);
+    });
+
+    /**
      * @case A limit the two backends would read differently is refused
      * @preconditions A fresh store; zero, a negative value and a fraction
      * @expectedResult Each rejects, so a sweep cannot silently become
