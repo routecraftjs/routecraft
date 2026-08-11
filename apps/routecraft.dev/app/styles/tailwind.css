@@ -1,13 +1,20 @@
 @import 'tailwindcss';
 @import './prism.css';
 
+/* Self-hosted, as next/font was. A stylesheet link to a font CDN blocks the
+   first paint on a third party and adds a connection the old build never made. */
+@import '@fontsource-variable/ibm-plex-sans/index.css';
+@import '@fontsource-variable/fraunces/full.css';
+@import '@fontsource-variable/fraunces/full-italic.css';
+@import '@fontsource-variable/jetbrains-mono/index.css';
+
 @plugin '@tailwindcss/typography';
 
-/* Font families are loaded by a stylesheet link in the root document. */
 :root {
-  --font-ibm-plex-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-fraunces: 'Fraunces', ui-serif, Georgia, serif;
-  --font-jetbrains-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-ibm-plex-sans:
+    'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-fraunces: 'Fraunces Variable', ui-serif, Georgia, serif;
+  --font-jetbrains-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -68,6 +75,17 @@
 }
 
 @layer base {
+  /* Without this the browser paints its native UI, scrollbars most visibly, in
+     light colours over the dark theme: a white trough that also measures wider
+     than the themed one, so toggling themes nudges the layout. */
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
   [inert] ::-webkit-scrollbar {
     display: none;
   }

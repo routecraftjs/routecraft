@@ -42,7 +42,10 @@ export function DocsHeader({
 
   return (
     <header className="mb-12 space-y-4">
-      <div className="flex items-start justify-between gap-4">
+      {/* The control cluster is fixed width and never shrinks, so below roughly
+          430px it wraps onto its own line rather than pushing the page wider
+          than the viewport. `ml-auto` keeps it right aligned on either line. */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
         {section ? (
           <p className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase">
             <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
@@ -51,7 +54,7 @@ export function DocsHeader({
         ) : (
           <span />
         )}
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="ml-auto flex shrink-0 items-center gap-3">
           {/* Version selector. Switches between the released docs and the
               in-development /docs/next channel, keeping the reader on the same
               page where it exists in the target channel. */}

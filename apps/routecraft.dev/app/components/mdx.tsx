@@ -125,6 +125,25 @@ function MdxImage({ src, alt, title }: ComponentProps<'img'>) {
   return <LightboxImage src={src} alt={alt ?? ''} caption={title} />
 }
 
+/**
+ * A reference table is as wide as its widest cell, and cells holding a code
+ * signature cannot wrap. Left in the prose flow that width becomes the width of
+ * the page, so a phone scrolls the whole document sideways. The scroll belongs
+ * to the table.
+ *
+ * The frame carries the vertical rhythm the table would otherwise set for
+ * itself (`prose` gives a table 28px, which is `my-7`), because a scroll
+ * container traps its child's margins and the gap above and below every table
+ * would grow by the neighbouring paragraph's margin.
+ */
+function MdxTable(props: ComponentProps<'table'>) {
+  return (
+    <div className="my-7 overflow-x-auto [&>table]:my-0">
+      <table {...props} />
+    </div>
+  )
+}
+
 /** Header cells carry their scope, as the Markdoc table node set. */
 function MdxTableHeader(props: ComponentProps<'th'>) {
   return <th scope="col" {...props} />
@@ -183,6 +202,7 @@ const components = {
   pre: MdxPre,
   code: MdxCode,
   img: MdxImage,
+  table: MdxTable,
   th: MdxTableHeader,
   Lead,
   Callout,

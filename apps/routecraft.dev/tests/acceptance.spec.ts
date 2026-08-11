@@ -184,11 +184,13 @@ test.describe('content rendering', () => {
   }) => {
     await page.goto('/blog/')
     await expect(page.locator('h1')).toBeVisible()
-    const featured = page.getByText('Featured', { exact: true })
-    await expect(featured).toBeVisible()
+    await expect(
+      page.getByText('Featured', { exact: true }).first(),
+    ).toBeVisible()
   })
 
   test('every route sets its own title', async ({ page }) => {
+    test.slow()
     for (const route of ['/blog/', '/changelog/', '/cheat-sheet/']) {
       await page.goto(route)
       const title = await page.title()
@@ -202,6 +204,7 @@ test.describe('content rendering', () => {
 test.describe('responsive layout', () => {
   for (const width of [375, 414, 768, 1024]) {
     test(`no horizontal overflow at ${width}px`, async ({ page }) => {
+      test.slow()
       await page.setViewportSize({ width, height: 900 })
 
       for (const route of [

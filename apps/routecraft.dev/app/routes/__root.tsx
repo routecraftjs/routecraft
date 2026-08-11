@@ -24,9 +24,6 @@ import {
 
 import appStyles from '@/styles/tailwind.css?url'
 
-const FONT_STYLESHEET =
-  'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Fraunces:opsz,SOFT@9..144,0..100&family=JetBrains+Mono:wght@400;500&display=swap'
-
 const organizationJsonLd = {
   '@context': 'https://schema.org',
   '@type': 'Organization',
@@ -82,13 +79,6 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: 'stylesheet', href: appStyles },
-      { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
-      {
-        rel: 'preconnect',
-        href: 'https://fonts.gstatic.com',
-        crossOrigin: 'anonymous',
-      },
-      { rel: 'stylesheet', href: FONT_STYLESHEET },
       { rel: 'icon', href: '/icon.svg' },
       {
         rel: 'alternate',

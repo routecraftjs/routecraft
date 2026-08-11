@@ -81,7 +81,6 @@ function loadFont(spec: FontSpec): Buffer {
   return fs.readFileSync(Bun.resolveSync(spec.file, ROOT))
 }
 
-
 const fonts = await Promise.all(
   FONTS.map(async (spec) => ({
     name: spec.name,
