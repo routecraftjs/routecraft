@@ -117,7 +117,12 @@ describe("CLI start command", () => {
     });
     const result = await startCommand(root, { once: true, timeoutMs: 5_000 });
     expect(result).toMatchObject({ success: false, code: 1 });
-    expect(result.success === false && result.message).toMatch(/broken/);
+    // The startup-failure wording, not just the route name: the fixture
+    // file is also called "broken", so matching the name alone would let
+    // an import error pass as proof of startup accounting.
+    expect(result.success === false && result.message).toMatch(
+      /route\(s\) failed to start: broken/,
+    );
   });
 
   /**
