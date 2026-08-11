@@ -7,7 +7,13 @@
  * links exactly as a reader does: channel prefixes applied, redirects included,
  * and reference catalogues rendered.
  *
- * Usage: bun scripts/check-links.ts [output-dir]
+ * A frozen released channel is a special case. `/docs` publishes a git tag, so
+ * a link broken in that tag cannot be fixed without cutting a new release, and
+ * failing the deploy over it would block every future deploy on history. Pass
+ * the freeze tag and those become warnings; the next channel, which is main,
+ * always fails.
+ *
+ * Usage: bun scripts/check-links.ts [--freeze-tag <tag>] [output-dir]
  */
 
 import { readFileSync } from 'node:fs'
@@ -16,7 +22,22 @@ import { Glob } from 'bun'
 
 import { PUBLIC_DIR } from './paths'
 
-const outputDir = process.argv[2] ?? join(PUBLIC_DIR, '..', '.output', 'public')
+const args = process.argv.slice(2)
+const tagIndex = args.indexOf('--freeze-tag')
+const freezeTag = tagIndex === -1 ? undefined : args[tagIndex + 1]
+const positional = args.filter(
+  (value, index) => index !== tagIndex && index !== tagIndex + 1,
+)
+const outputDir = positional[0] ?? join(PUBLIC_DIR, '..', '.output', 'public')
+
+/** True for a page published from the frozen tag rather than from main. */
+function isFrozen(url: string): boolean {
+  return (
+    freezeTag !== undefined &&
+    url.startsWith('/docs/') &&
+    !url.startsWith('/docs/next/')
+  )
+}
 
 /** Hosts that are this site under another name, so their paths are checkable. */
 const SELF = /^https?:\/\/(www\.)?routecraft\.dev/
@@ -59,7 +80,12 @@ const assets = new Set(
 )
 
 const broken: string[] = []
+const frozen: string[] = []
 const seen = new Set<string>()
+
+function report(from: string, message: string): void {
+  ;(isFrozen(from) ? frozen : broken).push(`${from}: ${message}`)
+}
 
 for (const { href, from } of links) {
   const decoded = href.replace(/&amp;/g, '&')
@@ -80,7 +106,7 @@ for (const { href, from } of links) {
   if (!page) {
     if (assets.has(target.replace(/^\//, '/'))) continue
     if (assets.has(target.slice(1))) continue
-    broken.push(`${from}: no page at ${target}`)
+    report(from, `no page at ${target}`)
     continue
   }
 
@@ -88,8 +114,15 @@ for (const { href, from } of links) {
 
   const targetUrl = pages.has(withSlash) ? withSlash : target
   if (!anchors.get(targetUrl)?.has(fragment)) {
-    broken.push(`${from}: no anchor #${fragment} on ${targetUrl}`)
+    report(from, `no anchor #${fragment} on ${targetUrl}`)
   }
+}
+
+if (frozen.length > 0) {
+  console.warn(
+    `Broken links inside the frozen ${freezeTag} docs (${frozen.length}), fixable only by a new release:`,
+  )
+  for (const entry of frozen.slice(0, 20)) console.warn(`  ${entry}`)
 }
 
 if (broken.length > 0) {
@@ -100,5 +133,7 @@ if (broken.length > 0) {
 }
 
 console.log(
-  `Checked ${links.length} link(s) across ${pages.size} page(s); none broken.`,
+  `Checked ${links.length} link(s) across ${pages.size} page(s); none broken${
+    frozen.length > 0 ? ` outside the frozen ${freezeTag} docs` : ''
+  }.`,
 )
