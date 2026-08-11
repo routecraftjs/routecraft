@@ -38,7 +38,7 @@ craft()
 | Option | Type | Default | Required | Description |
 |--------|------|---------|----------|-------------|
 | `expect` | `StandardSchemaV1` | -- | Yes | What a valid answer looks like. Types `ex.suspension.result` for every step after the suspend, and is what the candidate answer is validated against at resume time. |
-| `ttl` | `Duration`: milliseconds, or `"<n><unit>"` with unit `ms` / `s` / `m` / `h` / `d` | none | No | How long the suspension stays resumable, for example `"500ms"`, `"30s"`, `"72h"`, `"7d"`. Omit for no expiry. |
+| `ttl` | `Duration`: milliseconds, or `"<n><unit>"` with unit `ms` / `s` / `m` / `h` / `d` | [`suspension.defaultTtl`](/docs/reference/configuration#suspension), itself `72h` | No | How long the suspension stays resumable, for example `"500ms"`, `"30s"`, `"72h"`, `"7d"`. Omit to inherit the context default. A suspension with no deadline at all needs `defaultTtl: 'never'` on the context, because a parked exchange nothing will ever retire is a leak rather than a default. |
 
 ## Execution one always answers
 
@@ -75,7 +75,7 @@ The route's real output flows to its destinations on execution two, not back to 
 | Notify the approver | ordinary steps before it, e.g. `.tap(direct('notify-approver'))`. `ex.suspension.token` is readable BEFORE the suspend runs, so the message can carry a working link |
 | Handle a rejection | the last step of the branch consumes the verdict, e.g. `.filter()` |
 | Authorize the answerer | the resume ingress route: `.authorize()`, sender verification, a per-approver link |
-| Expiry handling | `ttl` plus a route-scope `.error()`; an expired answer arrives as [`RC5047`](/docs/reference/errors#rc-5047) |
+| Expiry handling | `ttl` plus a route-scope `.error()`; the sweeper retires an overdue suspension on its own and re-enters that channel with [`RC5047`](/docs/reference/errors#rc-5047) |
 
 ## The branch-rejoin rule
 
@@ -128,9 +128,13 @@ Two limits are worth knowing before you rely on this for money:
 
 **A resume is spent whether or not the continuation ultimately succeeds.** `.resume()` wins the store's compare-and-swap before running anything, so once retries and the deadline have settled, a continuation that still fails records a `failed` terminal and a second answer with the same token receives that cached failure rather than a second run. This is what makes "did this already run?" answerable across a restart. A route-scope `.retry()` absorbs the transient case; what it cannot absorb needs a `.error()` handler that re-asks, not a re-click from the approver.
 
-**A process that dies mid-continuation does not resume itself.** The record reads `resumed` with no terminal outcome, and nothing re-drives it; a later answer with the same token is told the first resume never recorded an outcome. Recovering that automatically needs a lease on the `resumed` state, which is not implemented. Until then, treat a `resumed` record with no terminal as needing an operator, and keep continuations short where the work is not idempotent.
+**A process that dies mid-continuation does not resume itself.** The record reads `resumed` with no terminal outcome, and nothing re-drives it; a later answer with the same token is told the first resume never recorded an outcome. Recovering that automatically needs a lease on the `resumed` state, which is not implemented: re-running a continuation whose side effects may have half happened is not something the framework can decide for you. What you do get is that the next startup counts these records and warns, so they are visible rather than silent. Treat one as needing an operator, and keep continuations short where the work is not idempotent.
 
-**Expiry is discovered lazily.** A `ttl` is enforced when a late answer arrives, not by a background sweeper: an unanswered suspension sits in the store past its deadline and its route is not told until someone presents a token. A background sweeper that fires the expiry on time is not implemented yet. Until it lands, do not build a "nobody approved in 72 hours, escalate" flow on `ttl` alone: the escalation only runs if the approver eventually clicks a dead link.
+**Expiry fires within a sweep interval of the deadline, not on it.** A background sweeper retires overdue suspensions on a schedule ([`sweepInterval`](/docs/reference/configuration#suspension), 60 seconds by default), so a "nobody approved in 72 hours, escalate" flow runs whether or not anyone ever clicks the link. It also scans at startup, before the context reports ready, so whatever came due while the process was down reaches its routes ahead of new traffic. What it does not give you is a deadline honoured to the second: a suspension is retired on the first sweep after its `ttl` elapses.
+
+Retiring a suspension emits [`route:exchange:expired`](/docs/reference/events) and re-enters the route's error channel with [`RC5047`](/docs/reference/errors#rc-5047). The sweeper competes for the same transition a late answer competes for, so an approval landing on the deadline is either accepted or expired, never both, and only the winner notifies.
+
+**Expiry notification is at-least-once, not exactly-once.** Delivery is claim-then-notify-then-finalize, so a process that dies mid-delivery leaves a claim the sweeper releases after [`expiryLease`](/docs/reference/configuration#suspension) (60 minutes by default) and redelivers: the approver hears about the expiry despite the crash. The accepted cost is the other crash window; a process that dies after notifying but before finalizing redelivers one duplicate escalation once the lease elapses. Make the `.error()` re-ask path tolerant of a repeat, the way any notification handler should be.
 
 ## Related
 

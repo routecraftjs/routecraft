@@ -162,8 +162,12 @@ export const craftConfig = defineConfig({
 |--------|------|---------|-------------|
 | `store` | `string \| { path: string } \| "memory" \| SuspensionStore` | `.routecraft/suspensions.db` | Where parked exchanges live. A path opens the SQLite backend. `"memory"` opts into the in-process backend, accepting that parked exchanges die with the process. A `SuspensionStore` instance plugs in a backend of your own. |
 | `secret` | `string` | -- | HMAC secret for signing resume tokens. Prefer the environment variable below; this field is for deployments that fetch secrets at boot and pass them in code. |
+| `defaultTtl` | `Duration \| "never"` | `72h` | How long a suspension stays resumable when [`.suspend()`](/docs/reference/operations/suspend) names no `ttl` of its own. `"never"` opts the context out of default expiry entirely, so an unanswered suspension is kept until something else retires it. |
+| `sweepInterval` | `Duration` | `60s` | How often the sweeper looks for overdue suspensions. TTLs are measured in hours, so sub-minute precision buys nothing; the knob is for tests and for deployments that want expiry noticed sooner. |
+| `expiryLease` | `Duration` | `60m` | How long an expiry-delivery claim is honoured before the sweeper releases it for redelivery. Only a crash mid-delivery ever spends it; keep it longer than your slowest `.error()` handler, or one healthy process will double-deliver by itself. |
+| `retention` | `Duration \| "never"` | `90d` | How long settled suspensions (resumed, expired, denied) are kept before the sweeper purges them. `"never"` keeps everything for audit deployments, and the store then grows with every exchange that ever suspended. |
 
-Both settings are also readable from the environment, which is how a container deployment supplies them:
+The `store` and `secret` settings are also readable from the environment, which is how a container deployment supplies them. `defaultTtl`, `sweepInterval`, `expiryLease` and `retention` are config-only:
 
 | Variable | Purpose |
 |----------|---------|
@@ -171,6 +175,8 @@ Both settings are also readable from the environment, which is how a container d
 | `ROUTECRAFT_SUSPENSION_SECRET` | Resume-token signing secret. |
 
 An explicit config value wins over the environment.
+
+**Every suspension gets a deadline unless you say otherwise.** A parked exchange with no expiry is one nothing will ever retire: it holds its serialized body indefinitely, and the route that parked it is never told nobody answered. So `defaultTtl` applies to any `.suspend()` that names no `ttl`, a sweeper retires suspensions once they are overdue, and the route hears about it through its own error channel ([`RC5047`](/docs/reference/errors#rc-5047)). A deployment whose approvals legitimately have no horizon sets `defaultTtl: 'never'` and takes on retiring them itself.
 
 **The store backend is chosen per runtime.** Under Bun it is `bun:sqlite`, a built-in. Under Node it is `better-sqlite3`, an optional peer: install it (`bun add better-sqlite3`) to get a durable store on Node. Without it, an unconfigured context falls back to the in-memory backend and warns that parked exchanges will not survive a restart, while a context that named a `store` path fails to start rather than silently losing durability it asked for.
 

@@ -78,7 +78,7 @@ A principal that came back from the store with the parked exchange is marked res
 
 ## Revival failures
 
-Each of these throws in the ingress route, so the answerer gets a typed error.
+Each of these throws in the ingress route when a `.resume()` discovers it, so the answerer gets a typed error. `RC5047` also arrives with no answerer at all: the background sweeper retires overdue suspensions on its own schedule and re-enters the suspended route's error channel directly ([expiry](/docs/reference/operations/suspend)).
 
 Three of them additionally re-enter the **suspended** route's error channel, so a route-scope `.error()` there can notify the approver and re-ask instead of leaving them at a dead link: `RC5047`, `RC5048` and `RC5050`. Those are changes in the world the suspended route has to react to, and none of them is something a caller can provoke on demand.
 
@@ -88,7 +88,7 @@ Three of them additionally re-enter the **suspended** route's error channel, so 
 |------|-------|
 | [`RC5041`](/docs/reference/errors#rc-5041) | The token is malformed or its signature does not verify. |
 | [`RC5046`](/docs/reference/errors#rc-5046) | The token verifies but the store holds no such suspension, or its route is not registered in this context. |
-| [`RC5047`](/docs/reference/errors#rc-5047) | The suspension's `ttl` elapsed. |
+| [`RC5047`](/docs/reference/errors#rc-5047) | The suspension's `ttl` elapsed. Raised by a late answer or by the sweeper, whichever reaches it first. |
 | [`RC5048`](/docs/reference/errors#rc-5048) | The steps after the suspend point (or the `expect` schema) changed while the exchange was parked, so the stored approval no longer authorizes what would run. Refused before any of those steps execute. |
 | [`RC5049`](/docs/reference/errors#rc-5049) | The answer does not satisfy `expect`. Ingress route only. The suspension stays resumable, so a corrected answer still works. |
 | [`RC5050`](/docs/reference/errors#rc-5050) | The suspension was denied, typically because the run carrying it was cancelled. |

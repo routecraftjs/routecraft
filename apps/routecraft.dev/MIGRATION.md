@@ -129,5 +129,10 @@ resync is a re-conversion, not a merge:
 Markdoc tags introduced during the window need a matching MDX component, and the
 converter fails loudly on any tag it does not know, so they cannot pass silently.
 
+Re-conversion overwrites the file, so a content fix made on this branch is lost
+if main later touches the same page. This branch carries five anchor fixes that
+main does not have; `bun run check:links` catches their loss, and the resync is
+not finished until it is green again.
+
 The converter has to survive until 0.7.0 anyway for the R1 freeze shim, so this
 is a supported operation rather than a one-off migration hack.

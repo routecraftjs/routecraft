@@ -84,6 +84,10 @@ Notes on each step:
 
 For a production build without Docker, `bun run build` then `bun run start`.
 
+> `--restore` checks the versioned paths out of `HEAD`, so it discards
+> uncommitted content edits along with the freeze. Commit content work before
+> freezing.
+
 ## Checks
 
 ```sh
