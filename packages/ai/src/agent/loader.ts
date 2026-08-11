@@ -226,6 +226,17 @@ function toolSelection(
   source: string,
 ): ToolSelection {
   const denied = new Set(disallowed);
+  // A deny that names something the agent never had is a typo, and the
+  // tool it meant to remove stays granted. Same reason a deny with no
+  // allow throws: a field whose whole purpose is removing capability
+  // must not fail quietly.
+  for (const ref of denied) {
+    if (!refs.includes(ref)) {
+      logger.warn(
+        `Markdown file "${source}": "disallowedTools" names "${ref}", which is not in "tools", so the entry removes nothing. Check the spelling.`,
+      );
+    }
+  }
   const warned = new Set<string>();
   return tools((catalog) => {
     const registered = new Set(catalog.fns.map((fn) => fn.name));

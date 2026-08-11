@@ -107,10 +107,14 @@ export async function startCommand(
     );
   }
 
-  const contentRoot = pickContentRoot(root);
-  logger.info(`Starting project "${root}" (content root: "${contentRoot}").`);
-
   try {
+    // Inside the guard: picking the content root consults the discoverer
+    // registry, which throws on a dependency cycle, and every failure
+    // this command can hit belongs in its RunResult rather than as a
+    // rejection its caller has to catch.
+    const contentRoot = pickContentRoot(root);
+    logger.info(`Starting project "${root}" (content root: "${contentRoot}").`);
+
     const pluginsDir = join(contentRoot, PLUGINS_FOLDER);
     if (isDirectory(pluginsDir)) {
       config = mergeProjectConfig(config, {
@@ -167,6 +171,9 @@ export async function startCommand(
     }
     if (outcome === "timeout") {
       await context.stop();
+      // Same reason as the shutdown path below: a route rejecting during
+      // stop must not turn a diagnosed timeout into an unhandled rejection.
+      await started.catch(() => undefined);
       return fail(
         `No exchange reached a terminal outcome within ${String(timeout)}ms. Nothing in this project produced one; check that a source actually fires, or raise --timeout.`,
       );
@@ -393,17 +400,31 @@ function watchFirstExchange(context: CraftContext): Promise<ExchangeOutcome> {
  */
 function watchStartupErrors(context: CraftContext): () => string[] {
   const failed: string[] = [];
-  context.on("context:error", (event) => {
-    // Listeners receive the event envelope, not the payload: the route
-    // is one level down, under `details`.
-    const id = (
+  const off = context.on("context:error", (event) => {
+    // Listeners receive the event envelope, not the payload: the details
+    // are one level down.
+    const details = (
       event as {
-        details?: { route?: { definition?: { id?: string } } };
+        details?: {
+          route?: { definition?: { id?: string } };
+          exchange?: unknown;
+        };
       }
-    ).details?.route?.definition?.id;
+    ).details;
+    // A route-scoped error carrying an exchange is that exchange
+    // failing, not the route failing to come up. The pipeline emits the
+    // same event for both, and counting a runtime failure as a boot
+    // failure would fail a command whose project started perfectly.
+    if (details?.exchange !== undefined) return;
+    const id = details?.route?.definition?.id;
     if (id !== undefined) failed.push(id);
   });
-  return () => failed;
+  // Reading is the last thing the command does with it, so unsubscribe
+  // there rather than leaving a listener on a context a caller may hold.
+  return () => {
+    off();
+    return failed;
+  };
 }
 
 /**

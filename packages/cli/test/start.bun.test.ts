@@ -121,6 +121,34 @@ describe("CLI start command", () => {
   });
 
   /**
+   * @case A runtime exchange failure is not reported as a failed boot
+   * @preconditions A route that starts cleanly and then fails its exchange,
+   *   beside one that completes
+   * @expectedResult The command does not claim routes failed to start. The
+   *   pipeline emits context:error with a route for a failed exchange too, so
+   *   counting those would fail a command whose project started perfectly
+   */
+  test("does not report a runtime exchange failure as a startup failure", async () => {
+    const root = makeProject({
+      "craft.config.ts": EMPTY_CONFIG,
+      "capabilities/healthy.ts": routeFile("healthy"),
+      "capabilities/throws.ts": [
+        `import { craft, simple, log } from "@routecraft/routecraft";`,
+        `export default craft()`,
+        `  .id("throws")`,
+        `  .from(simple("hi"))`,
+        `  .step(() => { throw new Error("exchange blew up"); })`,
+        `  .to(log());`,
+        "",
+      ].join("\n"),
+    });
+    const result = await startCommand(root, { once: true, timeoutMs: 5_000 });
+    if (result.success === false) {
+      expect(result.message).not.toMatch(/failed to start/);
+    }
+  });
+
+  /**
    * @case A project without a config file fails with an actionable message
    * @preconditions Directory holding capabilities but no craft.config.ts
    * @expectedResult Failure naming craft.config.ts and pointing at craft run

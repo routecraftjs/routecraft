@@ -207,11 +207,11 @@ export function getProjectDiscoverers(): readonly RegisteredProjectDiscoverer[] 
     );
     if (index === -1) {
       throw rcError("RC5003", undefined, {
-        message: `Project discoverers form a dependency cycle among: ${pending
-          .map((entry) => entry.folder)
-          .join(
-            ", ",
-          )}. One of the "after" declarations has to go; no run order can satisfy a cycle.`,
+        message: `Project discoverers form a dependency cycle among: ${cycleMembers(
+          pending,
+        ).join(
+          ", ",
+        )}. One of the "after" declarations has to go; no run order can satisfy a cycle.`,
       });
     }
     const [entry] = pending.splice(index, 1) as [RegisteredProjectDiscoverer];
@@ -219,6 +219,36 @@ export function getProjectDiscoverers(): readonly RegisteredProjectDiscoverer[] 
     out.push(entry);
   }
   return out;
+}
+
+/**
+ * Narrow a deadlocked set to the folders actually on a cycle.
+ *
+ * Everything still pending when the sort deadlocks is blocked, but most
+ * of it may be blocked merely by sitting downstream of the cycle. Naming
+ * those in the error sends the reader hunting through `after`
+ * declarations that are perfectly fine. Repeatedly dropping entries
+ * nothing else pending depends on peels away that downstream tail and
+ * leaves the entries that depend on each other.
+ *
+ * @internal
+ */
+function cycleMembers(
+  pending: readonly RegisteredProjectDiscoverer[],
+): string[] {
+  let members = [...pending];
+  for (;;) {
+    const names = new Set(members.map((entry) => entry.folder));
+    const depended = new Set(
+      members.flatMap((entry) =>
+        entry.after.filter((folder) => names.has(folder)),
+      ),
+    );
+    const next = members.filter((entry) => depended.has(entry.folder));
+    if (next.length === members.length) break;
+    members = next;
+  }
+  return members.map((entry) => entry.folder).sort();
 }
 
 /**

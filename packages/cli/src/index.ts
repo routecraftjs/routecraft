@@ -139,56 +139,61 @@ program
     "--timeout <ms>",
     "With --once, give up and exit non-zero after this many milliseconds",
   )
-  .action(async (dir: string | undefined, options) => {
-    applyGlobalLogOptions();
+  .action(
+    async (
+      dir: string | undefined,
+      options: { env?: string; once?: boolean; timeout?: string },
+    ) => {
+      applyGlobalLogOptions();
 
-    const { resolve: resolvePath } = await import("node:path");
-    const projectRoot = resolvePath(process.cwd(), dir ?? ".");
+      const { resolve: resolvePath } = await import("node:path");
+      const projectRoot = resolvePath(process.cwd(), dir ?? ".");
 
-    const { loadEnvFile } = await import("./util.js");
-    // The conventional .env pair belongs to the project being started,
-    // not to whatever directory the shell happens to sit in.
-    loadEnvFile(options.env, projectRoot);
+      const { loadEnvFile } = await import("./util.js");
+      // The conventional .env pair belongs to the project being started,
+      // not to whatever directory the shell happens to sit in.
+      loadEnvFile(options.env, projectRoot);
 
-    const { startCommand } = await import("./start.js");
-    const timeoutMs =
-      options.timeout === undefined ? undefined : Number(options.timeout);
-    if (
-      timeoutMs !== undefined &&
-      (!Number.isFinite(timeoutMs) || timeoutMs < 1)
-    ) {
-      // eslint-disable-next-line no-console
-      console.error(
-        `--timeout must be a number of milliseconds, at least 1. Received "${String(options.timeout)}".`,
-      );
-      setImmediate(() => process.exit(1));
-      return;
-    }
-    if (timeoutMs !== undefined && options.once !== true) {
-      // eslint-disable-next-line no-console
-      console.error(
-        `--timeout bounds the wait for the first exchange, which only --once waits for. Add --once, or drop --timeout.`,
-      );
-      setImmediate(() => process.exit(1));
-      return;
-    }
-    const result = await startCommand(dir, {
-      once: options.once === true,
-      ...(timeoutMs === undefined ? {} : { timeoutMs }),
-    });
-    if (!result.success) {
-      if (result.message) {
+      const { startCommand } = await import("./start.js");
+      const timeoutMs =
+        options.timeout === undefined ? undefined : Number(options.timeout);
+      if (
+        timeoutMs !== undefined &&
+        (!Number.isFinite(timeoutMs) || timeoutMs < 1)
+      ) {
         // eslint-disable-next-line no-console
-        console.error(result.message);
+        console.error(
+          `--timeout must be a number of milliseconds, at least 1. Received "${String(options.timeout)}".`,
+        );
+        setImmediate(() => process.exit(1));
+        return;
       }
-      // Defer exit so pino/sonic-boom can finish initializing and avoid
-      // "sonic boom is not ready yet"
-      const code = result.code ?? 1;
-      setImmediate(() => process.exit(code));
-      return;
-    }
-    // Don't call process.exit(); let the event loop drain naturally.
-  });
+      if (timeoutMs !== undefined && options.once !== true) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `--timeout bounds the wait for the first exchange, which only --once waits for. Add --once, or drop --timeout.`,
+        );
+        setImmediate(() => process.exit(1));
+        return;
+      }
+      const result = await startCommand(dir, {
+        once: options.once === true,
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      });
+      if (!result.success) {
+        if (result.message) {
+          // eslint-disable-next-line no-console
+          console.error(result.message);
+        }
+        // Defer exit so pino/sonic-boom can finish initializing and avoid
+        // "sonic boom is not ready yet"
+        const code = result.code ?? 1;
+        setImmediate(() => process.exit(code));
+        return;
+      }
+      // Don't call process.exit(); let the event loop drain naturally.
+    },
+  );
 
 /**
  * The 'tui' command launches the Terminal UI for monitoring Routecraft execution.

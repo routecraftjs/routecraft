@@ -75,9 +75,16 @@ function isImportableModule(name: string): boolean {
  * Order two paths by code unit, never by locale. `localeCompare`
  * answers a different question on a different machine, and this order
  * decides registration order, which decides config precedence.
+ *
+ * Separators are normalised first because `\` and `/` sort differently
+ * against the rest of the alphabet, so a nested module and its sibling
+ * would otherwise swap places between Windows and POSIX. Mirrors the
+ * sort in the markdown walk for the same reason.
  */
 function byPath(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  const left = sep === "/" ? a : a.split(sep).join("/");
+  const right = sep === "/" ? b : b.split(sep).join("/");
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 /**
@@ -111,14 +118,19 @@ function collectModules(
   const out: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const child = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (isSkippedProjectDirectory(entry.name)) continue;
-      const claimed = claim?.(child);
-      if (claimed !== undefined) out.push(claimed);
-      else out.push(...collectModules(child, claim));
+    // A symlink is neither a file nor a directory to `readdirSync`, so a
+    // symlinked capability would be dropped without a word. Resolve file
+    // links and load them; leave directory links unfollowed, which is
+    // what keeps the walk loop-free and matches the markdown walk.
+    if (entry.isFile() || entry.isSymbolicLink()) {
+      if (isImportableModule(entry.name) && isFile(child)) out.push(child);
       continue;
     }
-    if (entry.isFile() && isImportableModule(entry.name)) out.push(child);
+    if (!entry.isDirectory()) continue;
+    if (isSkippedProjectDirectory(entry.name)) continue;
+    const claimed = claim?.(child);
+    if (claimed !== undefined) out.push(claimed);
+    else out.push(...collectModules(child, claim));
   }
   return out;
 }

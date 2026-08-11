@@ -259,6 +259,44 @@ describe("project discoverers", () => {
   });
 
   /**
+   * @case An npm: ref that is not a package name is rejected before resolution
+   * @preconditions skills: npm:.., which Node would otherwise resolve relatively
+   * @expectedResult Throws AI1004, so the npm: form cannot be used to reach a
+   *   directory outside the installed dependency set
+   */
+  test("an npm: ref that is not a package name throws AI1004", async () => {
+    const root = makeProject({
+      "agents/triage.md": agentFile("triage", "skills:\n  - npm:..\n"),
+    });
+    const error = await discover(root).catch((err: unknown) => err);
+    expect(error).toMatchObject({ rc: "AI1004" });
+    expect((error as Error).message).toMatch(/is not a package name/);
+  });
+
+  /**
+   * @case An npm: subpath climbing out of the package root is rejected
+   * @preconditions An installed package plus a ref whose subpath is ../../outside
+   * @expectedResult Throws AI1004 naming the package root, so a ref cannot read
+   *   a directory the dependency does not own
+   */
+  test("an npm: subpath escaping the package root throws AI1004", async () => {
+    const root = makeProject({
+      "node_modules/@acme/house/package.json": JSON.stringify({
+        name: "@acme/house",
+        version: "1.0.0",
+      }),
+      "node_modules/@acme/house/skills/policy.md": skillFile("policy", "Pkg."),
+      "agents/zoe.md": agentFile(
+        "zoe",
+        "skills:\n  - npm:@acme/house/../../outside\n",
+      ),
+    });
+    const error = await discover(root).catch((err: unknown) => err);
+    expect(error).toMatchObject({ rc: "AI1004" });
+    expect((error as Error).message).toMatch(/points outside the package root/);
+  });
+
+  /**
    * @case An npm: ref names a package that is not installed
    * @preconditions skills: npm:@nope/not-installed
    * @expectedResult Throws AI1004 with an install hint naming the package

@@ -62,6 +62,7 @@ export {
   registerProjectDiscoverer,
   type ProjectDiscoverer,
   type ProjectDiscovererOptions,
+  type ProjectDiscoveryContext,
   type RegisteredProjectDiscoverer,
 } from "./project-discoverer.ts";
 export { type HttpConfig } from "./adapters/http/types.ts";

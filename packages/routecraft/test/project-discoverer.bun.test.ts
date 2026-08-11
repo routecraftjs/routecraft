@@ -145,6 +145,37 @@ describe("registerProjectDiscoverer", () => {
   });
 
   /**
+   * @case The cycle error names only the folders actually on the cycle
+   * @preconditions __testB and __testC depend on each other; __testA merely
+   *   depends on __testB and is therefore blocked but innocent
+   * @expectedResult The message names B and C and not A, so the reader is not
+   *   sent hunting through an "after" declaration that is perfectly fine
+   */
+  test("the cycle error excludes discoverers merely blocked by the cycle", () => {
+    registerProjectDiscoverer("__testA", async () => ({}), {
+      after: ["__testB"],
+    });
+    registerProjectDiscoverer("__testB", async () => ({}), {
+      after: ["__testC"],
+    });
+    registerProjectDiscoverer("__testC", async () => ({}), {
+      after: ["__testB"],
+    });
+    const error = (() => {
+      try {
+        getProjectDiscoverers();
+        return undefined;
+      } catch (err: unknown) {
+        return err;
+      }
+    })();
+    const message = (error as Error).message;
+    expect(message).toMatch(/__testB/);
+    expect(message).toMatch(/__testC/);
+    expect(message).not.toMatch(/__testA/);
+  });
+
+  /**
    * @case Re-registering a folder replaces the previous discoverer
    * @preconditions Same folder registered twice with different functions
    * @expectedResult Only one entry remains and it is the last registered

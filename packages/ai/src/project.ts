@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   logger,
@@ -214,7 +214,9 @@ function resolveSkillsRef(ref: string, agentFile: string): string {
     if (subpath) {
       const within = resolve(root, subpath);
       const rel = relative(root, within);
-      if (rel.startsWith("..") || isAbsolute(rel)) {
+      // A leading `..` segment, not a `..` prefix: a directory named
+      // `..shared` at the package root is inside it, not an escape.
+      if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
         throw rcError("AI1004", undefined, {
           message: `Skills ref "${ref}" declared in "${agentFile}" points outside the package root ("${root}"). Remove the "../" segments.`,
         });
