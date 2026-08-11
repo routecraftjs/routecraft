@@ -456,17 +456,18 @@ function settled(suspension: Suspension): ResumeAcknowledgment {
   // once per request rather than once per event, from a token anyone who
   // saw the original link still holds.
   //
-  // An `expiring` claim is disambiguated by the deadline it shares the
-  // record with: an expiry claim is only ever taken on an overdue record,
-  // so a claim on a record whose deadline has not passed (or that has
-  // none) can only be a denial mid-delivery, and reporting IT as expired
-  // would tell the answerer their approval timed out when the route
-  // changed under it.
-  const overdue =
+  // An `expiring` claim is disambiguated by WHEN it was taken, not by the
+  // clock now: an expiry claim is only ever taken once the deadline has
+  // passed, and a denial claim only while it has not, so the claim
+  // timestamp against the deadline says which flow owns the record. The
+  // current time would flip a denial claim into an "expiry" merely because
+  // its slow re-ask crossed the deadline while running.
+  const claimRef = suspension.claimedAt ?? new Date();
+  const expiryClaim =
     suspension.expiresAt !== undefined &&
-    suspension.expiresAt.getTime() <= Date.now();
+    claimRef.getTime() >= suspension.expiresAt.getTime();
   throw suspension.status === "expired" ||
-    (suspension.status === "expiring" && overdue)
+    (suspension.status === "expiring" && expiryClaim)
     ? rcError("RC5047", undefined, {
         message: `Suspension "${suspension.id}" expired before an answer arrived.`,
       })

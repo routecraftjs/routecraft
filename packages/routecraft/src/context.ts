@@ -546,6 +546,10 @@ export class CraftContext {
    */
   private async startPlugins(): Promise<void> {
     for (const [pluginIndex, plugin] of this.plugins.entries()) {
+      // Re-checked per hook, not only on entry: a stop() arriving while an
+      // earlier hook is mid-await has already torn the plugins down, and a
+      // hook launched after that begins work nothing will ever stop.
+      if (this.hasStopped) return;
       if (typeof plugin.start !== "function") continue;
       const pluginId = this.getPluginId(plugin, pluginIndex);
       try {

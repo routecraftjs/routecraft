@@ -295,7 +295,8 @@ export interface SuspensionStore {
   /**
    * Compare-and-swap `expiring` -> `expired`, finalizing a delivered claim.
    * No timestamp is recorded: `expiresAt` already says when the suspension
-   * came due, and `claimedAt` when its notification was delivered.
+   * came due, and `claimedAt` when its delivery was claimed (not when the
+   * notification landed).
    */
   markExpired(id: string): Promise<SuspensionCasResult>;
 
