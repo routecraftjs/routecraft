@@ -50,13 +50,7 @@ const STRANDED_REPORT = 100;
  */
 export class SuspensionSweeper {
   private timer: ReturnType<typeof setInterval> | undefined;
-  /**
-   * The sweep currently running, so {@link SuspensionSweeper.stop} can wait
-   * for it. A sweep outliving `stop()` reaches a closed store handle, and a
-   * retirement that already won its transition would re-enter a drained
-   * route: the record ends up `expired` with nobody notified, and nothing
-   * revisits it because the scan only looks at `suspended` records.
-   */
+  /** The sweep currently running. See {@link SuspensionSweeper.stop}. */
   private inFlight: Promise<unknown> | undefined;
   /**
    * Records this context can never retire, because it does not have their
@@ -80,25 +74,26 @@ export class SuspensionSweeper {
    */
   async sweep(now: Date = new Date()): Promise<number> {
     let retired = 0;
-    // Records this pass could not retire. They stay `suspended`, so they
-    // come back at the head of every later page, and the page has to grow
-    // past them: a full page of records this context cannot retire would
-    // otherwise be read forever without the sweep ever reaching what sits
-    // behind them. Growth is capped so that backlog costs a bounded read
-    // rather than one that grows with its own size, and the cap is the
-    // known limit of this approach: past SWEEP_BATCH unretirable records
-    // the sweep cannot see behind them, and work that IS retirable starves
-    // until an operator clears them. Paging on a `(expiresAt, id)` cursor
-    // instead of a growing window would remove the limit, at the cost of a
-    // cursor parameter on `findExpired` and a matching change in both
-    // backends.
+    // Records this pass could not retire stay `suspended`, so they return at
+    // the head of every later page and the window has to grow past them.
+    // Growth is capped, so past the cap the sweep sees nothing behind them
+    // and retires nothing at all; that state is reported below rather than
+    // left to be inferred from a silent absence of expiries.
     const stuck = new Set<string>(this.unowned);
     const missing = new Map<string, number>();
     for (;;) {
       const limit = SWEEP_BATCH + Math.min(stuck.size, SWEEP_BATCH);
       const due = await this.store.findExpired(now, limit);
       const batch = due.filter((suspension) => !stuck.has(suspension.id));
-      if (batch.length === 0) break;
+      if (batch.length === 0) {
+        if (stuck.size >= SWEEP_BATCH) {
+          this.context.logger.error(
+            { stuck: stuck.size },
+            "Expiry has stalled: the overdue set is filled with suspensions this context cannot retire, so nothing will expire until they are cleared.",
+          );
+        }
+        break;
+      }
 
       for (const suspension of batch) {
         const deadline = suspension.expiresAt;

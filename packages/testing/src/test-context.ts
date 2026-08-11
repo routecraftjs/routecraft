@@ -137,11 +137,6 @@ export class TestContext {
   }
 
   /**
-   * Build a promise that resolves once every route has emitted
-   * `route:started`, or rejects on `context:error` or the configured
-   * routes-ready timeout. Shared by {@link startAndWaitReady} and {@link test}.
-   */
-  /**
    * Routes up AND every plugin `start()` resolved.
    *
    * Stated once because it is one definition: waiting on routes alone would
@@ -157,6 +152,10 @@ export class TestContext {
     return Promise.all([this.awaitRoutesReady(), this.ctx.whenStarted()]);
   }
 
+  /**
+   * Resolves once every route has emitted `route:started`, or rejects on
+   * `context:error` or the configured routes-ready timeout.
+   */
   private awaitRoutesReady(): Promise<void> {
     const ctx = this.ctx;
     const total = ctx.getRoutes().length;
@@ -201,7 +200,8 @@ export class TestContext {
   }
 
   /**
-   * Start context and resolve once every route has emitted `route:started`.
+   * Start context and resolve once the context is ready: no route is still
+   * coming up AND every plugin `start()` hook has resolved.
    * Does not drain or stop. Does not await `ctx.start()` completion, which
    * lets this method work with long-running sources (direct, mcp, HTTP, etc.)
    * whose subscribe blocks until the route is aborted. The start promise is

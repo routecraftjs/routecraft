@@ -52,22 +52,27 @@ A plugin has three optional hooks. Which one a piece of work belongs in is decid
 import type { CraftPlugin, CraftContext } from '@routecraft/routecraft'
 
 export function heartbeatPlugin(everyMs = 60_000): CraftPlugin {
-  let timer: ReturnType<typeof setInterval> | undefined
-  let startedAt: Date | undefined
+  // Keyed by context, not a closure slot: one plugin instance can be applied
+  // to more than one context in a process, and a single slot would let the
+  // second start overwrite the first context's timer.
+  const timers = new WeakMap<CraftContext, ReturnType<typeof setInterval>>()
 
   return {
     name: 'heartbeat',
-    apply() {
-      startedAt = new Date()
+    apply(ctx: CraftContext) {
+      ctx.logger.debug({}, 'heartbeat configured')
     },
     start(ctx: CraftContext) {
-      timer = setInterval(() => {
-        ctx.logger.info({ startedAt }, 'still running')
+      const timer = setInterval(() => {
+        ctx.logger.info({}, 'still running')
       }, everyMs)
       timer.unref?.()
+      timers.set(ctx, timer)
     },
-    teardown() {
+    teardown(ctx: CraftContext) {
+      const timer = timers.get(ctx)
       if (timer) clearInterval(timer)
+      timers.delete(ctx)
     },
   }
 }
@@ -75,12 +80,14 @@ export function heartbeatPlugin(everyMs = 60_000): CraftPlugin {
 
 Most plugins need none of these: a plugin that only supplies typed, validated defaults to the context store is a config helper, and `apply` alone covers it.
 
+A plugin instance may be applied and started against more than one context in a process, so per-run state a hook creates must be keyed by the `ctx` it was handed rather than held in a closure slot.
+
 Hooks run in registration order and each is awaited before the next plugin's, at both `apply` and `start`. A hook that throws during `start` fails `context.start()` with the original error, and the plugins that already started are torn down before it surfaces.
 
 `start` is awaited, so the context is not ready until every hook has resolved. Use it for startup work that finishes: the suspension plugin scans for suspensions that expired while the process was down, so those escalations reach their routes before new traffic does. Work that does not finish (a poll loop, a subscription) is begun in `start` and left to the plugin's own timer, as above, rather than awaited inside the hook.
 
 {% callout type="note" title="Waiting for a context to be ready" %}
-`ctx.start()` resolves when the context **stops**, not when it comes up: a context with an indefinite route (an HTTP server, a `direct()` endpoint) keeps running. Await `ctx.whenStarted()` for readiness. It resolves once the routes are up and every `start()` hook has finished, and rejects with the original error if one refuses.
+`ctx.start()` resolves when the context **stops**, not when it comes up: a context with an indefinite route (an HTTP server, a `direct()` endpoint) keeps running. Await `ctx.whenStarted()` for readiness. It resolves once no route is still coming up and every `start()` hook has finished, and rejects if a hook or the config refuses. A single route failing to come up is not observable there, since the context keeps the others running.
 {% /callout %}
 
 ## Related

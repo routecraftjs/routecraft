@@ -296,10 +296,7 @@ export function suspensionPlugin(config: SuspensionConfig = {}): CraftPlugin {
       sweeper.start();
     },
     async teardown(ctx: CraftContext) {
-      // Awaited before the store closes. A sweep still in flight would meet
-      // a closed handle, and one that already won a transition would re-enter
-      // a route that has drained: the record settles `expired` with its
-      // approver never told and nothing left to revisit it.
+      // Awaited before the store closes; see SuspensionSweeper.stop().
       await sweepers.get(ctx)?.stop();
       sweepers.delete(ctx);
       const runtime = ctx.getStore(SUSPENSION_RUNTIME);

@@ -63,6 +63,11 @@ or task to carry it.
   the start error. The operator needs the cause of the failed boot, not
   whatever the cleanup hit on the way out.
 
+A plugin instance may serve more than one context in a process, so any
+per-run state a hook creates is keyed by the `ctx` it was given, never held
+in a closure slot. `suspensionPlugin` keys its sweeper in a `WeakMap` for
+exactly this reason.
+
 Unwinding plugins that were **applied but never started**, when the
 failure happens during the build, is out of scope here and tracked in
 [#565](https://github.com/routecraftjs/routecraft/issues/565). That issue
@@ -73,9 +78,12 @@ extends this section rather than replacing it.
 `context.start()` does not resolve when the context comes up. It resolves
 when the context stops, because an indefinite route (an HTTP server, a
 `direct()` endpoint) keeps running. Anything that needs to know the
-context is ready awaits `ctx.whenStarted()`, which resolves once the
-routes are up and every `start()` hook has finished, and rejects with the
-original error if one refuses.
+context is ready awaits `ctx.whenStarted()`, which resolves once no route
+is still coming up and every `start()` hook has finished, and rejects with
+the original error if a hook or the config refuses. A single route that
+fails to come up is not observable there, because `start()` keeps the
+remaining routes running by design; a probe that must know one specific
+route is serving watches `route:started` for it.
 
 `@routecraft/testing`'s `startAndWaitReady()` and `test()` await it, so a
 test asserting on work a `start()` hook does is not racing it.

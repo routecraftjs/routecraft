@@ -116,6 +116,13 @@ export interface CraftPlugin {
 }
 
 /**
+ * How long `start()` waits for routes to signal readiness before starting
+ * plugins anyway. Generous, because it is a backstop against a source that
+ * never signals rather than a deadline anything healthy approaches.
+ */
+const ROUTE_READINESS_TIMEOUT_MS = 30_000;
+
+/**
  * Config keys handled directly by the CraftContext constructor, as opposed
  * to keys claimed by registered config appliers. Used to detect config keys
  * that nothing consumes. Must stay in sync with the fields of
@@ -429,8 +436,11 @@ export class CraftContext {
    * A hook that performs bounded startup work is awaited by this, on
    * purpose: the suspension sweeper's downtime scan has RUN by the time
    * this resolves, so overdue expiries reach their routes before new
-   * traffic does. Rejects with the error that refused the start, whether it
-   * came from a plugin, the config, or a route.
+   * traffic does. Rejects with the error that refused the start, which is a
+   * plugin `start()` hook or the context's own config. A single route that
+   * fails to come up is NOT observable here: `start()` keeps the remaining
+   * routes running by design, so a probe that must know a specific route is
+   * serving watches `route:started` for it.
    *
    * Call it per start. Between runs it keeps reporting the last run's
    * outcome, which is the honest answer while nothing new has begun;
@@ -472,8 +482,16 @@ export class CraftContext {
    * the source's subscribe, and a readiness probe would report a context
    * ready before its HTTP port was bound.
    *
-   * A route that fails or completes counts as settled rather than ready, so
-   * one refusing source cannot hold the context open forever.
+   * A route that fails or completes counts as settled rather than ready.
+   * One failing route does not fail the context (`start()` keeps the others
+   * running by design), so readiness cannot report it either: what this
+   * waits for is that no route is still coming up, not that all of them did.
+   *
+   * The wait is bounded because readiness is not something every source
+   * signals. A bare callable source gets no `ready()` for free (unlike the
+   * iterable path, which calls it), so the polling shape the `from()` docs
+   * teach reaches readiness only on its first emit, and a quiet queue would
+   * otherwise hold the whole context down forever.
    *
    * @internal
    */
@@ -481,24 +499,37 @@ export class CraftContext {
     ready: Promise<void>;
     settle: (routeId: string) => void;
   } {
-    const pending = new Map<string, () => void>();
+    const pending = new Map<string, { resolve: () => void }>();
     const waits = this.routes.map(
       (route) =>
         new Promise<void>((resolve) => {
-          pending.set(route.definition.id, resolve);
+          pending.set(route.definition.id, { resolve });
         }),
     );
-    const off = this.on("route:started", ((payload: {
-      details: { routeId: string };
-    }) => {
-      pending.get(payload.details.routeId)?.();
-    }) as Parameters<typeof this.on>[1]);
+    const off = this.on("route:started", ({ details }) => {
+      pending.get(details.routeId)?.resolve();
+    });
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const bound = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        this.logger.warn(
+          { timeoutMs: ROUTE_READINESS_TIMEOUT_MS },
+          "Some routes did not signal readiness in time; starting plugins anyway. A source that never calls ready() and never emits reaches readiness only when it produces its first message.",
+        );
+        resolve();
+      }, ROUTE_READINESS_TIMEOUT_MS);
+      timer.unref?.();
+    });
 
     return {
-      ready: Promise.all(waits).then(() => {
-        off();
-      }),
-      settle: (routeId: string) => pending.get(routeId)?.(),
+      ready: Promise.race([Promise.all(waits).then(() => {}), bound]).finally(
+        () => {
+          off();
+          if (timer) clearTimeout(timer);
+        },
+      ),
+      settle: (routeId: string) => pending.get(routeId)?.resolve(),
     };
   }
 
@@ -870,7 +901,10 @@ export class CraftContext {
     // or keep rejecting with an error from a run that is over. An UNSETTLED
     // one is kept, because a caller holding it took its handle before
     // calling start(), which is the usual order.
-    if (this.startedSettled) this.startedDeferred = undefined;
+    if (this.startedSettled) {
+      this.startedDeferred = undefined;
+      this.startedSettled = false;
+    }
     const started = this.ensureStartedDeferred();
     const settle = (outcome: () => void): void => {
       this.startedSettled = true;
@@ -925,8 +959,6 @@ export class CraftContext {
           controller?.abort();
           throw error;
         } finally {
-          // Ready or not, this route has stopped trying, so it must not hold
-          // the plugin phase behind it.
           routes.settle(route.definition.id);
         }
       }),
