@@ -24,11 +24,10 @@ Core adapters (`cron`, `direct`) have dedicated fields on `CraftConfig`. Set the
 // craft.config.ts
 import type { CraftConfig } from '@routecraft/routecraft'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   cron: { timezone: 'UTC', jitterMs: 2000 },
 }
 
-export default config
 ```
 
 Now every `cron()` source inherits `timezone: 'UTC'` and `jitterMs: 2000` unless overridden:
@@ -49,7 +48,7 @@ Adapters from other packages (like `@routecraft/ai`) use the plugin pattern. Reg
 import type { CraftConfig } from '@routecraft/routecraft'
 import { llmPlugin, embeddingPlugin } from '@routecraft/ai'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   plugins: [
     llmPlugin({
       providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY } },

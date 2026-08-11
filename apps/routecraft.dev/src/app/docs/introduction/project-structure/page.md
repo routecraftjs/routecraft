@@ -34,13 +34,55 @@ my-app
 │       └── types.ts
 ├── plugins
 │   └── logger.ts
+├── skills                            # house skills, available to every agent
+│   ├── tone-of-voice.md
+│   └── incident-response
+│       └── SKILL.md
+├── agents
+│   ├── triage.md                     # flat agent
+│   └── aria                          # agent bundle
+│       ├── AGENT.md
+│       └── skills                    # scoped to aria only
+│           └── refund-policy.md
 ├── package.json
 ├── tsconfig.json
 └── .env
 ```
 
 All application code can live at the project root or inside an optional `src` folder.
-Routecraft treats both layouts identically.
+Routecraft treats both layouts identically. Put the convention folders in one place or the
+other, not both: `craft start` uses the root-level layout when it finds folders there and
+warns that the `src` copies are ignored.
+
+## What `craft start` discovers
+
+[`craft start`](/docs/reference/cli#start) boots the whole project from this layout, so an
+application needs no barrel file. Each folder is optional; one that is absent is skipped.
+
+| Folder | Produces | Rule |
+| --- | --- | --- |
+| `capabilities/` | Routes | A directory holding `route.ts` is one capability: that file is imported and the directory is not descended into, so colocated tests, fixtures and private helpers are never loaded. Any other module is a single-file capability. Other directories are grouping. |
+| `plugins/` | Context plugins | Each module default-exports a plugin instance (an object with `apply`). A factory export is an error: a factory needs arguments the runtime cannot invent, so call it in `craft.config.ts` instead. |
+| `agents/` | Registered agents | Loaded by `@routecraft/ai`. See [agents](#agents). |
+| `skills/` | The default skill set for every agent | Loaded by `@routecraft/ai`. See [skills](#skills). |
+| `adapters/` | Nothing | Part of the convention as a place to put code. Importing an adapter module registers nothing, so there is nothing for `start` to load. |
+
+Code wins and convention fills the gaps: anything `craft.config.ts` declares is kept, and
+discovery adds only what the config left out. Every discovered capability, plugin and agent
+is logged with the file it came from, so precedence is visible in a startup log.
+
+`agents/` and `skills/` mean nothing to the CLI itself. `@routecraft/ai` claims those folder
+names when it is imported, which is why a project using them has to import the package for
+its side effects:
+
+```ts
+// craft.config.ts
+import "@routecraft/ai";
+```
+
+A type-only import (`import type { ... } from "@routecraft/ai"`) is erased at compile time
+and registers nothing, so it produces the "nothing knows how to load this folder" error while
+the import statement above it looks perfectly correct.
 
 ## The capability folder
 
@@ -135,27 +177,117 @@ Sub-folders inside `capabilities/` are supported to any depth. The capability id
 system). A plugin extends the runtime itself (exposing MCP, adding metrics, wiring up
 observability).
 
+## Agents
+
+An agent sits beside a capability, not inside one. Both are first-class, and they compose in
+both directions: a capability can call an agent, and an agent can be granted a capability as
+a tool.
+
+Two forms live under `agents/`, and they can be mixed:
+
+```text
+agents
+├── triage.md                   # flat agent, at any depth
+├── review
+│   └── security.md             # grouping folder, walked
+└── aria                        # agent bundle
+    ├── AGENT.md
+    └── skills                  # aria's skills, never agents
+        └── refund-policy.md
+```
+
+An agent's identity is its frontmatter `name`, never the filename or the folder path, which
+is what lets an existing Claude Code `.claude/agents/` tree drop in unchanged. The one
+exception is a bundle: a directory holding `AGENT.md` is exactly one agent, is not descended
+into, and its frontmatter `name` must match the directory name. A directory named `skills` is
+never scanned for agents at any depth.
+
+```md
+---
+name: triage
+description: Routes inbound mail to the right queue
+model: anthropic:claude-sonnet-4-6
+tools:
+  - Direct(classify-mail)
+---
+You triage inbound mail.
+```
+
+## Skills
+
+Skills resolve at two levels.
+
+**House skills.** The top-level `skills/` folder becomes the default skill set every agent
+carries, grouped under the `skills` key so a leaf resolves as `skills__<name>`. An agent drops
+the whole set with `blocks: { skills: false }`. Both the flat `<name>.md` and the nested
+`<name>/SKILL.md` forms work.
+
+**Per-agent skills.** An agent declares its own with a `skills:` list in frontmatter, and an
+agent bundle may also hold a sibling `skills/` folder:
+
+```md
+---
+name: zoe
+description: Handles customer conversations
+skills:
+  - ./skills                                  # local path, relative to the agent file
+  - npm:@acme/claude-skills/support           # installed package, subpath into its tree
+---
+```
+
+An `npm:` ref resolves against installed packages, so there is no network access at boot and
+no trust surface beyond the dependencies already in `package.json`. `npm:<pkg>/<subpath>`
+looks for `<package root>/<subpath>` and then `<package root>/skills/<subpath>`; `npm:<pkg>`
+with no subpath looks for `<package root>/skills` and then the package root itself. A ref that
+resolves to no directory fails the boot with `AI1004` naming the ref and what was tried.
+
+Sources compose in one order, most specific last:
+
+1. the house `skills/` folder,
+2. the frontmatter `skills:` refs, in declared order,
+3. the bundle's own `skills/` folder.
+
+A name present in more than one resolves to the most specific copy, and both sources are
+logged at info so the shadowing is visible rather than mysterious.
+
+An agent that declares no skills at all inherits the house set. That is deliberate: absent
+means "the house default", never "no skills", so a dropped-in agent file written for another
+harness lands in the ambient behaviour its author expected.
+
+{% callout type="warning" title="Config blocks replace, they do not merge" %}
+A per-agent `blocks` entry replaces a same-named default wholesale. If you set
+`blocks: { skills: ... }` for an agent in `craft.config.ts`, that agent no longer receives the
+discovered folder skills at all; spread them in explicitly if you want both. Discovery
+composes for you only when it owns the agent's skill set.
+{% /callout %}
+
 ## Files
 
 | File | Purpose |
 | --- | --- |
-| `craft.config.ts` | Registers plugins and configures the context. Exported as default. |
+| `craft.config.ts` | Registers plugins and configures the context. Exported as the named `craftConfig` export. |
 | `package.json` | Dependencies and convenience scripts. |
 | `tsconfig.json` | TypeScript configuration. |
 | `.env` | Environment variables. Pass a custom path with `--env` in CLI commands. |
 
 ## craft.config.ts
 
-The config file is the entry point for the Routecraft runtime. A minimal setup:
+The config file is the entry point for the Routecraft runtime. It is read through the named
+`craftConfig` export, which is what `defineConfig` is built for:
 
 ```ts
 // craft.config.ts
-import type { CraftConfig } from "@routecraft/routecraft";
+import { defineConfig } from "@routecraft/routecraft";
 
-const config: CraftConfig = {};
-
-export default config;
+export const craftConfig = defineConfig({});
 ```
+
+A default export is accepted as a fallback and warns, because earlier versions of this page
+showed that form and nothing read it. Rename it to `craftConfig`.
+
+Importing this file is also what pulls ecosystem packages into the module graph, which is how
+their config keys and their folder discoverers get registered. An agent project therefore
+imports `@routecraft/ai` here even when every agent is declared in markdown.
 
 ---
 

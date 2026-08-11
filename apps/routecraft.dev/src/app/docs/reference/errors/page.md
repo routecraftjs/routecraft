@@ -417,6 +417,21 @@ A block's shape is invalid at construction:
 - Progressive-mode blocks: `{ mode: "progressive", description: "...", value: <string | function> }`.
 - Use the `BlockMode` and `BlockLifetime` types exported from `@routecraft/ai` to catch typos at the type level.
 
+## AI1004
+Skills source could not be resolved
+
+**Why it happens**  
+A `skills:` ref in agent frontmatter did not resolve to a directory on disk:
+- A local ref (`./skills`, `../shared-skills`) named a path that does not exist relative to the agent file that declared it.
+- An `npm:` ref named a package that is not installed in the project.
+- An `npm:` ref resolved to an installed package, but neither the plain subpath nor the package's `skills/` root held the named folder.
+- An `npm:` ref used `../` segments that point outside the package root.
+
+**Suggestion**  
+- Local refs resolve against the agent file's own directory, not the project root. For an agent bundle that is the bundle folder.
+- Install the package the ref names; resolution reads `node_modules` only, with no network access at boot.
+- `npm:<pkg>/<subpath>` looks for `<root>/<subpath>` then `<root>/skills/<subpath>`; `npm:<pkg>` looks for `<root>/skills` then `<root>`. The error message lists the paths that were tried.
+
 ## AI2001
 MCP tool output violated its declared schema
 

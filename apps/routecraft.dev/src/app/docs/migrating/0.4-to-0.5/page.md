@@ -83,7 +83,9 @@ craft run mcp-server.js --log-level silent
 
 ### 1.4 Define your config with `defineConfig`
 
-`CraftConfig` switched from `type` to `interface` so ecosystem packages can declaration-merge first-class config keys onto it. The recommended way to author your config is now the new `defineConfig` helper, which preserves literal-type inference at the call site without you having to declare a config type yourself:
+`CraftConfig` switched from `type` to `interface` so ecosystem packages can declaration-merge first-class config keys onto it. The recommended way to author your config is now the new `defineConfig` helper, which preserves literal-type inference at the call site without you having to declare a config type yourself.
+
+Rename the export while you are here: the runtime reads a named `craftConfig` export, and the default export earlier pages showed was never read. `craft start` accepts a default export with a warning so the old form is not a silent failure.
 
 **Before (0.4.0):**
 
@@ -103,7 +105,7 @@ export default config
 import { defineConfig } from "@routecraft/routecraft"
 import "@routecraft/ai" // side-effect import enables first-class llm/agent/mcp/embedding keys
 
-export default defineConfig({
+export const craftConfig = defineConfig({
   llm: { providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY } } },
   agent: { defaultOptions: { model: "anthropic:claude-opus-4-7" } },
   routes: [...],

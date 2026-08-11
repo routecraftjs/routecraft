@@ -50,6 +50,24 @@ if (process.argv.length <= 2) {
 }
 
 /**
+ * Push the global log options onto the environment before any import
+ * that constructs the logger. The logger reads env at module load, so
+ * this has to happen inside a command action but ahead of the lazy
+ * `run` / `start` imports.
+ */
+function applyGlobalLogOptions(): void {
+  const globalOpts = program.opts();
+  if (globalOpts["logLevel"] !== undefined) {
+    process.env["LOG_LEVEL"] = globalOpts["logLevel"];
+    process.env["CRAFT_LOG_LEVEL"] = globalOpts["logLevel"];
+  }
+  if (globalOpts["logFile"] !== undefined) {
+    process.env["LOG_FILE"] = globalOpts["logFile"];
+    process.env["CRAFT_LOG_FILE"] = globalOpts["logFile"];
+  }
+}
+
+/**
  * The 'run' command executes routes from a single file.
  *
  * Example:
@@ -70,16 +88,7 @@ program
   )
   .passThroughOptions()
   .action(async (filePath, args: string[], options) => {
-    // Apply global log options to env before any import that creates the logger
-    const globalOpts = program.opts();
-    if (globalOpts["logLevel"] !== undefined) {
-      process.env["LOG_LEVEL"] = globalOpts["logLevel"];
-      process.env["CRAFT_LOG_LEVEL"] = globalOpts["logLevel"];
-    }
-    if (globalOpts["logFile"] !== undefined) {
-      process.env["LOG_FILE"] = globalOpts["logFile"];
-      process.env["CRAFT_LOG_FILE"] = globalOpts["logFile"];
-    }
+    applyGlobalLogOptions();
 
     const { loadEnvFile } = await import("./util.js");
     if (options.env !== undefined) {
@@ -104,6 +113,87 @@ program
     // process.exit() triggers C++ static destructors that race with ONNX
     // Runtime cleanup (onnxruntime#25038: "mutex lock failed").
   });
+
+/**
+ * The 'start' command boots a whole project from the folder convention.
+ *
+ * Example:
+ * craft start
+ * craft start ./apps/eywa --once
+ */
+program
+  .command("start")
+  .description(
+    "Start a project from its folder convention (capabilities, plugins, agents, skills)",
+  )
+  .argument("[dir]", "Project root (default: current directory)")
+  .option(
+    "--env <path>",
+    "Load environment variables from a .env file (default: .env)",
+  )
+  .option(
+    "--once",
+    "Shut down after the first exchange reaches a terminal outcome",
+  )
+  .option(
+    "--timeout <ms>",
+    "With --once, give up and exit non-zero after this many milliseconds",
+  )
+  .action(
+    async (
+      dir: string | undefined,
+      options: { env?: string; once?: boolean; timeout?: string },
+    ) => {
+      applyGlobalLogOptions();
+
+      const { resolve: resolvePath } = await import("node:path");
+      const projectRoot = resolvePath(process.cwd(), dir ?? ".");
+
+      const { loadEnvFile } = await import("./util.js");
+      // The conventional .env pair belongs to the project being started,
+      // not to whatever directory the shell happens to sit in.
+      loadEnvFile(options.env, projectRoot);
+
+      const { startCommand } = await import("./start.js");
+      const timeoutMs =
+        options.timeout === undefined ? undefined : Number(options.timeout);
+      if (
+        timeoutMs !== undefined &&
+        (!Number.isFinite(timeoutMs) || timeoutMs < 1)
+      ) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `--timeout must be a number of milliseconds, at least 1. Received "${String(options.timeout)}".`,
+        );
+        setImmediate(() => process.exit(1));
+        return;
+      }
+      if (timeoutMs !== undefined && options.once !== true) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `--timeout bounds the wait for the first exchange, which only --once waits for. Add --once, or drop --timeout.`,
+        );
+        setImmediate(() => process.exit(1));
+        return;
+      }
+      const result = await startCommand(dir, {
+        once: options.once === true,
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      });
+      if (!result.success) {
+        if (result.message) {
+          // eslint-disable-next-line no-console
+          console.error(result.message);
+        }
+        // Defer exit so pino/sonic-boom can finish initializing and avoid
+        // "sonic boom is not ready yet"
+        const code = result.code ?? 1;
+        setImmediate(() => process.exit(code));
+        return;
+      }
+      // Don't call process.exit(); let the event loop drain naturally.
+    },
+  );
 
 /**
  * The 'tui' command launches the Terminal UI for monitoring Routecraft execution.

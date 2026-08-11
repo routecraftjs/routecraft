@@ -10,10 +10,16 @@ import {
   type AnyRouteBuilder,
   type RouteDefinition,
 } from "@routecraft/routecraft";
+import { MODULE_EXTENSIONS } from "./project.js";
+import { messageOf } from "./util.js";
 
-const SUPPORTED_EXTENSIONS = [".mjs", ".js", ".cjs", ".ts"] as const;
-
-type RunResult =
+/**
+ * Result of a CLI command that boots a context. `success: false`
+ * carries the message the CLI prints and the exit code it uses.
+ *
+ * @internal
+ */
+export type RunResult =
   { success: true } | { success: false; code?: number; message: string };
 
 /**
@@ -33,14 +39,11 @@ export async function runCommand(
   const absFilePath = resolve(process.cwd(), filePath);
   const ext = extname(absFilePath);
 
-  // Validate file extension
-  if (
-    !SUPPORTED_EXTENSIONS.includes(ext as (typeof SUPPORTED_EXTENSIONS)[number])
-  ) {
+  if (!MODULE_EXTENSIONS.includes(ext)) {
     return {
       success: false,
       code: 1,
-      message: `Error: Only the following file types are supported: ${SUPPORTED_EXTENSIONS.join(", ")}`,
+      message: `Error: Only the following file types are supported: ${MODULE_EXTENSIONS.join(", ")}`,
     };
   }
 
@@ -77,80 +80,78 @@ export async function runCommand(
 
     return { success: true };
   } catch (error: unknown) {
-    if (error instanceof Error) {
-      logger.error(`Failed to run ${absFilePath}: ${error.message}`);
-      return { success: false, code: 1, message: error.message };
-    }
-    // Non-Error throws (e.g. Bun's ResolveMessage for a missing package)
-    // still carry a message; surface it instead of "Unknown error".
-    const message =
-      typeof error === "object" && error !== null && "message" in error
-        ? String((error as { message: unknown }).message)
-        : String(error);
+    const message = messageOf(error);
     logger.error(`Failed to run ${absFilePath}: ${message}`);
     return { success: false, code: 1, message };
   }
+}
+
+/**
+ * Outcome of interpreting a module's default export as routes. Shared
+ * by `run` (one entry file) and `start` (one capability file at a
+ * time) so both accept exactly the same shapes.
+ *
+ * @internal
+ */
+export type CollectRoutesResult =
+  | { ok: true; routes: (RouteDefinition | AnyRouteBuilder)[] }
+  | { ok: false; reason: string };
+
+/**
+ * Interpret a module's default export as routes. Accepts a single
+ * `RouteBuilder`, a single `RouteDefinition`, or an array of either.
+ * Uses brand-based guards so a builder created by another copy of the
+ * package still passes.
+ *
+ * @internal
+ */
+export function collectRoutes(defaultExport: unknown): CollectRoutesResult {
+  if (!defaultExport) {
+    return {
+      ok: false,
+      reason: "No default export found. Expected routes as default export.",
+    };
+  }
+  if (isRouteBuilder(defaultExport)) {
+    return { ok: true, routes: [defaultExport as AnyRouteBuilder] };
+  }
+  if (isRouteDefinition(defaultExport)) {
+    return { ok: true, routes: [defaultExport as RouteDefinition] };
+  }
+  if (Array.isArray(defaultExport)) {
+    if (
+      !defaultExport.every(
+        (item) => isRouteBuilder(item) || isRouteDefinition(item),
+      )
+    ) {
+      return {
+        ok: false,
+        reason:
+          "All items in the default export array must be a RouteDefinition or a RouteBuilder.",
+      };
+    }
+    return {
+      ok: true,
+      routes: defaultExport as (RouteDefinition | AnyRouteBuilder)[],
+    };
+  }
+  return {
+    ok: false,
+    reason:
+      "Invalid default export. Expected: RouteDefinition, RouteBuilder, or array of those.",
+  };
 }
 
 function configureRoutes(
   contextBuilder: InstanceType<typeof ContextBuilder>,
   defaultExport: unknown,
 ): RunResult {
-  if (!defaultExport) {
-    logger.error("No default export found. Expected routes as default export.");
-    return { success: false, code: 1, message: "No default export found" };
+  const collected = collectRoutes(defaultExport);
+  if (!collected.ok) {
+    logger.error(collected.reason);
+    return { success: false, code: 1, message: collected.reason };
   }
-
-  // Handle single RouteBuilder or RouteDefinition (brand-based guards for cross-instance)
-  if (isRouteBuilder(defaultExport)) {
-    contextBuilder.routes(defaultExport as AnyRouteBuilder);
-    logger.info("Loaded single RouteBuilder from default export");
-    return { success: true };
-  }
-
-  if (isRouteDefinition(defaultExport)) {
-    contextBuilder.routes(defaultExport as RouteDefinition);
-    logger.info("Loaded single route from default export");
-    return { success: true };
-  }
-
-  // Handle array of routes
-  if (Array.isArray(defaultExport)) {
-    // Check each item, prioritizing RouteBuilder check
-    if (
-      !defaultExport.every(
-        (item) => isRouteBuilder(item) || isRouteDefinition(item),
-      )
-    ) {
-      logger.error(
-        "All items in default export array must be RouteDefinition or RouteBuilder",
-      );
-      return {
-        success: false,
-        code: 1,
-        message: "Invalid items in default export array",
-      };
-    }
-
-    defaultExport.forEach((routeOrBuilder) =>
-      contextBuilder.routes(
-        routeOrBuilder as RouteDefinition | AnyRouteBuilder,
-      ),
-    );
-    logger.info(
-      `Loaded ${defaultExport.length} routes from default export array`,
-    );
-    return { success: true };
-  }
-
-  // Invalid default export
-  logger.error(
-    "Invalid default export. Expected: RouteDefinition, RouteBuilder, or array of those.",
-  );
-  return {
-    success: false,
-    code: 1,
-    message:
-      "Invalid default export. Expected: RouteDefinition, RouteBuilder, or array of those.",
-  };
+  collected.routes.forEach((route) => contextBuilder.routes(route));
+  logger.info(`Loaded ${collected.routes.length} route(s) from default export`);
+  return { success: true };
 }

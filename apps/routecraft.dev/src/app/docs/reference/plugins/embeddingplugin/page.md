@@ -14,7 +14,7 @@ Registers embedding provider credentials in the context store. Required when any
 import { embeddingPlugin } from '@routecraft/ai'
 import type { CraftConfig } from '@routecraft/routecraft'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   plugins: [
     embeddingPlugin({
       providers: {
@@ -24,7 +24,6 @@ const config: CraftConfig = {
   ],
 }
 
-export default config
 ```
 
 **Options:**

@@ -56,6 +56,15 @@ export {
 export { type Capability, registerCapability } from "./capabilities.ts";
 export { defineConfig } from "./define-config.ts";
 export { registerConfigApplier, type ConfigApplier } from "./config-applier.ts";
+export {
+  getProjectDiscoverers,
+  mergeProjectConfig,
+  registerProjectDiscoverer,
+  type ProjectDiscoverer,
+  type ProjectDiscovererOptions,
+  type ProjectDiscoveryContext,
+  type RegisteredProjectDiscoverer,
+} from "./project-discoverer.ts";
 export { type HttpConfig } from "./adapters/http/types.ts";
 
 // Side-effect: register the config appliers for first-class config keys

@@ -18,7 +18,7 @@ The simplest way to react to events is via the `on` property in `craft.config.ts
 // craft.config.ts
 import type { CraftConfig } from '@routecraft/routecraft'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   on: {
     'context:started': ({ ts }) => {
       console.log(`Context ready at ${ts}`)
@@ -32,7 +32,6 @@ const config: CraftConfig = {
   },
 }
 
-export default config
 ```
 
 Each key is an event name (or the catch-all `'*'`). The value can be a single handler or an array of handlers.

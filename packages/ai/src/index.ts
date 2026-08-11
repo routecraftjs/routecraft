@@ -7,6 +7,11 @@ import "./config.ts";
 // codes in the core error registry (declaration merge + runtime metadata).
 import "./errors.ts";
 
+// Side-effect import: registers the `skills` and `agents` project
+// discoverers so `craft start` can give those folders meaning without
+// the CLI depending on this package.
+import "./project.ts";
+
 // Cross-instance identity (Symbol.for) for MCP adapters
 export { BRAND, isMcpAdapter } from "./brand.ts";
 

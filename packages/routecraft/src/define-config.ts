@@ -20,7 +20,7 @@ import type { CraftConfig } from "@routecraft/routecraft";
  * import { defineConfig } from "@routecraft/routecraft";
  * import "@routecraft/ai"; // augments CraftConfig with `llm`, `mcp`, etc.
  *
- * export default defineConfig({
+ * export const craftConfig = defineConfig({
  *   cron: { timezone: "UTC" },
  *   llm: { providers: { openai: { apiKey: process.env.OPENAI_API_KEY! } } },
  * });

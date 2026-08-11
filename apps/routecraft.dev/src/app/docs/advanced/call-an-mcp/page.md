@@ -23,7 +23,7 @@ Add `mcpPlugin` to your `craft.config.ts` and list the servers your capabilities
 import { mcpPlugin } from '@routecraft/ai'
 import type { CraftConfig } from '@routecraft/routecraft'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   plugins: [
     mcpPlugin({
       clients: {
@@ -34,7 +34,6 @@ const config: CraftConfig = {
   ],
 }
 
-export default config
 ```
 
 Each key under `clients` is the server alias you use in your capabilities.

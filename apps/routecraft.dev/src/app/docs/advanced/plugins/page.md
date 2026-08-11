@@ -59,11 +59,10 @@ import type { CraftConfig } from '@routecraft/routecraft'
 import logger from './plugins/logger'
 import metrics from './plugins/metrics'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   plugins: [logger, metrics],
 }
 
-export default config
 ```
 
 ## Setting global adapter defaults
@@ -74,7 +73,7 @@ Core adapters have dedicated fields on `CraftConfig`:
 
 ```ts
 // craft.config.ts
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   cron: { timezone: 'UTC', jitterMs: 2000 },
   direct: { channelType: KafkaChannel },
 }
@@ -85,7 +84,7 @@ External adapters (from `@routecraft/ai`, etc.) use companion plugins:
 ```ts
 import { llmPlugin } from '@routecraft/ai'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   cron: { timezone: 'UTC' },
   plugins: [
     llmPlugin({
@@ -95,7 +94,6 @@ const config: CraftConfig = {
   ],
 }
 
-export default config
 ```
 
 Every `cron()` source and `llm()` destination in the context inherits those defaults unless overridden per-adapter. This keeps shared configuration out of every capability file.
@@ -109,7 +107,7 @@ Plugins can manage long-lived external processes. The built-in `mcpPlugin` demon
 ```ts
 import { mcpPlugin } from '@routecraft/ai'
 
-const config: CraftConfig = {
+export const craftConfig: CraftConfig = {
   plugins: [
     mcpPlugin({
       clients: {
