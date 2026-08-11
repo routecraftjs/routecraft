@@ -112,15 +112,19 @@ Suspension guarantees durability from a **declared** suspend point. It is not ge
 
 ## Resilience on the continuation
 
-A resume runs the continuation **below** the [pre-from filter chain](/docs/advanced/filter-chain#a-resumed-exchange-re-enters-below-the-chain): route-scope `.error()` still applies, the rest of the chain does not, because the exchange entered the route once and that was execution one. Declare resilience inside the continuation (step-scope wrappers, optionally grouped by wrapping a `.choice()`), or hand the work to a route that has its own chain with `.to(direct('...'))`.
+A resume runs the continuation inside a chain **rebuilt** from the positions that survive a park, in their usual order ([pre-from filter chain](/docs/advanced/filter-chain#a-resumed-exchange-re-enters-partway-down-the-chain)). Route-scope `.error()`, `.retry()`, `.timeout()` and `.concurrency()` apply to execution two; `authorize`, `parse`, `input`, `throttle` and `circuitBreaker` do not, because they describe an exchange arriving at the route and this one arrived once. `cache` is refused at build alongside a reachable suspend. Of the positions that stay off, `throttle` and `circuitBreaker` have step-scope forms you can declare inside the continuation, where they bound the step rather than the arrival. `authorize`, `parse` and `input` have no step-scope equivalent, because each describes an exchange entering a route: work that needs one of those belongs on a route that has its own chain, reached with `.to(direct('...'))`.
+
+{% callout type="warning" title="Route-scope `.retry()` reaches the continuation" %}
+Because `.retry()` applies to execution two, the steps after a `.suspend()` are at-least-once on failure, the same as the steps before it. If your continuation does something a downstream cannot absorb twice, make it idempotent or move it behind a step-scope wrapper you control.
+{% /callout %}
 
 Two limits are worth knowing before you rely on this for money:
 
-**A resume is spent whether or not the continuation succeeds.** `.resume()` wins the store's compare-and-swap before running anything, so a continuation that throws records a `failed` terminal and a second answer with the same token receives that cached failure rather than a second run. This is what makes "did this already run?" answerable across a restart, and it means a failing continuation needs a `.error()` handler or its own retry, not a re-click from the approver.
+**A resume is spent whether or not the continuation ultimately succeeds.** `.resume()` wins the store's compare-and-swap before running anything, so once retries and the deadline have settled, a continuation that still fails records a `failed` terminal and a second answer with the same token receives that cached failure rather than a second run. This is what makes "did this already run?" answerable across a restart. A route-scope `.retry()` absorbs the transient case; what it cannot absorb needs a `.error()` handler that re-asks, not a re-click from the approver.
 
 **A process that dies mid-continuation does not resume itself.** The record reads `resumed` with no terminal outcome, and nothing re-drives it; a later answer with the same token is told the first resume never recorded an outcome. Recovering that automatically needs a lease on the `resumed` state, which is not implemented. Until then, treat a `resumed` record with no terminal as needing an operator, and keep continuations short where the work is not idempotent.
 
-**Expiry is discovered lazily.** A `ttl` is enforced when a late answer arrives, not by a background sweeper: an unanswered suspension sits in the store past its deadline and its route is not told until someone presents a token. The sweeper that fires it on time is slice 3 of the epic. Until it lands, do not build a "nobody approved in 72 hours, escalate" flow on `ttl` alone: the escalation only runs if the approver eventually clicks a dead link.
+**Expiry is discovered lazily.** A `ttl` is enforced when a late answer arrives, not by a background sweeper: an unanswered suspension sits in the store past its deadline and its route is not told until someone presents a token. A background sweeper that fires the expiry on time is not implemented yet. Until it lands, do not build a "nobody approved in 72 hours, escalate" flow on `ttl` alone: the escalation only runs if the approver eventually clicks a dead link.
 
 ## Related
 

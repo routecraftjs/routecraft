@@ -14,15 +14,9 @@ import {
   type Source,
   type Subscription,
 } from "../src/index.ts";
+import { suspending } from "./helpers/suspension.ts";
 
 const Approval = z.object({ approved: z.boolean() });
-
-/**
- * Suspension config for a test context. `testContext()` substitutes the
- * in-memory store and an ephemeral signing key as soon as the block is
- * present.
- */
-const SUSPENDING = { suspension: {} } as unknown as CraftConfig;
 
 /**
  * A mail-shaped source: one message, payload on `body` and envelope on
@@ -102,7 +96,7 @@ describe("suspend and resume across transports", () => {
           port = payload.details.port;
         }) as never,
       )
-      .with({ ...SUSPENDING, http: { port: 0 } } as CraftConfig &
+      .with({ ...suspending(), http: { port: 0 } } as CraftConfig &
         HttpPluginOptions)
       .routes([
         craft()
@@ -159,7 +153,7 @@ describe("suspend and resume across transports", () => {
           port = payload.details.port;
         }) as never,
       )
-      .with({ ...SUSPENDING, http: { port: 0 } } as CraftConfig &
+      .with({ ...suspending(), http: { port: 0 } } as CraftConfig &
         HttpPluginOptions)
       .routes([
         craft()
@@ -206,7 +200,7 @@ describe("suspend and resume across transports", () => {
           port = payload.details.port;
         }) as never,
       )
-      .with({ ...SUSPENDING, http: { port: 0 } } as CraftConfig &
+      .with({ ...suspending(), http: { port: 0 } } as CraftConfig &
         HttpPluginOptions)
       .routes([
         craft()
@@ -269,7 +263,7 @@ describe("suspend and resume across transports", () => {
   test("a queue source acks on suspend rather than nacking", async () => {
     const settled: Array<"ack" | "nack"> = [];
     t = await testContext()
-      .with(SUSPENDING)
+      .with(suspending())
       .routes([
         craft()
           .id("queued")

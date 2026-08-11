@@ -349,13 +349,37 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
    * stranded. In `reject` mode a busy pool fails fast with `RC5026` without
    * waiting. Returns the (idempotent) release function plus the partition
    * key it was charged against (absent when unkeyed).
+   *
+   * `opts.mustWait` overrides BOTH modes for a caller that cannot absorb a
+   * refusal, and deliberately ignores `maxQueue` as well: rejecting is the
+   * outcome the flag exists to prevent, so a bounded wait line would
+   * reintroduce it under a different name. The limit itself still holds,
+   * because the semaphore is the route's own and is shared with every other
+   * caller. Read `maxQueue` as bounding the exchanges that CAN be shed.
+   *
+   * Two gaps that flag does not close, both worth knowing before sizing
+   * `max`: the wait is unbounded in TIME as well as in depth, so a saturated
+   * pool holds each waiter (and whatever answered it) until a slot frees or
+   * the route stops; and a `key` selector that throws still raises `RC5003`
+   * from below, because the partition has to be resolved before the mode is
+   * consulted.
    */
   async acquire(
     exchange: Exchange,
     route: Route | undefined,
     hooks: ConcurrencyHooks,
+    opts: { mustWait?: boolean } = {},
   ): Promise<{ release: () => void; key?: string }> {
     const { semaphore, key } = this.stateFor(route).semaphoreFor(exchange);
+
+    if (opts.mustWait) {
+      const free = semaphore.tryAcquire();
+      if (free) {
+        hooks.onAcquired(false, semaphore.inUse, key);
+        return { release: free, ...(key !== undefined ? { key } : {}) };
+      }
+      return this.#joinWaitLine(semaphore, hooks, key);
+    }
 
     if (this.#options.mode === "reject") {
       const release = semaphore.tryAcquire();
@@ -384,6 +408,25 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
       });
     }
 
+    return this.#joinWaitLine(semaphore, hooks, key);
+  }
+
+  /**
+   * Wait FIFO for a slot, shared by queue mode and `mustWait`. Only the
+   * decision to join differs between them; the wait itself must not.
+   *
+   * Route shutdown while queued admits the exchange with a no-op release so
+   * teardown processes it rather than dropping it. No slot is charged
+   * (`inUse` excludes this exchange), but the balanced `acquired` ->
+   * `released` pair still fires so the `queued` event has a matching
+   * terminal; suppressing them would leave an orphaned `queued` and
+   * unbalance queue-depth accounting at teardown.
+   */
+  async #joinWaitLine(
+    semaphore: Semaphore,
+    hooks: ConcurrencyHooks,
+    key: string | undefined,
+  ): Promise<{ release: () => void; key?: string }> {
     hooks.onQueued(semaphore.waiting + 1, key);
     try {
       const release = await semaphore.acquire(hooks.signal);
@@ -391,12 +434,6 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
       return { release, ...(key !== undefined ? { key } : {}) };
     } catch (err) {
       if (!(err instanceof SleepAbortedError)) throw err;
-      // Route shutdown while queued: admit the exchange (with a no-op
-      // release) so teardown processes it rather than dropping it. No slot
-      // is charged (`inUse` excludes this exchange), but we still emit the
-      // balanced `acquired` -> `released` pair so the `queued` event already
-      // fired above has a matching terminal; suppressing them would leave an
-      // orphaned `queued` and unbalance queue-depth accounting at teardown.
       hooks.onAcquired(true, semaphore.inUse, key);
       return { release: () => {}, ...(key !== undefined ? { key } : {}) };
     }
@@ -419,8 +456,14 @@ export async function executeWithConcurrency(
   route: Route | undefined,
   hooks: ConcurrencyHooks,
   run: () => Promise<StepOutcome>,
+  opts: { mustWait?: boolean } = {},
 ): Promise<StepOutcome> {
-  const { release, key } = await controller.acquire(exchange, route, hooks);
+  const { release, key } = await controller.acquire(
+    exchange,
+    route,
+    hooks,
+    opts,
+  );
   const heldStart = Date.now();
   try {
     return await run();
