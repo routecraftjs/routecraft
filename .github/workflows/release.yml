@@ -312,9 +312,23 @@ jobs:
         run: |
           set -eo pipefail
           app=apps/routecraft.dev/src/app
-          # The generated next channel is untracked, so checking out the tag's
-          # docs path leaves src/app/docs/next intact.
+          # `git checkout <tag> -- <path>` is an overlay, not a replace: it
+          # restores what the tag carries and leaves behind anything added
+          # since. Pages written after the release therefore survived the
+          # freeze and published on the released channel as though they had
+          # shipped. Wipe the paths first so the tag's tree is the whole tree.
+          #
+          # The generated next channel lives inside docs/ and was snapshotted
+          # from main a step earlier, so park it across the replace.
+          staged="$(mktemp -d)"
+          if [ -d "$app/docs/next" ]; then
+            mv "$app/docs/next" "$staged/next"
+          fi
+          rm -rf "$app/docs" "$app/cheat-sheet"
           git checkout "$FREEZE_TAG" -- "$app/docs" "$app/cheat-sheet"
+          if [ -d "$staged/next" ]; then
+            mv "$staged/next" "$app/docs/next"
+          fi
           # The changelog moved to a top-level /changelog on the main cadence.
           # Older release refs still carry it under docs/changelog, so drop that
           # copy and restore the main-branch redirect stub at the old URL.

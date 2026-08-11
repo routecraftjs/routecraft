@@ -2,6 +2,12 @@
 
 import { useMemo, useState } from 'react'
 
+import { resolveAnchor } from '@/lib/docs-catalogue'
+import { type DocsChannelName } from '@/lib/docs-channel'
+
+/** The page this table indexes, relative to the channel root. */
+const ERRORS_ROUTE = 'reference/errors'
+
 type Category = 'Definition' | 'DSL' | 'Lifecycle' | 'Adapter' | 'Runtime'
 
 interface ErrorRow {
@@ -388,13 +394,33 @@ const categories: ('All' | Category)[] = [
   'Runtime',
 ]
 
-export function ErrorTable() {
+export function ErrorTable({
+  channel = 'latest',
+}: {
+  channel?: DocsChannelName
+}) {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<'All' | Category>('All')
 
+  // Every row addresses the `## RCxxxx` section of this channel's errors page.
+  // Resolving the id (rather than lowercasing the code) is what makes the link
+  // land: Markdoc slugifies `RC1001` to `rc-1001`. A code the channel does not
+  // document resolves to nothing and drops out of the table, which is how the
+  // released channel stays free of error codes that only exist on main.
+  const rows = useMemo(
+    () =>
+      errors
+        .map((e) => ({
+          ...e,
+          anchor: resolveAnchor(channel, ERRORS_ROUTE, e.code),
+        }))
+        .filter((e): e is ErrorRow & { anchor: string } => Boolean(e.anchor)),
+    [channel],
+  )
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return errors.filter((e) => {
+    return rows.filter((e) => {
       if (category !== 'All' && e.category !== category) return false
       if (!q) return true
       return (
@@ -403,7 +429,7 @@ export function ErrorTable() {
         e.category.toLowerCase().includes(q)
       )
     })
-  }, [query, category])
+  }, [rows, query, category])
 
   return (
     <div className="not-prose mt-8 flex flex-col gap-5">
@@ -472,7 +498,7 @@ export function ErrorTable() {
                 >
                   <td className="px-4 py-2.5">
                     <a
-                      href={`#${e.code.toLowerCase()}`}
+                      href={`#${e.anchor}`}
                       className="font-mono text-[0.85rem] font-semibold text-cobalt-500 hover:text-cobalt-600"
                     >
                       {e.code}
@@ -506,7 +532,7 @@ export function ErrorTable() {
       </div>
 
       <p className="font-mono text-[0.65rem] tracking-[0.18em] text-ink/45 uppercase">
-        Showing {filtered.length} of {errors.length} codes
+        Showing {filtered.length} of {rows.length} codes
       </p>
     </div>
   )

@@ -3,6 +3,7 @@ import { slugifyWithCounter } from '@sindresorhus/slugify'
 
 import { adapterGridTocSections } from '@/components/AdapterGrid'
 import { type BadgeColor } from '@/components/Badge'
+import { asDocsChannel, type DocsChannelName } from '@/lib/docs-channel'
 import { operationsTocSections } from '@/components/OperationsIndex'
 import { pluginIndexTocSections } from '@/components/PluginIndex'
 
@@ -100,7 +101,10 @@ export type Section = H2Node['attributes'] & {
  * renders it; components import only the `Section` TYPE back, so there
  * is no runtime import cycle.
  */
-const indexTagSections: Record<string, () => Array<Section>> = {
+const indexTagSections: Record<
+  string,
+  (channel: DocsChannelName) => Array<Section>
+> = {
   'operations-index': operationsTocSections,
   'adapter-grid': adapterGridTocSections,
   'plugin-index': pluginIndexTocSections,
@@ -114,7 +118,12 @@ export function collectSections(
 
   for (const node of nodes) {
     if (node.type === 'tag' && node.tag && node.tag in indexTagSections) {
-      sections.push(...indexTagSections[node.tag]())
+      // The tag carries the channel it was copied into (see
+      // scripts/generate-docs-next.mjs), so the sidebar lists exactly the rows
+      // the component renders on that channel.
+      sections.push(
+        ...indexTagSections[node.tag](asDocsChannel(node.attributes?.channel)),
+      )
       continue
     }
 

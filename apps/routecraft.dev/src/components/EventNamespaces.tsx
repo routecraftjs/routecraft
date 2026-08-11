@@ -1,3 +1,9 @@
+import { resolveAnchor } from '@/lib/docs-catalogue'
+import { type DocsChannelName } from '@/lib/docs-channel'
+
+/** The page this map indexes, relative to the channel root. */
+const EVENTS_ROUTE = 'reference/events'
+
 interface NamespaceGroup {
   pattern: string
   events: string[]
@@ -55,8 +61,21 @@ const groups: NamespaceGroup[] = [
   },
 ]
 
-export function EventNamespaces() {
-  const total = groups.reduce((n, g) => n + g.events.length, 0)
+export function EventNamespaces({
+  channel = 'latest',
+}: {
+  channel?: DocsChannelName
+}) {
+  // Each row jumps to its section on this channel's events page. A namespace
+  // the channel does not document resolves to nothing and drops out, which
+  // keeps the released channel free of namespaces that only exist on main.
+  const visible = groups
+    .map((g) => ({
+      ...g,
+      anchor: resolveAnchor(channel, EVENTS_ROUTE, g.anchor),
+    }))
+    .filter((g): g is NamespaceGroup & { anchor: string } => Boolean(g.anchor))
+  const total = visible.reduce((n, g) => n + g.events.length, 0)
   return (
     <div className="not-prose mt-8 border border-ink/15 bg-paper-deep/30">
       <header className="flex items-center gap-3 border-b border-ink/15 px-5 py-3">
@@ -65,11 +84,11 @@ export function EventNamespaces() {
           Namespace map
         </h3>
         <span className="ml-auto font-mono text-[0.65rem] tracking-[0.22em] text-ink/45 tabular-nums">
-          {total} events / {groups.length} namespaces
+          {total} events / {visible.length} namespaces
         </span>
       </header>
       <ul role="list" className="divide-y divide-ink/10">
-        {groups.map((g) => (
+        {visible.map((g) => (
           <li key={g.pattern} className="px-5 py-4">
             <div className="flex items-baseline gap-3">
               <a

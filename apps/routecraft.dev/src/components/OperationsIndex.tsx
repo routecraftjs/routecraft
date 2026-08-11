@@ -1,5 +1,11 @@
 import Link from 'next/link'
 
+import { documentsPage } from '@/lib/docs-catalogue'
+import {
+  type DocsChannelName,
+  docsChannelHref,
+  withDocsChannel,
+} from '@/lib/docs-channel'
 import { type Section } from '@/lib/sections'
 import { slug } from '@/lib/slug'
 
@@ -298,19 +304,37 @@ const categories = [
   'Side Effects',
 ] as const
 
+/** The reference page an operation row links to, relative to the channel root. */
+function opRoute(op: Op): string {
+  return `reference/operations/${slug(op.name)}`
+}
+
+/**
+ * The operations this channel documents. `ops` ships with the site shell, which
+ * always builds from main, while /docs is frozen to the last released tag: an
+ * operation that only exists on main would otherwise be listed as released and
+ * link to a page the released channel does not carry.
+ */
+function channelOps(channel: DocsChannelName): Array<Op> {
+  return ops.filter((op) => documentsPage(channel, opRoute(op)))
+}
+
 /**
  * Right-sidebar "On this page" sections for the operations index. The
  * component renders no markdown headings, so `collectSections` cannot
  * derive the page outline from the AST; this mirrors the rendered
  * structure (category header ids, per-operation row ids) instead.
  */
-export function operationsTocSections(): Array<Section> {
+export function operationsTocSections(
+  channel: DocsChannelName = 'latest',
+): Array<Section> {
+  const visible = channelOps(channel)
   return categories
     .map((category) => ({
       level: 2 as const,
       id: `ops-${slug(category)}`,
       title: category as string,
-      children: ops
+      children: visible
         .filter((o) => o.category === category)
         .map((op) => ({
           level: 3 as const,
@@ -324,11 +348,18 @@ export function operationsTocSections(): Array<Section> {
     .filter((section) => section.children.length > 0)
 }
 
-export function OperationsIndex() {
+export function OperationsIndex({
+  channel = 'latest',
+}: {
+  channel?: DocsChannelName
+}) {
+  const visible = channelOps(channel)
+  const channelPrefix = docsChannelHref(channel)
+
   return (
     <div className="not-prose mt-8 flex flex-col gap-14">
       {categories.map((category) => {
-        const items = ops.filter((o) => o.category === category)
+        const items = visible.filter((o) => o.category === category)
         if (items.length === 0) return null
         return (
           <section key={category} aria-labelledby={`ops-${slug(category)}`}>
@@ -352,7 +383,10 @@ export function OperationsIndex() {
                   className="scroll-mt-28 lg:scroll-mt-34"
                 >
                   <Link
-                    href={`/docs/reference/operations/${slug(op.name)}`}
+                    href={withDocsChannel(
+                      `/docs/${opRoute(op)}`,
+                      channelPrefix,
+                    )}
                     className="group grid grid-cols-[minmax(0,16rem)_1fr_auto] items-baseline gap-x-6 gap-y-1 py-3.5 transition hover:bg-paper-deep/30"
                   >
                     <code className="font-mono text-[0.92rem] text-ink transition group-hover:text-cobalt-500">

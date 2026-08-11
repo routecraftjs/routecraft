@@ -217,6 +217,33 @@ carrying detail that belongs in the migration guide or reference. Cut it to the 
 out. This is the same "no silent duplication" and "code lives once" discipline applied to release
 notes: the changelog owns the one-line announcement, not the explanation.
 
+## Docs channels: what is version-pinned and what is not
+
+`/docs` publishes the **last released** version; `/docs/next` publishes main. The release
+workflow gets there by replacing `src/app/docs` and `src/app/cheat-sheet` with their content
+at the latest `v*` tag, having first snapshotted main into `src/app/docs/next`. Everything
+else in the site (home, blog, changelog, and every React component) always builds from main,
+which is what lets a blog post ship without cutting a release.
+
+Two rules follow, and both have been violated before:
+
+- **The freeze is a replace, not an overlay.** `git checkout <tag> -- <path>` restores what
+  the tag carries and silently keeps anything added since, so pages written after the release
+  used to publish on `/docs` as though they had shipped. The workflow wipes the paths first.
+  Any future step that pins content to a ref must do the same.
+- **An index component may only advertise what its channel documents.** The reference
+  catalogues (`operations-index`, `adapter-grid`, `plugin-index`, `error-table`,
+  `event-namespaces`) are components, so they are never frozen. They must therefore derive
+  their rows from `src/lib/docs-catalogue.ts`, which is generated from the pages each channel
+  actually carries. A row renders when its page or heading exists on that channel, and never
+  otherwise. Do not add a hand-maintained "unreleased" flag to these tables; the channel's own
+  pages are the source of truth.
+
+The channel reaches a component as a `channel` attribute on the Markdoc tag, injected into the
+copied pages by `scripts/generate-docs-next.mjs`. Add a new reference catalogue and it needs
+the same attribute, the same catalogue lookup, and `withDocsChannel` on every link it renders,
+or it will dump `/docs/next` readers back onto the released channel.
+
 ## Operational constraint: redirects
 
 The docs site builds with Next.js `output: 'export'` (see `apps/routecraft.dev/next.config.mjs`),

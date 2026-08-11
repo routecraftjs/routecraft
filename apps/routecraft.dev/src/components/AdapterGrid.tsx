@@ -1,5 +1,11 @@
 import Link from 'next/link'
 
+import { documentsPage } from '@/lib/docs-catalogue'
+import {
+  type DocsChannelName,
+  docsChannelHref,
+  withDocsChannel,
+} from '@/lib/docs-channel'
 import { type Section } from '@/lib/sections'
 import { slug } from '@/lib/slug'
 
@@ -214,19 +220,39 @@ const roleClassname: Record<Role, string> = {
   Processor: 'border-ink/25 text-ink/65',
 }
 
+/** The reference page an adapter card links to, relative to the channel root. */
+function adapterRoute(adapter: Adapter): string {
+  return `reference/adapters/${slug(adapter.name)}`
+}
+
+/**
+ * The adapters this channel documents. `adapters` ships with the site shell,
+ * which always builds from main, while /docs is frozen to the last released
+ * tag: an adapter that only exists on main would otherwise be listed as
+ * released and link to a page the released channel does not carry.
+ */
+function channelAdapters(channel: DocsChannelName): Array<Adapter> {
+  return adapters.filter((adapter) =>
+    documentsPage(channel, adapterRoute(adapter)),
+  )
+}
+
 /**
  * Right-sidebar "On this page" sections for the adapter grid. The
  * component renders no markdown headings, so `collectSections` cannot
  * derive the page outline from the AST; this mirrors the rendered
  * structure (category header ids, per-adapter card ids) instead.
  */
-export function adapterGridTocSections(): Array<Section> {
+export function adapterGridTocSections(
+  channel: DocsChannelName = 'latest',
+): Array<Section> {
+  const visible = channelAdapters(channel)
   return categories
     .map((category) => ({
       level: 2 as const,
       id: `adapters-${slug(category)}`,
       title: category as string,
-      children: adapters
+      children: visible
         .filter((a) => a.category === category)
         .map((adapter) => ({
           level: 3 as const,
@@ -237,11 +263,18 @@ export function adapterGridTocSections(): Array<Section> {
     .filter((section) => section.children.length > 0)
 }
 
-export function AdapterGrid() {
+export function AdapterGrid({
+  channel = 'latest',
+}: {
+  channel?: DocsChannelName
+}) {
+  const visible = channelAdapters(channel)
+  const channelPrefix = docsChannelHref(channel)
+
   return (
     <div className="not-prose mt-8 flex flex-col gap-14">
       {categories.map((category) => {
-        const items = adapters.filter((a) => a.category === category)
+        const items = visible.filter((a) => a.category === category)
         if (items.length === 0) return null
         return (
           <section
@@ -271,7 +304,10 @@ export function AdapterGrid() {
                   className="scroll-mt-28 bg-paper lg:scroll-mt-34"
                 >
                   <Link
-                    href={`/docs/reference/adapters/${slug(item.name)}`}
+                    href={withDocsChannel(
+                      `/docs/${adapterRoute(item)}`,
+                      channelPrefix,
+                    )}
                     className="group flex h-full flex-col gap-3 p-5 transition hover:bg-paper-deep/40"
                   >
                     <div className="flex items-baseline justify-between gap-3">

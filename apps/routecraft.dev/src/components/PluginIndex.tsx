@@ -2,6 +2,12 @@ import Link from 'next/link'
 
 import { slug } from '@/lib/slug'
 
+import { documentsPage } from '@/lib/docs-catalogue'
+import {
+  type DocsChannelName,
+  docsChannelHref,
+  withDocsChannel,
+} from '@/lib/docs-channel'
 import { type Section } from '@/lib/sections'
 
 interface Plugin {
@@ -55,14 +61,31 @@ const plugins: Plugin[] = [
   },
 ]
 
+/** The reference page a plugin row links to, relative to the channel root. */
+function pluginRoute(plugin: Plugin): string {
+  return `reference/plugins/${slug(plugin.name)}`
+}
+
+/**
+ * The plugins this channel documents. `plugins` ships with the site shell,
+ * which always builds from main, while /docs is frozen to the last released
+ * tag: a plugin that only exists on main would otherwise be listed as released
+ * and link to a page the released channel does not carry.
+ */
+function channelPlugins(channel: DocsChannelName): Array<Plugin> {
+  return plugins.filter((plugin) => documentsPage(channel, pluginRoute(plugin)))
+}
+
 /**
  * Right-sidebar "On this page" sections for the plugin index. The
  * component renders no markdown headings, so `collectSections` cannot
  * derive the page outline from the AST; this mirrors the rendered
  * per-plugin row ids instead.
  */
-export function pluginIndexTocSections(): Array<Section> {
-  return plugins.map((p) => ({
+export function pluginIndexTocSections(
+  channel: DocsChannelName = 'latest',
+): Array<Section> {
+  return channelPlugins(channel).map((p) => ({
     level: 2 as const,
     id: `plugin-${slug(p.name)}`,
     title: p.name,
@@ -70,10 +93,16 @@ export function pluginIndexTocSections(): Array<Section> {
   }))
 }
 
-export function PluginIndex() {
+export function PluginIndex({
+  channel = 'latest',
+}: {
+  channel?: DocsChannelName
+}) {
+  const channelPrefix = docsChannelHref(channel)
+
   return (
     <ol className="not-prose mt-8 list-none">
-      {plugins.map((p, i) => (
+      {channelPlugins(channel).map((p, i) => (
         <li
           key={p.name}
           id={`plugin-${slug(p.name)}`}
@@ -83,7 +112,7 @@ export function PluginIndex() {
           }
         >
           <Link
-            href={`/docs/reference/plugins/${slug(p.name)}`}
+            href={withDocsChannel(`/docs/${pluginRoute(p)}`, channelPrefix)}
             className="group grid grid-cols-[auto_1fr_auto] items-baseline gap-x-6 py-7 transition"
           >
             <span className="font-editorial text-[1.5rem] text-cobalt-500/55 italic tabular-nums transition group-hover:text-cobalt-500">

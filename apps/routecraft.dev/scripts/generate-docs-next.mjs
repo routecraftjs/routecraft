@@ -46,6 +46,25 @@ function rewriteLinks(md) {
     .replace(/href='\/docs\/(?!next(?:['/#?]|$))/g, "href='/docs/next/")
 }
 
+// The reference index tags render catalogues that must match the channel they
+// are read on, but the components behind them live in the site shell and always
+// build from main. Tagging the copy tells them which channel they are on; see
+// src/markdoc/tags.js and src/lib/docs-catalogue.ts.
+const CHANNEL_TAGS = [
+  'adapter-grid',
+  'operations-index',
+  'plugin-index',
+  'error-table',
+  'event-namespaces',
+]
+
+function markChannel(md) {
+  return md.replace(
+    new RegExp(`\\{%\\s*(${CHANNEL_TAGS.join('|')})\\b`, 'g'),
+    '{% $1 channel="next"',
+  )
+}
+
 fs.rmSync(NEXT_DIR, { recursive: true, force: true })
 
 const files = glob
@@ -57,7 +76,11 @@ for (const file of files) {
   const src = path.join(DOCS_DIR, file)
   const dest = path.join(NEXT_DIR, file)
   fs.mkdirSync(path.dirname(dest), { recursive: true })
-  fs.writeFileSync(dest, rewriteLinks(fs.readFileSync(src, 'utf8')), 'utf8')
+  fs.writeFileSync(
+    dest,
+    markChannel(rewriteLinks(fs.readFileSync(src, 'utf8'))),
+    'utf8',
+  )
   count++
 }
 
