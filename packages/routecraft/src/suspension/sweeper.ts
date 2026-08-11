@@ -84,8 +84,14 @@ export class SuspensionSweeper {
     // come back at the head of every later page, and the page has to grow
     // past them: a full page of records this context cannot retire would
     // otherwise be read forever without the sweep ever reaching what sits
-    // behind them. Growth is capped, so a backlog of unretirable records
-    // costs a bounded read rather than one that grows with its own size.
+    // behind them. Growth is capped so that backlog costs a bounded read
+    // rather than one that grows with its own size, and the cap is the
+    // known limit of this approach: past SWEEP_BATCH unretirable records
+    // the sweep cannot see behind them, and work that IS retirable starves
+    // until an operator clears them. Paging on a `(expiresAt, id)` cursor
+    // instead of a growing window would remove the limit, at the cost of a
+    // cursor parameter on `findExpired` and a matching change in both
+    // backends.
     const stuck = new Set<string>(this.unowned);
     const missing = new Map<string, number>();
     for (;;) {
