@@ -35,20 +35,22 @@ describe("error-code registry", () => {
 
   /**
    * @case Every registered code has a row in the docs error table
-   * @preconditions Core codes seeded; the docs site's ErrorTable component is a hand-maintained list read from disk
-   * @expectedResult Each registered code appears in ErrorTable.tsx, so a code added without its row fails here rather than going missing from the published table
+   * @preconditions Core codes seeded; the docs site's error rows are a hand-maintained data file read from disk
+   * @expectedResult Each registered code appears in _data/errors.json, so a code added without its row fails here rather than going missing from the published table
    */
   test("every registered code appears in the docs error table", async () => {
-    const table = await readFile(
-      new URL(
-        "../../../apps/routecraft.dev/src/components/ErrorTable.tsx",
-        import.meta.url,
+    // The rows live under src/app/docs so the release freeze pins them to the
+    // version they describe; ErrorTable.tsx renders whatever this file declares.
+    const rows = JSON.parse(
+      await readFile(
+        new URL(
+          "../../../apps/routecraft.dev/src/app/docs/_data/errors.json",
+          import.meta.url,
+        ),
+        "utf8",
       ),
-      "utf8",
-    );
-    const listed = new Set(
-      Array.from(table.matchAll(/code: '([A-Z][A-Z0-9]*\d{4})'/g), (m) => m[1]),
-    );
+    ) as Array<{ code: string }>;
+    const listed = new Set(rows.map((row) => row.code));
 
     const missing = seededCodes.filter((code) => !listed.has(code)).sort();
 
