@@ -126,7 +126,7 @@ Every position states its own answer. This is a declaration in the framework, no
 | 6 | `circuitBreaker` | does not run | By the time a continuation runs, the resume has already claimed the suspension, so fast-failing here would record a failed terminal and spend the approval. Put the breaker on the resume ingress route, whose chain wraps `.resume()` and so refuses subsequent answers before they are claimed |
 | 7 | `retry` | **runs** | Attempts happen before any terminal outcome is recorded, so a retried continuation never spends the approval it was answering |
 | 8 | `timeout` | **runs** | Bounds execution two. Distinct from `ttl`, which is a store-side expiry on the suspension rather than a per-attempt deadline in this process |
-| 8.5 | `concurrency` | **runs** | A bulkhead bounds simultaneous work in the route against a downstream, and a continuation is that work. Ingress executions and resumed continuations compete for the same limiter |
+| 8.5 | `concurrency` | **runs**, in waiting form | Ingress executions and resumed continuations compete for the same limiter, because a bulkhead bounds work against a downstream and a continuation is that work. A continuation only ever **queues** for a slot: `mode: 'reject'` and `maxQueue` do not apply to it, because refusing below the claim would spend an approval on work that never ran |
 | 9 / 10 | `cache` | refused at build | Both filters wrap the user pipeline, which a park exits and a resume re-enters partway down, so neither would ever run (`RC5003`) |
 | - | **your continuation** | runs | Steps after the suspend, with their own step-scope wrappers |
 | - | `.output()` | runs | Execution two produces the route's real output |

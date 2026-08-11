@@ -204,11 +204,15 @@ describe("the filter chain on a resumed continuation", () => {
       .routes([
         craft()
           .id("payout")
-          .timeout(30)
+          // A route-scope timeout bounds execution ONE as well, so the
+          // ingress has to reach the park inside this deadline. Generous
+          // enough that a loaded box still parks in time, while the
+          // continuation's wait exceeds it several times over.
+          .timeout(150)
           .from(direct())
           .suspend({ expect: Approval })
           .process(async (ex) => {
-            await sleep(200);
+            await sleep(600);
             return ex;
           })
           .to(noop()),
@@ -283,6 +287,65 @@ describe("the filter chain on a resumed continuation", () => {
   });
 
   /**
+   * @case A route shut down while a continuation waits for a bulkhead slot
+   * @preconditions .concurrency({ max: 1 }) with a slow continuation holding the only slot; a second continuation queued behind it when the route stops
+   * @expectedResult The queued continuation is admitted with a no-op slot rather than failed. A teardown it did not cause must not spend its approval, which is the same refusal-below-the-claim rule that put the bulkhead in waiting form
+   */
+  test("a continuation queued at shutdown is admitted, not failed", async () => {
+    let ran = 0;
+    const context = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .concurrency({ max: 1 })
+          .from(direct())
+          .suspend({ expect: Approval })
+          .process(async (ex) => {
+            ran++;
+            await sleep(120);
+            return ex;
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await context.startAndWaitReady();
+
+    const parked = [
+      asSuspended(
+        await context.client.sendDirect("payout", { amountCents: 10_000 }),
+      ),
+      asSuspended(
+        await context.client.sendDirect("payout", { amountCents: 20_000 }),
+      ),
+    ];
+
+    const answered = Promise.all(
+      parked.map((suspension) =>
+        context.client.sendDirect("answers", {
+          token: suspension.token,
+          result: { approved: true },
+        }),
+      ),
+    );
+
+    // Long enough for the first continuation to hold the slot and the second
+    // to be parked in the wait line, short enough that neither has finished.
+    await sleep(40);
+    await context.stop();
+
+    const receipts = (await answered) as Array<{
+      outcome: { status: string; error?: { rc?: string } };
+    }>;
+
+    expect(ran).toBe(2);
+    expect(
+      receipts.every((receipt) => receipt.outcome.error?.rc !== "RC5026"),
+    ).toBe(true);
+  });
+
+  /**
    * @case Every chain position declares whether it survives each kind of detached run
    * @preconditions The survival policy, keyed by the chain fields of RouteDefinition
    * @expectedResult The declared set matches the chain exactly, and each position carries a reason. A field added to RouteDefinition widens the key set and fails the build before it reaches this test; this pins the current answers so a silent change to one is visible in the diff
@@ -322,8 +385,15 @@ describe("the filter chain on a resumed continuation", () => {
     const reasons = Object.values(CHAIN_SURVIVAL).flatMap((kinds) =>
       Object.values(kinds).map((policy) => policy.why),
     );
-    expect(reasons).toHaveLength(27);
+    const declared = Object.values(CHAIN_SURVIVAL).reduce(
+      (total, kinds) => total + Object.keys(kinds).length,
+      0,
+    );
+    expect(reasons).toHaveLength(declared);
     expect(reasons.every((why) => why.length > 0)).toBe(true);
-    expect(new Set(reasons).size).toBe(27);
+    // Distinct, not merely present: a reason copied between kinds is a wrong
+    // answer to one of the questions, which is the failure per-kind reasons
+    // exist to prevent.
+    expect(new Set(reasons).size).toBe(declared);
   });
 });

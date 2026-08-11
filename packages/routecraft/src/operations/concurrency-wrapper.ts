@@ -349,6 +349,13 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
    * stranded. In `reject` mode a busy pool fails fast with `RC5026` without
    * waiting. Returns the (idempotent) release function plus the partition
    * key it was charged against (absent when unkeyed).
+   *
+   * `opts.mustWait` overrides BOTH modes for a caller that cannot absorb a
+   * refusal, and deliberately ignores `maxQueue` as well: rejecting is the
+   * outcome the flag exists to prevent, so a bounded wait line would
+   * reintroduce it under a different name. The limit itself still holds,
+   * because the semaphore is the route's own and is shared with every other
+   * caller. Read `maxQueue` as bounding the exchanges that CAN be shed.
    */
   async acquire(
     exchange: Exchange,
@@ -370,9 +377,19 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
         return { release: free, ...(key !== undefined ? { key } : {}) };
       }
       hooks.onQueued(semaphore.waiting + 1, key);
-      const release = await semaphore.acquire(hooks.signal);
-      hooks.onAcquired(true, semaphore.inUse, key);
-      return { release, ...(key !== undefined ? { key } : {}) };
+      try {
+        const release = await semaphore.acquire(hooks.signal);
+        hooks.onAcquired(true, semaphore.inUse, key);
+        return { release, ...(key !== undefined ? { key } : {}) };
+      } catch (err) {
+        if (!(err instanceof SleepAbortedError)) throw err;
+        // Route shutdown while queued admits the exchange with a no-op
+        // release, exactly as queue mode does. Failing it here would be the
+        // outcome this flag exists to prevent: a caller that cannot absorb a
+        // refusal would lose its claimed work to a teardown it did not cause.
+        hooks.onAcquired(true, semaphore.inUse, key);
+        return { release: () => {}, ...(key !== undefined ? { key } : {}) };
+      }
     }
 
     if (this.#options.mode === "reject") {
