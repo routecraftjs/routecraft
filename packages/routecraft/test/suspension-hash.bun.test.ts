@@ -587,6 +587,32 @@ describe("describeExpect", () => {
   });
 
   /**
+   * @case A producer predating the options argument
+   * @preconditions The extension's producer throws when handed the spec's options and yields a schema when called with none
+   * @expectedResult The rendering is still obtained, from the second attempt. Calling with options only would lose the rendering for such a library and collapse every one of its schemas to the vendor fallback, which is the same failure as calling with none only, in the other direction
+   */
+  test("falls back to calling a producer with no arguments", () => {
+    const optionsUnaware = {
+      "~standard": {
+        version: 1,
+        vendor: "legacy",
+        validate: (value: unknown) => ({ value }),
+        jsonSchema: {
+          output: (options?: unknown) => {
+            if (options !== undefined) throw new Error("no options expected");
+            return { type: "object", title: "legacy" };
+          },
+        },
+      },
+    } as unknown as StandardSchemaV1;
+
+    const described = describeExpect(optionsUnaware);
+
+    expect(described.jsonSchema).toEqual({ type: "object", title: "legacy" });
+    expect(described.degraded).toBeUndefined();
+  });
+
+  /**
    * @case A schema library with no JSON Schema extension at all
    * @preconditions `~standard` carries no `jsonSchema` arm
    * @expectedResult Not marked degraded. There was never a rendering to lose, so this is the benign fallback rather than a library failing to deliver what it advertised

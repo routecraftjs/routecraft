@@ -304,13 +304,28 @@ export async function reviveSuspension(
       resumedAt,
     );
   } catch (error) {
-    await runtime.store.recordTerminal(id, {
-      status: "failed",
-      error: {
-        message: error instanceof Error ? error.message : "the revival failed",
-      },
-      at: resumedAt,
-    });
+    // Best-effort, and the ordering is the point: the original error must
+    // reach the ingress route whatever the store does. A throw from
+    // `recordTerminal` here would mask it AND leave the record unsettled,
+    // reproducing one level up the condition this block exists to remove.
+    // `rc` is carried like the expiry path carries RC5047, so a duplicate
+    // resume and an operator dashboard see the code rather than prose.
+    const failure = error as { rc?: string; message?: string } | undefined;
+    try {
+      await runtime.store.recordTerminal(id, {
+        status: "failed",
+        error: {
+          ...(typeof failure?.rc === "string" ? { rc: failure.rc } : {}),
+          message: failure?.message ?? "the revival failed",
+        },
+        at: resumedAt,
+      });
+    } catch (unrecorded) {
+      route.logger.error(
+        { suspensionId: id, err: unrecorded },
+        "Could not record the terminal outcome of a failed revival. The suspension stays resumed with no outcome and needs an operator.",
+      );
+    }
     throw error;
   }
   await runtime.store.recordTerminal(id, outcome);

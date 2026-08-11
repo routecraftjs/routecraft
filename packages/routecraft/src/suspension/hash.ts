@@ -137,7 +137,7 @@ export function describeExpect(schema: StandardSchemaV1): SuspensionExpect {
   // nothing has lost one it advertised, and that is worth a word at the park
   // rather than a surprise at the approver's click.
   const degraded =
-    jsonSchema === undefined && arms.some((a) => a !== undefined);
+    jsonSchema === undefined && standard?.jsonSchema !== undefined;
   const identity =
     jsonSchema !== undefined
       ? { jsonSchema }
