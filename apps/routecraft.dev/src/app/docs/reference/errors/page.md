@@ -667,7 +667,7 @@ Check that `suspension.store` names the same location on every node, and that th
 Suspension expired
 
 **Why it happens**  
-The answer arrived after the suspension's `ttl` elapsed, so the parked exchange is no longer resumable.
+The suspension's `ttl` elapsed, so the parked exchange is no longer resumable. Either a late answer arrived and was refused, or the background sweeper retired the suspension on its own schedule with no answer ever arriving, which is the case a `ttl` mostly exists for.
 
 **Suggestion**  
 This is catchable rather than terminal: the suspended route's own `.error()` handler receives it and can notify the approver and re-ask with a fresh suspension. Raise `ttl` on `.suspend()` if the window is genuinely too short for the people answering.

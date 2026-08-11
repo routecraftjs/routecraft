@@ -162,7 +162,7 @@ describe("the plugin start hook", () => {
       .routes([craft().id("worker").from(direct()).to(noop())])
       .build();
 
-    expect(context.ctx.start()).rejects.toThrow(
+    await expect(context.ctx.start()).rejects.toThrow(
       "sweeper could not open its schedule",
     );
   });
@@ -202,6 +202,61 @@ describe("the plugin start hook", () => {
   });
 
   /**
+   * @case A context that refuses its own config before it reaches the plugins
+   * @preconditions A route that can reach .suspend() with no suspension block, so start() throws RC5052 before any hook runs
+   * @expectedResult whenStarted() rejects with that error. A readiness signal that only settles once the plugin phase is reached leaves the two most common startup failures pending forever, so a broken process reports "still starting" instead of failing
+   */
+  test("whenStarted rejects when the context refuses its config", async () => {
+    const context = await testContext()
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ expect: { "~standard": undefined } as never })
+          .to(noop()),
+      ])
+      .build();
+
+    const ready = context.ctx.whenStarted();
+    await expect(context.ctx.start()).rejects.toThrow();
+    await expect(ready).rejects.toThrow();
+  });
+
+  /**
+   * @case A context started again after a failed start
+   * @preconditions One plugin that refuses on the first start and succeeds on the second
+   * @expectedResult The second start's readiness resolves. A deferred that is never replaced stays rejected with the first run's error, so every later start reports a failure that is over
+   */
+  test("a start after a failed one gets a fresh readiness signal", async () => {
+    let refuse = true;
+    const plugin: CraftPlugin = {
+      name: "flaky",
+      apply() {},
+      start() {
+        if (refuse) throw new Error("first boot failed");
+      },
+    };
+
+    t = await testContext()
+      .with({ plugins: [plugin] })
+      .routes([craft().id("worker").from(direct()).to(noop())])
+      .build();
+
+    const refused = await t.ctx.start().then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(String(refused)).toContain("first boot failed");
+
+    refuse = false;
+    // Taken after the restart begins, which is when the previous run's
+    // answer stops being the current one. `start()` mints the fresh deferred
+    // before its first await, so there is no window to miss.
+    void t.ctx.start().catch(() => {});
+    await t.ctx.whenStarted();
+  });
+
+  /**
    * @case A throwing teardown during the unwind does not mask the start failure
    * @preconditions A first plugin whose teardown throws, and a second whose start() throws
    * @expectedResult context.start() still rejects with the start error, not the teardown error. The operator needs the cause of the failed boot, not whatever the cleanup hit on the way out
@@ -228,6 +283,6 @@ describe("the plugin start hook", () => {
       .routes([craft().id("worker").from(direct()).to(noop())])
       .build();
 
-    expect(context.ctx.start()).rejects.toThrow("the real cause");
+    await expect(context.ctx.start()).rejects.toThrow("the real cause");
   });
 });

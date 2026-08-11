@@ -141,6 +141,22 @@ export class TestContext {
    * `route:started`, or rejects on `context:error` or the configured
    * routes-ready timeout. Shared by {@link startAndWaitReady} and {@link test}.
    */
+  /**
+   * Routes up AND every plugin `start()` resolved.
+   *
+   * Stated once because it is one definition: waiting on routes alone would
+   * call a context ready two thirds of the way through its lifecycle, so a
+   * test asserting on work a start hook does (the suspension sweeper's
+   * downtime scan) would race it. When the lifecycle grows a fourth thing to
+   * wait on, this is the only place that has to learn about it.
+   *
+   * Must be called BEFORE `ctx.start()`, so the route-started listener is
+   * installed before any route can emit.
+   */
+  private awaitContextReady(): Promise<unknown> {
+    return Promise.all([this.awaitRoutesReady(), this.ctx.whenStarted()]);
+  }
+
   private awaitRoutesReady(): Promise<void> {
     const ctx = this.ctx;
     const total = ctx.getRoutes().length;
@@ -203,14 +219,7 @@ export class TestContext {
    * `stop()` awaits the promise for teardown.
    */
   async startAndWaitReady(): Promise<void> {
-    // Routes up AND every plugin `start()` resolved. Waiting on routes
-    // alone would call a context ready two thirds of the way through its
-    // lifecycle, so a test asserting on work a start hook does (the
-    // suspension sweeper's downtime scan) would race it.
-    const allReady = Promise.all([
-      this.awaitRoutesReady(),
-      this.ctx.whenStarted(),
-    ]);
+    const allReady = this.awaitContextReady();
     this.startedPromise = this.ctx.start();
     // Attach a no-op handler so Node does not report the rejection as
     // unhandled before `stop()` re-awaits the promise.
@@ -227,14 +236,7 @@ export class TestContext {
    */
   async test(options?: TestOptions): Promise<void> {
     const ctx = this.ctx;
-    // Routes up AND every plugin `start()` resolved. Waiting on routes
-    // alone would call a context ready two thirds of the way through its
-    // lifecycle, so a test asserting on work a start hook does (the
-    // suspension sweeper's downtime scan) would race it.
-    const allReady = Promise.all([
-      this.awaitRoutesReady(),
-      this.ctx.whenStarted(),
-    ]);
+    const allReady = this.awaitContextReady();
     const started = ctx.start();
     // Shield a synchronous rejection of `started` from becoming an
     // unhandled rejection before the `finally` block re-awaits it.

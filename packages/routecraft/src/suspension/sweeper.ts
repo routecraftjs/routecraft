@@ -8,10 +8,10 @@ export const DEFAULT_SWEEP_INTERVAL = "60s";
 /**
  * How long a suspension stays resumable when `.suspend()` names no `ttl`.
  *
- * A working week's worth of hours. Long enough that an approver who is away
- * for a few days still has a live link, short enough that an unanswered
- * approval does not sit in the store forever. Configurable per context, and
- * overridable per suspend.
+ * Three days. Long enough to survive a weekend, so an approver who is away
+ * on Friday still has a live link on Monday, and short enough that an
+ * unanswered approval does not sit in the store forever. Configurable per
+ * context, and overridable per suspend.
  */
 export const DEFAULT_SUSPENSION_TTL = "72h";
 
@@ -50,7 +50,21 @@ const STRANDED_REPORT = 100;
  */
 export class SuspensionSweeper {
   private timer: ReturnType<typeof setInterval> | undefined;
-  private running = false;
+  /**
+   * The sweep currently running, so {@link SuspensionSweeper.stop} can wait
+   * for it. A sweep outliving `stop()` reaches a closed store handle, and a
+   * retirement that already won its transition would re-enter a drained
+   * route: the record ends up `expired` with nobody notified, and nothing
+   * revisits it because the scan only looks at `suspended` records.
+   */
+  private inFlight: Promise<unknown> | undefined;
+  /**
+   * Records this context can never retire, because it does not have their
+   * route. Held per sweeper rather than per sweep: routes do not appear
+   * mid-run, so re-deciding this every tick would re-read and re-warn about
+   * the same records for as long as the process lives.
+   */
+  private readonly unowned = new Set<string>();
 
   constructor(
     private readonly context: CraftContext,
@@ -68,15 +82,17 @@ export class SuspensionSweeper {
     let retired = 0;
     // Records this pass could not retire. They stay `suspended`, so they
     // come back at the head of every later page, and the page has to grow
-    // past them: a full page of records this context cannot retire (a route
-    // it does not have, a store refusing the transition) would otherwise be
-    // read forever without the sweep ever reaching what sits behind them.
-    const stuck = new Set<string>();
+    // past them: a full page of records this context cannot retire would
+    // otherwise be read forever without the sweep ever reaching what sits
+    // behind them. Growth is capped, so a backlog of unretirable records
+    // costs a bounded read rather than one that grows with its own size.
+    const stuck = new Set<string>(this.unowned);
+    const missing = new Map<string, number>();
     for (;;) {
-      const limit = SWEEP_BATCH + stuck.size;
+      const limit = SWEEP_BATCH + Math.min(stuck.size, SWEEP_BATCH);
       const due = await this.store.findExpired(now, limit);
       const batch = due.filter((suspension) => !stuck.has(suspension.id));
-      if (batch.length === 0) return retired;
+      if (batch.length === 0) break;
 
       for (const suspension of batch) {
         const deadline = suspension.expiresAt;
@@ -89,11 +105,14 @@ export class SuspensionSweeper {
           // The store outlives any one deployment, so it can hold work for
           // a route this process does not have. Retiring it here would
           // consume the record with nobody able to run its error channel,
-          // so it is left for the deployment that owns it.
-          this.context.logger.warn(
-            { suspensionId: suspension.id, routeId: suspension.routeId },
-            `Expired suspension belongs to route "${suspension.routeId}", which this context does not have, so it was left for a context that does. Either that route was renamed or removed while suspensions for it were still parked, or two deployments are sharing one suspension store and should not be.`,
+          // so it is left for the deployment that owns it. Counted rather
+          // than logged per record: an orphaned route means one problem,
+          // not one problem per parked exchange.
+          missing.set(
+            suspension.routeId,
+            (missing.get(suspension.routeId) ?? 0) + 1,
           );
+          this.unowned.add(suspension.id);
           stuck.add(suspension.id);
           continue;
         }
@@ -118,12 +137,20 @@ export class SuspensionSweeper {
         }
       }
 
-      if (due.length < limit) return retired;
+      if (due.length < limit) break;
       this.context.logger.info(
         { retired },
         "Still retiring expired suspensions",
       );
     }
+
+    for (const [routeId, count] of missing) {
+      this.context.logger.warn(
+        { routeId, count },
+        `${count} expired suspension(s) belong to route "${routeId}", which this context does not have, so they were left for a context that does. Either that route was renamed or removed while suspensions for it were still parked, or two deployments are sharing one suspension store and should not be.`,
+      );
+    }
+    return retired;
   }
 
   /**
@@ -136,6 +163,16 @@ export class SuspensionSweeper {
    * the order they would have arrived in had the process stayed up.
    */
   async scanOnStart(): Promise<void> {
+    // Held in the same slot the interval uses, so a shutdown arriving during
+    // the scan waits for it rather than closing the store underneath it.
+    this.inFlight = this.runStartScan().finally(() => {
+      this.inFlight = undefined;
+    });
+    await this.inFlight;
+  }
+
+  /** @internal */
+  private async runStartScan(): Promise<void> {
     const retired = await this.sweep();
     const summary = await this.store.pending();
     const stranded = await this.store.resumedWithoutTerminal(STRANDED_REPORT);
@@ -175,9 +212,8 @@ export class SuspensionSweeper {
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
-      if (this.running) return;
-      this.running = true;
-      void this.sweep()
+      if (this.inFlight) return;
+      this.inFlight = this.sweep()
         .catch((err: unknown) => {
           this.context.logger.error(
             { err },
@@ -185,7 +221,7 @@ export class SuspensionSweeper {
           );
         })
         .finally(() => {
-          this.running = false;
+          this.inFlight = undefined;
         });
     }, this.intervalMs);
     // A sweep must never be the reason a process stays alive: it exists to
@@ -194,10 +230,20 @@ export class SuspensionSweeper {
     this.timer.unref?.();
   }
 
-  /** Stop the periodic sweep. Idempotent. */
-  stop(): void {
-    if (!this.timer) return;
-    clearInterval(this.timer);
-    this.timer = undefined;
+  /**
+   * Stop the periodic sweep and wait for the one in flight. Idempotent.
+   *
+   * Awaiting matters more than clearing the interval: the caller closes the
+   * store next, and a sweep still running would meet a closed handle. Worse,
+   * a retirement that already won its transition would re-enter a route that
+   * has drained, leaving the record `expired` with its approver never told
+   * and nothing left to revisit it.
+   */
+  async stop(): Promise<void> {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
+    await this.inFlight;
   }
 }

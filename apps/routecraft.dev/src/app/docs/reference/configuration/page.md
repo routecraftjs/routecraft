@@ -161,7 +161,7 @@ export const craftConfig = defineConfig({
 | `defaultTtl` | `Duration \| "never"` | `72h` | How long a suspension stays resumable when [`.suspend()`](/docs/reference/operations/suspend) names no `ttl` of its own. `"never"` opts the context out of default expiry entirely, so an unanswered suspension is kept until something else retires it. |
 | `sweepInterval` | `Duration` | `60s` | How often the sweeper looks for overdue suspensions. TTLs are measured in hours, so sub-minute precision buys nothing; the knob is for tests and for deployments that want expiry noticed sooner. |
 
-Both settings are also readable from the environment, which is how a container deployment supplies them:
+The `store` and `secret` settings are also readable from the environment, which is how a container deployment supplies them. `defaultTtl` and `sweepInterval` are config-only:
 
 | Variable | Purpose |
 |----------|---------|

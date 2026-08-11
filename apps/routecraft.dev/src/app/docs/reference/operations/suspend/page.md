@@ -73,7 +73,7 @@ The route's real output flows to its destinations on execution two, not back to 
 | Notify the approver | ordinary steps before it, e.g. `.tap(direct('notify-approver'))`. `ex.suspension.token` is readable BEFORE the suspend runs, so the message can carry a working link |
 | Handle a rejection | the last step of the branch consumes the verdict, e.g. `.filter()` |
 | Authorize the answerer | the resume ingress route: `.authorize()`, sender verification, a per-approver link |
-| Expiry handling | `ttl` plus a route-scope `.error()`; an expired answer arrives as [`RC5047`](/docs/reference/errors#rc-5047) |
+| Expiry handling | `ttl` plus a route-scope `.error()`; the sweeper retires an overdue suspension on its own and re-enters that channel with [`RC5047`](/docs/reference/errors#rc-5047) |
 
 ## The branch-rejoin rule
 

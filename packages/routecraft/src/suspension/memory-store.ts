@@ -113,30 +113,39 @@ export class MemorySuspensionStore implements SuspensionStore {
     );
   }
 
-  async findExpired(now: Date, limit?: number): Promise<Suspension[]> {
+  /**
+   * The shared shape of both bounded queries: limit validation, oldest
+   * first, an omitted limit meaning all of them, and a defensive copy on the
+   * way out. Those are contract rather than incidental, so they are stated
+   * once: the boot summary reads the first element as "the oldest", and a
+   * caller mutating a returned record must not reach into the store.
+   */
+  #scan(
+    matches: (record: Suspension) => boolean,
+    limit?: number,
+  ): Suspension[] {
     assertSweepLimit(limit);
-    const due = [...this.#records.values()]
-      .filter(
-        (record) =>
-          record.status === "suspended" &&
-          record.expiresAt !== undefined &&
-          record.expiresAt.getTime() <= now.getTime(),
-      )
+    const found = [...this.#records.values()]
+      .filter(matches)
       .sort((a, b) => a.suspendedAt.getTime() - b.suspendedAt.getTime());
-    const bounded = limit === undefined ? due : due.slice(0, limit);
-    return bounded.map(clone);
+    return (limit === undefined ? found : found.slice(0, limit)).map(clone);
+  }
+
+  async findExpired(now: Date, limit?: number): Promise<Suspension[]> {
+    return this.#scan(
+      (record) =>
+        record.status === "suspended" &&
+        record.expiresAt !== undefined &&
+        record.expiresAt.getTime() <= now.getTime(),
+      limit,
+    );
   }
 
   async resumedWithoutTerminal(limit?: number): Promise<Suspension[]> {
-    assertSweepLimit(limit);
-    const stranded = [...this.#records.values()]
-      .filter(
-        (record) =>
-          record.status === "resumed" && record.terminal === undefined,
-      )
-      .sort((a, b) => a.suspendedAt.getTime() - b.suspendedAt.getTime());
-    const bounded = limit === undefined ? stranded : stranded.slice(0, limit);
-    return bounded.map(clone);
+    return this.#scan(
+      (record) => record.status === "resumed" && record.terminal === undefined,
+      limit,
+    );
   }
 
   async pending(): Promise<PendingSuspensionSummary> {

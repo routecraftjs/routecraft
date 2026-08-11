@@ -3,6 +3,7 @@ import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   MemorySuspensionStore,
+  SUSPENSION_RUNTIME,
   craft,
   direct,
   noop,
@@ -668,6 +669,77 @@ describe("the suspension sweeper", () => {
     }
 
     expect((await store.get("sus-late"))?.status).toBe("expired");
+  });
+
+  /**
+   * @case Shutdown arriving while a sweep is mid-batch
+   * @preconditions A store whose close() records when it ran, and a sweep held open inside markExpired until after teardown has begun
+   * @expectedResult The store closes only after the sweep finishes. A sweep outliving teardown meets a closed handle, and a retirement that already won its transition re-enters a drained route: the record settles expired with its approver never told, and nothing revisits it
+   */
+  test("teardown waits for a sweep already in flight", async () => {
+    const backing = new MemorySuspensionStore();
+    const order: string[] = [];
+    let releaseSweep: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseSweep = resolve;
+    });
+    let sweepReached: () => void = () => {};
+    const reachedTransition = new Promise<void>((resolve) => {
+      sweepReached = resolve;
+    });
+
+    const store: SuspensionStore = {
+      ...backing,
+      create: (record: NewSuspension) => backing.create(record),
+      get: (id: string) => backing.get(id),
+      findExpired: (now: Date, limit?: number) =>
+        backing.findExpired(now, limit),
+      pending: () => backing.pending(),
+      resumedWithoutTerminal: (limit?: number) =>
+        backing.resumedWithoutTerminal(limit),
+      recordTerminal: (id: string, terminal: SerializedOutcome) =>
+        backing.recordTerminal(id, terminal),
+      markResumed: (id, resumption) => backing.markResumed(id, resumption),
+      markDenied: (id, reason) => backing.markDenied(id, reason),
+      purgeSettled: (before: Date) => backing.purgeSettled(before),
+      markExpired: async (id: string) => {
+        sweepReached();
+        await held;
+        order.push("sweep finished");
+        return backing.markExpired(id);
+      },
+      close: async () => {
+        order.push("store closed");
+        await backing.close();
+      },
+    };
+
+    const context = await testContext()
+      .with(suspendingWith(store, { sweepInterval: "20ms" }))
+      .routes([
+        craft()
+          .id("payout")
+          .error(() => ({ reasked: true }))
+          .from(direct())
+          .suspend({ expect: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await context.startAndWaitReady();
+
+    // The store is supplied, so the plugin does not own it and would not
+    // close it. Owning it is what makes the ordering observable, and it is
+    // the shape a real deployment has.
+    const runtime = context.ctx.getStore(SUSPENSION_RUNTIME);
+    (runtime as { ownsStore: boolean }).ownsStore = true;
+
+    await store.create(overdue("sus-mid-sweep"));
+    await reachedTransition;
+    const stopping = context.stop();
+    releaseSweep();
+    await stopping;
+
+    expect(order).toEqual(["sweep finished", "store closed"]);
   });
 
   /**

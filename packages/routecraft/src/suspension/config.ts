@@ -142,6 +142,12 @@ export interface SuspensionRuntime {
    * which is the only way to park something with no deadline at all.
    */
   readonly defaultTtlMs?: number;
+  /**
+   * Milliseconds between sweeps. Resolved here rather than in the plugin's
+   * `start()` hook so a malformed duration fails while the context is still
+   * being built, which is the rule the rest of this config already follows.
+   */
+  readonly sweepIntervalMs: number;
 }
 
 /**
@@ -174,6 +180,11 @@ export async function createSuspensionRuntime(
       ? undefined
       : parseDuration(configuredTtl, "suspension.defaultTtl");
 
+  const sweepIntervalMs = parseDuration(
+    config.sweepInterval ?? DEFAULT_SWEEP_INTERVAL,
+    "suspension.sweepInterval",
+  );
+
   const signer = resolveSigningSecret({
     ...(config.secret !== undefined ? { secret: config.secret } : {}),
     allowEphemeral: config.allowEphemeralSecret ?? isDevelopmentRuntime(),
@@ -184,6 +195,24 @@ export async function createSuspensionRuntime(
       `Suspension resume tokens are signed with an ephemeral key. Tokens minted by this process become unverifiable when it restarts. Set ${SUSPENSION_SECRET_ENV} before deploying.`,
     );
   }
+
+  /**
+   * One shape for every exit. Four hand-written literals is how
+   * `defaultTtlMs` came to be silently dropped on the sqlite branch, which
+   * is the backend the production default uses.
+   */
+  const runtime = (
+    store: SuspensionStore,
+    backend: SuspensionRuntime["backend"],
+    ownsStore: boolean,
+  ): SuspensionRuntime => ({
+    store,
+    signer,
+    backend,
+    ownsStore,
+    sweepIntervalMs,
+    ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
+  });
 
   // A present-but-empty environment variable means unset, not "open the
   // working directory as a database". `resolveSigningSecret` treats a blank
@@ -199,22 +228,10 @@ export async function createSuspensionRuntime(
     typeof configured === "object" &&
     "create" in configured
   ) {
-    return {
-      store: configured,
-      signer,
-      backend: "custom",
-      ownsStore: false,
-      ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
-    };
+    return runtime(configured, "custom", false);
   }
   if (configured === "memory") {
-    return {
-      store: new MemorySuspensionStore(),
-      signer,
-      backend: "memory",
-      ownsStore: true,
-      ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
-    };
+    return runtime(new MemorySuspensionStore(), "memory", true);
   }
 
   const path =
@@ -231,26 +248,14 @@ export async function createSuspensionRuntime(
       { backend: "sqlite", driver: store.driver, path },
       "Suspension store opened",
     );
-    return {
-      store,
-      signer,
-      backend: "sqlite",
-      ownsStore: true,
-      ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
-    };
+    return runtime(store, "sqlite", true);
   } catch (err) {
     if (explicit) throw err;
     context.logger.warn(
       { err, path },
       "No durable suspension store available; parked exchanges will NOT survive a restart. Install better-sqlite3 (Node) or configure suspension: { store } to keep suspensions durable.",
     );
-    return {
-      store: new MemorySuspensionStore(),
-      signer,
-      backend: "memory",
-      ownsStore: true,
-      ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
-    };
+    return runtime(new MemorySuspensionStore(), "memory", true);
   }
 }
 
@@ -261,7 +266,12 @@ export async function createSuspensionRuntime(
  * but only a store it opened itself.
  */
 export function suspensionPlugin(config: SuspensionConfig = {}): CraftPlugin {
-  let sweeper: SuspensionSweeper | undefined;
+  // Keyed by context, not a plain closure variable: one plugin instance can
+  // serve two contexts in the same process (a `defineConfig` export reused
+  // across tests), and a single slot would let the second start overwrite
+  // the first sweeper, leaving its interval running against a store that is
+  // about to close.
+  const sweepers = new WeakMap<CraftContext, SuspensionSweeper>();
 
   return {
     name: "suspension",
@@ -274,24 +284,24 @@ export function suspensionPlugin(config: SuspensionConfig = {}): CraftPlugin {
     async start(ctx: CraftContext) {
       const runtime = ctx.getStore(SUSPENSION_RUNTIME);
       if (!runtime) return;
-      sweeper = new SuspensionSweeper(
+      const sweeper = new SuspensionSweeper(
         ctx,
         runtime.store,
-        parseDuration(
-          config.sweepInterval ?? DEFAULT_SWEEP_INTERVAL,
-          "suspension.sweepInterval",
-        ),
+        runtime.sweepIntervalMs,
       );
+      sweepers.set(ctx, sweeper);
       // Before the interval, and awaited: what expired during the outage
       // reaches its routes ahead of anything new arriving.
       await sweeper.scanOnStart();
       sweeper.start();
     },
     async teardown(ctx: CraftContext) {
-      // First, because an interval outliving its store would sweep against
-      // a closed handle.
-      sweeper?.stop();
-      sweeper = undefined;
+      // Awaited before the store closes. A sweep still in flight would meet
+      // a closed handle, and one that already won a transition would re-enter
+      // a route that has drained: the record settles `expired` with its
+      // approver never told and nothing left to revisit it.
+      await sweepers.get(ctx)?.stop();
+      sweepers.delete(ctx);
       const runtime = ctx.getStore(SUSPENSION_RUNTIME);
       if (runtime?.ownsStore) await runtime.store.close();
     },
