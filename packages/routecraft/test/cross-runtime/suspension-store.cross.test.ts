@@ -137,7 +137,10 @@ describe("suspension store (cross-runtime)", () => {
       record({ id: "later", expiresAt: new Date("2026-08-20T09:00:00.000Z") }),
     );
 
-    const due = await store.findExpired(new Date("2026-08-12T09:00:00.000Z"));
+    const due = await store.findExpired(
+      new Date("2026-08-12T09:00:00.000Z"),
+      100,
+    );
 
     expect(due.map((entry) => entry.id)).toEqual(["due"]);
   });

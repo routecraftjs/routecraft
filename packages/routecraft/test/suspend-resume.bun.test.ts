@@ -854,11 +854,12 @@ describe("suspend and resume", () => {
    * @expectedResult The losing request reports the winner's terminal state (RC5047) rather than its own RC5048, matching the expiry and duplicate paths: whoever won the transition says what happened
    */
   test("a denial that loses the race reports the winner's outcome", async () => {
-    /** A store whose denial always arrives second, as a sweep would make it. */
+    /** A store whose denial claim always arrives second, as a sweep would make it. */
     class SweptStore extends MemorySuspensionStore {
-      override async markDenied(id: string, reason?: string) {
-        await this.markExpired(id);
-        return super.markDenied(id, reason);
+      override async claimExpiry(id: string, at: Date) {
+        const sweep = await super.claimExpiry(id, at);
+        if (sweep.won) await super.markExpired(id);
+        return super.claimExpiry(id, at);
       }
     }
 

@@ -1,6 +1,7 @@
 import { rcError } from "../error.ts";
 import { encodePersistable } from "./serialize.ts";
 import type {
+  ExpiredScanCursor,
   NewSuspension,
   PendingSuspensionSummary,
   SerializedOutcome,
@@ -85,15 +86,41 @@ export class MemorySuspensionStore implements SuspensionStore {
     });
   }
 
+  async claimExpiry(id: string, at: Date): Promise<SuspensionCasResult> {
+    return this.#transition(id, { status: "expiring", claimedAt: at });
+  }
+
   async markExpired(id: string): Promise<SuspensionCasResult> {
-    return this.#transition(id, { status: "expired" });
+    return this.#transition(id, { status: "expired" }, "expiring");
   }
 
   async markDenied(id: string, reason?: string): Promise<SuspensionCasResult> {
-    return this.#transition(id, {
-      status: "denied",
-      ...(reason !== undefined ? { deniedReason: reason } : {}),
-    });
+    return this.#transition(
+      id,
+      {
+        status: "denied",
+        ...(reason !== undefined ? { deniedReason: reason } : {}),
+      },
+      "expiring",
+    );
+  }
+
+  async releaseExpiring(before: Date): Promise<number> {
+    let released = 0;
+    for (const [id, record] of this.#records) {
+      if (record.status !== "expiring") continue;
+      if (
+        record.claimedAt === undefined ||
+        record.claimedAt.getTime() > before.getTime()
+      ) {
+        continue;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
+      const { claimedAt: _claimedAt, ...rest } = record;
+      this.#records.set(id, clone({ ...rest, status: "suspended" }));
+      released++;
+    }
+    return released;
   }
 
   async recordTerminal(id: string, terminal: SerializedOutcome): Promise<void> {
@@ -114,11 +141,10 @@ export class MemorySuspensionStore implements SuspensionStore {
   }
 
   /**
-   * The shared shape of both bounded queries: limit validation, oldest
-   * first, an omitted limit meaning all of them, and a defensive copy on the
-   * way out. Those are contract rather than incidental, so they are stated
-   * once: the boot summary reads the first element as "the oldest", and a
-   * caller mutating a returned record must not reach into the store.
+   * The shared shape of the suspendedAt-ordered queries: limit validation,
+   * oldest first, an omitted limit meaning all of them, and a defensive
+   * copy on the way out. The expiry scan orders by `(expiresAt, id)` for
+   * its cursor and does not go through here.
    */
   #scan(
     matches: (record: Suspension) => boolean,
@@ -131,14 +157,30 @@ export class MemorySuspensionStore implements SuspensionStore {
     return (limit === undefined ? found : found.slice(0, limit)).map(clone);
   }
 
-  async findExpired(now: Date, limit?: number): Promise<Suspension[]> {
-    return this.#scan(
-      (record) =>
-        record.status === "suspended" &&
-        record.expiresAt !== undefined &&
-        record.expiresAt.getTime() <= now.getTime(),
-      limit,
-    );
+  async findExpired(
+    now: Date,
+    limit: number,
+    after?: ExpiredScanCursor,
+  ): Promise<Suspension[]> {
+    assertSweepLimit(limit);
+    assertScanCursor(after);
+    const found = [...this.#records.values()]
+      .filter(
+        (record) =>
+          record.status === "suspended" &&
+          record.expiresAt !== undefined &&
+          record.expiresAt.getTime() <= now.getTime() &&
+          (after === undefined ||
+            record.expiresAt.getTime() > after.expiresAt.getTime() ||
+            (record.expiresAt.getTime() === after.expiresAt.getTime() &&
+              compareIds(record.id, after.id) > 0)),
+      )
+      .sort(
+        (a, b) =>
+          (a.expiresAt?.getTime() ?? 0) - (b.expiresAt?.getTime() ?? 0) ||
+          compareIds(a.id, b.id),
+      );
+    return found.slice(0, limit).map(clone);
   }
 
   async resumedWithoutTerminal(limit?: number): Promise<Suspension[]> {
@@ -193,16 +235,18 @@ export class MemorySuspensionStore implements SuspensionStore {
   }
 
   /**
-   * Compare-and-swap out of `suspended`. Synchronous from read to write so
-   * two concurrent callers cannot both observe `suspended`.
+   * Compare-and-swap out of `from` (default `suspended`). Synchronous from
+   * read to write so two concurrent callers cannot both observe the
+   * pre-transition state.
    */
   #transition(
     id: string,
     fields: Partial<Suspension> & { status: Suspension["status"] },
+    from: Suspension["status"] = "suspended",
   ): SuspensionCasResult {
     const record = this.#records.get(id);
     if (!record) return { won: false, suspension: undefined };
-    if (record.status !== "suspended") {
+    if (record.status !== from) {
       return { won: false, suspension: clone(record) };
     }
     // `fields` carries caller-owned values (a `Date`, a `PrincipalRef`), so
@@ -223,9 +267,41 @@ export function assertSweepLimit(limit: number | undefined): void {
   if (limit === undefined) return;
   if (!Number.isInteger(limit) || limit <= 0) {
     throw rcError("RC5044", undefined, {
-      message: `findExpired() limit must be a positive integer or omitted; received ${String(limit)}.`,
+      message: `The scan limit must be a positive integer; received ${String(limit)}.`,
     });
   }
+}
+
+/**
+ * Reject a cursor a backend would have to guess at. Exported for the same
+ * reason as {@link assertSweepLimit}: both backends apply the identical
+ * rule.
+ *
+ * @internal
+ */
+export function assertScanCursor(after: ExpiredScanCursor | undefined): void {
+  if (after === undefined) return;
+  if (
+    !(after.expiresAt instanceof Date) ||
+    Number.isNaN(after.expiresAt.getTime()) ||
+    typeof after.id !== "string" ||
+    after.id.length === 0
+  ) {
+    throw rcError("RC5044", undefined, {
+      message:
+        "findExpired() cursor must carry a valid expiresAt Date and a non-empty id.",
+    });
+  }
+}
+
+/**
+ * Code-unit comparison, deliberately not `localeCompare`: the cursor needs
+ * a stable strict order, and locale collation can change between runtimes.
+ *
+ * @internal
+ */
+function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /**

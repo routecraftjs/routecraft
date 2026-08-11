@@ -1063,17 +1063,19 @@ export interface EventDetailsMap {
   };
 
   // -- Plugin lifecycle --
-  "plugin:starting": { pluginId: string; pluginIndex: number };
-  "plugin:started": { pluginId: string; pluginIndex: number };
+  /** The plugin's `apply()` hook is about to run, at context build time. */
+  "plugin:applying": { pluginId: string; pluginIndex: number };
+  /** The plugin's `apply()` hook returned. */
+  "plugin:applied": { pluginId: string; pluginIndex: number };
   /**
-   * The plugin's `start()` hook is about to run. Distinct from
-   * `plugin:starting`, which brackets `apply()`: the two phases run at
-   * different points in the context's life and a plugin can take either
-   * without the other.
+   * The plugin's `start()` hook is about to run, after every route is up.
+   * Until 0.7 this pair bracketed `apply()`; that phase is now
+   * `plugin:applying` / `plugin:applied`, so the event vocabulary matches
+   * the lifecycle: applying, starting, stopping.
    */
-  "plugin:start:starting": { pluginId: string; pluginIndex: number };
+  "plugin:starting": { pluginId: string; pluginIndex: number };
   /** The plugin's `start()` hook resolved. */
-  "plugin:start:started": { pluginId: string; pluginIndex: number };
+  "plugin:started": { pluginId: string; pluginIndex: number };
   "plugin:stopping": { pluginId: string; pluginIndex: number };
   "plugin:stopped": { pluginId: string; pluginIndex: number };
 }

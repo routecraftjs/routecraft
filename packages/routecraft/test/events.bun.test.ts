@@ -394,8 +394,9 @@ describe("Events API", () => {
       .build();
 
     await t.ctx.start();
-    await t.ctx.stop();
-    await t.ctx.start();
+    // A context is single-use (RC1004 on restart), so the second firing is
+    // driven through emit rather than a second start.
+    t.ctx.emit("context:started", {});
     await t.ctx.stop();
 
     expect(callCount).toBe(1);
@@ -419,8 +420,8 @@ describe("Events API", () => {
       .build();
 
     await t.ctx.start();
-    await t.ctx.stop();
-    await t.ctx.start();
+    // Single-use context: the second firing is driven through emit.
+    t.ctx.emit("context:started", {});
     await t.ctx.stop();
 
     expect(callCount).toBe(1);
@@ -450,8 +451,8 @@ describe("Events API", () => {
       .build();
 
     await t.ctx.start();
-    await t.ctx.stop();
-    await t.ctx.start();
+    // Single-use context: the second firing is driven through emit.
+    t.ctx.emit("context:started", {});
     await t.ctx.stop();
 
     expect(callA).toBe(1);

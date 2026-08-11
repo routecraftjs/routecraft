@@ -224,16 +224,15 @@ describe("the plugin start hook", () => {
 
   /**
    * @case A context started again after a failed start
-   * @preconditions One plugin that refuses on the first start and succeeds on the second
-   * @expectedResult The second start's readiness resolves. A deferred that is never replaced stays rejected with the first run's error, so every later start reports a failure that is over
+   * @preconditions One plugin whose start() refuses, which shuts the context down
+   * @expectedResult The second start() throws RC1004 rather than booting dead routes. A failed start ran the shutdown path, and a context whose controllers are gone must refuse loudly instead of reporting ready over routes that can no longer serve
    */
-  test("a start after a failed one gets a fresh readiness signal", async () => {
-    let refuse = true;
+  test("a start after a failed one is refused", async () => {
     const plugin: CraftPlugin = {
       name: "flaky",
       apply() {},
       start() {
-        if (refuse) throw new Error("first boot failed");
+        throw new Error("first boot failed");
       },
     };
 
@@ -248,12 +247,70 @@ describe("the plugin start hook", () => {
     );
     expect(String(refused)).toContain("first boot failed");
 
-    refuse = false;
-    // Taken after the restart begins, which is when the previous run's
-    // answer stops being the current one. `start()` mints the fresh deferred
-    // before its first await, so there is no window to miss.
+    await expect(t.ctx.start()).rejects.toMatchObject({ rc: "RC1004" });
+  });
+
+  /**
+   * @case Two concurrent start() calls collapse into one boot
+   * @preconditions A plugin counting its start() invocations, with start() called twice without awaiting
+   * @expectedResult Both calls share one boot and the hook runs once. A double boot would run every start() hook twice, and the suspension plugin's second sweeper would orphan the first against a store that outlives neither
+   */
+  test("concurrent starts collapse into one boot", async () => {
+    let started = 0;
+    const plugin: CraftPlugin = {
+      name: "counter",
+      apply() {},
+      start() {
+        started++;
+      },
+    };
+
+    t = await testContext()
+      .with({ plugins: [plugin] })
+      .routes([craft().id("worker").from(direct()).to(noop())])
+      .build();
+
+    const first = t.ctx.start();
+    const second = t.ctx.start();
+    first.catch(() => {});
+    second.catch(() => {});
+    await t.ctx.whenStarted();
+
+    expect(started).toBe(1);
+  });
+
+  /**
+   * @case A single route failing to start does not hold readiness
+   * @preconditions Two routes, one whose source throws on subscribe, plus a plugin start() hook
+   * @expectedResult whenStarted() resolves and the hook runs. One route failing does not fail the context by design, so readiness waits for no route still coming up rather than for all of them succeeding; a probe that must know a specific route is serving watches route:started
+   */
+  test("whenStarted resolves when a single route fails to start", async () => {
+    let hookRan = false;
+    const plugin: CraftPlugin = {
+      name: "observer",
+      apply() {},
+      start() {
+        hookRan = true;
+      },
+    };
+
+    t = await testContext()
+      .with({ plugins: [plugin] })
+      .routes([
+        craft()
+          .id("broken")
+          .from(() => {
+            throw new Error("cannot bind");
+          })
+          .to(noop()),
+        craft().id("worker").from(direct()).to(noop()),
+      ])
+      .build();
+
     void t.ctx.start().catch(() => {});
     await t.ctx.whenStarted();
+
+    expect(hookRan).toBe(true);
   });
 
   /**

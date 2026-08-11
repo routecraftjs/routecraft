@@ -248,13 +248,11 @@ export class CraftContext {
   /** Backing deferred for {@link CraftContext.whenStarted}. */
   private startedDeferred: PromiseWithResolvers<void> | undefined;
 
-  /**
-   * Whether {@link CraftContext.startedDeferred} has settled, which is what
-   * makes it safe to replace on a restart. A caller typically takes its
-   * handle BEFORE calling `start()`, so replacing an unsettled deferred
-   * would leave that caller waiting on a promise nothing can settle.
-   */
-  private startedSettled = false;
+  /** The in-flight start, so concurrent `start()` calls join one boot. */
+  private startInFlight: Promise<void> | undefined;
+
+  /** Latched by `stop()`. A stopped context refuses to start again. */
+  private hasStopped = false;
 
   /**
    * Create a new CraftContext instance.
@@ -397,18 +395,17 @@ export class CraftContext {
         // Generate plugin ID from constructor name or index
         const pluginId = this.getPluginId(plugin as CraftPlugin, pluginIndex);
 
-        // Emit starting event (plugins are "registered" at construction;
-        // a separate plugin:registered event fired at the same moment with
-        // the same payload carried no extra information and was removed).
-        this.emit("plugin:starting", {
+        // Plugins are "registered" at construction; a separate
+        // plugin:registered event fired at the same moment with the same
+        // payload carried no extra information and was removed.
+        this.emit("plugin:applying", {
           pluginId,
           pluginIndex,
         });
 
         await (plugin as CraftPlugin).apply(this);
 
-        // Emit started event
-        this.emit("plugin:started", {
+        this.emit("plugin:applied", {
           pluginId,
           pluginIndex,
         });
@@ -442,10 +439,8 @@ export class CraftContext {
    * routes running by design, so a probe that must know a specific route is
    * serving watches `route:started` for it.
    *
-   * Call it per start. Between runs it keeps reporting the last run's
-   * outcome, which is the honest answer while nothing new has begun;
-   * `start()` mints a fresh one before its first await, so a handle taken
-   * any time after a restart begins tracks that restart.
+   * A context starts once (`start()` after `stop()` refuses with RC1004),
+   * so this settles exactly once and keeps reporting that outcome.
    */
   whenStarted(): Promise<void> {
     return this.ensureStartedDeferred().promise;
@@ -554,9 +549,9 @@ export class CraftContext {
       if (typeof plugin.start !== "function") continue;
       const pluginId = this.getPluginId(plugin, pluginIndex);
       try {
-        this.emit("plugin:start:starting", { pluginId, pluginIndex });
+        this.emit("plugin:starting", { pluginId, pluginIndex });
         await plugin.start(this);
-        this.emit("plugin:start:started", { pluginId, pluginIndex });
+        this.emit("plugin:started", { pluginId, pluginIndex });
       } catch (err) {
         this.logger.error(
           { pluginIndex, pluginId, err },
@@ -891,38 +886,39 @@ export class CraftContext {
    * ```
    */
   async start(): Promise<void> {
-    // Idempotent: skipped synchronously when ContextBuilder.build() already
-    // ran plugins, so the common path adds zero microtask delay (event
-    // interleaving with in-flight exchanges stays byte-identical).
-    // Guarantees directly-constructed contexts get config-applier wiring
-    // (http/cron/direct/mail/telemetry and ecosystem keys) before routes run.
-    // A fresh deferred per restart: the previous run's is settled, so reusing
-    // it would report a restarted context ready before it had done anything,
-    // or keep rejecting with an error from a run that is over. An UNSETTLED
-    // one is kept, because a caller holding it took its handle before
-    // calling start(), which is the usual order.
-    if (this.startedSettled) {
-      this.startedDeferred = undefined;
-      this.startedSettled = false;
+    // A context is single-use. Route controllers are built once and never
+    // rebuilt, so a start after a stop would report ready over dead routes
+    // and the suspension scan would retire records into them. The real
+    // restart unit is the process; refuse loudly rather than half-run.
+    if (this.hasStopped) {
+      throw rcError("RC1004", undefined, {
+        message:
+          "This context has been stopped and cannot be started again. Build a fresh context from your config.",
+      });
     }
+    // Two concurrent starts collapse into one: a double boot would run every
+    // plugin start() hook twice and orphan the first run's background tasks.
+    if (this.startInFlight) return this.startInFlight;
+    this.startInFlight = this.run();
+    return this.startInFlight;
+  }
+
+  private async run(): Promise<void> {
     const started = this.ensureStartedDeferred();
-    const settle = (outcome: () => void): void => {
-      this.startedSettled = true;
-      outcome();
-    };
     try {
+      // Idempotent: ContextBuilder.build() may already have run plugins.
+      // Guarantees directly-constructed contexts get config-applier wiring
+      // before routes run.
       if (!this.pluginsInitialized) {
         await this.initPlugins();
       }
       this.assertSuspensionConfigured();
     } catch (err) {
-      // Every exit from start() settles the deferred. A readiness probe
-      // waiting on a context that refused its config must see the refusal,
-      // not wait out its deadline on a promise nothing will ever settle.
-      settle(() => started.reject(err));
+      // Every exit settles the deferred: a readiness probe waiting on a
+      // context that refused its config must see the refusal.
+      started.reject(err);
       throw err;
     }
-    this.shutdownPromise = null;
     this.logger.info(
       { routeCount: this.routes.length },
       "Starting Routecraft context",
@@ -964,21 +960,19 @@ export class CraftContext {
       }),
     );
 
-    // After the routes are actually listening, because a plugin's background
-    // task may drive them: the suspension sweeper re-enters a route's error
-    // channel, which needs that route running. `allSettled` above is already
-    // attached, so the route promises stay handled even when a plugin
-    // refuses to start.
+    // After the routes are listening: a plugin's background task may drive
+    // them, and `allSettled` above keeps the route promises handled even
+    // when a plugin refuses to start.
     try {
       await routes.ready;
       await this.startPlugins();
     } catch (err) {
-      settle(() => started.reject(err));
+      started.reject(err);
       await this.stop();
       await running;
       throw err;
     }
-    settle(() => started.resolve());
+    started.resolve();
 
     return running
       .then((results) => {
@@ -1047,6 +1041,7 @@ export class CraftContext {
    */
   async stop(): Promise<void> {
     if (this.shutdownPromise) return this.shutdownPromise;
+    this.hasStopped = true;
     this.shutdownPromise = this.performShutdown();
     return this.shutdownPromise;
   }

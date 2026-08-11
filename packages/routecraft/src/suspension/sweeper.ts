@@ -1,9 +1,26 @@
 import type { CraftContext } from "../context.ts";
 import { expireSuspension } from "./revive.ts";
-import type { SuspensionStore } from "./types.ts";
+import type { ExpiredScanCursor, SuspensionStore } from "./types.ts";
 
 /** How often the sweeper looks for overdue suspensions, when unconfigured. */
 export const DEFAULT_SWEEP_INTERVAL = "60s";
+
+/**
+ * How long an `expiring` delivery claim is honoured before it is released
+ * back to `suspended` for redelivery.
+ *
+ * Deliberately generous relative to handler work: a lease shorter than a
+ * slow error handler would make one healthy process double-deliver by
+ * itself. The lease only matters after a crash, so its length costs nothing
+ * in the healthy case.
+ */
+export const DEFAULT_EXPIRY_LEASE = "60m";
+
+/**
+ * How long settled suspensions are kept before the sweeper purges them,
+ * when unconfigured. `"never"` opts out for audit deployments.
+ */
+export const DEFAULT_SUSPENSION_RETENTION = "90d";
 
 /**
  * How long a suspension stays resumable when `.suspend()` names no `ttl`.
@@ -34,6 +51,15 @@ const SWEEP_BATCH = 100;
 const STRANDED_REPORT = 100;
 
 /**
+ * Distinct absent routes named per orphan warning. Same bounding logic as
+ * {@link STRANDED_REPORT}: past this the count is the signal.
+ */
+const MISSING_ROUTE_REPORT = 20;
+
+/** How often a sweep pass also purges settled records past retention. */
+const PURGE_CADENCE_MS = 60 * 60 * 1000;
+
+/**
  * Drives expiry for one context.
  *
  * Expiry has to be pushed rather than pulled. A `ttl` exists so a route can
@@ -48,17 +74,17 @@ const STRANDED_REPORT = 100;
  *
  * @internal
  */
+export interface SweeperOptions {
+  readonly intervalMs: number;
+  readonly leaseMs: number;
+  /** Absent when the context opted out with `retention: "never"`. */
+  readonly retentionMs?: number;
+}
+
 export class SuspensionSweeper {
   private timer: ReturnType<typeof setInterval> | undefined;
   /** The sweep currently running. See {@link SuspensionSweeper.stop}. */
   private inFlight: Promise<unknown> | undefined;
-  /**
-   * Records this context can never retire, because it does not have their
-   * route. Held per sweeper rather than per sweep: routes do not appear
-   * mid-run, so re-deciding this every tick would re-read and re-warn about
-   * the same records for as long as the process lives.
-   */
-  private readonly unowned = new Set<string>();
   /**
    * Set the moment shutdown begins, which is earlier than teardown: routes
    * are aborted and drained before plugins are torn down, so a tick landing
@@ -66,11 +92,13 @@ export class SuspensionSweeper {
    */
   private stopping = false;
   private offStopping: (() => void) | undefined;
+  /** Epoch ms of the last retention purge; zero forces one on the boot scan. */
+  private lastPurgeAt = 0;
 
   constructor(
     private readonly context: CraftContext,
     private readonly store: SuspensionStore,
-    private readonly intervalMs: number,
+    private readonly options: SweeperOptions,
   ) {}
 
   /**
@@ -80,37 +108,51 @@ export class SuspensionSweeper {
    * scan able to say whether a restart had work waiting for it.
    */
   async sweep(now: Date = new Date()): Promise<number> {
-    let retired = 0;
-    // Records this pass could not retire stay `suspended`, so they return at
-    // the head of every later page and the window has to grow past them.
-    // Growth is capped, so past the cap the sweep sees nothing behind them
-    // and retires nothing at all; that state is reported below rather than
-    // left to be inferred from a silent absence of expiries.
-    const stuck = new Set<string>(this.unowned);
-    const missing = new Map<string, number>();
-    for (;;) {
-      const limit = SWEEP_BATCH + Math.min(stuck.size, SWEEP_BATCH);
-      const due = await this.store.findExpired(now, limit);
-      const batch = due.filter((suspension) => !stuck.has(suspension.id));
-      if (batch.length === 0) {
-        if (stuck.size >= SWEEP_BATCH) {
-          this.context.logger.error(
-            { stuck: stuck.size },
-            "Expiry has stalled: the overdue set is filled with suspensions this context cannot retire, so nothing will expire until they are cleared.",
-          );
-        }
-        break;
-      }
+    // Heal before scanning: a claim whose holder died mid-delivery flips
+    // back to `suspended` once its lease elapses, and the released records
+    // are past their deadline, so this same pass redelivers them.
+    const released = await this.store.releaseExpiring(
+      new Date(now.getTime() - this.options.leaseMs),
+    );
+    if (released > 0) {
+      this.context.logger.info(
+        { released },
+        "Released stale expiry claims for redelivery; a process died while delivering them.",
+      );
+    }
 
-      for (const suspension of batch) {
+    await this.purgeOnCadence(now);
+
+    let retired = 0;
+    let visited = 0;
+    const missing = new Map<string, number>();
+    // Keyset pages: the cursor advances strictly past every record visited,
+    // retired or not, so an arbitrarily long unretirable prefix can never
+    // starve the records behind it. `now` is frozen at pass start, which is
+    // what bounds a pass while records keep coming due.
+    let cursor: ExpiredScanCursor | undefined;
+    for (;;) {
+      if (this.stopping) break;
+      const due = await this.store.findExpired(now, SWEEP_BATCH, cursor);
+      if (due.length === 0) break;
+
+      for (const suspension of due) {
         // Between retirements, not only between pages: shutdown can begin
         // mid-batch, and a claim taken after that point notifies nobody.
-        if (this.stopping) return retired;
+        if (this.stopping) break;
         const deadline = suspension.expiresAt;
         if (deadline === undefined) {
-          stuck.add(suspension.id);
-          continue;
+          // Contractually unreachable: findExpired only returns records with
+          // a deadline. A backend that violates that cannot advance the
+          // cursor, so the pass aborts rather than re-reading the same page.
+          this.context.logger.error(
+            { suspensionId: suspension.id },
+            "findExpired returned a suspension without a deadline; aborting this sweep pass.",
+          );
+          return retired;
         }
+        cursor = { expiresAt: deadline, id: suspension.id };
+        visited++;
         const route = this.context.getRouteById(suspension.routeId);
         if (!route) {
           // The store outlives any one deployment, so it can hold work for
@@ -123,8 +165,6 @@ export class SuspensionSweeper {
             suspension.routeId,
             (missing.get(suspension.routeId) ?? 0) + 1,
           );
-          this.unowned.add(suspension.id);
-          stuck.add(suspension.id);
           continue;
         }
         try {
@@ -135,9 +175,7 @@ export class SuspensionSweeper {
             { ...suspension, expiresAt: deadline },
           );
           if (cas.won) retired++;
-          else stuck.add(suspension.id);
         } catch (err) {
-          stuck.add(suspension.id);
           // One route's error handler throwing must not strand the rest of
           // the batch: the sweep is the only thing that will ever visit
           // them.
@@ -148,20 +186,74 @@ export class SuspensionSweeper {
         }
       }
 
-      if (due.length < limit) break;
+      if (due.length < SWEEP_BATCH) break;
       this.context.logger.info(
         { retired },
         "Still retiring expired suspensions",
       );
     }
 
+    this.reportMissingRoutes(missing);
+    if (visited > 0 && retired === 0 && !this.stopping) {
+      this.context.logger.warn(
+        { visited },
+        "Overdue suspensions were visited but none could be retired this pass. Each stays parked and is revisited next sweep; the route warnings above say why.",
+      );
+    }
+    return retired;
+  }
+
+  /**
+   * Purge settled records past retention, at most once per
+   * {@link PURGE_CADENCE_MS} and once on the boot scan. The store deletes
+   * in one statement; there is nothing to page or notify.
+   */
+  private async purgeOnCadence(now: Date): Promise<void> {
+    const retentionMs = this.options.retentionMs;
+    if (retentionMs === undefined) return;
+    if (now.getTime() - this.lastPurgeAt < PURGE_CADENCE_MS) return;
+    this.lastPurgeAt = now.getTime();
+    try {
+      const purged = await this.store.purgeSettled(
+        new Date(now.getTime() - retentionMs),
+      );
+      if (purged > 0) {
+        this.context.logger.info(
+          { purged },
+          "Purged settled suspensions past retention.",
+        );
+      }
+    } catch (err) {
+      this.context.logger.error(
+        { err },
+        "Failed to purge settled suspensions; the next cadence will retry.",
+      );
+    }
+  }
+
+  /** One bounded warning per absent route, never one per record. */
+  private reportMissingRoutes(missing: Map<string, number>): void {
+    let reported = 0;
+    let overflowRoutes = 0;
+    let overflowRecords = 0;
     for (const [routeId, count] of missing) {
+      if (reported >= MISSING_ROUTE_REPORT) {
+        overflowRoutes++;
+        overflowRecords += count;
+        continue;
+      }
+      reported++;
       this.context.logger.warn(
         { routeId, count },
         `${count} expired suspension(s) belong to route "${routeId}", which this context does not have, so they were left for a context that does. Either that route was renamed or removed while suspensions for it were still parked, or two deployments are sharing one suspension store and should not be.`,
       );
     }
-    return retired;
+    if (overflowRoutes > 0) {
+      this.context.logger.warn(
+        { routes: overflowRoutes, records: overflowRecords },
+        "Further absent routes hold expired suspensions this context left alone.",
+      );
+    }
   }
 
   /**
@@ -237,7 +329,7 @@ export class SuspensionSweeper {
         .finally(() => {
           this.inFlight = undefined;
         });
-    }, this.intervalMs);
+    }, this.options.intervalMs);
     // A sweep must never be the reason a process stays alive: it exists to
     // serve routes, and a context whose routes have all finished should
     // exit.

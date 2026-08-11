@@ -11,16 +11,18 @@ import {
   type CraftContext,
   type EventName,
   type NewSuspension,
-  type SerializedOutcome,
   type SuspensionCasResult,
   type SuspensionStore,
 } from "../src/index.ts";
 import { SuspensionSweeper } from "../src/suspension/sweeper.ts";
-import { asSuspended } from "./helpers/suspension.ts";
+import { asSuspended, storeWith } from "./helpers/suspension.ts";
 
 const Approval = z.object({ approved: z.boolean() });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Directly driven sweepers in these tests never tick or purge on cadence. */
+const sweeperOptions = { intervalMs: 60_000, leaseMs: 60 * 60 * 1000 };
 
 /**
  * A config whose suspension runtime is a store the test holds a handle on.
@@ -161,7 +163,7 @@ describe("the suspension sweeper", () => {
     // due while the resume, running on the real clock, sees it as live. Both
     // transitions are therefore in flight against one record, which is the
     // race a deadline reached mid-answer produces in production.
-    const sweeper = new SuspensionSweeper(t.ctx, store, 60_000);
+    const sweeper = new SuspensionSweeper(t.ctx, store, sweeperOptions);
     const [swept, resumed] = await Promise.allSettled([
       sweeper.sweep(new Date(Date.now() + 2 * 60 * 60 * 1000)),
       t.client.sendDirect("answers", {
@@ -200,7 +202,7 @@ describe("the suspension sweeper", () => {
 
   /**
    * @case An answer that claims the suspension while the sweep is mid-transition
-   * @preconditions A store that holds the sweep inside markExpired until the resume has won markResumed
+   * @preconditions A store that holds the sweep inside its expiry claim until the resume has won markResumed
    * @expectedResult The sweep retires nothing, emits no expiry and does not re-ask, while the continuation runs once. The sweeper losing must be silent: telling the route to re-ask for an approval that was accepted would notify an approver about work already in flight, and the route would raise a second suspension for an operation that is being carried out
    */
   test("a sweep that loses to an answer neither expires nor re-asks", async () => {
@@ -218,27 +220,16 @@ describe("the suspension sweeper", () => {
       releaseSweep = resolve;
     });
 
-    const store: SuspensionStore = {
-      ...backing,
-      create: (record: NewSuspension) => backing.create(record),
-      get: (id: string) => backing.get(id),
-      findExpired: (now: Date, limit?: number) =>
-        backing.findExpired(now, limit),
-      pending: () => backing.pending(),
-      resumedWithoutTerminal: (limit?: number) =>
-        backing.resumedWithoutTerminal(limit),
-      recordTerminal: (id: string, terminal: SerializedOutcome) =>
-        backing.recordTerminal(id, terminal),
-      markResumed: (id, resumption) => backing.markResumed(id, resumption),
-      markDenied: (id, reason) => backing.markDenied(id, reason),
-      purgeSettled: (before: Date) => backing.purgeSettled(before),
-      close: () => backing.close(),
-      markExpired: async (id: string): Promise<SuspensionCasResult> => {
+    const store = storeWith(backing, {
+      claimExpiry: async (
+        id: string,
+        at: Date,
+      ): Promise<SuspensionCasResult> => {
         sweepIsAtTheTransition();
         await answered;
-        return backing.markExpired(id);
+        return backing.claimExpiry(id, at);
       },
-    };
+    });
 
     t = await testContext()
       .with(suspendingWith(store))
@@ -270,7 +261,7 @@ describe("the suspension sweeper", () => {
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
 
-    const sweeper = new SuspensionSweeper(t.ctx, store, 60_000);
+    const sweeper = new SuspensionSweeper(t.ctx, store, sweeperOptions);
     const sweeping = sweeper.sweep(new Date(Date.now() + 2 * 60 * 60 * 1000));
     await reachedTransition;
 
@@ -319,12 +310,12 @@ describe("the suspension sweeper", () => {
       await store.create(overdue(`sus-${index}`));
     }
 
-    const sweeper = new SuspensionSweeper(t.ctx, store, 60_000);
+    const sweeper = new SuspensionSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(150);
 
     expect(reasked).toHaveLength(150);
     expect(said(logs.info, "Still retiring expired suspensions")).toBeDefined();
-    expect(await store.findExpired(new Date())).toHaveLength(0);
+    expect(await store.findExpired(new Date(), 100)).toHaveLength(0);
   });
 
   /**
@@ -363,7 +354,7 @@ describe("the suspension sweeper", () => {
       await store.create(overdue(id));
     }
 
-    const sweeper = new SuspensionSweeper(t.ctx, store, 60_000);
+    const sweeper = new SuspensionSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(3);
 
     for (const id of ["sus-a", "sus-b", "sus-c"]) {
@@ -382,26 +373,12 @@ describe("the suspension sweeper", () => {
    */
   test("a store error on one record does not stop the pass", async () => {
     const backing = new MemorySuspensionStore();
-    const store: SuspensionStore = {
-      ...backing,
-      create: (record: NewSuspension) => backing.create(record),
-      get: (id: string) => backing.get(id),
-      findExpired: (now: Date, limit?: number) =>
-        backing.findExpired(now, limit),
-      pending: () => backing.pending(),
-      resumedWithoutTerminal: (limit?: number) =>
-        backing.resumedWithoutTerminal(limit),
-      recordTerminal: (id: string, terminal: SerializedOutcome) =>
-        backing.recordTerminal(id, terminal),
-      markResumed: (id, resumption) => backing.markResumed(id, resumption),
-      markDenied: (id, reason) => backing.markDenied(id, reason),
-      purgeSettled: (before: Date) => backing.purgeSettled(before),
-      close: () => backing.close(),
-      markExpired: (id: string): Promise<SuspensionCasResult> =>
+    const store = storeWith(backing, {
+      claimExpiry: (id: string, at: Date): Promise<SuspensionCasResult> =>
         id === "sus-b"
           ? Promise.reject(new Error("the database went away"))
-          : backing.markExpired(id),
-    };
+          : backing.claimExpiry(id, at),
+    });
 
     t = await testContext()
       .with(suspendingWith(store))
@@ -421,7 +398,7 @@ describe("the suspension sweeper", () => {
       await store.create(overdue(id));
     }
 
-    const sweeper = new SuspensionSweeper(t.ctx, store, 60_000);
+    const sweeper = new SuspensionSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(2);
 
     expect((await store.get("sus-a"))?.status).toBe("expired");
@@ -455,7 +432,7 @@ describe("the suspension sweeper", () => {
 
     await store.create(overdue("sus-ghost", { routeId: "retired-route" }));
 
-    const sweeper = new SuspensionSweeper(t.ctx, store, 60_000);
+    const sweeper = new SuspensionSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(0);
 
     expect((await store.get("sus-ghost"))?.status).toBe("suspended");
@@ -501,7 +478,7 @@ describe("the suspension sweeper", () => {
     // Raced against a timer rather than left to the runner's timeout: the
     // failure mode is a sweep that never returns, and a test that hangs
     // stalls the suite instead of reporting which assertion broke.
-    const sweeper = new SuspensionSweeper(t.ctx, store, 60_000);
+    const sweeper = new SuspensionSweeper(t.ctx, store, sweeperOptions);
     const outcome = await Promise.race([
       sweeper.sweep(),
       sleep(5_000).then(() => "did not terminate" as const),
@@ -637,7 +614,7 @@ describe("the suspension sweeper", () => {
     expect(parked.expiresAt).toBeUndefined();
     expect((await store.get(parked.suspensionId))?.expiresAt).toBeUndefined();
     expect(
-      await store.findExpired(new Date(Date.now() + 365 * 86_400_000)),
+      await store.findExpired(new Date(Date.now() + 365 * 86_400_000), 100),
     ).toHaveLength(0);
   });
 
@@ -688,20 +665,7 @@ describe("the suspension sweeper", () => {
       sweepReached = resolve;
     });
 
-    const store: SuspensionStore = {
-      ...backing,
-      create: (record: NewSuspension) => backing.create(record),
-      get: (id: string) => backing.get(id),
-      findExpired: (now: Date, limit?: number) =>
-        backing.findExpired(now, limit),
-      pending: () => backing.pending(),
-      resumedWithoutTerminal: (limit?: number) =>
-        backing.resumedWithoutTerminal(limit),
-      recordTerminal: (id: string, terminal: SerializedOutcome) =>
-        backing.recordTerminal(id, terminal),
-      markResumed: (id, resumption) => backing.markResumed(id, resumption),
-      markDenied: (id, reason) => backing.markDenied(id, reason),
-      purgeSettled: (before: Date) => backing.purgeSettled(before),
+    const store = storeWith(backing, {
       markExpired: async (id: string) => {
         sweepReached();
         await held;
@@ -712,7 +676,7 @@ describe("the suspension sweeper", () => {
         order.push("store closed");
         await backing.close();
       },
-    };
+    });
 
     const context = await testContext()
       .with(suspendingWith(store, { sweepInterval: "20ms" }))

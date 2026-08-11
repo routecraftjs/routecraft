@@ -337,7 +337,7 @@ describe("Plugin System", () => {
    *       as the pluginId on lifecycle event payloads
    * @preconditions Plain-object plugin with name: "my-plugin" registered;
    *                context built (initPlugins runs)
-   * @expectedResult plugin:starting and plugin:started carry pluginId "my-plugin"
+   * @expectedResult plugin:applying and plugin:applied carry pluginId "my-plugin"
    */
   test("plugin name is used as pluginId on lifecycle events", async () => {
     const seen: { event: string; pluginId: string }[] = [];
@@ -347,18 +347,18 @@ describe("Plugin System", () => {
     };
 
     t = await testContext()
-      .on("plugin:starting", ({ details }) => {
-        seen.push({ event: "starting", pluginId: details.pluginId });
+      .on("plugin:applying", ({ details }) => {
+        seen.push({ event: "applying", pluginId: details.pluginId });
       })
-      .on("plugin:started", ({ details }) => {
-        seen.push({ event: "started", pluginId: details.pluginId });
+      .on("plugin:applied", ({ details }) => {
+        seen.push({ event: "applied", pluginId: details.pluginId });
       })
       .with({ plugins: [plugin] })
       .build();
 
     expect(seen).toEqual([
-      { event: "starting", pluginId: "my-plugin" },
-      { event: "started", pluginId: "my-plugin" },
+      { event: "applying", pluginId: "my-plugin" },
+      { event: "applied", pluginId: "my-plugin" },
     ]);
   });
 

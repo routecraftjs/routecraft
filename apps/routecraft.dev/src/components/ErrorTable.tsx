@@ -244,6 +244,12 @@ const errors: ErrorRow[] = [
     retryable: false,
   },
   {
+    code: 'RC1004',
+    category: 'Definition',
+    message: 'Context already stopped',
+    retryable: false,
+  },
+  {
     code: 'RC5018',
     category: 'Adapter',
     message: 'HTTP source request rejected',

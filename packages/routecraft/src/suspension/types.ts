@@ -1,12 +1,30 @@
 /**
  * Lifecycle state of a parked exchange.
  *
- * `suspended` is the only state a suspension can be resumed from; the other
- * three are terminal. Transitions out of `suspended` go through the store's
- * compare-and-swap methods so exactly one caller wins a race between a
- * resume, a sweep, and a cancellation.
+ * `suspended` is the only state a suspension can be resumed from. `expiring`
+ * is a delivery claim, not an outcome: whoever wins it owns telling the
+ * route, and the record is finalized to `expired` or `denied` afterwards. A
+ * claim whose holder died is released back to `suspended` once its lease
+ * elapses, so the next sweep redelivers. The remaining three states are
+ * terminal. Every transition goes through the store's compare-and-swap
+ * methods so exactly one caller wins a race between a resume, a sweep, and
+ * a cancellation.
  */
-export type SuspensionStatus = "suspended" | "resumed" | "expired" | "denied";
+export type SuspensionStatus =
+  "suspended" | "expiring" | "resumed" | "expired" | "denied";
+
+/**
+ * Keyset cursor for {@link SuspensionStore.findExpired}.
+ *
+ * Pages advance strictly past `(expiresAt, id)`, so a record the caller
+ * visited and could not retire is never re-read by the same pass, whatever
+ * its state. That is what makes an arbitrarily long unretirable prefix
+ * unable to starve the records behind it.
+ */
+export interface ExpiredScanCursor {
+  readonly expiresAt: Date;
+  readonly id: string;
+}
 
 /**
  * The persisted form of a parked exchange: exactly the two stored slots of
@@ -141,6 +159,12 @@ export interface Suspension {
   readonly suspendedAt: Date;
   /** When the sweeper will expire this suspension. Absent means no TTL. */
   readonly expiresAt?: Date;
+  /**
+   * When the current `expiring` delivery claim was taken. Cleared when a
+   * stale claim is released; kept on a finalized record as the audit of
+   * when its notification was delivered.
+   */
+  readonly claimedAt?: Date;
   readonly status: SuspensionStatus;
   /** Cached terminal outcome of execution two, for idempotent re-resume. */
   readonly terminal?: SerializedOutcome;
@@ -172,7 +196,12 @@ export type NewSuspension = Omit<Suspension, SuspensionTransitionField> & {
  * The fields only a `mark*` transition may write.
  */
 type SuspensionTransitionField =
-  "status" | "terminal" | "resumedBy" | "resumedAt" | "deniedReason";
+  | "status"
+  | "terminal"
+  | "resumedBy"
+  | "resumedAt"
+  | "deniedReason"
+  | "claimedAt";
 
 /**
  * Details recorded when a resume wins the compare-and-swap.
@@ -246,40 +275,77 @@ export interface SuspensionStore {
   ): Promise<SuspensionCasResult>;
 
   /**
-   * Compare-and-swap `suspended` -> `expired`. Driven by the sweeper.
+   * Compare-and-swap `suspended` -> `expiring`, recording when the claim
+   * was taken. Winning this claim is the right to notify the route: the
+   * caller delivers the re-ask and then finalizes with
+   * {@link SuspensionStore.markExpired} or
+   * {@link SuspensionStore.markDenied}. A claim is not an outcome, so a
+   * holder that dies mid-delivery is healed by
+   * {@link SuspensionStore.releaseExpiring} rather than leaving the record
+   * stuck.
+   */
+  claimExpiry(id: string, at: Date): Promise<SuspensionCasResult>;
+
+  /**
+   * Compare-and-swap `expiring` -> `expired`, finalizing a delivered claim.
    * No timestamp is recorded: `expiresAt` already says when the suspension
-   * came due, and the sweeper marks it within one sweep interval.
+   * came due, and `claimedAt` when its notification was delivered.
    */
   markExpired(id: string): Promise<SuspensionCasResult>;
 
   /**
-   * Compare-and-swap `suspended` -> `denied`. Used when a run carrying a
-   * parked exchange is cancelled (#552), so a later resume surfaces a
-   * catchable failure rather than reviving cancelled work.
+   * Compare-and-swap `expiring` -> `denied`, finalizing a delivered claim.
+   * The claim-first shape applies to denial for the same reason as expiry:
+   * a crash between the transition and the notification must heal by
+   * redelivery, not strand the approver. Cancellation (#552) will claim
+   * first too.
    */
   markDenied(id: string, reason?: string): Promise<SuspensionCasResult>;
+
+  /**
+   * Release every `expiring` claim taken at or before `before` back to
+   * `suspended`, clearing `claimedAt`, and report how many were released.
+   *
+   * This is the healing half of the claim: a released record is past its
+   * deadline, so the next ordinary sweep pass redelivers it. A crash after
+   * delivery but before finalize therefore costs one duplicate escalation
+   * after the lease elapses, which is the accepted at-least-once trade;
+   * a crash before delivery costs nothing but the lease's delay.
+   */
+  releaseExpiring(before: Date): Promise<number>;
 
   /**
    * Cache the terminal outcome of execution two so a duplicate resume can
    * answer without re-running the continuation. Silently ignores an unknown
    * id: the outcome is a convenience, and losing the race to a sweep must
    * not turn into a second failure on the way out.
+   *
+   * Unconditional by design: only the caller that won `markResumed` ever
+   * writes a terminal, so there is no competing writer for this row and a
+   * compare would defend nothing.
    */
   recordTerminal(id: string, terminal: SerializedOutcome): Promise<void>;
 
   /**
    * Suspensions still in `suspended` state whose `expiresAt` is at or
-   * before `now`, oldest first. `limit` bounds one sweep pass so a store
-   * that accumulated a backlog while the process was down does not produce
-   * an unbounded batch.
+   * before `now`, ordered by `(expiresAt ASC, id ASC)` and starting
+   * strictly after `after` when one is given. `limit` bounds one page so a
+   * backlog accumulated while the process was down does not produce an
+   * unbounded batch.
    *
-   * An omitted `limit` means unbounded. A non-positive or non-integer
-   * `limit` is a caller error and throws, rather than being interpreted:
-   * SQLite reads a negative LIMIT as unbounded while an array slice reads
-   * it as "drop from the end", so leaving it undefined would make the two
-   * backends return different rows for the same call.
+   * The ordering is a strict total order within a backend, which is what
+   * makes the cursor sound; it is not guaranteed byte-identical across
+   * backends for non-ASCII ids, so a cursor must only ever be replayed
+   * against the store that produced it.
+   *
+   * A non-positive or non-integer `limit`, or a malformed `after`, is a
+   * caller error and throws rather than being interpreted.
    */
-  findExpired(now: Date, limit?: number): Promise<Suspension[]>;
+  findExpired(
+    now: Date,
+    limit: number,
+    after?: ExpiredScanCursor,
+  ): Promise<Suspension[]>;
 
   /** Count and oldest `suspendedAt` across suspensions still parked. */
   pending(): Promise<PendingSuspensionSummary>;

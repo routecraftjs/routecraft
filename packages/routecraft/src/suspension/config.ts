@@ -15,6 +15,8 @@ import {
 import type { SuspensionStore } from "./types.ts";
 import { type Duration, parseDuration } from "./duration.ts";
 import {
+  DEFAULT_EXPIRY_LEASE,
+  DEFAULT_SUSPENSION_RETENTION,
   DEFAULT_SWEEP_INTERVAL,
   DEFAULT_SUSPENSION_TTL,
   SuspensionSweeper,
@@ -89,6 +91,25 @@ export interface SuspensionConfig {
    * deployments that want expiry noticed sooner.
    */
   sweepInterval?: Duration;
+  /**
+   * How long an expiry-delivery claim is honoured before the sweeper
+   * releases it for redelivery.
+   *
+   * Defaults to {@link DEFAULT_EXPIRY_LEASE}. Only a crash mid-delivery
+   * ever spends this; keep it comfortably longer than the slowest `.error()`
+   * handler, because a lease shorter than a slow handler would make one
+   * healthy process double-deliver by itself.
+   */
+  expiryLease?: Duration;
+  /**
+   * How long settled suspensions (resumed, expired, denied) are kept before
+   * the sweeper purges them.
+   *
+   * Defaults to {@link DEFAULT_SUSPENSION_RETENTION}. Set `"never"` to keep
+   * everything, which is the audit-trail configuration; the store then
+   * grows with every exchange that ever suspended.
+   */
+  retention?: Duration | "never";
 }
 
 /**
@@ -148,6 +169,10 @@ export interface SuspensionRuntime {
    * being built, which is the rule the rest of this config already follows.
    */
   readonly sweepIntervalMs: number;
+  /** Milliseconds an expiry-delivery claim is honoured before redelivery. */
+  readonly expiryLeaseMs: number;
+  /** Milliseconds settled records are kept. Undefined means keep forever. */
+  readonly retentionMs?: number;
 }
 
 /**
@@ -184,6 +209,15 @@ export async function createSuspensionRuntime(
     config.sweepInterval ?? DEFAULT_SWEEP_INTERVAL,
     "suspension.sweepInterval",
   );
+  const expiryLeaseMs = parseDuration(
+    config.expiryLease ?? DEFAULT_EXPIRY_LEASE,
+    "suspension.expiryLease",
+  );
+  const configuredRetention = config.retention ?? DEFAULT_SUSPENSION_RETENTION;
+  const retentionMs =
+    configuredRetention === "never"
+      ? undefined
+      : parseDuration(configuredRetention, "suspension.retention");
 
   const signer = resolveSigningSecret({
     ...(config.secret !== undefined ? { secret: config.secret } : {}),
@@ -211,6 +245,8 @@ export async function createSuspensionRuntime(
     backend,
     ownsStore,
     sweepIntervalMs,
+    expiryLeaseMs,
+    ...(retentionMs !== undefined ? { retentionMs } : {}),
     ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
   });
 
@@ -284,11 +320,13 @@ export function suspensionPlugin(config: SuspensionConfig = {}): CraftPlugin {
     async start(ctx: CraftContext) {
       const runtime = ctx.getStore(SUSPENSION_RUNTIME);
       if (!runtime) return;
-      const sweeper = new SuspensionSweeper(
-        ctx,
-        runtime.store,
-        runtime.sweepIntervalMs,
-      );
+      const sweeper = new SuspensionSweeper(ctx, runtime.store, {
+        intervalMs: runtime.sweepIntervalMs,
+        leaseMs: runtime.expiryLeaseMs,
+        ...(runtime.retentionMs !== undefined
+          ? { retentionMs: runtime.retentionMs }
+          : {}),
+      });
       sweepers.set(ctx, sweeper);
       // Before the interval, and awaited: what expired during the outage
       // reaches its routes ahead of anything new arriving.
