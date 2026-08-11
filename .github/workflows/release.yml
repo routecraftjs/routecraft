@@ -317,8 +317,11 @@ jobs:
                 exit 1
                 ;;
             esac
-            if ! git rev-parse --verify --quiet "refs/tags/$OVERRIDE" >/dev/null; then
-              echo "freeze_ref '$OVERRIDE' is not a tag in this repository." >&2
+            # Namespaced AND peeled: the ref must be a tag, and the tag must
+            # resolve to a commit, so a tag pointing at a tree or blob is
+            # rejected here rather than failing mid-freeze at checkout.
+            if ! git rev-parse --verify --quiet "refs/tags/$OVERRIDE^{commit}" >/dev/null; then
+              echo "freeze_ref '$OVERRIDE' is not a tag resolving to a commit." >&2
               exit 1
             fi
             # The same styling floor the automatic path enforces.
