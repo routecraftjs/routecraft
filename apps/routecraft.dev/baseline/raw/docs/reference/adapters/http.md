@@ -1,0 +1,376 @@
+# http
+
+[← All adapters](/docs/reference/adapters)
+
+`http()` is overloaded by option shape:
+
+- `http({ path, method?, public? })` returns a **Source**. Use with `.from(...)` to expose a route over HTTP. Requires `defineConfig({ http: {...} })` for the server config (port, host, global auth). Bun runtimes bind via `Bun.serve` natively; Node 22+ uses a thin `node:http` shim. Zero runtime dependencies.
+- `http({ url, ... })` returns an **Enricher** (a pull-in). Use with `.to()` / `.enrich()` / `.tap()` to call a remote HTTP endpoint.
+
+The discriminator is the presence of `path` (source) vs `url` (client).
+
+## HTTP source (inbound)
+
+```ts
+http(options: HttpServerOptions): Source<HttpRequestBody>
+```
+
+The server, port, host, and global auth live on [`defineConfig({ http })`](/docs/reference/configuration#http), not on the source. Routes only declare which request they want.
+
+```ts
+// craft.config.ts
+import { defineConfig, jwt } from '@routecraft/routecraft'
+
+export const craftConfig = defineConfig({
+  http: {
+    port: 8080,
+    host: '0.0.0.0',
+    auth: jwt({
+      secret: process.env.JWT_SECRET!,
+      issuer: process.env.JWT_ISSUER!,
+      audience: process.env.JWT_AUDIENCE!,
+    }),
+  },
+})
+```
+
+```ts
+// routes/orders.ts
+import { craft, http, noop, DefaultExchange } from '@routecraft/routecraft'
+
+// GET /orders/:id
+export const getOrder = craft()
+  .id('get-order')
+  .description('Fetch an order by id')
+  .from(http({ path: '/orders/:id', method: 'GET' }))
+  .process(async (ex) => {
+    const { id } = ex.headers['routecraft.http.params']!
+    return DefaultExchange.rewrap(ex, { body: await loadOrder(id) })
+  })
+  .to(noop())
+
+// POST /orders
+export const createOrder = craft()
+  .id('create-order')
+  .description('Create an order')
+  .input({ body: createOrderSchema })
+  .authorize({ scopes: ['orders.write'] })
+  .from(http({ path: '/orders', method: 'POST' }))
+  .transform((body) => saveOrder(body))
+  .to(noop())
+
+// DELETE /orders/:id  -> 204 when body is undefined
+export const deleteOrder = craft()
+  .id('delete-order')
+  .authorize({ roles: ['admin'] })
+  .from(http({ path: '/orders/:id', method: 'DELETE' }))
+  .process(async (ex) => {
+    await deleteOrderById(ex.headers['routecraft.http.params']!.id)
+    return DefaultExchange.rewrap(ex, { body: undefined })
+  })
+  .to(noop())
+
+// Public endpoint, bypasses the global JWT check entirely (no auth events).
+export const health = craft()
+  .id('health-extra')
+  .from(http({ path: '/health-extra', method: 'GET', auth: 'skip' }))
+  .transform(() => ({ status: 'ok' }))
+  .to(noop())
+
+// Public endpoint that still personalises when a valid token is presented.
+export const home = craft()
+  .id('home')
+  .from(http({ path: '/', method: 'GET', auth: 'optional' }))
+  .process(async (ex) =>
+    DefaultExchange.rewrap(ex, { body: `hello, ${ex.principal?.subject ?? 'guest'}` }),
+  )
+  .to(noop())
+```
+
+**Source options** (`http(options)` with `.from(...)`):
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `path` | `string` | -- | Yes | Path pattern with `:param` segments (e.g. `/orders/:id`). |
+| `method` | `HttpMethod` | `GET` | No | HTTP method this route handles. |
+| `auth` | `"required" \| "optional" \| "skip"` | `"required"` | No | Per-route handling of the plugin's global `auth` middleware. See [Auth modes](#auth-modes) below. No effect when no global `auth` is configured. |
+| `rawBody` | `boolean` | `false` | No | Attach the exact wire bytes of the request body to the exchange as `routecraft.http.rawBody` (a `Uint8Array`). See [Signed webhooks](#signed-webhooks). |
+| `signature` | `HttpWebhookSignatureOptions` | -- | No | Verify a webhook signature against the raw body and reject 401 before the route runs. Body-bearing methods only. See [Signed webhooks](#signed-webhooks). |
+
+### Request metadata on the exchange
+
+- `routecraft.http.method` -- request method (typed `HttpMethod`).
+- `routecraft.http.path` -- matched pattern (e.g. `/orders/:id`).
+- `routecraft.http.url` -- raw request URL (path + query).
+- `routecraft.http.params` -- `Record<string, string>` of URL-decoded path params.
+- `routecraft.http.query` -- `Record<string, string>` of query params.
+- `routecraft.http.rawHeaders` -- `Record<string, string>` of the raw request headers, lower-cased. This is the open-ended pass-through wire-header remainder (the parsed envelope above is promoted to its own keys); it mirrors `routecraft.mail.rawHeaders`.
+- `routecraft.http.rawBody` -- `Uint8Array` of the exact wire bytes of the request body. Only present when the route opted in via `http({ rawBody: true })`; empty-body requests carry an empty array. Opt-in because of retention and exposure, not cost: the bytes already exist in memory during parsing, but attaching them pins a buffer of up to `maxBodySize` for the exchange lifetime and surfaces raw payload bytes to anything that logs the exchange headers.
+- `routecraft.auth.principal` -- the authenticated `Principal` (when auth is configured). `ex.principal` is sugar over this header.
+
+### Request body parsing (driven by `Content-Type`)
+
+- `application/json` -> parsed object.
+- `text/*` -> string.
+- `application/x-www-form-urlencoded` -> object built from `URLSearchParams`.
+- `multipart/form-data` -> Web `FormData` (with `File` entries for uploads).
+- anything else -> `Uint8Array`.
+
+Cap controlled by `http: { maxBodySize?: number }` (default 10 MB). Larger requests return `413 Payload Too Large`.
+
+### Response convention (deterministic, override via exchange headers)
+
+- `undefined` / `null` -> `204 No Content`.
+- string -> `200`, `Content-Type: text/plain; charset=utf-8`.
+- `Uint8Array` / `ArrayBuffer` -> `200`, `Content-Type: application/octet-stream`.
+- object / array -> `200`, `Content-Type: application/json; charset=utf-8`.
+- `ReadableStream` / `AsyncIterable` -> rejected with `RC5018` (SSE deferred to a follow-up).
+
+Override via the exchange before the response is built:
+
+- `routecraft.http.response.status` -> numeric status (e.g. `201`).
+- `routecraft.http.response.contentType` -> explicit content-type.
+- `routecraft.http.response.headers` -> extra response headers.
+
+### Built-in endpoints
+
+Registered alongside user routes; user routes with the same path always win.
+
+- `GET /health` -> `200` `{ status: "ok" }`. K8s liveness target.
+- `GET /ready` -> `200` `{ status: "ready", routes }` for authenticated callers; `{ status: "ready" }` for anonymous callers when global `auth` is configured. K8s readiness target.
+- `GET /openapi.json` -> OpenAPI 3.1 document built from the route registry. Paths, methods, summaries, descriptions, and path params populate in v1; request/response body schemas are stubs until the Standard-Schema-to-JSON-Schema follow-up lands.
+
+#### Configuring built-ins
+
+Every built-in takes the same `{ enabled?, requireAuth? }` shape under `http: { builtins }`. Inspired by Spring Boot Actuator's `management.endpoint.<name>.enabled` plus `show-details: when-authorized`, compressed to a single boolean for the auth gate.
+
+```ts
+defineConfig({
+  http: {
+    port: 8080,
+    auth: jwt({ ... }),
+    builtins: {
+      health:  { enabled: true },                   // defaults
+      ready:   { enabled: true, requireAuth: true },
+      openapi: { enabled: true, requireAuth: false },
+    },
+  },
+})
+```
+
+What `requireAuth` does, per endpoint:
+
+| Endpoint | `requireAuth: false` | `requireAuth: true` |
+| --- | --- | --- |
+| `/health` | n/a (response has no detail to gate) | n/a |
+| `/ready` | always `{ status: "ready", routes }` | anon: `{ status: "ready" }`; authed: `{ status: "ready", routes }`. **Always 200** so k8s probes work without a credential. |
+| `/openapi.json` | doc to anyone | 401 to anon; doc to authed |
+
+Defaults match security best practice per endpoint:
+
+- `health`:  `enabled: true` (k8s liveness must be open).
+- `ready`:   `enabled: true, requireAuth: true` (gates the `routes` count from anonymous callers; matches Spring Actuator's default).
+- `openapi`: `enabled: true, requireAuth: false` (matches the Stripe / GitHub / Twilio / OpenAI convention of publishing the schema publicly).
+
+`enabled: false` returns 404 for that path. `requireAuth` has no effect when no global `auth` is configured (collapses to `false` because there is nothing to authenticate against).
+
+#### OpenAPI `info` block
+
+`builtins.openapi.info` populates the OpenAPI document's `info` object. When omitted, `title` and `version` auto-detect from the nearest `package.json` (walks up from `process.cwd()`); supply either field explicitly to override.
+
+```ts
+builtins: {
+  openapi: {
+    info: {
+      title: "Orders API",        // overrides package.json `name`
+      version: "1.2.3",            // overrides package.json `version`
+      description: "Customer order management.",
+      contact: { name: "Platform Team", email: "platform@example.com" },
+      license: { name: "MIT", url: "https://opensource.org/license/mit" },
+    },
+  },
+},
+```
+
+Auto-detection is conservative: only `name` and `version` are pulled because both are public by nature once a package is published to npm. `description`, `contact`, and `license` stay opt-in because `package.json` often carries internal context (TODO notes, author emails, license boilerplate) you may not want leaking through a publicly served document. Set them explicitly to publish them. When no `package.json` is reachable (single-file bundled binaries, Docker scratch images), the document falls back to `Routecraft HTTP API` / `0.0.0`.
+
+Workspace containers are excluded from auto-detection. If the nearest `package.json` is a monorepo root (it declares a `workspaces` field, or a `pnpm-workspace.yaml` sits beside it), the walk yields nothing and the neutral fallbacks apply. A workspace container is repository infrastructure, not a service identity: it is typically private, and release tooling never versions it, so its `version` silently goes stale. Running an app from a monorepo root therefore serves `Routecraft HTTP API` / `0.0.0` until you set `builtins.openapi.info` (or run from the app's own directory). A `private: true` manifest without workspaces is still used; an unpublished app's own name and version is exactly the identity its document should carry.
+
+### Auth
+
+`http: { auth }` accepts:
+
+- `jwt({...})` / `jwks({...})` -- bearer token with validator (same shape MCP uses).
+- `apiKey({ keys: [...] })` -- static allowlist. Reads from a header (default `x-api-key`) or, with `in: "query"`, a query parameter (default `api_key`).
+- `apiKey({ verify: (key) => Principal | null })` -- custom verifier that resolves to a per-user principal.
+
+The middleware runs once per incoming request. The route's `auth` option decides what happens with the result (see [Auth modes](#auth-modes) below). When admitted, the resolved `Principal` lands on the exchange (`routecraft.auth.principal`), and per-route guards via the existing `.authorize({ roles, scopes, predicate })` builder take it from there.
+
+API-key name matching follows each location's convention: header names are case-insensitive (per HTTP), so the `name` is matched case-insensitively; query parameter names are case-sensitive (per the URL spec), so the `name` must match exactly. Note the default name differs by location: `x-api-key` for headers, `api_key` for query.
+
+OAuth 2.1 is reserved in the auth union for a future release.
+
+#### Auth modes
+
+The `auth` option on `http({...})` chooses one of three modes per route. It has no effect when the plugin is configured without a global `auth` strategy.
+
+| Mode | Credential present, valid | Credential present, invalid | Credential absent |
+| --- | --- | --- | --- |
+| `"required"` (default) | admit, principal attached, `auth:success` | 401, `auth:rejected` | 401 |
+| `"optional"` | admit, principal attached, `auth:success` | 401, `auth:rejected` | admit, no principal, no auth event |
+| `"skip"` | bypass middleware entirely; no principal, no auth event | bypass middleware entirely; no principal, no auth event | bypass middleware entirely; no principal, no auth event |
+
+Rules of thumb:
+
+- **`"required"`** is the secure-by-default tier. Use it for every endpoint that handles authenticated user data.
+- **`"optional"`** is for public routes that personalise when the caller happens to be signed in: a homepage greeting, a docs page with a "logged in as X" header, an API endpoint that rate-limits anonymous higher than authenticated. The check stays strict when a credential _is_ presented; a malformed or forged token still returns 401 rather than being silently accepted as anonymous.
+- **`"skip"`** is for truly identity-free endpoints: health probes, RSS feeds, OG image generation, redirect handlers. No middleware runs at all, so no verification cost and no `auth:*` event noise.
+
+Combining `auth: "skip"` with `.authorize({...})` is rejected at request time: a `"skip"` route never attaches a principal, so the authorization check has nothing to evaluate. That is intentional. If you need role/scope checks, use `"required"` (or `"optional"`) plus `.authorize({...})`.
+
+### Signed webhooks
+
+Webhook providers (GitHub, Stripe, and others) HMAC-sign the exact bytes they POST. Re-serialising the parsed body is not byte-faithful (key order, whitespace, and unicode escaping all differ), so verification needs the raw wire bytes. The source covers this two ways.
+
+**Built-in verification (preferred).** Declare the check on the source and the plugin verifies the raw bytes before any route step runs. A missing, invalid, or expired signature returns `401 { error: "unauthorized", reason }` and emits `auth:rejected` with `scheme: "signature"`. Comparison is timing-safe.
+
+```typescript
+// GitHub: X-Hub-Signature-256 = "sha256=<hmac-sha256-hex>"
+export const githubHook = craft()
+  .id('github-hook')
+  .from(http({
+    path: '/hooks/github',
+    method: 'POST',
+    auth: 'skip', // the signature IS the credential
+    signature: {
+      header: 'x-hub-signature-256',
+      secret: process.env.GITHUB_WEBHOOK_SECRET!,
+      scheme: 'hmac-sha256-hex',
+      prefix: 'sha256=',
+    },
+  }))
+  .transform((event) => handlePush(event))
+  .to(noop())
+
+// Stripe: Stripe-Signature = "t=<unix>,v1=<hmac-sha256-hex over `t.body`>"
+export const stripeHook = craft()
+  .id('stripe-hook')
+  .from(http({
+    path: '/hooks/stripe',
+    method: 'POST',
+    auth: 'skip',
+    signature: {
+      header: 'stripe-signature',
+      secret: process.env.STRIPE_WEBHOOK_SECRET!,
+      scheme: 'stripe-timestamped',
+      // toleranceSec: 300 (default) bounds replay of captured deliveries
+    },
+  }))
+  .transform((event) => handlePaymentEvent(event))
+  .to(noop())
+```
+
+Schemes: `"hmac-sha256-hex"` (hex HMAC-SHA256, optional `prefix` such as GitHub's `sha256=`), `"hmac-sha1-hex"` (legacy providers; prefer sha256 when offered), and `"stripe-timestamped"` (`t=<unix>,v1=<hex>` with freshness checking; expired timestamps reject with reason `signature expired`). The rejection reasons are a bounded vocabulary: `missing signature header`, `invalid signature`, `signature expired`.
+
+Rules enforced at construction (`RC5003` from the `http({...})` call site): `signature` requires a body-bearing method (`POST`, `PUT`, `PATCH`), a non-empty `secret`, and a known `scheme`. At request time, oversized bodies still return 413 before any signature computation, and an empty body on a signature-gated route is verified rather than waved through. The gate is independent of the global `auth` middleware; webhook endpoints typically pair it with `auth: "skip"` since the signature is the credential.
+
+**Manual verification (escape hatch).** For providers whose scheme is not built in, opt in to the raw bytes and verify in a route step. Note the semantics differ from the built-in gate: `.filter()` drops an unsigned or invalid delivery (the exchange ends with a `route:exchange:dropped` event and the sender receives the route's normal empty response), it does not return 401 or raise RC5039. That is usually fine for webhooks, since providers only distinguish 2xx from non-2xx, but if you need an explicit 401 use the built-in `signature` option or set the response status yourself before dropping.
+
+```typescript
+.from(http({ path: '/hooks/custom', method: 'POST', auth: 'skip', rawBody: true }))
+.filter((ex) => {
+  const signature = ex.headers['routecraft.http.rawHeaders']?.['x-custom-signature']
+  if (!signature) return { reason: 'missing x-custom-signature header' }
+  return verifyMySignature(ex.headers['routecraft.http.rawBody']!, signature)
+})
+```
+
+RC5039 applies only to the built-in `signature` gate; it is documented on the [errors reference](/docs/reference/errors#rc-5039).
+
+### Route matching and information disclosure
+
+The dispatcher resolves path/method before running auth, so unmatched paths return `404` and matched paths with a different method return `405` (with an `Allow` header) even to unauthenticated callers. This is standard HTTP behaviour (Express/Fastify/Hono all do the same), and `GET /openapi.json` is served publicly by default (matching the Stripe/GitHub/Twilio convention). Both choices are intentional: protection comes from auth on each endpoint, not from hiding the surface. If a deployment genuinely needs route concealment, gate the OpenAPI spec with `builtins: { openapi: { requireAuth: true } }` (or disable it with `enabled: false`) and put the service behind a gateway that strips 404/405 differentiation.
+
+### Events
+
+- `plugin:http:server:listening` -> `{ port, host }` after the listener binds.
+- `plugin:http:server:closed` after graceful shutdown.
+- `plugin:http:request:completed` -> `{ method, path, status, durationMs, routeId?, principal? }` per request (toggle with `http: { events: { perRequest: false } }`).
+- `auth:success` / `auth:rejected` -- reused from the framework's existing auth event surface (`source: "http"`).
+
+See [HTTP plugin events](/docs/reference/events#http-plugin-events) on the events reference.
+
+## HTTP client (outbound)
+
+```ts
+http<T, R>(options: HttpClientOptions<T>): Enricher<T, HttpResult<R>>
+```
+
+Make HTTP requests. Returns an `Enricher` (a pull-in) whose `fetch` produces an `HttpResult`; it works with `.to()`, `.enrich()`, and `.tap()`.
+
+**With `.enrich()` (result replaces the body by default):**
+
+```ts
+// Static GET request - the HttpResult replaces the body
+.enrich(http({
+  method: 'GET',
+  url: 'https://api.example.com/users'
+}))
+
+// Dynamic URL based on exchange data
+.enrich(http({
+  method: 'GET',
+  url: (exchange) => `https://api.example.com/users/${exchange.body.userId}`
+}))
+
+// Merge instead of replace: pick a value with only()
+.enrich(
+  http({ url: (ex) => `https://api.example.com/users/${ex.body.userId}` }),
+  only((r) => r.body, 'user')
+)
+
+// Custom aggregator to control merge behavior
+.enrich(
+  http({ url: 'https://api.example.com/profile' }),
+  (original, result) => ({
+    ...original,
+    body: { ...original.body, profileData: result.body }
+  })
+)
+```
+
+**With `.to()` (body replacement) and `.tap()` (fire-and-forget):**
+
+`.to(http(...))` invokes the client's `fetch` and replaces the exchange body with the `HttpResult`. To merge or preserve the original exchange body, use `.enrich()` with an aggregator instead; to call an endpoint purely for the side effect, use `.tap()` (the result is discarded).
+
+```ts
+.to(http({
+  method: 'POST',
+  url: 'https://api.example.com/webhook',
+  body: (exchange) => exchange.body
+}))
+
+.to(http({
+  method: 'GET',
+  url: 'https://api.example.com/transform'
+}))
+
+.enrich(http({
+  url: 'https://api.example.com/search',
+  query: (exchange) => ({ q: exchange.body.searchTerm, limit: 10 })
+}))
+```
+
+**Client options:**
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `method` | `HttpMethod` | `'GET'` | No | HTTP method to use |
+| `url` | `string \| (exchange) => string` | -- | Yes | Target URL (string or derived from exchange) |
+| `headers` | `Record<string,string> \| (exchange) => Record<string,string>` | `{}` | No | Request headers |
+| `query` | `Record<string,string\|number\|boolean> \| (exchange) => Query` | `{}` | No | Query parameters appended to URL |
+| `body` | `unknown \| (exchange) => unknown` | -- | No | Request body (JSON serialized when not string/binary) |
+| `throwOnHttpError` | `boolean` | `true` | No | Throw when response is non-2xx |
+| `timeoutMs` | `number` | -- | No | Request timeout in milliseconds |
+
+**Returns:** `HttpResult` object with `status`, `headers`, `body`, and `url`.

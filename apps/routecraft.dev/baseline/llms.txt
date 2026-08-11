@@ -1,0 +1,77 @@
+# Routecraft
+
+> Routecraft is a code-first TypeScript automation framework that bridges traditional integration patterns (ETL, webhooks, cron jobs) and AI-native workflows (MCP tool use). Write deterministic capabilities in TypeScript, expose them to AI agents via Model Context Protocol, and keep full control over what AI can access.
+
+## Links
+
+- Website: <https://routecraft.dev>
+- GitHub: <https://github.com/routecraftjs/routecraft>
+- npm: [@routecraft/routecraft](https://www.npmjs.com/package/@routecraft/routecraft)
+- npm: [@routecraft/ai](https://www.npmjs.com/package/@routecraft/ai)
+- npm: [@routecraft/cli](https://www.npmjs.com/package/@routecraft/cli)
+- npm: [@routecraft/os](https://www.npmjs.com/package/@routecraft/os)
+- npm: [@routecraft/testing](https://www.npmjs.com/package/@routecraft/testing)
+
+## Getting Started
+
+- [Installation](https://routecraft.dev/raw/docs/introduction/installation.md): System requirements, manual setup, and production builds.
+- [Changelog](https://routecraft.dev/raw/changelog.md): All notable changes to Routecraft.
+
+## Introduction
+
+- [Introduction](https://routecraft.dev/raw/docs/introduction.md): What Routecraft is and how it works.
+- [Project structure](https://routecraft.dev/raw/docs/introduction/project-structure.md): A conventional folder layout that Routecraft expects out of the box.
+- [Capabilities](https://routecraft.dev/raw/docs/introduction/capabilities.md): Define what your AI can do, and exactly how it does it.
+- [The Exchange](https://routecraft.dev/raw/docs/introduction/exchange.md): The data envelope that flows through every capability.
+- [Operations](https://routecraft.dev/raw/docs/introduction/operations.md): The steps that transform, filter, and route data inside a capability.
+- [Adapters](https://routecraft.dev/raw/docs/introduction/adapters.md): Connectors that link your capabilities to the outside world.
+- [Events](https://routecraft.dev/raw/docs/introduction/events.md): Observe and react to what happens inside the runtime without touching capability code.
+- [Testing](https://routecraft.dev/raw/docs/introduction/testing.md): Test your capabilities with fast unit tests and optional E2E runs.
+- [Deployment](https://routecraft.dev/raw/docs/introduction/deployment.md): Deploy Routecraft on Bun for the CLI path, or embed it inside a Node application.
+- [Monitoring](https://routecraft.dev/raw/docs/introduction/monitoring.md): Log and observe your capabilities at runtime.
+- [Terminal UI](https://routecraft.dev/raw/docs/introduction/tui.md): Inspect routes, agents, tools, exchanges, and live events from the terminal.
+
+## Advanced
+
+- [Plugins](https://routecraft.dev/raw/docs/advanced/plugins.md): Extend the Routecraft runtime with cross-cutting behaviour.
+- [Composing Capabilities](https://routecraft.dev/raw/docs/advanced/composing-capabilities.md): Connect capabilities together to build multi-stage pipelines.
+- [Error Handling](https://routecraft.dev/raw/docs/advanced/error-handling.md): Catch pipeline errors and recover gracefully with .error().
+- [Pre-from Filter Chain](https://routecraft.dev/raw/docs/advanced/filter-chain.md): How .authorize(), .input(), .cache(), .error(), .throttle(),
+- [Merged Options](https://routecraft.dev/raw/docs/advanced/merged-options.md): Set adapter defaults once and share them across your entire context.
+- [Type Registries](https://routecraft.dev/raw/docs/advanced/type-registries.md): Compile-time safety for string-based adapter APIs via declaration merging.
+- [Creating adapters](https://routecraft.dev/raw/docs/advanced/custom-adapters.md): Build your own source, destination, enricher, or processor adapter.
+- [Programmatic Invocation](https://routecraft.dev/raw/docs/advanced/programmatic-invocation.md): Use CraftClient to dispatch messages into Routecraft routes from any external code -- CLI tools, HTTP handlers, backg...
+- [Running an MCP server](https://routecraft.dev/raw/docs/advanced/expose-as-mcp.md): Run your capabilities as MCP tools for Claude, Cursor, and other AI clients.
+- [Calling an MCP](https://routecraft.dev/raw/docs/advanced/call-an-mcp.md): Call tools on external MCP servers from within a capability.
+- [Judging Agent Results](https://routecraft.dev/raw/docs/advanced/judging-agent-results.md): Decide programmatically whether an agent achieved what was asked: judge the result with a second model call, then bra...
+- [Securing capabilities](https://routecraft.dev/raw/docs/advanced/securing-capabilities.md): Authenticate the HTTP endpoints that expose your capabilities, and enrich the caller's identity.
+- [Linting](https://routecraft.dev/raw/docs/advanced/linting.md): Enforce Routecraft best practices with ESLint.
+- [Formatting](https://routecraft.dev/raw/docs/advanced/formatting.md): Keep Routecraft DSL chains compact with the Prettier plugin.
+
+## Reference
+
+- [Adapters](https://routecraft.dev/raw/docs/reference/adapters.md): Every source, destination, enricher, transformer, and processor in Routecraft. Each card opens its own reference page...
+- [Operations](https://routecraft.dev/raw/docs/reference/operations.md): Every verb in the Routecraft DSL. Each row opens its own reference page with the full signature, options, and examples.
+- [Events](https://routecraft.dev/raw/docs/reference/events.md): Full catalog of lifecycle and runtime events emitted by the Routecraft context.
+- [Configuration](https://routecraft.dev/raw/docs/reference/configuration.md): Full reference for CraftConfig fields and logging options.
+- [CLI](https://routecraft.dev/raw/docs/reference/cli.md): Run Routecraft capabilities from the command line.
+- [Runtime](https://routecraft.dev/raw/docs/reference/runtime.md): The craft CLI runs on Bun. Routecraft itself is also a library, so Node users embed it programmatically.
+- [Plugins](https://routecraft.dev/raw/docs/reference/plugins.md): Built-in plugins that extend the Routecraft runtime. Each entry opens its own reference page with the full options an...
+- [Linting](https://routecraft.dev/raw/docs/reference/linting.md): Rule catalog for @routecraft/eslint-plugin-routecraft.
+- [Errors](https://routecraft.dev/raw/docs/reference/errors.md): Short, actionable error codes used across Routecraft.
+
+## Examples
+
+- [File to HTTP](https://routecraft.dev/raw/docs/examples/api-sync.md): Read a CSV file and send each row to an API.
+- [MCP tool](https://routecraft.dev/raw/docs/examples/mcp.md): Expose a capability as an MCP tool, and call a remote MCP server from a capability.
+- [Support triage agent](https://routecraft.dev/raw/docs/examples/support-triage.md): Let an agent triage incoming support email, bounded to a two-tool allowlist.
+
+## Community
+
+- [Contribution Guide](https://routecraft.dev/raw/docs/community/contribution-guide.md): How to contribute to Routecraft.
+- [FAQ](https://routecraft.dev/raw/docs/community/faq.md): Answers to common questions.
+
+## Optional
+
+- [Full Documentation (single file)](https://routecraft.dev/llms-full.txt): All documentation concatenated into one markdown file for bulk ingestion
+- [Changelog](https://routecraft.dev/raw/changelog.md)

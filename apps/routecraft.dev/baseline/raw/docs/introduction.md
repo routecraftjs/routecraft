@@ -1,0 +1,107 @@
+# Introduction
+
+What Routecraft is and how it works.
+
+## What is Routecraft?
+
+Routecraft is a **code-first automation platform** for TypeScript that bridges traditional integration (Software 1.0) and AI-native workflows (Software 3.0).
+
+Whether you need to process a daily CSV on a cron job, route incoming webhooks, or give Claude the ability to manage your Google Calendar, Routecraft handles it all through a single, unified DSL.
+
+Routecraft is built for both eras of software:
+
+- **Traditional Automation:** Build robust data pipelines, process webhooks, and run scheduled tasks with a type-safe DSL.
+- **AI-Native Tools:** Expose those exact same capabilities to Claude, ChatGPT, Cursor, and other agents via MCP.
+
+TypeScript all the way. Full IDE support, version controlled, and testable.
+
+**Secure by Design**
+Nothing is accessible until you explicitly write a capability for it. Write a **deterministic** capability for predictable, code-controlled actions. Write a **non-deterministic** one and the agent reasons within the boundary you defined. You define what AI can do, and the code enforces it.
+
+{% topology-diagram /%}
+
+---
+
+## Core Concepts
+
+These concepts give you a high-level map of how everything fits together.
+
+### Capabilities and Routes
+
+From an AI agent's perspective, everything you build is a **Capability**: a discoverable action it can invoke, like "send an email" or "book a meeting." Under the hood, each capability is implemented as a **Route**: a TypeScript pipeline connecting a **source** to one or more **steps** (operations, processors, or adapters), and eventually to a **destination**.
+
+Capabilities can be fully **deterministic** (the same input always produces the same output) or **non-deterministic** (an embedded agent reasons and decides at runtime). You choose the level of autonomy for each one.
+
+### The DSL
+
+Routecraft uses a **fluent DSL (Domain-Specific Language)** to author capabilities. It reads like a pipeline:
+
+```ts
+craft()
+  .from(source)
+  .transform(fn)
+  .to(destination)
+```
+
+This makes capabilities easy to write, read, and extend.
+
+### Operations
+
+Operations are the **steps inside a capability**. They can transform data, filter messages, enrich responses with external calls, or split and aggregate streams. They are the verbs of the DSL: `transform`, `filter`, `enrich`, and more.
+
+### Adapters
+
+Adapters are **connectors** that let your capabilities interact with the outside world. They come in different types:
+
+- **Sources**: where data enters (HTTP requests, timers, files).
+- **Processors**: steps that modify or enrich the exchange.
+- **Destinations**: where the data ends up (logs, databases, APIs).
+
+Adapters make Routecraft extensible. You can use the built-ins or create your own.
+
+### Exchange
+
+Every step passes along an **exchange**. An exchange carries the **body** (the main data) and **headers** (metadata such as IDs, parameters, or context). It is the message envelope that moves through the pipeline from start to finish.
+
+```json
+{
+  "id": "a3f4e1b2-9c6d-4e8a-b1f3-2d7c0e5a9f12",
+  "body": {
+    "to": "alice@example.com",
+    "subject": "Your meeting is confirmed"
+  },
+  "headers": {
+    "routecraft.correlation_id": "abc-123"
+  }
+}
+```
+
+### Context
+
+The **Routecraft context** is the runtime that manages your capabilities. It handles:
+
+- Loading capabilities.
+- Starting and stopping them.
+- Hot reload in development.
+- Running a capability once for batch jobs or tests.
+
+You can drive a context through the CLI, or embed it programmatically in your own application.
+
+### How it all fits
+
+- **Capabilities** are the secure workflows.
+- **DSL** is how you describe them.
+- **Operations** are the steps.
+- **Adapters** connect to the outside world.
+- **Exchange** is the data that flows through.
+- **Context** is the engine that runs everything.
+
+These concepts make Routecraft a **developer-first automation framework**: straightforward to start, and powerful enough to grow with your needs.
+
+---
+
+## Related
+
+- [Installation](/docs/introduction/installation) -- Install via CLI or manually add packages.
+- [Project structure](/docs/introduction/project-structure) -- Nuxt-style folder layout and auto-discovery.
+- [Capabilities](/docs/introduction/capabilities) -- Author small, focused capabilities using the DSL.

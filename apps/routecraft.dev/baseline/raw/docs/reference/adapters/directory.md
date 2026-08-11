@@ -1,0 +1,99 @@
+# directory
+
+[← All adapters](/docs/reference/adapters)
+
+```ts
+directory(options & { path: string; chunked: true }): DirectoryChunkedAdapter // Source<DirectoryEntry> & Enricher<unknown, DirectoryEntry[]>
+directory(options: DirectoryOptions): DirectoryAdapter                        // Source<DirectoryEntry[]> & Enricher<unknown, DirectoryEntry[]>
+```
+
+Scan a directory and list its entries. The directory adapter is the "find the files" half of working with a directory; the [`file`](/docs/reference/adapters/file) adapter reads or writes a single file. Compose the two to process every file in a directory.
+
+One factory, one type; the operation keyword selects the role: `.from()` emits the listing, `.enrich()` fetches it mid-route. There is no `send` (a listing is a read), so `.to()` resolves to the same fetch and the listing replaces the body.
+
+By default the source emits a single exchange whose body is the full `DirectoryEntry[]` listing, the same collection-in-one-exchange shape as the non-chunked [`csv`](/docs/reference/adapters/csv) and [`jsonl`](/docs/reference/adapters/jsonl) adapters. Pass `chunked: true` to emit one exchange per entry instead. Filtering is intentionally not built in either way: list the entries, then decide which ones.
+
+```ts
+// Chunked: one exchange per file, filter by name/metadata, read each
+craft()
+  .from(directory({ path: './inbox', chunked: true }))
+  .filter((ex) => ex.body.ext === '.json')
+  .enrich(
+    file({ path: (ex) => ex.body.path }),
+    only((content: string) => content, 'content'),
+  )
+  .to(log())
+
+// Default: the whole listing as one body, act on the collection then split
+craft()
+  .from(directory({ path: './inbox' }))
+  .transform((entries) => entries.filter((e) => e.ext === '.json'))
+  .split((ex) => ex.body)
+  .enrich(
+    file({ path: (ex) => ex.body.path }),
+    only((content: string) => content, 'content'),
+  )
+  .to(log())
+```
+
+**List mid-route:** the adapter's `fetch` returns the sorted `DirectoryEntry[]` listing, so you can list a directory partway through a route with `.enrich()` or `.to()`, the same way [`file`](/docs/reference/adapters/file)'s fetch pulls in a file's content. A listing is a read, so it belongs in the pull-in role. This is what makes the adapter usable inside a [`direct()`](/docs/reference/adapters/direct) capability, where there is no `.from()` slot to hang the listing on. The source role needs a static string path; the enricher also accepts a function, resolved against the exchange when the scan runs.
+
+```ts
+// An agent capability: list candidate files, read them, return the matches
+craft()
+  .from(direct('search-notes'))
+  .to(directory({ path: './notes', recursive: true }))   // body becomes DirectoryEntry[]
+  .transform((entries) => entries.filter((e) => e.ext === '.md'))
+  .split((ex) => ex.body)
+  .enrich(
+    file({ path: (ex) => ex.body.path }),
+    only((content: string) => content, 'content'),
+  )
+  .to(log())
+
+// List a directory whose path depends on the exchange
+craft()
+  .from(direct('inspect-dir'))
+  .enrich(
+    directory({ path: (ex) => ex.body.dir }),
+    only((entries: DirectoryEntry[]) => entries, 'candidates'),
+  )
+  .to(log())
+```
+
+An enclosing [`.timeout()`](/docs/reference/operations/timeout) that expires mid-scan makes the fetch **throw** rather than return the entries it had collected: a truncated listing is indistinguishable from a complete directory, so it is never handed to the route as a body. The source is unaffected (an abort there simply stops emission).
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | `string \| (exchange) => string` | Required | Directory to scan. The source role requires a static string (a source is not per-exchange); the enricher also accepts the function form |
+| `recursive` | `boolean` | `false` | Descend into subdirectories |
+| `includeDirs` | `boolean` | `false` | Emit directory entries too, not just files |
+| `chunked` | `boolean` | `false` | Source only: emit one exchange per entry instead of a single `DirectoryEntry[]` exchange. The enricher role is unaffected and still fetches the whole listing |
+
+**Entry shape (`DirectoryEntry`):** the body of every emitted exchange.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | `string` | Path resolved against the scanned directory, ready for `file({ path })` |
+| `name` | `string` | Base name including extension, e.g. `report.json` |
+| `dir` | `string` | Directory containing the entry |
+| `ext` | `string` | Lowercased extension including the dot, e.g. `.json` (empty when none) |
+| `relativePath` | `string` | Path relative to the scanned directory root |
+| `size` | `number` | File size in bytes |
+| `modifiedAt` | `Date` | Last modification time |
+| `createdAt` | `Date` | Creation time (birthtime; may fall back to the mtime on some filesystems) |
+| `isDirectory` | `boolean` | True for directory entries (only emitted when `includeDirs`) |
+
+**Metadata lives on the body, not headers:** the entry is already a structured object, so its fields are not duplicated into `routecraft.directory.*` headers. Filter and route on the body directly. This differs from the file adapter's chunked mode, whose body is a bare line string and so carries its line number and path on headers.
+
+**Deterministic order:** entries are sorted by `relativePath` with separators normalized to `/`, so emission order (chunked) and array order (non-chunked) are stable and identical across platforms (raw directory listing order is not). An empty directory emits one exchange with an empty array in the default shape, and nothing in chunked mode.
+
+**Files only by default:** directories are skipped unless `includeDirs: true`. With `recursive: true` the scan still descends into subdirectories regardless of `includeDirs`; that flag only controls whether the directories themselves are emitted as exchanges.
+
+**Symlinks are followed:** entry types and metadata come from the target, not the link. A symlink to a directory is treated as a directory (skipped unless `includeDirs`), a symlink to a file is emitted with the target's `size` and `modifiedAt`, and a broken symlink is skipped.
+
+**Robust scanning:** an entry that vanishes between listing and reading its metadata (or a broken symlink) is skipped with a debug log rather than failing the whole scan; any other per-entry failure (for example an unreadable entry) is also skipped but logged as a warning, since the listing is incomplete. A missing or unreadable directory throws (`directory not found`, `not a directory`, or `permission denied`).
+
+**Exported symbols:** `directory`; types `DirectoryAdapter`, `DirectoryChunkedAdapter`, `DirectoryOptions`, `DirectoryEntry`
