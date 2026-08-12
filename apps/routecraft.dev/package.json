@@ -8,6 +8,8 @@
     "check:links": "bun scripts/check-links.ts",
     "dev": "bun run generate && bun --bun vite dev",
     "figures:export": "bun scripts/export-figures.ts",
+    "freeze": "bun scripts/freeze-docs.ts",
+    "freeze:restore": "bun scripts/freeze-docs.ts --restore",
     "generate": "bun scripts/generate-docs-next.ts && bun scripts/generate-docs-catalogue.ts && bun scripts/generate-raw-docs.ts && bun scripts/generate-og-images.ts && bun scripts/generate-sitemap.ts && bun scripts/generate-robots.ts && bun scripts/generate-feed.ts",
     "lint": "eslint .",
     "start": "bun run .output/server/index.mjs",

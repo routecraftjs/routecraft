@@ -37,23 +37,47 @@ export function TableOfContents({
 
   useEffect(() => {
     if (tableOfContents.length === 0) return
-    const headings = getHeadings(tableOfContents)
-    function onScroll() {
-      const top = window.scrollY
-      let current = headings[0].id
-      for (const heading of headings) {
-        if (top >= heading.top - 10) {
-          current = heading.id
-        } else {
-          break
-        }
+
+    let frame = 0
+    let attempts = 0
+    let detach: (() => void) | undefined
+
+    // The outline renders beside the article, and the article's module is
+    // loaded lazily, so on a client-side navigation the headings are not in the
+    // document yet when this first runs. Measuring then yields nothing, and the
+    // outline would sit inert for the life of the page.
+    function measure() {
+      const headings = getHeadings(tableOfContents)
+
+      if (headings.length === 0) {
+        if (attempts++ > 60) return
+        frame = requestAnimationFrame(measure)
+        return
       }
-      setCurrentSection(current)
+
+      function onScroll() {
+        const top = window.scrollY
+        let current = headings[0].id
+        for (const heading of headings) {
+          if (top >= heading.top - 10) {
+            current = heading.id
+          } else {
+            break
+          }
+        }
+        setCurrentSection(current)
+      }
+
+      window.addEventListener('scroll', onScroll, { passive: true })
+      onScroll()
+      detach = () => window.removeEventListener('scroll', onScroll)
     }
-    window.addEventListener('scroll', onScroll, { passive: true })
-    onScroll()
+
+    measure()
+
     return () => {
-      window.removeEventListener('scroll', onScroll)
+      cancelAnimationFrame(frame)
+      detach?.()
     }
   }, [getHeadings, tableOfContents])
 

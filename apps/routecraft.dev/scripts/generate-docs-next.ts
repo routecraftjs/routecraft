@@ -18,7 +18,7 @@
  */
 
 import { copyFile, mkdir, rm } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { Glob } from 'bun'
 
@@ -80,4 +80,22 @@ await mirror(SCREENSHOTS_DIR, SCREENSHOTS_NEXT_DIR, assets)
 console.log(
   `Generated ${pageCount} page(s), ${dataCount} data file(s) and ` +
     `${assets.length} asset(s) for the next docs channel.`,
+)
+
+/**
+ * States which content each channel is about to publish.
+ *
+ * An unfrozen build serves main on `/docs`, which looks identical to a release
+ * build until you notice unreleased pages on the released channel. Saying it
+ * out loud is cheaper than discovering it in an image.
+ */
+const marker = join(DOCS_DIR, '.frozen')
+const frozenTag = existsSync(marker)
+  ? readFileSync(marker, 'utf8').trim()
+  : undefined
+
+console.log(
+  frozenTag
+    ? `Released channel is frozen to ${frozenTag}; the next channel carries main.`
+    : 'Released channel is NOT frozen: /docs will publish main, same as /docs/next. Run scripts/freeze-docs.ts <tag> to reproduce a release build.',
 )

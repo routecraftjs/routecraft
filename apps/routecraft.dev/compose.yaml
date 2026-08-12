@@ -1,8 +1,13 @@
 # Local production check. Run from the repository root:
 #   docker compose -f apps/routecraft.dev/compose.yaml up --build
 #
-# Freeze the released channel first if you want to reproduce a real deploy:
+# WITHOUT A FREEZE THIS IS NOT A RELEASE BUILD. /docs publishes main, exactly
+# like /docs/next, so unreleased pages appear on the released channel and the
+# version reads "vdev". The build says so in its output. To reproduce a real
+# deploy, freeze first and restore afterwards:
+#
 #   bun apps/routecraft.dev/scripts/freeze-docs.ts v0.6.0
+#   VITE_DOC_VERSION=v0.6.0 docker compose -f apps/routecraft.dev/compose.yaml up --build
 #   bun apps/routecraft.dev/scripts/freeze-docs.ts --restore
 services:
   app:

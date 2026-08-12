@@ -21,7 +21,7 @@
 
 import { $ } from 'bun'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm, cp } from 'node:fs/promises'
+import { mkdtemp, rm, cp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -49,6 +49,15 @@ const LEGACY = {
 }
 
 const REPO_ROOT = join(import.meta.dir, '../../..')
+
+/**
+ * Records which tag the content root holds.
+ *
+ * The build reads it to say out loud which channel is publishing what. Without
+ * it an unfrozen local image looks exactly like a release build while serving
+ * main on `/docs`. It lives inside the frozen path, so restoring clears it.
+ */
+const MARKER = join(REPO_ROOT, 'apps/routecraft.dev/app/content/docs/.frozen')
 
 async function tagCarries(tag: string, path: string): Promise<boolean> {
   const result =
@@ -156,6 +165,7 @@ async function freeze(tag: string): Promise<void> {
   }
 
   await rm(parked, { recursive: true, force: true })
+  await writeFile(MARKER, `${tag}\n`)
 
   console.log(`Froze the released docs channel to ${tag}.`)
 }

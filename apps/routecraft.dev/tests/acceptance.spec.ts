@@ -271,6 +271,36 @@ test.describe('runtime health', () => {
   })
 })
 
+test.describe('client-side navigation', () => {
+  test('moving between docs pages does not throw', async ({ page }) => {
+    test.slow()
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+
+    await page.goto('/docs/introduction/')
+    await page.waitForLoadState('networkidle')
+
+    // A client navigation runs the route loader and mounts the outline before
+    // the target page's module lands, which a direct load never does. The
+    // outline used to measure headings that were not in the document yet and
+    // took the whole route down with it.
+    for (const href of [
+      '/docs/reference/errors/',
+      '/docs/advanced/plugins/',
+      '/docs/introduction/adapters/',
+    ]) {
+      await page.locator(`nav a[href="${href}"]`).first().click()
+      await page.waitForTimeout(1_500)
+      expect(
+        await page.getByText('Something went wrong').count(),
+        `error boundary after navigating to ${href}`,
+      ).toBe(0)
+    }
+
+    expect(errors).toEqual([])
+  })
+})
+
 test.describe('sitemap', () => {
   test('never advertises the next channel', async ({ request }) => {
     const body = await (await request.get('/sitemap.xml')).text()

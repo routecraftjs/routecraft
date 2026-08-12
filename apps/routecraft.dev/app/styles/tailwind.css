@@ -75,13 +75,10 @@
 }
 
 @layer base {
-  /* Without this the browser paints its native UI, scrollbars most visibly, in
-     light colours over the dark theme: a white trough that also measures wider
-     than the themed one, so toggling themes nudges the layout. */
-  :root {
-    color-scheme: light;
-  }
-
+  /* Only the dark theme needs this: without it the browser paints its native
+     UI, scrollbars most visibly, in light colours over a dark page. Light mode
+     is deliberately left undeclared so the platform keeps its own default,
+     which on macOS is an overlay scrollbar rather than a classic one. */
   .dark {
     color-scheme: dark;
   }
