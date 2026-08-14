@@ -412,9 +412,13 @@ jobs:
           IMAGE="ghcr.io/$OWNER/routecraft.dev"
 
           # The build context is the repository root: the site is a workspace
-          # member and the lockfile lives there. It carries the frozen working
-          # tree, which is why the image build must not regenerate the next
-          # channel from it.
+          # member and the lockfile lives there. It carries the frozen tree and
+          # the marker the freeze left, which is what keeps the image build from
+          # regenerating the next channel out of the released docs.
+          #
+          # VITE_BASE_URL is left to the Dockerfile default, the production
+          # origin, so the image's canonicals and social cards are the deployed
+          # ones.
           docker build \
             --file apps/routecraft.dev/Dockerfile \
             --build-arg VITE_DOC_VERSION="$DOC_VERSION" \
