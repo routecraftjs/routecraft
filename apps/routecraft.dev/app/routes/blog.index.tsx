@@ -42,7 +42,7 @@ function BlogIndexPage() {
   const rest = posts.filter((post) => !featuredSlugs.has(post.slug))
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-20 sm:px-6 lg:px-8">
+    <main className="w-full py-20">
       <section className="max-w-3xl">
         <p className="flex items-center gap-3 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase">
           <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />

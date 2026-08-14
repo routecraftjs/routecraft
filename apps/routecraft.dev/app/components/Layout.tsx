@@ -19,7 +19,7 @@ function GitHubIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function Header() {
+function Header({ container }: { container: string }) {
   const [isScrolled, setIsScrolled] = useState(false)
 
   useEffect(() => {
@@ -36,42 +36,49 @@ function Header() {
   return (
     <header
       className={clsx(
-        'sticky top-0 z-50 flex flex-none flex-wrap items-center justify-between border-b border-ink/15 bg-paper px-4 py-4 transition duration-500 sm:px-6 lg:px-8',
+        'sticky top-0 z-50 flex-none border-b border-ink/15 bg-paper transition duration-500',
         isScrolled &&
           'bg-paper/85 backdrop-blur-sm [@supports(backdrop-filter:blur(0))]:bg-paper/70',
       )}
     >
-      <div className="mr-6 flex lg:hidden">
-        <MobileNavigation />
-      </div>
-      <div className="relative flex grow basis-0 items-center gap-10">
-        <AppLink
-          href="/"
-          aria-label="Home page"
-          className="group flex items-center gap-2.5"
-        >
-          <Logo className="h-6 w-6 shrink-0 text-ink transition group-hover:text-cobalt-500" />
-          <span
-            className="font-editorial text-[1.35rem] leading-none tracking-[-0.02em] text-ink"
-            style={{ fontVariationSettings: '"opsz" 48, "SOFT" 30' }}
-          >
-            Routecraft
-          </span>
-        </AppLink>
-        <TopNav />
-      </div>
-      <div className="flex items-center gap-4 sm:gap-5">
-        <div className="-my-5">
-          <Search />
+      <div
+        className={clsx(
+          container,
+          'flex flex-wrap items-center justify-between py-4',
+        )}
+      >
+        <div className="mr-6 flex lg:hidden">
+          <MobileNavigation />
         </div>
-        <ThemeSelector className="relative z-10" />
-        <AppLink
-          href="https://github.com/routecraftjs/routecraft"
-          className="group"
-          aria-label="GitHub"
-        >
-          <GitHubIcon className="h-5 w-5 fill-ink/55 transition group-hover:fill-cobalt-500" />
-        </AppLink>
+        <div className="relative flex grow basis-0 items-center gap-10">
+          <AppLink
+            href="/"
+            aria-label="Home page"
+            className="group flex items-center gap-2.5"
+          >
+            <Logo className="h-6 w-6 shrink-0 text-ink transition group-hover:text-cobalt-500" />
+            <span
+              className="font-editorial text-[1.35rem] leading-none tracking-[-0.02em] text-ink"
+              style={{ fontVariationSettings: '"opsz" 48, "SOFT" 30' }}
+            >
+              Routecraft
+            </span>
+          </AppLink>
+          <TopNav />
+        </div>
+        <div className="flex items-center gap-4 sm:gap-5">
+          <div className="-my-5">
+            <Search />
+          </div>
+          <ThemeSelector className="relative z-10" />
+          <AppLink
+            href="https://github.com/routecraftjs/routecraft"
+            className="group"
+            aria-label="GitHub"
+          >
+            <GitHubIcon className="h-5 w-5 fill-ink/55 transition group-hover:fill-cobalt-500" />
+          </AppLink>
+        </div>
       </div>
     </header>
   )
@@ -93,17 +100,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // their own scroll behavior (docs sidebar scrolls separately, blog posts
   // have a per-post footer) and a global footer there overflows weirdly.
   const showFooter = isHomePage || isCheatSheet || isBlogLanding || isFigures
+  // The site has two page widths (see `container-site` in tailwind.css). Docs
+  // and the changelog get the wider one because they frame the article with a
+  // navigation sidebar and an outline rail; everything else shares the narrower
+  // one. The header takes the same container so its logo sits on the page's own
+  // gutter rather than on the viewport edge.
+  const container = showDocsSidebar ? 'container-docs' : 'container-site'
 
   return (
     <div className="flex min-h-full w-full flex-col">
-      <Header />
+      <Header container={container} />
 
       <div
-        className={
-          useFullWidth
-            ? 'relative flex w-full flex-auto flex-col'
-            : 'relative mx-auto flex w-full max-w-8xl flex-auto justify-center sm:px-2 lg:px-8 xl:px-12'
-        }
+        className={clsx(
+          'relative flex w-full flex-auto',
+          useFullWidth ? 'flex-col' : clsx(container, 'justify-center'),
+        )}
       >
         {showDocsSidebar && (
           <div className="hidden lg:relative lg:block lg:flex-none">

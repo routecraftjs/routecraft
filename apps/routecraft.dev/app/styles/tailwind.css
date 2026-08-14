@@ -74,6 +74,25 @@
   --container-8xl: 88rem;
 }
 
+/*
+ * The site has exactly two page widths, and every surface uses one of them.
+ *
+ * `container-site` frames the marketing pages, the blog and the footer.
+ * `container-docs` is wider because docs and the changelog put a navigation
+ * sidebar and an outline rail either side of the article, so the reading column
+ * lands narrower than the site container despite the wider frame.
+ *
+ * The header takes whichever one the page beneath it uses, which is what keeps
+ * the logo on the same gutter as the content on every page.
+ */
+@utility container-site {
+  @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+}
+
+@utility container-docs {
+  @apply mx-auto w-full max-w-8xl px-4 sm:px-6 lg:px-8;
+}
+
 @layer base {
   /* Only the dark theme needs this: without it the browser paints its native
      UI, scrollbars most visibly, in light colours over a dark page. Light mode
