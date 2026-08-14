@@ -11,14 +11,38 @@ const MAX_LENGTH = 155
 
 /**
  * Trims to a word boundary rather than a character index, so a description
- * never ends mid-word and never splits a surrogate pair into a lone half.
+ * never ends mid-word. A run long enough to have no boundary to cut at falls
+ * back to the index, where a trailing high surrogate is dropped rather than
+ * emitted as half a character.
  */
 function truncate(text: string): string {
   if (text.length <= MAX_LENGTH) return text
 
   const cut = text.slice(0, MAX_LENGTH - 1)
   const boundary = cut.lastIndexOf(' ')
-  return `${(boundary > 0 ? cut.slice(0, boundary) : cut).trimEnd()}…`
+  const kept =
+    boundary > 0 ? cut.slice(0, boundary) : cut.replace(/[\uD800-\uDBFF]$/, '')
+
+  return `${kept.trimEnd()}…`
+}
+
+/** An opening fence, as its delimiter character and length. */
+function fenceOpener(line: string): { char: string; length: number } | null {
+  const match = /^(`{3,}|~{3,})/.exec(line)
+  return match ? { char: match[1][0], length: match[1].length } : null
+}
+
+/**
+ * CommonMark closes a fence only on the same character, at least as long as the
+ * opener and alone on its line. Toggling on any fence-like line instead let a
+ * `~~~` example inside a backtick block reopen the prose scan mid-code.
+ */
+function closesFence(
+  line: string,
+  open: { char: string; length: number },
+): boolean {
+  const match = new RegExp(`^\\${open.char}{${open.length},}\\s*$`).exec(line)
+  return match !== null
 }
 
 /**
@@ -30,16 +54,21 @@ function truncate(text: string): string {
  * the first line of the signature as the page's description and social card.
  */
 export function docLead(body: string): string | undefined {
-  let inFence = false
+  let fence: { char: string; length: number } | null = null
 
   for (const raw of body.split('\n')) {
     const line = raw.trim()
 
-    if (/^(```|~~~)/.test(line)) {
-      inFence = !inFence
+    if (fence) {
+      if (closesFence(line, fence)) fence = null
       continue
     }
-    if (inFence) continue
+
+    const opener = fenceOpener(line)
+    if (opener) {
+      fence = opener
+      continue
+    }
 
     if (!line) continue
     if (/^(#|\{%|\[|<|\||-|\*|>|=|!)/.test(line)) continue
