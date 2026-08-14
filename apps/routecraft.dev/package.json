@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "rm -rf .output && bun run generate && bun scripts/config-probe.ts && bun --bun vite build",
+    "build": "rm -rf .output && bun run generate && bun --bun vite build",
     "check:links": "bun scripts/check-links.ts",
     "dev": "bun run generate && bun --bun vite dev",
     "figures:export": "bun scripts/export-figures.ts",
