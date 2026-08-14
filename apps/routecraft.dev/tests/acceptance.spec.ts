@@ -254,11 +254,22 @@ test.describe('content rendering', () => {
   })
 
   test('a docs page advertises its title, not its slug', async ({ page }) => {
-    // The metadata used to be read from the content tree at request time, which
-    // the deployed image does not ship: served from the build output alone,
-    // every docs page fell back to advertising its raw route.
-    await page.goto('/docs/reference/adapters/mail/')
-    expect(await page.title()).toBe('mail · Docs - Routecraft')
+    // The metadata used to be read from the content tree through `process.cwd()`
+    // inside `head()`. That failed in two places at once: the deployed image
+    // ships no content tree, and the same code runs in the browser, where it
+    // fell back to the raw route the moment the page hydrated. The title is
+    // therefore read on both sides of hydration, not just off the served HTML.
+    test.slow()
+    await page.goto('/docs/reference/adapters/mail/', {
+      waitUntil: 'domcontentloaded',
+    })
+    const served = await page.title()
+
+    await page.waitForLoadState('networkidle')
+    expect(await page.title(), 'title changed once the page hydrated').toBe(
+      served,
+    )
+    expect(served).toBe('mail · Docs - Routecraft')
 
     // A reference page opens with a signature fence, and a description drawn
     // from inside it published the signature as the page's social card.
@@ -266,6 +277,15 @@ test.describe('content rendering', () => {
       .locator('meta[name="description"]')
       .getAttribute('content')
     expect(description).toContain('Read email via IMAP')
+  })
+
+  test('a client navigation sets the destination title', async ({ page }) => {
+    // `head()` runs in the browser here, with no server to fall back on.
+    await page.goto('/docs/introduction/')
+    await page.waitForLoadState('networkidle')
+
+    await page.locator('nav a[href="/docs/reference/errors/"]').first().click()
+    await expect(page).toHaveTitle('Errors · Docs - Routecraft')
   })
 
   test('every route sets its own title', async ({ page }) => {

@@ -15,7 +15,7 @@
     "preview": "VITE_BASE_URL=http://localhost:${PORT:-3000} bun run build && bun run start",
     "start": "bun run .output/server/index.mjs",
     "test": "playwright test",
-    "typecheck": "tsr generate && tsc --noEmit"
+    "typecheck": "bun run generate && tsr generate && tsc --noEmit"
   },
   "browserslist": "defaults, not ie <= 11",
   "dependencies": {
