@@ -7,18 +7,18 @@ export const topNavLinks: Array<{
   href: string
   match: RegExp
 }> = [
+  { title: 'Blog', href: '/blog', match: /^\/blog(\/|$)/ },
   {
     title: 'Docs',
     href: '/docs/introduction',
     match: /^\/docs(\/|$)/,
   },
-  { title: 'Blog', href: '/blog', match: /^\/blog(\/|$)/ },
+  { title: 'Changelog', href: '/changelog', match: /^\/changelog(\/|$)/ },
   {
     title: 'Cheat sheet',
     href: '/cheat-sheet',
     match: /^\/cheat-sheet(\/|$)/,
   },
-  { title: 'Changelog', href: '/changelog', match: /^\/changelog(\/|$)/ },
 ]
 
 export function TopNav({ className }: { className?: string }) {

@@ -19,7 +19,7 @@ function GitHubIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function Header({ container }: { container: string }) {
+function Header() {
   const [isScrolled, setIsScrolled] = useState(false)
 
   useEffect(() => {
@@ -41,12 +41,10 @@ function Header({ container }: { container: string }) {
           'bg-paper/85 backdrop-blur-sm [@supports(backdrop-filter:blur(0))]:bg-paper/70',
       )}
     >
-      <div
-        className={clsx(
-          container,
-          'flex flex-wrap items-center justify-between py-4',
-        )}
-      >
+      {/* Deliberately full width: the header spans the viewport rather than
+          sitting in the page's container, so it reads as site chrome above the
+          page rather than as part of it. */}
+      <div className="flex flex-wrap items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
         <div className="mr-6 flex lg:hidden">
           <MobileNavigation />
         </div>
@@ -85,7 +83,15 @@ function Header({ container }: { container: string }) {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  // The rendered match rather than the location: the location changes when a
+  // navigation starts, so reading it reframes the outgoing page in the incoming
+  // page's shell for as long as the next route takes to resolve. Leaving docs
+  // for the home page, that threw the article to the viewport edge and pulled
+  // it back once the new content arrived.
+  const pathname = useRouterState({
+    select: (state) =>
+      state.matches.at(-1)?.pathname ?? state.location.pathname,
+  })
   const isHomePage = pathname === '/'
   const isBlogSection = pathname?.startsWith('/blog') ?? false
   const isBlogLanding = pathname === '/blog' || pathname === '/blog/'
@@ -95,21 +101,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const isFigures = pathname?.startsWith('/figures') ?? false
   const showDocsSidebar =
     !isHomePage && !isBlogSection && !isCheatSheet && !isFigures
+  // Home and the cheat sheet run their sections edge to edge and place their
+  // own container inside each one, so the shell must not bound them.
   const useFullWidth = isHomePage || isCheatSheet || isFigures
   // Footer only on marketing-style pages. Docs and blog detail pages have
   // their own scroll behavior (docs sidebar scrolls separately, blog posts
   // have a per-post footer) and a global footer there overflows weirdly.
   const showFooter = isHomePage || isCheatSheet || isBlogLanding || isFigures
   // The site has two page widths (see `container-site` in tailwind.css). Docs
-  // and the changelog get the wider one because they frame the article with a
-  // navigation sidebar and an outline rail; everything else shares the narrower
-  // one. The header takes the same container so its logo sits on the page's own
-  // gutter rather than on the viewport edge.
+  // and the changelog take the wider one because they frame the article with a
+  // navigation sidebar and an outline rail; the cheat sheet reaches for it from
+  // inside its own sections.
   const container = showDocsSidebar ? 'container-docs' : 'container-site'
 
   return (
     <div className="flex min-h-full w-full flex-col">
-      <Header container={container} />
+      <Header />
 
       <div
         className={clsx(
