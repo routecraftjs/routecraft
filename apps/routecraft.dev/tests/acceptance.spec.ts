@@ -253,6 +253,14 @@ test.describe('content rendering', () => {
     ).toBeVisible()
   })
 
+  test('a docs page advertises its title, not its slug', async ({ page }) => {
+    // The metadata used to be read from the content tree at request time, which
+    // the deployed image does not ship: served from the build output alone,
+    // every docs page fell back to advertising its raw route.
+    await page.goto('/docs/reference/adapters/mail/')
+    expect(await page.title()).toBe('mail · Docs - Routecraft')
+  })
+
   test('every route sets its own title', async ({ page }) => {
     test.slow()
     for (const route of ['/blog/', '/changelog/', '/cheat-sheet/']) {

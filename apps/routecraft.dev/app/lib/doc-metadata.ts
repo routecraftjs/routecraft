@@ -1,8 +1,5 @@
-import fs from 'node:fs'
-import path from 'node:path'
-
-import { parseFrontmatter } from '@/lib/frontmatter'
 import { documentsHref } from '@/lib/docs-catalogue'
+import { headsByChannel } from '@/lib/generated/docs-heads'
 import { compactMeta, type PageHead } from '@/lib/page-head'
 import { absoluteUrl, canonicalPath, siteName } from '@/lib/site'
 
@@ -14,56 +11,21 @@ function isNextRoute(route: string): boolean {
   return route === 'next' || route.startsWith('next/')
 }
 
-// The next channel is a separate snapshot of the content tree rather than a
-// folder inside the released one, so its routes read from `content/docs-next`.
-function docFilePath(route: string): string {
-  const isNext = isNextRoute(route)
-  return path.join(
-    process.cwd(),
-    'app',
-    'content',
-    isNext ? 'docs-next' : 'docs',
-    isNext ? route.replace(/^next\/?/, '') : route,
-    'index.mdx',
-  )
-}
-
-function readDocFile(route: string): { title: string; description?: string } {
-  try {
-    const md = fs.readFileSync(docFilePath(route), 'utf8')
-    const { data, body } = parseFrontmatter(md)
-    const title = typeof data.title === 'string' ? data.title : route
-    const description =
-      typeof data.description === 'string'
-        ? data.description
-        : extractLead(body)
-    return { title, description }
-  } catch {
-    return { title: route }
-  }
-}
-
-// First real prose sentence of the body, for a meta description. Skips
-// headings, code, component tags, links/back-links, tables, and admonitions.
-function extractLead(body: string): string | undefined {
-  for (const raw of body.split('\n')) {
-    const line = raw.trim()
-    if (!line) continue
-    if (/^(#|`{3}|\{%|\[|<|\||-|\*|>|=|!)/.test(line)) continue
-    if (!line.includes(' ')) continue
-    const clean = line
-      .replace(/\{%[^%]*%\}/g, '')
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/[*_`]/g, '')
-      .trim()
-    if (clean.length < 20) continue
-    return clean.length > 155 ? `${clean.slice(0, 152).trimEnd()}…` : clean
-  }
-  return undefined
+/**
+ * The title and description the page advertises.
+ *
+ * Comes from the catalogue generated at build time rather than from the source
+ * tree: the deployed image ships `.output` alone, so a read of `app/content`
+ * here answers for nothing and every docs page falls back to its raw slug.
+ */
+function readDocHead(route: string): { title: string; description?: string } {
+  const channel = isNextRoute(route) ? 'next' : 'latest'
+  const key = isNextRoute(route) ? route.replace(/^next\/?/, '') : route
+  return headsByChannel[channel][key] ?? { title: route }
 }
 
 export function docMetadata(route: string): PageHead {
-  const { title, description } = readDocFile(route)
+  const { title, description } = readDocHead(route)
   // The in-development /docs/next channel mirrors the latest docs. It is kept
   // out of search indexes and canonicalises to its latest-channel equivalent so
   // engines consolidate on the released page rather than the preview.

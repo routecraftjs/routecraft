@@ -53,6 +53,8 @@ import { dirname, join, resolve, sep } from 'node:path'
 import { Glob } from 'bun'
 import { slugifyWithCounter } from '@sindresorhus/slugify'
 
+import { docLead } from '../app/lib/doc-lead'
+import { parseFrontmatter } from '../app/lib/frontmatter'
 import { anchorKey, slug } from '../app/lib/slug'
 
 const ROOT = resolve(import.meta.dirname, '..')
@@ -362,12 +364,14 @@ function pageAnchors(mdx: string): Record<string, string> {
 interface ChannelPages {
   routes: Set<string>
   anchors: Record<string, Record<string, string>>
+  /** Route -> the page's advertised title and description. */
+  heads: Record<string, { title: string; description?: string }>
 }
 
 const pages = Object.fromEntries(
   CHANNELS.map((channel) => [
     channel,
-    { routes: new Set<string>(), anchors: {} },
+    { routes: new Set<string>(), anchors: {}, heads: {} },
   ]),
 ) as Record<ChannelName, ChannelPages>
 
@@ -384,11 +388,19 @@ for (const channel of CHANNELS) {
 
   for (const file of files.sort()) {
     const route = dirname(file).split(sep).join('/')
+    const source = await readFile(join(dir, file), 'utf8')
+
     pages[channel].routes.add(route)
     if (anchorRoutes.includes(route)) {
-      pages[channel].anchors[route] = pageAnchors(
-        await readFile(join(dir, file), 'utf8'),
-      )
+      pages[channel].anchors[route] = pageAnchors(source)
+    }
+
+    const { data, body } = parseFrontmatter(source)
+    const description =
+      typeof data.description === 'string' ? data.description : docLead(body)
+    pages[channel].heads[route] = {
+      title: typeof data.title === 'string' ? data.title : route,
+      ...(description ? { description } : {}),
     }
   }
 }
@@ -563,6 +575,34 @@ await writeFile(
 /** Channel -> the channel-relative routes that have a page. */
 export const pagesByChannel: Record<DocsChannelName, string[]> =
   ${JSON.stringify(pagesByChannel, null, 2).replace(/\n/g, '\n  ')}
+`,
+  'utf8',
+)
+
+const headsByChannel = Object.fromEntries(
+  CHANNELS.map((channel) => [channel, pages[channel].heads]),
+)
+
+await writeFile(
+  join(OUT_DIR, 'docs-heads.ts'),
+  `${banner}
+/**
+ * Channel -> route -> the title and description the page advertises.
+ *
+ * Read at build time because the deployed image ships the build output alone: a
+ * route that reads the content tree at request time answers for nothing there,
+ * and every docs page fell back to advertising its raw slug.
+ */
+export interface DocHead {
+  title: string
+  description?: string
+}
+
+export const headsByChannel: Record<
+  DocsChannelName,
+  Record<string, DocHead>
+> =
+  ${JSON.stringify(headsByChannel, null, 2).replace(/\n/g, '\n  ')}
 `,
   'utf8',
 )
