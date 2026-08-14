@@ -1,6 +1,7 @@
 import { AppLink } from '@/components/AppLink'
 
 import { Icon } from '@/components/Icon'
+import { useChannelHref } from '@/lib/docs-channel-context'
 
 export function QuickLinks({ children }: { children: React.ReactNode }) {
   return (
@@ -21,11 +22,18 @@ export function QuickLink({
   href: string
   icon: React.ComponentProps<typeof Icon>['icon']
 }) {
+  // These cards are authored in MDX alongside prose links, so they resolve
+  // against the channel being read rather than always the released one.
+  const resolved = useChannelHref(href)
+
   return (
     <div className="group relative bg-paper p-6 transition hover:bg-paper-deep/40">
       <Icon icon={icon} className="h-7 w-7 text-ink/70" />
       <h2 className="mt-5 font-editorial text-[1.15rem] tracking-[-0.005em] text-ink">
-        <AppLink href={href} className="transition group-hover:text-cobalt-500">
+        <AppLink
+          href={resolved}
+          className="transition group-hover:text-cobalt-500"
+        >
           <span className="absolute inset-0" />
           {title}
         </AppLink>

@@ -14,7 +14,7 @@ carddav(options: CarddavClientOptions & { action: 'delete' }): Destination<unkno
 
 Read and write contacts over CardDAV. Defaults to Apple iCloud Contacts (`https://contacts.icloud.com`) but works with any CardDAV server (Fastmail, Nextcloud, Google). The role is chosen by an `action` flag, the same way the mail adapter selects its mode: no `action` reads, `action` writes or deletes.
 
-The body is a plain [`VCardBody`](#the-vcard-document) (a `version` plus a property list), not a typed contact object. Wrap it in a [`VCard`](#the-vcard-document) for ergonomic reads and edits, then read `.data` to put the plain body back, exactly like working with parsed JSON from an HTTP endpoint. DAV identity (`url`/`uid`/`etag`) lives on the exchange headers (`routecraft.carddav.*`), not the body, the same way the mail adapter carries its envelope. Reading is lossless, so a read-modify-write keeps everything you did not change.
+The body is a plain [`VCardBody`](#the-document) (a `version` plus a property list), not a typed contact object. Wrap it in a [`VCard`](#the-document) for ergonomic reads and edits, then read `.data` to put the plain body back, exactly like working with parsed JSON from an HTTP endpoint. DAV identity (`url`/`uid`/`etag`) lives on the exchange headers (`routecraft.carddav.*`), not the body, the same way the mail adapter carries its envelope. Reading is lossless, so a read-modify-write keeps everything you did not change.
 
 Requires the optional peer `tsdav` (DAV client): `bun add tsdav`. A missing peer raises `RC5017` with an install hint.
 

@@ -208,7 +208,14 @@ function SearchResult({
         aria-hidden="true"
         className="pointer-events-none absolute top-0 left-0 h-full w-px bg-cobalt-500 opacity-0 transition-opacity group-aria-selected:opacity-100"
       />
-      <a href={result.url} onClick={onResultClick} className="block">
+      {/* The title and hierarchy below are aria-hidden so the list item reads
+          as one result, which leaves the anchor itself without a name. */}
+      <a
+        href={result.url}
+        onClick={onResultClick}
+        aria-label={result.title}
+        className="block"
+      >
         <div
           id={`${id}-title`}
           aria-hidden="true"

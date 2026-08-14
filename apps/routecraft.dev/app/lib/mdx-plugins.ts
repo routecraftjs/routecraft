@@ -20,7 +20,7 @@
 import { parse } from 'acorn'
 import { slugifyWithCounter } from '@sindresorhus/slugify'
 import { visit } from 'unist-util-visit'
-import type { Heading, Root } from 'mdast'
+import type { Heading, Paragraph, Root } from 'mdast'
 
 export interface TocEntry {
   id: string
@@ -84,12 +84,33 @@ const OUTLINE_COMPONENTS = new Set([
 ])
 
 /**
+ * Takes a trailing `\{#custom-id}` marker off a block's last text child and
+ * returns the id it named. The brace is escaped in content because MDX would
+ * otherwise read `{...}` as an expression, so by the time this runs the marker
+ * is ordinary text.
+ */
+function takeExplicitId(node: {
+  children: Array<{ type: string; value?: string }>
+}): string | undefined {
+  const last = node.children.at(-1)
+  if (last?.type !== 'text' || last.value === undefined) return undefined
+
+  const match = /\s*\{#([\w-]+)\}\s*$/.exec(last.value)
+  if (!match) return undefined
+
+  last.value = last.value.slice(0, match.index)
+  if (last.value === '') node.children.pop()
+  return match[1]
+}
+
+/**
  * Assigns heading ids and exports the page's table of contents as `toc`, plus
  * the outline-owning components it uses as `outlines`.
  *
- * An explicit `\{#custom-id}` marker wins. The brace is escaped in content
- * because MDX would otherwise read `{...}` as an expression, so by the time
- * this runs the marker is ordinary text.
+ * An explicit `\{#custom-id}` marker wins, and works on a paragraph as well as
+ * a heading: Markdoc annotated any block, and the mail reference points at
+ * three paragraphs that way. Left unhandled the marker renders as literal text
+ * and the anchors it names do not exist.
  */
 export function remarkDocsHeadings() {
   return (tree: Root) => {
@@ -102,18 +123,16 @@ export function remarkDocsHeadings() {
         outlines.push(node.name)
     })
 
-    visit(tree, 'heading', (node: Heading) => {
-      const last = node.children.at(-1)
-      let explicit: string | undefined
+    visit(tree, 'paragraph', (node: Paragraph) => {
+      const explicit = takeExplicitId(node)
+      if (!explicit) return
 
-      if (last?.type === 'text') {
-        const match = /\s*\{#([\w-]+)\}\s*$/.exec(last.value)
-        if (match) {
-          explicit = match[1]
-          last.value = last.value.slice(0, match.index)
-          if (last.value === '') node.children.pop()
-        }
-      }
+      node.data ??= {}
+      node.data.hProperties = { ...node.data.hProperties, id: explicit }
+    })
+
+    visit(tree, 'heading', (node: Heading) => {
+      const explicit = takeExplicitId(node)
 
       // The counter is consumed only by headings without an explicit id, which
       // is what keeps the `-2` suffixes on the same headings they sit on today.

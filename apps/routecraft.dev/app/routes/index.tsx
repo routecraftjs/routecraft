@@ -10,7 +10,7 @@ import { CodeMorph } from '@/components/CodeMorph'
 import { Guardrails } from '@/components/Guardrails'
 import { HomeAdapters } from '@/components/HomeAdapters'
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
-import { docVersion, siteTagline } from '@/lib/site'
+import { absoluteUrl, docVersion, siteTagline } from '@/lib/site'
 
 const changelogHighlight = {
   href: '/changelog',
@@ -647,6 +647,9 @@ export const Route = createFileRoute('/')({
           'Type-safe framework for AI automation. Build the tools an agent uses, or the harness itself, with the same fluent DSL.',
       },
     ],
+    // Every other route carries its own canonical; without this one the home
+    // page is the single URL left to consolidate on its own.
+    links: [{ rel: 'canonical', href: absoluteUrl('/') }],
   }),
   component: LandingPage,
 })

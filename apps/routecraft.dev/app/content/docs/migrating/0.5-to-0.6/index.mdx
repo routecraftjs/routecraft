@@ -979,7 +979,7 @@ For context, no migration required:
 - `AgentResult.blocksLoaded`.
 - `tools((catalog) => [...])` builder form with `ToolsCatalog` shape.
 - **`agentPlugin({ toolPolicy })`**: repository-wide admission rules for the agent tool surface, keyed by tool kind (`fn` / `direct` / `mcp`), each `true`, `false`, or a predicate. Omitting it admits everything, so existing contexts are unaffected; supplying it makes the surface an allowlist in which every kind must be decided explicitly (a partial policy is a compile error, because an omitted key would mean denial). Enforced at the single point every agent form converges on, so no agent can opt out. Denials emit `route:agent:tool:denied`. See [tool policy](/docs/reference/plugins/agentplugin#tool-policy).
-- New error codes (`RC5018`, `RC5019` for HTTP; `AI1001`-`AI1003` for agent blocks, see [section 8](#8-error-codes-ai-namespace); `RC1003` for error-code registration).
+- New error codes (`RC5018`, `RC5019` for HTTP; `AI1001`-`AI1003` for agent blocks, see [section 8](#8-error-codes-namespace); `RC1003` for error-code registration).
 - **Recovery directives**: `.error()` handlers (route scope and step scope) may return `recovery.drop(reason?)` to discard the failing exchange (emits `route:exchange:dropped`) or `recovery.rethrow()` to decline recovery, instead of recovering with a body or throwing manually.
 - **`rcError` retryable override**: `rcError(code, cause, { retryable })` flips the retry classification for one occurrence.
 - **Open categories and kinds**: `RCMeta.category` and `Principal.kind` accept ecosystem-defined strings alongside the known values.

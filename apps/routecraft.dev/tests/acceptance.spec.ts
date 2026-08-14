@@ -87,6 +87,25 @@ test.describe('docs channels', () => {
     expect(onChannel).toBeGreaterThan(0)
   })
 
+  test('next-channel content never links back to the released channel', async ({
+    page,
+  }) => {
+    // The prose links resolve through the MDX provider, but a component that
+    // renders its own href does not unless it asks for the channel: the
+    // QuickLink cards on this page sent readers back to /docs/ from /docs/next.
+    await page.goto('/docs/next/introduction/')
+
+    const escaped = await page
+      .locator('article a[href^="/docs/"]')
+      .evaluateAll((nodes) =>
+        nodes
+          .map((node) => node.getAttribute('href') ?? '')
+          .filter((href) => !href.startsWith('/docs/next/')),
+      )
+
+    expect(escaped, 'content links that left the next channel').toEqual([])
+  })
+
   test('the next channel is not indexed', async ({ page }) => {
     await page.goto('/docs/next/introduction/')
     const robots = page.locator('meta[name="robots"]')
@@ -126,6 +145,25 @@ test.describe('heading anchors', () => {
       ).toEqual([])
     })
   }
+})
+
+test.describe('explicit anchors', () => {
+  test('a paragraph marked with an id publishes it', async ({ page }) => {
+    // Markdoc let any block carry `{#id}`. The mail reference points at three
+    // paragraphs that way, and unhandled the marker rendered as literal text
+    // while the anchors it named did not exist.
+    await page.goto('/docs/reference/adapters/mail/')
+
+    for (const id of [
+      'mailbody-source-exchange-body',
+      'source-headers',
+      'send-receipt-headers',
+    ]) {
+      await expect(page.locator(`#${id}`)).toHaveCount(1)
+    }
+
+    expect(await page.locator('article').innerText()).not.toContain('{#')
+  })
 })
 
 test.describe('code rendering', () => {

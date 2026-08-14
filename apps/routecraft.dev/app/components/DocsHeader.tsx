@@ -23,7 +23,12 @@ export function DocsHeader({
   title?: string
   titleBadges?: Array<{ text: string; color?: BadgeColor }>
 }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  // The rendered match rather than the location, as `Layout` reads it: the
+  // location moves when a navigation starts, so the eyebrow and the version
+  // switcher would describe the incoming page beside the outgoing title.
+  const pathname = useRouterState({
+    select: (s) => s.matches.at(-1)?.pathname ?? s.location.pathname,
+  })
   const rawPathname = pathname.replace(/\/+$/, '') || '/'
   // The version switcher and the section eyebrow work off the bare (channel
   // stripped) path; links to other channels keep the reader on the same page.

@@ -33,12 +33,9 @@ function contentRoutes(directory: string, prefix: string): string[] {
   const routes: string[] = []
 
   function walk(current: string, urlPath: string): void {
-    let entries
-    try {
-      entries = readdirSync(current, { withFileTypes: true })
-    } catch {
-      return
-    }
+    // Unreadable is fatal rather than empty: swallowing it publishes a build
+    // that succeeded with a whole channel missing from the prerender list.
+    const entries = readdirSync(current, { withFileTypes: true })
 
     for (const entry of entries) {
       if (entry.isDirectory()) {

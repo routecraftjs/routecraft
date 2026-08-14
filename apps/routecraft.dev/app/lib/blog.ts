@@ -88,7 +88,9 @@ export function getRelatedPosts(
 ): BlogPostMeta[] {
   const candidates = posts.filter((p) => !p.draft && p.slug !== current.slug)
 
-  if (current.related && current.related.length > 0) {
+  // Any declared list wins, including an empty one: `related: []` is how a post
+  // says it wants no suggestions, not a request for tag-based ones.
+  if (current.related) {
     // Dedupe slugs first (Set preserves insertion order) so a repeated slug in
     // frontmatter cannot render the same post twice.
     return [...new Set(current.related)]

@@ -24,7 +24,11 @@ import { PUBLIC_DIR } from './paths'
 
 const args = process.argv.slice(2)
 const tagIndex = args.indexOf('--freeze-tag')
-const freezeTag = tagIndex === -1 ? undefined : args[tagIndex + 1]
+// An empty value means there is no release to freeze against yet, not that
+// everything under /docs/ is frozen. Read as the latter it turns every broken
+// released-docs link into a warning and the gate stops gating.
+const freezeTag =
+  tagIndex === -1 ? undefined : args[tagIndex + 1]?.trim() || undefined
 const positional = args.filter(
   (value, index) => index !== tagIndex && index !== tagIndex + 1,
 )
@@ -91,7 +95,9 @@ for (const { href, from } of links) {
   const decoded = href.replace(/&amp;/g, '&')
   const normalised = decoded.replace(SELF, '')
 
-  if (!normalised.startsWith('/')) continue
+  // A bare `#fragment` is a same-page anchor, checked against the page it was
+  // written on. Skipping it here let a renamed heading id ship green.
+  if (!normalised.startsWith('/') && !normalised.startsWith('#')) continue
   if (normalised.startsWith('//')) continue
 
   const [path, fragment] = normalised.split('#')

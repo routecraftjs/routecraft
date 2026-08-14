@@ -1,5 +1,4 @@
 import { MDXProvider } from '@mdx-js/react'
-import { createContext, useContext } from 'react'
 import type { ComponentProps, ReactNode } from 'react'
 
 import { AdapterGrid } from '@/components/AdapterGrid'
@@ -18,18 +17,12 @@ import { QuickLink, QuickLinks } from '@/components/QuickLinks'
 import { TriggerCycler } from '@/components/TriggerCycler'
 import { Diagram } from '@/components/figures/Diagram'
 import { readCodeSource } from '@/lib/code-source'
+import type { DocsChannelName } from '@/lib/docs-channel'
 import {
-  DOCS_ROOT,
-  docsChannelHref,
-  withDocsChannel,
-  type DocsChannelName,
-} from '@/lib/docs-channel'
-
-const ChannelContext = createContext<DocsChannelName>('latest')
-
-function useChannel(): DocsChannelName {
-  return useContext(ChannelContext)
-}
+  DocsChannelContext,
+  useChannelHref,
+  useDocsChannel,
+} from '@/lib/docs-channel-context'
 
 function MdxPre({ children }: { children?: ReactNode }) {
   const { code, language } = readCodeSource(children)
@@ -46,23 +39,11 @@ function MdxCode({ children }: { children?: ReactNode }) {
  *
  * Content authors write channel-relative `/docs/...` hrefs. On the next channel
  * those resolve to `/docs/next/...`, which the Markdoc build achieved by
- * rewriting the markdown with a regex when it copied the tree. Doing it here
- * keeps the copied tree verbatim.
+ * rewriting the markdown with a regex when it copied the tree. Resolving it at
+ * render time keeps the copied tree verbatim.
  */
 function MdxLink({ href = '', ...props }: ComponentProps<'a'>) {
-  const channel = useChannel()
-  const prefix = docsChannelHref(channel)
-  const isInternal = href.startsWith('/')
-
-  if (!isInternal) {
-    return <a href={href} {...props} />
-  }
-
-  const resolved = href.startsWith(DOCS_ROOT)
-    ? withDocsChannel(href, prefix)
-    : href
-
-  return <AppLink href={resolved} {...props} />
+  return <AppLink href={useChannelHref(href)} {...props} />
 }
 
 /**
@@ -141,7 +122,7 @@ function channelBound<P extends { channel?: DocsChannelName }>(
   Component: (props: P) => ReactNode,
 ) {
   return function ChannelBound(props: Omit<P, 'channel'>) {
-    const channel = useChannel()
+    const channel = useDocsChannel()
     return <Component {...({ ...props, channel } as P)} />
   }
 }
@@ -178,8 +159,8 @@ export function MdxComponents({
   children: ReactNode
 }) {
   return (
-    <ChannelContext.Provider value={channel}>
+    <DocsChannelContext.Provider value={channel}>
       <MDXProvider components={components}>{children}</MDXProvider>
-    </ChannelContext.Provider>
+    </DocsChannelContext.Provider>
   )
 }

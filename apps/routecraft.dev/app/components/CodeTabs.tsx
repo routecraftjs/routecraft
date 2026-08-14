@@ -25,7 +25,9 @@ export function CodeTabs({ children }: { children: ReactNode }) {
       const source = readCodeSource(props.children)
 
       return {
-        key: props.label ?? index,
+        // Position, not label: two tabs may carry the same label, and duplicate
+        // keys desynchronise which Headless UI button matches which panel.
+        key: index,
         label: props.label,
         language: props.language ?? source.language,
         code: source.code,

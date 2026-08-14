@@ -29,8 +29,19 @@ function splitHref(href: string): { to: string; hash?: string } {
  * Docs, blog and navigation hrefs come from content and generated data, so they
  * are resolved at runtime and cannot satisfy the router's literal route union.
  * This module owns the cast so no call site needs one.
+ *
+ * An href the router cannot own (an absolute URL, `mailto:`, an anchor) falls
+ * back to a plain anchor. Handing one to `Link` makes the router treat it as an
+ * internal path and swallow the click, which is how the header's GitHub icon
+ * stopped leaving the site.
  */
 export function AppLink({ href, ...props }: AppLinkProps) {
+  // Router-only props (`preload`, `activeProps`, ...) would reach the DOM here,
+  // so the cast holds only while no call site passes them to an external href.
+  if (!href.startsWith('/')) {
+    return <a href={href} {...(props as ComponentProps<'a'>)} />
+  }
+
   const { to, hash } = splitHref(href)
   return <Link to={to as never} hash={hash} {...props} />
 }
