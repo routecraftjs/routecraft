@@ -255,4 +255,10 @@ const outPath = path.join(PUBLIC_DIR, 'sitemap.xml')
 fs.mkdirSync(path.dirname(outPath), { recursive: true })
 fs.writeFileSync(outPath, xml, 'utf8')
 
-console.log(`Generated public/sitemap.xml with ${routes.length} URLs`)
+// The origin is named out loud because every absolute URL the build emits
+// carries it: the sitemap, the feed, the canonicals and the social card links.
+// A card that will not preview is almost always a build whose origin is not the
+// host serving it.
+console.log(
+  `Generated public/sitemap.xml with ${routes.length} URLs at ${siteUrl}`,
+)

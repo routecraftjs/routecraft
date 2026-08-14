@@ -79,6 +79,12 @@ Notes on each step:
 - The build context is the repository root (`../..`), because the site is a workspace member and
   the lockfile lives there.
 - The image serves on port 3000. Check both `/docs` (the tag's pages) and `/docs/next` (main's).
+- `VITE_BASE_URL` is the origin every absolute URL carries: canonicals, the sitemap, the feed and
+  the social card links. It defaults to `https://routecraft.dev`, so a local image advertises card
+  images the deployed site does not have yet and no preview resolves. `compose.yaml` defaults it to
+  the host it serves on instead; with `docker build`, pass
+  `--build-arg VITE_BASE_URL=http://localhost:3000` to check cards locally. The build prints the
+  origin it used.
 - `bun scripts/verify-docs-freeze.ts v0.6.0` asserts exactly that split against `.output/public`
   after a plain `bun run build`, and is what gates the deploy.
 

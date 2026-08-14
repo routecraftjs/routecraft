@@ -19,6 +19,13 @@ services:
       dockerfile: apps/routecraft.dev/Dockerfile
       args:
         VITE_DOC_VERSION: ${VITE_DOC_VERSION:-dev}
+        # Every absolute URL the build emits carries this origin: canonicals,
+        # the sitemap, the feed and the social card links. It defaults to the
+        # host this file serves on, so social cards preview against the
+        # container rather than pointing at the deployed site, which does not
+        # carry this build's images. Pass the real origin to check production
+        # URLs: VITE_BASE_URL=https://routecraft.dev docker compose ...
+        VITE_BASE_URL: ${VITE_BASE_URL:-http://localhost:${PORT:-3000}}
     ports:
       - '${PORT:-3000}:3000'
     restart: unless-stopped
