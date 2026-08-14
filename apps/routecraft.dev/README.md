@@ -46,9 +46,10 @@ you:
 | `scripts/generate-robots.ts` | `public/robots.txt` | Crawler policy |
 | `scripts/generate-feed.ts` | `public/feed.xml` | The blog RSS feed |
 
-Set `SKIP_DOCS_NEXT=1` to leave an existing `docs-next` alone. That matters only when the docs
-tree has been frozen to a release tag: without it the next channel would be regenerated from
-the frozen content and publish the released docs twice.
+A frozen docs tree is never copied into the next channel: `generate-docs-next.ts` reads the
+`.frozen` marker the freeze leaves and keeps the snapshot the freeze took from main. Copying
+the frozen tree would publish the released docs on both channels, so the script fails rather
+than guess when the marker is there and no snapshot is.
 
 Figures are exported separately and committed, because the site serves the PNGs:
 
@@ -63,9 +64,8 @@ What CI does, on your machine. Run it before merging anything that touches the r
 the freeze, the generators, the prerender list, or the Dockerfile. From this directory:
 
 ```sh
-bun run generate                                  # snapshot main into the next channel
-bun scripts/freeze-docs.ts v0.6.0                 # pin /docs to a release tag
-docker build -f Dockerfile --build-arg SKIP_DOCS_NEXT=1 -t routecraft-dev ../..
+bun scripts/freeze-docs.ts v0.6.0                 # snapshot main, then pin /docs to the tag
+docker build -f Dockerfile -t routecraft-dev ../..
 docker run --rm -p 3000:3000 routecraft-dev
 bun scripts/freeze-docs.ts --restore              # put the working tree back
 ```
@@ -74,10 +74,10 @@ Notes on each step:
 
 - The freeze rewrites `app/content/docs`, `app/content/cheat-sheet` and `public/screenshots` in
   place, so **`--restore` is not optional**; run it before you commit anything.
+- The freeze takes the next-channel snapshot itself, from main, before it pins anything. There
+  is no separate generate step to remember and no flag to pass to the build.
 - The build context is the repository root (`../..`), because the site is a workspace member and
   the lockfile lives there.
-- `SKIP_DOCS_NEXT=1` keeps the frozen tree from being copied over the next channel, matching
-  what the release workflow does.
 - The image serves on port 3000. Check both `/docs` (the tag's pages) and `/docs/next` (main's).
 - `bun scripts/verify-docs-freeze.ts v0.6.0` asserts exactly that split against `.output/public`
   after a plain `bun run build`, and is what gates the deploy.

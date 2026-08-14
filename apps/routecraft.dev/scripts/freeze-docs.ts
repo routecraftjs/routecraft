@@ -3,8 +3,9 @@
  *
  * `/docs` publishes the last released version and `/docs/next` publishes main.
  * The freeze is source level: the versioned paths are wiped and checked out
- * from the tag, with the next-channel snapshot preserved across the swap. The
- * release workflow runs this before building, and a developer runs it to
+ * from the tag. The next channel is snapshotted from main first, then preserved
+ * across the swap, so one command leaves a tree that builds a release image.
+ * The release workflow runs this before building, and a developer runs it to
  * reproduce a production build locally.
  *
  * TRANSITIONAL: tags cut before the TanStack Start migration carry Markdoc
@@ -144,6 +145,19 @@ async function freezeLegacyTag(tag: string): Promise<void> {
 }
 
 async function freeze(tag: string): Promise<void> {
+  if (existsSync(MARKER)) {
+    throw new Error(
+      'The tree is already frozen. Freezing it again would snapshot the ' +
+        'released docs as the next channel. Run --restore first.',
+    )
+  }
+
+  // Taken here rather than left to the caller: the next channel is main's docs,
+  // and this is the last moment main's docs are still in the tree. Doing it in
+  // two commands is how a release build ends up publishing the released docs on
+  // both channels.
+  await $`bun ${join(import.meta.dir, 'generate-docs-next.ts')}`
+
   const parked = await mkdtemp(join(tmpdir(), 'routecraft-next-'))
   const saved: Array<{ from: string; to: string }> = []
 

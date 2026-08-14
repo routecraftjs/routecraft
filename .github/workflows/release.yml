@@ -353,18 +353,10 @@ jobs:
           echo "Docs version label: $LABEL"
           echo "Freeze docs to tag: ${FREEZE_TAG:-<none, using working tree>}"
 
-      # Snapshot the in-development docs (the /docs/next channel) from the
-      # checked out (main) content *before* the freeze below pins /docs to the
-      # released tag. Both this build and the image build then run with
-      # SKIP_DOCS_NEXT so the generator does not overwrite that snapshot with
-      # the frozen content.
-      - name: Generate the next docs channel
-        run: bun apps/routecraft.dev/scripts/generate-docs-next.ts
-
-      # The script owns the pinned path list, the next-channel preservation and
-      # the conversion of tags cut before the content root moved. It is the same
-      # command a developer runs to reproduce this build locally, so the release
-      # and the local check cannot drift.
+      # The script owns the pinned path list, the next-channel snapshot it takes
+      # from main on the way through, and the conversion of tags cut before the
+      # content root moved. It is the same command a developer runs to reproduce
+      # this build locally, so the release and the local check cannot drift.
       - name: Freeze docs and cheat-sheet to the released ref
         if: steps.docver.outputs.freeze_tag != ''
         env:
@@ -377,9 +369,6 @@ jobs:
       - name: Build docs
         env:
           VITE_DOC_VERSION: ${{ steps.docver.outputs.label }}
-          # next was snapshotted above from main; do not overwrite it from the
-          # frozen /docs during prebuild.
-          SKIP_DOCS_NEXT: "1"
         run: bun run --filter routecraft.dev build
 
       # The invariant this whole job exists to uphold, asserted against the
@@ -431,7 +420,6 @@ jobs:
             --build-arg VITE_DOC_VERSION="$DOC_VERSION" \
             --build-arg VITE_POSTHOG_KEY="$POSTHOG_KEY" \
             --build-arg VITE_POSTHOG_HOST="$POSTHOG_HOST" \
-            --build-arg SKIP_DOCS_NEXT=1 \
             --tag "$IMAGE:$VERSION-$SHORT_SHA" \
             --tag "$IMAGE:latest" \
             .

@@ -9,10 +9,11 @@
  *
  * The output is gitignored and rebuilt on each prebuild.
  *
- * In CI the channel is generated from the main working tree *before* the docs
- * content is frozen to the latest release tag, then the build runs with
- * SKIP_DOCS_NEXT=1 so this script does not overwrite that snapshot with the
- * frozen content.
+ * A frozen docs tree is never a valid source: copying it would publish the
+ * released docs on both channels. `scripts/freeze-docs.ts` takes the snapshot
+ * from main before it pins `/docs`, and leaves the `.frozen` marker this script
+ * reads, so the decision travels with the content rather than with an
+ * environment variable the caller has to remember.
  *
  * Run as: bun scripts/generate-docs-next.ts
  */
@@ -34,9 +35,29 @@ const NEXT_DIR = join(ROOT, 'app', 'content', 'docs-next')
 const SCREENSHOTS_DIR = join(ROOT, 'public', 'screenshots')
 const SCREENSHOTS_NEXT_DIR = join(SCREENSHOTS_DIR, 'next')
 
-if (process.env.SKIP_DOCS_NEXT && existsSync(NEXT_DIR)) {
+/**
+ * Which release `/docs` is pinned to, if it is pinned at all.
+ *
+ * The marker lives inside the frozen path, so restoring the tree clears it.
+ */
+const MARKER = join(DOCS_DIR, '.frozen')
+const frozenTag = existsSync(MARKER)
+  ? readFileSync(MARKER, 'utf8').trim()
+  : undefined
+
+if (frozenTag) {
+  if (!existsSync(NEXT_DIR)) {
+    throw new Error(
+      `/docs is frozen to ${frozenTag}, so it cannot be the source of the ` +
+        'next channel, and no snapshot of main was found at ' +
+        `${NEXT_DIR}. Restore the tree and freeze again: freeze-docs.ts takes ` +
+        'the snapshot before it pins the released channel.',
+    )
+  }
+
   console.log(
-    'SKIP_DOCS_NEXT set and docs-next exists; leaving snapshot as-is.',
+    `Released channel is frozen to ${frozenTag}; keeping the next-channel ` +
+      'snapshot taken from main.',
   )
   process.exit(0)
 }
@@ -82,20 +103,10 @@ console.log(
     `${assets.length} asset(s) for the next docs channel.`,
 )
 
-/**
- * States which content each channel is about to publish.
- *
- * An unfrozen build serves main on `/docs`, which looks identical to a release
- * build until you notice unreleased pages on the released channel. Saying it
- * out loud is cheaper than discovering it in an image.
- */
-const marker = join(DOCS_DIR, '.frozen')
-const frozenTag = existsSync(marker)
-  ? readFileSync(marker, 'utf8').trim()
-  : undefined
-
+// An unfrozen build serves main on /docs, which looks identical to a release
+// build until you notice unreleased pages on the released channel. Saying it
+// out loud is cheaper than discovering it in an image.
 console.log(
-  frozenTag
-    ? `Released channel is frozen to ${frozenTag}; the next channel carries main.`
-    : 'Released channel is NOT frozen: /docs will publish main, same as /docs/next. Run scripts/freeze-docs.ts <tag> to reproduce a release build.',
+  'Released channel is NOT frozen: /docs will publish main, same as ' +
+    '/docs/next. Run scripts/freeze-docs.ts <tag> to reproduce a release build.',
 )

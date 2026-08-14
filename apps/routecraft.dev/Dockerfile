@@ -33,12 +33,6 @@ ENV VITE_DOC_VERSION=$VITE_DOC_VERSION \
     VITE_POSTHOG_KEY=$VITE_POSTHOG_KEY \
     VITE_POSTHOG_HOST=$VITE_POSTHOG_HOST
 
-# Set when the context carries a frozen docs tree plus a next-channel snapshot
-# taken from main before the freeze: without it the prebuild would regenerate
-# the next channel from the frozen content and ship the released docs twice.
-ARG SKIP_DOCS_NEXT
-ENV SKIP_DOCS_NEXT=$SKIP_DOCS_NEXT
-
 COPY . .
 RUN bun install --frozen-lockfile --ignore-scripts
 WORKDIR /repo/apps/routecraft.dev
