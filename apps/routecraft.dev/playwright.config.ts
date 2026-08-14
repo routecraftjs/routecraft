@@ -10,6 +10,16 @@ import { defineConfig, devices } from '@playwright/test'
  */
 const baseURL = process.env.BASE_URL ?? 'http://localhost:3000'
 
+/**
+ * The suite only owns the server when it is testing this machine's own build.
+ * Pointed at production or at a running container it must attach to what is
+ * already there, and starting a local server would silently test the wrong
+ * thing while the real target went unvisited.
+ */
+const servesItsOwnBuild = /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(
+  baseURL,
+)
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
@@ -20,6 +30,19 @@ export default defineConfig({
     baseURL,
     trace: 'on-first-retry',
   },
+  ...(servesItsOwnBuild
+    ? {
+        webServer: {
+          command: 'bun run start',
+          url: baseURL,
+          // Locally this attaches to a server already in front of you; on a
+          // runner there is nothing legitimate to attach to, and reusing would
+          // mean testing whatever a previous step left behind.
+          reuseExistingServer: !process.env.CI,
+          timeout: 60_000,
+        },
+      }
+    : {}),
   projects: [
     {
       name: 'chromium',
