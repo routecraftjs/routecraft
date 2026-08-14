@@ -144,9 +144,18 @@ export function remarkDocsHeadings() {
     visit(tree, 'heading', (node: Heading) => {
       const explicit = takeExplicitId(node)
 
+      // A heading built entirely from a link and a component contributes no
+      // direct text beyond the whitespace between them, and Markdoc published
+      // it with an empty id. The changelog is seven such headings, so the page
+      // shipped seven `id=""` duplicates and no release was linkable. Falling
+      // back to the visible text is additive: an empty id was never an anchor
+      // anything could have pinned. Trimmed first, because that lone space is
+      // truthy and would otherwise slug to nothing.
+      const text = directText(node).trim() || visibleText(node)
+
       // The counter is consumed only by headings without an explicit id, which
       // is what keeps the `-2` suffixes on the same headings they sit on today.
-      const id = explicit ?? slugify(directText(node))
+      const id = explicit ?? slugify(text)
 
       node.data ??= {}
       node.data.hProperties = { ...node.data.hProperties, id }

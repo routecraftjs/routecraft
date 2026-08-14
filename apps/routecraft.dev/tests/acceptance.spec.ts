@@ -166,6 +166,29 @@ test.describe('explicit anchors', () => {
   })
 })
 
+test.describe('heading ids', () => {
+  test('every heading carries a usable, unique id', async ({ page }) => {
+    // A heading whose content is entirely a link and a component contributed no
+    // direct text, so the changelog published seven `id=""` headings: invalid
+    // duplicates, and no release was linkable.
+    for (const route of ['/changelog/', '/docs/reference/errors/']) {
+      await page.goto(route)
+      const ids = await page
+        .locator('article :is(h1, h2, h3, h4)[id]')
+        .evaluateAll((nodes) => nodes.map((node) => node.id))
+
+      expect(
+        ids.filter((id) => id === ''),
+        `empty ids on ${route}`,
+      ).toEqual([])
+      expect(
+        ids.filter((id, index) => ids.indexOf(id) !== index),
+        `duplicate ids on ${route}`,
+      ).toEqual([])
+    }
+  })
+})
+
 test.describe('code rendering', () => {
   test('fenced code keeps its source', async ({ page }) => {
     await page.goto('/docs/advanced/plugins/')

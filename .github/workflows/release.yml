@@ -445,8 +445,18 @@ jobs:
         run: |
           set -eo pipefail
           if [ -z "$DOKPLOY_DEPLOY_WEBHOOK" ]; then
-            echo "DOKPLOY_DEPLOY_WEBHOOK is not set; pushed $IMAGE_REFERENCE without deploying it."
+            # A green release must not read as "the site is live". The run is
+            # annotated and summarised so the published-but-not-deployed state
+            # is visible without opening the log.
+            echo "::warning title=Image published, not deployed::DOKPLOY_DEPLOY_WEBHOOK is not set, so $IMAGE_REFERENCE was pushed but the live site still serves the previous release."
+            {
+              echo "### Docs image published without deploying"
+              echo
+              echo "\`$IMAGE_REFERENCE\` is in the registry. \`DOKPLOY_DEPLOY_WEBHOOK\` is not set,"
+              echo "so nothing was asked to deploy it and the live site is unchanged."
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           curl --fail --silent --show-error --request POST "$DOKPLOY_DEPLOY_WEBHOOK" >/dev/null
           echo "Dokploy asked to deploy $IMAGE_REFERENCE."
+          echo "Deployment requested for \`$IMAGE_REFERENCE\`." >> "$GITHUB_STEP_SUMMARY"
