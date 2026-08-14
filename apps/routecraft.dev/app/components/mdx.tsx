@@ -87,7 +87,7 @@ function MdxImage({ src, alt, title }: ComponentProps<'img'>) {
  */
 function MdxTable(props: ComponentProps<'table'>) {
   return (
-    <div className="my-7 overflow-x-auto [&>table]:my-0">
+    <div className="my-7 scrollbar-quiet overflow-x-auto [&>table]:my-0">
       <table {...props} />
     </div>
   )

@@ -37,7 +37,7 @@ craft()
 export function Guardrails() {
   return (
     <section>
-      <div className="mx-auto max-w-7xl px-4 pt-12 pb-20 sm:px-6 lg:px-8 lg:pt-14 lg:pb-24">
+      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <header className="max-w-3xl">
           <h2
             className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
@@ -155,7 +155,7 @@ function CodeBlock({ code, muted }: { code: string; muted?: boolean }) {
       role="region"
       aria-label="Code sample"
       className={
-        'overflow-x-auto border border-ink/15 bg-paper-deep/40 px-4 py-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cobalt-500 ' +
+        'scrollbar-quiet overflow-x-auto border border-ink/15 bg-paper-deep/40 px-4 py-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cobalt-500 ' +
         (muted ? 'opacity-70' : '')
       }
     >

@@ -87,6 +87,21 @@
   @apply mx-auto w-full max-w-8xl px-4 sm:px-6 lg:px-8;
 }
 
+/*
+ * In-page scroll containers: the docs sidebar, wide tables, code frames.
+ *
+ * Left undeclared, an expanded scrollbar draws the platform's own track, which
+ * is near-white and reads as a bright band across the paper. The track goes
+ * transparent so only the thumb shows, and the thumb is mixed from the ink
+ * token so it follows the theme rather than the platform. The document
+ * scrollbar is deliberately not included: it keeps whatever the platform gives
+ * it, which on macOS is an overlay.
+ */
+@utility scrollbar-quiet {
+  scrollbar-color: color-mix(in srgb, var(--color-ink) 30%, transparent)
+    transparent;
+}
+
 @layer base {
   /* Only the dark theme needs this: without it the browser paints its native
      UI, scrollbars most visibly, in light colours over a dark page. Light mode

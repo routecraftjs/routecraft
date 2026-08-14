@@ -1,7 +1,7 @@
 export function BuiltWithRoutecraft() {
   return (
     <section className="bg-paper-deep/40">
-      <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-16">
+      <div className="container-page py-14 lg:py-16">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
           <div>
             <h2

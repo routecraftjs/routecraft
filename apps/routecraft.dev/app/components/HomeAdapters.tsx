@@ -67,7 +67,7 @@ const columns: Column[] = [
 export function HomeAdapters() {
   return (
     <section>
-      <div className="mx-auto max-w-7xl px-4 pt-12 pb-20 sm:px-6 lg:px-8 lg:pt-14 lg:pb-24">
+      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <header className="max-w-3xl">
           <h2
             className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink"

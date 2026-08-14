@@ -122,7 +122,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {showDocsSidebar && (
           <div className="hidden lg:relative lg:block lg:flex-none">
             <div className="absolute inset-y-0 right-0 hidden w-px bg-ink/15 lg:block" />
-            <div className="sticky top-19 -ml-0.5 h-[calc(100vh-4.75rem)] w-64 overflow-x-hidden overflow-y-auto py-16 pr-8 pl-0.5 xl:w-72 xl:pr-16">
+            <div className="sticky top-19 -ml-0.5 h-[calc(100vh-4.75rem)] w-64 scrollbar-quiet overflow-x-hidden overflow-y-auto py-16 pr-8 pl-0.5 xl:w-72 xl:pr-16">
               <Navigation />
             </div>
           </div>

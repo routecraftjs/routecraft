@@ -32,7 +32,11 @@ export function Fence({
       >
         {({ className, style, tokens, getTokenProps }) => (
           <pre
-            className={clsx(className, offsetTop && 'pt-10', 'mt-0')}
+            className={clsx(
+              className,
+              offsetTop && 'pt-10',
+              'mt-0 scrollbar-quiet',
+            )}
             style={style}
           >
             <code>
