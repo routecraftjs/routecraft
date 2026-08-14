@@ -295,7 +295,6 @@ export function BlogCover({
           fontSize: 16,
           letterSpacing: '0.22em',
           position: 'relative',
-          zIndex: 1,
         }}
       >
         <span
@@ -323,7 +322,6 @@ export function BlogCover({
           paddingTop: 24,
           paddingBottom: 24,
           position: 'relative',
-          zIndex: 1,
         }}
       >
         <div
@@ -402,7 +400,6 @@ export function BlogCover({
           alignItems: 'center',
           justifyContent: 'space-between',
           position: 'relative',
-          zIndex: 1,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
