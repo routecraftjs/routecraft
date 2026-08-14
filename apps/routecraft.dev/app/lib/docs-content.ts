@@ -125,15 +125,23 @@ export async function loadDocsPage(
 /**
  * The page's content component.
  *
- * Deliberately lazy rather than read from the resolved cache: loaders do not
- * re-run on hydration, so the browser has to fetch the page's own chunk. That
- * chunk is the point of splitting the content tree in the first place.
+ * The resolved module wins when there is one, because suspending is expensive
+ * out of proportion to the wait: React throttles the reveal after a fallback
+ * has been shown, so a chunk that is already in memory still costs roughly
+ * 300ms of blank column. A client-side navigation always has one, since the
+ * route loader awaited the same import before this renders.
+ *
+ * On the first load there is no resolved module: the loader ran during the
+ * prerender, so the browser has to fetch the page's own chunk, and the lazy
+ * wrapper is what makes it its own chunk in the first place. Nothing blanks
+ * there either, because React keeps the prerendered markup while it loads.
  */
 export function docsComponent(
   channel: DocsChannelName,
   slug: string,
 ): ComponentType | undefined {
-  return LAZY.get(cacheKey(channel, normalise(slug)))
+  const key = cacheKey(channel, normalise(slug))
+  return RESOLVED.get(key)?.default ?? LAZY.get(key)
 }
 
 export function docsPageSlugs(channel: DocsChannelName): string[] {

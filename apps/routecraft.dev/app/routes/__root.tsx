@@ -93,7 +93,11 @@ export const Route = createRootRoute({
 
 function RootDocument() {
   return (
-    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+    <html
+      lang="en"
+      className="h-full antialiased motion-safe:scroll-smooth"
+      suppressHydrationWarning
+    >
       <head>
         <HeadContent />
       </head>

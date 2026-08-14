@@ -182,6 +182,29 @@ test.describe('content rendering', () => {
     await expect(page.locator('table th').first()).toBeVisible()
   })
 
+  test('tabbed code blocks render their source', async ({ page }) => {
+    await page.goto('/docs/introduction/installation/')
+
+    const tabs = page.getByRole('tab')
+    expect(await tabs.count()).toBeGreaterThan(1)
+
+    // CodeTabs reads props off its children instead of rendering them, so the
+    // MDX component map never gets to unwrap the fence and the raw element
+    // reached the panel as "[object Object]".
+    async function assertPanelsHoldSource() {
+      for (const panel of await page.getByRole('tabpanel').all()) {
+        const text = (await panel.innerText()).trim()
+        expect(text).not.toContain('[object Object]')
+        expect(text.length).toBeGreaterThan(5)
+      }
+    }
+
+    await assertPanelsHoldSource()
+    // A second tab proves the panels are per-tab rather than one shared fence.
+    await tabs.nth(1).click()
+    await assertPanelsHoldSource()
+  })
+
   test('the blog index keeps its header and featured posts', async ({
     page,
   }) => {

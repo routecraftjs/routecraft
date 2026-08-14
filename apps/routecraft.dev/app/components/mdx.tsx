@@ -1,5 +1,5 @@
 import { MDXProvider } from '@mdx-js/react'
-import { createContext, isValidElement, useContext } from 'react'
+import { createContext, useContext } from 'react'
 import type { ComponentProps, ReactNode } from 'react'
 
 import { AdapterGrid } from '@/components/AdapterGrid'
@@ -17,6 +17,7 @@ import { PluginIndex } from '@/components/PluginIndex'
 import { QuickLink, QuickLinks } from '@/components/QuickLinks'
 import { TriggerCycler } from '@/components/TriggerCycler'
 import { Diagram } from '@/components/figures/Diagram'
+import { readCodeSource } from '@/lib/code-source'
 import {
   DOCS_ROOT,
   docsChannelHref,
@@ -30,66 +31,14 @@ function useChannel(): DocsChannelName {
   return useContext(ChannelContext)
 }
 
-/**
- * Pulls the source text and language out of the `pre`/`code` pair MDX produces.
- *
- * `Fence` and `CodeTab` were written against Markdoc, which handed them the raw
- * code as a string. MDX hands them an element tree instead, so the string is
- * recovered here rather than by rewriting both components.
- */
-function readCodeElement(children: ReactNode): {
-  code: string
-  language: string
-} {
-  // A fence arrives as the `code` element; the same fence inside a `CodeTab`
-  // arrives wrapped in its `pre`. Descend until the children are the source.
-  let node: ReactNode = children
-
-  while (isValidElement(node)) {
-    const props = node.props as { className?: string; children?: ReactNode }
-
-    if (typeof props.children === 'string') {
-      return {
-        // MDX keeps the fence's closing newline; Markdoc did not hand one over.
-        code: props.children.replace(/\n$/, ''),
-        language: /language-([\w-]+)/.exec(props.className ?? '')?.[1] ?? '',
-      }
-    }
-
-    node = props.children
-  }
-
-  return {
-    code: typeof children === 'string' ? children : '',
-    language: '',
-  }
-}
-
 function MdxPre({ children }: { children?: ReactNode }) {
-  const { code, language } = readCodeElement(children)
+  const { code, language } = readCodeSource(children)
   return <Fence language={language}>{code}</Fence>
 }
 
 function MdxCode({ children }: { children?: ReactNode }) {
   if (typeof children !== 'string') return <code>{children}</code>
   return <InlineCode>{children}</InlineCode>
-}
-
-function MdxCodeTab({
-  label,
-  language,
-  children,
-}: {
-  label: string
-  language?: string
-  children?: ReactNode
-}) {
-  const read = readCodeElement(children)
-  return (
-    <CodeTab label={label} language={language ?? read.language}>
-      {read.code}
-    </CodeTab>
-  )
 }
 
 /**
@@ -210,7 +159,7 @@ const components = {
   QuickLinks,
   QuickLink,
   CodeTabs,
-  CodeTab: MdxCodeTab,
+  CodeTab,
   Diagram,
   Figure,
   TopologyDiagram: TriggerCycler,
