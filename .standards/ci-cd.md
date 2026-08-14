@@ -106,6 +106,8 @@ Why this shape:
 
 This is enforced informally by review. When adding a new internal package that other packages depend on, mirror this pattern.
 
+The workspace intentionally carries both React type majors: the CLI ships React 18 through Ink 5, while the docs app runs React 19. Each workspace must resolve the matching `@types/react` major, and this paragraph records that dependency shape because the root manifest cannot carry a comment.
+
 ## 6. Optional peer dependencies (provider SDKs)
 
 External SDKs that a package only needs when a specific feature is used (Vercel AI SDK adapters, `@huggingface/transformers`, `@modelcontextprotocol/server`, `croner`, `cheerio`, etc.) live in `peerDependencies` AND `peerDependenciesMeta.<name>.optional = true`. The adapter dynamically imports them via `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`) and throws **`RC5017`** with an install hint when the import fails. Don't add such deps to `dependencies`; that bloats every install.

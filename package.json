@@ -12,10 +12,6 @@
     "better-sqlite3",
     "esbuild"
   ],
-  "overrides": {
-    "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.4"
-  },
   "scripts": {
     "typecheck": "tsc --noEmit && tsc -p tsconfig.bun-test.json --noEmit && tsc -p tsconfig.bun-test.registry.json --noEmit",
     "lint": "eslint .",

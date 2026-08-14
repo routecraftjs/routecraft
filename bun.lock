@@ -38,7 +38,7 @@
     },
     "apps/routecraft.dev": {
       "name": "routecraft.dev",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@algolia/autocomplete-core": "^1.19.9",
         "@headlessui/react": "^2.2.10",
@@ -78,7 +78,7 @@
     },
     "examples": {
       "name": "examples",
-      "version": "0.5.0",
+      "version": "1.0.0",
       "dependencies": {
         "@routecraft/ai": "workspace:*",
         "@routecraft/routecraft": "workspace:*",
@@ -96,7 +96,7 @@
     },
     "packages/ai": {
       "name": "@routecraft/ai",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@standard-schema/spec": "^1.1.0",
         "ai": "^6.0.246",
@@ -150,13 +150,13 @@
     },
     "packages/cli": {
       "name": "@routecraft/cli",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "bin": {
         "craft": "./dist/index.js",
       },
       "dependencies": {
         "@opentelemetry/sdk-trace-base": "^2.10.0",
-        "@routecraft/routecraft": "^0.5.0",
+        "@routecraft/routecraft": "^0.6.0",
         "agent-browser": "^0.17.1",
         "cheerio": "^1.2.0",
         "commander": "^14.0.3",
@@ -182,7 +182,7 @@
     },
     "packages/create-routecraft": {
       "name": "create-routecraft",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "bin": {
         "create-routecraft": "./dist/index.js",
       },
@@ -195,7 +195,7 @@
     },
     "packages/eslint-plugin-routecraft": {
       "name": "@routecraft/eslint-plugin-routecraft",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "devDependencies": {
         "@types/eslint": "^9.6.1",
         "tsup": "^8.5.1",
@@ -208,7 +208,7 @@
     },
     "packages/os": {
       "name": "@routecraft/os",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "devDependencies": {
         "@routecraft/routecraft": "workspace:*",
         "@routecraft/testing": "workspace:*",
@@ -225,7 +225,7 @@
     },
     "packages/prettier-plugin-routecraft": {
       "name": "@routecraft/prettier-plugin-routecraft",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "devDependencies": {
         "prettier": "^3.9.6",
         "tsup": "^8.5.1",
@@ -238,7 +238,7 @@
     },
     "packages/routecraft": {
       "name": "@routecraft/routecraft",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@opentelemetry/api": "^1.9.1",
         "@standard-schema/spec": "^1.1.0",
@@ -273,6 +273,7 @@
       },
       "peerDependencies": {
         "@opentelemetry/sdk-trace-base": "^2.6.0",
+        "better-sqlite3": "^11.0.0",
         "cheerio": "^1.2.0",
         "croner": "^10.0.1",
         "fast-xml-parser": "^5.10.1",
@@ -287,6 +288,7 @@
       },
       "optionalPeers": [
         "@opentelemetry/sdk-trace-base",
+        "better-sqlite3",
         "cheerio",
         "croner",
         "fast-xml-parser",
@@ -302,7 +304,7 @@
     },
     "packages/testing": {
       "name": "@routecraft/testing",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "dependencies": {
         "@standard-schema/spec": "^1.1.0",
       },
@@ -318,10 +320,6 @@
     "better-sqlite3",
     "esbuild",
   ],
-  "overrides": {
-    "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.4",
-  },
   "packages": {
     "@ai-sdk/anthropic": ["@ai-sdk/anthropic@3.0.107", "", { "dependencies": { "@ai-sdk/provider": "3.0.14", "@ai-sdk/provider-utils": "4.0.42" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-aXwAv1v9ezU3lkAvcz4dfuzJb30ioLk0WRhwpuDgCGKN0dEZiNLeDuyVcRqxWRlYc4Zg4Z4rJcZBKmzJTdzrtw=="],
 
@@ -999,7 +997,9 @@
 
     "@types/prismjs": ["@types/prismjs@1.26.6", "", {}, "sha512-vqlvI7qlMvcCBbVe0AKAb4f97//Hy0EBTaiW8AalRnG/xAN5zOiWWyrNqNXeq8+KAuvRewjCVY1+IPxk4RdNYw=="],
 
-    "@types/react": ["@types/react@19.2.18", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w=="],
+    "@types/prop-types": ["@types/prop-types@15.7.15", "", {}, "sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw=="],
+
+    "@types/react": ["@types/react@18.3.31", "", { "dependencies": { "@types/prop-types": "*", "csstype": "^3.2.2" } }, "sha512-vfEqpXTvwT91yhmwdfouStN2hSKwTvyRs8qpLfADyrq/kxDw0hZM7Wk9Ug1FELj8hIby+S/+kQCSRFF32nv2Qw=="],
 
     "@types/react-dom": ["@types/react-dom@19.2.4", "", { "peerDependencies": { "@types/react": "^19.2.0" } }, "sha512-Bsc+QHgp+P/F02XDzNCY9jnZNCUuLki36KT7VKrTXXLdHf+vHMNZnW1rVu5DNW/rCK+fya3DATySbLM4yhtKUw=="],
 
@@ -2767,6 +2767,10 @@
 
     "@types/papaparse/@types/node": ["@types/node@25.9.2", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-G05zqtJhcDLb8uslf5EjCxXg9G1KQxiV8OS0R26IC//Eoyitzqe8z37I7cqvnZlrlSfgocQRfSn/AHBZJJFyGw=="],
 
+    "@types/react-dom/@types/react": ["@types/react@19.2.18", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w=="],
+
+    "@types/react-highlight-words/@types/react": ["@types/react@19.2.18", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w=="],
+
     "@types/yauzl/@types/node": ["@types/node@25.9.2", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-G05zqtJhcDLb8uslf5EjCxXg9G1KQxiV8OS0R26IC//Eoyitzqe8z37I7cqvnZlrlSfgocQRfSn/AHBZJJFyGw=="],
 
     "@typescript-eslint/typescript-estree/minimatch": ["minimatch@10.2.5", "", { "dependencies": { "brace-expansion": "^5.0.5" } }, "sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg=="],
@@ -2948,6 +2952,8 @@
     "readdir-glob/minimatch": ["minimatch@5.1.9", "", { "dependencies": { "brace-expansion": "^2.0.1" } }, "sha512-7o1wEA2RyMP7Iu7GNba9vc0RWWGACJOCZBJX2GJWip0ikV+wcOsgVuY9uE8CPiyQhkGFSlhuSkZPavN7u1c2Fw=="],
 
     "resq/fast-deep-equal": ["fast-deep-equal@2.0.1", "", {}, "sha512-bCK/2Z4zLidyB4ReuIsvALH6w31YfAQDmXMqMx6FyfHqvBxtjC0eRumeSu4Bs3XtXwpyIywtSTrVT99BxY1f9w=="],
+
+    "routecraft.dev/@types/react": ["@types/react@19.2.18", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w=="],
 
     "routecraft.dev/react": ["react@19.2.8", "", {}, "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw=="],
 
