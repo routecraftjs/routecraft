@@ -34,6 +34,10 @@ export default defineConfig({
     ? {
         webServer: {
           command: 'bun run start',
+          // The server listens on 3000 unless told otherwise, so a BASE_URL
+          // naming another port would leave Playwright waiting on a port
+          // nothing was ever going to answer on.
+          env: { PORT: new URL(baseURL).port || '3000' },
           url: baseURL,
           // Locally this attaches to a server already in front of you; on a
           // runner there is nothing legitimate to attach to, and reusing would
