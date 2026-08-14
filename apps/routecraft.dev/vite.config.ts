@@ -10,7 +10,14 @@ import mdx from '@mdx-js/rollup'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkGfm from 'remark-gfm'
 import remarkMdxFrontmatter from 'remark-mdx-frontmatter'
-import { remarkDocsHeadings, remarkUnwrapImages } from './app/lib/mdx-plugins'
+// Extension included deliberately: Vite's native config loader does not resolve
+// extensionless relative imports, and warns that it will become the default. On
+// a runner it does not fall back the way it does locally, and the config fails
+// to load with a bare resolver error that names nothing.
+import {
+  remarkDocsHeadings,
+  remarkUnwrapImages,
+} from './app/lib/mdx-plugins.ts'
 
 const appDirectory = fileURLToPath(new URL('./app', import.meta.url))
 
