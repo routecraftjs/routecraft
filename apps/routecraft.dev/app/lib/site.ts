@@ -21,10 +21,21 @@ const baseUrlEnv: string | undefined = import.meta.env.VITE_BASE_URL
 // hardcoded in the components.
 export const docVersion = (docVersionEnv || pkg.version).replace(/^v/, '')
 
-export const siteUrl = (baseUrlEnv || 'https://routecraft.dev').replace(
-  /\/+$/,
-  '',
-)
+/**
+ * The origin every absolute URL the build emits carries: canonicals, the
+ * sitemap, the feed and the social card links.
+ *
+ * The dev server falls back to itself rather than to production. Social cards
+ * have to be absolute, so a dev build that named production advertised card
+ * images that only exist in this build, and no preview resolved. A production
+ * build keeps the production default, so forgetting the variable in CI can
+ * never publish a localhost URL. `bun run preview` sets it for the built local
+ * check, and `compose.yaml` sets it for the container.
+ */
+export const siteUrl = (
+  baseUrlEnv ||
+  (import.meta.env.DEV ? 'http://localhost:3000' : 'https://routecraft.dev')
+).replace(/\/+$/, '')
 
 export const siteName = 'Routecraft'
 
