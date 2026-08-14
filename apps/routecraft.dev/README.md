@@ -94,6 +94,39 @@ For a production build without Docker, `bun run build` then `bun run start`.
 > uncommitted content edits along with the freeze. Commit content work before
 > freezing.
 
+## Deploying
+
+CI builds the image and pushes it to GHCR; Dokploy pulls it. Nothing is built on the Dokploy
+host, and Dokploy discovers nothing on its own: it deploys the image reference you configure it
+with, when something tells it to.
+
+Every push to main that passes CI publishes two tags of the same image:
+
+| Tag | Moves | What it is for |
+| --- | --- | --- |
+| `ghcr.io/routecraftjs/routecraft.dev:latest` | yes | What Dokploy is pointed at. Each deploy re-pulls it |
+| `ghcr.io/routecraftjs/routecraft.dev:v0.6.0-a1b2c3d` | no | The immutable artifact for that commit. The rollback handle |
+
+The version half is the docs version the build published (the frozen release tag, or the
+`packages/routecraft` version when no tag is eligible); the second half is the short sha of the
+commit that was built. Dokploy never reads the sha tag. It exists so a deployed revision can be
+named, and so rolling back is redeploying an artifact that already exists rather than rebuilding
+one and hoping it comes out the same.
+
+Maintainer setup, once:
+
+1. Create a Dokploy application with the **Docker** provider (not Git: the image is prebuilt) and
+   set its image to `ghcr.io/routecraftjs/routecraft.dev:latest`.
+2. Give Dokploy registry credentials for `ghcr.io`. A GHCR package is private until it is made
+   public, so an anonymous pull fails; either publish the package or add a GitHub token with
+   `read:packages`. This is the step that usually fails first, and it fails as an image pull error.
+3. Copy the application's deploy webhook URL from Dokploy into the `DOKPLOY_DEPLOY_WEBHOOK`
+   repository secret. Until that secret exists the workflow still pushes the image and just
+   reports that it did not deploy it, so the site keeps serving whatever it is already running.
+
+To roll back, point the application at a `v<version>-<sha>` tag and redeploy. To go forward again,
+point it back at `latest`.
+
 ## Checks
 
 ```sh
