@@ -28,7 +28,7 @@ export function CheatSheet() {
   return (
     <main className="w-full pb-16 print:pb-0">
       <section className="border-b border-ink/15 print:border-none">
-        <div className="container-docs py-12 sm:py-14 print:px-0 print:py-2">
+        <div className="container-page py-12 sm:py-14 print:px-0 print:py-2">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div className="flex-1">
               <p className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase">
@@ -66,7 +66,7 @@ export function CheatSheet() {
         </div>
       </section>
 
-      <div className="container-docs pt-8 lg:flex lg:gap-10 print:block print:px-0 print:pt-2">
+      <div className="container-page pt-8 lg:flex lg:gap-10 print:block print:px-0 print:pt-2">
         <aside className="hidden lg:block lg:w-44 lg:shrink-0 print:hidden">
           <CheatSheetRail items={railItems} />
         </aside>

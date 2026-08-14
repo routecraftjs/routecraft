@@ -324,6 +324,32 @@ test.describe('client-side navigation', () => {
   })
 })
 
+test.describe('not found', () => {
+  // Every miss answers 404 and renders the page, rather than a 200 carrying a
+  // bare paragraph that lets the docs sidebar redistribute around it.
+  for (const route of [
+    '/docs/reference/nope/',
+    '/docs/next/reference/nope/',
+    '/blog/nope/',
+    '/nonsense/',
+  ]) {
+    test(`${route} answers 404 and renders the page`, async ({
+      page,
+      request,
+    }) => {
+      expect((await request.get(route)).status(), route).toBe(404)
+
+      await page.goto(route)
+      await expect(
+        page.getByRole('heading', { name: 'Page not found' }),
+      ).toBeVisible()
+      await expect(
+        page.getByRole('link', { name: /go back home/i }),
+      ).toBeVisible()
+    })
+  }
+})
+
 test.describe('sitemap', () => {
   test('never advertises the next channel', async ({ request }) => {
     const body = await (await request.get('/sitemap.xml')).text()

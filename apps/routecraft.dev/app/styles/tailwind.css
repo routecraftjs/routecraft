@@ -75,21 +75,15 @@
 }
 
 /*
- * The site has exactly two page widths, and every surface uses one of them.
+ * The site's page width. Every surface that bounds its content uses this, so
+ * moving between pages never shifts the content edge.
  *
- * `container-site` frames the marketing pages, the blog and the footer.
- * `container-docs` is wider because docs and the changelog put a navigation
- * sidebar and an outline rail either side of the article, so the reading column
- * lands narrower than the site container despite the wider frame.
- *
- * The header takes whichever one the page beneath it uses, which is what keeps
- * the logo on the same gutter as the content on every page.
+ * Reading columns are set inside it, not against it: docs put a navigation
+ * sidebar and an outline rail either side of the article, and a blog post keeps
+ * a narrower measure because long-form prose reads badly at full width. The
+ * header is deliberately outside it, spanning the viewport as site chrome.
  */
-@utility container-site {
-  @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
-}
-
-@utility container-docs {
+@utility container-page {
   @apply mx-auto w-full max-w-8xl px-4 sm:px-6 lg:px-8;
 }
 

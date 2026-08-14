@@ -108,11 +108,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // their own scroll behavior (docs sidebar scrolls separately, blog posts
   // have a per-post footer) and a global footer there overflows weirdly.
   const showFooter = isHomePage || isCheatSheet || isBlogLanding || isFigures
-  // The site has two page widths (see `container-site` in tailwind.css). Docs
-  // and the changelog take the wider one because they frame the article with a
-  // navigation sidebar and an outline rail; the cheat sheet reaches for it from
-  // inside its own sections.
-  const container = showDocsSidebar ? 'container-docs' : 'container-site'
 
   return (
     <div className="flex min-h-full w-full flex-col">
@@ -121,7 +116,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div
         className={clsx(
           'relative flex w-full flex-auto',
-          useFullWidth ? 'flex-col' : clsx(container, 'justify-center'),
+          useFullWidth ? 'flex-col' : 'container-page justify-center',
         )}
       >
         {showDocsSidebar && (

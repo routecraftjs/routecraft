@@ -2,6 +2,7 @@ import { createFileRoute, notFound } from '@tanstack/react-router'
 
 import { BlogPostLayout } from '@/components/BlogPostLayout'
 import { MdxComponents } from '@/components/mdx'
+import { NotFound } from '@/components/NotFound'
 import { getBlogPostBySlug } from '@/lib/blog'
 import { BlogPostJsonLd, blogPostMetadata } from '@/lib/blog-metadata'
 import { type MdxModule, tocSections } from '@/lib/mdx-content'
@@ -19,9 +20,17 @@ const BY_SLUG = new Map<string, MdxModule>(
 )
 
 export const Route = createFileRoute('/blog/$slug')({
+  // The miss is caught here rather than in the component so the response
+  // carries a 404: a component that throws mid-render has already been given a
+  // 200, and an unknown post answered like a real one.
+  loader: ({ params }) => {
+    if (!BY_SLUG.has(params.slug) || !getBlogPostBySlug(params.slug)) {
+      throw notFound()
+    }
+  },
   head: ({ params }) => toRouteHead(blogPostMetadata(params.slug)),
   component: BlogPost,
-  notFoundComponent: () => <p>Not found</p>,
+  notFoundComponent: NotFound,
 })
 
 function BlogPost() {

@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-router'
 
 import { Layout } from '@/components/Layout'
+import { NotFound } from '@/components/NotFound'
 import { Providers } from '@/components/Providers'
 import { StructuredData } from '@/components/StructuredData'
 import {
@@ -89,6 +90,9 @@ export const Route = createRootRoute({
     ],
   }),
   component: RootDocument,
+  // Everything the file routes do not claim. Without it an unknown URL renders
+  // the shell around an empty page.
+  notFoundComponent: NotFound,
 })
 
 function RootDocument() {

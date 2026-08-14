@@ -123,7 +123,7 @@ function PaperGrain() {
 function Hero() {
   return (
     <section className="relative">
-      <div className="container-site grid grid-cols-1 gap-x-12 gap-y-16 pt-16 pb-20 lg:grid-cols-12 lg:pt-24 lg:pb-28">
+      <div className="container-page grid grid-cols-1 gap-x-12 gap-y-16 pt-16 pb-20 lg:grid-cols-12 lg:pt-24 lg:pb-28">
         <div className="lg:col-span-6 lg:pr-4">
           <p
             className="paper-rise font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase"
@@ -215,7 +215,7 @@ function Hero() {
 function SectionRule({ numeral, label }: { numeral?: string; label: string }) {
   return (
     <div className="relative">
-      <div className="container-site">
+      <div className="container-page">
         <div className="flex items-center gap-4">
           <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-500" />
           {numeral && (
@@ -236,7 +236,7 @@ function SectionRule({ numeral, label }: { numeral?: string; label: string }) {
 function TwoModes() {
   return (
     <section>
-      <div className="container-site pt-12 pb-20 lg:pt-14 lg:pb-24">
+      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <header className="max-w-3xl">
           <h2
             className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
@@ -411,7 +411,7 @@ function InlineMono({ children }: { children: ReactNode }) {
 function Thesis() {
   return (
     <section>
-      <div className="container-site pt-12 pb-20 lg:pt-14 lg:pb-24">
+      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <header className="mx-auto max-w-4xl text-center">
           <p className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase">
             Thesis
@@ -467,7 +467,7 @@ function Thesis() {
 function Reading({ post }: { post: BlogPostMeta }) {
   return (
     <section>
-      <div className="container-site pt-12 pb-20 lg:pt-14 lg:pb-24">
+      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
           <header className="lg:col-span-4">
             <h2
@@ -574,7 +574,7 @@ function Reading({ post }: { post: BlogPostMeta }) {
 function Finale() {
   return (
     <section>
-      <div className="container-site pt-12 pb-28 lg:pt-14 lg:pb-32">
+      <div className="container-page pt-12 pb-28 lg:pt-14 lg:pb-32">
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
           <div className="lg:col-span-8">
             <h2
