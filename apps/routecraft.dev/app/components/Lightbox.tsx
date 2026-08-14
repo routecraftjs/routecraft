@@ -34,6 +34,7 @@ export function Lightbox({
   image,
   imageDark,
   className,
+  id,
 }: {
   /** The trigger: what sits in the flow of the post. */
   children: ReactNode
@@ -46,6 +47,8 @@ export function Lightbox({
   /** Optional dark-theme counterpart, so an enlarged figure matches the page. */
   imageDark?: string
   className?: string
+  /** Anchor the surrounding content named, so a deep link lands on the figure. */
+  id?: string
 }) {
   const [open, setOpen] = useState(false)
 
@@ -57,7 +60,7 @@ export function Lightbox({
           flatten the drawing into the button's name. An empty labelled button
           stretched across the artwork keeps the same click target and focus
           behaviour with a valid tree. */}
-      <div className={clsx('group/lightbox relative', className)}>
+      <div id={id} className={clsx('group/lightbox relative', className)}>
         {children}
         <button
           type="button"
@@ -141,6 +144,7 @@ export function LightboxImage({
   caption,
   title,
   className,
+  id,
 }: {
   src?: string
   alt?: string
@@ -148,6 +152,8 @@ export function LightboxImage({
   /** Markdown image title (`![alt](src "title")`); used as the overlay caption. */
   title?: string
   className?: string
+  /** Anchor an explicit `{#id}` on the image's paragraph named. */
+  id?: string
 }) {
   if (!src) return null
 
@@ -158,6 +164,7 @@ export function LightboxImage({
       caption={caption ?? title}
       image={src}
       className={className}
+      id={id}
     >
       <img
         src={src}

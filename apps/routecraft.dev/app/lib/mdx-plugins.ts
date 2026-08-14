@@ -66,7 +66,17 @@ export function remarkUnwrapImages() {
       )
       if (meaningful.length !== 1 || meaningful[0].type !== 'image') return
 
-      parent.children[index] = meaningful[0]
+      const image = meaningful[0]
+      // An explicit `{#id}` on the paragraph was assigned before this runs, so
+      // the promoted image inherits it rather than dropping the anchor.
+      if (node.data?.hProperties) {
+        image.data = {
+          ...image.data,
+          hProperties: { ...node.data.hProperties, ...image.data?.hProperties },
+        }
+      }
+
+      parent.children[index] = image
     })
   }
 }

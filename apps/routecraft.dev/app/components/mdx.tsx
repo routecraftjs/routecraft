@@ -50,9 +50,9 @@ function MdxLink({ href = '', ...props }: ComponentProps<'a'>) {
  * Markdown images open in a lightbox so diagrams and screenshots can be
  * inspected at full resolution, which is what the Markdoc image node did.
  */
-function MdxImage({ src, alt, title }: ComponentProps<'img'>) {
+function MdxImage({ src, alt, title, id }: ComponentProps<'img'>) {
   if (typeof src !== 'string') return null
-  return <LightboxImage src={src} alt={alt ?? ''} caption={title} />
+  return <LightboxImage src={src} alt={alt ?? ''} caption={title} id={id} />
 }
 
 /**
