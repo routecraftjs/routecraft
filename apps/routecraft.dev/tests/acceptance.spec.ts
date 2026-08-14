@@ -259,6 +259,13 @@ test.describe('content rendering', () => {
     // every docs page fell back to advertising its raw route.
     await page.goto('/docs/reference/adapters/mail/')
     expect(await page.title()).toBe('mail · Docs - Routecraft')
+
+    // A reference page opens with a signature fence, and a description drawn
+    // from inside it published the signature as the page's social card.
+    const description = await page
+      .locator('meta[name="description"]')
+      .getAttribute('content')
+    expect(description).toContain('Read email via IMAP')
   })
 
   test('every route sets its own title', async ({ page }) => {
