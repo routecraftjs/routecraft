@@ -447,8 +447,10 @@ jobs:
           if [ -z "$DOKPLOY_DEPLOY_WEBHOOK" ]; then
             # A green release must not read as "the site is live". The run is
             # annotated and summarised so the published-but-not-deployed state
-            # is visible without opening the log.
-            echo "::warning title=Image published, not deployed::DOKPLOY_DEPLOY_WEBHOOK is not set, so $IMAGE_REFERENCE was pushed but the live site still serves the previous release."
+            # is visible without opening the log. The title carries no comma:
+            # a workflow command splits its properties on one, and the title
+            # would be truncated at the split.
+            echo "::warning title=Image published without deploying::DOKPLOY_DEPLOY_WEBHOOK is not set, so $IMAGE_REFERENCE was pushed but the live site still serves the previous release."
             {
               echo "### Docs image published without deploying"
               echo
