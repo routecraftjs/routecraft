@@ -13,11 +13,11 @@
  *
  * Transformation, applied to the first matching heading only:
  *
- *   ## v0.6.0 {% badge color="gray" %}In development{% /badge %}
+ *   ## v0.6.0 <Badge color="gray">In development</Badge>
  *
  * becomes
  *
- *   ## [v0.6.0](https://github.com/routecraftjs/routecraft/releases/tag/v0.6.0) {% badge color="yellow" %}Pre-release{% /badge %}
+ *   ## [v0.6.0](https://github.com/routecraftjs/routecraft/releases/tag/v0.6.0) <Badge color="yellow">Pre-release</Badge>
  *
  *   *August 2026*
  *
@@ -46,16 +46,24 @@ const changelogPath = join(
   rootDir,
   "apps",
   "routecraft.dev",
-  "src",
   "app",
+  "content",
   "changelog",
-  "page.md",
+  "index.mdx",
 );
 
-const source = readFileSync(changelogPath, "utf8");
+let source;
+try {
+  source = readFileSync(changelogPath, "utf8");
+} catch (error) {
+  // The release cannot describe itself without this file, and a silent skip
+  // would publish a version whose changelog still says "In development".
+  console.error(`Could not read the changelog at ${changelogPath}`);
+  throw error;
+}
 
 const inDevHeading =
-  /^## v\d+\.\d+\.\d+(?:-\S+)? \{% badge color="gray" %\}In development\{% \/badge %\}$/m;
+  /^## v\d+\.\d+\.\d+(?:-\S+)? <Badge color="gray">In development<\/Badge>$/m;
 
 if (!inDevHeading.test(source)) {
   console.log("Changelog has no in-development heading; nothing to finalise.");
@@ -70,7 +78,7 @@ const monthLabel = new Date().toLocaleString("en-GB", {
 
 const releasedHeading =
   `## [v${coreVersion}](https://github.com/routecraftjs/routecraft/releases/tag/v${coreVersion})` +
-  ` {% badge color="yellow" %}Pre-release{% /badge %}\n\n*${monthLabel}*`;
+  ` <Badge color="yellow">Pre-release</Badge>\n\n*${monthLabel}*`;
 
 writeFileSync(changelogPath, source.replace(inDevHeading, releasedHeading));
 
