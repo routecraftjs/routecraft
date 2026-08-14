@@ -1,0 +1,31 @@
+# Local production check. Run from the repository root:
+#   docker compose -f apps/routecraft.dev/compose.yaml up --build
+#
+# WITHOUT A FREEZE THIS IS NOT A RELEASE BUILD. /docs publishes main, exactly
+# like /docs/next, so unreleased pages appear on the released channel and the
+# version reads "vdev". The build says so in its output. To reproduce a real
+# deploy, freeze first and restore afterwards:
+#
+#   bun apps/routecraft.dev/scripts/freeze-docs.ts v0.6.0
+#   VITE_DOC_VERSION=v0.6.0 docker compose -f apps/routecraft.dev/compose.yaml up --build
+#   bun apps/routecraft.dev/scripts/freeze-docs.ts --restore
+#
+# The freeze snapshots the next channel from main on its way through, and the
+# build reads the marker it leaves, so there is nothing else to pass.
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: apps/routecraft.dev/Dockerfile
+      args:
+        VITE_DOC_VERSION: ${VITE_DOC_VERSION:-dev}
+        # Every absolute URL the build emits carries this origin: canonicals,
+        # the sitemap, the feed and the social card links. It defaults to the
+        # host this file serves on, so social cards preview against the
+        # container rather than pointing at the deployed site, which does not
+        # carry this build's images. Pass the real origin to check production
+        # URLs: VITE_BASE_URL=https://routecraft.dev docker compose ...
+        VITE_BASE_URL: ${VITE_BASE_URL:-http://localhost:${PORT:-3000}}
+    ports:
+      - '${PORT:-3000}:3000'
+    restart: unless-stopped

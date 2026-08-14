@@ -1,0 +1,33 @@
+---
+title: input
+---
+
+<Lead>
+[← All operations](/docs/reference/operations)
+</Lead>
+
+```ts
+input(
+  schema: StandardSchemaV1 | { body?: StandardSchemaV1; headers?: StandardSchemaV1 },
+): RouteBuilder<Current>
+```
+
+Declare input validation for the next route. The engine validates the incoming body and headers against these schemas at [filter chain](/docs/advanced/filter-chain) position #4: after `authorize` and `parse`, before any resilience wrapper or user step, so the pipeline never sees an invalid message. A failure throws `RC5002`, which the route-scope `.error()` handler can observe and recover; unrecovered it takes the normal error path (`route:error`, `context:error`, `exchange:failed`) and rejects the sender (e.g. a `direct()` caller). Accepts either a bundle (`{ body, headers }`) or a bare Standard Schema as a body-only shorthand.
+
+When a body schema is given, the chain is retyped: the following `.from(source)` opens the pipeline with the schema's inferred output type, so the body type does not have to be repeated as a `.from<T>()` generic. An explicit `.from<T>(source)` still overrides the inferred type.
+
+```ts
+craft()
+  .id('ingest')
+  .input({ body: OrderSchema, headers: AuthHeaders })
+  .from(direct())
+  // body is already typed as the OrderSchema output
+  .to(saveOrder)
+
+// Body-only shorthand
+craft()
+  .id('ingest')
+  .input(OrderSchema)
+  .from(direct())
+  .to(saveOrder)
+```

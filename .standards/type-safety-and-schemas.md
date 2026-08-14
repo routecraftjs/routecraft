@@ -179,7 +179,7 @@ A lint rule covering this in `@routecraft/eslint-plugin-routecraft` would be the
 
 ### What this means for operations
 
-The user-facing contract (copy-on-write via a plain object spread, the framework re-wrapping the returned plain object into a proper instance, and why in-place mutation is wrong) is documented at `apps/routecraft.dev/src/app/docs/introduction/exchange/page.md` ("Immutability" section). Batch changes in a single spread: one spread allocates one wrapper plus one inner object per change set, which is why chained `withX` methods are not provided (each call would allocate a new wrapper).
+The user-facing contract (copy-on-write via a plain object spread, the framework re-wrapping the returned plain object into a proper instance, and why in-place mutation is wrong) is documented at `apps/routecraft.dev/app/content/docs/introduction/exchange/index.mdx` ("Immutability" section). Batch changes in a single spread: one spread allocates one wrapper plus one inner object per change set, which is why chained `withX` methods are not provided (each call would allocate a new wrapper).
 
 ### Authoring contract for new operations
 

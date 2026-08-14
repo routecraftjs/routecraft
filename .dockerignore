@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+**/.output
+**/.nitro
+**/.tanstack
+**/dist
+**/.next
+**/out
+.git
+**/baseline/html

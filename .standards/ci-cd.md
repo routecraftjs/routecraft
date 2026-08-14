@@ -22,7 +22,7 @@ What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce and 
            / stable publish + v* tag)        └─►  build-and-deploy-docs
 ```
 
-The `setup` job runs `bun install --frozen-lockfile` and seeds the workspace's `**/node_modules`. Downstream jobs restore that cache (key: `hashFiles('**/bun.lock')`) and reinstall on a miss; the GitHub cache service is best-effort, so a miss must never fail a job. Build output is passed differently: `build` uploads `packages/*/dist` and `examples/dist` as a run artifact (`build-dist`) that the smoke and cross-runtime jobs download. Artifacts are guaranteed within the run that produced them, which a cache key is not. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
+Every ci.yml job that installs workspace dependencies restores bun's package cache (`~/.bun/install/cache`, key: `hashFiles('**/bun.lock')`) and then runs `bun install --frozen-lockfile`, which is seconds against a warm cache. `changes` installs nothing and `embedding-smoke` is deliberately node + npm (see the § 2 table), so neither restores it; release.yml's install steps are cold by design, since a publish is rare and correctness there outranks a minute. The linked `**/node_modules` tree is deliberately **not** cached: several dependencies ship a nested `node_modules` inside their own `dist` or test fixtures, nitro vendors `defu` there and imports it without declaring it, and a `**/node_modules` glob matches those nested trees separately from the tree containing them, so the archive carries overlapping paths and the restore silently drops files. Cache the packages, link them fresh. Build output is passed differently: `build` uploads `packages/*/dist` and `examples/dist` as a run artifact (`build-dist`) that the smoke and cross-runtime jobs download. Artifacts are guaranteed within the run that produced them, which a cache key is not. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
 
 The split between the two files is exact: **ci.yml validates and never publishes to npm; release.yml owns every npm publish** (stable releases AND canary snapshots). This is forced by npm Trusted Publishing, which allows one trusted publisher per package, pinned to a single workflow filename, so all publishes must originate from one file. release.yml triggers on `workflow_run` when CI completes successfully for a push to `main`, which also guarantees nothing is published from a commit whose tests or smokes failed. ci.yml's only involvement is uploading a `push-base` artifact (the push's `before` sha, unavailable in `workflow_run` payloads) that the canary job diffs against.
 
@@ -38,6 +38,7 @@ Every PR must pass these jobs before merge. The first column matches the GitHub 
 | `validate` | `bun run format && bun run typecheck && bun run lint && bunx madge --circular .` | Prettier drift, TS errors, ESLint violations, circular imports. |
 | `test` | `bun run test:coverage` (runs `bun:test` for `*.bun.test.{ts,tsx}` then vitest for the rest, both excluding `**/integration.test.ts` and `**/test/cross-runtime/**`) | Unit-test regressions, coverage report uploaded as artifact. |
 | `build` | `bun run build` and `bun run limit:size` | Build failures, bundle size regressions (size-limit). |
+| `docs-site` | The site's own `typecheck` and `lint`, a build, `check-links`, then the Playwright acceptance suite against that build | The site's checks are not in the root `validate` job, which typechecks the packages only. Catches broken app types, dead internal links and anchors, and the URL space, channel, metadata and rendering contracts the migration was held to. Runs on the `docs` paths filter in ci.yml: `apps/routecraft.dev/**`, `packages/**` (the reference catalogues are generated from them), `bun.lock` and `.github/workflows/**`. |
 | `scaffolder-smoke` | `bun run test:integration` twice (`TEST_PACKAGE_MANAGER=bun`, then `=npm`) | End-to-end scaffolder flow: `create-routecraft` -> install -> `bunx tsc --noEmit` -> `bunx craft run` (npm arm skips the run since `craft` is Bun-only). Catches CLI binary regressions, scaffolder template drift, package-manager-specific install failures. |
 | `embedding-smoke` | `node .github/scripts/smoke-test-embedding.mjs` | Library embeds into a plain Node app: `npm pack` + `npm install` + `node --experimental-strip-types runner.ts`. Includes a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed. Catches Node compatibility regressions in the core library and the optional-peer contract. |
 | `adapter-cross-runtime (bun)` | `bun run test:cross-runtime` (matches `**/test/cross-runtime/**/*.test.ts`) | Adapter tests that must produce identical observable behaviour under Bun and Node. Bun arm runs the suite under Bun. |
@@ -79,7 +80,7 @@ Packages are created by hand; there is no generator. Copy the shape of an existi
 2. Never add a `sideEffects` allowlist to a package that registers anything via side-effect imports (config appliers, DSL sugar, adapter registries). Core shipped this bug: its allowlist named only the dist entry points, so esbuild pruned every `registerConfigApplier` side-effect import out of the bundle and `defineConfig({ mail: {...} })` silently no-opped at runtime. Bundle-size wins must come from somewhere else. If the package relies on side-effect registration, add a post-build guard that imports the built bundles and asserts the registrations are live (core's `packages/routecraft/scripts/verify-dist.mjs`, run for both ESM and CJS in its `build` script, is the reference).
 3. `bun install` (the root `workspaces` glob picks the directory up automatically; `bun run --filter '*' build`, `bun run test`, typecheck, and `changeset publish` all walk the workspace).
 4. Add a size-limit entry in the root config if the package ships to users.
-5. Add a docs page under `apps/routecraft.dev/src/app/docs/` and a row to the CLAUDE.md package table.
+5. Add a docs page under `apps/routecraft.dev/app/content/docs/` and a row to the CLAUDE.md package table.
 6. Add an introducing changeset: `bunx changeset` (minor, "Introduce @routecraft/<name>"). Decide whether the package joins the fixed core train in `.changeset/config.json` or versions independently (default: independently).
 
 Nothing needs registering in workflows: there are no per-package publish loops or version scripts anymore.
@@ -122,7 +123,7 @@ The pre-existing migration backlog tracked in [#287](https://github.com/routecra
 
 ## 8. Local pre-PR checklist
 
-The user-facing copy of this checklist lives in the contribution guide (`apps/routecraft.dev/src/app/docs/community/contribution-guide/page.md`); keep the two in sync.
+The user-facing copy of this checklist lives in the contribution guide (`apps/routecraft.dev/app/content/docs/community/contribution-guide/index.mdx`); keep the two in sync.
 
 Run before opening a PR; matches what CI runs:
 

@@ -97,7 +97,7 @@ Every operation that alters an exchange's lifecycle must emit an observable even
 
 The companion document for *where state lives on the exchange* is [`exchange-state-model.md`](./exchange-state-model.md). When you instrument a new operation, that document tells you which fields are stored (`body`, `headers`) versus derived (`id`, `principal`, `logger`); this document tells you which events to emit and what `exchangeId` / `correlationId` resolve to.
 
-The exchange lifecycle event names (`route:exchange:started` / `:completed` / `:failed` / `:dropped` / `:restored`) and their payloads are documented in the events reference (`apps/routecraft.dev/src/app/docs/reference/events/page.md`, "Exchange events" section); that page is the source of truth for the names.
+The exchange lifecycle event names (`route:exchange:started` / `:completed` / `:failed` / `:dropped` / `:restored`) and their payloads are documented in the events reference (`apps/routecraft.dev/app/content/docs/reference/events/index.mdx`, "Exchange events" section); that page is the source of truth for the names.
 
 **Rules:**
 
@@ -114,5 +114,5 @@ The exchange lifecycle event names (`route:exchange:started` / `:completed` / `:
 - Error source: `packages/routecraft/src/error.ts`
 - Logger source: `packages/routecraft/src/logger.ts`
 - Context source: `packages/routecraft/src/context.ts`
-- Error reference docs: `apps/routecraft.dev/src/app/docs/reference/errors/page.md`
-- Monitoring docs: `apps/routecraft.dev/src/app/docs/introduction/monitoring/page.md`
+- Error reference docs: `apps/routecraft.dev/app/content/docs/reference/errors/index.mdx`
+- Monitoring docs: `apps/routecraft.dev/app/content/docs/introduction/monitoring/index.mdx`

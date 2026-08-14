@@ -1,0 +1,71 @@
+# timeout
+
+[← All operations](/docs/reference/operations)
+
+```ts
+timeout(timeoutMs: number): RouteBuilder<Current>
+```
+
+Bound the next operation with a deadline. When the operation settles in time its result passes through unchanged; when the deadline fires first, `RC5011` (Request timeout) is thrown.
+
+**Mental model:** Dual-mode. After `.from()` it wraps the immediately-next step. Before `.from()` it bounds each run of the whole pipeline (pre-from filter chain position 8, inside `.retry()` so every attempt gets its own deadline).
+
+```ts
+// Step scope: bound one slow call
+craft()
+  .id('timeout-protected')
+  .from(source)
+  .timeout(5000)
+  .to(http({ url: 'https://slow-api.example.com' })) // RC5011 if > 5s
+  .transform(format)                                  // not bounded
+
+// Combined with retry: each attempt gets its own 5s deadline
+craft()
+  .id('retry-slow-calls')
+  .from(source)
+  .retry({ maxAttempts: 3 })
+  .timeout(5000)
+  .to(http({ url: 'https://slow-api.example.com' }))
+```
+
+**Parameters:**
+- `timeoutMs` - Deadline in milliseconds
+
+**Error semantics:** Expiry throws `RC5011`, which is registered `retryable: true`: a wrapping `.retry()` re-attempts timeouts by default, and an `.error()` handler can branch on the code (`if (err.rc === 'RC5011') ...`). A failure of the wrapped operation *inside* the deadline propagates unchanged; `.timeout()` never rewrites other errors.
+
+**Cancellation via `AbortSignal`:** Promises cannot be cancelled, so the abandoned operation's eventual result is always discarded. But the wrapped step does receive an `AbortSignal` on its step context that fires when the deadline expires (abort reason: the `RC5011` error). Forward it into cancellation-aware IO so the abandoned work actually stops instead of running to completion in the background:
+
+```ts
+craft()
+  .id('cancellable')
+  .from(source)
+  .timeout(3000)
+  .process(async (ex, { signal }) => {
+    const res = await fetch(url, { signal }); // aborts at 3s
+    return { ...ex, body: await res.json() };
+  })
+  .to(noop())
+```
+
+Every function-form step receives the signal context as its trailing argument: `.process((ex, ctx) => ...)`, `.transform((body, ex, ctx) => ...)`, `.to((ex, ctx) => ...)`, `.enrich((ex, ctx) => ...)`. Adapter authors read the same field from the `StepContext` passed to `Step.execute`. The built-in `http()` destination forwards it automatically. Steps that ignore the signal behave as before: the timeout then only bounds how long the pipeline waits, not the work itself. `.tap()` deliberately receives no signal (taps run detached from the main flow, so an abandoned attempt must not cancel an observation in flight).
+
+**Events:** `route:timeout:started` when the guarded execution begins, `route:timeout:stopped` when it settles in time, `route:timeout:expired` when the deadline fires (followed by the `RC5011` throw). Payloads carry `scope: "route" | "step"`. See the [events reference](/docs/reference/events).
+
+## Route scope
+
+Place `.timeout()` BEFORE `.from()` to bound each run of the entire pipeline:
+
+```ts
+craft()
+  .id('bounded-pipeline')
+  .retry({ maxAttempts: 2 })
+  .timeout(10_000)
+  .from(direct())
+  .enrich(slowUpstream)
+  .transform(format)
+  .to(noop())
+```
+
+Route-scope `.timeout()` sits at position 8 of the [filter chain](/docs/advanced/filter-chain): inside route-scope `.retry()` (each attempt gets its own deadline) and outside the cache check (a cache hit counts as a fast success and never expires). Builder call order does not matter; the framework fixes the chain order.
+
+**Abandonment at route scope is bounded.** When the deadline fires, the step that was in flight still settles (promises cannot be cancelled) but its outcome is discarded and no further pipeline steps are scheduled: a `.to()` later in the pipeline will not fire after the caller has already received `RC5011`. The in-flight step also sees the expiry through its step-context `AbortSignal` (same contract as step scope), so cancellation-aware IO stops early. At step scope only the single wrapped step is abandoned, so there is nothing downstream to suppress. When a route-scope and a step-scope timeout nest, the step's signal is linked to both deadlines and the earliest one aborts it.

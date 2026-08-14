@@ -1,0 +1,306 @@
+---
+title: Project structure
+---
+
+<Lead>
+A conventional folder layout that Routecraft expects out of the box.
+</Lead>
+
+## Folder layout
+
+Each capability is its own folder, grouped under a domain folder. `route.ts` is the
+capability's public surface; everything else in the folder is private to it.
+
+```text
+my-app
+├── craft.config.ts
+├── capabilities
+│   ├── comms
+│   │   └── send-email
+│   │       ├── route.ts
+│   │       ├── route.test.ts
+│   │       └── README.md
+│   └── reports
+│       └── daily-summary
+│           ├── route.ts
+│           ├── route.test.ts
+│           ├── summarise.ts          # internal helper, private to this capability
+│           └── __fixtures__
+├── shared
+│   └── amount.ts                     # pure helper shared by several capabilities
+├── adapters
+│   └── google-sheets
+│       ├── index.ts              # the googleSheets() factory, the only file imported
+│       ├── source.ts
+│       ├── destination.ts
+│       └── types.ts
+├── plugins
+│   └── logger.ts
+├── skills                            # house skills, available to every agent
+│   ├── tone-of-voice.md
+│   └── incident-response
+│       └── SKILL.md
+├── agents
+│   ├── triage.md                     # flat agent
+│   └── aria                          # agent bundle
+│       ├── AGENT.md
+│       └── skills                    # scoped to aria only
+│           └── refund-policy.md
+├── package.json
+├── tsconfig.json
+└── .env
+```
+
+All application code can live at the project root or inside an optional `src` folder.
+Routecraft treats both layouts identically. Put the convention folders in one place or the
+other, not both: `craft start` uses the root-level layout when it finds folders there and
+warns that the `src` copies are ignored.
+
+## What `craft start` discovers
+
+[`craft start`](/docs/reference/cli#start) boots the whole project from this layout, so an
+application needs no barrel file. Each folder is optional; one that is absent is skipped.
+
+| Folder | Produces | Rule |
+| --- | --- | --- |
+| `capabilities/` | Routes | A directory holding `route.ts` is one capability: that file is imported and the directory is not descended into, so colocated tests, fixtures and private helpers are never loaded. Any other module is a single-file capability. Other directories are grouping. |
+| `plugins/` | Context plugins | Each module default-exports a plugin instance (an object with `apply`). A factory export is an error: a factory needs arguments the runtime cannot invent, so call it in `craft.config.ts` instead. |
+| `agents/` | Registered agents | Loaded by `@routecraft/ai`. See [agents](#agents). |
+| `skills/` | The default skill set for every agent | Loaded by `@routecraft/ai`. See [skills](#skills). |
+| `adapters/` | Nothing | Part of the convention as a place to put code. Importing an adapter module registers nothing, so there is nothing for `start` to load. |
+
+Code wins and convention fills the gaps: anything `craft.config.ts` declares is kept, and
+discovery adds only what the config left out. Every discovered capability, plugin and agent
+is logged with the file it came from, so precedence is visible in a startup log.
+
+`agents/` and `skills/` mean nothing to the CLI itself. `@routecraft/ai` claims those folder
+names when it is imported, which is why a project using them has to import the package for
+its side effects:
+
+```ts
+// craft.config.ts
+import "@routecraft/ai";
+```
+
+A type-only import (`import type { ... } from "@routecraft/ai"`) is erased at compile time
+and registers nothing, so it produces the "nothing knows how to load this folder" error while
+the import statement above it looks perfectly correct.
+
+## The capability folder
+
+A capability is a folder under `capabilities/`, named for its id, grouped beneath a domain
+folder. `bunx create-routecraft` scaffolds this shape for you.
+
+| File | Purpose |
+| --- | --- |
+| `route.ts` | The public surface. Default-exports the capability and re-exports its input/output types. The only file other capabilities may import. |
+| `route.test.ts` | Colocated test, written with `@routecraft/testing`. |
+| `README.md` | Short description of what the capability does. Add a mermaid diagram and an integrations table for non-trivial ones. |
+| internal files | Mappers, helpers, fixtures. Private to the folder; never imported from outside it. |
+
+The file is named `route.ts` because that is what the `craft()` builder returns. The
+user-facing noun for the unit of work is still "capability"; "route" is just the name of the
+public-surface file.
+
+```ts
+// capabilities/comms/send-email/route.ts
+import { craft, http } from '@routecraft/routecraft'
+import { z } from 'zod'
+
+export const SendEmailInput = z.object({ to: z.string().email(), subject: z.string() })
+export type SendEmailInput = z.infer<typeof SendEmailInput>
+
+export default craft()
+  .id('send-email')
+  .input({ body: SendEmailInput })
+  .from<SendEmailInput>(/* source */)
+  .to(http({ method: 'POST', url: 'https://api.example.com/send' }))
+```
+
+### Reuse between capabilities
+
+Capabilities never import each other's internal files. To call one capability from another,
+use [`direct()`](/docs/advanced/composing-capabilities) with the callee's id, and import its
+types from its `route.ts`:
+
+```ts
+// capabilities/reports/daily-summary/route.ts
+import { craft, direct } from '@routecraft/routecraft'
+import { type SendEmailInput } from '../../comms/send-email/route'
+
+export default craft()
+  .id('daily-summary')
+  .from(/* ... */)
+  .to(direct<SendEmailInput>('send-email'))
+```
+
+This keeps the contract (the id plus the exported types) the only coupling between
+capabilities. Internals stay free to change.
+
+### Shared helpers
+
+A helper used by a single capability stays inside that capability's folder. When two or more
+capabilities need the same pure helper (validate an amount, parse a date, a shared domain
+type), put it in a top-level `shared/` folder next to `capabilities/`:
+
+```text
+shared
+├── amount.ts          # parseAmount, assertPositive
+└── dates.ts           # toIsoDate
+```
+
+Any capability may import from `shared/`. Keep it pure: validators, parsers, formatters, and
+types, with no side effects and no imports back into a capability's internals. `shared/` is the
+single-project answer, so a one-app repo never needs workspace tooling just to share a date
+parser.
+
+When the repo grows into multiple runtimes (several apps under `apps/`), shared code graduates
+from `shared/` to a workspace package that each app depends on as a local dependency, so the
+boundary stays explicit across app lines.
+
+### Single-file shorthand
+
+A trivial capability with no internal files can be a single file, `capabilities/<id>.ts`,
+that default-exports the route. This is fine for small or example-only capabilities. The
+folder shape is the default once a capability grows a test, a README, or any private helper.
+
+Sub-folders inside `capabilities/` are supported to any depth. The capability id set in
+`.id()` is what identifies it at runtime, not the path or filename.
+
+## Other folders
+
+| Folder | Purpose |
+| --- | --- |
+| `shared/` | Pure helpers (validators, parsers, formatters, shared types) used by two or more capabilities in a single-app project. No side effects; never imports a capability's internals. Graduates to a workspace package once the repo goes multi-app. |
+| `adapters/` | Custom adapters that connect to external systems, one folder per adapter. `index.ts` exposes the single factory; `source.ts`, `destination.ts`, and friends hold the operation implementations (`subscribe`, `send`, `process`). See the [custom adapters guide](/docs/advanced/custom-adapters). |
+| `plugins/` | Runtime plugins that hook into the Routecraft context lifecycle, such as MCP transport or custom telemetry. |
+
+**Adapters vs plugins:** an adapter connects to an external system (a queue, an API, a file
+system). A plugin extends the runtime itself (exposing MCP, adding metrics, wiring up
+observability).
+
+## Agents
+
+An agent sits beside a capability, not inside one. Both are first-class, and they compose in
+both directions: a capability can call an agent, and an agent can be granted a capability as
+a tool.
+
+Two forms live under `agents/`, and they can be mixed:
+
+```text
+agents
+├── triage.md                   # flat agent, at any depth
+├── review
+│   └── security.md             # grouping folder, walked
+└── aria                        # agent bundle
+    ├── AGENT.md
+    └── skills                  # aria's skills, never agents
+        └── refund-policy.md
+```
+
+An agent's identity is its frontmatter `name`, never the filename or the folder path, which
+is what lets an existing Claude Code `.claude/agents/` tree drop in unchanged. The one
+exception is a bundle: a directory holding `AGENT.md` is exactly one agent, is not descended
+into, and its frontmatter `name` must match the directory name. A directory named `skills` is
+never scanned for agents at any depth.
+
+```md
+---
+name: triage
+description: Routes inbound mail to the right queue
+model: anthropic:claude-sonnet-4-6
+tools:
+  - Direct(classify-mail)
+---
+You triage inbound mail.
+```
+
+## Skills
+
+Skills resolve at two levels.
+
+**House skills.** The top-level `skills/` folder becomes the default skill set every agent
+carries, grouped under the `skills` key so a leaf resolves as `skills__<name>`. An agent drops
+the whole set with `blocks: { skills: false }`. Both the flat `<name>.md` and the nested
+`<name>/SKILL.md` forms work.
+
+**Per-agent skills.** An agent declares its own with a `skills:` list in frontmatter, and an
+agent bundle may also hold a sibling `skills/` folder:
+
+```md
+---
+name: zoe
+description: Handles customer conversations
+skills:
+  - ./skills                                  # local path, relative to the agent file
+  - npm:@acme/claude-skills/support           # installed package, subpath into its tree
+---
+```
+
+An `npm:` ref resolves against installed packages, so there is no network access at boot and
+no trust surface beyond the dependencies already in `package.json`. `npm:<pkg>/<subpath>`
+looks for `<package root>/<subpath>` and then `<package root>/skills/<subpath>`; `npm:<pkg>`
+with no subpath looks for `<package root>/skills` and then the package root itself. A ref that
+resolves to no directory fails the boot with `AI1004` naming the ref and what was tried.
+
+Sources compose in one order, most specific last:
+
+1. the house `skills/` folder,
+2. the frontmatter `skills:` refs, in declared order,
+3. the bundle's own `skills/` folder.
+
+A name present in more than one resolves to the most specific copy, and both sources are
+logged at info so the shadowing is visible rather than mysterious.
+
+An agent that declares no skills at all inherits the house set. That is deliberate: absent
+means "the house default", never "no skills", so a dropped-in agent file written for another
+harness lands in the ambient behaviour its author expected.
+
+<Callout type="warning" title="Config blocks replace, they do not merge">
+
+A per-agent `blocks` entry replaces a same-named default wholesale. If you set
+`blocks: { skills: ... }` for an agent in `craft.config.ts`, that agent no longer receives the
+discovered folder skills at all; spread them in explicitly if you want both. Discovery
+composes for you only when it owns the agent's skill set.
+
+</Callout>
+
+## Files
+
+| File | Purpose |
+| --- | --- |
+| `craft.config.ts` | Registers plugins and configures the context. Exported as the named `craftConfig` export. |
+| `package.json` | Dependencies and convenience scripts. |
+| `tsconfig.json` | TypeScript configuration. |
+| `.env` | Environment variables. Pass a custom path with `--env` in CLI commands. |
+
+## craft.config.ts
+
+The config file is the entry point for the Routecraft runtime. It is read through the named
+`craftConfig` export, which is what `defineConfig` is built for:
+
+```ts
+// craft.config.ts
+import { defineConfig } from "@routecraft/routecraft";
+
+export const craftConfig = defineConfig({});
+```
+
+A default export is accepted as a fallback and warns, because earlier versions of this page
+showed that form and nothing read it. Rename it to `craftConfig`.
+
+Importing this file is also what pulls ecosystem packages into the module graph, which is how
+their config keys and their folder discoverers get registered. An agent project therefore
+imports `@routecraft/ai` here even when every agent is declared in markdown.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Composing Capabilities" icon="presets" href="/docs/advanced/composing-capabilities" description="Reuse capabilities with direct() and exported contract types." />
+
+<QuickLink title="Configuration reference" icon="presets" href="/docs/reference/configuration" description="craft.config.ts options and context settings." />
+
+</QuickLinks>

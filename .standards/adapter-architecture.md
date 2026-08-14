@@ -49,7 +49,7 @@ What these laws forbid (all removed in the #532 refactor, do not reintroduce): `
 
 ## Single-Factory Pattern
 
-Each adapter concept (direct, http, simple, etc.) exposes **one factory function** that returns the appropriate interface based on parameters; users think in concepts, not operations (source, destination). This is the cornerstone of DX. The pattern is documented user-facing in the custom-adapters guide (`apps/routecraft.dev/src/app/docs/advanced/custom-adapters/page.md`): one factory per concept with overloads and structural discrimination ("Factory function" section), `{Concept}{Operation}Adapter` class naming even for single-role adapters (same section), and the per-concept directory layout with one file per role ("File structure" section). Follow that guide for new adapters; the rule below is internal-only and has no docs equivalent.
+Each adapter concept (direct, http, simple, etc.) exposes **one factory function** that returns the appropriate interface based on parameters; users think in concepts, not operations (source, destination). This is the cornerstone of DX. The pattern is documented user-facing in the custom-adapters guide (`apps/routecraft.dev/app/content/docs/advanced/custom-adapters/index.mdx`): one factory per concept with overloads and structural discrimination ("Factory function" section), `{Concept}{Operation}Adapter` class naming even for single-role adapters (same section), and the per-concept directory layout with one file per role ("File structure" section). Follow that guide for new adapters; the rule below is internal-only and has no docs equivalent.
 
 ### Factories return interfaces, not classes
 
@@ -114,7 +114,7 @@ The runtime object must agree with the declared type: expose only the slots the 
 ### Options and configuration
 
 - Use a single constructor with a minimal options object: `myAdapter(options?: Partial<MyOptions>)`.
-- For adapters needing context-level config, implement `MergedOptions<T>`: expose `options` and a `mergedOptions(context)` method that reads from a typed `StoreRegistry` key. The full walkthrough (companion plugin, precedence, rationale) is documented at `apps/routecraft.dev/src/app/docs/advanced/merged-options/page.md`.
+- For adapters needing context-level config, implement `MergedOptions<T>`: expose `options` and a `mergedOptions(context)` method that reads from a typed `StoreRegistry` key. The full walkthrough (companion plugin, precedence, rationale) is documented at `apps/routecraft.dev/app/content/docs/advanced/merged-options/index.mdx`.
 - Extend `StoreRegistry` via declaration merging to type your store keys.
 
 ### Store keys: use `Symbol.for`
@@ -135,7 +135,7 @@ declare module "@routecraft/routecraft" {
 
 ### Options naming for two-role adapters
 
-For naming conventions (Source/Destination vs Server/Client), see [naming-policy.md](./naming-policy.md). The public type shape -- optional `XxxBaseOptions`, `XxxServerOptions` / `XxxClientOptions`, and the exported `XxxOptions` union used as the factory parameter type -- is documented in the custom-adapters guide (`apps/routecraft.dev/src/app/docs/advanced/custom-adapters/page.md`, "Options naming" section). One internal type has no docs equivalent: declare a non-exported intersection `type XxxOptionsMerged = XxxServerOptions & XxxClientOptions` and use it for `this.options`, the `StoreRegistry` entry, and the `mergedOptions()` return type.
+For naming conventions (Source/Destination vs Server/Client), see [naming-policy.md](./naming-policy.md). The public type shape -- optional `XxxBaseOptions`, `XxxServerOptions` / `XxxClientOptions`, and the exported `XxxOptions` union used as the factory parameter type -- is documented in the custom-adapters guide (`apps/routecraft.dev/app/content/docs/advanced/custom-adapters/index.mdx`, "Options naming" section). One internal type has no docs equivalent: declare a non-exported intersection `type XxxOptionsMerged = XxxServerOptions & XxxClientOptions` and use it for `this.options`, the `StoreRegistry` entry, and the `mergedOptions()` return type.
 
 ### Source adapters
 
@@ -371,7 +371,7 @@ export class MyTransformerAdapter<T = unknown, R = T>
 
 ## Factory Tagging for Testability
 
-Every adapter factory stamps its return value with `tagAdapter(instance, factory, factoryArgs(...))` so the testing package's `mockAdapter(factory, ...)` can match instances back to their factory at route execution time. Always build the args tuple with `factoryArgs(...)` (it trims trailing `undefined` so `args.length` matches what the user typed), pass the factory function itself as the second argument (identity is what `mockAdapter` matches on), and tag at every return path of a multi-interface factory. The full contract with examples is documented in the custom-adapters guide (`apps/routecraft.dev/src/app/docs/advanced/custom-adapters/page.md`, "Making your adapter mockable" section).
+Every adapter factory stamps its return value with `tagAdapter(instance, factory, factoryArgs(...))` so the testing package's `mockAdapter(factory, ...)` can match instances back to their factory at route execution time. Always build the args tuple with `factoryArgs(...)` (it trims trailing `undefined` so `args.length` matches what the user typed), pass the factory function itself as the second argument (identity is what `mockAdapter` matches on), and tag at every return path of a multi-interface factory. The full contract with examples is documented in the custom-adapters guide (`apps/routecraft.dev/app/content/docs/advanced/custom-adapters/index.mdx`, "Making your adapter mockable" section).
 
 One consequence with no docs equivalent: because `tagAdapter` stamps **non-enumerable symbol properties** (documented in the custom-adapters guide's "Making your adapter mockable" section), wrappers created via object spread lose them. When an adapter instance must be cloned, use `Object.create(Object.getPrototypeOf(adapter))` plus `Object.assign` plus re-`tagAdapter`.
 
@@ -418,5 +418,5 @@ Before submitting a new or modified adapter:
 - Adapter source: `packages/routecraft/src/adapters/`
 - AI adapter source: `packages/ai/src/`
 - Testing adapters: `packages/testing/src/adapters/`
-- Public docs: `apps/routecraft.dev/src/app/docs/reference/adapters/page.md`
-- Custom adapters guide: `apps/routecraft.dev/src/app/docs/advanced/custom-adapters/page.md`
+- Public docs: `apps/routecraft.dev/app/content/docs/reference/adapters/index.mdx`
+- Custom adapters guide: `apps/routecraft.dev/app/content/docs/advanced/custom-adapters/index.mdx`

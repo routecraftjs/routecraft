@@ -40,11 +40,21 @@ next-env.d.ts
 /public/llms-full.txt
 /public/llms-full-next.txt
 
+# generated metadata surfaces (see scripts/generate-{sitemap,robots,feed}.ts)
+/public/sitemap.xml
+/public/robots.txt
+/public/feed.xml
+
+# generated Open Graph images (see scripts/generate-og-images.ts)
+/public/og/
+
 # generated in-development docs channel (see scripts/generate-docs-next.mjs, run in prebuild)
 /src/app/docs/next/
+/app/content/docs-next/
 
 # generated per-channel docs catalogue (see scripts/generate-docs-catalogue.mjs, run in prebuild)
 /src/lib/generated/
+/app/lib/generated/
 
 # generated next-channel screenshot mirror (see scripts/generate-docs-next.mjs, run in prebuild)
 /public/screenshots/next/
@@ -53,3 +63,17 @@ next-env.d.ts
 /src/app/docs/**/layout.tsx
 /src/app/blog/*/layout.tsx
 /src/app/blog/*/opengraph-image.tsx
+
+# Acceptance baseline: raw captured HTML, re-fetchable, derived into baseline/text
+/baseline/html/
+
+# Vite / TanStack Start build output
+/.output/
+/.nitro/
+/.tanstack/
+app/routeTree.gen.ts
+
+# Playwright output
+/test-results/
+/playwright-report/
+/blob-report/

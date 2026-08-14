@@ -1,0 +1,288 @@
+# Running an MCP server
+
+Run your capabilities as MCP tools for Claude, Cursor, and other AI clients.
+
+## How it works
+
+Routecraft uses the Model Context Protocol (MCP) to expose capabilities as typed tools. You define the tool as a capability using the `mcp()` source adapter, run it with `craft run`, and point your AI client at the process. The AI can then call your tool with validated inputs -- nothing else is accessible.
+
+A capability becomes an MCP tool when you use `mcp()` as its source: the tool name is the route's `.id()`, and the `.description()` and `.input()` schema live on the route builder so Routecraft can validate every call before any business logic runs. See the [MCP example](/docs/examples/mcp) for a complete, copyable capability, and the [`mcp()` adapter reference](/docs/reference/adapters/mcp) for the full option surface.
+
+## Install
+
+```bash
+bun add @routecraft/ai zod
+```
+
+## Stdio transport (default)
+
+Stdio is the simplest transport. The AI client spawns Routecraft as a subprocess and communicates over stdin/stdout. No networking, no auth required.
+
+### Claude Desktop
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "command": "bunx",
+      "args": [
+        "@routecraft/cli",
+        "run",
+        "./capabilities/search-orders.ts"
+      ]
+    }
+  }
+}
+```
+
+Restart Claude Desktop completely after saving. Look for the hammer icon in the input area.
+
+### Cursor
+
+Open **Cursor Settings** > **Features** > **Model Context Protocol**, then add:
+
+```json
+{
+  "my-tools": {
+    "command": "bunx",
+    "args": [
+      "@routecraft/cli",
+      "run",
+      "./capabilities/search-orders.ts"
+    ]
+  }
+}
+```
+
+### Claude Code
+
+Add the following to your `.mcp.json` (project-level) or `~/.claude/mcp.json` (global):
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "command": "bunx",
+      "args": [
+        "@routecraft/cli",
+        "run",
+        "./capabilities/search-orders.ts"
+      ]
+    }
+  }
+}
+```
+
+## HTTP transport
+
+Use the HTTP transport when you want a long-running server that multiple clients can connect to, or when you need authentication. Add `mcpPlugin` to your config with `transport: 'http'`:
+
+```ts
+// craft.config.ts
+import { mcpPlugin, jwt } from '@routecraft/ai'
+
+export default {
+  plugins: [
+    mcpPlugin({
+      transport: 'http',
+      port: 3001,
+      auth: jwt({
+        secret: process.env.JWT_SECRET!,
+        issuer: 'https://idp.example.com',
+        audience: 'https://mcp.example.com',
+      }),
+    }),
+  ],
+}
+```
+
+Start the server with `craft run`, then point your AI client at it. Anything reachable over the network must be authenticated: see [Securing capabilities](/docs/advanced/securing-capabilities) for every auth mode (`jwt()`, `jwks()`, custom validators, and `oauth()` as a resource-server gate), identity enrichment, RFC 9728 discovery metadata, and CORS.
+
+### Scaling out
+
+The HTTP transport is stateless. Following [MCP revision 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28), there is no `initialize` handshake and no `Mcp-Session-Id`: every request carries its own protocol version, client identity, and capabilities, and Routecraft builds a fresh server instance to answer it. Two consequences worth planning around:
+
+- **Any replica can answer any request.** Run as many processes as you like behind a plain round-robin load balancer. No sticky sessions, no shared session store.
+- **Auth is enforced per request.** A credential is verified on every call rather than once per session, so a revoked token stops working immediately rather than at the end of a session.
+
+Clients that only speak the 2025 revision keep working unchanged; they are served through the stateless 2025 path and simply do not get the newer revision's features.
+
+### Claude Desktop (HTTP)
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "url": "http://localhost:3001/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-jwt-token>"
+      }
+    }
+  }
+}
+```
+
+### Cursor (HTTP)
+
+```json
+{
+  "my-tools": {
+    "url": "http://localhost:3001/mcp",
+    "headers": {
+      "Authorization": "Bearer <your-jwt-token>"
+    }
+  }
+}
+```
+
+### Claude Code (HTTP)
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "url": "http://localhost:3001/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-jwt-token>"
+      }
+    }
+  }
+}
+```
+
+## Server identity and branding
+
+When a client like Claude adds your server, it renders the server's identity from `serverInfo`, returned by `server/discover` for 2026-07-28 clients and by the `initialize` handshake for 2025-era ones. Configure it on `mcpPlugin` (or the `mcp` key of `defineConfig`):
+
+```ts
+// craft.config.ts
+import { mcpPlugin } from '@routecraft/ai'
+
+export default {
+  plugins: [
+    mcpPlugin({
+      name: 'acme-bot',                          // serverInfo.name (machine id)
+      title: 'Acme Bot',                         // serverInfo.title (display name)
+      version: '2.1.0',                          // serverInfo.version
+      description: 'Acme operations over MCP.',  // serverInfo.description
+      websiteUrl: 'https://acme.example.com',    // serverInfo.websiteUrl
+      instructions: 'Call orders_search before orders_refund.', // server capabilities, not serverInfo
+      icons: [
+        { src: 'https://acme.example.com/icon.svg', mimeType: 'image/svg+xml' },
+        { src: 'data:image/png;base64,...', mimeType: 'image/png', sizes: ['48x48'], theme: 'light' },
+      ],
+    }),
+  ],
+}
+```
+
+`instructions` is server-wide guidance the client may add to the model's context (advisory per the spec). It complements each tool's own `.description()`, which is the per-tool equivalent.
+
+### Defaults and how to opt out
+
+When you do not set them, Routecraft fills in a "powered by Routecraft" identity. Each default is overridable with your own value or suppressible with an empty value:
+
+| Field | Default when unset | Suppress with |
+| --- | --- | --- |
+| `icons` | Routecraft logo (light and dark variants) | `icons: []` |
+| `description` | `"Powered by Routecraft.dev"` | `description: ""` |
+| `websiteUrl` | `"https://routecraft.dev"` | `websiteUrl: ""` |
+| `instructions` | none (omitted) | `instructions: ""` |
+
+### Per-tool icons and inheritance
+
+A capability can carry its own icon via the `mcp()` source. The icon shape follows the MCP `Icon` spec (`src`, optional `mimeType`, `sizes` as a string array, and an optional `theme`):
+
+```ts
+craft()
+  .id('orders_search')
+  .description('Search orders')
+  .from(mcp({
+    annotations: { readOnlyHint: true },
+    icons: [{ src: 'https://acme.example.com/search.svg', mimeType: 'image/svg+xml', sizes: ['48x48'] }],
+  }))
+```
+
+Icons resolve with the same rule at both levels: omit `icons` to inherit (a tool with no icon of its own shows the server's icon, including the Routecraft default), set `icons: [...]` for a custom icon, or set `icons: []` to show none.
+
+## Proxying tools from configured clients
+
+Any MCP client registered under `mcpPlugin({ clients })` can have tools re-exposed through your Routecraft MCP server without writing a route per tool. Use the `proxy` option to select them:
+
+```ts
+// craft.config.ts
+import { mcpPlugin } from '@routecraft/ai'
+
+export default {
+  plugins: [
+    mcpPlugin({
+      clients: {
+        docs: { transport: 'stdio', command: 'docs-mcp' },
+        billing: { url: 'https://billing.example.com/mcp', auth: { token: process.env.BILLING_TOKEN! } },
+      },
+      proxy: [
+        'docs:get_document',                          // one tool
+        'docs:*',                                     // every docs tool ("docs" works too)
+        { ref: 'billing:search', name: 'billing_search', description: 'Search invoices (read-only)' },
+      ],
+    }),
+  ],
+}
+```
+
+Proxied tools appear in `tools/list` under their original name (or the `name` override) with the remote input/output schema, description, title, annotations, and icons passed through. Calls dispatch over the client's registered transport and auth, and the remote result (content, `structuredContent`, `isError`) is returned verbatim. Selection is live: wildcard entries follow tool refresh and stdio restarts.
+
+An exact ref and a wildcard covering the same remote tool compose: the exact entry's overrides and guard apply regardless of config order, so `['docs:*', { ref: 'docs:search', guard }]` proxies everything from `docs` with the guard on `search`. Collisions between different remote tools on one exposed name resolve deterministically: a local `.from(mcp())` route always wins over a proxied tool, and earlier `proxy` entries win over later ones (both log a warning). Use the `name` override to expose two same-named tools side by side. Exposed names must match `[A-Za-z0-9_-]{1,64}` (the same contract route ids follow); a remote tool whose own name does not conform is skipped with a warning unless you proxy it with an exact ref and a `name` override.
+
+### Guarding proxied tools
+
+A proxy entry can carry a `guard`, the same per-tool check the agent's `tools([{ name, guard }])` supports. It runs before the call dispatches, receives the raw tool arguments and a handler context carrying the MCP caller's read-only `principal` (populated by the HTTP transport's `auth`), and rejects the call by throwing (the client sees an `isError` result). Unlike agent tools, no schema validation runs before a proxy guard (the remote server validates after it), so treat the input as untrusted and check structure before dereferencing:
+
+```ts
+proxy: [
+  {
+    ref: 'billing:search',
+    guard: (_input, ctx) => {
+      if (!ctx.principal?.roles?.includes('finance')) {
+        throw new Error('finance role required')
+      }
+    },
+  },
+  // On a wildcard ref the guard attaches to every expanded tool:
+  { ref: 'docs:*', guard: (input, ctx) => { /* ... */ } },
+]
+```
+
+**When to proxy and when to write a route.** A proxied call runs no route pipeline: no `authorize()`, no input validation, no caching, throttling, or timeouts. The caller's authenticated principal is also not forwarded to the remote server; the Routecraft-to-client hop authenticates with the client's registered `auth`. Proxy simple, read-only tools (a document fetch, a search) raw, add a `guard` when a tool needs an identity or role check, and the moment a tool needs anything stateful or time-based (caching, throttling, retries, audit), put a `.from(mcp())` route in front of it instead -- see [Calling an MCP -> Guardrails](/docs/advanced/call-an-mcp#guardrails-raw-guarded-or-wrapped) for the same tiering applied to agent tools.
+
+## Production
+
+Pin the CLI version so your capabilities do not break on package updates:
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "command": "bunx",
+      "args": [
+        "@routecraft/cli@2.0.0",
+        "run",
+        "/absolute/path/to/capabilities/search-orders.ts"
+      ]
+    }
+  }
+}
+```
+
+Use absolute paths in production to avoid working-directory ambiguity.
+
+---
+
+## Related
+
+- [Securing capabilities](/docs/advanced/securing-capabilities) -- Authenticate HTTP endpoints, enrich identity, RFC 9728, CORS.
+- [MCP tool](/docs/examples/mcp) -- A copyable capability exposed as an MCP tool.
+- [Calling an MCP](/docs/advanced/call-an-mcp) -- Call external MCP servers from within a capability.
+- [mcp() adapter reference](/docs/reference/adapters/mcp) -- Full MCP adapter API and options.

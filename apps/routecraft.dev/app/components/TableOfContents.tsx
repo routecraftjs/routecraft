@@ -1,0 +1,167 @@
+import { useCallback, useEffect, useState } from 'react'
+import clsx from 'clsx'
+
+import { type Section, type Subsection } from '@/lib/sections'
+import { Badge } from '@/components/Badge'
+
+/**
+ * The entries link with a plain `<a>` rather than the router, matching
+ * `CheatSheetRail`. A bare `#id` handed to the router is resolved as a location:
+ * `trailingSlash: 'always'` appends a slash past the fragment, and the resolved
+ * path equals the current one so every entry renders as the active link. Both
+ * differ between the server and the client and break hydration, and neither is
+ * wanted for a same-document jump.
+ */
+export function TableOfContents({
+  tableOfContents,
+}: {
+  tableOfContents: Array<Section>
+}) {
+  const [currentSection, setCurrentSection] = useState(tableOfContents[0]?.id)
+
+  const getHeadings = useCallback((tableOfContents: Array<Section>) => {
+    return tableOfContents
+      .flatMap((node) => [node.id, ...node.children.map((child) => child.id)])
+      .map((id) => {
+        const el = document.getElementById(id)
+        if (!el) return null
+
+        const style = window.getComputedStyle(el)
+        const scrollMt = parseFloat(style.scrollMarginTop)
+
+        const top = window.scrollY + el.getBoundingClientRect().top - scrollMt
+        return { id, top }
+      })
+      .filter((x): x is { id: string; top: number } => x !== null)
+  }, [])
+
+  useEffect(() => {
+    if (tableOfContents.length === 0) return
+
+    let frame = 0
+    let attempts = 0
+    let detach: (() => void) | undefined
+
+    // The outline renders beside the article, and the article's module is
+    // loaded lazily, so on a client-side navigation the headings are not in the
+    // document yet when this first runs. Measuring then yields nothing, and the
+    // outline would sit inert for the life of the page.
+    function measure() {
+      const headings = getHeadings(tableOfContents)
+
+      if (headings.length === 0) {
+        if (attempts++ > 60) return
+        frame = requestAnimationFrame(measure)
+        return
+      }
+
+      function onScroll() {
+        const top = window.scrollY
+        let current = headings[0].id
+        for (const heading of headings) {
+          if (top >= heading.top - 10) {
+            current = heading.id
+          } else {
+            break
+          }
+        }
+        setCurrentSection(current)
+      }
+
+      window.addEventListener('scroll', onScroll, { passive: true })
+      onScroll()
+      detach = () => window.removeEventListener('scroll', onScroll)
+    }
+
+    measure()
+
+    return () => {
+      cancelAnimationFrame(frame)
+      detach?.()
+    }
+  }, [getHeadings, tableOfContents])
+
+  function isActive(section: Section | Subsection) {
+    if (section.id === currentSection) {
+      return true
+    }
+    if (!section.children) {
+      return false
+    }
+    return section.children.findIndex(isActive) > -1
+  }
+
+  return (
+    <div className="hidden xl:-mr-6 xl:block xl:flex-none xl:py-16 xl:pr-6">
+      <nav aria-labelledby="on-this-page-title" className="w-56">
+        {tableOfContents.length > 0 && (
+          <>
+            <h2
+              id="on-this-page-title"
+              className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.22em] text-ink/70 uppercase"
+            >
+              <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
+              <span>On this page</span>
+            </h2>
+            <ol role="list" className="mt-5 space-y-3 text-sm">
+              {/* Position, not id: headings whose text is entirely a link get
+                  an empty id (see `remarkDocsHeadings`), so the changelog's
+                  version headings would all key the same. */}
+              {tableOfContents.map((section, index) => (
+                <li key={`${index}-${section.id}`}>
+                  <h3 className="flex items-baseline gap-2">
+                    <a
+                      href={`#${section.id}`}
+                      className={clsx(
+                        'transition',
+                        isActive(section)
+                          ? 'font-medium text-cobalt-500'
+                          : 'text-ink/65 hover:text-ink',
+                      )}
+                    >
+                      {section.title}
+                    </a>
+                    {section.badges?.map((b, i) => (
+                      <Badge key={i} color={b.color ?? 'yellow'}>
+                        {b.text}
+                      </Badge>
+                    ))}
+                  </h3>
+                  {section.children.length > 0 && (
+                    <ol
+                      role="list"
+                      className="mt-2 space-y-2 border-l border-ink/15 pl-4 text-sm"
+                    >
+                      {section.children.map((subSection, subIndex) => (
+                        <li key={`${subIndex}-${subSection.id}`}>
+                          <div className="flex items-baseline gap-2">
+                            <a
+                              href={`#${subSection.id}`}
+                              className={clsx(
+                                'transition',
+                                isActive(subSection)
+                                  ? 'font-medium text-cobalt-500'
+                                  : 'text-ink/55 hover:text-ink',
+                              )}
+                            >
+                              {subSection.title}
+                            </a>
+                            {subSection.badges?.map((b, i) => (
+                              <Badge key={i} color={b.color ?? 'yellow'}>
+                                {b.text}
+                              </Badge>
+                            ))}
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
+      </nav>
+    </div>
+  )
+}
