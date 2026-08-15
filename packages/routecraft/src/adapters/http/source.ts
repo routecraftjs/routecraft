@@ -112,7 +112,7 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     if (registered !== true) {
       throw rcError("RC5003", undefined, {
         message:
-          "http() source requires the http plugin. Add `http: { port, ... }` to defineConfig({...}) so the plugin is wired automatically.",
+          "http() source requires the http plugin. Add `servers: { default: { port: 8080 } }, http: {}` to defineConfig({...}).",
       });
     }
     const registry: HttpRouteRegistry | undefined =

@@ -115,17 +115,19 @@ const config: CraftConfig = {
 
 When omitted, direct endpoints use the built-in in-memory channel (single-consumer, blocking send).
 
-### http
+### servers and http
 
-Configures the HTTP server that backs the [`http()` source](/docs/reference/adapters#adapter-http). Setting this key starts a listener when the context starts (Bun.serve on Bun, `node:http` on Node 22+). See [httpPlugin](/docs/reference/plugins#plugin-httpplugin) for the full behaviour.
+Named servers own listeners. HTTP, MCP, health endpoints, and custom plugins can mount different paths on the same listener. Give a surface its own named server when it needs an isolated port.
 
 ```ts
 import { defineConfig, jwt } from '@routecraft/routecraft'
 
 export const craftConfig = defineConfig({
+  servers: {
+    public: { port: 8080, host: '0.0.0.0' },
+  },
   http: {
-    port: 8080,
-    host: '0.0.0.0',
+    server: 'public',
     auth: jwt({ secret: process.env.JWT_SECRET!, issuer: '...', audience: '...' }),
   },
 })
@@ -133,8 +135,7 @@ export const craftConfig = defineConfig({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `port` | `number` | -- (required) | Port to bind. Use `0` to let the OS choose. |
-| `host` | `string` | `127.0.0.1` | Host to bind. Use `0.0.0.0` to expose externally. |
+| `server` | `string` | `default` | Named entry under `servers`. |
 | `auth` | `ValidatorAuthOptions \| ApiKeyAuthOptions` | -- | Global auth: `jwt(...)` / `jwks(...)` (bearer) or `apiKey({...})`. Omit for fully public routes. |
 | `maxBodySize` | `number` | `10485760` (10 MB) | Maximum request body in bytes; larger requests return `413`. |
 | `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | Toggle the per-request `plugin:http:request:completed` event. |

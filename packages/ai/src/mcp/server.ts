@@ -4,7 +4,9 @@ import {
   HeadersKeys,
   isRoutecraftError,
   markAuthentic,
+  requireWebIngress,
 } from "@routecraft/routecraft";
+import type { PathClaim } from "@routecraft/routecraft";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
 import type {
@@ -43,6 +45,7 @@ import {
 } from "./proxy.ts";
 import {
   applyCorsHeaders,
+  buildCorsHeaders,
   buildMcpOwnedPaths,
   PROTECTED_RESOURCE_METADATA_PATH,
   resolveCorsOptions,
@@ -157,9 +160,8 @@ function toolErrorUserMessage(error: unknown, logMsg: string): string {
 
 /** Resolved options with defaults applied (internal use). */
 type McpServerResolvedOptions = Required<
-  Pick<McpPluginOptions, "name" | "version" | "transport" | "port" | "host">
-> &
-  Pick<
+  Pick<McpPluginOptions, "name" | "version" | "transport" | "server" | "path">
+> & { port: number; host: string } & Pick<
     McpPluginOptions,
     | "tools"
     | "proxy"
@@ -233,6 +235,8 @@ export class McpServer {
    * {@link createServerInstance}. `null` until the HTTP transport starts.
    */
   private mcpHandler: McpHttpHandler | null = null;
+  private mountedHandlers = new Set<McpHttpHandler>();
+  private unmountHttp: (() => void) | null = null;
   /** Handle for the stdio transport, used to await shutdown. `null` on HTTP. */
   private stdioHandle: StdioServerHandle | null = null;
   /**
@@ -243,6 +247,7 @@ export class McpServer {
   private serverInfo: SdkServerInfo | null = null;
   private serverOptions: SdkServerOptions | null = null;
   private running = false;
+  private readonly legacyHttp: boolean;
   private toolsListLogged = false;
   /**
    * Deduplication keys for proxy-resolution warnings, scoped to a registry
@@ -269,10 +274,13 @@ export class McpServer {
 
   constructor(context: CraftContext, options: McpPluginOptions = {}) {
     this.context = context;
+    this.legacyHttp = options.port !== undefined || options.host !== undefined;
     this.options = {
       name: "routecraft",
       version: "1.0.0",
       transport: "stdio",
+      server: "default",
+      path: "/mcp",
       port: 3001,
       host: "localhost",
       ...options,
@@ -388,10 +396,10 @@ export class McpServer {
     try {
       const transport = this.options.transport;
 
-      if (transport === "http") {
-        await this.startHttp();
-      } else {
+      if (transport !== "http") {
         await this.startStdio();
+      } else if (this.legacyHttp) {
+        await this.startHttp();
       }
 
       this.running = true;
@@ -413,6 +421,169 @@ export class McpServer {
       this.context.logger.error({ err: error }, msg);
       throw error;
     }
+  }
+
+  /** Prepare build-time resources and register the HTTP mount before listeners bind. */
+  async prepare(): Promise<void> {
+    if (this.options.transport !== "http") return;
+    if (this.legacyHttp) return;
+    await this.prepareHttpMount();
+  }
+
+  private async prepareHttpMount(): Promise<void> {
+    this.validatorVerifier = this.buildValidatorVerifier();
+    await this.prepareServerFactory();
+    const { createMcpHandler } = await loadMcpServerSdk("mcp (http)");
+    const cors = resolveCorsOptions(this.options.cors);
+    const path = this.options.path.replace(/\/+$/, "") || "/mcp";
+    const metadataPath = `${PROTECTED_RESOURCE_METADATA_PATH}${path}`;
+    const ingress = requireWebIngress(this.context, this.options.server);
+    const claims: PathClaim[] = [
+      { kind: "exact", path, methods: ["GET", "POST", "DELETE", "OPTIONS"] },
+      {
+        kind: "exact",
+        path: `${path}/`,
+        methods: ["GET", "POST", "DELETE", "OPTIONS"],
+      },
+      { kind: "exact", path: metadataPath, methods: ["GET", "OPTIONS"] },
+    ];
+    this.unmountHttp = ingress.mountHttp({
+      id: "mcp",
+      claims: () => claims,
+      handler: async (request) => {
+        const pathname = new URL(request.url).pathname;
+        const origin = request.headers.get("origin") ?? undefined;
+        const owned =
+          pathname === path ||
+          pathname === `${path}/` ||
+          pathname === metadataPath;
+        if (request.method === "OPTIONS" && cors !== null && owned) {
+          return new Response(null, {
+            status: 204,
+            headers: buildCorsHeaders(cors, origin, true),
+          });
+        }
+        const corsHeaders = buildCorsHeaders(cors, origin, false);
+        if (pathname === metadataPath) {
+          const metadata = this.buildProtectedResourceMetadata();
+          metadata.resource = this.resourceUrlFor(request, path);
+          return new Response(JSON.stringify(metadata), {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "cache-control": "public, max-age=3600",
+              ...corsHeaders,
+            },
+          });
+        }
+        if (pathname !== path && pathname !== `${path}/`) {
+          return Response.json(
+            { error: "Not Found", path: pathname },
+            { status: 404, headers: corsHeaders },
+          );
+        }
+
+        let principal: Principal | undefined;
+        let token: string | undefined;
+        if (this.options.auth) {
+          const raw = request.headers.get("authorization") ?? undefined;
+          const authenticated = await this.validateAuthorizationHeader(raw);
+          if (!authenticated.ok) {
+            if (authenticated.status === 500) {
+              return Response.json(
+                { error: "Internal Server Error" },
+                { status: 500, headers: corsHeaders },
+              );
+            }
+            return Response.json(
+              { error: "Unauthorized" },
+              {
+                status: 401,
+                headers: {
+                  ...corsHeaders,
+                  "WWW-Authenticate": this.buildWebWwwAuthenticateHeader(
+                    request,
+                    path,
+                    authenticated.presented ? { error: "invalid_token" } : {},
+                  ),
+                },
+              },
+            );
+          }
+          principal = authenticated.principal;
+          token = authenticated.token;
+          const missing = this.missingScopes(principal);
+          if (missing.length > 0) {
+            return Response.json(
+              { error: "insufficient_scope" },
+              {
+                status: 403,
+                headers: {
+                  ...corsHeaders,
+                  "WWW-Authenticate": this.buildWebWwwAuthenticateHeader(
+                    request,
+                    path,
+                    {
+                      error: "insufficient_scope",
+                      scope: missing.join(" "),
+                    },
+                  ),
+                },
+              },
+            );
+          }
+        }
+
+        const handler = createMcpHandler(
+          () => this.createServerInstance(principal),
+          {
+            onerror: (error: Error) => {
+              this.context.logger.error({ err: error }, "MCP handler error");
+            },
+          },
+        );
+        this.mountedHandlers.add(handler);
+        const response = await handler.fetch(
+          request,
+          principal !== undefined && token !== undefined
+            ? { authInfo: this.principalToAuthInfo(principal, token) }
+            : {},
+        );
+        const headers = new Headers(response.headers);
+        for (const [name, value] of Object.entries(corsHeaders))
+          headers.set(name, value);
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        });
+      },
+    });
+  }
+
+  private resourceUrlFor(request: Request, path: string): string {
+    const explicit = this.options.resource?.url;
+    return explicit !== undefined
+      ? explicit.toString()
+      : new URL(path, request.url).toString();
+  }
+
+  private buildWebWwwAuthenticateHeader(
+    request: Request,
+    path: string,
+    params: Record<string, string>,
+  ): string {
+    const resourceUrl = this.resourceUrlFor(request, path);
+    const metadataUrl = new URL(
+      `${PROTECTED_RESOURCE_METADATA_PATH}${new URL(resourceUrl).pathname}`,
+      resourceUrl,
+    ).toString();
+    const attributes = [
+      `realm="mcp"`,
+      ...Object.entries(params).map(([key, value]) => `${key}="${value}"`),
+      `resource_metadata="${metadataUrl}"`,
+    ];
+    return `Bearer ${attributes.join(", ")}`;
   }
 
   /**
@@ -723,7 +894,7 @@ export class McpServer {
   /**
    * Start the HTTP transport on a raw Node `http.createServer`.
    */
-  private async startHttp(): Promise<void> {
+  async startHttp(): Promise<void> {
     const port = this.options.port;
     const host = this.options.host;
     const cors = resolveCorsOptions(this.options.cors);
@@ -976,6 +1147,15 @@ export class McpServer {
    * it as `AuthInfo.token` whichever helper produced the principal.
    */
   private async validateAuth(req: IncomingMessage): Promise<AuthGateResult> {
+    const raw = req.headers["authorization"];
+    return this.validateAuthorizationHeader(
+      Array.isArray(raw) ? undefined : raw,
+    );
+  }
+
+  private async validateAuthorizationHeader(
+    rawHeader: string | undefined,
+  ): Promise<AuthGateResult> {
     const authOptions = this.options.auth as ValidatorAuthOptions | undefined;
     const verifier =
       authOptions && "validator" in authOptions
@@ -1000,8 +1180,7 @@ export class McpServer {
       return { ok: false, status: 401, presented: false };
     }
 
-    const rawHeader = req.headers["authorization"];
-    if (!rawHeader || Array.isArray(rawHeader)) {
+    if (!rawHeader) {
       const detail = {
         reason: "missing_header",
         scheme: "bearer",
@@ -1128,11 +1307,24 @@ export class McpServer {
    * Stop the MCP server
    */
   async stop(): Promise<void> {
-    if (!this.running) {
+    if (!this.running && !this.unmountHttp && this.mountedHandlers.size === 0) {
       return;
     }
 
     try {
+      this.unmountHttp?.();
+      this.unmountHttp = null;
+      for (const handler of this.mountedHandlers) {
+        try {
+          await handler.close();
+        } catch (error) {
+          this.context.logger.error(
+            { err: error },
+            "Failed to close mounted MCP handler",
+          );
+        }
+      }
+      this.mountedHandlers.clear();
       if (this.httpServer) {
         // Tear down the modern leg: aborts in-flight 2026-era exchanges and
         // closes their per-request instances. There are no sessions to drain.

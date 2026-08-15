@@ -10,7 +10,7 @@ title: httpPlugin
 import { httpPlugin } from '@routecraft/routecraft'
 ```
 
-Serves routes over HTTP. Backs the [`http()` source](/docs/reference/adapters/http); routes declare `.from(http({ path, method }))` and the plugin owns the listener, the port, and the global auth check. Bun runtimes bind via `Bun.serve`; Node 22+ uses a `node:http` shim. Zero runtime dependencies.
+Serves routes over HTTP. Backs the [`http()` source](/docs/reference/adapters/http); routes declare `.from(http({ path, method }))` and the plugin mounts them on a named server.
 
 `http` is a first-class core config key, so the common path is `defineConfig({ http: {...} })` rather than `plugins: [httpPlugin(...)]`. The factory is exported for programmatic composition.
 
@@ -18,9 +18,9 @@ Serves routes over HTTP. Backs the [`http()` source](/docs/reference/adapters/ht
 import { defineConfig, jwt } from '@routecraft/routecraft'
 
 export const craftConfig = defineConfig({
+  servers: { public: { port: 8080, host: '0.0.0.0' } },
   http: {
-    port: 8080,
-    host: '0.0.0.0',
+    server: 'public',
     auth: jwt({ secret: process.env.JWT_SECRET!, issuer: '...', audience: '...' }),
   },
 })
@@ -30,14 +30,36 @@ export const craftConfig = defineConfig({
 
 | Option | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
-| `port` | `number` | -- | Yes | Port to bind. Use `0` to let the OS choose. |
-| `host` | `string` | `127.0.0.1` | No | Host to bind. Use `0.0.0.0` to expose externally. |
+| `server` | `string` | `default` | No | Named server to mount on. |
 | `auth` | `ValidatorAuthOptions \| ApiKeyAuthOptions` | -- | No | Global auth strategy: `jwt(...)` / `jwks(...)` (bearer) or `apiKey({...})`. No value means every route is public. |
 | `maxBodySize` | `number` | `10485760` (10 MB) | No | Maximum request body in bytes. Larger requests get `413`. |
 | `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | No | Toggle the `plugin:http:request:completed` event. |
 | `builtins` | `{ health?, ready?, openapi?: { enabled?: boolean; requireAuth?: boolean } }` | see below | No | Per-endpoint config for `/health`, `/ready`, `/openapi.json`. Each takes the same `{ enabled, requireAuth }` shape. See [Configuring built-ins](/docs/reference/adapters/http#configuring-built-ins) on the adapter reference for defaults and the per-endpoint behaviour table. |
 
 Per-route authorization uses the existing [`.authorize({ roles, scopes })`](/docs/reference/operations/authorize) builder. A route relaxes the global check with `http({ auth: "optional" })` (admit anonymous, attach principal when a valid token is present) or `http({ auth: "skip" })` (bypass the middleware entirely). See [Auth modes](/docs/reference/adapters/http#auth-modes) on the adapter reference for the full matrix. Built-in endpoints `/health`, `/ready`, and `/openapi.json` are served unless a user route claims the same path.
+
+## Custom mounts
+
+Custom plugins can join the same listener during `apply()`:
+
+```ts
+import { requireWebIngress } from '@routecraft/routecraft'
+
+const healthPlugin = {
+  name: 'health',
+  apply(ctx) {
+    const ingress = requireWebIngress(ctx, 'public')
+    const unmount = ingress.mountHttp({
+      id: 'custom-health',
+      claims: () => [{ kind: 'exact', path: '/internal/health', methods: ['GET'] }],
+      handler: () => Response.json({ ok: true }),
+    })
+    ctx.registerTeardown(unmount)
+  },
+}
+```
+
+Claims are thunks evaluated once during startup validation. This lets plugins register dynamic routes during route startup while still detecting cross-mount conflicts before the listener binds.
 
 ## Lifecycle
 

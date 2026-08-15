@@ -106,7 +106,10 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
       }
 
       server = new McpServer(ctx, options);
-      await server.start();
+      await server.prepare();
+    },
+    async start() {
+      await server?.start();
     },
     async teardown(ctx: CraftContext) {
       // Clear HTTP refresh timers

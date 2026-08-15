@@ -24,20 +24,19 @@ const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
 
 export function validateMcpPluginOptions(options: McpPluginOptions): void {
   if (options.transport === "http") {
-    if (options.port !== undefined) {
-      if (typeof options.port !== "number") {
-        throw new TypeError(
-          "mcpPlugin: when transport is 'http', port must be a number",
-        );
-      }
-      if (options.port < 0 || options.port > 65535) {
-        throw new RangeError(
-          "mcpPlugin: port must be between 0 and 65535 when transport is 'http'",
-        );
-      }
+    if (
+      options.port !== undefined &&
+      (!Number.isInteger(options.port) ||
+        options.port < 0 ||
+        options.port > 65535)
+    ) {
+      throw new TypeError("mcpPlugin: port must be a 0-65535 integer");
     }
-    if (options.host !== undefined && typeof options.host !== "string") {
-      throw new TypeError("mcpPlugin: when provided, host must be a string");
+    if (options.server !== undefined && options.server.length === 0) {
+      throw new TypeError("mcpPlugin: server name must not be empty");
+    }
+    if (options.path !== undefined && !options.path.startsWith("/")) {
+      throw new TypeError("mcpPlugin: path must start with '/'");
     }
   }
 

@@ -88,10 +88,12 @@ Use the HTTP transport when you want a long-running server that multiple clients
 import { mcpPlugin, jwt } from '@routecraft/ai'
 
 export default {
+  servers: { public: { port: 3001 } },
   plugins: [
     mcpPlugin({
       transport: 'http',
-      port: 3001,
+      server: 'public',
+      path: '/mcp',
       auth: jwt({
         secret: process.env.JWT_SECRET!,
         issuer: 'https://idp.example.com',
@@ -101,6 +103,8 @@ export default {
   ],
 }
 ```
+
+Use the same server name for HTTP and other web surfaces to share one port. Use a separate server name for standalone topology.
 
 Start the server with `craft run`, then point your AI client at it. Anything reachable over the network must be authenticated: see [Securing capabilities](/docs/advanced/securing-capabilities) for every auth mode (`jwt()`, `jwks()`, custom validators, and `oauth()` as a resource-server gate), identity enrichment, RFC 9728 discovery metadata, and CORS.
 

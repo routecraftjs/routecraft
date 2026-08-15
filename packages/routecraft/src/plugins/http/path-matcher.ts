@@ -24,6 +24,17 @@ export interface PathMatcher {
   readonly paramNames: readonly string[];
 }
 
+/** Literal prefix before the first parameter segment, used for mount conflict checks. */
+export function staticPathPrefix(pattern: string): string {
+  const segments = tokenise(pattern);
+  const literals: string[] = [];
+  for (const segment of segments) {
+    if (segment.startsWith(":")) break;
+    literals.push(segment);
+  }
+  return literals.length === 0 ? "/" : `/${literals.join("/")}`;
+}
+
 interface CompiledSegment {
   readonly literal: string | null;
   readonly param: string | null;

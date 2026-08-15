@@ -128,9 +128,11 @@ export interface HttpPluginEventOptions {
  * @experimental
  */
 export interface HttpPluginOptions {
-  /** Port to bind. Required. */
-  port: number;
-  /** Host to bind. Defaults to `"127.0.0.1"`. Pass `"0.0.0.0"` to expose externally. */
+  /** Named entry from `CraftConfig.servers`. Defaults to `"default"`. */
+  server?: string;
+  /** @deprecated Define a named server under `CraftConfig.servers`. */
+  port?: number;
+  /** @deprecated Define a named server under `CraftConfig.servers`. */
   host?: string;
   /**
    * Global auth strategy. Every incoming request is verified by default

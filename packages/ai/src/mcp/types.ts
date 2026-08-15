@@ -336,10 +336,18 @@ export interface McpPluginOptions {
   transport?: "stdio" | "http";
 
   /** Port for the streamable-http MCP server. Default: 3001 (only used with transport: "http") */
+  /** @deprecated Define a named server under `CraftConfig.servers`. */
   port?: number;
 
   /** Host to bind to. Default: "localhost" (only used with transport: "http") */
+  /** @deprecated Define a named server under `CraftConfig.servers`. */
   host?: string;
+
+  /** Named server to mount the HTTP transport on. Defaults to `"default"`. */
+  server?: string;
+
+  /** HTTP path for the MCP endpoint. Defaults to `"/mcp"`. */
+  path?: string;
 
   /**
    * Protected-resource (RFC 9728) metadata for the HTTP transport. When set,

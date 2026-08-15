@@ -25,6 +25,9 @@ import {
 import type { HttpOpenApiInfo } from "./openapi";
 import type { HttpWebhookSignatureRejection } from "./webhook-signature";
 import { findPackageInfo } from "./package-info";
+import { requireWebIngress } from "../server/registry.ts";
+import type { PathClaim } from "../server/types.ts";
+import { staticPathPrefix } from "./path-matcher.ts";
 import { startServer, type HttpServerHandle } from "./server";
 
 const DEFAULT_MAX_BODY_SIZE = 10 * 1024 * 1024;
@@ -50,7 +53,7 @@ const DEFAULT_HOST = "127.0.0.1";
 export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
   validate(options);
 
-  const host = options.host ?? DEFAULT_HOST;
+  const serverName = options.server ?? "default";
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
   const perRequestEnabled = options.events?.perRequest ?? true;
 
@@ -75,7 +78,8 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
     ...(openapiInfoOverride ?? {}),
   };
 
-  let server: HttpServerHandle | null = null;
+  let unmount: (() => void) | null = null;
+  let legacyServer: HttpServerHandle | null = null;
   const registry: HttpRouteRegistry = new Map();
 
   return {
@@ -210,57 +214,65 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         onSignatureRejected,
         logger: ctx.logger,
       });
-
-      try {
-        server = await startServer({
+      if (options.port !== undefined) {
+        const host = options.host ?? DEFAULT_HOST;
+        legacyServer = await startServer({
           port: options.port,
           host,
           fetch: dispatcher,
         });
-      } catch (err) {
-        // Bind failed (e.g. RC5019 port in use). apply() rejects before a
-        // teardown is registered, so undo the store mutations here to keep
-        // the invariant "registered implies a live server" -- otherwise a
-        // retried apply() (test reuse) or a source subscribe would see a
-        // stale `registered === true` against a server that never started.
-        registry.clear();
-        ctx.setStore(HTTP_PLUGIN_REGISTERED, false);
-        throw err;
+        ctx.emit("plugin:http:server:listening", {
+          port: legacyServer.port,
+          host,
+        });
+        return;
       }
-
-      ctx.emit("plugin:http:server:listening", {
-        port: server.port,
-        host,
+      const ingress = requireWebIngress(ctx, serverName);
+      unmount = ingress.mountHttp({
+        id: "http",
+        claims: () => {
+          const claims: PathClaim[] = [{ kind: "prefix", path: "/" }];
+          for (const entry of registry.values()) {
+            claims.push({
+              kind: "pattern",
+              matcher: entry.matcher,
+              staticPrefix: staticPathPrefix(entry.matcher.pattern),
+              methods: [entry.method],
+            });
+          }
+          return claims;
+        },
+        handler: dispatcher,
       });
-
-      ctx.registerTeardown(async () => {
-        if (!server) return;
-        const handle = server;
-        server = null;
-        try {
-          await handle.close();
-        } catch (err) {
-          ctx.logger.warn(
-            { err, operation: "close" },
-            "http plugin: failed to close server cleanly",
-          );
-        }
+    },
+    async teardown(ctx: CraftContext) {
+      unmount?.();
+      unmount = null;
+      if (legacyServer !== null) {
+        await legacyServer.close();
+        legacyServer = null;
         ctx.emit("plugin:http:server:closed", {});
-        registry.clear();
-        ctx.setStore(HTTP_PLUGIN_REGISTERED, false);
-      });
+      }
+      registry.clear();
+      ctx.setStore(HTTP_PLUGIN_REGISTERED, false);
     },
   };
 }
 
 function validate(options: HttpPluginOptions): void {
   if (
-    !Number.isInteger(options.port) ||
-    options.port < 0 ||
-    options.port > 65535
+    options.port !== undefined &&
+    (!Number.isInteger(options.port) ||
+      options.port < 0 ||
+      options.port > 65535)
   ) {
     throw rcError("RC5003", undefined, {
       message: `httpPlugin: invalid port ${String(options.port)}. Pass a 0-65535 integer (0 lets the OS choose).`,
+    });
+  }
+  if (options.server !== undefined && options.server.length === 0) {
+    throw rcError("RC5003", undefined, {
+      message: "httpPlugin: server name must not be empty",
     });
   }
   if (

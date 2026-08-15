@@ -72,6 +72,7 @@ export { type HttpConfig } from "./adapters/http/types.ts";
 // materialises the wiring without users importing plugins manually. Each
 // module also augments CraftConfig with its key; the core context has no
 // adapter knowledge.
+import "./plugins/server/config.ts";
 import "./plugins/http/config.ts";
 import "./adapters/cron/config.ts";
 import "./adapters/direct/config.ts";
@@ -81,6 +82,15 @@ import "./telemetry/config.ts";
 import "./suspension/config.ts";
 
 export { httpPlugin } from "./plugins/http/plugin.ts";
+export { serversPlugin } from "./plugins/server/plugin.ts";
+export { requireWebIngress } from "./plugins/server/registry.ts";
+export type {
+  HttpMount,
+  HttpServerDefinition,
+  PathClaim,
+  ServerDefinitions,
+  WebIngress,
+} from "./plugins/server/types.ts";
 export { apiKey } from "./plugins/http/auth.ts";
 /** @deprecated Use `CraftConfig.direct` instead. Will be removed in next major version. */
 export { type DirectConfig } from "./adapters/direct/types.ts";

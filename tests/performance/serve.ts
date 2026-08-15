@@ -17,13 +17,13 @@ const routes = craft()
   .to(noop());
 
 const { context } = await new ContextBuilder()
-  .on("plugin:http:server:listening", ({ details }) => {
+  .on("server:listening", ({ details }) => {
     process.stdout.write(
       `bench capability listening on http://${details.host}:${details.port}\n`,
     );
   })
   .routes(routes)
-  .with({ http: { port } })
+  .with({ servers: { default: { port } }, http: {} })
   .build();
 
 process.on("SIGINT", () => void context.stop());
