@@ -160,6 +160,43 @@ describe("named server ingress", () => {
   });
 
   /**
+   * @case Shared auth classifies nested verifier network failures as infrastructure
+   * @preconditions Server validator throws a fetch-style error whose cause is ECONNREFUSED
+   * @expectedResult The bounded auth:rejected reason is infrastructure rather than invalid_token
+   */
+  test("classifies nested verifier network failures consistently", async () => {
+    const built = await testContext().build();
+    const rejections: Array<Record<string, unknown>> = [];
+    built.ctx.on("auth:rejected", ({ details }) => {
+      rejections.push(details as Record<string, unknown>);
+    });
+    const ingress = new HttpMountRegistry("secure", built.ctx, {
+      validator: () => {
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new Error("refused"), { code: "ECONNREFUSED" }),
+        });
+      },
+    });
+    ingress.mountHttp({
+      id: "surface",
+      claims: () => [{ kind: "exact", path: "/private" }],
+      handler: () => new Response("unreachable"),
+    });
+    ingress.validate();
+
+    await ingress.dispatch(
+      new Request("http://local/private", {
+        headers: { authorization: "Bearer token" },
+      }),
+    );
+    expect(rejections).toContainEqual({
+      reason: "infrastructure",
+      scheme: "bearer",
+      source: "surface",
+    });
+  });
+
+  /**
    * @case Claim thunks become immutable routing input after validation
    * @preconditions A mount whose claim-producing state changes after validate
    * @expectedResult Dispatch uses the claims evaluated during validation only

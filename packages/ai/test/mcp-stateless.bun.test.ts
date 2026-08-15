@@ -561,6 +561,73 @@ describe("MCP 2026-07-28 stateless revision", () => {
     });
 
     /**
+     * @case Expiry is rejected at the inclusive whole-second boundary
+     * @preconditions Custom verifier returns expiresAt equal to the current floored Unix second
+     * @expectedResult 401 because RFC 7519 requires current time to remain strictly before exp
+     */
+    test("rejects at the inclusive expiry boundary", async () => {
+      const { oauth } = await import("../src/mcp/oauth.ts");
+      const expiresAt = Math.floor(Date.now() / 1000);
+      const { url } = await start([echoRoute()], {
+        auth: oauth({
+          issuer: ISSUER,
+          verify: async () => ({
+            kind: "custom" as const,
+            scheme: "bearer" as const,
+            subject: "boundary-user",
+            expiresAt,
+          }),
+        }),
+        resource: { url: "https://mcp.test.example/mcp" },
+      });
+
+      const res = await post(
+        url,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: { _meta: MODERN_META },
+        },
+        { Authorization: "Bearer boundary" },
+      );
+      expect(res.status).toBe(401);
+    });
+
+    /**
+     * @case A non-finite principal expiry fails closed
+     * @preconditions Custom verifier returns expiresAt as NaN
+     * @expectedResult 401 rather than allowing NaN to bypass the comparison
+     */
+    test("rejects a non-finite principal expiry", async () => {
+      const { oauth } = await import("../src/mcp/oauth.ts");
+      const { url } = await start([echoRoute()], {
+        auth: oauth({
+          issuer: ISSUER,
+          verify: async () => ({
+            kind: "custom" as const,
+            scheme: "bearer" as const,
+            subject: "nan-user",
+            expiresAt: Number.NaN,
+          }),
+        }),
+        resource: { url: "https://mcp.test.example/mcp" },
+      });
+
+      const res = await post(
+        url,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: { _meta: MODERN_META },
+        },
+        { Authorization: "Bearer nan" },
+      );
+      expect(res.status).toBe(401);
+    });
+
+    /**
      * @case A token accepted within the configured clock skew still authenticates
      * @preconditions oauth({ clockToleranceSec: 120 }) and a verifier returning a principal whose expiresAt elapsed 60s ago
      * @expectedResult The request succeeds. The gate must apply the same tolerance the verifier did, or a jwt()/jwks() clockToleranceSec would be silently defeated on the HTTP path

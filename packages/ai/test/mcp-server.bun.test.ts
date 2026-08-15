@@ -1230,6 +1230,7 @@ describe("McpServer", () => {
          * @expectedResult 401; debug logged as "Auth rejected: token expired"; no "token validation failed" warn
          */
         test("logs an expired token at debug, not warn", async () => {
+          const rejections: Array<Record<string, unknown>> = [];
           const expiredError = Object.assign(
             new Error('"exp" claim timestamp check failed'),
             { code: "ERR_JWT_EXPIRED" },
@@ -1240,6 +1241,9 @@ describe("McpServer", () => {
                 throw expiredError;
               },
             },
+          });
+          t.ctx.on("auth:rejected", ({ details }) => {
+            rejections.push(details as Record<string, unknown>);
           });
 
           const res = await post(initBody, {
@@ -1262,6 +1266,11 @@ describe("McpServer", () => {
               (c) => c[1] === "Auth rejected: token validation failed",
             ),
           ).toBe(false);
+          expect(rejections).toContainEqual({
+            reason: "expired",
+            scheme: "bearer",
+            source: "mcp",
+          });
         });
 
         /**
@@ -1323,6 +1332,39 @@ describe("McpServer", () => {
         expect(res.headers["content-type"]).toMatch(/application\/json/);
         expect(res.headers["cache-control"]).toMatch(/max-age=\d+/);
         expect(() => JSON.parse(res.body)).not.toThrow();
+      });
+
+      /**
+       * @case Discovery ignores credentials because it is a public protocol exemption
+       * @preconditions Validator auth rejects one bearer; fetch metadata anonymously, with Basic auth, and with the rejected bearer
+       * @expectedResult Every request returns 200 with byte-identical metadata so a stale-token client can discover how to re-authenticate
+       */
+      test("serves identical metadata despite malformed or rejected credentials", async () => {
+        let verifierCalls = 0;
+        const { get } = await startHttpServer([], {
+          auth: {
+            validator: (token) => {
+              verifierCalls++;
+              if (token === "valid") return validPrincipal;
+              throw new Error("rejected");
+            },
+          },
+        });
+        const path = "/.well-known/oauth-protected-resource/mcp";
+        const anonymous = await get(path);
+        const malformed = await get(path, { Authorization: "Basic abc" });
+        const rejected = await get(path, {
+          Authorization: "Bearer rejected",
+        });
+
+        expect([
+          anonymous.statusCode,
+          malformed.statusCode,
+          rejected.statusCode,
+        ]).toEqual([200, 200, 200]);
+        expect(malformed.body).toBe(anonymous.body);
+        expect(rejected.body).toBe(anonymous.body);
+        expect(verifierCalls).toBe(0);
       });
 
       /**
@@ -1567,6 +1609,26 @@ describe("McpServer", () => {
         } finally {
           if (prev === undefined) delete process.env["NODE_ENV"];
           else process.env["NODE_ENV"] = prev;
+        }
+      });
+
+      /**
+       * @case An unset environment fails closed like production
+       * @preconditions NODE_ENV is absent; HTTP transport has no resource.url
+       * @expectedResult Construction rejects instead of advertising a private bind address
+       */
+      test("unset NODE_ENV requires resource.url", async () => {
+        const previous = process.env["NODE_ENV"];
+        delete process.env["NODE_ENV"];
+        try {
+          await expect(
+            startHttpServer([], {
+              auth: { validator: () => validPrincipal },
+            }),
+          ).rejects.toThrow(/resource\.url is required/);
+        } finally {
+          if (previous === undefined) delete process.env["NODE_ENV"];
+          else process.env["NODE_ENV"] = previous;
         }
       });
 
@@ -2376,6 +2438,38 @@ describe("McpServer", () => {
             userinfo: true,
           }),
         ).rejects.toThrow(/issuer/i);
+      });
+
+      /**
+       * @case Userinfo cannot silently disappear when MCP inherits server auth
+       * @preconditions Named server has validator auth; MCP omits auth and configures userinfo enrichment
+       * @expectedResult Context build fails before binding and names the explicit-auth requirement
+       */
+      test("inherited auth with userinfo fails fast", async () => {
+        await expect(
+          testContext()
+            .with({
+              servers: {
+                default: {
+                  port: 0,
+                  auth: {
+                    validator: () => ({
+                      kind: "custom" as const,
+                      scheme: "bearer" as const,
+                      subject: "inherited-user",
+                    }),
+                  },
+                },
+              },
+              plugins: [
+                mcpPlugin({
+                  transport: "http",
+                  userinfo: async () => ({ email: "ada@example.com" }),
+                }),
+              ],
+            })
+            .build(),
+        ).rejects.toThrow(/userinfo requires an explicit mcp\.auth validator/i);
       });
 
       /**

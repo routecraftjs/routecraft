@@ -217,7 +217,10 @@ export class HttpMountRegistry implements WebIngress {
       return Response.json({ error: "not found", path }, { status: 404 });
     }
     const authMiddleware = this.authByMount.get(selected.mount.id);
-    const auth = authMiddleware ? await authMiddleware(request) : undefined;
+    const auth =
+      authMiddleware && !selected.mount.authExempt?.(request)
+        ? await authMiddleware(request)
+        : undefined;
     if (auth?.kind === "admit") {
       this.context.emit("auth:success", {
         subject: auth.principal.subject,
@@ -226,7 +229,7 @@ export class HttpMountRegistry implements WebIngress {
       });
     } else if (auth?.kind === "reject") {
       this.context.emit("auth:rejected", {
-        reason: auth.reason,
+        reason: selected.mount.classifyAuthRejection?.(auth) ?? auth.reason,
         scheme: auth.scheme,
         source: selected.mount.id,
       });

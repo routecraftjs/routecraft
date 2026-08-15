@@ -388,7 +388,9 @@ export interface McpPluginOptions {
    * cached per token (SHA-256 keyed) and evicted at `expiresAt`; concurrent
    * requests for the same token share one in-flight fetch. All enrichment
    * errors are fail-closed (the request is rejected). Defaults to no
-   * enrichment.
+   * enrichment. This requires an explicit `mcpPlugin({ auth })` validator;
+   * inherited named-server auth cannot be enriched and fails during startup
+   * instead of being silently ignored.
    */
   userinfo?: UserinfoOption;
 

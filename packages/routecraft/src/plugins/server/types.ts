@@ -33,6 +33,12 @@ export interface HttpMount {
   readonly id: string;
   readonly claims: () => readonly PathClaim[];
   readonly auth?: HttpAuth | false;
+  /** Public protocol exemption evaluated before shared authentication. */
+  readonly authExempt?: (request: Request) => boolean;
+  /** Override the bounded rejection reason emitted by the shared ingress. */
+  readonly classifyAuthRejection?: (
+    rejection: Extract<AuthResult, { kind: "reject" }>,
+  ) => string;
   readonly handler: (
     request: Request,
     context: HttpMountContext,

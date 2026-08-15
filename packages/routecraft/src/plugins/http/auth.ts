@@ -27,7 +27,16 @@ import type {
  *   `auth:rejected` event payload.
  */
 export type AuthResult =
-  | { kind: "admit"; principal: Principal; credential: string }
+  | {
+      kind: "admit";
+      principal: Principal;
+      /**
+       * Raw credential passed through for protocol adapters such as MCP.
+       * This is secret material: never log it, emit it in an event, include it
+       * in an error, or persist it outside the request lifetime.
+       */
+      credential: string;
+    }
   | { kind: "absent"; scheme: string }
   | {
       kind: "reject";
@@ -155,6 +164,33 @@ function isValidatorAuth(auth: HttpAuth): auth is { validator: TokenVerifier } {
     !isApiKeyAuth(auth) &&
     !isOAuthReserved(auth)
   );
+}
+
+const INFRASTRUCTURE_CODES = new Set([
+  "ERR_JWKS_TIMEOUT",
+  "ERR_JWKS_INVALID",
+  "ERR_JOSE_GENERIC",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
+
+/** Classify framework, JOSE, and nested network failures consistently. */
+function isInfrastructureError(error: unknown): boolean {
+  if (isRoutecraftError(error)) return true;
+  let current: unknown = error;
+  for (let depth = 0; depth < 5; depth++) {
+    if (typeof current !== "object" || current === null) return false;
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && INFRASTRUCTURE_CODES.has(code)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 // Default key name differs per location to match each convention: `x-api-key`
@@ -298,7 +334,7 @@ export function createAuthMiddleware(
         };
       } catch (error) {
         return reject(
-          isRoutecraftError(error) ? "infrastructure" : "invalid_token",
+          isInfrastructureError(error) ? "infrastructure" : "invalid_token",
           "bearer",
           error,
         );

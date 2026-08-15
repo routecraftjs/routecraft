@@ -358,23 +358,22 @@ export class McpServer {
    */
   private validateResourceConfig(): void {
     const explicit = this.options.resource?.url;
+    const environment = process.env["NODE_ENV"];
+    const relaxed = environment === "development" || environment === "test";
     if (
       explicit === undefined &&
       this.options.transport === "http" &&
-      process.env["NODE_ENV"] === "production"
+      !relaxed
     ) {
       throw new TypeError(
-        "mcpPlugin: resource.url is required for HTTP transport in production",
+        "mcpPlugin: resource.url is required for HTTP transport outside development or test",
       );
     }
     if (explicit === undefined) return;
     const parsed = new URL(explicit.toString());
-    if (
-      parsed.protocol !== "https:" &&
-      process.env["NODE_ENV"] === "production"
-    ) {
+    if (parsed.protocol !== "https:" && !relaxed) {
       throw new TypeError(
-        "mcpPlugin: resource.url must use HTTPS in production",
+        "mcpPlugin: resource.url must use HTTPS outside development or test",
       );
     }
   }
@@ -458,6 +457,14 @@ export class McpServer {
     ];
     this.unmountHttp = ingress.mountHttp({
       id: "mcp",
+      authExempt: (request) => {
+        const requestPath = new URL(request.url).pathname;
+        return request.method === "OPTIONS" || requestPath === metadataPath;
+      },
+      classifyAuthRejection: (rejection) =>
+        rejection.reason === "unsupported_scheme"
+          ? "unsupported_scheme"
+          : classifyRejectionReason(rejection.cause),
       ...(this.options.auth !== undefined
         ? {
             auth:
@@ -504,6 +511,20 @@ export class McpServer {
             headers: buildCorsHeaders(cors, origin, true),
           });
         }
+        if (pathname === metadataPath) {
+          const metadata = this.buildProtectedResourceMetadata(
+            mountContext.authOptions,
+          );
+          metadata.resource = this.resourceUrlFor(ingress, path);
+          return new Response(JSON.stringify(metadata), {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "cache-control": "public, max-age=3600",
+              ...corsHeaders,
+            },
+          });
+        }
         if (mountContext.auth?.kind === "reject") {
           const reason = classifyRejectionReason(mountContext.auth.cause);
           if (mountContext.auth.reason === "unsupported_scheme") {
@@ -546,20 +567,6 @@ export class McpServer {
               },
             },
           );
-        }
-        if (pathname === metadataPath) {
-          const metadata = this.buildProtectedResourceMetadata(
-            mountContext.authOptions,
-          );
-          metadata.resource = this.resourceUrlFor(ingress, path);
-          return new Response(JSON.stringify(metadata), {
-            status: 200,
-            headers: {
-              "content-type": "application/json",
-              "cache-control": "public, max-age=3600",
-              ...corsHeaders,
-            },
-          });
         }
         if (pathname !== path && pathname !== `${path}/`) {
           return Response.json(
@@ -606,7 +613,10 @@ export class McpServer {
               : 0;
           if (
             principal.expiresAt !== undefined &&
-            principal.expiresAt + clockToleranceSec < Date.now() / 1000
+            (!Number.isFinite(principal.expiresAt) ||
+              !Number.isFinite(clockToleranceSec) ||
+              Math.floor(Date.now() / 1000) >=
+                principal.expiresAt + clockToleranceSec)
           ) {
             return Response.json(
               { error: "Unauthorized" },
@@ -931,7 +941,14 @@ export class McpServer {
     const authOptions = (
       this.options.auth === false ? undefined : this.options.auth
     ) as (ValidatorAuthOptions & { issuer?: string | string[] }) | undefined;
-    if (!authOptions || !("validator" in authOptions)) return null;
+    if (!authOptions || !("validator" in authOptions)) {
+      if (this.options.userinfo !== undefined) {
+        throw new TypeError(
+          "mcpPlugin: userinfo requires an explicit mcp.auth validator; inherited server auth cannot be enriched",
+        );
+      }
+      return null;
+    }
 
     const base = (token: string): Promise<Principal> =>
       Promise.resolve(authOptions.validator(token));
