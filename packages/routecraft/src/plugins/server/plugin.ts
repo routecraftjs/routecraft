@@ -5,6 +5,20 @@ import { HttpMountRegistry, WEB_INGRESSES } from "./registry.ts";
 import type { ServerDefinitions } from "./types.ts";
 
 const DEFAULT_HOST = "127.0.0.1";
+const SHUTDOWN_GRACE_MS = 30_000;
+
+async function closeServer(handle: HttpServerHandle): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<"deadline">((resolve) => {
+    timer = setTimeout(() => resolve("deadline"), SHUTDOWN_GRACE_MS);
+  });
+  const outcome = await Promise.race([
+    handle.gracefulClose().then(() => "closed" as const),
+    deadline,
+  ]);
+  if (timer !== undefined) clearTimeout(timer);
+  if (outcome === "deadline") await handle.forceClose();
+}
 
 export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
   validateDefinitions(definitions);
@@ -18,10 +32,14 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
 
   return {
     name: "servers",
+    keepsAlive: true,
     apply(ctx) {
       const registries = new Map<string, HttpMountRegistry>();
       for (const name of Object.keys(definitions)) {
-        registries.set(name, new HttpMountRegistry(name));
+        registries.set(
+          name,
+          new HttpMountRegistry(name, ctx, definitions[name]?.auth),
+        );
       }
       states.set(ctx, { registries, handles: new Map() });
       ctx.setStore(WEB_INGRESSES, registries);
@@ -29,9 +47,9 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
     async start(ctx) {
       const state = states.get(ctx);
       if (!state) return;
+      for (const registry of state.registries.values()) registry.validate();
       for (const [name, definition] of Object.entries(definitions)) {
         const registry = state.registries.get(name)!;
-        registry.validate();
         const host = definition.host ?? DEFAULT_HOST;
         let handle: HttpServerHandle;
         try {
@@ -41,11 +59,13 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
             fetch: (request) => registry.dispatch(request),
           });
         } catch (error) {
+          ctx.emit("server:failed", { server: name, error });
           throw rcError("RC5019", error, {
             message: `servers.${name}: bind failed on ${host}:${definition.port}: ${error instanceof Error ? error.message : String(error)}`,
           });
         }
         state.handles.set(name, handle);
+        registry.setBoundAddress(host, handle.port);
         ctx.emit("server:listening", { server: name, host, port: handle.port });
       }
     },
@@ -53,8 +73,15 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
       const state = states.get(ctx);
       if (!state) return;
       for (const [name, handle] of [...state.handles].reverse()) {
-        await handle.close();
-        ctx.emit("server:closed", { server: name });
+        try {
+          await closeServer(handle);
+          ctx.emit("server:closed", { server: name });
+        } catch (error) {
+          ctx.logger.warn(
+            { err: error, server: name },
+            "Named server failed to close cleanly",
+          );
+        }
       }
       states.delete(ctx);
     },

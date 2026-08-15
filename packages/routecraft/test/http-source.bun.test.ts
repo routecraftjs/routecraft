@@ -42,7 +42,7 @@ function base64url(value: string): string {
 
 interface BootHttpOptions {
   routes: Parameters<ReturnType<typeof testContext>["routes"]>[0];
-  http: HttpPluginOptions;
+  http: HttpPluginOptions & { port: number; host?: string };
   events?: Partial<Record<EventName, (ev: { details: unknown }) => void>>;
 }
 
@@ -53,15 +53,21 @@ interface BootHttpResult {
 
 async function bootHttp(opts: BootHttpOptions): Promise<BootHttpResult> {
   let resolvedPort = 0;
+  const { port, host, ...httpOptions } = opts.http;
   const builder = testContext()
     .on(
-      "plugin:http:server:listening" as EventName,
+      "server:listening" as EventName,
       ((payload: { details: unknown }) => {
         resolvedPort = (payload.details as { port: number }).port;
       }) as Parameters<ReturnType<typeof testContext>["on"]>[1],
     )
     .routes(opts.routes)
-    .with({ http: opts.http } as CraftConfig);
+    .with({
+      servers: {
+        default: { port, ...(host !== undefined ? { host } : {}) },
+      },
+      http: httpOptions,
+    } as CraftConfig);
   if (opts.events) {
     for (const [name, handler] of Object.entries(opts.events)) {
       builder.on(
@@ -777,9 +783,13 @@ describe("HTTP Source Adapter", () => {
           .transform(() => ({ ok: true }))
           .to(noop()),
       )
-      .with({ http: { port: first.port } } as CraftConfig);
+      .with({
+        servers: { default: { port: first.port } },
+        http: {},
+      } as CraftConfig);
 
-    await expect(second.build()).rejects.toThrow(
+    const secondContext = await second.build();
+    await expect(secondContext.ctx.start()).rejects.toThrow(
       /bind failed|RC5019|EADDRINUSE/i,
     );
   });

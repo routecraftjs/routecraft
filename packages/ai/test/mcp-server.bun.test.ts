@@ -12,7 +12,7 @@ import {
   type CraftConfig,
   type Principal,
 } from "@routecraft/routecraft";
-import { mcp } from "../src/index.ts";
+import { mcp, mcpPlugin } from "../src/index.ts";
 import {
   MCP_LOCAL_TOOL_REGISTRY,
   MCP_PLUGIN_REGISTERED,
@@ -427,8 +427,6 @@ describe("McpServer", () => {
     async function startHttpServer(
       routes: AnyRouteBuilder[],
       serverOptions: {
-        port?: number;
-        host?: string;
         auth?: import("../src/mcp/types.ts").McpHttpAuthOptions;
         resource?: import("../src/mcp/types.ts").McpResourceOptions;
         title?: string;
@@ -440,35 +438,26 @@ describe("McpServer", () => {
         cors?: false | import("../src/mcp/cors.ts").McpCorsOptions;
       } = {},
     ) {
-      t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
-      server = new McpServer(t.ctx, {
-        transport: "http",
-        port: 0,
-        host: "127.0.0.1",
-        ...serverOptions,
+      let port = 0;
+      let resolveListening!: () => void;
+      const listening = new Promise<void>((resolve) => {
+        resolveListening = resolve;
       });
-      const total = t.ctx.getRoutes().length;
-      const routesReady =
-        total === 0
-          ? Promise.resolve()
-          : new Promise<void>((resolve, reject) => {
-              let ready = 0;
-              const timeout = setTimeout(
-                () => reject(new Error("Timeout waiting for routes")),
-                3000,
-              );
-              t.ctx.on("route:started", () => {
-                ready++;
-                if (ready >= total) {
-                  clearTimeout(timeout);
-                  resolve();
-                }
-              });
-            });
-      void t.ctx.start();
-      await routesReady;
-      await server.start();
-      const port = server.getHttpPort()!;
+      t = await testContext()
+        .on("server:listening", ({ details }) => {
+          if (details.server === "default") {
+            port = details.port;
+            resolveListening();
+          }
+        })
+        .routes(routes)
+        .with({
+          servers: { default: { host: "127.0.0.1", port: 0 } },
+          plugins: [mcpPlugin({ transport: "http", ...serverOptions })],
+        })
+        .build();
+      await t.startAndWaitReady();
+      await listening;
       expect(port).toBeDefined();
       expect(Number.isInteger(port) && port > 0).toBe(true);
 
@@ -999,7 +988,7 @@ describe("McpServer", () => {
         // resolved `resource.url` (or bound fallback), matching what the
         // OAuth path emits.
         expect(wwwAuth).toMatch(
-          /resource_metadata="https?:\/\/[^"]+\/\.well-known\/oauth-protected-resource"/,
+          /resource_metadata="https?:\/\/[^"]+\/\.well-known\/oauth-protected-resource\/mcp"/,
         );
       });
 
@@ -1202,27 +1191,11 @@ describe("McpServer", () => {
          * @expectedResult 401, and the refusal is observable: an error log naming the misconfiguration and an auth:rejected event with reason "no_verifier". A blanket 401 with no log and no event is indistinguishable from a server nobody holds a token for
          */
         test("emits when auth resolves no verifier", async () => {
-          const rejections: Array<Record<string, unknown>> = [];
-          const { post } = await startHttpServer([], {
-            auth: {} as import("../src/mcp/types.ts").McpHttpAuthOptions,
-          });
-          t.ctx.on("auth:rejected", (payload) => {
-            rejections.push(payload.details as Record<string, unknown>);
-          });
-
-          const res = await post(initBody, { Authorization: "Bearer any" });
-          expect(res.statusCode).toBe(401);
-
-          expect(rejections.some((r) => r["reason"] === "no_verifier")).toBe(
-            true,
-          );
-          expect(
-            t.logger.error.mock.calls.some(
-              (c) =>
-                (c[0] as Record<string, unknown> | undefined)?.["reason"] ===
-                "no_verifier",
-            ),
-          ).toBe(true);
+          await expect(
+            startHttpServer([], {
+              auth: {} as import("../src/mcp/types.ts").McpHttpAuthOptions,
+            }),
+          ).rejects.toThrow(/validator/);
         });
 
         /**
@@ -1345,7 +1318,7 @@ describe("McpServer", () => {
         const { get } = await startHttpServer([], {
           auth: { validator: () => validPrincipal },
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         expect(res.statusCode).toBe(200);
         expect(res.headers["content-type"]).toMatch(/application\/json/);
         expect(res.headers["cache-control"]).toMatch(/max-age=\d+/);
@@ -1362,7 +1335,7 @@ describe("McpServer", () => {
           auth: { validator: () => validPrincipal },
           resource: { url: "https://mcp.example.com" },
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         const doc = JSON.parse(res.body) as { resource: string };
         expect(doc.resource).toBe("https://mcp.example.com");
       });
@@ -1376,9 +1349,25 @@ describe("McpServer", () => {
         const { get, port } = await startHttpServer([], {
           auth: { validator: () => validPrincipal },
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         const doc = JSON.parse(res.body) as { resource: string };
         expect(doc.resource).toBe(`http://127.0.0.1:${port}/mcp`);
+      });
+
+      /**
+       * @case A spoofed Host header cannot influence RFC 9728 resource identity
+       * @preconditions Shared MCP listener bound to loopback; metadata request carries an attacker-controlled Host
+       * @expectedResult SDK Host validation rejects the request with 403 before metadata is generated
+       */
+      test("rejects a spoofed Host header", async () => {
+        const { get } = await startHttpServer([], {
+          auth: { validator: () => validPrincipal },
+        });
+        const res = await get("/.well-known/oauth-protected-resource/mcp", {
+          Host: "attacker.example",
+        });
+        expect(res.statusCode).toBe(403);
+        expect(res.headers["www-authenticate"]).toBeUndefined();
       });
 
       /**
@@ -1390,7 +1379,7 @@ describe("McpServer", () => {
         const { get } = await startHttpServer([], {
           auth: { validator: () => validPrincipal },
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         const doc = JSON.parse(res.body) as {
           bearer_methods_supported: string[];
         };
@@ -1409,7 +1398,7 @@ describe("McpServer", () => {
             issuer: "https://idp.example.com",
           },
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         const doc = JSON.parse(res.body) as {
           authorization_servers?: string[];
         };
@@ -1428,7 +1417,7 @@ describe("McpServer", () => {
             issuer: ["https://a.example.com", "https://b.example.com"],
           },
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         const doc = JSON.parse(res.body) as {
           authorization_servers?: string[];
         };
@@ -1447,7 +1436,7 @@ describe("McpServer", () => {
         const { get } = await startHttpServer([], {
           auth: { validator: () => validPrincipal },
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         const doc = JSON.parse(res.body) as Record<string, unknown>;
         expect(doc["authorization_servers"]).toBeUndefined();
       });
@@ -1462,7 +1451,7 @@ describe("McpServer", () => {
           auth: { validator: () => validPrincipal },
           title: "Eywa MCP",
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         const doc = JSON.parse(res.body) as { resource_name?: string };
         expect(doc.resource_name).toBe("Eywa MCP");
       });
@@ -1476,7 +1465,7 @@ describe("McpServer", () => {
         const { get } = await startHttpServer([], {
           auth: { validator: () => validPrincipal },
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         const doc = JSON.parse(res.body) as { resource_name?: string };
         expect(doc.resource_name).toBe("routecraft");
       });
@@ -1494,7 +1483,7 @@ describe("McpServer", () => {
             documentationUrl: "https://docs.example.com",
           },
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         const doc = JSON.parse(res.body) as {
           scopes_supported?: string[];
           resource_documentation?: string;
@@ -1510,7 +1499,7 @@ describe("McpServer", () => {
        */
       test("metadata endpoint is served without auth configured", async () => {
         const { get, port } = await startHttpServer([]);
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         expect(res.statusCode).toBe(200);
         const doc = JSON.parse(res.body) as {
           resource: string;
@@ -1533,7 +1522,7 @@ describe("McpServer", () => {
             audience: "https://mcp.example.com",
           }),
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         const doc = JSON.parse(res.body) as {
           authorization_servers?: string[];
         };
@@ -1562,19 +1551,19 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Default fallback URL bypasses the HTTPS guard (dev convenience)
-       * @preconditions NODE_ENV=production; resource.url unset; the bound URL is http://127.0.0.1:{port}/mcp
-       * @expectedResult Metadata document still serves (the guard fires only when the user explicitly sets http:// in prod)
+       * @case Shared HTTP transport requires an explicit public resource URL in production
+       * @preconditions NODE_ENV=production; resource.url unset
+       * @expectedResult Construction fails before binding because a proxy-facing resource identity cannot be inferred safely
        */
-      test("HTTPS guard does not fire on the default http://host:port/mcp fallback", async () => {
+      test("production HTTP transport requires resource.url", async () => {
         const prev = process.env["NODE_ENV"];
         process.env["NODE_ENV"] = "production";
         try {
-          const { get } = await startHttpServer([], {
-            auth: { validator: () => validPrincipal },
-          });
-          const res = await get("/.well-known/oauth-protected-resource");
-          expect(res.statusCode).toBe(200);
+          await expect(
+            startHttpServer([], {
+              auth: { validator: () => validPrincipal },
+            }),
+          ).rejects.toThrow(/resource\.url is required/);
         } finally {
           if (prev === undefined) delete process.env["NODE_ENV"];
           else process.env["NODE_ENV"] = prev;
@@ -1590,7 +1579,7 @@ describe("McpServer", () => {
         const { get } = await startHttpServer([], {
           auth: { validator: () => validPrincipal },
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         const cacheControl = res.headers["cache-control"];
         expect(typeof cacheControl).toBe("string");
         expect(cacheControl as string).toMatch(/max-age=\d+/);
@@ -1618,7 +1607,7 @@ describe("McpServer", () => {
           }),
         });
         const { get, port } = await startHttpServer([], { auth: authConfig });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         expect(res.statusCode).toBe(200);
         const doc = JSON.parse(res.body) as { resource: string };
         expect(doc.resource).toContain(`:${port}`);
@@ -1646,7 +1635,7 @@ describe("McpServer", () => {
           auth: authConfig,
           resource: { url: "http://localhost:9999" },
         });
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         expect(res.statusCode).toBe(200);
         const doc = JSON.parse(res.body) as {
           resource: string;
@@ -1697,7 +1686,7 @@ describe("McpServer", () => {
        */
       test("OPTIONS /.well-known/oauth-protected-resource preflight returns 204", async () => {
         const { options } = await startHttpServer([]);
-        const res = await options("/.well-known/oauth-protected-resource", {
+        const res = await options("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
         expect(res.statusCode).toBe(204);
@@ -1713,7 +1702,7 @@ describe("McpServer", () => {
        */
       test("GET metadata reflects loopback origin", async () => {
         const { get } = await startHttpServer([]);
-        const res = await get("/.well-known/oauth-protected-resource", {
+        const res = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
         expect(res.statusCode).toBe(200);
@@ -1758,7 +1747,7 @@ describe("McpServer", () => {
        */
       test("path-suffixed metadata URL returns identical body to root", async () => {
         const { get } = await startHttpServer([]);
-        const rootRes = await get("/.well-known/oauth-protected-resource", {
+        const rootRes = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
         const suffRes = await get("/.well-known/oauth-protected-resource/mcp", {
@@ -1781,7 +1770,7 @@ describe("McpServer", () => {
         const { get } = await startHttpServer([], {
           resource: { url: "http://localhost:9999/api/mcp" },
         });
-        const res = await get("/.well-known/oauth-protected-resource/api/mcp", {
+        const res = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
         expect(res.statusCode).toBe(200);
@@ -1822,9 +1811,7 @@ describe("McpServer", () => {
         const { get } = await startHttpServer([]);
         const res = await get("/not/a/real/path", { Origin: LOOPBACK_ORIGIN });
         expect(res.statusCode).toBe(404);
-        expect(res.headers["access-control-allow-origin"]).toBe(
-          LOOPBACK_ORIGIN,
-        );
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
       });
 
       /**
@@ -1840,16 +1827,16 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Non-loopback Origin gets no Access-Control-Allow-Origin under the default policy
+       * @case Non-loopback Origin is rejected under the default policy
        * @preconditions Default cors policy; request Origin is https://evil.example
-       * @expectedResult Underlying response status is unchanged, but no Allow-Origin header is emitted (browser will block the response)
+       * @expectedResult 403 with no Allow-Origin header
        */
       test("non-loopback origin is rejected by the default policy", async () => {
         const { get } = await startHttpServer([]);
-        const res = await get("/.well-known/oauth-protected-resource", {
+        const res = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: "https://evil.example",
         });
-        expect(res.statusCode).toBe(200);
+        expect(res.statusCode).toBe(403);
         expect(res.headers["access-control-allow-origin"]).toBeUndefined();
       });
 
@@ -1860,7 +1847,7 @@ describe("McpServer", () => {
        */
       test("no Origin header means no CORS headers are emitted", async () => {
         const { get } = await startHttpServer([]);
-        const res = await get("/.well-known/oauth-protected-resource");
+        const res = await get("/.well-known/oauth-protected-resource/mcp");
         expect(res.statusCode).toBe(200);
         expect(res.headers["access-control-allow-origin"]).toBeUndefined();
       });
@@ -1872,7 +1859,7 @@ describe("McpServer", () => {
        */
       test("cors: false suppresses CORS headers and defers OPTIONS to the proxy", async () => {
         const { get, options } = await startHttpServer([], { cors: false });
-        const getRes = await get("/.well-known/oauth-protected-resource", {
+        const getRes = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
         expect(getRes.statusCode).toBe(200);
@@ -1895,15 +1882,21 @@ describe("McpServer", () => {
         const { get } = await startHttpServer([], {
           cors: { origin: "https://app.example.com" },
         });
-        const matching = await get("/.well-known/oauth-protected-resource", {
-          Origin: "https://app.example.com",
-        });
+        const matching = await get(
+          "/.well-known/oauth-protected-resource/mcp",
+          {
+            Origin: "https://app.example.com",
+          },
+        );
         expect(matching.headers["access-control-allow-origin"]).toBe(
           "https://app.example.com",
         );
-        const nonMatching = await get("/.well-known/oauth-protected-resource", {
-          Origin: "https://other.example",
-        });
+        const nonMatching = await get(
+          "/.well-known/oauth-protected-resource/mcp",
+          {
+            Origin: "https://other.example",
+          },
+        );
         expect(
           nonMatching.headers["access-control-allow-origin"],
         ).toBeUndefined();
@@ -1916,7 +1909,7 @@ describe("McpServer", () => {
        */
       test("cors: { origin: '*' } reflects wildcard without Vary", async () => {
         const { get } = await startHttpServer([], { cors: { origin: "*" } });
-        const res = await get("/.well-known/oauth-protected-resource", {
+        const res = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: "https://anywhere.example",
         });
         expect(res.headers["access-control-allow-origin"]).toBe("*");
@@ -2009,9 +2002,9 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case POST /mcp from a non-loopback Origin under the default policy gets no Access-Control-Allow-Origin
+       * @case POST /mcp from a non-loopback Origin is rejected under the default policy
        * @preconditions Default cors policy; valid initialize call from https://evil.example
-       * @expectedResult Response status is 200 (the JSON-RPC request itself succeeds), but the browser-readability gate (Allow-Origin) is absent; Vary: Origin is still emitted so caches stay correct
+       * @expectedResult 403 with no Allow-Origin header
        */
       test("non-loopback POST /mcp gets no Allow-Origin (default policy)", async () => {
         const { post } = await startHttpServer([]);
@@ -2024,17 +2017,14 @@ describe("McpServer", () => {
           }),
           { Origin: "https://evil.example" },
         );
-        expect(res.statusCode).toBe(200);
+        expect(res.statusCode).toBe(403);
         expect(res.headers["access-control-allow-origin"]).toBeUndefined();
-        const vary = res.headers["vary"];
-        const varyStr = Array.isArray(vary) ? vary.join(", ") : vary;
-        expect(varyStr).toContain("Origin");
       });
 
       /**
-       * @case 401 response from /mcp on a non-loopback Origin gets no Allow-Origin and no exposed WWW-Authenticate
+       * @case Authentication is not evaluated for a disallowed Origin
        * @preconditions Auth validator configured; POST without Authorization from https://evil.example
-       * @expectedResult 401 status; no Access-Control-Allow-Origin; the WWW-Authenticate header is present on the wire but unreadable to a cross-origin browser caller (correct behaviour: only allowlisted origins can read the RFC 9728 hint)
+       * @expectedResult Origin validation returns 403 before the auth gate
        */
       test("non-loopback 401 from /mcp gets no Allow-Origin", async () => {
         const { post } = await startHttpServer([], {
@@ -2049,7 +2039,7 @@ describe("McpServer", () => {
           }),
           { Origin: "https://evil.example" },
         );
-        expect(res.statusCode).toBe(401);
+        expect(res.statusCode).toBe(403);
         expect(res.headers["access-control-allow-origin"]).toBeUndefined();
       });
     });
@@ -2130,7 +2120,7 @@ describe("McpServer", () => {
           auth,
           resource: { url: "http://localhost:9999" },
         });
-        const res = await get("/.well-known/oauth-protected-resource", {
+        const res = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
         expect(res.statusCode).toBe(200);
@@ -2142,7 +2132,7 @@ describe("McpServer", () => {
       /**
        * @case OAuth-proxy mode: non-loopback Origin is rejected by the default policy
        * @preconditions oauth() auth; OPTIONS on /mcp with a public Origin
-       * @expectedResult 204 returned (CORS does not 4xx), but no Allow-Origin header is emitted
+       * @expectedResult 403 with no Allow-Origin header
        */
       test("non-loopback Origin gets no Allow-Origin in OAuth-proxy mode", async () => {
         const auth = await buildOAuthAuth();
@@ -2151,7 +2141,7 @@ describe("McpServer", () => {
           resource: { url: "http://localhost:9999" },
         });
         const res = await options("/mcp", { Origin: "https://evil.example" });
-        expect(res.statusCode).toBe(204);
+        expect(res.statusCode).toBe(403);
         expect(res.headers["access-control-allow-origin"]).toBeUndefined();
       });
 
@@ -2166,7 +2156,7 @@ describe("McpServer", () => {
           auth,
           resource: { url: "http://localhost:9999/mcp" },
         });
-        const rootRes = await get("/.well-known/oauth-protected-resource", {
+        const rootRes = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
         const suffRes = await get("/.well-known/oauth-protected-resource/mcp", {
@@ -2195,7 +2185,7 @@ describe("McpServer", () => {
           auth,
           resource: { url: "http://localhost:9999/api/mcp" },
         });
-        const res = await get("/.well-known/oauth-protected-resource/api/mcp", {
+        const res = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
         expect(res.statusCode).toBe(200);
@@ -2244,9 +2234,7 @@ describe("McpServer", () => {
         });
         const res = await get("/not/a/real/path", { Origin: LOOPBACK_ORIGIN });
         expect(res.statusCode).toBe(404);
-        expect(res.headers["access-control-allow-origin"]).toBe(
-          LOOPBACK_ORIGIN,
-        );
+        expect(res.headers["access-control-allow-origin"]).toBeUndefined();
       });
 
       /**
@@ -2552,7 +2540,7 @@ describe("McpServer", () => {
           resource: { url: "http://localhost:9999" },
         });
 
-        const metadata = await get("/.well-known/oauth-protected-resource");
+        const metadata = await get("/.well-known/oauth-protected-resource/mcp");
         expect(metadata.statusCode).toBe(200);
         const doc = JSON.parse(metadata.body) as {
           authorization_servers?: string[];
@@ -2661,11 +2649,12 @@ describe("McpServer", () => {
           >[0]["verify"],
         });
 
-        t = await testContext().store(MCP_STORE_KEY, true).build();
+        t = await testContext()
+          .store(MCP_STORE_KEY, true)
+          .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
+          .build();
         server = new McpServer(t.ctx, {
           transport: "http",
-          port: 0,
-          host: "127.0.0.1",
           auth: authConfig,
           resource: { url: "http://localhost:9999" },
         });
@@ -2674,6 +2663,7 @@ describe("McpServer", () => {
           rejections.push(payload.details as Record<string, unknown>);
         });
 
+        await server.prepare();
         void t.ctx.start();
         await server.start();
         const port = server.getHttpPort()!;
@@ -3031,11 +3021,12 @@ describe("McpServer", () => {
      * @expectedResult Event emitted once with correct payload
      */
     test("emits plugin:mcp:server:listening on HTTP start", async () => {
-      t = await testContext().store(MCP_STORE_KEY, true).build();
+      t = await testContext()
+        .store(MCP_STORE_KEY, true)
+        .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
+        .build();
       server = new McpServer(t.ctx, {
         transport: "http",
-        port: 0,
-        host: "127.0.0.1",
       });
 
       const events: Array<Record<string, unknown>> = [];
@@ -3043,6 +3034,7 @@ describe("McpServer", () => {
         events.push(payload.details as Record<string, unknown>);
       });
 
+      await server.prepare();
       void t.ctx.start();
       await server.start();
 
@@ -3066,11 +3058,10 @@ describe("McpServer", () => {
           craft().id("exposed-evt").description("test").from(mcp()).to(noop()),
         ])
         .store(MCP_STORE_KEY, true)
+        .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
         .build();
       server = new McpServer(t.ctx, {
         transport: "http",
-        port: 0,
-        host: "127.0.0.1",
       });
 
       const exposed: Array<Record<string, unknown>> = [];
@@ -3090,6 +3081,7 @@ describe("McpServer", () => {
           }
         });
       });
+      await server.prepare();
       void t.ctx.start();
       await routesReady;
       await server.start();
@@ -3118,11 +3110,10 @@ describe("McpServer", () => {
             .to(noop()),
         ])
         .store(MCP_STORE_KEY, true)
+        .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
         .build();
       server = new McpServer(t.ctx, {
         transport: "http",
-        port: 0,
-        host: "127.0.0.1",
       });
 
       const called: Array<Record<string, unknown>> = [];
@@ -3146,6 +3137,7 @@ describe("McpServer", () => {
           }
         });
       });
+      await server.prepare();
       void t.ctx.start();
       await routesReady;
       await server.start();
@@ -3239,11 +3231,10 @@ describe("McpServer", () => {
           craft().id("exists-evt").description("test").from(mcp()).to(noop()),
         ])
         .store(MCP_STORE_KEY, true)
+        .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
         .build();
       server = new McpServer(t.ctx, {
         transport: "http",
-        port: 0,
-        host: "127.0.0.1",
       });
 
       const failed: Array<Record<string, unknown>> = [];
@@ -3263,6 +3254,7 @@ describe("McpServer", () => {
           }
         });
       });
+      await server.prepare();
       void t.ctx.start();
       await routesReady;
       await server.start();
@@ -3353,11 +3345,10 @@ describe("McpServer", () => {
             .to(noop()),
         ])
         .store(MCP_STORE_KEY, true)
+        .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
         .build();
       server = new McpServer(t.ctx, {
         transport: "http",
-        port: 0,
-        host: "127.0.0.1",
       });
 
       const allToolEvents: string[] = [];
@@ -3384,6 +3375,7 @@ describe("McpServer", () => {
           }
         });
       });
+      await server.prepare();
       void t.ctx.start();
       await routesReady;
       await server.start();
@@ -3464,11 +3456,12 @@ describe("McpServer", () => {
      * @expectedResult Event emitted with subject, scheme, and source
      */
     test("emits auth:success on valid token", async () => {
-      t = await testContext().store(MCP_STORE_KEY, true).build();
+      t = await testContext()
+        .store(MCP_STORE_KEY, true)
+        .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
+        .build();
       server = new McpServer(t.ctx, {
         transport: "http",
-        port: 0,
-        host: "127.0.0.1",
         auth: {
           validator: (token) => {
             if (token !== "good") throw new Error("invalid token");
@@ -3486,6 +3479,7 @@ describe("McpServer", () => {
         successes.push(payload.details as Record<string, unknown>);
       });
 
+      await server.prepare();
       void t.ctx.start();
       await server.start();
       const port = server.getHttpPort()!;
@@ -3535,11 +3529,12 @@ describe("McpServer", () => {
      * @expectedResult Event emitted with reason and source
      */
     test("emits auth:rejected on invalid token", async () => {
-      t = await testContext().store(MCP_STORE_KEY, true).build();
+      t = await testContext()
+        .store(MCP_STORE_KEY, true)
+        .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
+        .build();
       server = new McpServer(t.ctx, {
         transport: "http",
-        port: 0,
-        host: "127.0.0.1",
         auth: {
           validator: () => {
             throw new Error("invalid token");
@@ -3552,6 +3547,7 @@ describe("McpServer", () => {
         rejections.push(payload.details as Record<string, unknown>);
       });
 
+      await server.prepare();
       void t.ctx.start();
       await server.start();
       const port = server.getHttpPort()!;
@@ -3602,11 +3598,12 @@ describe("McpServer", () => {
      */
     test("does not leak the bearer from a validator error message into auth:rejected", async () => {
       const token = "super-secret-bearer-token";
-      t = await testContext().store(MCP_STORE_KEY, true).build();
+      t = await testContext()
+        .store(MCP_STORE_KEY, true)
+        .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
+        .build();
       server = new McpServer(t.ctx, {
         transport: "http",
-        port: 0,
-        host: "127.0.0.1",
         auth: {
           validator: (tok: string) => {
             throw new Error(`token ${tok} rejected`);
@@ -3619,6 +3616,7 @@ describe("McpServer", () => {
         rejections.push(payload.details as Record<string, unknown>);
       });
 
+      await server.prepare();
       void t.ctx.start();
       await server.start();
       const port = server.getHttpPort()!;
@@ -4146,110 +4144,6 @@ describe("McpServer", () => {
       await expect(buildAuthHeaders({ token: () => "" })).rejects.toThrow(
         /non-empty string/,
       );
-    });
-  });
-
-  describe("authInfoToPrincipal fallback", () => {
-    /**
-     * @case Fallback derives a minimal OAuthPrincipal when extra.principal is absent
-     * @preconditions Caller passes a raw SdkAuthInfo without a stashed principal in extra
-     * @expectedResult Returns OAuthPrincipal with subject == clientId, scopes copied through, expiresAt preserved
-     */
-    test("fallback derives OAuthPrincipal from bare SdkAuthInfo", async () => {
-      t = await testContext().build();
-      server = new McpServer(t.ctx);
-      const anyServer = server as unknown as {
-        authInfoToPrincipal: (info: unknown) => unknown;
-      };
-
-      const principal = anyServer.authInfoToPrincipal({
-        token: "t",
-        clientId: "client-abc",
-        scopes: ["read"],
-        expiresAt: 1234,
-      });
-
-      expect(principal).toMatchObject({
-        kind: "oauth",
-        scheme: "bearer",
-        subject: "client-abc",
-        clientId: "client-abc",
-        scopes: ["read"],
-        expiresAt: 1234,
-      });
-    });
-
-    /**
-     * @case Fallback omits expiresAt when it is absent on the SdkAuthInfo
-     * @preconditions SdkAuthInfo without expiresAt and without extra.principal
-     * @expectedResult Returned principal has no expiresAt key
-     */
-    test("fallback omits expiresAt when absent", async () => {
-      t = await testContext().build();
-      server = new McpServer(t.ctx);
-      const anyServer = server as unknown as {
-        authInfoToPrincipal: (info: unknown) => Record<string, unknown>;
-      };
-
-      const principal = anyServer.authInfoToPrincipal({
-        token: "t",
-        clientId: "client-abc",
-        scopes: [],
-      });
-
-      expect(principal).toMatchObject({
-        kind: "oauth",
-        subject: "client-abc",
-        clientId: "client-abc",
-      });
-      expect(principal["expiresAt"]).toBeUndefined();
-    });
-
-    /**
-     * @case Stashed principal in extra.principal is preferred over fallback
-     * @preconditions SdkAuthInfo carries extra.principal with a full OAuthPrincipal whose subject differs from clientId
-     * @expectedResult Returns the stashed principal verbatim (subject is not overwritten with clientId)
-     */
-    test("uses stashed principal when present, preserving subject != clientId", async () => {
-      t = await testContext().build();
-      server = new McpServer(t.ctx);
-      const anyServer = server as unknown as {
-        authInfoToPrincipal: (info: unknown) => Record<string, unknown>;
-      };
-
-      const stashed = {
-        kind: "oauth" as const,
-        scheme: "bearer" as const,
-        subject: "real-user-42",
-        clientId: "client-abc",
-        scopes: ["read", "write"],
-        email: "user@example.com",
-      };
-
-      const principal = anyServer.authInfoToPrincipal({
-        token: "t",
-        clientId: "client-abc",
-        scopes: ["read", "write"],
-        extra: { principal: stashed },
-      });
-
-      expect(principal).toEqual(stashed);
-      expect(principal["subject"]).toBe("real-user-42");
-    });
-
-    /**
-     * @case Returns undefined for undefined input
-     * @preconditions Caller passes undefined (no auth on the request)
-     * @expectedResult undefined (no principal to surface)
-     */
-    test("returns undefined when authInfo is undefined", async () => {
-      t = await testContext().build();
-      server = new McpServer(t.ctx);
-      const anyServer = server as unknown as {
-        authInfoToPrincipal: (info: unknown) => unknown;
-      };
-
-      expect(anyServer.authInfoToPrincipal(undefined)).toBeUndefined();
     });
   });
 });

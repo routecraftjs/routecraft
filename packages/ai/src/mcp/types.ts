@@ -335,14 +335,6 @@ export interface McpPluginOptions {
   /** Transport mode for MCP server. Default: "stdio" */
   transport?: "stdio" | "http";
 
-  /** Port for the streamable-http MCP server. Default: 3001 (only used with transport: "http") */
-  /** @deprecated Define a named server under `CraftConfig.servers`. */
-  port?: number;
-
-  /** Host to bind to. Default: "localhost" (only used with transport: "http") */
-  /** @deprecated Define a named server under `CraftConfig.servers`. */
-  host?: string;
-
   /** Named server to mount the HTTP transport on. Defaults to `"default"`. */
   server?: string;
 
@@ -371,7 +363,7 @@ export interface McpPluginOptions {
    * auth: jwt({ secret: process.env.JWT_SECRET! })
    * ```
    */
-  auth?: McpHttpAuthOptions;
+  auth?: McpHttpAuthOptions | false;
 
   /**
    * Principal enrichment that runs after `auth` verifies a token, for the

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { rcError } from "../../error";
+import { isRoutecraftError } from "../../brand";
 import { markAuthentic } from "../../auth/authentic";
 import type { Principal, TokenVerifier } from "../../auth/types";
 import type {
@@ -26,9 +27,15 @@ import type {
  *   `auth:rejected` event payload.
  */
 export type AuthResult =
-  | { kind: "admit"; principal: Principal }
+  | { kind: "admit"; principal: Principal; credential: string }
   | { kind: "absent"; scheme: string }
-  | { kind: "reject"; response: Response; reason: string; scheme: string };
+  | {
+      kind: "reject";
+      response: Response;
+      reason: string;
+      scheme: string;
+      cause?: unknown;
+    };
 
 /** Request-level middleware produced by {@link createAuthMiddleware}. */
 export type HttpAuthMiddleware = (req: Request) => Promise<AuthResult>;
@@ -108,7 +115,7 @@ export function missingCredentialReason(scheme: string): string {
   return scheme === "apiKey" ? "missing api key" : "missing bearer token";
 }
 
-function reject(reason: string, scheme: string): AuthResult {
+function reject(reason: string, scheme: string, cause?: unknown): AuthResult {
   const headers: Record<string, string> = {
     "content-type": "application/json",
   };
@@ -125,7 +132,13 @@ function reject(reason: string, scheme: string): AuthResult {
       headers,
     },
   );
-  return { kind: "reject", response, reason, scheme };
+  return {
+    kind: "reject",
+    response,
+    reason,
+    scheme,
+    ...(cause !== undefined ? { cause } : {}),
+  };
 }
 
 function isApiKeyAuth(auth: HttpAuth): auth is ApiKeyAuthOptions {
@@ -235,6 +248,7 @@ export function createAuthMiddleware(
         return {
           kind: "admit",
           principal: markAuthentic(syntheticApiKeyPrincipal(raw)),
+          credential: raw,
         };
       }
       try {
@@ -242,7 +256,11 @@ export function createAuthMiddleware(
         if (!principal) {
           return reject("invalid api key", "apiKey");
         }
-        return { kind: "admit", principal: markAuthentic(principal) };
+        return {
+          kind: "admit",
+          principal: markAuthentic(principal),
+          credential: raw,
+        };
       } catch {
         return reject("invalid api key", "apiKey");
       }
@@ -262,20 +280,28 @@ export function createAuthMiddleware(
         return { kind: "absent", scheme: "bearer" };
       }
       if (!header.toLowerCase().startsWith("bearer ")) {
-        return reject("invalid token", "bearer");
+        return reject("unsupported_scheme", "bearer");
       }
       const token = header.slice(7).trim();
       if (!token) {
-        return reject("invalid token", "bearer");
+        return reject("invalid_token", "bearer");
       }
       try {
         const principal = await validator(token);
         if (!principal) {
-          return reject("invalid token", "bearer");
+          return reject("invalid_token", "bearer");
         }
-        return { kind: "admit", principal: markAuthentic(principal) };
-      } catch {
-        return reject("invalid token", "bearer");
+        return {
+          kind: "admit",
+          principal: markAuthentic(principal),
+          credential: token,
+        };
+      } catch (error) {
+        return reject(
+          isRoutecraftError(error) ? "infrastructure" : "invalid_token",
+          "bearer",
+          error,
+        );
       }
     };
   }

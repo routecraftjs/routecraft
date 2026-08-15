@@ -8,7 +8,8 @@ import { startNodeServer, type NodeServerHandle } from "./node";
  */
 export interface HttpServerHandle {
   readonly port: number;
-  close(): Promise<void>;
+  gracefulClose(): Promise<void>;
+  forceClose(): Promise<void>;
 }
 
 export interface StartServerOptions {
@@ -21,6 +22,7 @@ interface BunLike {
   serve(opts: {
     port: number;
     hostname: string;
+    idleTimeout: number;
     fetch: (req: Request) => Promise<Response> | Response;
   }): {
     readonly port: number;
@@ -50,11 +52,15 @@ export async function startServer(
       const server = bun.serve({
         port: opts.port,
         hostname: opts.host,
+        idleTimeout: 0,
         fetch: opts.fetch,
       });
       return {
         port: server.port,
-        close: async () => {
+        gracefulClose: async () => {
+          await server.stop(false);
+        },
+        forceClose: async () => {
           await server.stop(true);
         },
       };

@@ -2,6 +2,8 @@ import type { CraftContext } from "../../context.ts";
 import { rcError } from "../../error.ts";
 import type { HttpMethod } from "../../adapters/http/types.ts";
 import type { HttpMount, PathClaim, WebIngress } from "./types.ts";
+import type { ValidatorAuthOptions } from "../../auth/types.ts";
+import { createAuthMiddleware, type HttpAuthMiddleware } from "../http/auth.ts";
 
 export const WEB_INGRESSES: unique symbol = Symbol.for(
   "routecraft.plugin.server.web-ingresses",
@@ -37,6 +39,18 @@ function prefixContains(prefix: string, path: string): boolean {
   return path === prefix || path.startsWith(`${prefix}/`);
 }
 
+function patternsOverlap(left: string, right: string): boolean {
+  const a = left.replace(/\/+$/, "").split("/").filter(Boolean);
+  const b = right.replace(/\/+$/, "").split("/").filter(Boolean);
+  if (a.length !== b.length) return false;
+  return a.every((segment, index) => {
+    const other = b[index]!;
+    return (
+      segment.startsWith(":") || other.startsWith(":") || segment === other
+    );
+  });
+}
+
 function claimsOverlap(a: PathClaim, b: PathClaim): boolean {
   if (!methodsOverlap(a, b)) return false;
   if (a.kind === "exact" && b.kind === "exact") return a.path === b.path;
@@ -69,7 +83,7 @@ function claimsOverlap(a: PathClaim, b: PathClaim): boolean {
     return claimsOverlap(b, a);
   }
   if (a.kind === "pattern" && b.kind === "pattern") {
-    return false;
+    return patternsOverlap(a.matcher.pattern, b.matcher.pattern);
   }
   return false;
 }
@@ -82,10 +96,33 @@ function describeClaim(claim: PathClaim): string {
 
 export class HttpMountRegistry implements WebIngress {
   readonly serverName: string;
+  readonly serverAuthConfigured: boolean;
+  boundAddress: { readonly host: string; readonly port: number } | undefined;
   private readonly mounts = new Map<string, HttpMount>();
+  private readonly serverAuth: ValidatorAuthOptions | undefined;
+  private readonly context: CraftContext;
+  private readonly authByMount = new Map<
+    string,
+    HttpAuthMiddleware | undefined
+  >();
+  private readonly authOptionsByMount = new Map<
+    string,
+    Parameters<typeof createAuthMiddleware>[0]
+  >();
+  private evaluatedClaims: ReadonlyArray<{
+    mount: HttpMount;
+    claims: readonly PathClaim[];
+  }> = [];
 
-  constructor(serverName: string) {
+  constructor(
+    serverName: string,
+    context: CraftContext,
+    serverAuth?: ValidatorAuthOptions,
+  ) {
     this.serverName = serverName;
+    this.context = context;
+    this.serverAuth = serverAuth;
+    this.serverAuthConfigured = serverAuth !== undefined;
   }
 
   mountHttp(mount: HttpMount): () => void {
@@ -100,6 +137,10 @@ export class HttpMountRegistry implements WebIngress {
     };
   }
 
+  setBoundAddress(host: string, port: number): void {
+    this.boundAddress = { host, port };
+  }
+
   validate(): void {
     if (this.mounts.size === 0) {
       throw rcError("RC5003", undefined, {
@@ -110,6 +151,23 @@ export class HttpMountRegistry implements WebIngress {
       mount,
       claims: [...mount.claims()],
     }));
+    this.evaluatedClaims = evaluated;
+    this.authByMount.clear();
+    this.authOptionsByMount.clear();
+    for (const { mount } of evaluated) {
+      const inherited =
+        mount.auth === undefined && this.serverAuth !== undefined;
+      const auth =
+        mount.auth === false ? undefined : (mount.auth ?? this.serverAuth);
+      this.authByMount.set(mount.id, createAuthMiddleware(auth));
+      this.authOptionsByMount.set(mount.id, auth);
+      if (inherited) {
+        this.context.logger.info(
+          { server: this.serverName, mount: mount.id },
+          "Server mount inherited authentication",
+        );
+      }
+    }
     for (let i = 0; i < evaluated.length; i++) {
       for (let j = i + 1; j < evaluated.length; j++) {
         const left = evaluated[i]!;
@@ -134,8 +192,8 @@ export class HttpMountRegistry implements WebIngress {
       claim: PathClaim;
       score: number;
     }> = [];
-    for (const mount of this.mounts.values()) {
-      for (const claim of mount.claims()) {
+    for (const { mount, claims } of this.evaluatedClaims) {
+      for (const claim of claims) {
         if (!methodsOf(claim).includes(method)) continue;
         if (claim.kind === "exact" && claim.path === path) {
           candidates.push({ mount, claim, score: 1_000_000 + path.length });
@@ -158,7 +216,26 @@ export class HttpMountRegistry implements WebIngress {
     if (!selected) {
       return Response.json({ error: "not found", path }, { status: 404 });
     }
-    return selected.mount.handler(request);
+    const authMiddleware = this.authByMount.get(selected.mount.id);
+    const auth = authMiddleware ? await authMiddleware(request) : undefined;
+    if (auth?.kind === "admit") {
+      this.context.emit("auth:success", {
+        subject: auth.principal.subject,
+        scheme: auth.principal.scheme,
+        source: selected.mount.id,
+      });
+    } else if (auth?.kind === "reject") {
+      this.context.emit("auth:rejected", {
+        reason: auth.reason,
+        scheme: auth.scheme,
+        source: selected.mount.id,
+      });
+    }
+    return selected.mount.handler(request, {
+      serverName: this.serverName,
+      auth,
+      authOptions: this.authOptionsByMount.get(selected.mount.id),
+    });
   }
 }
 

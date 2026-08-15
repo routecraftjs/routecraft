@@ -130,10 +130,6 @@ export interface HttpPluginEventOptions {
 export interface HttpPluginOptions {
   /** Named entry from `CraftConfig.servers`. Defaults to `"default"`. */
   server?: string;
-  /** @deprecated Define a named server under `CraftConfig.servers`. */
-  port?: number;
-  /** @deprecated Define a named server under `CraftConfig.servers`. */
-  host?: string;
   /**
    * Global auth strategy. Every incoming request is verified by default
    * (rejection returns 401 before any route runs). Per-route routes can
@@ -141,7 +137,7 @@ export interface HttpPluginOptions {
    * extra constraints (roles, scopes, predicate) come from the existing
    * `.authorize({...})` builder method.
    */
-  auth?: HttpAuth;
+  auth?: HttpAuth | false;
   /**
    * Maximum request body size in bytes. Requests exceeding this cap return
    * 413 Payload Too Large. Defaults to 10 MB.

@@ -35,13 +35,16 @@ async function bootHttp(
   let port = 0;
   const ctx = await testContext()
     .on(
-      "plugin:http:server:listening" as EventName,
+      "server:listening" as EventName,
       ((payload: { details: unknown }) => {
         port = (payload.details as { port: number }).port;
       }) as Parameters<ReturnType<typeof testContext>["on"]>[1],
     )
     .routes(routes)
-    .with({ http: { port: 0 } } as CraftConfig)
+    .with({
+      servers: { default: { host: "127.0.0.1", port: 0 } },
+      http: { server: "default" },
+    } as CraftConfig)
     .build();
   await ctx.startAndWaitReady();
   expect(port).toBeGreaterThan(0);

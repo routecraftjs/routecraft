@@ -11,7 +11,8 @@ export interface NodeServerHandle {
   /** Resolved port (useful when `port: 0` is passed to let the OS choose). */
   readonly port: number;
   /** Stop accepting new connections and wait for in-flight requests to complete. */
-  close(): Promise<void>;
+  gracefulClose(): Promise<void>;
+  forceClose(): Promise<void>;
 }
 
 export interface NodeServerOptions {
@@ -62,10 +63,20 @@ export function startNodeServer(
       const resolvedPort = address?.port ?? opts.port;
       resolve({
         port: resolvedPort,
-        close: () =>
-          new Promise<void>((res, rej) => {
+        gracefulClose: () => {
+          const closed = new Promise<void>((res, rej) => {
             server.close((err) => (err ? rej(err) : res()));
-          }),
+          });
+          server.closeIdleConnections();
+          return closed;
+        },
+        forceClose: () => {
+          const closed = new Promise<void>((res, rej) => {
+            server.close((err) => (err ? rej(err) : res()));
+          });
+          server.closeAllConnections();
+          return closed;
+        },
       });
     });
   });
@@ -78,9 +89,15 @@ async function handle(
   fallbackHost: string,
 ): Promise<void> {
   try {
-    const webReq = toWebRequest(nReq, fallbackHost);
+    const abort = new AbortController();
+    const onAborted = () => abort.abort(new Error("Client disconnected"));
+    nReq.once("aborted", onAborted);
+    nRes.once("close", () => {
+      if (!nRes.writableEnded) onAborted();
+    });
+    const webReq = toWebRequest(nReq, fallbackHost, abort.signal);
     const webRes = await fetchHandler(webReq);
-    await writeNodeResponse(nRes, webRes);
+    await writeNodeResponse(nRes, webRes, abort.signal);
   } catch {
     // The dispatcher is responsible for normalising everything to a Response;
     // anything that escapes is a bug we still need to answer for. Emit a 500
@@ -97,7 +114,11 @@ async function handle(
   }
 }
 
-function toWebRequest(req: IncomingMessage, fallbackHost: string): Request {
+function toWebRequest(
+  req: IncomingMessage,
+  fallbackHost: string,
+  signal: AbortSignal,
+): Request {
   const host = req.headers.host ?? fallbackHost;
   // `req.url` is always a path-and-query when received by an HTTP server.
   const url = new URL(req.url ?? "/", `http://${host}`);
@@ -114,7 +135,7 @@ function toWebRequest(req: IncomingMessage, fallbackHost: string): Request {
 
   const method = (req.method ?? "GET").toUpperCase();
   const hasBody = method !== "GET" && method !== "HEAD";
-  const init: RequestInit = { method, headers };
+  const init: RequestInit = { method, headers, signal };
   if (hasBody) {
     // Readable.toWeb returns ReadableStream<any>; the Request constructor
     // wants ReadableStream<Uint8Array>. Cast through unknown so TS does not
@@ -131,6 +152,7 @@ function toWebRequest(req: IncomingMessage, fallbackHost: string): Request {
 async function writeNodeResponse(
   nRes: ServerResponse,
   webRes: Response,
+  signal: AbortSignal,
 ): Promise<void> {
   nRes.statusCode = webRes.status;
   if (webRes.statusText) nRes.statusMessage = webRes.statusText;
@@ -157,6 +179,11 @@ async function writeNodeResponse(
   }
 
   const reader = webRes.body.getReader();
+  const onAbort = () => {
+    void reader.cancel(signal.reason);
+    nRes.destroy();
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
   try {
     for (;;) {
       const { done, value } = await reader.read();
@@ -168,6 +195,7 @@ async function writeNodeResponse(
       }
     }
   } finally {
-    nRes.end();
+    signal.removeEventListener("abort", onAbort);
+    if (!signal.aborted) nRes.end();
   }
 }

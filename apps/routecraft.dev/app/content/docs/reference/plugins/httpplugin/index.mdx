@@ -31,7 +31,7 @@ export const craftConfig = defineConfig({
 | Option | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
 | `server` | `string` | `default` | No | Named server to mount on. |
-| `auth` | `ValidatorAuthOptions \| ApiKeyAuthOptions` | -- | No | Global auth strategy: `jwt(...)` / `jwks(...)` (bearer) or `apiKey({...})`. No value means every route is public. |
+| `auth` | `ValidatorAuthOptions \| ApiKeyAuthOptions \| false` | inherited | No | Surface auth strategy. Omit to inherit server auth, or use `false` to make this mount public. |
 | `maxBodySize` | `number` | `10485760` (10 MB) | No | Maximum request body in bytes. Larger requests get `413`. |
 | `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | No | Toggle the `plugin:http:request:completed` event. |
 | `builtins` | `{ health?, ready?, openapi?: { enabled?: boolean; requireAuth?: boolean } }` | see below | No | Per-endpoint config for `/health`, `/ready`, `/openapi.json`. Each takes the same `{ enabled, requireAuth }` shape. See [Configuring built-ins](/docs/reference/adapters/http#configuring-built-ins) on the adapter reference for defaults and the per-endpoint behaviour table. |
@@ -63,9 +63,10 @@ Claims are thunks evaluated once during startup validation. This lets plugins re
 
 ## Lifecycle
 
-- `apply(ctx)` validates options, publishes the route registry on the context store, starts the listener, emits `plugin:http:server:listening { port, host }`.
-- On context stop, the plugin closes the listener and emits `plugin:http:server:closed`.
-- A bind failure (`EADDRINUSE` / `EADDRNOTAVAIL`) surfaces as [`RC5019`](/docs/reference/errors#rc-5019). The plugin resets its store flags so a retry on the same context starts clean.
+- `apply(ctx)` validates options, publishes the route registry, and mounts it on the selected named server. It does not bind a socket.
+- During context start, all mount claims on all named servers are validated before any listener binds. The server then emits `server:listening { server, port, host }`.
+- On context stop, named servers drain active requests, close idle connections, and emit `server:closed { server }`.
+- A bind failure (`EADDRINUSE` / `EADDRNOTAVAIL`) surfaces as [`RC5019`](/docs/reference/errors#rc-5019).
 
 ## Events
 

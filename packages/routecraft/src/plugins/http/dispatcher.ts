@@ -4,7 +4,11 @@ import { isRoutecraftError } from "../../brand";
 import { isSuspended } from "../../suspension/suspended";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
-import { missingCredentialReason, type HttpAuthMiddleware } from "./auth";
+import {
+  missingCredentialReason,
+  type AuthResult,
+  type HttpAuthMiddleware,
+} from "./auth";
 import type { HttpRouteEntry, HttpRouteRegistry } from "./registry";
 import {
   isSignatureRejection,
@@ -93,14 +97,26 @@ export interface DispatcherOptions {
  */
 export function createDispatcher(
   opts: DispatcherOptions,
-): (req: Request) => Promise<Response> {
+): (req: Request, resolvedAuth?: AuthResult) => Promise<Response> {
   const log = opts.logger ?? defaultLogger;
 
-  return async function dispatch(req: Request): Promise<Response> {
+  return async function dispatch(
+    req: Request,
+    resolvedAuth?: AuthResult,
+  ): Promise<Response> {
     const started = performance.now();
     const url = new URL(req.url);
     const method = req.method.toUpperCase() as HttpMethod;
     const pathname = url.pathname;
+    let authResolved = resolvedAuth !== undefined;
+    let authResult = resolvedAuth;
+    const resolveAuth = async (): Promise<AuthResult | undefined> => {
+      if (!authResolved) {
+        authResolved = true;
+        authResult = await opts.authMiddleware?.(req);
+      }
+      return authResult;
+    };
 
     // 1. Match against the user registry first. Built-ins act as a default
     //    when no user route claims the path, so users can override /health
@@ -130,6 +146,8 @@ export function createDispatcher(
     //      c) Gated: require admission, 401 otherwise. Used by
     //         /openapi.json under `access: "authenticated"`.
     if (!methodMatch && pathMatchMethods.length === 0) {
+      const builtinAuth = await resolveAuth();
+      if (builtinAuth?.kind === "reject") return builtinAuth.response;
       const builtinRes = await opts.builtins(req, pathname);
       if (builtinRes) return builtinRes;
 
@@ -141,10 +159,8 @@ export function createDispatcher(
           });
         }
         let isAuthenticated = false;
-        if (opts.authMiddleware) {
-          const result = await opts.authMiddleware(req);
-          isAuthenticated = result.kind === "admit";
-        }
+        const result = await resolveAuth();
+        isAuthenticated = result?.kind === "admit";
         const authAwareRes = await opts.authAwareBuiltins.handler(
           req,
           pathname,
@@ -154,8 +170,8 @@ export function createDispatcher(
       }
 
       if (opts.gatedBuiltins?.paths.has(pathname)) {
-        if (opts.authMiddleware) {
-          const result = await opts.authMiddleware(req);
+        {
+          const result = await resolveAuth();
           // Built-ins never produce request:completed events regardless of
           // auth outcome; only emit for user-registered routes. Treat
           // `absent` like `reject`: gated built-ins are by definition
@@ -163,8 +179,8 @@ export function createDispatcher(
           // a 401 just like a bad one. The plugin's wrapper emits
           // `auth:rejected` for `reject` directly; for `absent` we surface
           // it through the same `onAuthAbsent` hook the user-route path uses.
-          if (result.kind === "reject") return result.response;
-          if (result.kind === "absent") {
+          if (result?.kind === "reject") return result.response;
+          if (result?.kind === "absent") {
             safeNotify(() => opts.onAuthAbsent?.(result.scheme));
             return missingCredentialResponse(result.scheme);
           }
@@ -211,9 +227,12 @@ export function createDispatcher(
     //                  fails verification is a hard error, not "anonymous"),
     //                  absent admits anonymously without emitting auth events.
     let principal: Principal | undefined;
-    if (entry.authMode !== "skip" && opts.authMiddleware) {
-      const result = await opts.authMiddleware(req);
-      if (result.kind === "reject") {
+    if (entry.authMode !== "skip") {
+      const result = await resolveAuth();
+      if (!result) {
+        // No validator is configured, so required routes preserve the
+        // existing public-by-configuration behavior.
+      } else if (result.kind === "reject") {
         emitCompleted(opts, {
           method,
           path: entry.matcher.pattern,
@@ -222,8 +241,7 @@ export function createDispatcher(
           routeId: entry.routeId,
         });
         return result.response;
-      }
-      if (result.kind === "absent") {
+      } else if (result.kind === "absent") {
         if (entry.authMode === "required") {
           safeNotify(() => opts.onAuthAbsent?.(result.scheme));
           const response = missingCredentialResponse(result.scheme);

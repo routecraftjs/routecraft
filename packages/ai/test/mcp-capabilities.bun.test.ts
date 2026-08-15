@@ -179,17 +179,17 @@ describe("capabilities exposed as MCP tools", () => {
     t = await testContext()
       .routes(capabilities())
       .store(MCP_STORE_KEY, true)
+      .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .build();
     server = new McpServer(t.ctx, {
       name: "capability-server",
       version: "1.0.0",
       transport: "http",
-      port: 0,
-      host: "127.0.0.1",
       auth: jwt({ publicKey, issuer: ISSUER, audience: AUDIENCE }),
       resource: { url: "https://mcp.capabilities.example/mcp" },
     });
 
+    await server.prepare();
     await t.startAndWaitReady();
     await server.start();
     return `http://127.0.0.1:${server.getHttpPort()!}/mcp`;

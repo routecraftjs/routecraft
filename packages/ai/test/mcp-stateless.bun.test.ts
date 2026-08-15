@@ -89,14 +89,17 @@ describe("MCP 2026-07-28 stateless revision", () => {
     routes: AnyRouteBuilder[],
     options: Partial<ConstructorParameters<typeof McpServer>[1]> = {},
   ): Promise<{ port: number; url: string }> {
-    t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
+    t = await testContext()
+      .routes(routes)
+      .store(MCP_STORE_KEY, true)
+      .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
+      .build();
     server = new McpServer(t.ctx, {
       transport: "http",
-      port: 0,
-      host: "127.0.0.1",
       ...options,
     });
 
+    await server.prepare();
     await t.startAndWaitReady();
     await server.start();
     const port = server.getHttpPort()!;
@@ -415,7 +418,7 @@ describe("MCP 2026-07-28 stateless revision", () => {
     /**
      * @case A valid token missing a required scope is refused with 403, not 401
      * @preconditions oauth() auth requiring the "mcp:admin" scope; a correctly signed token carrying only "mcp:read"
-     * @expectedResult 403 with WWW-Authenticate naming error="insufficient_scope" and the missing scope, so the client knows to step up rather than re-authenticate; the route never runs
+     * @expectedResult 403 with WWW-Authenticate naming error="insufficient_scope" and an auth:rejected event; the route never runs
      */
     test("refuses a token missing a required scope with 403", async () => {
       const sink: { principal?: Principal | undefined } = {};
@@ -426,6 +429,10 @@ describe("MCP 2026-07-28 stateless revision", () => {
           requiredScopes: ["mcp:admin"],
         }),
         resource: { url: "https://mcp.test.example/mcp" },
+      });
+      const rejections: Array<Record<string, unknown>> = [];
+      t.ctx.on("auth:rejected", ({ details }) => {
+        rejections.push(details as Record<string, unknown>);
       });
 
       const res = await post(
@@ -448,6 +455,11 @@ describe("MCP 2026-07-28 stateless revision", () => {
       expect(challenge).toContain('error="insufficient_scope"');
       expect(challenge).toContain('scope="mcp:admin"');
       expect(sink.principal).toBeUndefined();
+      expect(rejections).toContainEqual({
+        reason: "insufficient_scope",
+        scheme: "bearer",
+        source: "mcp",
+      });
     });
 
     /**

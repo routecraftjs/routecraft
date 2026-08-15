@@ -91,13 +91,16 @@ describe("suspend and resume across transports", () => {
     let port = 0;
     t = await testContext()
       .on(
-        "plugin:http:server:listening" as EventName,
+        "server:listening" as EventName,
         ((payload: { details: { port: number } }) => {
           port = payload.details.port;
         }) as never,
       )
-      .with({ ...suspending(), http: { port: 0 } } as CraftConfig &
-        HttpPluginOptions)
+      .with({
+        ...suspending(),
+        servers: { default: { port: 0 } },
+        http: {},
+      } as CraftConfig & HttpPluginOptions)
       .routes([
         craft()
           .id("payout")
@@ -148,13 +151,16 @@ describe("suspend and resume across transports", () => {
     let port = 0;
     t = await testContext()
       .on(
-        "plugin:http:server:listening" as EventName,
+        "server:listening" as EventName,
         ((payload: { details: { port: number } }) => {
           port = payload.details.port;
         }) as never,
       )
-      .with({ ...suspending(), http: { port: 0 } } as CraftConfig &
-        HttpPluginOptions)
+      .with({
+        ...suspending(),
+        servers: { default: { port: 0 } },
+        http: {},
+      } as CraftConfig & HttpPluginOptions)
       .routes([
         craft()
           .id("payout")
@@ -195,13 +201,16 @@ describe("suspend and resume across transports", () => {
 
     t = await testContext()
       .on(
-        "plugin:http:server:listening" as EventName,
+        "server:listening" as EventName,
         ((payload: { details: { port: number } }) => {
           port = payload.details.port;
         }) as never,
       )
-      .with({ ...suspending(), http: { port: 0 } } as CraftConfig &
-        HttpPluginOptions)
+      .with({
+        ...suspending(),
+        servers: { default: { port: 0 } },
+        http: {},
+      } as CraftConfig & HttpPluginOptions)
       .routes([
         craft()
           .id("expense-approval")

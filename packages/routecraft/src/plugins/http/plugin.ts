@@ -1,11 +1,7 @@
 import type { CraftContext, CraftPlugin } from "../../context";
 import { rcError } from "../../error";
 import type { HttpPluginOptions } from "../../adapters/http/types";
-import {
-  createAuthMiddleware,
-  missingCredentialReason,
-  type HttpAuthMiddleware,
-} from "./auth";
+import { missingCredentialReason } from "./auth";
 import {
   buildReadyResponse,
   createBuiltins,
@@ -28,10 +24,8 @@ import { findPackageInfo } from "./package-info";
 import { requireWebIngress } from "../server/registry.ts";
 import type { PathClaim } from "../server/types.ts";
 import { staticPathPrefix } from "./path-matcher.ts";
-import { startServer, type HttpServerHandle } from "./server";
 
 const DEFAULT_MAX_BODY_SIZE = 10 * 1024 * 1024;
-const DEFAULT_HOST = "127.0.0.1";
 
 /**
  * HTTP plugin. Owns the runtime HTTP server, the route registry, and the
@@ -42,11 +36,8 @@ const DEFAULT_HOST = "127.0.0.1";
  *
  * Lifecycle:
  *   - `apply(ctx)`: validate options, publish the registry on the context
- *     store, start the server (Bun.serve on Bun, node:http on Node), emit
- *     `plugin:http:server:listening`.
- *   - `teardown(ctx)`: close the server, emit `plugin:http:server:closed`,
- *     clear the store flag so a fresh apply() on the same context (test
- *     reuse) starts from a clean slate.
+ *     store, and mount the dispatcher on the selected named server.
+ *   - `teardown(ctx)`: unmount the dispatcher and clear the route registry.
  *
  * @experimental
  */
@@ -79,15 +70,14 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
   };
 
   let unmount: (() => void) | null = null;
-  let legacyServer: HttpServerHandle | null = null;
   const registry: HttpRouteRegistry = new Map();
 
   return {
     async apply(ctx: CraftContext) {
-      // createAuthMiddleware may throw (RC5003 for reserved OAuth sentinel).
-      // Set the store only after it succeeds so we never leave registered=true
-      // against a server that never started.
-      const authMiddleware = createAuthMiddleware(options.auth);
+      const ingress = requireWebIngress(ctx, serverName);
+      const authConfigured =
+        (options.auth !== undefined && options.auth !== false) ||
+        (options.auth !== false && ingress.serverAuthConfigured);
       ctx.setStore(HTTP_PLUGIN_REGISTERED, true);
       ctx.setStore(HTTP_ROUTE_REGISTRY, registry);
 
@@ -106,14 +96,14 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
       //   requireAuth=true && no auth configured -> public layer (collapses)
       const readyLayer: "off" | "public-full" | "auth-aware" = !readyEnabled
         ? "off"
-        : readyRequireAuth && authMiddleware
+        : readyRequireAuth && authConfigured
           ? "auth-aware"
           : "public-full";
 
       const openapiServedPublic =
-        openapiEnabled && (!openapiRequireAuth || !authMiddleware);
+        openapiEnabled && (!openapiRequireAuth || !authConfigured);
       const openapiServedGated =
-        openapiEnabled && openapiRequireAuth && !!authMiddleware;
+        openapiEnabled && openapiRequireAuth && authConfigured;
 
       const builtins = createBuiltins({
         registry,
@@ -154,32 +144,12 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
       // dispatcher decides whether absent becomes a 401 (required mode) or
       // an anonymous admit (optional mode); either way, no auth event
       // fires for absent.
-      const wrappedAuth: HttpAuthMiddleware | undefined = authMiddleware
-        ? async (req: Request) => {
-            const result = await authMiddleware(req);
-            if (result.kind === "admit") {
-              ctx.emit("auth:success", {
-                subject: result.principal.subject,
-                scheme: result.principal.scheme,
-                source: "http",
-              });
-            } else if (result.kind === "reject") {
-              ctx.emit("auth:rejected", {
-                reason: result.reason,
-                scheme: result.scheme,
-                source: "http",
-              });
-            }
-            return result;
-          }
-        : undefined;
-
       // The dispatcher itself synthesises the missing-credential 401 for
       // `auth: "required"` routes (the middleware returns `absent` instead
       // of `reject` so optional routes can admit anonymously). We still
       // want `auth:rejected` to fire for that case, so wire it here in the
       // same place the middleware wrapper emits the per-result events.
-      const onAuthAbsent = authMiddleware
+      const onAuthAbsent = authConfigured
         ? (scheme: string) => {
             ctx.emit("auth:rejected", {
               reason: missingCredentialReason(scheme),
@@ -204,7 +174,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
 
       const dispatcher = createDispatcher({
         registry,
-        authMiddleware: wrappedAuth,
+        authMiddleware: undefined,
         maxBodySize,
         builtins,
         ...(authAwareBuiltins !== undefined ? { authAwareBuiltins } : {}),
@@ -214,22 +184,9 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         onSignatureRejected,
         logger: ctx.logger,
       });
-      if (options.port !== undefined) {
-        const host = options.host ?? DEFAULT_HOST;
-        legacyServer = await startServer({
-          port: options.port,
-          host,
-          fetch: dispatcher,
-        });
-        ctx.emit("plugin:http:server:listening", {
-          port: legacyServer.port,
-          host,
-        });
-        return;
-      }
-      const ingress = requireWebIngress(ctx, serverName);
       unmount = ingress.mountHttp({
         id: "http",
+        ...(options.auth !== undefined ? { auth: options.auth } : {}),
         claims: () => {
           const claims: PathClaim[] = [{ kind: "prefix", path: "/" }];
           for (const entry of registry.values()) {
@@ -242,32 +199,33 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           }
           return claims;
         },
-        handler: dispatcher,
+        handler: (request, mountContext) =>
+          dispatcher(request, mountContext.auth),
       });
     },
     async teardown(ctx: CraftContext) {
-      unmount?.();
-      unmount = null;
-      if (legacyServer !== null) {
-        await legacyServer.close();
-        legacyServer = null;
-        ctx.emit("plugin:http:server:closed", {});
+      try {
+        unmount?.();
+      } catch (error) {
+        ctx.logger.warn({ err: error }, "HTTP mount failed to unmount cleanly");
+      } finally {
+        unmount = null;
+        registry.clear();
+        ctx.setStore(HTTP_PLUGIN_REGISTERED, false);
       }
-      registry.clear();
-      ctx.setStore(HTTP_PLUGIN_REGISTERED, false);
     },
   };
 }
 
 function validate(options: HttpPluginOptions): void {
-  if (
-    options.port !== undefined &&
-    (!Number.isInteger(options.port) ||
-      options.port < 0 ||
-      options.port > 65535)
-  ) {
+  const removed = options as HttpPluginOptions & {
+    port?: unknown;
+    host?: unknown;
+  };
+  if (removed.port !== undefined || removed.host !== undefined) {
     throw rcError("RC5003", undefined, {
-      message: `httpPlugin: invalid port ${String(options.port)}. Pass a 0-65535 integer (0 lets the OS choose).`,
+      message:
+        'httpPlugin: `port` and `host` were removed. Define `servers.default: { host, port }` and use `http: { server: "default" }`.',
     });
   }
   if (options.server !== undefined && options.server.length === 0) {
