@@ -1,5 +1,3 @@
-import { readdirSync } from 'node:fs'
-import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
@@ -18,37 +16,9 @@ import {
   remarkDocsHeadings,
   remarkUnwrapImages,
 } from './app/lib/mdx-plugins.ts'
+import { prerenderPages } from './scripts/prerender-pages.ts'
 
 const appDirectory = fileURLToPath(new URL('./app', import.meta.url))
-
-/**
- * Every authored page below a content root, as a trailing-slash URL.
- *
- * The prerender list is derived from the content tree rather than crawled, so a
- * page nothing links to is still published and a page that cannot render fails
- * the build instead of disappearing. Deep links are pinned outside this
- * repository, so the trailing-slash form is part of the contract.
- */
-function contentRoutes(directory: string, prefix: string): string[] {
-  const routes: string[] = []
-
-  function walk(current: string, urlPath: string): void {
-    // Unreadable is fatal rather than empty: swallowing it publishes a build
-    // that succeeded with a whole channel missing from the prerender list.
-    const entries = readdirSync(current, { withFileTypes: true })
-
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        walk(join(current, entry.name), `${urlPath}/${entry.name}`)
-      } else if (entry.name === 'index.mdx') {
-        routes.push(`${urlPath}/`)
-      }
-    }
-  }
-
-  walk(join(appDirectory, 'content', directory), prefix)
-  return routes
-}
 
 /**
  * The MDX plugin, taught to leave `?raw` imports alone.
@@ -98,16 +68,12 @@ export default defineConfig({
   plugins: [
     tanstackStart({
       srcDirectory: 'app',
-      prerender: { enabled: true, crawlLinks: false },
-      pages: [
-        '/',
-        '/blog/',
-        '/changelog/',
-        '/cheat-sheet/',
-        ...contentRoutes('docs', '/docs'),
-        ...contentRoutes('docs-next', '/docs/next'),
-        ...contentRoutes('blog', '/blog'),
-      ].map((path) => ({ path })),
+      // failOnError, because the default is to log a page that would not render
+      // and carry on. Inside the release image every request was refused, the
+      // prerenderer wrote nothing, and the build still exited 0 and shipped a
+      // container with no page HTML in it.
+      prerender: { enabled: true, crawlLinks: false, failOnError: true },
+      pages: prerenderPages(appDirectory).map((path) => ({ path })),
     }),
     viteReact(),
     nitro({ preset: 'bun' }),
