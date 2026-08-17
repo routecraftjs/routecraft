@@ -35,17 +35,18 @@ async function closeServer(
   }
 }
 
+interface ServerState {
+  registries: Map<string, HttpMountRegistry>;
+  handles: Map<string, HttpServerHandle>;
+  /** Set at teardown entry so a bind racing stop() closes itself. */
+  closed: boolean;
+  /** In-flight start(), awaited by teardown so stop() cannot resolve while a raced bind is still open. */
+  starting?: Promise<void>;
+}
+
 export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
   validateDefinitions(definitions);
-  const states = new WeakMap<
-    CraftContext,
-    {
-      registries: Map<string, HttpMountRegistry>;
-      handles: Map<string, HttpServerHandle>;
-      /** Set at teardown entry so a bind racing stop() closes itself. */
-      closed: boolean;
-    }
-  >();
+  const states = new WeakMap<CraftContext, ServerState>();
 
   return {
     name: "servers",
@@ -64,46 +65,18 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
     async start(ctx) {
       const state = states.get(ctx);
       if (!state) return;
-      for (const registry of state.registries.values()) registry.validate();
-      for (const [name, definition] of Object.entries(definitions)) {
-        const registry = state.registries.get(name)!;
-        const host = definition.host ?? DEFAULT_HOST;
-        let handle: HttpServerHandle;
-        try {
-          handle = await startServer({
-            host,
-            port: definition.port,
-            fetch: (request, runtime) => registry.dispatch(request, runtime),
-          });
-        } catch (error) {
-          ctx.emit("server:failed", { server: name, error });
-          throw rcError("RC5019", error, {
-            message: `servers.${name}: bind failed on ${host}:${definition.port}: ${error instanceof Error ? error.message : String(error)}`,
-          });
-        }
-        // A stop() arriving while the bind above was in flight has already
-        // run teardown past this server; record nothing and close the fresh
-        // handle here or it leaks with nothing left to ever close it.
-        if (state.closed) {
-          await closeServer(
-            handle,
-            definition.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS,
-          );
-          return;
-        }
-        state.handles.set(name, handle);
-        registry.setBoundAddress(host, handle.port);
-        ctx.logger.info(
-          { server: name, host, port: handle.port },
-          "Server listening",
-        );
-        ctx.emit("server:listening", { server: name, host, port: handle.port });
-      }
+      const boot = bindAll(ctx, state);
+      state.starting = boot;
+      await boot;
     },
     async teardown(ctx) {
       const state = states.get(ctx);
       if (!state) return;
       state.closed = true;
+      // A raced start() closes its own in-flight bind on seeing `closed`;
+      // waiting for it here keeps stop() from resolving while that listener
+      // is still open. Its failure is the start path's to report.
+      await state.starting?.catch(() => {});
       for (const [name, handle] of [...state.handles].reverse()) {
         try {
           await closeServer(
@@ -122,6 +95,44 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
       states.delete(ctx);
     },
   };
+
+  async function bindAll(ctx: CraftContext, state: ServerState): Promise<void> {
+    for (const registry of state.registries.values()) registry.validate();
+    for (const [name, definition] of Object.entries(definitions)) {
+      const registry = state.registries.get(name)!;
+      const host = definition.host ?? DEFAULT_HOST;
+      let handle: HttpServerHandle;
+      try {
+        handle = await startServer({
+          host,
+          port: definition.port,
+          fetch: (request, runtime) => registry.dispatch(request, runtime),
+        });
+      } catch (error) {
+        ctx.emit("server:failed", { server: name, error });
+        throw rcError("RC5019", error, {
+          message: `servers.${name}: bind failed on ${host}:${definition.port}: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+      // A stop() arriving while the bind above was in flight has already
+      // run teardown past this server; record nothing and close the fresh
+      // handle here or it leaks with nothing left to ever close it.
+      if (state.closed) {
+        await closeServer(
+          handle,
+          definition.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS,
+        );
+        return;
+      }
+      state.handles.set(name, handle);
+      registry.setBoundAddress(host, handle.port);
+      ctx.logger.info(
+        { server: name, host, port: handle.port },
+        "Server listening",
+      );
+      ctx.emit("server:listening", { server: name, host, port: handle.port });
+    }
+  }
 }
 
 function validateDefinitions(definitions: ServerDefinitions): void {

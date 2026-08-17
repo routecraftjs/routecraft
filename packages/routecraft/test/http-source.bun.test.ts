@@ -398,8 +398,8 @@ describe("HTTP Source Adapter", () => {
   /**
    * @case Mount paths must be static canonical pathname prefixes
    * @preconditions Mount definitions carrying a query, fragment, param
-   *   segment, empty segment, backslash, dot segment (raw or encoded), or a
-   *   raw space, each of which URL parsing rewrites into a different pathname
+   *   segment, empty segment, backslash, dot segment (raw or encoded),
+   *   percent-encoding, a raw space, a bare "//", or a non-string value
    * @expectedResult httpPlugin construction fails with RC5003 for each
    */
   test("mount paths reject non-static prefixes at construction", () => {
@@ -415,6 +415,8 @@ describe("HTTP Source Adapter", () => {
       "/api /v1",
       "/api//",
       "/api%41",
+      "//",
+      1n as unknown as string,
     ]) {
       let err: unknown;
       try {
@@ -425,6 +427,17 @@ describe("HTTP Source Adapter", () => {
       expect(err).toBeDefined();
       expect((err as { rc?: string }).rc).toBe("RC5003");
     }
+  });
+
+  /**
+   * @case A literal colon inside a segment is a valid static prefix
+   * @preconditions Mount at "/api:v1", a legal pathname the URL parser preserves; only a segment STARTING with ":" is the dynamic :param shape
+   * @expectedResult httpPlugin construction succeeds
+   */
+  test("mount paths allow a literal colon inside a segment", () => {
+    expect(() =>
+      httpPlugin({ mounts: { api: { path: "/api:v1" } } }),
+    ).not.toThrow();
   });
 
   /**
