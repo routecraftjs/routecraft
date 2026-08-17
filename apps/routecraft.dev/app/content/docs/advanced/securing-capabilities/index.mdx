@@ -25,6 +25,9 @@ export default {
   plugins: [
     mcpPlugin({
       transport: 'http',
+      // Required outside NODE_ENV development/test; see Protected-resource
+      // metadata below.
+      resource: { url: 'https://mcp.example.com/mcp' },
       auth: jwt({
         secret: process.env.JWT_SECRET!,
         issuer: 'https://idp.example.com',

@@ -106,9 +106,12 @@ test asserting on work a `start()` hook does is not racing it.
 
 ## 5. Existing plugins
 
-`mcpPlugin` prepares and mounts its HTTP handler in `apply()`, then waits for the
-named listener in `start()`. The named-server plugin validates every mount before
-binding and declares `keepsAlive` because the listener outlives finite routes.
+`mcpPlugin` prepares and mounts its HTTP handler in `apply()`, where
+`requireWebIngress()` fails fast on a missing or undeclared server; its HTTP
+`start()` hook does not wait for the named listener, so plugin registration
+order cannot deadlock the sequential start hooks. The named-server plugin
+validates every mount before binding and declares `keepsAlive` because the
+listener outlives finite routes.
 
 ## References
 

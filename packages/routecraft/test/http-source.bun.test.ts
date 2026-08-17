@@ -8,6 +8,7 @@ import {
   httpPlugin,
   jwt,
   noop,
+  normalizeStaticPathPrefix,
   type CraftConfig,
   type EventName,
   type HttpPluginOptions,
@@ -301,13 +302,13 @@ describe("HTTP Source Adapter", () => {
   });
 
   /**
-   * @case Invalid auth mode fails fast at the http() call site
-   * @preconditions Caller passes an unrecognised auth string (e.g. typo "skp")
-   * @expectedResult `http({...})` throws RC5003 immediately. Catching the
-   *   misconfiguration at construction (not at the first unauthenticated
-   *   request) prevents a fail-open downgrade: a route the dispatcher would
-   *   otherwise treat as "optional" because the value isn't exactly "required"
-   *   or "skip" never gets the chance to register.
+   * @case The removed per-route auth option fails fast at the http() call site
+   * @preconditions Untyped caller still passes the removed `auth: "skip"` option
+   * @expectedResult `http({...})` throws RC5003 immediately with the migration
+   *   message. Catching it at construction (not at the first request) matters
+   *   because the option no longer weakens anything: silently ignoring it
+   *   would leave a route the author believes is credential-exempt sitting on
+   *   a walled mount answering 401s.
    */
   test("removed per-route auth option throws RC5003 at http() call", () => {
     let err: unknown;
@@ -424,9 +425,24 @@ describe("HTTP Source Adapter", () => {
       } catch (e) {
         err = e;
       }
-      expect(err).toBeDefined();
-      expect((err as { rc?: string }).rc).toBe("RC5003");
+      // The path rides along in the assertion so a failure names the value
+      // that stopped throwing.
+      expect({ path, rc: (err as { rc?: string } | undefined)?.rc }).toEqual({
+        path,
+        rc: "RC5003",
+      });
     }
+  });
+
+  /**
+   * @case normalizeStaticPathPrefix returns the canonical form directly
+   * @preconditions Valid inputs: a trailing-slash prefix, the bare root, and a colon-in-segment path
+   * @expectedResult "/api/" normalises to "/api", "/" and "/api:v1" pass through unchanged
+   */
+  test("normalizeStaticPathPrefix normalises valid prefixes", () => {
+    expect(normalizeStaticPathPrefix("/api/", "test")).toBe("/api");
+    expect(normalizeStaticPathPrefix("/", "test")).toBe("/");
+    expect(normalizeStaticPathPrefix("/api:v1", "test")).toBe("/api:v1");
   });
 
   /**

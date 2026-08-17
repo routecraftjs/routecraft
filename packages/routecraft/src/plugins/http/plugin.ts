@@ -58,8 +58,6 @@ interface ResolvedMount {
  *   - `apply(ctx)`: validate options, publish the mount table on the context
  *     store, and mount each dispatcher on the selected named server.
  *   - `teardown(ctx)`: unmount the dispatchers and clear the registries.
- *
- * @experimental
  */
 export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
   const mountsResolved = validate(options);

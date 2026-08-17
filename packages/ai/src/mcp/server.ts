@@ -33,6 +33,7 @@ import type {
   McpTool,
 } from "./types.ts";
 import { dispatchMcpCallRaw } from "./dispatch.ts";
+import { normalizeMcpPath } from "./validate-options.ts";
 import { makeFnHandlerContext } from "../fn/handler-context.ts";
 import {
   proxiedToolToMcpTool,
@@ -424,7 +425,10 @@ export class McpServer {
     this.hostHeaderValidationResponse = hostHeaderValidationResponse;
     this.originValidationResponse = originValidationResponse;
     const cors = resolveCorsOptions(this.options.cors);
-    const path = this.options.path.replace(/\/+$/, "") || "/mcp";
+    // Shared contract with mcpPlugin() option validation: McpServer is also
+    // constructed directly, and an unvalidated path would mount claims the
+    // dispatcher can never match.
+    const path = normalizeMcpPath(this.options.path);
     const metadataPath = `${PROTECTED_RESOURCE_METADATA_PATH}${path}`;
     const ingress = requireWebIngress(this.context, this.options.server);
     this.mcpHandler = createMcpHandler(
@@ -518,8 +522,12 @@ export class McpServer {
             : {},
         );
         const headers = new Headers(response.headers);
-        for (const [name, value] of Object.entries(corsHeaders))
-          headers.set(name, value);
+        for (const [name, value] of Object.entries(corsHeaders)) {
+          // Vary must merge with any value the SDK already set, or a shared
+          // cache keyed on the clobbered header serves the wrong variant.
+          if (name === "Vary") headers.append(name, value);
+          else headers.set(name, value);
+        }
         return new Response(response.body, {
           status: response.status,
           statusText: response.statusText,
@@ -977,6 +985,10 @@ export class McpServer {
    * Stop the MCP server
    */
   async stop(): Promise<void> {
+    // Unconditionally: the constructor subscribed to server:listening, so a
+    // server whose prepare() failed or that never started still holds a
+    // context subscription that must not outlive it.
+    this.stopListeningForServer();
     if (!this.running && !this.unmountHttp && this.mcpHandler === null) {
       return;
     }
@@ -1005,7 +1017,6 @@ export class McpServer {
     }
 
     try {
-      this.stopListeningForServer();
       if (this.stdioHandle) {
         try {
           await this.stdioHandle.close();

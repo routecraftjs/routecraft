@@ -107,6 +107,7 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
           host,
           port: definition.port,
           fetch: (request, runtime) => registry.dispatch(request, runtime),
+          logger: ctx.logger,
         });
       } catch (error) {
         ctx.emit("server:failed", { server: name, error });

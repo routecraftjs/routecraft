@@ -16,6 +16,8 @@ Materialised by the `servers` config key; the factory is exported for programmat
 
 ```ts
 import { defineConfig, jwks } from '@routecraft/routecraft'
+// The `mcp` first-class config key registers only when @routecraft/ai is imported.
+import '@routecraft/ai'
 
 export const craftConfig = defineConfig({
   servers: {

@@ -27,6 +27,10 @@ export interface StartServerOptions {
   port: number;
   host: string;
   fetch: (req: Request, runtime: HttpServerRuntime) => Promise<Response>;
+  /** Receives startup warnings (e.g. a Bun too old for per-request timeout exemptions). */
+  logger?: {
+    warn(details: Record<string, unknown>, message: string): void;
+  };
 }
 
 interface BunServeHandle {
@@ -84,6 +88,15 @@ export async function startServer(
             exemptFromIdleTimeout: (r) => bunServer.timeout?.(r, 0),
           }),
       });
+      // Bun before 1.1.27 has no per-request timeout override, so quiet
+      // long-lived streams get reaped at the listener default with no
+      // exemption possible. Say so at bind instead of failing silently.
+      if (typeof server.timeout !== "function") {
+        opts.logger?.warn(
+          { host: opts.host, port: server.port },
+          "This Bun version lacks per-request timeout overrides (added in 1.1.27); long-lived streams (MCP, SSE) will be cut at the idle timeout. Upgrade Bun to exempt them.",
+        );
+      }
       return {
         port: server.port,
         gracefulClose: async () => {

@@ -26,6 +26,26 @@ type ValidateResult<T = unknown> =
 /** RFC 6749 §3.3 scope-token: visible ASCII except space, `"` and `\`. */
 const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
 
+/**
+ * Same canonical static-path contract as http mounts: the claim is compared
+ * literally against parsed request pathnames, so anything URL parsing
+ * rewrites would make the endpoint unreachable. The root path is refused
+ * because its RFC 9728 metadata would need the bare well-known document,
+ * which the framework does not serve. Shared by option validation and by
+ * `McpServer` itself, so a directly constructed server (tests, embedders)
+ * meets the same contract as one built via `mcpPlugin()`.
+ * @internal
+ */
+export function normalizeMcpPath(raw: string): string {
+  const path = normalizeStaticPathPrefix(raw, "mcpPlugin");
+  if (path === "/") {
+    throw new TypeError(
+      'mcpPlugin: path must not be "/". Mount the MCP endpoint under a non-root path such as "/mcp".',
+    );
+  }
+  return path;
+}
+
 export function validateMcpPluginOptions(options: McpPluginOptions): void {
   if (options.transport === "http") {
     const removed = options as McpPluginOptions & {
@@ -41,15 +61,7 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       throw new TypeError("mcpPlugin: server name must not be empty");
     }
     if (options.path !== undefined) {
-      // Same canonical static-path contract as http mounts: the claim is
-      // compared literally against parsed request pathnames, so anything
-      // URL parsing rewrites would make the endpoint unreachable.
-      const path = normalizeStaticPathPrefix(options.path, "mcpPlugin");
-      if (path === "/") {
-        throw new TypeError(
-          'mcpPlugin: path must not be "/". Mount the MCP endpoint under a non-root path such as "/mcp".',
-        );
-      }
+      normalizeMcpPath(options.path);
     }
   }
 
