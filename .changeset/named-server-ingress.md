@@ -42,3 +42,21 @@ user-visible changes:
 - Servers optionally take a server-level `auth` validator inherited by every
   mounted surface (opt out per mount with `auth: false`) and a
   `shutdownGraceMs` bound on graceful drain.
+- The http plugin gains named path-scoped mounts, and the mount now decides
+  authentication. `http: { mounts: { api: { path: "/api" }, default: { path:
+  "/", auth: false } } }` walls `/api` (inheriting the server validator) while
+  the catch-all stays public; routes pick a surface with `http({ mount:
+  "api", path: "/orders" })` (paths are relative to the mount prefix). The
+  per-route `http({ auth: "required" | "optional" | "skip" })` option is
+  REMOVED: a public route is public because of where it lives, a route that
+  needs identity on a public mount declares `.authorize()` (which forces
+  verification through the server validator), and there is no route-level way
+  to weaken a mount's wall. The former `"optional"` personalisation mode has
+  no equivalent.
+- The bearer middleware now enforces principal expiry itself (floored,
+  inclusive, fail-closed on non-finite values), so a custom validator that
+  returns an already-elapsed `expiresAt` is rejected with `expired` on HTTP
+  routes too, not only on MCP.
+- `plugin:mcp:server:listening` is removed. Subscribe to `server:listening`
+  on the MCP transport's named server instead; the MCP path is config
+  (`mcpPlugin({ path })`).

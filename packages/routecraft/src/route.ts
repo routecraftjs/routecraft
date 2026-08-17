@@ -241,6 +241,14 @@ export type RouteDefinition<T = unknown> = {
   readonly discovery?: RouteDiscovery;
 
   /**
+   * True when the route declares a route-entry `.authorize()`. Mirrored to
+   * sources via {@link SourceMeta.requiresPrincipal} so identity-capable
+   * transports enforce credential verification before dispatching into the
+   * route, even on an unwalled mount.
+   */
+  readonly requiresPrincipal?: boolean;
+
+  /**
    * Route-scope `.retry()` config (pre-from filter chain position #7).
    * Unlike the cache filters, retry is not a flat step in
    * `postParseFilters`: it scopes over the whole chain tail (timeout,
@@ -719,6 +727,7 @@ export class DefaultRoute implements Route {
       ...(this.definition.discovery
         ? { discovery: this.definition.discovery }
         : {}),
+      ...(this.definition.requiresPrincipal ? { requiresPrincipal: true } : {}),
     };
 
     // Subscribe every source, each into its own channel. A test-time override

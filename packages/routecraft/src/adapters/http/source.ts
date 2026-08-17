@@ -2,11 +2,10 @@ import type { CraftPlugin } from "../../context";
 import { rcError } from "../../error";
 import type { Source, Subscription } from "../../operations/from";
 import {
+  HTTP_MOUNTS,
   HTTP_PLUGIN_REGISTERED,
-  HTTP_ROUTE_REGISTRY,
-  type HttpRouteAuthMode,
+  type HttpMountRuntime,
   type HttpRouteEntry,
-  type HttpRouteRegistry,
 } from "../../plugins/http/registry";
 import { compilePathMatcher } from "../../plugins/http/path-matcher";
 import { METHODS_WITHOUT_BODY } from "../../plugins/http/body-parser";
@@ -43,6 +42,17 @@ function normalizeMethod(options: HttpServerOptions): HttpMethod {
   return normalized as HttpMethod;
 }
 
+/**
+ * Join a mount prefix and a mount-relative route path into the full request
+ * pattern. `"/"` plus `"/orders"` is `/orders`; `"/api"` plus `"/orders"`
+ * is `/api/orders`.
+ */
+function joinMountPath(mountPath: string, routePath: string): string {
+  const prefix = mountPath === "/" ? "" : mountPath.replace(/\/+$/, "");
+  const suffix = routePath.startsWith("/") ? routePath : `/${routePath}`;
+  return `${prefix}${suffix}` || "/";
+}
+
 // Surface CraftPlugin in the public types of this module so consumers that
 // only import the source adapter still see the symbol (without re-exporting
 // the whole plugin entry point).
@@ -59,28 +69,24 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
   readonly adapterId = "routecraft.adapter.http.source";
 
   constructor(private readonly options: HttpServerOptions) {
-    // Fail fast on an unrecognised auth mode. TypeScript catches this for
-    // typed callers, but an untyped JS caller (or a typo squeezed through
-    // `as any`) would otherwise silently downgrade the route at request
-    // time: the dispatcher treats anything that isn't exactly "required" or
-    // "skip" as "optional", which means "admit anonymously when no
-    // credential is presented." Surface the misconfiguration at the
-    // `http({...})` call site, not at the first unauthenticated request.
     // Validate the method unconditionally so an unsupported or non-string
     // method fails here, not as a dead route at subscribe time.
     normalizeMethod(options);
 
-    const auth = options.auth;
-    if (
-      auth !== undefined &&
-      auth !== "required" &&
-      auth !== "optional" &&
-      auth !== "skip"
-    ) {
+    // Auth is mount-owned; the removed per-route auth modes fail loudly so
+    // an untyped caller migrating from 0.6 learns the new model instead of
+    // silently keeping a knob that no longer exists.
+    const legacyAuth = (options as { auth?: unknown }).auth;
+    if (legacyAuth !== undefined) {
       throw rcError("RC5003", undefined, {
-        message: `http() source: invalid auth mode ${JSON.stringify(
-          auth,
-        )}. Allowed: "required", "optional", "skip".`,
+        message:
+          "http() source: per-route `auth` was removed. The mount decides authentication: put public routes on a mount with `auth: false`, walled routes on a mount with a validator, and use `.authorize()` on a route that needs identity on a public mount.",
+      });
+    }
+
+    if (options.mount !== undefined && options.mount.length === 0) {
+      throw rcError("RC5003", undefined, {
+        message: "http() source: mount name must not be empty",
       });
     }
 
@@ -115,26 +121,43 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
           "http() source requires the http plugin. Add `servers: { default: { port: 8080 } }, http: {}` to defineConfig({...}).",
       });
     }
-    const registry: HttpRouteRegistry | undefined =
-      context.getStore(HTTP_ROUTE_REGISTRY);
-    if (!registry) {
+    const mounts: ReadonlyMap<string, HttpMountRuntime> | undefined =
+      context.getStore(HTTP_MOUNTS);
+    if (!mounts) {
       throw rcError("RC5003", undefined, {
         message:
-          "http() source: route registry missing from context store. The http plugin failed to initialise.",
+          "http() source: mount table missing from context store. The http plugin failed to initialise.",
       });
     }
 
+    // No silent fallback: an omitted `mount` resolves only to a mount
+    // literally named "default", so a forgotten mount name can never land a
+    // route on an unintended surface.
+    const mountName = this.options.mount ?? "default";
+    const mount = mounts.get(mountName);
+    if (!mount) {
+      const names = [...mounts.keys()].map((n) => `"${n}"`).join(", ");
+      throw rcError("RC5003", undefined, {
+        message:
+          this.options.mount === undefined
+            ? `http() source: no mount named "default" exists; declare mount explicitly. Configured mounts: ${names}.`
+            : `http() source: mount "${mountName}" is not configured. Configured mounts: ${names}.`,
+      });
+    }
+    const registry = mount.registry;
+
     const method = normalizeMethod(this.options);
-    const matcher = compilePathMatcher(this.options.path);
+    // Route paths are relative to the mount prefix; the matcher covers the
+    // full request path so dispatch and OpenAPI need no join at read time.
+    const matcher = compilePathMatcher(
+      joinMountPath(mount.path, this.options.path),
+    );
     const routeId = meta?.routeId ?? `http:${method}:${matcher.pattern}`;
-    // `auth` was validated in the constructor; here we just normalise the
-    // default so the registry entry always carries a concrete mode.
-    const authMode: HttpRouteAuthMode = this.options.auth ?? "required";
     const entry: HttpRouteEntry = {
       routeId,
       method,
       matcher,
-      authMode,
+      requiresPrincipal: meta?.requiresPrincipal === true,
       rawBody: this.options.rawBody ?? false,
       signature: this.options.signature,
       discovery: meta?.discovery,

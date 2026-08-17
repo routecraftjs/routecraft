@@ -288,11 +288,11 @@ describe("named server ingress", () => {
   });
 
   /**
-   * @case A route declared auth: "skip" bypasses shared authentication entirely
-   * @preconditions Global bearer auth on the http mount; one skip route; a garbage bearer presented
+   * @case A route on a public mount never triggers the shared validator
+   * @preconditions Server-level validator; http mount opts out with auth false; a garbage bearer presented
    * @expectedResult The route serves normally, the validator is never invoked, and no auth event fires
    */
-  test("auth skip routes never trigger the shared validator", async () => {
+  test("public mount routes never trigger the shared validator", async () => {
     let validatorCalls = 0;
     const authEvents: string[] = [];
     let port = 0;
@@ -304,20 +304,24 @@ describe("named server ingress", () => {
         }) as Parameters<ReturnType<typeof testContext>["on"]>[1],
       )
       .with({
-        servers: { default: { host: "127.0.0.1", port: 0 } },
-        http: {
-          auth: {
-            validator: () => {
-              validatorCalls++;
-              throw new Error("must never run for a skip route");
+        servers: {
+          default: {
+            host: "127.0.0.1",
+            port: 0,
+            auth: {
+              validator: () => {
+                validatorCalls++;
+                throw new Error("must never run for a public-mount route");
+              },
             },
           },
         },
+        http: { auth: false },
       })
       .routes([
         craft()
           .id("public-feed")
-          .from(http({ path: "/feed", auth: "skip" }))
+          .from(http({ path: "/feed" }))
           .to(noop()),
       ])
       .build();

@@ -256,13 +256,6 @@ export class McpServer {
         if (details.server !== this.options.server) return;
         this.boundPort = details.port;
         this.resolveBound();
-        if (this.options.transport === "http") {
-          context.emit("plugin:mcp:server:listening", {
-            host: details.host,
-            port: details.port,
-            path: this.options.path,
-          });
-        }
       },
     );
     this.validateResourceConfig();

@@ -15,6 +15,14 @@ export interface SourceMeta {
   routeId: string;
   /** Route-level discovery bundle, when set via the builder. */
   discovery?: RouteDiscovery;
+  /**
+   * The route declares a route-entry `.authorize()`, so it cannot run
+   * without a verified principal. Identity-capable transports (the http
+   * dispatcher) use this to pull credential verification even on a mount
+   * with no wall; transports without a credential channel ignore it and
+   * the authorize step rejects at route entry as before.
+   */
+  requiresPrincipal?: boolean;
 }
 
 /**

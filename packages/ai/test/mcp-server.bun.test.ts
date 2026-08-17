@@ -3108,38 +3108,6 @@ describe("McpServer", () => {
 
   describe("plugin events", () => {
     /**
-     * @case server:listening event is emitted with host, port, and path
-     * @preconditions McpServer with HTTP transport started on port 0
-     * @expectedResult Event emitted once with correct payload
-     */
-    test("emits plugin:mcp:server:listening on HTTP start", async () => {
-      t = await testContext()
-        .store(MCP_STORE_KEY, true)
-        .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
-        .build();
-      server = new McpServer(t.ctx, {
-        transport: "http",
-      });
-
-      const events: Array<Record<string, unknown>> = [];
-      t.ctx.on("plugin:mcp:server:listening", (payload) => {
-        events.push(payload.details as Record<string, unknown>);
-      });
-
-      await server.prepare();
-      void t.ctx.start();
-      await server.start();
-
-      expect(events).toHaveLength(1);
-      expect(events[0]).toMatchObject({
-        host: "127.0.0.1",
-        path: "/mcp",
-      });
-      expect(events[0]!["port"]).toBeTypeOf("number");
-      expect((events[0]!["port"] as number) > 0).toBe(true);
-    });
-
-    /**
      * @case tools:exposed event is emitted with tool names and count
      * @preconditions McpServer with one mcp() route; request tools/list
      * @expectedResult Event emitted with tools array and count

@@ -57,6 +57,14 @@ export interface AuthAwareBuiltins {
 
 export interface DispatcherOptions {
   registry: HttpRouteRegistry;
+  /**
+   * The mount has an effective validator and did not opt out: every route
+   * requires an admitted credential. When false, routes are served without
+   * credentials ever being inspected, except entries flagged
+   * `requiresPrincipal` (a route-entry `.authorize()`), which pull
+   * verification individually.
+   */
+  walled: boolean;
   maxBodySize: number;
   builtins: BuiltinHandler;
   /** Optional gated built-ins (e.g. /openapi.json under `access: "authenticated"`). */
@@ -211,19 +219,19 @@ export function createDispatcher(
 
     const { entry, params } = methodMatch;
 
-    // 3. Auth check per the route's auth mode.
-    //   - "skip"     : never call the middleware; no principal, no auth events.
-    //   - "required" : call the middleware; absent or reject -> 401.
-    //   - "optional" : call the middleware; admit attaches a principal,
-    //                  reject still returns 401 (a presented credential that
-    //                  fails verification is a hard error, not "anonymous"),
-    //                  absent admits anonymously without emitting auth events.
+    // 3. Admission per the mount posture. The mount is the wall: `walled`
+    //    demands an admitted credential for every route. On a public mount
+    //    (`walled: false`) credentials are never inspected, except for a
+    //    route that declares `.authorize()` (`requiresPrincipal`), which
+    //    can only make itself stricter, never looser.
     let principal: Principal | undefined;
-    if (entry.authMode !== "skip") {
+    if (opts.walled || entry.requiresPrincipal) {
       const result = await resolveAuth();
       if (!result) {
-        // No validator is configured, so required routes preserve the
-        // existing public-by-configuration behavior.
+        // No validator anywhere. Unreachable for `walled` (a wall implies
+        // a validator) and for `requiresPrincipal` (refused at bind); kept
+        // as a served fallthrough so a future gap fails open loudly in
+        // authorize() (RC5012) rather than silently 500ing here.
       } else if (result.kind === "reject") {
         emitCompleted(opts, {
           method,
@@ -234,19 +242,16 @@ export function createDispatcher(
         });
         return result.response;
       } else if (result.kind === "absent") {
-        if (entry.authMode === "required") {
-          safeNotify(() => opts.onAuthAbsent?.(result.scheme));
-          const response = missingCredentialResponse(result.scheme);
-          emitCompleted(opts, {
-            method,
-            path: entry.matcher.pattern,
-            status: response.status,
-            durationMs: ms(started),
-            routeId: entry.routeId,
-          });
-          return response;
-        }
-        // optional + absent -> admit without a principal, no auth events.
+        safeNotify(() => opts.onAuthAbsent?.(result.scheme));
+        const response = missingCredentialResponse(result.scheme);
+        emitCompleted(opts, {
+          method,
+          path: entry.matcher.pattern,
+          status: response.status,
+          durationMs: ms(started),
+          routeId: entry.routeId,
+        });
+        return response;
       } else {
         principal = result.principal;
       }

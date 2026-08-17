@@ -1331,6 +1331,7 @@ export class RouteBuilder<
       },
       ...(errorHandler ? { errorHandler } : {}),
       ...(discovery ? { discovery } : {}),
+      ...(authorizers.length > 0 ? { requiresPrincipal: true } : {}),
       // Route-scope retry (#7) and timeout (#8) scope over the chain
       // tail rather than running as flat filters, so they live as
       // definition fields; the pipeline executor wraps the tail in the

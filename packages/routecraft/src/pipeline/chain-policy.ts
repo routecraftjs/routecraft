@@ -24,7 +24,11 @@ type NonChainField =
   | "consumer"
   | "discovery"
   | "suspendSteps"
-  | "usesResume";
+  | "usesResume"
+  // Metadata mirrored to sources (transport admission), not a chain
+  // position: the authorize steps it describes already answer for
+  // themselves under `preParseFilters`.
+  | "requiresPrincipal";
 
 /** A pre-from filter chain position, as carried on the route definition. */
 type ChainField = Exclude<keyof RouteDefinition, NonChainField>;

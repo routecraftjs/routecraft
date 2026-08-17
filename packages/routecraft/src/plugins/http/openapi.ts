@@ -1,4 +1,8 @@
-import type { HttpRouteEntry, HttpRouteRegistry } from "./registry";
+import type {
+  HttpRouteEntry,
+  HttpRouteRegistry,
+  HttpRouteView,
+} from "./registry";
 
 interface OpenApiParameter {
   name: string;
@@ -79,7 +83,7 @@ interface OpenApiDocument {
  * etc.) via `loadOptionalPeer`.
  */
 export function buildOpenApiDocument(
-  registry: HttpRouteRegistry,
+  registry: HttpRouteView,
   info?: HttpOpenApiInfo,
 ): OpenApiDocument {
   const resolvedInfo: HttpOpenApiInfo & { title: string; version: string } = {

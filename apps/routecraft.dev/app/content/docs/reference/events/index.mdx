@@ -375,9 +375,10 @@ Events emitted by the MCP plugin during server and tool lifecycle. Subscribe to 
 
 ### MCP server events
 
+Listener lifecycle for the MCP HTTP transport is reported by the generic [server events](#server-events) on its named server; the MCP path comes from `mcpPlugin({ path })` config.
+
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:mcp:server:listening` | The MCP HTTP transport's named listener is accepting connections | `{ host, port, path }` |
 | `plugin:mcp:server:tools:exposed` | Tool list logged for the first time | `{ tools, count }` |
 
 ### Tool call events

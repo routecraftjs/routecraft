@@ -26,8 +26,6 @@ type McpToolProvenance =
 
 declare module "@routecraft/routecraft" {
   interface EventDetailsMap {
-    /** MCP HTTP server bound its port. */
-    "plugin:mcp:server:listening": { host: string; port: number; path: string };
     /** Tool list assembled and exposed to clients. */
     "plugin:mcp:server:tools:exposed": { tools: string[]; count: number };
     /**
