@@ -1803,21 +1803,20 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Path-suffixed RFC 9728 metadata URL returns identical body to root
+       * @case Only the path-suffixed RFC 9728 metadata URL is claimed by the MCP mount
        * @preconditions Default cors policy; GET /.well-known/oauth-protected-resource and /.well-known/oauth-protected-resource/mcp
-       * @expectedResult Both URLs return 200 with byte-identical JSON; clients probing either variant (per RFC 9728 §3) see the same document
+       * @expectedResult The suffixed variant (the RFC 9728 section 3 probe for a resource at /mcp) returns 200; the bare root belongs to the / mount and 404s here
        */
-      test("path-suffixed metadata URL returns identical body to root", async () => {
+      test("path-suffixed metadata URL is served; bare root is not claimed", async () => {
         const { get } = await startHttpServer([]);
-        const rootRes = await get("/.well-known/oauth-protected-resource/mcp", {
+        const rootRes = await get("/.well-known/oauth-protected-resource", {
           Origin: LOOPBACK_ORIGIN,
         });
         const suffRes = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
-        expect(rootRes.statusCode).toBe(200);
+        expect(rootRes.statusCode).toBe(404);
         expect(suffRes.statusCode).toBe(200);
-        expect(suffRes.body).toBe(rootRes.body);
         expect(suffRes.headers["access-control-allow-origin"]).toBe(
           LOOPBACK_ORIGIN,
         );
@@ -2208,25 +2207,24 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case OAuth-proxy mode: path-suffixed metadata URL returns identical body to root and carries `bearer_methods_supported`
-       * @preconditions oauth() auth; GET both metadata URLs from loopback Origin
-       * @expectedResult Both URLs return 200 with the same body; bearer_methods_supported is present (proving our handler wins over the SDK's path-aware doc on the suffixed URL too)
+       * @case OAuth-proxy mode: the suffixed metadata URL serves the framework document, the bare root is unclaimed
+       * @preconditions oauth() auth; GET the bare root and the path-suffixed metadata URL from loopback Origin
+       * @expectedResult The suffixed URL returns 200 with `bearer_methods_supported` (proving our handler wins over the SDK's doc); the bare root 404s
        */
-      test("OAuth-proxy mode serves identical metadata at both URLs", async () => {
+      test("OAuth-proxy mode serves framework metadata at the suffixed URL only", async () => {
         const auth = await buildOAuthAuth();
         const { get } = await startHttpServer([], {
           auth,
           resource: { url: "http://localhost:9999/mcp" },
         });
-        const rootRes = await get("/.well-known/oauth-protected-resource/mcp", {
+        const rootRes = await get("/.well-known/oauth-protected-resource", {
           Origin: LOOPBACK_ORIGIN,
         });
         const suffRes = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
-        expect(rootRes.statusCode).toBe(200);
+        expect(rootRes.statusCode).toBe(404);
         expect(suffRes.statusCode).toBe(200);
-        expect(suffRes.body).toBe(rootRes.body);
         const doc = JSON.parse(suffRes.body) as {
           bearer_methods_supported?: string[];
         };

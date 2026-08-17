@@ -28,11 +28,13 @@ import { staticPathPrefix } from "./path-matcher.ts";
 const DEFAULT_MAX_BODY_SIZE = 10 * 1024 * 1024;
 
 /**
- * HTTP plugin. Owns the runtime HTTP server, the route registry, and the
- * global auth middleware. Materialised by the config applier so users
- * typically configure it via `defineConfig({ http: {...} })` rather than
- * pushing it onto `config.plugins`. The function is still exported for
- * advanced users who want to wire it manually.
+ * HTTP plugin. Owns the route registry and the request dispatcher, and
+ * mounts them as the catch-all surface on a named server (the listener
+ * itself belongs to `defineConfig({ servers })`). Materialised by the
+ * config applier so users typically configure it via
+ * `defineConfig({ http: {...} })` rather than pushing it onto
+ * `config.plugins`. The function is still exported for advanced users who
+ * want to wire it manually.
  *
  * Lifecycle:
  *   - `apply(ctx)`: validate options, publish the registry on the context
@@ -136,19 +138,11 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           ? (event) => ctx.emit("plugin:http:request:completed", { ...event })
           : undefined;
 
-      // Wrap the auth middleware so admit / reject pipe through the
-      // framework's existing auth:* events (same payload shape MCP uses),
-      // keeping observability surfaces consistent across plugins. The
-      // `absent` variant is deliberately silent: no credential was even
-      // attempted, so emitting `auth:rejected` would be misleading. The
-      // dispatcher decides whether absent becomes a 401 (required mode) or
-      // an anonymous admit (optional mode); either way, no auth event
-      // fires for absent.
-      // The dispatcher itself synthesises the missing-credential 401 for
-      // `auth: "required"` routes (the middleware returns `absent` instead
-      // of `reject` so optional routes can admit anonymously). We still
-      // want `auth:rejected` to fire for that case, so wire it here in the
-      // same place the middleware wrapper emits the per-result events.
+      // The shared ingress emits auth:success / auth:rejected when the
+      // `authenticate` thunk resolves an admit or a reject; `absent` is
+      // neither, so the missing-credential 401 the dispatcher synthesises
+      // for `auth: "required"` routes would otherwise be invisible. This
+      // hook is the one place that case can still raise the event.
       const onAuthAbsent = authConfigured
         ? (scheme: string) => {
             ctx.emit("auth:rejected", {
@@ -174,7 +168,6 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
 
       const dispatcher = createDispatcher({
         registry,
-        authMiddleware: undefined,
         maxBodySize,
         builtins,
         ...(authAwareBuiltins !== undefined ? { authAwareBuiltins } : {}),
@@ -200,7 +193,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           return claims;
         },
         handler: (request, mountContext) =>
-          dispatcher(request, mountContext.auth),
+          dispatcher(request, mountContext.authenticate),
       });
     },
     async teardown(ctx: CraftContext) {

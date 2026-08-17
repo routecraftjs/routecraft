@@ -52,7 +52,11 @@ export async function startServer(
       const server = bun.serve({
         port: opts.port,
         hostname: opts.host,
-        idleTimeout: 0,
+        // Long-lived MCP and SSE streams outlive Bun's 10s default. 255 is
+        // the maximum Bun accepts and still reaps parked sockets; 0 would
+        // disable the reaper entirely and let idle connections accumulate
+        // until the fd limit (and hold graceful close open on shutdown).
+        idleTimeout: 255,
         fetch: opts.fetch,
       });
       return {

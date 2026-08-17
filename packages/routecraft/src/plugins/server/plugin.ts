@@ -5,19 +5,29 @@ import { HttpMountRegistry, WEB_INGRESSES } from "./registry.ts";
 import type { ServerDefinitions } from "./types.ts";
 
 const DEFAULT_HOST = "127.0.0.1";
-const SHUTDOWN_GRACE_MS = 30_000;
+const DEFAULT_SHUTDOWN_GRACE_MS = 30_000;
 
-async function closeServer(handle: HttpServerHandle): Promise<void> {
+async function closeServer(
+  handle: HttpServerHandle,
+  graceMs: number,
+): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<"deadline">((resolve) => {
-    timer = setTimeout(() => resolve("deadline"), SHUTDOWN_GRACE_MS);
-  });
-  const outcome = await Promise.race([
-    handle.gracefulClose().then(() => "closed" as const),
-    deadline,
-  ]);
-  if (timer !== undefined) clearTimeout(timer);
-  if (outcome === "deadline") await handle.forceClose();
+  try {
+    const deadline = new Promise<"deadline">((resolve) => {
+      timer = setTimeout(() => resolve("deadline"), graceMs);
+      // The grace timer must never itself hold the process open.
+      (timer as { unref?: () => void }).unref?.();
+    });
+    const outcome = await Promise.race([
+      handle.gracefulClose().then(() => "closed" as const),
+      deadline,
+    ]);
+    if (outcome === "deadline") await handle.forceClose();
+  } finally {
+    // finally, not inline: a rejecting gracefulClose must not leave the
+    // timer pending for the rest of the grace period.
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
@@ -66,6 +76,10 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
         }
         state.handles.set(name, handle);
         registry.setBoundAddress(host, handle.port);
+        ctx.logger.info(
+          { server: name, host, port: handle.port },
+          "Server listening",
+        );
         ctx.emit("server:listening", { server: name, host, port: handle.port });
       }
     },
@@ -74,7 +88,11 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
       if (!state) return;
       for (const [name, handle] of [...state.handles].reverse()) {
         try {
-          await closeServer(handle);
+          await closeServer(
+            handle,
+            definitions[name]?.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS,
+          );
+          ctx.logger.info({ server: name }, "Server closed");
           ctx.emit("server:closed", { server: name });
         } catch (error) {
           ctx.logger.warn(
@@ -114,6 +132,15 @@ function validateDefinitions(definitions: ServerDefinitions): void {
     ) {
       throw rcError("RC5003", undefined, {
         message: `servers.${name}: invalid port ${String(definition.port)}`,
+      });
+    }
+    if (
+      definition.shutdownGraceMs !== undefined &&
+      (!Number.isInteger(definition.shutdownGraceMs) ||
+        definition.shutdownGraceMs < 0)
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `servers.${name}: invalid shutdownGraceMs ${String(definition.shutdownGraceMs)}. Pass a non-negative integer (milliseconds).`,
       });
     }
     const host = (definition.host ?? DEFAULT_HOST).toLowerCase();

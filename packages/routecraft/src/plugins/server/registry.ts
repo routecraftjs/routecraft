@@ -1,9 +1,18 @@
 import type { CraftContext } from "../../context.ts";
 import { rcError } from "../../error.ts";
 import type { HttpMethod } from "../../adapters/http/types.ts";
-import type { HttpMount, PathClaim, WebIngress } from "./types.ts";
+import type {
+  HttpMount,
+  HttpMountAuthPolicy,
+  PathClaim,
+  WebIngress,
+} from "./types.ts";
 import type { ValidatorAuthOptions } from "../../auth/types.ts";
-import { createAuthMiddleware, type HttpAuthMiddleware } from "../http/auth.ts";
+import {
+  createAuthMiddleware,
+  type AuthResult,
+  type HttpAuthMiddleware,
+} from "../http/auth.ts";
 
 export const WEB_INGRESSES: unique symbol = Symbol.for(
   "routecraft.plugin.server.web-ingresses",
@@ -94,6 +103,23 @@ function describeClaim(claim: PathClaim): string {
   return `${methods} ${claim.path}${claim.kind === "prefix" ? "/*" : ""}`;
 }
 
+/**
+ * Dispatch tiers: an exact claim always beats a pattern, a pattern always
+ * beats a prefix, and the `/` fallback (length 1) loses to every other
+ * prefix. Within a tier, the longer static path wins.
+ */
+function scoreClaim(claim: PathClaim, path: string): number | undefined {
+  if (claim.kind === "exact") {
+    return claim.path === path ? 1_000_000 + path.length : undefined;
+  }
+  if (claim.kind === "pattern") {
+    return claim.matcher.match(path)
+      ? 500_000 + claim.staticPrefix.length
+      : undefined;
+  }
+  return prefixContains(claim.path, path) ? claim.path.length : undefined;
+}
+
 export class HttpMountRegistry implements WebIngress {
   readonly serverName: string;
   readonly serverAuthConfigured: boolean;
@@ -105,14 +131,15 @@ export class HttpMountRegistry implements WebIngress {
     string,
     HttpAuthMiddleware | undefined
   >();
-  private readonly authOptionsByMount = new Map<
+  private readonly authPolicyByMount = new Map<
     string,
-    Parameters<typeof createAuthMiddleware>[0]
+    HttpMountAuthPolicy | undefined
   >();
   private evaluatedClaims: ReadonlyArray<{
     mount: HttpMount;
     claims: readonly PathClaim[];
   }> = [];
+  private validated = false;
 
   constructor(
     serverName: string,
@@ -126,6 +153,13 @@ export class HttpMountRegistry implements WebIngress {
   }
 
   mountHttp(mount: HttpMount): () => void {
+    // Claims are evaluated once at start() validation; a mount arriving after
+    // that would silently never dispatch, so refuse it loudly instead.
+    if (this.validated) {
+      throw rcError("RC5003", undefined, {
+        message: `servers.${this.serverName}: mount "${mount.id}" registered after the server validated its mounts. Register mounts during plugin apply(), before context start().`,
+      });
+    }
     if (this.mounts.has(mount.id)) {
       throw rcError("RC5003", undefined, {
         message: `servers.${this.serverName}: duplicate mount id "${mount.id}"`,
@@ -133,7 +167,16 @@ export class HttpMountRegistry implements WebIngress {
     }
     this.mounts.set(mount.id, mount);
     return () => {
-      if (this.mounts.get(mount.id) === mount) this.mounts.delete(mount.id);
+      if (this.mounts.get(mount.id) !== mount) return;
+      this.mounts.delete(mount.id);
+      // Prune every derived structure, not only the source map: dispatch
+      // routes off the evaluated snapshot, so an unmount that left it in
+      // place would keep serving a surface that believes it is gone.
+      this.evaluatedClaims = this.evaluatedClaims.filter(
+        (entry) => entry.mount !== mount,
+      );
+      this.authByMount.delete(mount.id);
+      this.authPolicyByMount.delete(mount.id);
     };
   }
 
@@ -152,21 +195,42 @@ export class HttpMountRegistry implements WebIngress {
       claims: [...mount.claims()],
     }));
     this.evaluatedClaims = evaluated;
+    this.validated = true;
     this.authByMount.clear();
-    this.authOptionsByMount.clear();
+    this.authPolicyByMount.clear();
     for (const { mount } of evaluated) {
       const inherited =
         mount.auth === undefined && this.serverAuth !== undefined;
       const auth =
         mount.auth === false ? undefined : (mount.auth ?? this.serverAuth);
       this.authByMount.set(mount.id, createAuthMiddleware(auth));
-      this.authOptionsByMount.set(mount.id, auth);
+      const issuer =
+        auth !== undefined && "issuer" in auth
+          ? (auth as { issuer?: string | string[] }).issuer
+          : undefined;
+      this.authPolicyByMount.set(
+        mount.id,
+        issuer !== undefined ? { issuer } : undefined,
+      );
       if (inherited) {
         this.context.logger.info(
           { server: this.serverName, mount: mount.id },
           "Server mount inherited authentication",
         );
       }
+    }
+    // The `/` fallback is exempt from prefix-overlap (it is the designated
+    // loser), so two mounts both claiming it would pass the pairwise check
+    // and shadow each other by iteration order. Refuse that explicitly.
+    const fallbackOwners = evaluated
+      .filter(({ claims }) =>
+        claims.some((claim) => claim.kind === "prefix" && claim.path === "/"),
+      )
+      .map(({ mount }) => mount.id);
+    if (fallbackOwners.length > 1) {
+      throw rcError("RC5003", undefined, {
+        message: `servers.${this.serverName}: mounts ${fallbackOwners.map((id) => `"${id}"`).join(", ")} all claim the "/" catch-all. At most one mount per server may own the fallback.`,
+      });
     }
     for (let i = 0; i < evaluated.length; i++) {
       for (let j = i + 1; j < evaluated.length; j++) {
@@ -187,57 +251,59 @@ export class HttpMountRegistry implements WebIngress {
   async dispatch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
     const method = request.method.toUpperCase() as HttpMethod;
-    const candidates: Array<{
-      mount: HttpMount;
-      claim: PathClaim;
-      score: number;
-    }> = [];
-    for (const { mount, claims } of this.evaluatedClaims) {
+    let best: { mount: HttpMount; claim: PathClaim; score: number } | undefined;
+    search: for (const { mount, claims } of this.evaluatedClaims) {
       for (const claim of claims) {
         if (!methodsOf(claim).includes(method)) continue;
-        if (claim.kind === "exact" && claim.path === path) {
-          candidates.push({ mount, claim, score: 1_000_000 + path.length });
-        } else if (claim.kind === "pattern" && claim.matcher.match(path)) {
-          candidates.push({
-            mount,
-            claim,
-            score: 500_000 + claim.staticPrefix.length,
-          });
-        } else if (
-          claim.kind === "prefix" &&
-          prefixContains(claim.path, path)
-        ) {
-          candidates.push({ mount, claim, score: claim.path.length });
+        const score = scoreClaim(claim, path);
+        if (score === undefined) continue;
+        if (best === undefined || score > best.score) {
+          best = { mount, claim, score };
         }
+        // An exact hit is unbeatable: validation refuses duplicate exact
+        // path+method claims, so no other claim can outscore it.
+        if (claim.kind === "exact") break search;
       }
     }
-    candidates.sort((a, b) => b.score - a.score);
-    const selected = candidates[0];
-    if (!selected) {
+    if (!best) {
       return Response.json({ error: "not found", path }, { status: 404 });
     }
-    const authMiddleware = this.authByMount.get(selected.mount.id);
-    const auth =
-      authMiddleware && !selected.mount.authExempt?.(request)
-        ? await authMiddleware(request)
-        : undefined;
-    if (auth?.kind === "admit") {
-      this.context.emit("auth:success", {
-        subject: auth.principal.subject,
-        scheme: auth.principal.scheme,
-        source: selected.mount.id,
-      });
-    } else if (auth?.kind === "reject") {
-      this.context.emit("auth:rejected", {
-        reason: selected.mount.classifyAuthRejection?.(auth) ?? auth.reason,
-        scheme: auth.scheme,
-        source: selected.mount.id,
-      });
-    }
-    return selected.mount.handler(request, {
+    const mount = best.mount;
+    const authMiddleware = this.authByMount.get(mount.id);
+
+    // Verification is pulled by the mount, never pushed by the ingress: a
+    // public path (discovery, health, a route with auth: "skip") must not
+    // pay validator work or pollute the auth event stream just because the
+    // listener is shared. Memoized so the mount and its inner dispatcher
+    // resolve the same request at most once, with the events emitted at
+    // that single resolution.
+    let resolved: Promise<AuthResult | undefined> | undefined;
+    const authenticate = (): Promise<AuthResult | undefined> => {
+      resolved ??= (async () => {
+        if (!authMiddleware) return undefined;
+        const auth = await authMiddleware(request);
+        if (auth.kind === "admit") {
+          this.context.emit("auth:success", {
+            subject: auth.principal.subject,
+            scheme: auth.principal.scheme,
+            source: mount.id,
+          });
+        } else if (auth.kind === "reject") {
+          this.context.emit("auth:rejected", {
+            reason: auth.reason,
+            scheme: auth.scheme,
+            source: mount.id,
+          });
+        }
+        return auth;
+      })();
+      return resolved;
+    };
+
+    return mount.handler(request, {
       serverName: this.serverName,
-      auth,
-      authOptions: this.authOptionsByMount.get(selected.mount.id),
+      authenticate,
+      authPolicy: this.authPolicyByMount.get(mount.id),
     });
   }
 }

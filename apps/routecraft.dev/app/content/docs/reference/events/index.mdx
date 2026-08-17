@@ -348,24 +348,36 @@ A failing `start()` hook emits `context:error` and no `plugin:started`, and the 
 
 ## Authentication events
 
-Emitted by auth-enabled adapters (currently MCP HTTP) on every auth attempt. The `source` field identifies which adapter emitted the event.
+Emitted on every auth attempt by every auth-enabled surface: HTTP routes, the MCP HTTP transport, and any custom mount that resolves credentials through a named server's validator. The `source` field identifies which surface emitted the event (`"http"`, `"mcp"`, or a custom mount id).
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `auth:success` | Token validated and principal resolved | `{ subject, scheme, source }` |
-| `auth:rejected` | Auth failed (missing header, bad scheme, or invalid token) | `{ reason, scheme, source }` |
+| `auth:success` | Credential validated and principal resolved | `{ subject, scheme, source }` |
+| `auth:rejected` | Auth failed | `{ reason, scheme, source }` |
 
-`reason` is one of `"missing_header"`, `"unsupported_scheme"`, or `"invalid_token"`.
+`reason` is a bounded vocabulary, never free text. Bearer authentication uses `"expired"`, `"infrastructure"`, `"invalid_token"`, `"missing_header"`, `"unsupported_scheme"`, `"missing_expires_at"`, and `"insufficient_scope"` where applicable (an `"infrastructure"` rejection is answered with a 500, never a 401, so clients keep their cached token during an IdP blip). API-key authentication uses `"missing api key"` and `"invalid api key"`. Webhook signatures use `"missing signature header"`, `"invalid signature"`, and `"signature expired"` with `scheme: "signature"`.
+
+## Server events
+
+Emitted by the named-servers listener (`defineConfig({ servers })`), which owns every shared HTTP socket. One event set per named server; the `server` field carries the name.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `server:listening` | The named listener bound its port (during context `start()`) | `{ server, host, port }` |
+| `server:failed` | The listener could not bind; the context fails to start | `{ server, error }` |
+| `server:closed` | The listener shut down (on context stop) | `{ server }` |
+
+Before 0.7 the HTTP plugin owned its listener and emitted `plugin:http:server:listening` / `plugin:http:server:closed`. Those events no longer exist; subscribers migrate to `server:listening` / `server:closed` and read the `server` field to tell listeners apart.
 
 ## MCP plugin events
 
 Events emitted by the MCP plugin during server and tool lifecycle. Subscribe to the exact names (`plugin:mcp:tool:called` / `completed` / `failed` / `declined`) for broad observability, or use the catch-all `"*"`.
 
-### Server events
+### MCP server events
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:mcp:server:listening` | HTTP server is ready to accept connections | `{ host, port, path }` |
+| `plugin:mcp:server:listening` | The MCP HTTP transport's named listener is accepting connections | `{ host, port, path }` |
 | `plugin:mcp:server:tools:exposed` | Tool list logged for the first time | `{ tools, count }` |
 
 ### Tool call events
@@ -383,12 +395,10 @@ For tools proxied from registered clients via [`mcpPlugin({ proxy })`](/docs/ref
 
 ## HTTP plugin events
 
-Events emitted by the HTTP plugin (configured via `defineConfig({ http })`). The plugin also emits the framework's [authentication events](#authentication-events) (`auth:success` / `auth:rejected`) with `source: "http"` when an `auth` strategy is configured.
+Events emitted by the HTTP plugin (configured via `defineConfig({ http })`). The listener itself belongs to the named server, so bind and close are reported by the [server events](#server-events) above; the plugin also emits the framework's [authentication events](#authentication-events) (`auth:success` / `auth:rejected`) with `source: "http"` when an `auth` strategy is configured or inherited.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:http:server:listening` | The HTTP server has bound its port | `{ port, host }` |
-| `plugin:http:server:closed` | The HTTP server has shut down (on context stop) | `{}` |
 | `plugin:http:request:completed` | A request finished (after the response is built) | `{ method, path, status, durationMs, routeId?, principal? }` |
 
 `plugin:http:request:completed` fires for every request by default; disable it with `http: { events: { perRequest: false } }`. Built-in endpoints (`/health`, `/ready`, `/openapi.json`) do not emit it.

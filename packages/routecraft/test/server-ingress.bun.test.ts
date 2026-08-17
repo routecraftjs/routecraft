@@ -111,13 +111,14 @@ describe("named server ingress", () => {
     ingress.mountHttp({
       id: "surface",
       claims: () => [{ kind: "exact", path: "/private" }],
-      handler: (_request, mount) =>
-        Response.json({
-          subject:
-            mount.auth?.kind === "admit"
-              ? mount.auth.principal.subject
-              : undefined,
-        }),
+      handler: async (_request, mount) => {
+        // Two pulls on the thunk must still verify once: memoized per request.
+        const auth = await mount.authenticate();
+        await mount.authenticate();
+        return Response.json({
+          subject: auth?.kind === "admit" ? auth.principal.subject : undefined,
+        });
+      },
     });
     ingress.validate();
 
@@ -148,8 +149,10 @@ describe("named server ingress", () => {
       id: "public",
       auth: false,
       claims: () => [{ kind: "exact", path: "/public" }],
-      handler: (_request, mount) =>
-        Response.json({ authenticated: mount.auth !== undefined }),
+      handler: async (_request, mount) =>
+        Response.json({
+          authenticated: (await mount.authenticate()) !== undefined,
+        }),
     });
     ingress.validate();
 
@@ -180,15 +183,21 @@ describe("named server ingress", () => {
     ingress.mountHttp({
       id: "surface",
       claims: () => [{ kind: "exact", path: "/private" }],
-      handler: () => new Response("unreachable"),
+      handler: async (_request, mount) => {
+        const auth = await mount.authenticate();
+        return auth?.kind === "reject"
+          ? auth.response
+          : new Response("unreachable");
+      },
     });
     ingress.validate();
 
-    await ingress.dispatch(
+    const response = await ingress.dispatch(
       new Request("http://local/private", {
         headers: { authorization: "Bearer token" },
       }),
     );
+    expect(response.status).toBe(500);
     expect(rejections).toContainEqual({
       reason: "infrastructure",
       scheme: "bearer",
@@ -276,5 +285,130 @@ describe("named server ingress", () => {
     } finally {
       await t.stop();
     }
+  });
+
+  /**
+   * @case A route declared auth: "skip" bypasses shared authentication entirely
+   * @preconditions Global bearer auth on the http mount; one skip route; a garbage bearer presented
+   * @expectedResult The route serves normally, the validator is never invoked, and no auth event fires
+   */
+  test("auth skip routes never trigger the shared validator", async () => {
+    let validatorCalls = 0;
+    const authEvents: string[] = [];
+    let port = 0;
+    const t = await testContext()
+      .on(
+        "server:listening" as EventName,
+        ((event: { details: { port: number } }) => {
+          port = event.details.port;
+        }) as Parameters<ReturnType<typeof testContext>["on"]>[1],
+      )
+      .with({
+        servers: { default: { host: "127.0.0.1", port: 0 } },
+        http: {
+          auth: {
+            validator: () => {
+              validatorCalls++;
+              throw new Error("must never run for a skip route");
+            },
+          },
+        },
+      })
+      .routes([
+        craft()
+          .id("public-feed")
+          .from(http({ path: "/feed", auth: "skip" }))
+          .to(noop()),
+      ])
+      .build();
+    t.ctx.on("auth:success", () => {
+      authEvents.push("success");
+    });
+    t.ctx.on("auth:rejected", () => {
+      authEvents.push("rejected");
+    });
+
+    try {
+      await t.startAndWaitReady();
+      const res = await fetch(`http://127.0.0.1:${port}/feed`, {
+        headers: {
+          Authorization: "Bearer totally-fabricated",
+          Connection: "close",
+        },
+      });
+      expect(res.status).toBe(204);
+      expect(validatorCalls).toBe(0);
+      expect(authEvents).toEqual([]);
+    } finally {
+      await t.stop();
+    }
+  });
+
+  /**
+   * @case Unmounting removes the surface from dispatch immediately
+   * @preconditions A validated ingress with one mount whose disposer has run
+   * @expectedResult Requests to the unmounted path get the ingress 404, not the stale handler
+   */
+  test("unmount prunes the evaluated dispatch state", async () => {
+    const context = (await testContext().build()).ctx;
+    const ingress = new HttpMountRegistry("draining", context);
+    const unmount = ingress.mountHttp({
+      id: "surface",
+      claims: () => [{ kind: "exact", path: "/gone" }],
+      handler: () => new Response("alive"),
+    });
+    ingress.validate();
+    expect(
+      (await ingress.dispatch(new Request("http://local/gone"))).status,
+    ).toBe(200);
+
+    unmount();
+    expect(
+      (await ingress.dispatch(new Request("http://local/gone"))).status,
+    ).toBe(404);
+  });
+
+  /**
+   * @case Two mounts both claiming the "/" catch-all are refused
+   * @preconditions Two mounts whose claims each include the prefix "/" fallback
+   * @expectedResult Validation fails naming both mounts instead of shadowing by registration order
+   */
+  test("rejects a second catch-all fallback mount", async () => {
+    const context = (await testContext().build()).ctx;
+    const ingress = new HttpMountRegistry("shadowed", context);
+    ingress.mountHttp({
+      id: "first",
+      claims: () => [{ kind: "prefix", path: "/" }],
+      handler: () => new Response("first"),
+    });
+    ingress.mountHttp({
+      id: "second",
+      claims: () => [{ kind: "prefix", path: "/" }],
+      handler: () => new Response("second"),
+    });
+    expect(() => ingress.validate()).toThrow(/catch-all/);
+  });
+
+  /**
+   * @case A mount registered after validation is refused
+   * @preconditions A registry whose claims were already evaluated at start
+   * @expectedResult mountHttp throws instead of accepting a mount that would never dispatch
+   */
+  test("rejects mounts registered after validation", async () => {
+    const context = (await testContext().build()).ctx;
+    const ingress = new HttpMountRegistry("late", context);
+    ingress.mountHttp({
+      id: "early",
+      claims: () => [{ kind: "exact", path: "/early" }],
+      handler: () => new Response("early"),
+    });
+    ingress.validate();
+    expect(() =>
+      ingress.mountHttp({
+        id: "late",
+        claims: () => [{ kind: "exact", path: "/late" }],
+        handler: () => new Response("late"),
+      }),
+    ).toThrow(/after the server validated/);
   });
 });

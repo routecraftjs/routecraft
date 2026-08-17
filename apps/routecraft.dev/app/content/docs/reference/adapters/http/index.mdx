@@ -8,7 +8,7 @@ title: http
 
 `http()` is overloaded by option shape:
 
-- `http({ path, method?, public? })` returns a **Source**. Use with `.from(...)` to expose a route over HTTP. Requires `defineConfig({ http: {...} })` for the server config (port, host, global auth). Bun runtimes bind via `Bun.serve` natively; Node 22+ uses a thin `node:http` shim. Zero runtime dependencies.
+- `http({ path, method?, public? })` returns a **Source**. Use with `.from(...)` to expose a route over HTTP. Requires `defineConfig({ servers: {...}, http: {...} })`: the named server owns the listener (host, port), the `http` key owns routing and global auth. Bun runtimes bind via `Bun.serve` natively; Node 22+ uses a thin `node:http` shim. Zero runtime dependencies.
 - `http({ url, ... })` returns an **Enricher** (a pull-in). Use with `.to()` / `.enrich()` / `.tap()` to call a remote HTTP endpoint.
 
 The discriminator is the presence of `path` (source) vs `url` (client).
@@ -19,16 +19,17 @@ The discriminator is the presence of `path` (source) vs `url` (client).
 http(options: HttpServerOptions): Source<HttpRequestBody>
 ```
 
-The server, port, host, and global auth live on [`defineConfig({ http })`](/docs/reference/configuration#http), not on the source. Routes only declare which request they want.
+The listener (host, port) lives on [`defineConfig({ servers })`](/docs/reference/configuration#servers-and-http) and the global auth on the `http` key, not on the source. Routes only declare which request they want.
 
 ```ts
 // craft.config.ts
 import { defineConfig, jwt } from '@routecraft/routecraft'
 
 export const craftConfig = defineConfig({
+  servers: {
+    default: { port: 8080, host: '0.0.0.0' },
+  },
   http: {
-    port: 8080,
-    host: '0.0.0.0',
     auth: jwt({
       secret: process.env.JWT_SECRET!,
       issuer: process.env.JWT_ISSUER!,
@@ -150,8 +151,8 @@ Every built-in takes the same `{ enabled?, requireAuth? }` shape under `http: { 
 
 ```ts
 defineConfig({
+  servers: { default: { port: 8080 } },
   http: {
-    port: 8080,
     auth: jwt({ ... }),
     builtins: {
       health:  { enabled: true },                   // defaults
@@ -297,12 +298,12 @@ The dispatcher resolves path/method before running auth, so unmatched paths retu
 
 ### Events
 
-- `plugin:http:server:listening` -> `{ port, host }` after the listener binds.
-- `plugin:http:server:closed` after graceful shutdown.
+- `server:listening` -> `{ server, port, host }` after the named listener binds.
+- `server:closed` -> `{ server }` after graceful shutdown.
 - `plugin:http:request:completed` -> `{ method, path, status, durationMs, routeId?, principal? }` per request (toggle with `http: { events: { perRequest: false } }`).
 - `auth:success` / `auth:rejected` -- reused from the framework's existing auth event surface (`source: "http"`).
 
-See [HTTP plugin events](/docs/reference/events#http-plugin-events) on the events reference.
+See [Server events](/docs/reference/events#server-events) and [HTTP plugin events](/docs/reference/events#http-plugin-events) on the events reference.
 
 ## HTTP client (outbound)
 

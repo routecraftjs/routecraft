@@ -16,8 +16,7 @@ import type {
 } from "@modelcontextprotocol/server";
 import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 import type {
-  HttpAuth,
-  OAuthValidatorAuthOptions,
+  HttpMountContext,
   Principal,
   ValidatorAuthOptions,
 } from "@routecraft/routecraft";
@@ -47,7 +46,6 @@ import {
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { buildEnrichedVerifier } from "./userinfo.ts";
-import { classifyRejectionReason, isExpiredTokenError } from "./auth-errors.ts";
 import { loadMcpServerSdk, loadMcpServerStdioSdk } from "./sdk.ts";
 import {
   advertisedOutputArms,
@@ -61,13 +59,6 @@ import {
  * compiler.
  */
 type SdkAuthInfo = AuthInfo;
-
-/**
- * A Node request after the auth gate has run. The gate stashes the verified
- * {@link SdkAuthInfo} here because `toNodeHandler` forwards `req.auth` to the
- * handler as its pass-through `authInfo` -- which is how the principal reaches
- * a per-request server instance without ambient state.
- */
 
 /**
  * Shared never-aborted signal for guard contexts on the proxied-call path,
@@ -203,6 +194,13 @@ export class McpServer {
   private options: McpServerResolvedOptions;
   private mcpHandler: McpHttpHandler | null = null;
   private unmountHttp: (() => void) | null = null;
+  /** SDK request validators, loaded with the handler in prepareHttpMount. */
+  private hostHeaderValidationResponse:
+    ((request: Request, allowed: string[]) => Response | undefined) | null =
+    null;
+  private originValidationResponse:
+    ((request: Request, allowed: string[]) => Response | undefined) | null =
+    null;
   /** Handle for the stdio transport, used to await shutdown. `null` on HTTP. */
   private stdioHandle: StdioServerHandle | null = null;
   /**
@@ -393,7 +391,32 @@ export class McpServer {
       if (transport !== "http") {
         await this.startStdio();
       } else if (this.boundPort === undefined) {
-        await this.bound;
+        // Bounded wait: a start() hook must never hold the context down
+        // forever (.standards/plugin-lifecycle.md section 2). The named
+        // server binds in its own start() before this plugin's, so a
+        // correct configuration resolves immediately; the deadline only
+        // fires when the servers plugin is missing or registered after
+        // this one.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            this.bound,
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(
+                    new TypeError(
+                      `mcpPlugin: named server "${this.options.server}" did not start listening within 30s. Ensure defineConfig({ servers }) declares it and the servers plugin starts before mcpPlugin.`,
+                    ),
+                  ),
+                30_000,
+              );
+              (timer as { unref?: () => void }).unref?.();
+            }),
+          ]);
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+        }
       }
 
       this.running = true;
@@ -431,6 +454,8 @@ export class McpServer {
       hostHeaderValidationResponse,
       originValidationResponse,
     } = await loadMcpServerSdk("mcp (http)");
+    this.hostHeaderValidationResponse = hostHeaderValidationResponse;
+    this.originValidationResponse = originValidationResponse;
     const cors = resolveCorsOptions(this.options.cors);
     const path = this.options.path.replace(/\/+$/, "") || "/mcp";
     const metadataPath = `${PROTECTED_RESOURCE_METADATA_PATH}${path}`;
@@ -457,14 +482,6 @@ export class McpServer {
     ];
     this.unmountHttp = ingress.mountHttp({
       id: "mcp",
-      authExempt: (request) => {
-        const requestPath = new URL(request.url).pathname;
-        return request.method === "OPTIONS" || requestPath === metadataPath;
-      },
-      classifyAuthRejection: (rejection) =>
-        rejection.reason === "unsupported_scheme"
-          ? "unsupported_scheme"
-          : classifyRejectionReason(rejection.cause),
       ...(this.options.auth !== undefined
         ? {
             auth:
@@ -477,95 +494,38 @@ export class McpServer {
       handler: async (request, mountContext) => {
         const pathname = new URL(request.url).pathname;
         const origin = request.headers.get("origin") ?? undefined;
-        const hostRejection = hostHeaderValidationResponse(
+        const corsHeaders = buildCorsHeaders(cors, origin, false);
+
+        const originGate = this.checkRequestOrigin(
           request,
-          this.allowedHostnames(ingress),
+          ingress,
+          cors,
+          origin,
+          corsHeaders,
         );
-        if (hostRejection) return hostRejection;
+        if (originGate) return originGate;
+
         const owned =
           pathname === path ||
           pathname === `${path}/` ||
           pathname === metadataPath;
-        const corsHeaders = buildCorsHeaders(cors, origin, false);
-        if (origin !== undefined && cors !== null) {
-          let hostname = "";
-          try {
-            hostname = new URL(origin).hostname;
-          } catch {
-            // The SDK validator below returns the canonical 403 response.
-          }
-          const originRejection = originValidationResponse(
-            request,
-            hostname.length > 0 ? [hostname] : [],
-          );
-          if (
-            originRejection ||
-            corsHeaders["Access-Control-Allow-Origin"] === undefined
-          ) {
-            return originRejection ?? originValidationResponse(request, [])!;
-          }
-        }
         if (request.method === "OPTIONS" && cors !== null && owned) {
           return new Response(null, {
             status: 204,
             headers: buildCorsHeaders(cors, origin, true),
           });
         }
+
+        // RFC 9728 discovery is a public protocol exemption: served before
+        // any credential handling so a client with a stale or malformed
+        // token can still learn where to re-authenticate. Never call
+        // `authenticate()` on this path.
         if (pathname === metadataPath) {
-          const metadata = this.buildProtectedResourceMetadata(
-            mountContext.authOptions,
-          );
-          metadata.resource = this.resourceUrlFor(ingress, path);
-          return new Response(JSON.stringify(metadata), {
-            status: 200,
-            headers: {
-              "content-type": "application/json",
-              "cache-control": "public, max-age=3600",
-              ...corsHeaders,
-            },
-          });
-        }
-        if (mountContext.auth?.kind === "reject") {
-          const reason = classifyRejectionReason(mountContext.auth.cause);
-          if (mountContext.auth.reason === "unsupported_scheme") {
-            this.context.logger.debug(
-              {
-                reason: mountContext.auth.reason,
-                scheme: "bearer",
-                source: "mcp",
-              },
-              "Auth rejected: unsupported authorization scheme",
-            );
-          } else if (isExpiredTokenError(mountContext.auth.cause)) {
-            this.context.logger.debug(
-              { reason, scheme: "bearer", source: "mcp" },
-              "Auth rejected: token expired",
-            );
-          } else {
-            this.context.logger.warn(
-              { reason, scheme: "bearer", source: "mcp" },
-              "Auth rejected: token validation failed",
-            );
-          }
-          if (reason === "infrastructure") {
-            return Response.json(
-              { error: "Authentication unavailable" },
-              { status: 500, headers: corsHeaders },
-            );
-          }
-          return Response.json(
-            { error: "Unauthorized" },
-            {
-              status: 401,
-              headers: {
-                ...corsHeaders,
-                "WWW-Authenticate": this.buildWebWwwAuthenticateHeader(
-                  ingress,
-                  path,
-                  { error: "invalid_token" },
-                ),
-              },
-            },
+          return this.serveMetadataDocument(
+            ingress,
+            path,
+            mountContext.authPolicy?.issuer,
+            corsHeaders,
           );
         }
         if (pathname !== path && pathname !== `${path}/`) {
@@ -575,96 +535,12 @@ export class McpServer {
           );
         }
 
-        let principal: Principal | undefined;
-        let token: string | undefined;
-        if (mountContext.auth?.kind === "absent") {
-          this.context.logger.debug(
-            { reason: "missing_header", scheme: "bearer", source: "mcp" },
-            "Auth rejected: missing or malformed Authorization header",
-          );
-          this.context.emit("auth:rejected", {
-            reason: "missing_header",
-            scheme: "bearer",
-            source: "mcp",
-          });
-          return Response.json(
-            { error: "Unauthorized" },
-            {
-              status: 401,
-              headers: {
-                ...corsHeaders,
-                "WWW-Authenticate": this.buildWebWwwAuthenticateHeader(
-                  ingress,
-                  path,
-                  {},
-                ),
-              },
-            },
-          );
-        }
-        if (mountContext.auth?.kind === "admit") {
-          principal = mountContext.auth.principal;
-          token = mountContext.auth.credential;
-          const clockToleranceSec =
-            mountContext.authOptions &&
-            "clockToleranceSec" in mountContext.authOptions &&
-            typeof mountContext.authOptions.clockToleranceSec === "number"
-              ? mountContext.authOptions.clockToleranceSec
-              : 0;
-          if (
-            principal.expiresAt !== undefined &&
-            (!Number.isFinite(principal.expiresAt) ||
-              !Number.isFinite(clockToleranceSec) ||
-              Math.floor(Date.now() / 1000) >=
-                principal.expiresAt + clockToleranceSec)
-          ) {
-            return Response.json(
-              { error: "Unauthorized" },
-              {
-                status: 401,
-                headers: {
-                  ...corsHeaders,
-                  "WWW-Authenticate": this.buildWebWwwAuthenticateHeader(
-                    ingress,
-                    path,
-                    { error: "invalid_token" },
-                  ),
-                },
-              },
-            );
-          }
-          const missing = this.missingScopes(principal);
-          if (missing.length > 0) {
-            const detail = {
-              reason: "insufficient_scope",
-              scheme: "bearer",
-              source: "mcp",
-            };
-            this.context.logger.warn(
-              detail,
-              "Auth rejected: insufficient scope",
-            );
-            this.context.emit("auth:rejected", detail);
-            return Response.json(
-              { error: "insufficient_scope" },
-              {
-                status: 403,
-                headers: {
-                  ...corsHeaders,
-                  "WWW-Authenticate": this.buildWebWwwAuthenticateHeader(
-                    ingress,
-                    path,
-                    {
-                      error: "insufficient_scope",
-                      scope: missing.join(" "),
-                    },
-                  ),
-                },
-              },
-            );
-          }
-        }
+        const auth = await mountContext.authenticate();
+        const refusal = this.refuseAuth(auth, ingress, path, corsHeaders);
+        if (refusal) return refusal;
 
+        const principal = auth?.kind === "admit" ? auth.principal : undefined;
+        const token = auth?.kind === "admit" ? auth.credential : undefined;
         const response = await this.mcpHandler!.fetch(
           request,
           principal !== undefined && token !== undefined
@@ -681,6 +557,175 @@ export class McpServer {
         });
       },
     });
+  }
+
+  /**
+   * DNS-rebinding and browser-origin gate, run before anything else. The SDK
+   * entry is deliberately validation-free, so the mount fronts it with the
+   * SDK's own validators: Host against the addresses this server may be
+   * reached as, Origin against the resolved CORS policy.
+   */
+  private checkRequestOrigin(
+    request: Request,
+    ingress: WebIngress,
+    cors: ReturnType<typeof resolveCorsOptions>,
+    origin: string | undefined,
+    corsHeaders: Record<string, string>,
+  ): Response | null {
+    const hostRejection = this.hostHeaderValidationResponse!(
+      request,
+      this.allowedHostnames(ingress),
+    );
+    if (hostRejection) return hostRejection;
+    if (origin !== undefined && cors !== null) {
+      let hostname = "";
+      try {
+        hostname = new URL(origin).hostname;
+      } catch {
+        // The SDK validator below returns the canonical 403 response.
+      }
+      const originRejection = this.originValidationResponse!(
+        request,
+        hostname.length > 0 ? [hostname] : [],
+      );
+      if (
+        originRejection ||
+        corsHeaders["Access-Control-Allow-Origin"] === undefined
+      ) {
+        return originRejection ?? this.originValidationResponse!(request, [])!;
+      }
+    }
+    return null;
+  }
+
+  /** Serve the RFC 9728 document; identical for every credential state. */
+  private serveMetadataDocument(
+    ingress: WebIngress,
+    path: string,
+    issuer: string | string[] | undefined,
+    corsHeaders: Record<string, string>,
+  ): Response {
+    const metadata = this.buildProtectedResourceMetadata(
+      this.resourceUrlFor(ingress, path),
+      issuer,
+    );
+    return new Response(JSON.stringify(metadata), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "public, max-age=3600",
+        ...corsHeaders,
+      },
+    });
+  }
+
+  /**
+   * Map a resolved auth outcome to the MCP wire format, or admit with null.
+   *
+   * The shared middleware already classified the failure (the bounded
+   * `reason` drives status, challenge, event vocabulary, and log level), and
+   * the ingress emitted `auth:rejected` for the reject arm at resolution.
+   * `absent` emits here because it is a refusal only on this surface: MCP
+   * has no anonymous mode, while an http route may admit the same request.
+   */
+  private refuseAuth(
+    auth: Awaited<ReturnType<HttpMountContext["authenticate"]>>,
+    ingress: WebIngress,
+    path: string,
+    corsHeaders: Record<string, string>,
+  ): Response | null {
+    if (auth === undefined) return null;
+    if (auth.kind === "reject") {
+      const reason = auth.reason;
+      if (reason === "unsupported_scheme") {
+        this.context.logger.debug(
+          { reason, scheme: "bearer", source: "mcp" },
+          "Auth rejected: unsupported authorization scheme",
+        );
+      } else if (reason === "expired") {
+        this.context.logger.debug(
+          { reason, scheme: "bearer", source: "mcp" },
+          "Auth rejected: token expired",
+        );
+      } else {
+        this.context.logger.warn(
+          { reason, scheme: "bearer", source: "mcp" },
+          "Auth rejected: token validation failed",
+        );
+      }
+      if (reason === "infrastructure") {
+        return Response.json(
+          { error: "Authentication unavailable" },
+          { status: 500, headers: corsHeaders },
+        );
+      }
+      return this.unauthorized(ingress, path, corsHeaders, {
+        error: "invalid_token",
+      });
+    }
+    if (auth.kind === "absent") {
+      const detail = {
+        reason: "missing_header",
+        scheme: "bearer",
+        source: "mcp",
+      };
+      this.context.logger.debug(
+        detail,
+        "Auth rejected: missing or malformed Authorization header",
+      );
+      this.context.emit("auth:rejected", detail);
+      // RFC 6750 section 3: a request that carried no credential gets a
+      // bare challenge, not `invalid_token`.
+      return this.unauthorized(ingress, path, corsHeaders);
+    }
+    const missing = this.missingScopes(auth.principal);
+    if (missing.length > 0) {
+      const detail = {
+        reason: "insufficient_scope",
+        scheme: "bearer",
+        source: "mcp",
+      };
+      this.context.logger.warn(detail, "Auth rejected: insufficient scope");
+      this.context.emit("auth:rejected", detail);
+      return Response.json(
+        { error: "insufficient_scope" },
+        {
+          status: 403,
+          headers: {
+            ...corsHeaders,
+            "WWW-Authenticate": this.buildWebWwwAuthenticateHeader(
+              ingress,
+              path,
+              { error: "insufficient_scope", scope: missing.join(" ") },
+            ),
+          },
+        },
+      );
+    }
+    return null;
+  }
+
+  /** RFC 6750 401 with the challenge params for this specific refusal. */
+  private unauthorized(
+    ingress: WebIngress,
+    path: string,
+    corsHeaders: Record<string, string>,
+    params: Record<string, string> = {},
+  ): Response {
+    return Response.json(
+      { error: "Unauthorized" },
+      {
+        status: 401,
+        headers: {
+          ...corsHeaders,
+          "WWW-Authenticate": this.buildWebWwwAuthenticateHeader(
+            ingress,
+            path,
+            params,
+          ),
+        },
+      },
+    );
   }
 
   private allowedHostnames(ingress: WebIngress): string[] {
@@ -823,33 +868,31 @@ export class McpServer {
   /**
    * Build the RFC 9728 protected-resource metadata document.
    *
-   * `authorization_servers` is populated from the validator's `issuer` (when
-   * `auth` is `OAuthValidatorAuthOptions` from `jwks()` / `jwt()`). When the
-   * verifier exposes no issuer, the field is omitted (RFC 9728 allows that).
+   * `resourceUrl` is a required parameter rather than a default the caller
+   * patches afterwards: the resolved identity depends on the bound address,
+   * and a builder that returned a knowingly wrong placeholder would let any
+   * future call site silently advertise it.
+   *
+   * `authorization_servers` is populated from the effective validator's
+   * `issuer` (mount auth, else the inherited server auth). When the verifier
+   * exposes no issuer, the field is omitted (RFC 9728 allows that).
    *
    * @internal
    */
   private buildProtectedResourceMetadata(
-    effectiveAuth: HttpAuth | undefined = this.options.auth === false
-      ? undefined
-      : this.options.auth,
+    resourceUrl: string,
+    issuer: string | string[] | undefined,
   ): ProtectedResourceMetadata {
     const metadata: ProtectedResourceMetadata = {
-      resource:
-        this.options.resource?.url?.toString() ??
-        `http://localhost${this.options.path}`,
+      resource: resourceUrl,
       bearer_methods_supported: ["header"],
     };
     metadata.resource_name = this.resolveResourceName();
 
-    const auth = effectiveAuth;
-    if (auth && "issuer" in auth) {
-      const issuer: OAuthValidatorAuthOptions["issuer"] = auth.issuer;
-      if (issuer !== undefined) {
-        metadata.authorization_servers = Array.isArray(issuer)
-          ? issuer
-          : [issuer];
-      }
+    if (issuer !== undefined) {
+      metadata.authorization_servers = Array.isArray(issuer)
+        ? issuer
+        : [issuer];
     }
 
     const resource = this.options.resource;

@@ -284,10 +284,10 @@ For 413, raise `http: { maxBodySize }` or have the client send a smaller payload
 HTTP server bind failed
 
 **Why it happens**  
-The HTTP plugin could not bind the configured port/host. The usual cause is `EADDRINUSE` (another process, or a second `defineConfig({ http })` in the same process, already owns the port) or `EADDRNOTAVAIL` (the host is not one this machine can bind).
+A named server (`defineConfig({ servers })`) could not bind its configured port/host during context start. The message names the server (`servers.<name>: bind failed on host:port`). The usual cause is `EADDRINUSE` (another process, or another listener in the same process, already owns the port) or `EADDRNOTAVAIL` (the host is not one this machine can bind). Declared duplicate binds are caught earlier at build time; RC5019 is the runtime authority for conflicts the build-time check cannot see (wildcard vs specific addresses, other processes).
 
 **Suggestion**  
-Free the port or choose another via `http: { port }` (use `0` to let the OS assign one). Check that only one HTTP plugin is configured per context, and that `host` is an address this machine can bind.
+Free the port or choose another via `servers: { <name>: { port } }` (use `0` to let the OS assign one), and check that `host` is an address this machine can bind. Surfaces that should share one listener mount on the same named server instead of declaring their own.
 
 ## RC5020
 Authorization failed: token expired during processing

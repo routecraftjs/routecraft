@@ -19,10 +19,12 @@ import { mcpPlugin, jwt } from '@routecraft/ai'
 import type { CraftConfig } from '@routecraft/routecraft'
 
 export const craftConfig: CraftConfig = {
+  servers: {
+    default: { port: 3001 },
+  },
   plugins: [
     mcpPlugin({
       transport: 'http',
-      port: 3001,
       auth: jwt({
         secret: process.env.JWT_SECRET!,
         issuer: 'https://idp.example.com',
@@ -61,8 +63,8 @@ export const craftConfig: CraftConfig = {
 | `instructions` | `string` | -- | Server-wide usage guidance on the `initialize` result; pass `''` (or omit) to send none |
 | `icons` | `McpIcon[]` | Routecraft logo | `serverInfo.icons`, inherited by tools that set none of their own; pass `[]` to omit. See [Server identity and branding](/docs/advanced/expose-as-mcp#server-identity-and-branding). |
 | `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol for the MCP server |
-| `port` | `number` | `3001` | HTTP port (http transport only) |
-| `host` | `string` | `'localhost'` | HTTP host (http transport only) |
+| `server` | `string` | `'default'` | Named entry under `defineConfig({ servers })` to mount the HTTP transport on (http transport only) |
+| `path` | `string` | `'/mcp'` | HTTP path for the MCP endpoint on the shared listener (http transport only) |
 | `auth` | `McpHttpAuthOptions` | -- | Auth for the HTTP endpoint (http transport only; see below) |
 | `cors` | `false \| McpCorsOptions` | loopback-only | CORS for the HTTP transport. Default reflects loopback `Origin` headers; set to `false` to disable or `{ origin }` to allowlist production browser clients. See [Securing capabilities -> CORS](/docs/advanced/securing-capabilities#cors). |
 | `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of local route tool names to expose, or a filter function. Applies to both `tools/list` and `tools/call`. |

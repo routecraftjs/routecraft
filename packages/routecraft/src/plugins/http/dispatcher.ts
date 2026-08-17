@@ -4,11 +4,7 @@ import { isRoutecraftError } from "../../brand";
 import { isSuspended } from "../../suspension/suspended";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
-import {
-  missingCredentialReason,
-  type AuthResult,
-  type HttpAuthMiddleware,
-} from "./auth";
+import { missingCredentialReason, type AuthResult } from "./auth";
 import type { HttpRouteEntry, HttpRouteRegistry } from "./registry";
 import {
   isSignatureRejection,
@@ -61,7 +57,6 @@ export interface AuthAwareBuiltins {
 
 export interface DispatcherOptions {
   registry: HttpRouteRegistry;
-  authMiddleware: HttpAuthMiddleware | undefined;
   maxBodySize: number;
   builtins: BuiltinHandler;
   /** Optional gated built-ins (e.g. /openapi.json under `access: "authenticated"`). */
@@ -72,10 +67,10 @@ export interface DispatcherOptions {
   /**
    * Called when the dispatcher itself synthesises a 401 because a route
    * with `auth: "required"` saw no credential. The plugin uses this to
-   * emit `auth:rejected` for the missing-credential case (the middleware
-   * cannot, because it returned `absent` rather than a Response). Reject
-   * results returned by the middleware emit their own event via the
-   * wrapper installed in `plugin.ts`.
+   * emit `auth:rejected` for the missing-credential case: the shared
+   * ingress only emits auth events when the `authenticate` thunk resolves
+   * an admit or a reject, and `absent` is neither, so this hook is the one
+   * place that case can still surface.
    */
   onAuthAbsent?: (scheme: string) => void;
   /**
@@ -97,26 +92,25 @@ export interface DispatcherOptions {
  */
 export function createDispatcher(
   opts: DispatcherOptions,
-): (req: Request, resolvedAuth?: AuthResult) => Promise<Response> {
+): (
+  req: Request,
+  authenticate?: () => Promise<AuthResult | undefined>,
+) => Promise<Response> {
   const log = opts.logger ?? defaultLogger;
 
   return async function dispatch(
     req: Request,
-    resolvedAuth?: AuthResult,
+    authenticate?: () => Promise<AuthResult | undefined>,
   ): Promise<Response> {
     const started = performance.now();
     const url = new URL(req.url);
     const method = req.method.toUpperCase() as HttpMethod;
     const pathname = url.pathname;
-    let authResolved = resolvedAuth !== undefined;
-    let authResult = resolvedAuth;
-    const resolveAuth = async (): Promise<AuthResult | undefined> => {
-      if (!authResolved) {
-        authResolved = true;
-        authResult = await opts.authMiddleware?.(req);
-      }
-      return authResult;
-    };
+    // The ingress-supplied thunk memoizes per request and emits the auth
+    // events at its single resolution, so calling it from more than one
+    // branch below never verifies twice.
+    const resolveAuth = async (): Promise<AuthResult | undefined> =>
+      authenticate?.();
 
     // 1. Match against the user registry first. Built-ins act as a default
     //    when no user route claims the path, so users can override /health
@@ -146,8 +140,8 @@ export function createDispatcher(
     //      c) Gated: require admission, 401 otherwise. Used by
     //         /openapi.json under `access: "authenticated"`.
     if (!methodMatch && pathMatchMethods.length === 0) {
-      const builtinAuth = await resolveAuth();
-      if (builtinAuth?.kind === "reject") return builtinAuth.response;
+      // Public built-ins (and plain 404s) bypass auth entirely: probes and
+      // unmatched paths must never pay validator work or emit auth events.
       const builtinRes = await opts.builtins(req, pathname);
       if (builtinRes) return builtinRes;
 
@@ -170,20 +164,18 @@ export function createDispatcher(
       }
 
       if (opts.gatedBuiltins?.paths.has(pathname)) {
-        {
-          const result = await resolveAuth();
-          // Built-ins never produce request:completed events regardless of
-          // auth outcome; only emit for user-registered routes. Treat
-          // `absent` like `reject`: gated built-ins are by definition
-          // `openapi.access: "authenticated"`, so a missing credential is
-          // a 401 just like a bad one. The plugin's wrapper emits
-          // `auth:rejected` for `reject` directly; for `absent` we surface
-          // it through the same `onAuthAbsent` hook the user-route path uses.
-          if (result?.kind === "reject") return result.response;
-          if (result?.kind === "absent") {
-            safeNotify(() => opts.onAuthAbsent?.(result.scheme));
-            return missingCredentialResponse(result.scheme);
-          }
+        const result = await resolveAuth();
+        // Built-ins never produce request:completed events regardless of
+        // auth outcome; only emit for user-registered routes. Treat
+        // `absent` like `reject`: gated built-ins are by definition
+        // `openapi.access: "authenticated"`, so a missing credential is
+        // a 401 just like a bad one. The ingress emits `auth:rejected` for
+        // `reject` at resolution; `absent` surfaces through the same
+        // `onAuthAbsent` hook the user-route path uses.
+        if (result?.kind === "reject") return result.response;
+        if (result?.kind === "absent") {
+          safeNotify(() => opts.onAuthAbsent?.(result.scheme));
+          return missingCredentialResponse(result.scheme);
         }
         const gatedRes = await opts.gatedBuiltins.handler(req, pathname);
         if (gatedRes) return gatedRes;

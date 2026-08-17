@@ -1050,12 +1050,12 @@ export interface EventDetailsMap {
     source: "registered";
   };
 
-  // -- HTTP plugin --
-  "plugin:http:server:listening": { port: number; host: string };
+  // -- Named servers (shared web ingress) --
   "server:listening": { server: string; port: number; host: string };
   "server:failed": { server: string; error: unknown };
   "server:closed": { server: string };
-  "plugin:http:server:closed": Record<string, never>;
+
+  // -- HTTP plugin --
   "plugin:http:request:completed": {
     method: string;
     path: string;

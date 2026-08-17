@@ -2,6 +2,7 @@ import type { Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import type { CallableValidator } from "../operations/validate.ts";
 import { isAuthentic } from "./authentic.ts";
+import { isPrincipalExpired } from "./expiry.ts";
 import { isRestored } from "./restored.ts";
 import { actorMatches } from "./delegate.ts";
 import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
@@ -294,26 +295,15 @@ export function authorize(
       });
     }
 
-    if (principal.expiresAt !== undefined) {
-      // Fail closed on non-finite inputs: a NaN `expiresAt` or
-      // `clockToleranceSec` would make every comparison false and silently
-      // bypass the check, so treat that as expired rather than valid.
-      //
-      // Floored and inclusive, matching jose's `exp <= now - tolerance` and
-      // RFC 7519 §4.1.4, which requires the current time to be *before* `exp`.
-      // A fractional `now` would put this boundary up to a second ahead of the
-      // verifier's; an exclusive `>` would put it a second behind.
-      if (
-        !Number.isFinite(principal.expiresAt) ||
-        !Number.isFinite(clockToleranceSec) ||
-        Math.floor(Date.now() / 1000) >= principal.expiresAt + clockToleranceSec
-      ) {
-        throw rcError("RC5020", new Error("Token expired"), {
-          message: "Authorization failed: token expired during processing",
-          suggestion:
-            "The token's `exp` is in the past (or `expiresAt` / `clockToleranceSec` was non-finite). A long-running step likely outlived the credential; the client should refresh and retry. To recover in-route, restructure the pipeline so authorize() runs before the slow step or attach a fresh principal in a .process() before the validator.",
-        });
-      }
+    // Boundary semantics (floored, inclusive, fail-closed on non-finite) live
+    // on the shared predicate so this gate and the HTTP bearer middleware can
+    // never disagree by a second.
+    if (isPrincipalExpired(principal, clockToleranceSec)) {
+      throw rcError("RC5020", new Error("Token expired"), {
+        message: "Authorization failed: token expired during processing",
+        suggestion:
+          "The token's `exp` is in the past (or `expiresAt` / `clockToleranceSec` was non-finite). A long-running step likely outlived the credential; the client should refresh and retry. To recover in-route, restructure the pipeline so authorize() runs before the slow step or attach a fresh principal in a .process() before the validator.",
+      });
     }
 
     // Actor gate before role/scope checks: "you may not be here as a

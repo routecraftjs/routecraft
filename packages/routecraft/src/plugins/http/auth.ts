@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { rcError } from "../../error";
-import { isRoutecraftError } from "../../brand";
+import { classifyRejectionReason } from "../../auth/error-classification";
+import { isPrincipalExpired } from "../../auth/expiry";
 import { markAuthentic } from "../../auth/authentic";
 import type { Principal, TokenVerifier } from "../../auth/types";
 import type {
@@ -22,9 +23,10 @@ import type {
  *   `auth: "optional"` routes. Carries the `scheme` only; the dispatcher
  *   decides whether to issue a Response based on the route's auth mode.
  * - `reject` is returned when a credential was presented but failed
- *   verification. It carries the canonical 401 response the dispatcher
- *   should return, plus the `reason` and `scheme` that drive the
- *   `auth:rejected` event payload.
+ *   verification. It carries the canonical response the dispatcher should
+ *   return (401, or 500 when verification itself failed on the server
+ *   side), plus the `reason` and `scheme` that drive the `auth:rejected`
+ *   event payload.
  */
 export type AuthResult =
   | {
@@ -125,19 +127,31 @@ export function missingCredentialReason(scheme: string): string {
 }
 
 function reject(reason: string, scheme: string, cause?: unknown): AuthResult {
+  // An infrastructure failure (JWKS unreachable, userinfo fetch failed) is a
+  // server-side fault, never the caller's credential: it maps to 500 so the
+  // client retries later instead of discarding a valid cached token and
+  // stampeding the IdP with refreshes (`.standards/security.md` Boundaries).
+  // The classification string stays on the AuthResult for the event payload
+  // but is not echoed to anonymous callers in the body.
+  const infrastructure = reason === "infrastructure";
   const headers: Record<string, string> = {
     "content-type": "application/json",
   };
   // `WWW-Authenticate` advertises a scheme the server actually accepts. Only
   // emit it for the bearer scheme; sending `Bearer` on an api-key rejection
   // mis-signals the protocol (RFC 7235) and confuses auto-refreshing clients.
-  if (scheme === "bearer") {
+  // A 500 carries no challenge at all: the credential was never judged.
+  if (scheme === "bearer" && !infrastructure) {
     headers["www-authenticate"] = 'Bearer realm="routecraft"';
   }
   const response = new Response(
-    JSON.stringify({ error: "unauthorized", reason }),
+    JSON.stringify(
+      infrastructure
+        ? { error: "authentication_unavailable" }
+        : { error: "unauthorized", reason },
+    ),
     {
-      status: 401,
+      status: infrastructure ? 500 : 401,
       headers,
     },
   );
@@ -164,33 +178,6 @@ function isValidatorAuth(auth: HttpAuth): auth is { validator: TokenVerifier } {
     !isApiKeyAuth(auth) &&
     !isOAuthReserved(auth)
   );
-}
-
-const INFRASTRUCTURE_CODES = new Set([
-  "ERR_JWKS_TIMEOUT",
-  "ERR_JWKS_INVALID",
-  "ERR_JOSE_GENERIC",
-  "ECONNREFUSED",
-  "ECONNRESET",
-  "ENOTFOUND",
-  "EAI_AGAIN",
-  "ETIMEDOUT",
-  "UND_ERR_CONNECT_TIMEOUT",
-  "UND_ERR_HEADERS_TIMEOUT",
-  "UND_ERR_SOCKET",
-]);
-
-/** Classify framework, JOSE, and nested network failures consistently. */
-function isInfrastructureError(error: unknown): boolean {
-  if (isRoutecraftError(error)) return true;
-  let current: unknown = error;
-  for (let depth = 0; depth < 5; depth++) {
-    if (typeof current !== "object" || current === null) return false;
-    const code = (current as { code?: unknown }).code;
-    if (typeof code === "string" && INFRASTRUCTURE_CODES.has(code)) return true;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
 }
 
 // Default key name differs per location to match each convention: `x-api-key`
@@ -305,6 +292,12 @@ export function createAuthMiddleware(
 
   if (isValidatorAuth(auth)) {
     const validator = auth.validator;
+    const clockToleranceSec =
+      "clockToleranceSec" in auth &&
+      typeof (auth as { clockToleranceSec?: unknown }).clockToleranceSec ===
+        "number"
+        ? (auth as { clockToleranceSec: number }).clockToleranceSec
+        : 0;
     return async (req: Request): Promise<AuthResult> => {
       // `absent` is reserved for "no Authorization header at all". A header
       // with a different scheme (Basic, Digest, etc.) or a Bearer scheme
@@ -327,17 +320,19 @@ export function createAuthMiddleware(
         if (!principal) {
           return reject("invalid_token", "bearer");
         }
+        // Defense in depth for custom validators that return an already
+        // elapsed `expiresAt` instead of throwing: the built-in verifiers
+        // enforce `exp` themselves, but a hand-rolled one may not.
+        if (isPrincipalExpired(principal, clockToleranceSec)) {
+          return reject("expired", "bearer");
+        }
         return {
           kind: "admit",
           principal: markAuthentic(principal),
           credential: token,
         };
       } catch (error) {
-        return reject(
-          isInfrastructureError(error) ? "infrastructure" : "invalid_token",
-          "bearer",
-          error,
-        );
+        return reject(classifyRejectionReason(error), "bearer", error);
       }
     };
   }

@@ -1,6 +1,5 @@
 import { describe, test, expect } from "bun:test";
 import {
-  applyCorsHeaders,
   buildCorsHeaders,
   defaultLoopbackOriginResolver,
   resolveCorsOptions,
@@ -299,94 +298,6 @@ describe("MCP CORS helper", () => {
       });
       const headers = buildCorsHeaders(cors, "http://localhost:6274", false);
       expect(headers).toEqual({ Vary: "Origin" });
-    });
-  });
-
-  describe("applyCorsHeaders", () => {
-    /**
-     * Minimal fake of a Node ServerResponse that records setHeader/appendHeader calls.
-     */
-    function fakeRes(initial: Record<string, string | string[]> = {}) {
-      const single: Record<string, string> = {};
-      const lists: Record<string, string[]> = {};
-      for (const [k, v] of Object.entries(initial)) {
-        if (typeof v === "string") {
-          lists[k.toLowerCase()] = [v];
-        } else {
-          lists[k.toLowerCase()] = [...v];
-        }
-      }
-      return {
-        setHeader: (name: string, value: string) => {
-          single[name] = value;
-          lists[name.toLowerCase()] = [value];
-        },
-        appendHeader: (name: string, value: string) => {
-          const key = name.toLowerCase();
-          if (!lists[key]) lists[key] = [];
-          lists[key].push(value);
-        },
-        single,
-        lists,
-      };
-    }
-
-    /**
-     * @case applyCorsHeaders appends Vary so a pre-existing Vary value is preserved
-     * @preconditions Response already has `Vary: Accept-Encoding` from compression middleware; loopback request
-     * @expectedResult Both `Accept-Encoding` and `Origin` are present as Vary values; setHeader does not clobber the prior value
-     */
-    test("appendHeader preserves an existing Vary value", () => {
-      const cors = resolveCorsOptions(undefined);
-      const res = fakeRes({ Vary: "Accept-Encoding" });
-      applyCorsHeaders(
-        res as unknown as Parameters<typeof applyCorsHeaders>[0],
-        cors,
-        "http://localhost:6274",
-        false,
-      );
-      const vary = res.lists["vary"];
-      expect(vary).toBeDefined();
-      expect(vary).toContain("Accept-Encoding");
-      expect(vary).toContain("Origin");
-      expect(res.single["Access-Control-Allow-Origin"]).toBe(
-        "http://localhost:6274",
-      );
-    });
-
-    /**
-     * @case applyCorsHeaders is a no-op when CORS is disabled
-     * @preconditions resolveCorsOptions(false); any request Origin
-     * @expectedResult No setHeader or appendHeader calls leave traces on the response
-     */
-    test("no-op when CORS is disabled", () => {
-      const res = fakeRes();
-      applyCorsHeaders(
-        res as unknown as Parameters<typeof applyCorsHeaders>[0],
-        null,
-        "http://localhost:6274",
-        false,
-      );
-      expect(Object.keys(res.single)).toEqual([]);
-      expect(Object.keys(res.lists)).toEqual([]);
-    });
-
-    /**
-     * @case applyCorsHeaders still appends Vary when the request Origin is rejected (loopback default)
-     * @preconditions Default policy; non-loopback Origin
-     * @expectedResult Vary: Origin is appended; no Access-Control-Allow-Origin set
-     */
-    test("rejected origin still appends Vary: Origin", () => {
-      const cors = resolveCorsOptions(undefined);
-      const res = fakeRes();
-      applyCorsHeaders(
-        res as unknown as Parameters<typeof applyCorsHeaders>[0],
-        cors,
-        "https://evil.example",
-        false,
-      );
-      expect(res.lists["vary"]).toEqual(["Origin"]);
-      expect(res.single["Access-Control-Allow-Origin"]).toBeUndefined();
     });
   });
 });

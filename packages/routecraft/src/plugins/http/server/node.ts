@@ -61,21 +61,34 @@ export function startNodeServer(
 
       const address = server.address() as AddressInfo | null;
       const resolvedPort = address?.port ?? opts.port;
+      // One close() call, shared between both close modes: `forceClose` after
+      // a timed-out `gracefulClose` would otherwise call close() a second
+      // time and reject with ERR_SERVER_NOT_RUNNING even though the force
+      // path did exactly its job.
+      let closed: Promise<void> | undefined;
+      const requestClose = (): Promise<void> => {
+        closed ??= new Promise<void>((res, rej) => {
+          server.close((err) =>
+            err &&
+            (err as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING"
+              ? rej(err)
+              : res(),
+          );
+        });
+        return closed;
+      };
       resolve({
         port: resolvedPort,
         gracefulClose: () => {
-          const closed = new Promise<void>((res, rej) => {
-            server.close((err) => (err ? rej(err) : res()));
-          });
+          const done = requestClose();
+          // Parked keep-alive sockets hold close() open forever; reap them so
+          // the grace window only covers genuinely in-flight requests.
           server.closeIdleConnections();
-          return closed;
+          return done;
         },
         forceClose: () => {
-          const closed = new Promise<void>((res, rej) => {
-            server.close((err) => (err ? rej(err) : res()));
-          });
           server.closeAllConnections();
-          return closed;
+          return requestClose();
         },
       });
     });

@@ -16,6 +16,13 @@ export {
 export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
 export { delegate, type DelegateOptions } from "./auth/delegate.ts";
 export { isAuthentic, markAuthentic } from "./auth/authentic.ts";
+export {
+  classifyRejectionReason,
+  isExpiredTokenError,
+  isInfrastructureError,
+  type AuthRejectionReason,
+} from "./auth/error-classification.ts";
+export { isPrincipalExpired } from "./auth/expiry.ts";
 export { isRestored, markRestored } from "./auth/restored.ts";
 export type {
   ActorMatcher,
@@ -86,6 +93,8 @@ export { serversPlugin } from "./plugins/server/plugin.ts";
 export { requireWebIngress } from "./plugins/server/registry.ts";
 export type {
   HttpMount,
+  HttpMountAuthPolicy,
+  HttpMountContext,
   HttpServerDefinition,
   PathClaim,
   ServerDefinitions,

@@ -23,8 +23,6 @@
  * later if a real use case demands it.
  */
 
-import type { ServerResponse } from "node:http";
-
 /**
  * Resolver form of `origin`. Receives the request's `Origin` header (or
  * `undefined` when absent) and returns either the value to echo in
@@ -208,10 +206,8 @@ function safeResolveOrigin(
  * origin. Disallowed origins receive `{ Vary: "Origin" }` only, with no
  * `Access-Control-Allow-Origin`.
  *
- * The caller is responsible for applying these headers. Use
- * {@link applyCorsHeaders} on a Node `ServerResponse` to merge `Vary` with
- * any existing value (compression middleware, etc.); spread the record into
- * a `writeHead` call when no prior `setHeader("Vary", ...)` is in play.
+ * The caller is responsible for applying these headers: spread the record
+ * into the response headers, appending `Vary` when a prior value exists.
  *
  * @param cors Resolved CORS options, or `null` to short-circuit.
  * @param requestOrigin Value of the request's `Origin` header.
@@ -256,71 +252,6 @@ export function buildCorsHeaders(
   return headers;
 }
 
-/**
- * Apply CORS headers to a Node `ServerResponse`. Uses `setHeader` for the
- * `Access-Control-*` family and `appendHeader` for `Vary` so any existing
- * `Vary` value (e.g. `Vary: Accept-Encoding` from compression middleware)
- * is preserved.
- *
- * A no-op when `cors === null`.
- *
- * @internal
- */
-export function applyCorsHeaders(
-  res: ServerResponse,
-  cors: ResolvedMcpCors | null,
-  requestOrigin: string | undefined,
-  preflight: boolean,
-): void {
-  if (!cors) return;
-  const { Vary, ...rest } = buildCorsHeaders(cors, requestOrigin, preflight);
-  for (const [name, value] of Object.entries(rest)) {
-    res.setHeader(name, value);
-  }
-  if (Vary !== undefined) {
-    res.appendHeader("Vary", Vary);
-  }
-}
-
 /** Root path of the RFC 9728 protected-resource metadata document. */
 export const PROTECTED_RESOURCE_METADATA_PATH =
   "/.well-known/oauth-protected-resource";
-
-/**
- * Build the set of paths the MCP HTTP transport owns for CORS purposes, given
- * the resolved resource URL.
- *
- * The transport always listens on `/mcp` (and `/mcp/`). RFC 9728 §3 metadata
- * lives at the root path **and** at a path-suffixed variant derived from
- * `resource.url`'s pathname: e.g. for `resource.url = https://example.com/api/mcp`
- * the canonical client probe is `/.well-known/oauth-protected-resource/api/mcp`.
- * Both metadata URLs serve the identical document.
- *
- * The path-suffixed URL is derived dynamically from `resource.url` so a
- * non-default resource path still answers at the URL RFC 9728 §3 tells a
- * client to probe, preserving the "identical JSON at every advertised URL"
- * promise in `.standards/security.md` §6.
- *
- * Returns the set of owned paths (always includes `/mcp`, `/mcp/`, and the
- * root metadata path; conditionally includes the path-suffixed metadata path).
- * The `metadataPaths` field is the subset on which the metadata document
- * is served.
- *
- * @internal
- */
-export interface McpOwnedPaths {
-  /** All paths the framework owns (CORS allowlist + OPTIONS short-circuit). */
-  ownedPaths: ReadonlySet<string>;
-  /** Subset of ownedPaths on which the RFC 9728 metadata doc is served. */
-  metadataPaths: ReadonlySet<string>;
-}
-
-export function buildMcpOwnedPaths(resourceUrl: URL): McpOwnedPaths {
-  const metadataPaths = new Set<string>([PROTECTED_RESOURCE_METADATA_PATH]);
-  const rsPath = resourceUrl.pathname;
-  if (rsPath && rsPath !== "/" && rsPath !== "") {
-    metadataPaths.add(`${PROTECTED_RESOURCE_METADATA_PATH}${rsPath}`);
-  }
-  const ownedPaths = new Set<string>([...metadataPaths, "/mcp", "/mcp/"]);
-  return { ownedPaths, metadataPaths };
-}
