@@ -305,8 +305,8 @@ export interface HttpServerOptions {
    * verifies the raw request bytes against the configured header before
    * any route step runs; a missing, invalid, or expired signature returns
    * 401 and emits `auth:rejected` with `scheme: "signature"`. Independent
-   * of the global `auth` gate; combine with `auth: "skip"` for webhook
-   * endpoints whose only credential is the signature itself.
+   * of the mount's bearer wall; place webhook routes whose only credential
+   * is the signature itself on a public mount (`auth: false`).
    *
    * Only valid on body-bearing methods; configuring it on `GET`, `HEAD`,
    * `DELETE`, or `OPTIONS` throws RC5003 at construction. For providers

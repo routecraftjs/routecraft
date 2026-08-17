@@ -27,6 +27,7 @@ import type { HttpOpenApiInfo } from "./openapi";
 import type { HttpWebhookSignatureRejection } from "./webhook-signature";
 import { findPackageInfo } from "./package-info";
 import { requireWebIngress } from "../server/registry.ts";
+import { normalizeStaticPathPrefix } from "../server/mount-path.ts";
 import type { PathClaim } from "../server/types.ts";
 import { staticPathPrefix } from "./path-matcher.ts";
 
@@ -404,31 +405,8 @@ function normalizeMountPath(
   name: string,
   definition: HttpMountDefinition,
 ): string {
-  const raw = definition.path;
-  if (typeof raw !== "string" || !raw.startsWith("/")) {
-    throw rcError("RC5003", undefined, {
-      message: `httpPlugin: mount "${name}" has invalid path ${JSON.stringify(raw)}. Pass an absolute prefix such as "/api" (or "/" for the catch-all).`,
-    });
-  }
-  const trimmed = raw.length > 1 ? raw.replace(/\/+$/, "") : raw;
-  const path = trimmed === "" ? "/" : trimmed;
-  // A mount path is a STATIC pathname prefix: prefixes match literally, so a
-  // query, fragment, ":param" segment, empty segment, or backslash would
-  // produce a mount that silently never matches what the author meant.
-  if (path !== "/" && !/^\/(?:[^/?#:\\]+\/)*[^/?#:\\]+$/.test(path)) {
-    throw rcError("RC5003", undefined, {
-      message: `httpPlugin: mount "${name}" has invalid path ${JSON.stringify(raw)}. Mount paths are static pathname prefixes: no "?", "#", ":param" segments, empty segments, or backslashes.`,
-    });
-  }
-  // Dispatch compares the request URL's parsed pathname against this prefix,
-  // and WHATWG URL parsing rewrites dot segments (".", "..", their encoded
-  // forms) and percent-encodes spaces and non-ASCII. A path the parser would
-  // rewrite can never match what the server dispatches on, so it must
-  // already round-trip unchanged.
-  if (new URL(path, "http://routecraft.invalid").pathname !== path) {
-    throw rcError("RC5003", undefined, {
-      message: `httpPlugin: mount "${name}" has invalid path ${JSON.stringify(raw)}. Mount paths must be canonical pathnames: no "." or ".." segments, spaces, or characters the URL parser rewrites.`,
-    });
-  }
-  return path;
+  return normalizeStaticPathPrefix(
+    definition.path,
+    `httpPlugin: mount "${name}"`,
+  );
 }

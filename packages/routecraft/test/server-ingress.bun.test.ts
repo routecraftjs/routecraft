@@ -52,7 +52,7 @@ describe("named server ingress", () => {
 
   /**
    * @case Claims are evaluated during start validation
-   * @preconditions A dynamic HTTP route registered after mounting overlaps MCP
+   * @preconditions A dynamic HTTP route registered after mounting overlaps the health exact mount
    * @expectedResult Validation fails before the listener binds
    */
   test("detects late dynamic route conflicts", async () => {
@@ -80,6 +80,68 @@ describe("named server ingress", () => {
     routes.push(compilePathMatcher("/health"));
 
     expect(() => ingress.validate()).toThrow(/conflicts/);
+  });
+
+  /**
+   * @case A literal root route does not conflict with a named mount
+   * @preconditions A catch-all mount carrying a literal route pattern at "/" and an exact mount at "/api/mcp"
+   * @expectedResult Validation passes: a root route serves only "/" and never a path under another mount's prefix
+   */
+  test("allows a literal root route beside another mount", async () => {
+    const context = (await testContext().build()).ctx;
+    const ingress = new HttpMountRegistry("public", context);
+    const matcher = compilePathMatcher("/");
+    ingress.mountHttp({
+      id: "http",
+      claims: () => [
+        { kind: "prefix", path: "/" },
+        {
+          kind: "pattern",
+          matcher,
+          staticPrefix: staticPathPrefix(matcher.pattern),
+          methods: ["GET"],
+        },
+      ],
+      handler: () => new Response("http"),
+    });
+    ingress.mountHttp({
+      id: "mcp",
+      claims: () => [{ kind: "exact", path: "/api/mcp", methods: ["POST"] }],
+      handler: () => new Response("mcp"),
+    });
+
+    expect(() => ingress.validate()).not.toThrow();
+  });
+
+  /**
+   * @case A fixed-depth pattern is disjoint from a deeper prefix
+   * @preconditions A two-segment pattern "/status/:id" and a prefix mount at "/status/archive/deep"
+   * @expectedResult Validation passes: the pattern can never match a pathname at the prefix's depth
+   */
+  test("allows a shallow pattern beside a deeper prefix mount", async () => {
+    const context = (await testContext().build()).ctx;
+    const ingress = new HttpMountRegistry("public", context);
+    const matcher = compilePathMatcher("/status/:id");
+    ingress.mountHttp({
+      id: "http",
+      claims: () => [
+        { kind: "prefix", path: "/" },
+        {
+          kind: "pattern",
+          matcher,
+          staticPrefix: staticPathPrefix(matcher.pattern),
+          methods: ["GET"],
+        },
+      ],
+      handler: () => new Response("http"),
+    });
+    ingress.mountHttp({
+      id: "archive",
+      claims: () => [{ kind: "prefix", path: "/status/archive/deep" }],
+      handler: () => new Response("archive"),
+    });
+
+    expect(() => ingress.validate()).not.toThrow();
   });
 
   /**

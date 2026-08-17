@@ -355,7 +355,7 @@ Emitted on every auth attempt by every auth-enabled surface: HTTP routes, the MC
 | `auth:success` | Credential validated and principal resolved | `{ subject, scheme, source }` |
 | `auth:rejected` | Auth failed | `{ reason, scheme, source }` |
 
-`reason` is a bounded vocabulary, never free text. Bearer authentication uses `"expired"`, `"infrastructure"`, `"invalid_token"`, `"missing_header"`, `"unsupported_scheme"`, `"missing_expires_at"`, and `"insufficient_scope"` where applicable (an `"infrastructure"` rejection is answered with a 500, never a 401, so clients keep their cached token during an IdP blip). API-key authentication uses `"missing api key"` and `"invalid api key"`. Webhook signatures use `"missing signature header"`, `"invalid signature"`, and `"signature expired"` with `scheme: "signature"`.
+`reason` is a bounded vocabulary, never free text. Bearer authentication uses `"expired"`, `"infrastructure"`, `"invalid_token"`, `"missing_header"`, `"unsupported_scheme"`, and `"insufficient_scope"` where applicable (an `"infrastructure"` rejection is answered with a 500, never a 401, so clients keep their cached token during an IdP blip). API-key authentication uses `"missing api key"` and `"invalid api key"`. Webhook signatures use `"missing signature header"`, `"invalid signature"`, and `"signature expired"` with `scheme: "signature"`.
 
 ## Server events
 

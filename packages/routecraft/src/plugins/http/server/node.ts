@@ -202,6 +202,12 @@ async function writeNodeResponse(
     void reader.cancel(signal.reason);
     nRes.destroy();
   };
+  // The client may have disconnected while the fetch handler was still
+  // running; a listener added now would never fire, so cancel directly.
+  if (signal.aborted) {
+    onAbort();
+    return;
+  }
   signal.addEventListener("abort", onAbort, { once: true });
   try {
     for (;;) {
@@ -209,12 +215,34 @@ async function writeNodeResponse(
       if (done) break;
       if (value) {
         if (!nRes.write(value)) {
-          await new Promise<void>((resolve) => nRes.once("drain", resolve));
+          // "drain" never fires on a destroyed response, so a disconnect
+          // mid-backpressure must also settle this wait or the request
+          // promise parks until force-close.
+          const resumed = await new Promise<"drain" | "closed">((resolve) => {
+            const onDrain = (): void => {
+              cleanup();
+              resolve("drain");
+            };
+            const onClose = (): void => {
+              cleanup();
+              resolve("closed");
+            };
+            const cleanup = (): void => {
+              nRes.off("drain", onDrain);
+              nRes.off("close", onClose);
+            };
+            nRes.once("drain", onDrain);
+            nRes.once("close", onClose);
+          });
+          if (resumed === "closed") {
+            void reader.cancel(new Error("Client disconnected"));
+            break;
+          }
         }
       }
     }
   } finally {
     signal.removeEventListener("abort", onAbort);
-    if (!signal.aborted) nRes.end();
+    if (!signal.aborted && !nRes.destroyed) nRes.end();
   }
 }

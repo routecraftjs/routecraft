@@ -562,12 +562,11 @@ describe("MCP 2026-07-28 stateless revision", () => {
 
     /**
      * @case Expiry is rejected at the inclusive whole-second boundary
-     * @preconditions Custom verifier returns expiresAt equal to the current floored Unix second
-     * @expectedResult 401 because RFC 7519 requires current time to remain strictly before exp
+     * @preconditions Custom verifier computes expiresAt as the current floored Unix second at request time, so the gate observes now == exp rather than now > exp
+     * @expectedResult 401 because RFC 7519 requires current time to remain strictly before exp; a strict (>) gate would admit this principal
      */
     test("rejects at the inclusive expiry boundary", async () => {
       const { oauth } = await import("../src/mcp/oauth.ts");
-      const expiresAt = Math.floor(Date.now() / 1000);
       const { url } = await start([echoRoute()], {
         auth: oauth({
           issuer: ISSUER,
@@ -575,7 +574,10 @@ describe("MCP 2026-07-28 stateless revision", () => {
             kind: "custom" as const,
             scheme: "bearer" as const,
             subject: "boundary-user",
-            expiresAt,
+            // Captured inside verify, not at test setup: the gate runs
+            // microseconds later, so it sees now == expiresAt and only the
+            // inclusive comparison rejects.
+            expiresAt: Math.floor(Date.now() / 1000),
           }),
         }),
         resource: { url: "https://mcp.test.example/mcp" },

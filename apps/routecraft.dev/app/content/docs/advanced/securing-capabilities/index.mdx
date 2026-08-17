@@ -263,7 +263,7 @@ This is how MCP clients auto-discover your IdP. Protocol revision 2026-07-28 dep
 
 ## CORS
 
-Browser-based MCP clients (MCP Inspector UI, Claude.ai custom connectors, web-hosted Claude Desktop) need CORS headers on the MCP HTTP transport. The framework handles this on three surfaces: `/mcp`, `/.well-known/oauth-protected-resource`, and the 401 `WWW-Authenticate` response.
+Browser-based MCP clients (MCP Inspector UI, Claude.ai custom connectors, web-hosted Claude Desktop) need CORS headers on the MCP HTTP transport. The framework handles this on three surfaces: the MCP path, the path-suffixed metadata document (`/.well-known/oauth-protected-resource/mcp` for the default path), and the 401 `WWW-Authenticate` response.
 
 The default policy is **loopback-only**: a browser request whose `Origin` is on `localhost`, `127.0.0.1`, or `[::1]` (any port, http or https) gets reflected; everything else gets no `Access-Control-Allow-Origin` and is blocked by the browser. This is production-safe by construction: local browser tooling like MCP Inspector at `http://localhost:6274` works with zero config, while production browser origins must be allowlisted explicitly.
 

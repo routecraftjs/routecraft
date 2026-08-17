@@ -833,11 +833,7 @@ describe("MCP tool proxying over HTTP with auth", () => {
       ],
     });
     await server.prepare();
-    const listening = new Promise<void>((resolve) => {
-      t.ctx.on("server:listening", () => resolve());
-    });
-    void t.ctx.start();
-    await listening;
+    await t.startAndWaitReady();
     await server.start();
     const port = server.getHttpPort()!;
 

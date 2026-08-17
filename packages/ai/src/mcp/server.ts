@@ -212,8 +212,6 @@ export class McpServer {
   private serverOptions: SdkServerOptions | null = null;
   private running = false;
   private boundPort: number | undefined;
-  private readonly bound: Promise<void>;
-  private resolveBound!: () => void;
   private readonly stopListeningForServer: () => void;
   private toolsListLogged = false;
   /**
@@ -247,15 +245,11 @@ export class McpServer {
       path: "/mcp",
       ...options,
     };
-    this.bound = new Promise<void>((resolve) => {
-      this.resolveBound = resolve;
-    });
     this.stopListeningForServer = context.on(
       "server:listening",
       ({ details }) => {
         if (details.server !== this.options.server) return;
         this.boundPort = details.port;
-        this.resolveBound();
       },
     );
     this.validateResourceConfig();
@@ -383,34 +377,14 @@ export class McpServer {
 
       if (transport !== "http") {
         await this.startStdio();
-      } else if (this.boundPort === undefined) {
-        // Bounded wait: a start() hook must never hold the context down
-        // forever (.standards/plugin-lifecycle.md section 2). The named
-        // server binds in its own start() before this plugin's, so a
-        // correct configuration resolves immediately; the deadline only
-        // fires when the servers plugin is missing or registered after
-        // this one.
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try {
-          await Promise.race([
-            this.bound,
-            new Promise<never>((_, reject) => {
-              timer = setTimeout(
-                () =>
-                  reject(
-                    new TypeError(
-                      `mcpPlugin: named server "${this.options.server}" did not start listening within 30s. Ensure defineConfig({ servers }) declares it and the servers plugin starts before mcpPlugin.`,
-                    ),
-                  ),
-                30_000,
-              );
-              (timer as { unref?: () => void }).unref?.();
-            }),
-          ]);
-        } finally {
-          if (timer !== undefined) clearTimeout(timer);
-        }
       }
+      // The HTTP transport does not wait for the named server to bind: a
+      // request cannot reach the mount before the listener is up, so every
+      // bound-address consumer runs strictly after `server:listening`, and
+      // waiting here would deadlock the sequential plugin start hooks
+      // whenever this plugin is registered before the servers plugin. A
+      // missing or undeclared server already fails fast in prepare() via
+      // requireWebIngress.
 
       this.running = true;
       this.context.logger.info(

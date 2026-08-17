@@ -1864,11 +1864,11 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case 404 on an unknown path still carries CORS headers when CORS is enabled
+       * @case 404 on a path outside the MCP claims is served by the ingress without CORS headers
        * @preconditions Default cors policy; GET /not/a/real/path with loopback Origin
-       * @expectedResult Response is 404, but Access-Control-Allow-Origin is set so the browser can read the status rather than surfacing a misleading CORS error
+       * @expectedResult 404 with no Access-Control-Allow-Origin: the path matches no mount claim, so the ingress answers before the MCP handler (and its CORS policy) is ever consulted
        */
-      test("404 on unknown path carries CORS headers", async () => {
+      test("404 on unmatched path is served by the ingress without CORS headers", async () => {
         const { get } = await startHttpServer([]);
         const res = await get("/not/a/real/path", { Origin: LOOPBACK_ORIGIN });
         expect(res.statusCode).toBe(404);
@@ -2756,7 +2756,7 @@ describe("McpServer", () => {
         });
 
         await server.prepare();
-        void t.ctx.start();
+        await t.startAndWaitReady();
         await server.start();
         const port = server.getHttpPort()!;
 
@@ -3142,7 +3142,7 @@ describe("McpServer", () => {
         });
       });
       await server.prepare();
-      void t.ctx.start();
+      await t.startAndWaitReady();
       await routesReady;
       await server.start();
 
@@ -3198,7 +3198,7 @@ describe("McpServer", () => {
         });
       });
       await server.prepare();
-      void t.ctx.start();
+      await t.startAndWaitReady();
       await routesReady;
       await server.start();
       const port = server.getHttpPort()!;
@@ -3315,7 +3315,7 @@ describe("McpServer", () => {
         });
       });
       await server.prepare();
-      void t.ctx.start();
+      await t.startAndWaitReady();
       await routesReady;
       await server.start();
       const port = server.getHttpPort()!;
@@ -3436,7 +3436,7 @@ describe("McpServer", () => {
         });
       });
       await server.prepare();
-      void t.ctx.start();
+      await t.startAndWaitReady();
       await routesReady;
       await server.start();
       const port = server.getHttpPort()!;
@@ -3540,7 +3540,7 @@ describe("McpServer", () => {
       });
 
       await server.prepare();
-      void t.ctx.start();
+      await t.startAndWaitReady();
       await server.start();
       const port = server.getHttpPort()!;
 
@@ -3608,7 +3608,7 @@ describe("McpServer", () => {
       });
 
       await server.prepare();
-      void t.ctx.start();
+      await t.startAndWaitReady();
       await server.start();
       const port = server.getHttpPort()!;
 
@@ -3677,7 +3677,7 @@ describe("McpServer", () => {
       });
 
       await server.prepare();
-      void t.ctx.start();
+      await t.startAndWaitReady();
       await server.start();
       const port = server.getHttpPort()!;
 

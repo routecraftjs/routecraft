@@ -60,6 +60,29 @@ function patternsOverlap(left: string, right: string): boolean {
   });
 }
 
+/**
+ * A pattern has a fixed segment count, so it reaches into a prefix claim only
+ * when it is at least as deep as the prefix and its leading segments can
+ * match the prefix's literals. Comparing on the pattern's static prefix alone
+ * would flag `/api/:id` against the disjoint mount `/api/v1/deep`, and a
+ * literal root route (static prefix `/`) against every mount.
+ */
+function patternOverlapsPrefix(pattern: string, prefixPath: string): boolean {
+  const patternSegments = pattern
+    .replace(/\/+$/, "")
+    .split("/")
+    .filter(Boolean);
+  const prefixSegments = prefixPath
+    .replace(/\/+$/, "")
+    .split("/")
+    .filter(Boolean);
+  if (patternSegments.length < prefixSegments.length) return false;
+  return prefixSegments.every((segment, index) => {
+    const candidate = patternSegments[index]!;
+    return candidate.startsWith(":") || candidate === segment;
+  });
+}
+
 function claimsOverlap(a: PathClaim, b: PathClaim): boolean {
   if (!methodsOverlap(a, b)) return false;
   if (a.kind === "exact" && b.kind === "exact") return a.path === b.path;
@@ -83,10 +106,7 @@ function claimsOverlap(a: PathClaim, b: PathClaim): boolean {
   }
   if (a.kind === "pattern" && b.kind === "prefix") {
     if (b.path === "/") return false;
-    return (
-      prefixContains(b.path, a.staticPrefix) ||
-      prefixContains(a.staticPrefix, b.path)
-    );
+    return patternOverlapsPrefix(a.matcher.pattern, b.path);
   }
   if (a.kind === "prefix" && b.kind === "pattern") {
     return claimsOverlap(b, a);

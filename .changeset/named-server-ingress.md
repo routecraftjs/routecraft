@@ -68,9 +68,16 @@ user-visible changes:
   and 401 body), matching MCP and the documented bounded vocabulary;
   api-key keeps `missing api key`.
 - Mount paths are validated as static canonical pathname prefixes: no `?`,
-  `#`, `:param` segments, empty segments, or backslashes, and the path must
-  survive URL parsing unchanged (no `.` or `..` segments, raw or encoded,
-  no spaces or characters the parser percent-encodes).
+  `#`, `:param` segments, empty segments, backslashes, or percent-encoding,
+  and the path must survive URL parsing unchanged (no `.` or `..` segments,
+  no spaces or characters the parser rewrites). `mcpPlugin({ path })` is held
+  to the same contract and additionally rejects `"/"` (previously a root
+  path was silently remapped to `/mcp`); the shared validator is exported as
+  `normalizeStaticPathPrefix`.
+- `mcpPlugin`'s HTTP transport no longer waits for its named server to bind
+  during the plugin `start()` hook, so plugin registration order relative to
+  the servers plugin cannot deadlock startup. A missing or undeclared server
+  still fails fast at apply time.
 - Listeners reap idle connections after 255s, and mounts that hold quiet
   long-lived streams (the MCP transport; custom mounts via
   `longLived: true`) exempt their requests per request, so silent streams

@@ -413,6 +413,8 @@ describe("HTTP Source Adapter", () => {
       "/api\\admin",
       "/%2e%2e/admin",
       "/api /v1",
+      "/api//",
+      "/api%41",
     ]) {
       let err: unknown;
       try {

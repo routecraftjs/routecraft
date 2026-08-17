@@ -30,7 +30,8 @@ function isStdioConfig(config: ClientConfig): config is McpClientStdioConfig {
 }
 
 /**
- * MCP plugin: one plugin per adapter. Starts the MCP server during plugin apply (before routes start) so startup failures fail context build. Exposes mcp() routes to external MCP clients.
+ * MCP plugin: one plugin per adapter. Exposes mcp() routes to external MCP clients.
+ * apply() validates options, registers clients, and mounts the HTTP transport on its named server, so misconfiguration fails context build; the server itself starts in the start() hook, after routes are up, and a failure there fails context.start().
  * Optional clients: register named remote MCP servers so routes can use .to(mcp("name:tool")) without passing url.
  * Stdio clients are spawned as subprocesses with auto-restart; HTTP clients are used for ephemeral tool calls.
  * All discovered external tools (stdio, HTTP) are stored in a unified McpToolRegistry for agent adapter discovery.

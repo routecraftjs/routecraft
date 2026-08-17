@@ -1,5 +1,9 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { formatSchemaIssues, rcError } from "@routecraft/routecraft";
+import {
+  formatSchemaIssues,
+  normalizeStaticPathPrefix,
+  rcError,
+} from "@routecraft/routecraft";
 import { exposedNameFor, parseProxyRef } from "./proxy.ts";
 import { MCP_TOOL_NAME_PATTERN } from "./types.ts";
 import type { McpPluginOptions } from "./types.ts";
@@ -36,8 +40,16 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
     if (options.server !== undefined && options.server.length === 0) {
       throw new TypeError("mcpPlugin: server name must not be empty");
     }
-    if (options.path !== undefined && !options.path.startsWith("/")) {
-      throw new TypeError("mcpPlugin: path must start with '/'");
+    if (options.path !== undefined) {
+      // Same canonical static-path contract as http mounts: the claim is
+      // compared literally against parsed request pathnames, so anything
+      // URL parsing rewrites would make the endpoint unreachable.
+      const path = normalizeStaticPathPrefix(options.path, "mcpPlugin");
+      if (path === "/") {
+        throw new TypeError(
+          'mcpPlugin: path must not be "/". Mount the MCP endpoint under a non-root path such as "/mcp".',
+        );
+      }
     }
   }
 

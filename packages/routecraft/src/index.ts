@@ -91,6 +91,7 @@ import "./suspension/config.ts";
 export { httpPlugin } from "./plugins/http/plugin.ts";
 export { serversPlugin } from "./plugins/server/plugin.ts";
 export { requireWebIngress } from "./plugins/server/registry.ts";
+export { normalizeStaticPathPrefix } from "./plugins/server/mount-path.ts";
 export type {
   HttpMount,
   HttpMountAuthPolicy,

@@ -365,6 +365,42 @@ describe("MCP Plugin Integration", () => {
     });
 
     /**
+     * @case The MCP path is held to the canonical static-path contract
+     * @preconditions HTTP transport with paths carrying a query, param segment, dot segment, backslash, or percent-encoding
+     * @expectedResult RC5003 at construction for each; the claim could never match a parsed request pathname
+     */
+    test("rejects non-canonical MCP paths at construction", () => {
+      for (const path of [
+        "/mcp?v=1",
+        "/mcp/:tenant",
+        "/mcp/../admin",
+        "/mcp\\admin",
+        "/%2e%2e/mcp",
+        "/mcp//",
+      ]) {
+        let caught: unknown;
+        try {
+          mcpPlugin({ transport: "http", path });
+        } catch (err) {
+          caught = err;
+        }
+        expect(isRoutecraftError(caught)).toBe(true);
+        expect((caught as { rc?: string }).rc).toBe("RC5003");
+      }
+    });
+
+    /**
+     * @case A root MCP path is refused rather than silently remapped
+     * @preconditions HTTP transport with path "/"
+     * @expectedResult Construction throws instead of quietly serving /mcp; a root endpoint needs the bare RFC 9728 well-known document the framework does not serve yet
+     */
+    test("rejects a root MCP path at construction", () => {
+      expect(() => mcpPlugin({ transport: "http", path: "/" })).toThrow(
+        /must not be "\/"/,
+      );
+    });
+
+    /**
      * @case The suggested replacement name satisfies the rule that rejected the original
      * @preconditions Client names that a naive separator-split suggestion would fix incorrectly
      * @expectedResult Every suggested name is one the validator accepts, so following the error works first time

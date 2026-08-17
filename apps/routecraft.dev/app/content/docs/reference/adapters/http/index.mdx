@@ -8,7 +8,7 @@ title: http
 
 `http()` is overloaded by option shape:
 
-- `http({ path, method?, public? })` returns a **Source**. Use with `.from(...)` to expose a route over HTTP. Requires `defineConfig({ servers: {...}, http: {...} })`: the named server owns the listener (host, port), the `http` key owns routing and global auth. Bun runtimes bind via `Bun.serve` natively; Node 22+ uses a thin `node:http` shim. Zero runtime dependencies.
+- `http({ path, method?, mount? })` returns a **Source**. Use with `.from(...)` to expose a route over HTTP. Requires `defineConfig({ servers: {...}, http: {...} })`: the named server owns the listener (host, port), the `http` key owns routing and authentication. Bun runtimes bind via `Bun.serve` natively; Node 22+ uses a thin `node:http` shim. Zero runtime dependencies.
 - `http({ url, ... })` returns an **Enricher** (a pull-in). Use with `.to()` / `.enrich()` / `.tap()` to call a remote HTTP endpoint.
 
 The discriminator is the presence of `path` (source) vs `url` (client).
@@ -19,7 +19,7 @@ The discriminator is the presence of `path` (source) vs `url` (client).
 http(options: HttpServerOptions): Source<HttpRequestBody>
 ```
 
-The listener (host, port) lives on [`defineConfig({ servers })`](/docs/reference/configuration#servers-and-http) and the global auth on the `http` key, not on the source. Routes only declare which request they want.
+The listener (host, port) lives on [`defineConfig({ servers })`](/docs/reference/configuration#servers-and-http) and authentication on the server and its mounts, not on the source. Routes only declare which request they want and which mount they live on. This example walls `/api` behind the server's JWT validator and keeps the catch-all mount public:
 
 ```ts
 // craft.config.ts
@@ -27,14 +27,21 @@ import { defineConfig, jwt } from '@routecraft/routecraft'
 
 export const craftConfig = defineConfig({
   servers: {
-    default: { port: 8080, host: '0.0.0.0' },
+    default: {
+      port: 8080,
+      host: '0.0.0.0',
+      auth: jwt({
+        secret: process.env.JWT_SECRET!,
+        issuer: process.env.JWT_ISSUER!,
+        audience: process.env.JWT_AUDIENCE!,
+      }),
+    },
   },
   http: {
-    auth: jwt({
-      secret: process.env.JWT_SECRET!,
-      issuer: process.env.JWT_ISSUER!,
-      audience: process.env.JWT_AUDIENCE!,
-    }),
+    mounts: {
+      api: { path: '/api' },               // inherits the server wall
+      default: { path: '/', auth: false }, // public catch-all
+    },
   },
 })
 ```
@@ -43,32 +50,32 @@ export const craftConfig = defineConfig({
 // routes/orders.ts
 import { craft, http, noop, DefaultExchange } from '@routecraft/routecraft'
 
-// GET /orders/:id
+// GET /api/orders/:id (walled: the api mount inherits the server validator)
 export const getOrder = craft()
   .id('get-order')
   .description('Fetch an order by id')
-  .from(http({ path: '/orders/:id', method: 'GET' }))
+  .from(http({ mount: 'api', path: '/orders/:id', method: 'GET' }))
   .process(async (ex) => {
     const { id } = ex.headers['routecraft.http.params']!
     return DefaultExchange.rewrap(ex, { body: await loadOrder(id) })
   })
   .to(noop())
 
-// POST /orders
+// POST /api/orders
 export const createOrder = craft()
   .id('create-order')
   .description('Create an order')
   .input({ body: createOrderSchema })
   .authorize({ scopes: ['orders.write'] })
-  .from(http({ path: '/orders', method: 'POST' }))
+  .from(http({ mount: 'api', path: '/orders', method: 'POST' }))
   .transform((body) => saveOrder(body))
   .to(noop())
 
-// DELETE /orders/:id  -> 204 when body is undefined
+// DELETE /api/orders/:id  -> 204 when body is undefined
 export const deleteOrder = craft()
   .id('delete-order')
   .authorize({ roles: ['admin'] })
-  .from(http({ path: '/orders/:id', method: 'DELETE' }))
+  .from(http({ mount: 'api', path: '/orders/:id', method: 'DELETE' }))
   .process(async (ex) => {
     await deleteOrderById(ex.headers['routecraft.http.params']!.id)
     return DefaultExchange.rewrap(ex, { body: undefined })
@@ -246,7 +253,7 @@ Rules that keep this safe:
 - Route `path`s are relative to the mount prefix, so a route `'/orders/:id'` on the `api` mount serves `/api/orders/:id`.
 - An omitted `mount` resolves only to a mount literally named `default`; with mounts configured and none named `default`, the route fails loudly instead of landing on an unintended surface.
 - A route cannot be carved out under another mount's prefix: a `default`-mount route resolving inside `/api` fails bind-time claim validation.
-- Mount `path`s are static canonical pathname prefixes: no `?`, `#`, `:param` segments, empty segments, or backslashes, and no `.` or `..` segments (raw or encoded), spaces, or anything else URL parsing would rewrite into a different pathname. Anything else is refused at construction with RC5003.
+- Mount `path`s are static canonical pathname prefixes: no `?`, `#`, `:param` segments, empty segments, backslashes, or percent-encoding, and no `.` or `..` segments, spaces, or anything else URL parsing would rewrite into a different pathname. Anything else is refused at construction with RC5003.
 - The top-level `http: { auth }` remains as sugar for a single `default` mount at `/`.
 
 The identity-when-present personalisation pattern (formerly `auth: "optional"`) has no mount-level equivalent: a route is walled, identity-demanding via `.authorize()`, or credential-blind.

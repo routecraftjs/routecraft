@@ -19,10 +19,15 @@ async function closeServer(
       (timer as { unref?: () => void }).unref?.();
     });
     const outcome = await Promise.race([
-      handle.gracefulClose().then(() => "closed" as const),
+      handle.gracefulClose().then(
+        () => "closed" as const,
+        // A rejecting graceful close is a failed graceful close, not a
+        // reason to skip the force path and leave the listener running.
+        () => "graceful-failed" as const,
+      ),
       deadline,
     ]);
-    if (outcome === "deadline") await handle.forceClose();
+    if (outcome !== "closed") await handle.forceClose();
   } finally {
     // finally, not inline: a rejecting gracefulClose must not leave the
     // timer pending for the rest of the grace period.
@@ -37,6 +42,8 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
     {
       registries: Map<string, HttpMountRegistry>;
       handles: Map<string, HttpServerHandle>;
+      /** Set at teardown entry so a bind racing stop() closes itself. */
+      closed: boolean;
     }
   >();
 
@@ -51,7 +58,7 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
           new HttpMountRegistry(name, ctx, definitions[name]?.auth),
         );
       }
-      states.set(ctx, { registries, handles: new Map() });
+      states.set(ctx, { registries, handles: new Map(), closed: false });
       ctx.setStore(WEB_INGRESSES, registries);
     },
     async start(ctx) {
@@ -74,6 +81,16 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
             message: `servers.${name}: bind failed on ${host}:${definition.port}: ${error instanceof Error ? error.message : String(error)}`,
           });
         }
+        // A stop() arriving while the bind above was in flight has already
+        // run teardown past this server; record nothing and close the fresh
+        // handle here or it leaks with nothing left to ever close it.
+        if (state.closed) {
+          await closeServer(
+            handle,
+            definition.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS,
+          );
+          return;
+        }
         state.handles.set(name, handle);
         registry.setBoundAddress(host, handle.port);
         ctx.logger.info(
@@ -86,6 +103,7 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
     async teardown(ctx) {
       const state = states.get(ctx);
       if (!state) return;
+      state.closed = true;
       for (const [name, handle] of [...state.handles].reverse()) {
         try {
           await closeServer(
