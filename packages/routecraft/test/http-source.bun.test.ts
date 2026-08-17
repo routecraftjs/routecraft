@@ -396,12 +396,24 @@ describe("HTTP Source Adapter", () => {
   });
 
   /**
-   * @case Mount paths must be static pathname prefixes
-   * @preconditions Mount definitions carrying a query, fragment, param segment, or empty segment
+   * @case Mount paths must be static canonical pathname prefixes
+   * @preconditions Mount definitions carrying a query, fragment, param
+   *   segment, empty segment, backslash, dot segment (raw or encoded), or a
+   *   raw space, each of which URL parsing rewrites into a different pathname
    * @expectedResult httpPlugin construction fails with RC5003 for each
    */
   test("mount paths reject non-static prefixes at construction", () => {
-    for (const path of ["/api?v=1", "/api#internal", "/api/:tenant", "//api"]) {
+    for (const path of [
+      "/api?v=1",
+      "/api#internal",
+      "/api/:tenant",
+      "//api",
+      "/api/../admin",
+      "/api/./admin",
+      "/api\\admin",
+      "/%2e%2e/admin",
+      "/api /v1",
+    ]) {
       let err: unknown;
       try {
         httpPlugin({ mounts: { api: { path } } });

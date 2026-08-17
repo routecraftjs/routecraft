@@ -67,8 +67,10 @@ user-visible changes:
 - The HTTP bearer missing-credential reason is now `missing_header` (event
   and 401 body), matching MCP and the documented bounded vocabulary;
   api-key keeps `missing api key`.
-- Mount paths are validated as static pathname prefixes (no `?`, `#`,
-  `:param` segments, or empty segments).
+- Mount paths are validated as static canonical pathname prefixes: no `?`,
+  `#`, `:param` segments, empty segments, or backslashes, and the path must
+  survive URL parsing unchanged (no `.` or `..` segments, raw or encoded,
+  no spaces or characters the parser percent-encodes).
 - Listeners reap idle connections after 255s, and mounts that hold quiet
   long-lived streams (the MCP transport; custom mounts via
   `longLived: true`) exempt their requests per request, so silent streams

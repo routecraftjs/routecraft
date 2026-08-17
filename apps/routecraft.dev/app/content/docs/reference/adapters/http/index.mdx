@@ -246,6 +246,7 @@ Rules that keep this safe:
 - Route `path`s are relative to the mount prefix, so a route `'/orders/:id'` on the `api` mount serves `/api/orders/:id`.
 - An omitted `mount` resolves only to a mount literally named `default`; with mounts configured and none named `default`, the route fails loudly instead of landing on an unintended surface.
 - A route cannot be carved out under another mount's prefix: a `default`-mount route resolving inside `/api` fails bind-time claim validation.
+- Mount `path`s are static canonical pathname prefixes: no `?`, `#`, `:param` segments, empty segments, or backslashes, and no `.` or `..` segments (raw or encoded), spaces, or anything else URL parsing would rewrite into a different pathname. Anything else is refused at construction with RC5003.
 - The top-level `http: { auth }` remains as sugar for a single `default` mount at `/`.
 
 The identity-when-present personalisation pattern (formerly `auth: "optional"`) has no mount-level equivalent: a route is walled, identity-demanding via `.authorize()`, or credential-blind.
