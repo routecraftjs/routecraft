@@ -58,6 +58,13 @@ export interface HttpMount {
    * server is always a visible config decision.
    */
   readonly auth?: HttpAuth | false;
+  /**
+   * Responses on this mount may stream or stay quiet indefinitely (MCP
+   * streamable HTTP, SSE). The ingress exempts its requests from the
+   * listener's idle timeout so a silent stream is not reaped, while every
+   * other connection keeps the bounded default.
+   */
+  readonly longLived?: boolean;
   readonly handler: (
     request: Request,
     context: HttpMountContext,

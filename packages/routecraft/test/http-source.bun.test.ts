@@ -5,6 +5,7 @@ import {
   craft,
   DefaultExchange,
   http,
+  httpPlugin,
   jwt,
   noop,
   type CraftConfig,
@@ -363,8 +364,14 @@ describe("HTTP Source Adapter", () => {
         },
       },
       events: {
-        "auth:success": () => authEvents.push("success"),
-        "auth:rejected": () => authEvents.push("rejected"),
+        "auth:success": (ev) =>
+          authEvents.push(
+            `success:${(ev.details as { source: string }).source}`,
+          ),
+        "auth:rejected": (ev) =>
+          authEvents.push(
+            `rejected:${(ev.details as { source: string }).source}`,
+          ),
       },
     });
     t = bound.ctx;
@@ -375,15 +382,35 @@ describe("HTTP Source Adapter", () => {
     expect(publicRes.status).toBe(200);
     expect(authEvents).toEqual([]);
 
+    // Every rejection path on a named mount reports the same source id.
     const walledRes = await fetch(`http://127.0.0.1:${bound.port}/api/orders`);
     expect(walledRes.status).toBe(401);
-    expect(authEvents).toEqual(["rejected"]);
+    expect(authEvents).toEqual(["rejected:http:api"]);
 
     const token = makeJwt({ sub: "user-1" });
     const okRes = await fetch(`http://127.0.0.1:${bound.port}/api/orders`, {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(okRes.status).toBe(200);
+    expect(authEvents).toEqual(["rejected:http:api", "success:http:api"]);
+  });
+
+  /**
+   * @case Mount paths must be static pathname prefixes
+   * @preconditions Mount definitions carrying a query, fragment, param segment, or empty segment
+   * @expectedResult httpPlugin construction fails with RC5003 for each
+   */
+  test("mount paths reject non-static prefixes at construction", () => {
+    for (const path of ["/api?v=1", "/api#internal", "/api/:tenant", "//api"]) {
+      let err: unknown;
+      try {
+        httpPlugin({ mounts: { api: { path } } });
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeDefined();
+      expect((err as { rc?: string }).rc).toBe("RC5003");
+    }
   });
 
   /**
@@ -870,7 +897,7 @@ describe("HTTP Source Adapter", () => {
       source: "http",
     });
     expect(rejected[0]).toEqual({
-      reason: "missing bearer token",
+      reason: "missing_header",
       scheme: "bearer",
       source: "http",
     });

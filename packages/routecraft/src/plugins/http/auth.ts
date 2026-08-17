@@ -116,14 +116,17 @@ export function apiKey(
 }
 
 /**
- * Map the auth scheme to the canonical "missing credential" reason string.
+ * Map the auth scheme to the canonical "missing credential" reason.
  * Returned to clients in the 401 body and emitted as the `reason` field on
  * `auth:rejected` events when the dispatcher synthesises a missing-credential
- * 401 for an `auth: "required"` route. Centralised so the response body and
- * the event payload cannot drift.
+ * 401. Centralised so the response body and the event payload cannot drift.
+ *
+ * Bearer uses `missing_header`, the same bounded token MCP emits, so the
+ * shared vocabulary in `.standards/security.md` section 10 holds across
+ * surfaces; api-key keeps its documented literal.
  */
 export function missingCredentialReason(scheme: string): string {
-  return scheme === "apiKey" ? "missing api key" : "missing bearer token";
+  return scheme === "apiKey" ? "missing api key" : "missing_header";
 }
 
 function reject(reason: string, scheme: string, cause?: unknown): AuthResult {

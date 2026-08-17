@@ -12,10 +12,28 @@ export interface HttpServerHandle {
   forceClose(): Promise<void>;
 }
 
+/**
+ * Per-request capabilities the runtime listener hands the dispatcher.
+ * `exemptFromIdleTimeout` lifts the listener's idle timeout for one request
+ * so a long-lived stream (MCP streamable HTTP, SSE) can stay quiet
+ * indefinitely while ordinary connections keep being reaped. A no-op on
+ * Node, whose timeouts do not govern response streaming.
+ */
+export interface HttpServerRuntime {
+  exemptFromIdleTimeout(req: Request): void;
+}
+
 export interface StartServerOptions {
   port: number;
   host: string;
-  fetch: (req: Request) => Promise<Response>;
+  fetch: (req: Request, runtime: HttpServerRuntime) => Promise<Response>;
+}
+
+interface BunServeHandle {
+  readonly port: number;
+  stop(closeActiveConnections?: boolean): Promise<void> | void;
+  /** Per-request idle timeout override; 0 disables it for that request. */
+  timeout?(req: Request, seconds: number): void;
 }
 
 interface BunLike {
@@ -23,11 +41,11 @@ interface BunLike {
     port: number;
     hostname: string;
     idleTimeout: number;
-    fetch: (req: Request) => Promise<Response> | Response;
-  }): {
-    readonly port: number;
-    stop(closeActiveConnections?: boolean): Promise<void> | void;
-  };
+    fetch: (
+      req: Request,
+      server: BunServeHandle,
+    ) => Promise<Response> | Response;
+  }): BunServeHandle;
 }
 
 function getBun(): BunLike | undefined {
@@ -52,12 +70,19 @@ export async function startServer(
       const server = bun.serve({
         port: opts.port,
         hostname: opts.host,
-        // Long-lived MCP and SSE streams outlive Bun's 10s default. 255 is
-        // the maximum Bun accepts and still reaps parked sockets; 0 would
-        // disable the reaper entirely and let idle connections accumulate
-        // until the fd limit (and hold graceful close open on shutdown).
+        // Ordinary connections are reaped after 255s idle (Bun's maximum;
+        // 0 would disable the reaper entirely, letting parked sockets
+        // accumulate to the fd limit and holding graceful close open).
+        // Long-lived quiet streams survive via the per-request exemption
+        // below, not by widening this default.
         idleTimeout: 255,
-        fetch: opts.fetch,
+        fetch: (req, bunServer) =>
+          opts.fetch(req, {
+            // Lift the idle timeout for one request only: mounts that
+            // declare long-lived streams (MCP, SSE) opt their requests out
+            // while every other connection keeps being reaped.
+            exemptFromIdleTimeout: (r) => bunServer.timeout?.(r, 0),
+          }),
       });
       return {
         port: server.port,

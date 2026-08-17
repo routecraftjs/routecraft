@@ -475,6 +475,9 @@ export class McpServer {
     ];
     this.unmountHttp = ingress.mountHttp({
       id: "mcp",
+      // Streamable HTTP holds the GET channel open and legitimately quiet;
+      // without the exemption Bun's idle reaper would cut it at 255s.
+      longLived: true,
       ...(this.options.auth !== undefined
         ? {
             auth:

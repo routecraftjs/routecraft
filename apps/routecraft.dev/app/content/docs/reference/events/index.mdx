@@ -348,7 +348,7 @@ A failing `start()` hook emits `context:error` and no `plugin:started`, and the 
 
 ## Authentication events
 
-Emitted on every auth attempt by every auth-enabled surface: HTTP routes, the MCP HTTP transport, and any custom mount that resolves credentials through a named server's validator. The `source` field identifies which surface emitted the event (`"http"`, `"mcp"`, or a custom mount id).
+Emitted on every auth attempt by every auth-enabled surface: HTTP routes, the MCP HTTP transport, and any custom mount that resolves credentials through a named server's validator. The `source` field identifies which surface emitted the event: `"http"` for the default HTTP mount, `"http:<name>"` for a named HTTP mount, `"mcp"` for the MCP transport, or a custom mount id. Every rejection path on one surface reports the same source.
 
 | Event | When it fires | Details |
 | --- | --- | --- |

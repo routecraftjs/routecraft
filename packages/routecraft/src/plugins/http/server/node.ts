@@ -6,6 +6,7 @@ import {
 import { Readable } from "node:stream";
 import type { AddressInfo } from "node:net";
 import { rcError } from "../../../error";
+import type { HttpServerRuntime } from "./index.ts";
 
 export interface NodeServerHandle {
   /** Resolved port (useful when `port: 0` is passed to let the OS choose). */
@@ -19,8 +20,13 @@ export interface NodeServerOptions {
   port: number;
   host: string;
   /** Web-standard fetch handler. */
-  fetch: (req: Request) => Promise<Response>;
+  fetch: (req: Request, runtime: HttpServerRuntime) => Promise<Response>;
 }
+
+/** Node timeouts do not govern response streaming, so the exemption is inert. */
+const NODE_RUNTIME: HttpServerRuntime = {
+  exemptFromIdleTimeout: () => {},
+};
 
 /**
  * Bridge Node's `http.createServer` into a Web-standard `(Request) => Response`
@@ -96,7 +102,7 @@ export function startNodeServer(
 }
 
 async function handle(
-  fetchHandler: (req: Request) => Promise<Response>,
+  fetchHandler: NodeServerOptions["fetch"],
   nReq: IncomingMessage,
   nRes: ServerResponse,
   fallbackHost: string,
@@ -109,7 +115,7 @@ async function handle(
       if (!nRes.writableEnded) onAborted();
     });
     const webReq = toWebRequest(nReq, fallbackHost, abort.signal);
-    const webRes = await fetchHandler(webReq);
+    const webRes = await fetchHandler(webReq, NODE_RUNTIME);
     await writeNodeResponse(nRes, webRes, abort.signal);
   } catch {
     // The dispatcher is responsible for normalising everything to a Response;

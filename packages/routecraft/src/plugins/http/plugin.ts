@@ -126,34 +126,38 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           ? (event) => ctx.emit("plugin:http:request:completed", { ...event })
           : undefined;
 
-      // The shared ingress emits auth:success / auth:rejected when the
-      // `authenticate` thunk resolves an admit or a reject; `absent` is
-      // neither, so the missing-credential 401 the dispatcher synthesises
-      // on a walled mount (or an authorize-pull route) would otherwise be
-      // invisible. This hook is the one place that case can still raise
-      // the event.
-      const onAuthAbsent = (scheme: string) => {
-        ctx.emit("auth:rejected", {
-          reason: missingCredentialReason(scheme),
-          scheme,
-          source: "http",
-        });
-      };
-
-      // Signature rejections surface through the same auth:rejected event
-      // as credential failures. Wired unconditionally (unlike onAuthAbsent)
-      // because the per-route signature gate is independent of the mount
-      // wall; a webhook endpoint typically lives on a public mount.
-      const onSignatureRejected = (reason: HttpWebhookSignatureRejection) => {
-        ctx.emit("auth:rejected", {
-          reason,
-          scheme: "signature",
-          source: "http",
-        });
-      };
-
       for (const mount of mountsResolved) {
         const runtime = mountRuntimes.get(mount.name)!;
+        const mountId =
+          mount.name === "default" ? "http" : `http:${mount.name}`;
+
+        // The shared ingress emits auth:success / auth:rejected when the
+        // `authenticate` thunk resolves an admit or a reject; `absent` is
+        // neither, so the missing-credential 401 the dispatcher synthesises
+        // on a walled mount (or an authorize-pull route) would otherwise be
+        // invisible. This hook is the one place that case can still raise
+        // the event. Built per mount so every rejection path on one surface
+        // reports the same `source` the thunk's events carry.
+        const onAuthAbsent = (scheme: string) => {
+          ctx.emit("auth:rejected", {
+            reason: missingCredentialReason(scheme),
+            scheme,
+            source: mountId,
+          });
+        };
+
+        // Signature rejections surface through the same auth:rejected event
+        // as credential failures. Wired unconditionally (unlike onAuthAbsent)
+        // because the per-route signature gate is independent of the mount
+        // wall; a webhook endpoint typically lives on a public mount.
+        const onSignatureRejected = (reason: HttpWebhookSignatureRejection) => {
+          ctx.emit("auth:rejected", {
+            reason,
+            scheme: "signature",
+            source: mountId,
+          });
+        };
+
         // The wall: an effective validator exists and the mount did not opt
         // out. `auth: false` keeps the server validator REACHABLE (for
         // routes that declare .authorize()) while removing the wall, so the
@@ -222,9 +226,6 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           onSignatureRejected,
           logger: ctx.logger,
         });
-
-        const mountId =
-          mount.name === "default" ? "http" : `http:${mount.name}`;
         unmounts.push(
           ingress.mountHttp({
             id: mountId,
@@ -410,5 +411,14 @@ function normalizeMountPath(
     });
   }
   const trimmed = raw.length > 1 ? raw.replace(/\/+$/, "") : raw;
-  return trimmed === "" ? "/" : trimmed;
+  const path = trimmed === "" ? "/" : trimmed;
+  // A mount path is a STATIC pathname prefix: prefixes match literally, so a
+  // query, fragment, ":param" segment, or empty segment would produce a
+  // mount that silently never matches what the author meant.
+  if (path !== "/" && !/^\/(?:[^/?#:]+\/)*[^/?#:]+$/.test(path)) {
+    throw rcError("RC5003", undefined, {
+      message: `httpPlugin: mount "${name}" has invalid path ${JSON.stringify(raw)}. Mount paths are static pathname prefixes: no "?", "#", ":param" segments, or empty segments.`,
+    });
+  }
+  return path;
 }

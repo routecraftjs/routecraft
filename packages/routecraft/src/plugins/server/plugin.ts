@@ -66,7 +66,7 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
           handle = await startServer({
             host,
             port: definition.port,
-            fetch: (request) => registry.dispatch(request),
+            fetch: (request, runtime) => registry.dispatch(request, runtime),
           });
         } catch (error) {
           ctx.emit("server:failed", { server: name, error });

@@ -62,6 +62,8 @@ const healthPlugin = {
 
 Claims are thunks evaluated once during startup validation. This lets plugins register dynamic routes during route startup while still detecting cross-mount conflicts before the listener binds.
 
+A mount whose responses stream or stay quiet indefinitely (SSE, MCP-style channels) declares `longLived: true`; the ingress then exempts its requests from the listener's idle timeout while every other connection keeps the bounded default.
+
 ## Lifecycle
 
 - `apply(ctx)` validates options, publishes the route registry, and mounts it on the selected named server. It does not bind a socket.

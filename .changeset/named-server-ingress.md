@@ -60,3 +60,16 @@ user-visible changes:
 - `plugin:mcp:server:listening` is removed. Subscribe to `server:listening`
   on the MCP transport's named server instead; the MCP path is config
   (`mcpPlugin({ path })`).
+- `auth:rejected` / `auth:success` carry a consistent `source` per surface:
+  `http` for the default HTTP mount, `http:<name>` for named mounts, `mcp`
+  for the MCP transport, on every rejection path including missing
+  credentials and webhook signatures.
+- The HTTP bearer missing-credential reason is now `missing_header` (event
+  and 401 body), matching MCP and the documented bounded vocabulary;
+  api-key keeps `missing api key`.
+- Mount paths are validated as static pathname prefixes (no `?`, `#`,
+  `:param` segments, or empty segments).
+- Listeners reap idle connections after 255s, and mounts that hold quiet
+  long-lived streams (the MCP transport; custom mounts via
+  `longLived: true`) exempt their requests per request, so silent streams
+  are never cut while parked sockets still get reaped.

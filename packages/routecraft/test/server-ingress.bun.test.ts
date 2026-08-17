@@ -373,6 +373,38 @@ describe("named server ingress", () => {
   });
 
   /**
+   * @case Long-lived mounts exempt their requests from the idle timeout
+   * @preconditions One longLived mount and one ordinary mount on a validated registry
+   * @expectedResult Dispatch invokes the runtime exemption only for the longLived mount
+   */
+  test("longLived mounts pull the per-request idle exemption", async () => {
+    const context = (await testContext().build()).ctx;
+    const exempted: string[] = [];
+    const runtime = {
+      exemptFromIdleTimeout: (req: Request) => {
+        exempted.push(new URL(req.url).pathname);
+      },
+    };
+    const ingress = new HttpMountRegistry("streams", context);
+    ingress.mountHttp({
+      id: "mcp",
+      longLived: true,
+      claims: () => [{ kind: "exact", path: "/mcp" }],
+      handler: () => new Response("stream"),
+    });
+    ingress.mountHttp({
+      id: "plain",
+      claims: () => [{ kind: "exact", path: "/plain" }],
+      handler: () => new Response("plain"),
+    });
+    ingress.validate();
+
+    await ingress.dispatch(new Request("http://local/mcp"), runtime);
+    await ingress.dispatch(new Request("http://local/plain"), runtime);
+    expect(exempted).toEqual(["/mcp"]);
+  });
+
+  /**
    * @case Two mounts both claiming the "/" catch-all are refused
    * @preconditions Two mounts whose claims each include the prefix "/" fallback
    * @expectedResult Validation fails naming both mounts instead of shadowing by registration order

@@ -248,7 +248,10 @@ export class HttpMountRegistry implements WebIngress {
     }
   }
 
-  async dispatch(request: Request): Promise<Response> {
+  async dispatch(
+    request: Request,
+    runtime?: import("../http/server/index.ts").HttpServerRuntime,
+  ): Promise<Response> {
     const path = new URL(request.url).pathname;
     const method = request.method.toUpperCase() as HttpMethod;
     let best: { mount: HttpMount; claim: PathClaim; score: number } | undefined;
@@ -269,6 +272,7 @@ export class HttpMountRegistry implements WebIngress {
       return Response.json({ error: "not found", path }, { status: 404 });
     }
     const mount = best.mount;
+    if (mount.longLived) runtime?.exemptFromIdleTimeout(request);
     const authMiddleware = this.authByMount.get(mount.id);
 
     // Verification is pulled by the mount, never pushed by the ingress: a
