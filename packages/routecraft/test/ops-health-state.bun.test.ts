@@ -276,6 +276,24 @@ describe("the health ledger", () => {
   });
 
   /**
+   * @case Bringing a route back online cannot revive a dead source
+   * @preconditions A route whose source died, then taken offline and back online
+   * @expectedResult It stays down. Returning a route to service says the operator wants it serving, not that its source recovered, so only a restart may clear the failure
+   */
+  test("keeps a failed route failed across an offline round trip", () => {
+    const { state } = ledgerAt();
+    state.contextStarted();
+    state.routeStarted("nightly-export");
+    state.sourceDied("nightly-export");
+
+    state.setRouteOffline("nightly-export", true);
+    state.setRouteOffline("nightly-export", false);
+
+    expect(state.report().routes["nightly-export"]?.status).toBe("down");
+    expect(state.report().status).toBe("down");
+  });
+
+  /**
    * @case An indicator with no staleness window is only as fresh as its last push
    * @preconditions An indicator registered without maxAgeMs, reported up, then a long wait
    * @expectedResult It stays up. This is the right reading for an indicator fed from a business route that may legitimately be idle for hours

@@ -287,6 +287,11 @@ export class HealthState implements HealthLedger {
   setRouteOffline(routeId: string, offline: boolean): void {
     const record = this.routes.get(routeId);
     if (!record) return;
+    // A dead source stays dead. Bringing a route back online says the
+    // operator wants it serving, not that its source recovered; only
+    // `routeStarted` can clear `failed`, which is the same rule
+    // `routeStopped` and `exchangeCompleted` already follow.
+    if (record.lifecycle === "failed") return;
     record.lifecycle = offline ? "offline" : "running";
     if (!offline) record.consecutiveFailures = 0;
     this.settleRoute(routeId, record);

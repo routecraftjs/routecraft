@@ -126,10 +126,15 @@ export function defineIndicator(definition: IndicatorDefinition): Indicator {
     });
   }
   // The name is the report key and one path segment of
-  // `/health/indicators/<name>`. A slash would split that segment and leave
-  // the component unreachable at its own path, a typo that would otherwise
-  // present as an endpoint that is simply missing.
-  if (definition.name !== encodeURIComponent(definition.name)) {
+  // `/health/indicators/<name>`. A slash would split that segment, and `.` or
+  // `..` are eaten by URL normalisation before the handler ever sees them, so
+  // either way the component is unreachable at its own path: a typo that
+  // would otherwise present as an endpoint that is simply missing.
+  if (
+    definition.name === "." ||
+    definition.name === ".." ||
+    definition.name !== encodeURIComponent(definition.name)
+  ) {
     throw rcError("RC5053", undefined, {
       message: `defineIndicator("${definition.name}"): name must be usable as a single URL path segment. It is the key in the health report and the last segment of /health/indicators/<name>, so it cannot contain a slash, a space, or any character needing percent-encoding.`,
     });

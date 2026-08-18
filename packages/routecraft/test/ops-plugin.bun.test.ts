@@ -454,6 +454,38 @@ describe("the ops plugin", () => {
   });
 
   /**
+   * @case Two ops surfaces on one server are refused
+   * @preconditions Two opsPlugin instances pointed at the same named server
+   * @expectedResult The build is refused. The second apply() would otherwise replace the published ledger and rebind every indicator to it, leaving the handler that is actually mounted reporting from a ledger nothing writes to
+   */
+  test("refuses a second ops surface on the same server", async () => {
+    const builder = testContext()
+      .with({
+        servers: { default: { port: 0, host: "127.0.0.1" } },
+        plugins: [opsPlugin(), opsPlugin()],
+      })
+      .routes([craft().id("worker").from(direct()).to(noop())]);
+
+    await expect(builder.build()).rejects.toThrow(
+      /already carries an ops mount/,
+    );
+  });
+
+  /**
+   * @case Indicator names that URL normalisation would eat are refused
+   * @preconditions defineIndicator called with "." and ".."
+   * @expectedResult Both throw. They survive encodeURIComponent unchanged but the URL parser removes them, so the component would be unreachable at its own path
+   */
+  test("refuses dot-segment indicator names", () => {
+    expect(() => defineIndicator({ name: "." })).toThrow(
+      /single URL path segment/,
+    );
+    expect(() => defineIndicator({ name: ".." })).toThrow(
+      /single URL path segment/,
+    );
+  });
+
+  /**
    * @case A declared but unregistered indicator is reported at start
    * @preconditions A handle from defineIndicator that is never listed in ops.indicators
    * @expectedResult A warning naming it. Pushing through an unregistered handle is inert by design, so without this the route keeps reporting, the key never appears, and nothing pages: the surface looks instrumented while watching nothing

@@ -96,6 +96,16 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       // later throw would outlive the dead context.
       const ingress = requireWebIngress(ctx, serverName);
 
+      // Refused here rather than at mountHttp: by the time the mount is
+      // registered this apply() has already replaced the published ledger and
+      // rebound every indicator to it, so a second instance would leave the
+      // already-mounted handler reporting from a ledger nothing writes to.
+      if (ingress.hasMount("ops")) {
+        throw rcError("RC5053", undefined, {
+          message: `servers.${serverName} already carries an ops mount. One ops surface per server: configure it once through defineConfig({ ops }), or point the second at another named server.`,
+        });
+      }
+
       const state = new HealthState({
         onChange: (change) => {
           ctx.emit("plugin:ops:health:changed", change);
