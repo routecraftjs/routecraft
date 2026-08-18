@@ -89,14 +89,17 @@ describe("MCP 2026-07-28 stateless revision", () => {
     routes: AnyRouteBuilder[],
     options: Partial<ConstructorParameters<typeof McpServer>[1]> = {},
   ): Promise<{ port: number; url: string }> {
-    t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
+    t = await testContext()
+      .routes(routes)
+      .store(MCP_STORE_KEY, true)
+      .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
+      .build();
     server = new McpServer(t.ctx, {
       transport: "http",
-      port: 0,
-      host: "127.0.0.1",
       ...options,
     });
 
+    await server.prepare();
     await t.startAndWaitReady();
     await server.start();
     const port = server.getHttpPort()!;
@@ -415,7 +418,7 @@ describe("MCP 2026-07-28 stateless revision", () => {
     /**
      * @case A valid token missing a required scope is refused with 403, not 401
      * @preconditions oauth() auth requiring the "mcp:admin" scope; a correctly signed token carrying only "mcp:read"
-     * @expectedResult 403 with WWW-Authenticate naming error="insufficient_scope" and the missing scope, so the client knows to step up rather than re-authenticate; the route never runs
+     * @expectedResult 403 with WWW-Authenticate naming error="insufficient_scope" and an auth:rejected event; the route never runs
      */
     test("refuses a token missing a required scope with 403", async () => {
       const sink: { principal?: Principal | undefined } = {};
@@ -426,6 +429,10 @@ describe("MCP 2026-07-28 stateless revision", () => {
           requiredScopes: ["mcp:admin"],
         }),
         resource: { url: "https://mcp.test.example/mcp" },
+      });
+      const rejections: Array<Record<string, unknown>> = [];
+      t.ctx.on("auth:rejected", ({ details }) => {
+        rejections.push(details as Record<string, unknown>);
       });
 
       const res = await post(
@@ -448,6 +455,11 @@ describe("MCP 2026-07-28 stateless revision", () => {
       expect(challenge).toContain('error="insufficient_scope"');
       expect(challenge).toContain('scope="mcp:admin"');
       expect(sink.principal).toBeUndefined();
+      expect(rejections).toContainEqual({
+        reason: "insufficient_scope",
+        scheme: "bearer",
+        source: "mcp",
+      });
     });
 
     /**
@@ -546,6 +558,75 @@ describe("MCP 2026-07-28 stateless revision", () => {
 
       expect(res.status).toBe(401);
       expect(sink.principal).toBeUndefined();
+    });
+
+    /**
+     * @case Expiry is rejected at the inclusive whole-second boundary
+     * @preconditions Custom verifier computes expiresAt as the current floored Unix second at request time, so the gate observes now == exp rather than now > exp
+     * @expectedResult 401 because RFC 7519 requires current time to remain strictly before exp; a strict (>) gate would admit this principal
+     */
+    test("rejects at the inclusive expiry boundary", async () => {
+      const { oauth } = await import("../src/mcp/oauth.ts");
+      const { url } = await start([echoRoute()], {
+        auth: oauth({
+          issuer: ISSUER,
+          verify: async () => ({
+            kind: "custom" as const,
+            scheme: "bearer" as const,
+            subject: "boundary-user",
+            // Captured inside verify, not at test setup: the gate runs
+            // microseconds later, so it sees now == expiresAt and only the
+            // inclusive comparison rejects.
+            expiresAt: Math.floor(Date.now() / 1000),
+          }),
+        }),
+        resource: { url: "https://mcp.test.example/mcp" },
+      });
+
+      const res = await post(
+        url,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: { _meta: MODERN_META },
+        },
+        { Authorization: "Bearer boundary" },
+      );
+      expect(res.status).toBe(401);
+    });
+
+    /**
+     * @case A non-finite principal expiry fails closed
+     * @preconditions Custom verifier returns expiresAt as NaN
+     * @expectedResult 401 rather than allowing NaN to bypass the comparison
+     */
+    test("rejects a non-finite principal expiry", async () => {
+      const { oauth } = await import("../src/mcp/oauth.ts");
+      const { url } = await start([echoRoute()], {
+        auth: oauth({
+          issuer: ISSUER,
+          verify: async () => ({
+            kind: "custom" as const,
+            scheme: "bearer" as const,
+            subject: "nan-user",
+            expiresAt: Number.NaN,
+          }),
+        }),
+        resource: { url: "https://mcp.test.example/mcp" },
+      });
+
+      const res = await post(
+        url,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: { _meta: MODERN_META },
+        },
+        { Authorization: "Bearer nan" },
+      );
+      expect(res.status).toBe(401);
     });
 
     /**

@@ -1,0 +1,70 @@
+---
+title: serversPlugin
+---
+
+<Lead>
+[← All plugins](/docs/reference/plugins)
+</Lead>
+
+```ts
+import { serversPlugin } from '@routecraft/routecraft'
+```
+
+Owns every HTTP listener in the process. Each entry under `defineConfig({ servers })` declares one named listener; surfaces (the [http plugin](/docs/reference/plugins/httpplugin), the [MCP HTTP transport](/docs/reference/plugins/mcpplugin), custom plugins) select a listener by name and mount paths on it instead of binding their own socket. A surface that needs an isolated port declares another named server and points at it; there is no separate standalone mode.
+
+Materialised by the `servers` config key; the factory is exported for programmatic composition.
+
+```ts
+import { defineConfig, jwks } from '@routecraft/routecraft'
+// The `mcp` first-class config key registers only when @routecraft/ai is imported.
+import '@routecraft/ai'
+
+export const craftConfig = defineConfig({
+  servers: {
+    default: {
+      host: '0.0.0.0',
+      port: 8080,
+      auth: jwks({ jwksUrl: '...', issuer: '...', audience: '...' }),
+    },
+    internal: { host: '127.0.0.1', port: 9090 },
+  },
+
+  http: {},                     // mounts at "/" on "default"
+  mcp: { transport: 'http' },   // mounts at "/mcp" on "default"
+})
+```
+
+## Options
+
+Each entry in the `servers` record:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `port` | `number` | -- (required) | Port to bind. Use `0` to let the OS choose; the resolved port arrives on `server:listening`. |
+| `host` | `string` | `127.0.0.1` | Host to bind. Use `0.0.0.0` to expose externally. |
+| `kind` | `'http'` | `'http'` | Listener kind. Reserved for future non-HTTP listeners; only `'http'` is valid today. |
+| `auth` | `ValidatorAuthOptions` | -- | Server-level credential validator inherited by every mount that sets no `auth` of its own. Verification only: each mount keeps its admission policy and refusal format, and a mount opts out with `auth: false`. |
+| `shutdownGraceMs` | `number` | `30000` | How long a graceful close may drain in-flight work before the listener is force-closed. |
+
+## Mounts and claims
+
+Surfaces register an `HttpMount` via `requireWebIngress(ctx, name)` during plugin `apply()`. A mount declares every path it answers as claims (`exact`, `prefix`, or `pattern`); claims are evaluated once during context start, validated against every other mount on the same server, and only then does the listener bind. Conflicts (duplicate exact path and method, overlapping prefixes, two catch-all `/` fallbacks, a route under another mount's prefix) fail loudly with [`RC5003`](/docs/reference/errors#rc-5003) before anything accepts traffic; registration order never decides ownership. See [Custom mounts](/docs/reference/plugins/httpplugin#custom-mounts) for the plugin-facing walkthrough.
+
+Authentication on a shared listener is three-tiered: the server verifies credentials (this plugin's `auth`), the mount decides admission and refusal format (its handler pulls verification through a memoized `authenticate()` on the mount context, so public paths never trigger it), and routes check authority with [`.authorize()`](/docs/reference/operations/authorize).
+
+## Lifecycle
+
+- `apply(ctx)` publishes one ingress registry per declared server on the context store. No socket is bound.
+- `start(ctx)` validates every mount's claims, then binds each listener (`Bun.serve` on Bun, `node:http` on Node 22+) and emits `server:listening { server, host, port }`. A bind failure emits `server:failed` and fails the context start with [`RC5019`](/docs/reference/errors#rc-5019).
+- `teardown(ctx)` closes gracefully (stop accepting, reap idle connections, drain in-flight up to `shutdownGraceMs`, then force-close) and emits `server:closed { server }`.
+- The plugin declares `keepsAlive`, so a context whose routes have all completed keeps running until `stop()` while a listener is up.
+
+## Events
+
+See [Server events](/docs/reference/events#server-events): `server:listening`, `server:failed`, `server:closed`, each carrying the server name.
+
+## Related
+
+- [Configuration](/docs/reference/configuration#servers-and-http) -- the `servers` first-class config key.
+- [httpPlugin](/docs/reference/plugins/httpplugin) -- the catch-all HTTP surface.
+- [mcpPlugin](/docs/reference/plugins/mcpplugin) -- the MCP surface (`transport: 'http'`, `server`, `path`).

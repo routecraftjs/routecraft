@@ -30,6 +30,12 @@ Config-only plugins have neither hook and are the common case. Say so in
 their JSDoc (see [type-safety-and-schemas.md](./type-safety-and-schemas.md#plugin-vs-config-vs-store)
 for when a plugin is the right shape at all).
 
+`keepsAlive: true` declares that the plugin itself owns ongoing work. When all
+routes complete, the context remains running until `stop()` is called instead of
+auto-stopping. Use it only for a plugin that really owns a listener, subscription,
+timer, or equivalent lifetime, and pair that lifetime with teardown. Omitting it
+preserves route-driven auto-stop.
+
 ## 2. What `start()` may do
 
 > A `start()` hook may perform bounded startup work; long work must page
@@ -100,9 +106,12 @@ test asserting on work a `start()` hook does is not racing it.
 
 ## 5. Existing plugins
 
-`mcpPlugin` starts its server inside `apply()`, which predates this hook.
-New work goes in `start()`; moving existing plugins is a behaviour change
-and is done deliberately, not as drive-by cleanup.
+`mcpPlugin` prepares and mounts its HTTP handler in `apply()`, where
+`requireWebIngress()` fails fast on a missing or undeclared server; its HTTP
+`start()` hook does not wait for the named listener, so plugin registration
+order cannot deadlock the sequential start hooks. The named-server plugin
+validates every mount before binding and declares `keepsAlive` because the
+listener outlives finite routes.
 
 ## References
 

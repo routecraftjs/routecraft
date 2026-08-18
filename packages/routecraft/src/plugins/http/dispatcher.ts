@@ -4,7 +4,7 @@ import { isRoutecraftError } from "../../brand";
 import { isSuspended } from "../../suspension/suspended";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
-import { missingCredentialReason, type HttpAuthMiddleware } from "./auth";
+import { missingCredentialReason, type AuthResult } from "./auth";
 import type { HttpRouteEntry, HttpRouteRegistry } from "./registry";
 import {
   isSignatureRejection,
@@ -57,7 +57,14 @@ export interface AuthAwareBuiltins {
 
 export interface DispatcherOptions {
   registry: HttpRouteRegistry;
-  authMiddleware: HttpAuthMiddleware | undefined;
+  /**
+   * The mount has an effective validator and did not opt out: every route
+   * requires an admitted credential. When false, routes are served without
+   * credentials ever being inspected, except entries flagged
+   * `requiresPrincipal` (a route-entry `.authorize()`), which pull
+   * verification individually.
+   */
+  walled: boolean;
   maxBodySize: number;
   builtins: BuiltinHandler;
   /** Optional gated built-ins (e.g. /openapi.json under `access: "authenticated"`). */
@@ -68,10 +75,10 @@ export interface DispatcherOptions {
   /**
    * Called when the dispatcher itself synthesises a 401 because a route
    * with `auth: "required"` saw no credential. The plugin uses this to
-   * emit `auth:rejected` for the missing-credential case (the middleware
-   * cannot, because it returned `absent` rather than a Response). Reject
-   * results returned by the middleware emit their own event via the
-   * wrapper installed in `plugin.ts`.
+   * emit `auth:rejected` for the missing-credential case: the shared
+   * ingress only emits auth events when the `authenticate` thunk resolves
+   * an admit or a reject, and `absent` is neither, so this hook is the one
+   * place that case can still surface.
    */
   onAuthAbsent?: (scheme: string) => void;
   /**
@@ -93,14 +100,25 @@ export interface DispatcherOptions {
  */
 export function createDispatcher(
   opts: DispatcherOptions,
-): (req: Request) => Promise<Response> {
+): (
+  req: Request,
+  authenticate?: () => Promise<AuthResult | undefined>,
+) => Promise<Response> {
   const log = opts.logger ?? defaultLogger;
 
-  return async function dispatch(req: Request): Promise<Response> {
+  return async function dispatch(
+    req: Request,
+    authenticate?: () => Promise<AuthResult | undefined>,
+  ): Promise<Response> {
     const started = performance.now();
     const url = new URL(req.url);
     const method = req.method.toUpperCase() as HttpMethod;
     const pathname = url.pathname;
+    // The ingress-supplied thunk memoizes per request and emits the auth
+    // events at its single resolution, so calling it from more than one
+    // branch below never verifies twice.
+    const resolveAuth = async (): Promise<AuthResult | undefined> =>
+      authenticate?.();
 
     // 1. Match against the user registry first. Built-ins act as a default
     //    when no user route claims the path, so users can override /health
@@ -130,6 +148,8 @@ export function createDispatcher(
     //      c) Gated: require admission, 401 otherwise. Used by
     //         /openapi.json under `access: "authenticated"`.
     if (!methodMatch && pathMatchMethods.length === 0) {
+      // Public built-ins (and plain 404s) bypass auth entirely: probes and
+      // unmatched paths must never pay validator work or emit auth events.
       const builtinRes = await opts.builtins(req, pathname);
       if (builtinRes) return builtinRes;
 
@@ -141,10 +161,8 @@ export function createDispatcher(
           });
         }
         let isAuthenticated = false;
-        if (opts.authMiddleware) {
-          const result = await opts.authMiddleware(req);
-          isAuthenticated = result.kind === "admit";
-        }
+        const result = await resolveAuth();
+        isAuthenticated = result?.kind === "admit";
         const authAwareRes = await opts.authAwareBuiltins.handler(
           req,
           pathname,
@@ -154,20 +172,18 @@ export function createDispatcher(
       }
 
       if (opts.gatedBuiltins?.paths.has(pathname)) {
-        if (opts.authMiddleware) {
-          const result = await opts.authMiddleware(req);
-          // Built-ins never produce request:completed events regardless of
-          // auth outcome; only emit for user-registered routes. Treat
-          // `absent` like `reject`: gated built-ins are by definition
-          // `openapi.access: "authenticated"`, so a missing credential is
-          // a 401 just like a bad one. The plugin's wrapper emits
-          // `auth:rejected` for `reject` directly; for `absent` we surface
-          // it through the same `onAuthAbsent` hook the user-route path uses.
-          if (result.kind === "reject") return result.response;
-          if (result.kind === "absent") {
-            safeNotify(() => opts.onAuthAbsent?.(result.scheme));
-            return missingCredentialResponse(result.scheme);
-          }
+        const result = await resolveAuth();
+        // Built-ins never produce request:completed events regardless of
+        // auth outcome; only emit for user-registered routes. Treat
+        // `absent` like `reject`: gated built-ins are by definition
+        // `openapi.access: "authenticated"`, so a missing credential is
+        // a 401 just like a bad one. The ingress emits `auth:rejected` for
+        // `reject` at resolution; `absent` surfaces through the same
+        // `onAuthAbsent` hook the user-route path uses.
+        if (result?.kind === "reject") return result.response;
+        if (result?.kind === "absent") {
+          safeNotify(() => opts.onAuthAbsent?.(result.scheme));
+          return missingCredentialResponse(result.scheme);
         }
         const gatedRes = await opts.gatedBuiltins.handler(req, pathname);
         if (gatedRes) return gatedRes;
@@ -203,17 +219,20 @@ export function createDispatcher(
 
     const { entry, params } = methodMatch;
 
-    // 3. Auth check per the route's auth mode.
-    //   - "skip"     : never call the middleware; no principal, no auth events.
-    //   - "required" : call the middleware; absent or reject -> 401.
-    //   - "optional" : call the middleware; admit attaches a principal,
-    //                  reject still returns 401 (a presented credential that
-    //                  fails verification is a hard error, not "anonymous"),
-    //                  absent admits anonymously without emitting auth events.
+    // 3. Admission per the mount posture. The mount is the wall: `walled`
+    //    demands an admitted credential for every route. On a public mount
+    //    (`walled: false`) credentials are never inspected, except for a
+    //    route that declares `.authorize()` (`requiresPrincipal`), which
+    //    can only make itself stricter, never looser.
     let principal: Principal | undefined;
-    if (entry.authMode !== "skip" && opts.authMiddleware) {
-      const result = await opts.authMiddleware(req);
-      if (result.kind === "reject") {
+    if (opts.walled || entry.requiresPrincipal) {
+      const result = await resolveAuth();
+      if (!result) {
+        // No validator anywhere. Unreachable for `walled` (a wall implies
+        // a validator) and for `requiresPrincipal` (refused at bind); kept
+        // as a served fallthrough so a future gap fails open loudly in
+        // authorize() (RC5012) rather than silently 500ing here.
+      } else if (result.kind === "reject") {
         emitCompleted(opts, {
           method,
           path: entry.matcher.pattern,
@@ -222,21 +241,17 @@ export function createDispatcher(
           routeId: entry.routeId,
         });
         return result.response;
-      }
-      if (result.kind === "absent") {
-        if (entry.authMode === "required") {
-          safeNotify(() => opts.onAuthAbsent?.(result.scheme));
-          const response = missingCredentialResponse(result.scheme);
-          emitCompleted(opts, {
-            method,
-            path: entry.matcher.pattern,
-            status: response.status,
-            durationMs: ms(started),
-            routeId: entry.routeId,
-          });
-          return response;
-        }
-        // optional + absent -> admit without a principal, no auth events.
+      } else if (result.kind === "absent") {
+        safeNotify(() => opts.onAuthAbsent?.(result.scheme));
+        const response = missingCredentialResponse(result.scheme);
+        emitCompleted(opts, {
+          method,
+          path: entry.matcher.pattern,
+          status: response.status,
+          durationMs: ms(started),
+          routeId: entry.routeId,
+        });
+        return response;
       } else {
         principal = result.principal;
       }

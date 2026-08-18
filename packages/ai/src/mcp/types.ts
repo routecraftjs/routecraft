@@ -335,17 +335,18 @@ export interface McpPluginOptions {
   /** Transport mode for MCP server. Default: "stdio" */
   transport?: "stdio" | "http";
 
-  /** Port for the streamable-http MCP server. Default: 3001 (only used with transport: "http") */
-  port?: number;
+  /** Named server to mount the HTTP transport on. Defaults to `"default"`. */
+  server?: string;
 
-  /** Host to bind to. Default: "localhost" (only used with transport: "http") */
-  host?: string;
+  /** HTTP path for the MCP endpoint. Defaults to `"/mcp"`. */
+  path?: string;
 
   /**
    * Protected-resource (RFC 9728) metadata for the HTTP transport. When set,
-   * the server advertises `/.well-known/oauth-protected-resource` and adds
-   * `resource_metadata="..."` to 401 `WWW-Authenticate` headers. Used by every
-   * auth helper; ignored for stdio.
+   * the server advertises the path-suffixed metadata document
+   * (`/.well-known/oauth-protected-resource/mcp` for the default path) and
+   * adds `resource_metadata="..."` to 401 `WWW-Authenticate` headers. Used by
+   * every auth helper; ignored for stdio.
    *
    * When omitted, baseline metadata is still served (deriving `resource` from
    * the bound URL and `authorization_servers` from the validator's IdP
@@ -354,8 +355,11 @@ export interface McpPluginOptions {
   resource?: McpResourceOptions;
 
   /**
-   * Authentication for the HTTP transport. When set, every request to `/mcp` must
-   * include a valid `Authorization: Bearer <token>` header. Ignored for stdio.
+   * Authentication for the HTTP transport. When set, every request to the
+   * configured MCP `path` must include a valid `Authorization: Bearer
+   * <token>` header. When omitted, the named server's validator (if any) is
+   * inherited. `false` makes the MCP surface public: credentials are never
+   * inspected even when the server declares a validator. Ignored for stdio.
    *
    * @example
    * ```ts
@@ -363,7 +367,7 @@ export interface McpPluginOptions {
    * auth: jwt({ secret: process.env.JWT_SECRET! })
    * ```
    */
-  auth?: McpHttpAuthOptions;
+  auth?: McpHttpAuthOptions | false;
 
   /**
    * Principal enrichment that runs after `auth` verifies a token, for the
@@ -388,7 +392,9 @@ export interface McpPluginOptions {
    * cached per token (SHA-256 keyed) and evicted at `expiresAt`; concurrent
    * requests for the same token share one in-flight fetch. All enrichment
    * errors are fail-closed (the request is rejected). Defaults to no
-   * enrichment.
+   * enrichment. This requires an explicit `mcpPlugin({ auth })` validator;
+   * inherited named-server auth cannot be enriched and fails during startup
+   * instead of being silently ignored.
    */
   userinfo?: UserinfoOption;
 

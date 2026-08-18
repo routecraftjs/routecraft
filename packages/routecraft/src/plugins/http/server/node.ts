@@ -6,20 +6,27 @@ import {
 import { Readable } from "node:stream";
 import type { AddressInfo } from "node:net";
 import { rcError } from "../../../error";
+import type { HttpServerRuntime } from "./index.ts";
 
 export interface NodeServerHandle {
   /** Resolved port (useful when `port: 0` is passed to let the OS choose). */
   readonly port: number;
   /** Stop accepting new connections and wait for in-flight requests to complete. */
-  close(): Promise<void>;
+  gracefulClose(): Promise<void>;
+  forceClose(): Promise<void>;
 }
 
 export interface NodeServerOptions {
   port: number;
   host: string;
   /** Web-standard fetch handler. */
-  fetch: (req: Request) => Promise<Response>;
+  fetch: (req: Request, runtime: HttpServerRuntime) => Promise<Response>;
 }
+
+/** Node timeouts do not govern response streaming, so the exemption is inert. */
+const NODE_RUNTIME: HttpServerRuntime = {
+  exemptFromIdleTimeout: () => {},
+};
 
 /**
  * Bridge Node's `http.createServer` into a Web-standard `(Request) => Response`
@@ -60,27 +67,56 @@ export function startNodeServer(
 
       const address = server.address() as AddressInfo | null;
       const resolvedPort = address?.port ?? opts.port;
+      // One close() call, shared between both close modes: `forceClose` after
+      // a timed-out `gracefulClose` would otherwise call close() a second
+      // time and reject with ERR_SERVER_NOT_RUNNING even though the force
+      // path did exactly its job.
+      let closed: Promise<void> | undefined;
+      const requestClose = (): Promise<void> => {
+        closed ??= new Promise<void>((res, rej) => {
+          server.close((err) =>
+            err &&
+            (err as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING"
+              ? rej(err)
+              : res(),
+          );
+        });
+        return closed;
+      };
       resolve({
         port: resolvedPort,
-        close: () =>
-          new Promise<void>((res, rej) => {
-            server.close((err) => (err ? rej(err) : res()));
-          }),
+        gracefulClose: () => {
+          const done = requestClose();
+          // Parked keep-alive sockets hold close() open forever; reap them so
+          // the grace window only covers genuinely in-flight requests.
+          server.closeIdleConnections();
+          return done;
+        },
+        forceClose: () => {
+          server.closeAllConnections();
+          return requestClose();
+        },
       });
     });
   });
 }
 
 async function handle(
-  fetchHandler: (req: Request) => Promise<Response>,
+  fetchHandler: NodeServerOptions["fetch"],
   nReq: IncomingMessage,
   nRes: ServerResponse,
   fallbackHost: string,
 ): Promise<void> {
   try {
-    const webReq = toWebRequest(nReq, fallbackHost);
-    const webRes = await fetchHandler(webReq);
-    await writeNodeResponse(nRes, webRes);
+    const abort = new AbortController();
+    const onAborted = () => abort.abort(new Error("Client disconnected"));
+    nReq.once("aborted", onAborted);
+    nRes.once("close", () => {
+      if (!nRes.writableEnded) onAborted();
+    });
+    const webReq = toWebRequest(nReq, fallbackHost, abort.signal);
+    const webRes = await fetchHandler(webReq, NODE_RUNTIME);
+    await writeNodeResponse(nRes, webRes, abort.signal);
   } catch {
     // The dispatcher is responsible for normalising everything to a Response;
     // anything that escapes is a bug we still need to answer for. Emit a 500
@@ -97,7 +133,11 @@ async function handle(
   }
 }
 
-function toWebRequest(req: IncomingMessage, fallbackHost: string): Request {
+function toWebRequest(
+  req: IncomingMessage,
+  fallbackHost: string,
+  signal: AbortSignal,
+): Request {
   const host = req.headers.host ?? fallbackHost;
   // `req.url` is always a path-and-query when received by an HTTP server.
   const url = new URL(req.url ?? "/", `http://${host}`);
@@ -114,7 +154,7 @@ function toWebRequest(req: IncomingMessage, fallbackHost: string): Request {
 
   const method = (req.method ?? "GET").toUpperCase();
   const hasBody = method !== "GET" && method !== "HEAD";
-  const init: RequestInit = { method, headers };
+  const init: RequestInit = { method, headers, signal };
   if (hasBody) {
     // Readable.toWeb returns ReadableStream<any>; the Request constructor
     // wants ReadableStream<Uint8Array>. Cast through unknown so TS does not
@@ -131,6 +171,7 @@ function toWebRequest(req: IncomingMessage, fallbackHost: string): Request {
 async function writeNodeResponse(
   nRes: ServerResponse,
   webRes: Response,
+  signal: AbortSignal,
 ): Promise<void> {
   nRes.statusCode = webRes.status;
   if (webRes.statusText) nRes.statusMessage = webRes.statusText;
@@ -157,17 +198,51 @@ async function writeNodeResponse(
   }
 
   const reader = webRes.body.getReader();
+  const onAbort = () => {
+    void reader.cancel(signal.reason);
+    nRes.destroy();
+  };
+  // The client may have disconnected while the fetch handler was still
+  // running; a listener added now would never fire, so cancel directly.
+  if (signal.aborted) {
+    onAbort();
+    return;
+  }
+  signal.addEventListener("abort", onAbort, { once: true });
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       if (value) {
         if (!nRes.write(value)) {
-          await new Promise<void>((resolve) => nRes.once("drain", resolve));
+          // "drain" never fires on a destroyed response, so a disconnect
+          // mid-backpressure must also settle this wait or the request
+          // promise parks until force-close.
+          const resumed = await new Promise<"drain" | "closed">((resolve) => {
+            const onDrain = (): void => {
+              cleanup();
+              resolve("drain");
+            };
+            const onClose = (): void => {
+              cleanup();
+              resolve("closed");
+            };
+            const cleanup = (): void => {
+              nRes.off("drain", onDrain);
+              nRes.off("close", onClose);
+            };
+            nRes.once("drain", onDrain);
+            nRes.once("close", onClose);
+          });
+          if (resumed === "closed") {
+            void reader.cancel(new Error("Client disconnected"));
+            break;
+          }
         }
       }
     }
   } finally {
-    nRes.end();
+    signal.removeEventListener("abort", onAbort);
+    if (!signal.aborted && !nRes.destroyed) nRes.end();
   }
 }

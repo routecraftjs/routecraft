@@ -252,6 +252,7 @@ describe("MCP tool proxying", () => {
     t = await testContext()
       .store(REGISTRY_KEY, buildRegistry())
       .store(MANAGERS_KEY, buildManagers())
+      .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .build();
     server = new McpServer(t.ctx, { proxy: ["docs:get_document"] });
 
@@ -274,6 +275,7 @@ describe("MCP tool proxying", () => {
     t = await testContext()
       .store(REGISTRY_KEY, buildRegistry())
       .store(MANAGERS_KEY, buildManagers())
+      .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .build();
     server = new McpServer(t.ctx, { proxy: ["docs:get_document"] });
 
@@ -807,11 +809,10 @@ describe("MCP tool proxying over HTTP with auth", () => {
     t = await testContext()
       .store(REGISTRY_KEY, buildRegistry())
       .store(MANAGERS_KEY, buildManagers())
+      .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .build();
     server = new McpServer(t.ctx, {
       transport: "http",
-      port: 0,
-      host: "127.0.0.1",
       auth: {
         validator: (token: string) => ({
           kind: "custom" as const,
@@ -831,6 +832,8 @@ describe("MCP tool proxying over HTTP with auth", () => {
         },
       ],
     });
+    await server.prepare();
+    await t.startAndWaitReady();
     await server.start();
     const port = server.getHttpPort()!;
 

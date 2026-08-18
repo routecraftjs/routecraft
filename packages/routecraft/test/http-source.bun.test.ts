@@ -5,11 +5,14 @@ import {
   craft,
   DefaultExchange,
   http,
+  httpPlugin,
   jwt,
   noop,
+  normalizeStaticPathPrefix,
   type CraftConfig,
   type EventName,
   type HttpPluginOptions,
+  type ValidatorAuthOptions,
 } from "@routecraft/routecraft";
 import { createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -42,7 +45,9 @@ function base64url(value: string): string {
 
 interface BootHttpOptions {
   routes: Parameters<ReturnType<typeof testContext>["routes"]>[0];
-  http: HttpPluginOptions;
+  http: HttpPluginOptions & { port: number; host?: string };
+  /** Server-level validator (servers.default.auth), inherited by mounts. */
+  serverAuth?: ValidatorAuthOptions;
   events?: Partial<Record<EventName, (ev: { details: unknown }) => void>>;
 }
 
@@ -53,15 +58,25 @@ interface BootHttpResult {
 
 async function bootHttp(opts: BootHttpOptions): Promise<BootHttpResult> {
   let resolvedPort = 0;
+  const { port, host, ...httpOptions } = opts.http;
   const builder = testContext()
     .on(
-      "plugin:http:server:listening" as EventName,
+      "server:listening" as EventName,
       ((payload: { details: unknown }) => {
         resolvedPort = (payload.details as { port: number }).port;
       }) as Parameters<ReturnType<typeof testContext>["on"]>[1],
     )
     .routes(opts.routes)
-    .with({ http: opts.http } as CraftConfig);
+    .with({
+      servers: {
+        default: {
+          port,
+          ...(host !== undefined ? { host } : {}),
+          ...(opts.serverAuth !== undefined ? { auth: opts.serverAuth } : {}),
+        },
+      },
+      http: httpOptions,
+    } as CraftConfig);
   if (opts.events) {
     for (const [name, handler] of Object.entries(opts.events)) {
       builder.on(
@@ -287,55 +302,185 @@ describe("HTTP Source Adapter", () => {
   });
 
   /**
-   * @case Invalid auth mode fails fast at the http() call site
-   * @preconditions Caller passes an unrecognised auth string (e.g. typo "skp")
-   * @expectedResult `http({...})` throws RC5003 immediately. Catching the
-   *   misconfiguration at construction (not at the first unauthenticated
-   *   request) prevents a fail-open downgrade: a route the dispatcher would
-   *   otherwise treat as "optional" because the value isn't exactly "required"
-   *   or "skip" never gets the chance to register.
+   * @case The removed per-route auth option fails fast at the http() call site
+   * @preconditions Untyped caller still passes the removed `auth: "skip"` option
+   * @expectedResult `http({...})` throws RC5003 immediately with the migration
+   *   message. Catching it at construction (not at the first request) matters
+   *   because the option no longer weakens anything: silently ignoring it
+   *   would leave a route the author believes is credential-exempt sitting on
+   *   a walled mount answering 401s.
    */
-  test("invalid auth mode throws RC5003 at http() call", () => {
+  test("removed per-route auth option throws RC5003 at http() call", () => {
     let err: unknown;
     try {
-      // The invalid literal makes overload resolution fail at the call
+      // The removed option makes overload resolution fail at the call
       // site, so the directive must sit on the call, not the property.
       // @ts-expect-error -- testing runtime validation for untyped callers
       http({
         path: "/bad",
         method: "GET",
-        auth: "skp",
+        auth: "skip",
       });
     } catch (e) {
       err = e;
     }
     expect(err).toBeDefined();
     expect((err as { rc?: string }).rc).toBe("RC5003");
-    expect((err as Error).message).toContain("invalid auth mode");
+    expect((err as Error).message).toContain("per-route `auth` was removed");
   });
 
   /**
-   * @case auth: "skip" bypasses global auth completely
-   * @preconditions Plugin has global jwt auth; route declares auth: "skip"
-   * @expectedResult Request without Authorization header is 200 and no
-   *   auth:* events are emitted (skip means no auth was attempted)
+   * @case The mount decides authentication: walled api, public default
+   * @preconditions mounts { api: jwt wall, default: auth false }; one route each
+   * @expectedResult The public route serves 200 with a garbage bearer and no
+   *   auth events; the api route 401s without a token
    */
-  test('auth: "skip" bypasses global auth', async () => {
+  test("walled and public mounts coexist on one listener", async () => {
+    const authEvents: string[] = [];
+    const bound = await bootHttp({
+      routes: [
+        craft()
+          .id("public")
+          .from(http({ path: "/index", method: "GET" }))
+          .transform(() => ({ ok: true }))
+          .to(noop()),
+        craft()
+          .id("orders")
+          .from(http({ mount: "api", path: "/orders", method: "GET" }))
+          .transform(() => ({ ok: true }))
+          .to(noop()),
+      ],
+      http: {
+        port: 0,
+        mounts: {
+          api: {
+            path: "/api",
+            auth: jwt({
+              secret: JWT_SECRET,
+              issuer: JWT_ISSUER,
+              audience: JWT_AUDIENCE,
+            }),
+          },
+          default: { path: "/", auth: false },
+        },
+      },
+      events: {
+        "auth:success": (ev) =>
+          authEvents.push(
+            `success:${(ev.details as { source: string }).source}`,
+          ),
+        "auth:rejected": (ev) =>
+          authEvents.push(
+            `rejected:${(ev.details as { source: string }).source}`,
+          ),
+      },
+    });
+    t = bound.ctx;
+
+    const publicRes = await fetch(`http://127.0.0.1:${bound.port}/index`, {
+      headers: { authorization: "Bearer garbage-never-inspected" },
+    });
+    expect(publicRes.status).toBe(200);
+    expect(authEvents).toEqual([]);
+
+    // Every rejection path on a named mount reports the same source id.
+    const walledRes = await fetch(`http://127.0.0.1:${bound.port}/api/orders`);
+    expect(walledRes.status).toBe(401);
+    expect(authEvents).toEqual(["rejected:http:api"]);
+
+    const token = makeJwt({ sub: "user-1" });
+    const okRes = await fetch(`http://127.0.0.1:${bound.port}/api/orders`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(okRes.status).toBe(200);
+    expect(authEvents).toEqual(["rejected:http:api", "success:http:api"]);
+  });
+
+  /**
+   * @case Mount paths must be static canonical pathname prefixes
+   * @preconditions Mount definitions carrying a query, fragment, param
+   *   segment, empty segment, backslash, dot segment (raw or encoded),
+   *   percent-encoding, a raw space, a bare "//", or a non-string value
+   * @expectedResult httpPlugin construction fails with RC5003 for each
+   */
+  test("mount paths reject non-static prefixes at construction", () => {
+    for (const path of [
+      "/api?v=1",
+      "/api#internal",
+      "/api/:tenant",
+      "//api",
+      "/api/../admin",
+      "/api/./admin",
+      "/api\\admin",
+      "/%2e%2e/admin",
+      "/api /v1",
+      "/api//",
+      "/api%41",
+      "//",
+      1n as unknown as string,
+    ]) {
+      let err: unknown;
+      try {
+        httpPlugin({ mounts: { api: { path } } });
+      } catch (e) {
+        err = e;
+      }
+      // The path rides along in the assertion so a failure names the value
+      // that stopped throwing.
+      expect({ path, rc: (err as { rc?: string } | undefined)?.rc }).toEqual({
+        path,
+        rc: "RC5003",
+      });
+    }
+  });
+
+  /**
+   * @case normalizeStaticPathPrefix returns the canonical form directly
+   * @preconditions Valid inputs: a trailing-slash prefix, the bare root, and a colon-in-segment path
+   * @expectedResult "/api/" normalises to "/api", "/" and "/api:v1" pass through unchanged
+   */
+  test("normalizeStaticPathPrefix normalises valid prefixes", () => {
+    expect(normalizeStaticPathPrefix("/api/", "test")).toBe("/api");
+    expect(normalizeStaticPathPrefix("/", "test")).toBe("/");
+    expect(normalizeStaticPathPrefix("/api:v1", "test")).toBe("/api:v1");
+  });
+
+  /**
+   * @case A literal colon inside a segment is a valid static prefix
+   * @preconditions Mount at "/api:v1", a legal pathname the URL parser preserves; only a segment STARTING with ":" is the dynamic :param shape
+   * @expectedResult httpPlugin construction succeeds
+   */
+  test("mount paths allow a literal colon inside a segment", () => {
+    expect(() =>
+      httpPlugin({ mounts: { api: { path: "/api:v1" } } }),
+    ).not.toThrow();
+  });
+
+  /**
+   * @case .authorize() on a public mount forces verification: absent is 401
+   * @preconditions Public mount (auth false) with the jwt validator on the
+   *   server; route declares a route-entry .authorize()
+   * @expectedResult Request without Authorization header is 401 with
+   *   auth:rejected, not admitted anonymously
+   */
+  test("authorize-pull on a public mount rejects a missing credential", async () => {
     const authEvents: string[] = [];
     const bound = await bootHttp({
       routes: craft()
-        .id("public")
-        .from(http({ path: "/public", method: "GET", auth: "skip" }))
+        .id("account")
+        .authorize({})
+        .from(http({ path: "/account", method: "GET" }))
         .transform(() => ({ ok: true }))
         .to(noop()),
       http: {
         port: 0,
-        auth: jwt({
-          secret: JWT_SECRET,
-          issuer: JWT_ISSUER,
-          audience: JWT_AUDIENCE,
-        }),
+        auth: false,
       },
+      serverAuth: jwt({
+        secret: JWT_SECRET,
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      }),
       events: {
         "auth:success": () => authEvents.push("success"),
         "auth:rejected": () => authEvents.push("rejected"),
@@ -343,66 +488,25 @@ describe("HTTP Source Adapter", () => {
     });
     t = bound.ctx;
 
-    const res = await fetch(`http://127.0.0.1:${bound.port}/public`);
-    expect(res.status).toBe(200);
-    expect(authEvents).toEqual([]);
+    const res = await fetch(`http://127.0.0.1:${bound.port}/account`);
+    expect(res.status).toBe(401);
+    expect(authEvents).toEqual(["rejected"]);
   });
 
   /**
-   * @case auth: "optional" admits anonymously when no credential is present
-   * @preconditions Plugin has global jwt auth; route declares auth: "optional"
-   * @expectedResult Request without Authorization header is 200 with no
-   *   principal on the exchange; no auth:* events fire because no auth was
-   *   attempted
+   * @case .authorize() on a public mount admits a valid credential
+   * @preconditions Public mount (auth false) with the jwt validator on the
+   *   server; route declares a route-entry .authorize()
+   * @expectedResult A valid bearer is verified through the server validator,
+   *   the exchange carries the principal, and auth:success fires
    */
-  test('auth: "optional" admits anonymous without principal', async () => {
-    const authEvents: string[] = [];
-    let observedSubject: string | undefined = "untouched";
-    const bound = await bootHttp({
-      routes: craft()
-        .id("optional")
-        .from(http({ path: "/me", method: "GET", auth: "optional" }))
-        .process(async (ex) => {
-          observedSubject = ex.principal?.subject;
-          return DefaultExchange.rewrap(ex, {
-            body: { subject: observedSubject ?? null },
-          });
-        })
-        .to(noop()),
-      http: {
-        port: 0,
-        auth: jwt({
-          secret: JWT_SECRET,
-          issuer: JWT_ISSUER,
-          audience: JWT_AUDIENCE,
-        }),
-      },
-      events: {
-        "auth:success": () => authEvents.push("success"),
-        "auth:rejected": () => authEvents.push("rejected"),
-      },
-    });
-    t = bound.ctx;
-
-    const res = await fetch(`http://127.0.0.1:${bound.port}/me`);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ subject: null });
-    expect(observedSubject).toBeUndefined();
-    expect(authEvents).toEqual([]);
-  });
-
-  /**
-   * @case auth: "optional" attaches principal when a valid credential is present
-   * @preconditions Plugin has global jwt auth; route declares auth: "optional"
-   * @expectedResult Request with a valid bearer token is 200 and the
-   *   exchange carries the verified principal; auth:success fires
-   */
-  test('auth: "optional" attaches principal when token is valid', async () => {
+  test("authorize-pull verifies a valid token through the server validator", async () => {
     const authEvents: string[] = [];
     const bound = await bootHttp({
       routes: craft()
-        .id("optional-valid")
-        .from(http({ path: "/me", method: "GET", auth: "optional" }))
+        .id("account-valid")
+        .authorize({})
+        .from(http({ path: "/account", method: "GET" }))
         .process(async (ex) =>
           DefaultExchange.rewrap(ex, {
             body: { subject: ex.principal?.subject ?? null },
@@ -411,12 +515,13 @@ describe("HTTP Source Adapter", () => {
         .to(noop()),
       http: {
         port: 0,
-        auth: jwt({
-          secret: JWT_SECRET,
-          issuer: JWT_ISSUER,
-          audience: JWT_AUDIENCE,
-        }),
+        auth: false,
       },
+      serverAuth: jwt({
+        secret: JWT_SECRET,
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      }),
       events: {
         "auth:success": () => authEvents.push("success"),
         "auth:rejected": () => authEvents.push("rejected"),
@@ -425,7 +530,7 @@ describe("HTTP Source Adapter", () => {
     t = bound.ctx;
 
     const token = makeJwt({ sub: "user-7" });
-    const res = await fetch(`http://127.0.0.1:${bound.port}/me`, {
+    const res = await fetch(`http://127.0.0.1:${bound.port}/account`, {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(200);
@@ -434,39 +539,154 @@ describe("HTTP Source Adapter", () => {
   });
 
   /**
-   * @case auth: "optional" still rejects an invalid credential
-   * @preconditions Plugin has global jwt auth; route declares auth: "optional";
+   * @case .authorize() on a public mount still rejects an invalid credential
+   * @preconditions Public mount with server validator; route declares .authorize();
    *   client sends a malformed/expired/forged Bearer token
-   * @expectedResult Request is 401 and auth:rejected fires. "Optional" means
-   *   "do not require auth"; it does not mean "accept anything you send".
+   * @expectedResult Request is 401 and auth:rejected fires. A presented
+   *   credential that fails verification is a hard error, never anonymous.
    */
-  test('auth: "optional" rejects invalid credential', async () => {
+  test("authorize-pull rejects an invalid credential", async () => {
     const authEvents: string[] = [];
     const bound = await bootHttp({
       routes: craft()
-        .id("optional-bad")
-        .from(http({ path: "/me", method: "GET", auth: "optional" }))
+        .id("account-bad")
+        .authorize({})
+        .from(http({ path: "/account", method: "GET" }))
         .transform(() => ({ ok: true }))
         .to(noop()),
       http: {
         port: 0,
-        auth: jwt({
-          secret: JWT_SECRET,
-          issuer: JWT_ISSUER,
-          audience: JWT_AUDIENCE,
-        }),
+        auth: false,
       },
+      serverAuth: jwt({
+        secret: JWT_SECRET,
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      }),
       events: {
         "auth:rejected": () => authEvents.push("rejected"),
       },
     });
     t = bound.ctx;
 
-    const res = await fetch(`http://127.0.0.1:${bound.port}/me`, {
+    const res = await fetch(`http://127.0.0.1:${bound.port}/account`, {
       headers: { authorization: "Bearer not-a-real-jwt" },
     });
     expect(res.status).toBe(401);
     expect(authEvents).toEqual(["rejected"]);
+  });
+
+  /**
+   * @case .authorize() with no validator anywhere refuses at bind
+   * @preconditions Open server (no servers auth), public http (auth false);
+   *   a route declares a route-entry .authorize()
+   * @expectedResult Context start fails with RC5003 naming the route and the
+   *   missing validator instead of 401ing every request forever
+   */
+  test("authorize route with no validator in scope fails at bind", async () => {
+    const ctx = await testContext()
+      .routes(
+        craft()
+          .id("dead-route")
+          .authorize({})
+          .from(http({ path: "/dead", method: "GET" }))
+          .transform(() => ({ ok: true }))
+          .to(noop()),
+      )
+      .with({
+        servers: { default: { port: 0 } },
+        http: { auth: false },
+      } as CraftConfig)
+      .build();
+    t = ctx;
+
+    let err: unknown;
+    try {
+      await ctx.ctx.start();
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeDefined();
+    expect((err as { rc?: string }).rc).toBe("RC5003");
+    expect((err as Error).message).toContain("no validator is in scope");
+  });
+
+  /**
+   * @case Omitted mount resolves only to a mount literally named "default"
+   * @preconditions mounts declares only "api"; a route omits `mount`
+   * @expectedResult Context start fails with RC5003 listing the configured
+   *   mounts instead of silently landing the route on any surface
+   */
+  test("omitted mount with no default mount fails loudly", async () => {
+    const errors: string[] = [];
+    const ctx = await testContext()
+      .on(
+        "context:error" as EventName,
+        ((payload: { details: { error: unknown } }) => {
+          errors.push(String((payload.details.error as Error).message));
+        }) as Parameters<ReturnType<typeof testContext>["on"]>[1],
+      )
+      .routes(
+        craft()
+          .id("lost-route")
+          .from(http({ path: "/orders", method: "GET" }))
+          .transform(() => ({ ok: true }))
+          .to(noop()),
+      )
+      .with({
+        servers: { default: { port: 0 } },
+        http: { mounts: { api: { path: "/api" } } },
+      } as CraftConfig)
+      .build();
+    t = ctx;
+
+    let err: unknown;
+    try {
+      await ctx.startAndWaitReady();
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeDefined();
+    expect((err as Error).message).toContain('no mount named "default"');
+    expect((err as Error).message).toContain('"api"');
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * @case A public route cannot be carved out under a walled mount's prefix
+   * @preconditions api mount at /api; a default-mount route declares a path
+   *   that resolves inside /api
+   * @expectedResult Bind-time validation refuses the cross-mount conflict
+   */
+  test("a route under another mount's prefix fails at bind", async () => {
+    const ctx = await testContext()
+      .routes(
+        craft()
+          .id("carved")
+          .from(http({ path: "/api/webhooks", method: "GET" }))
+          .transform(() => ({ ok: true }))
+          .to(noop()),
+      )
+      .with({
+        servers: { default: { port: 0 } },
+        http: {
+          mounts: {
+            api: { path: "/api" },
+            default: { path: "/", auth: false },
+          },
+        },
+      } as CraftConfig)
+      .build();
+    t = ctx;
+
+    let err: unknown;
+    try {
+      await ctx.ctx.start();
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeDefined();
+    expect((err as Error).message).toContain("conflicts");
   });
 
   /**
@@ -720,7 +940,7 @@ describe("HTTP Source Adapter", () => {
       source: "http",
     });
     expect(rejected[0]).toEqual({
-      reason: "missing bearer token",
+      reason: "missing_header",
       scheme: "bearer",
       source: "http",
     });
@@ -777,9 +997,13 @@ describe("HTTP Source Adapter", () => {
           .transform(() => ({ ok: true }))
           .to(noop()),
       )
-      .with({ http: { port: first.port } } as CraftConfig);
+      .with({
+        servers: { default: { port: first.port } },
+        http: {},
+      } as CraftConfig);
 
-    await expect(second.build()).rejects.toThrow(
+    const secondContext = await second.build();
+    await expect(secondContext.ctx.start()).rejects.toThrow(
       /bind failed|RC5019|EADDRINUSE/i,
     );
   });
@@ -2371,20 +2595,22 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
   });
 
   /**
-   * @case Signature gate is independent of the global auth middleware
-   * @preconditions Global jwt auth configured; route uses auth: "skip" plus signature
-   * @expectedResult A correctly signed request with no Authorization header returns 200
+   * @case Signature gate is independent of the mount wall
+   * @preconditions Walled api mount plus a public default mount; the webhook
+   *   route lives on the public mount with a signature gate
+   * @expectedResult A correctly signed request with no Authorization header
+   *   returns 200; the wall never applies because the mount, not the route,
+   *   decides authentication
    */
-  test("signature admits with auth: skip and no credential under global auth", async () => {
+  test("signature admits on a public mount alongside a walled api mount", async () => {
     const body = '{"a":1}';
     const bound = await bootHttp({
       routes: craft()
-        .id("gh-skip")
+        .id("gh-public")
         .from(
           http({
-            path: "/hooks/skip",
+            path: "/hooks/github",
             method: "POST",
-            auth: "skip",
             signature: {
               header: "x-hub-signature-256",
               secret: WEBHOOK_SECRET,
@@ -2397,16 +2623,22 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
         .to(noop()),
       http: {
         port: 0,
-        auth: jwt({
-          secret: JWT_SECRET,
-          issuer: JWT_ISSUER,
-          audience: JWT_AUDIENCE,
-        }),
+        mounts: {
+          api: {
+            path: "/api",
+            auth: jwt({
+              secret: JWT_SECRET,
+              issuer: JWT_ISSUER,
+              audience: JWT_AUDIENCE,
+            }),
+          },
+          default: { path: "/", auth: false },
+        },
       },
     });
     t = bound.ctx;
 
-    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/skip`, {
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/github`, {
       method: "POST",
       headers: {
         "content-type": "application/json",

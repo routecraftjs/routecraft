@@ -31,7 +31,14 @@
     "number": "05",
     "name": "httpPlugin",
     "module": "@routecraft/routecraft",
-    "hint": "HTTP server runtime.",
-    "description": "Expose routes over HTTP via the http() source. Bun.serve native on Bun, node:http shim on Node; JWT, JWKS, or API-key auth at the plugin boundary."
+    "hint": "HTTP routing.",
+    "description": "Expose routes over HTTP via the http() source, mounted as the catch-all surface on a named server; JWT, JWKS, or API-key auth at the plugin boundary."
+  },
+  {
+    "number": "06",
+    "name": "serversPlugin",
+    "module": "@routecraft/routecraft",
+    "hint": "Named listeners.",
+    "description": "Declare the HTTP listeners the app binds, by name. HTTP, MCP, and custom plugins mount paths on a shared listener; a surface gets a dedicated port by declaring another named server."
   }
 ]

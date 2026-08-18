@@ -1,9 +1,9 @@
 import type { BuiltinHandler } from "./dispatcher";
 import { buildOpenApiDocument, type HttpOpenApiInfo } from "./openapi";
-import type { HttpRouteRegistry } from "./registry";
+import type { HttpRouteView } from "./registry";
 
 export interface BuiltinsOptions {
-  registry: HttpRouteRegistry;
+  registry: HttpRouteView;
   /** Whether the always-on built-ins layer should serve `/health`. */
   serveHealth: boolean;
   /**
@@ -72,7 +72,7 @@ export function createBuiltins(opts: BuiltinsOptions): BuiltinHandler {
  * `auth` strategy is configured.
  */
 export function createOpenApiGatedHandler(
-  registry: HttpRouteRegistry,
+  registry: HttpRouteView,
   info?: HttpOpenApiInfo,
 ): BuiltinHandler {
   return function openApiHandler(req, pathname) {
@@ -92,7 +92,7 @@ export function createOpenApiGatedHandler(
  * `show-details: when-authorized`.
  */
 export function buildReadyResponse(
-  registry: HttpRouteRegistry,
+  registry: HttpRouteView,
   isAuthenticated: boolean,
 ): Response {
   return isAuthenticated

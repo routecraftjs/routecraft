@@ -128,18 +128,34 @@ export interface HttpPluginEventOptions {
  * @experimental
  */
 export interface HttpPluginOptions {
-  /** Port to bind. Required. */
-  port: number;
-  /** Host to bind. Defaults to `"127.0.0.1"`. Pass `"0.0.0.0"` to expose externally. */
-  host?: string;
+  /** Named entry from `CraftConfig.servers`. Defaults to `"default"`. */
+  server?: string;
   /**
-   * Global auth strategy. Every incoming request is verified by default
-   * (rejection returns 401 before any route runs). Per-route routes can
-   * relax this with `http({ auth: "optional" | "skip" })`. Per-route
-   * extra constraints (roles, scopes, predicate) come from the existing
-   * `.authorize({...})` builder method.
+   * Sugar for a single mount named `default` at `"/"` with this auth.
+   * Mutually exclusive with `mounts`. The mount is the wall: with a
+   * validator in scope every route on it requires a valid credential; the
+   * only route-level escalation is `.authorize()`. Omit (with a
+   * server-level `servers.<name>.auth`) to inherit the server validator,
+   * or pass `false` for a public surface.
    */
-  auth?: HttpAuth;
+  auth?: HttpAuth | false;
+  /**
+   * Named path-scoped surfaces on the listener, each with its own auth
+   * posture. Mutually exclusive with the top-level `auth` sugar.
+   *
+   * ```ts
+   * http: {
+   *   mounts: {
+   *     api:     { path: "/api" },           // inherits the server wall
+   *     default: { path: "/", auth: false }, // public catch-all
+   *   },
+   * }
+   * ```
+   *
+   * Routes select a mount with `http({ mount: "api", path: "/orders" })`;
+   * an omitted `mount` resolves only to a mount literally named `default`.
+   */
+  mounts?: Record<string, HttpMountDefinition>;
   /**
    * Maximum request body size in bytes. Requests exceeding this cap return
    * 413 Payload Too Large. Defaults to 10 MB.
@@ -147,8 +163,30 @@ export interface HttpPluginOptions {
   maxBodySize?: number;
   /** Event emission toggles. */
   events?: HttpPluginEventOptions;
-  /** Built-in endpoint configuration. See {@link HttpBuiltinsOptions}. */
+  /**
+   * Built-in endpoint configuration. See {@link HttpBuiltinsOptions}.
+   * Built-ins serve from the mount named `default` when its path is `"/"`;
+   * with no such mount they are disabled.
+   */
   builtins?: HttpBuiltinsOptions;
+}
+
+/**
+ * One path-scoped surface under {@link HttpPluginOptions.mounts}.
+ *
+ * The mount decides authentication for every route on it:
+ * - `auth` unset inherits the server validator (`servers.<name>.auth`) as
+ *   a wall when one is configured, else the mount is open.
+ * - `auth` set is the mount's own wall.
+ * - `auth: false` is explicitly public: requests are served without the
+ *   credential ever being inspected. A route that declares `.authorize()`
+ *   still forces verification through the server validator, so identity
+ *   demands can only tighten a public mount, never the reverse.
+ */
+export interface HttpMountDefinition {
+  /** Path prefix this mount owns. `"/"` is the catch-all fallback. */
+  path: string;
+  auth?: HttpAuth | false;
 }
 
 /**
@@ -234,29 +272,22 @@ export interface HttpServerOptions {
   /** HTTP method to accept. Defaults to `"GET"`. */
   method?: HttpMethod;
   /**
-   * Per-route auth handling against the plugin's global `auth` strategy.
-   * Has no effect when no global `auth` is configured.
+   * Named mount under `http.mounts` this route belongs to. The mount, not
+   * the route, decides authentication: a mount with an effective validator
+   * is a wall (every route 401s without a valid token), a mount with
+   * `auth: false` is public. The one route-level escalation is
+   * `.authorize()`, which forces credential verification even on a public
+   * mount; there is no route-level way to weaken a mount's posture.
    *
-   * - `"required"` (default): verify the credential; reject 401 if missing
-   *   or invalid; attach the resolved {@link Principal} to the exchange.
-   *   This is the secure-by-default tier.
-   * - `"optional"`: if a credential is presented, verify it strictly --
-   *   admit with principal on success, reject 401 on failure. If no
-   *   credential is presented, continue with no principal attached. Use for
-   *   public routes that personalise when the caller is signed in (a
-   *   homepage that greets logged-in users by name, an API endpoint that
-   *   rate-limits anonymous higher than authenticated).
-   * - `"skip"`: bypass the middleware entirely -- no verification, no
-   *   principal attachment, and no `auth:*` events emitted for this route.
-   *   Use for truly anonymous endpoints with no notion of identity (RSS
-   *   feeds, OG images, redirect handlers, public docs).
+   * `path` is relative to the mount's prefix (a route `"/orders/:id"` on a
+   * mount at `"/api"` serves `/api/orders/:id`).
    *
-   * Combining `"skip"` with `.authorize({...})` always rejects since no
-   * principal will ever be attached. That is intentional: `"skip"` is the
-   * documented "no identity" signal and stacking an authorization check on
-   * it is a user error.
+   * When omitted, the route resolves only to a mount literally named
+   * `"default"`; if the plugin declares mounts and none is named
+   * `default`, omitting `mount` fails loudly at subscribe rather than
+   * silently landing a route on the wrong surface.
    */
-  auth?: "required" | "optional" | "skip";
+  mount?: string;
   /**
    * Attach the exact wire bytes of the request body to the exchange as
    * `routecraft.http.rawBody` (a `Uint8Array`). Needed to verify webhook
@@ -274,8 +305,8 @@ export interface HttpServerOptions {
    * verifies the raw request bytes against the configured header before
    * any route step runs; a missing, invalid, or expired signature returns
    * 401 and emits `auth:rejected` with `scheme: "signature"`. Independent
-   * of the global `auth` gate; combine with `auth: "skip"` for webhook
-   * endpoints whose only credential is the signature itself.
+   * of the mount's bearer wall; place webhook routes whose only credential
+   * is the signature itself on a public mount (`auth: false`).
    *
    * Only valid on body-bearing methods; configuring it on `GET`, `HEAD`,
    * `DELETE`, or `OPTIONS` throws RC5003 at construction. For providers

@@ -95,6 +95,8 @@ export interface CraftPlugin {
    * breaking change.
    */
   dependsOn?: string[];
+  /** Keep the context running after all routes complete until `stop()` is called. */
+  keepsAlive?: boolean;
   apply(ctx: CraftContext): void | Promise<void>;
   /**
    * Called once per context start, after every route has been started, in
@@ -1007,7 +1009,7 @@ export class CraftContext {
 
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
-        if (allFulfilled) {
+        if (allFulfilled && !this.plugins.some((plugin) => plugin.keepsAlive)) {
           this.logger.debug({}, "All routes have completed. Stopping context.");
           return this.stop();
         } else {

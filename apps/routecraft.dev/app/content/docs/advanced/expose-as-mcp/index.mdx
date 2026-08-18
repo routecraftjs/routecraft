@@ -88,10 +88,15 @@ Use the HTTP transport when you want a long-running server that multiple clients
 import { mcpPlugin, jwt } from '@routecraft/ai'
 
 export default {
+  servers: { public: { port: 3001 } },
   plugins: [
     mcpPlugin({
       transport: 'http',
-      port: 3001,
+      server: 'public',
+      path: '/mcp',
+      // Required outside NODE_ENV development/test; see the securing
+      // capabilities guide.
+      resource: { url: 'https://mcp.example.com/mcp' },
       auth: jwt({
         secret: process.env.JWT_SECRET!,
         issuer: 'https://idp.example.com',
@@ -101,6 +106,10 @@ export default {
   ],
 }
 ```
+
+Use the same server name for HTTP and other web surfaces to share one port. Use a separate server name when a surface needs an isolated listener. MCP inherits authentication from that server, accepts its own `auth` override, and supports `auth: false` for an explicitly public mount.
+
+Protected-resource metadata is exposed only at the path-suffixed RFC 9728 URL. For the default MCP path this is `/.well-known/oauth-protected-resource/mcp`.
 
 Start the server with `craft run`, then point your AI client at it. Anything reachable over the network must be authenticated: see [Securing capabilities](/docs/advanced/securing-capabilities) for every auth mode (`jwt()`, `jwks()`, custom validators, and `oauth()` as a resource-server gate), identity enrichment, RFC 9728 discovery metadata, and CORS.
 

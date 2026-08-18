@@ -1,5 +1,9 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { formatSchemaIssues, rcError } from "@routecraft/routecraft";
+import {
+  formatSchemaIssues,
+  normalizeStaticPathPrefix,
+  rcError,
+} from "@routecraft/routecraft";
 import { exposedNameFor, parseProxyRef } from "./proxy.ts";
 import { MCP_TOOL_NAME_PATTERN } from "./types.ts";
 import type { McpPluginOptions } from "./types.ts";
@@ -22,29 +26,49 @@ type ValidateResult<T = unknown> =
 /** RFC 6749 §3.3 scope-token: visible ASCII except space, `"` and `\`. */
 const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
 
+/**
+ * Same canonical static-path contract as http mounts: the claim is compared
+ * literally against parsed request pathnames, so anything URL parsing
+ * rewrites would make the endpoint unreachable. The root path is refused
+ * because its RFC 9728 metadata would need the bare well-known document,
+ * which the framework does not serve. Shared by option validation and by
+ * `McpServer` itself, so a directly constructed server (tests, embedders)
+ * meets the same contract as one built via `mcpPlugin()`.
+ * @internal
+ */
+export function normalizeMcpPath(raw: string): string {
+  const path = normalizeStaticPathPrefix(raw, "mcpPlugin");
+  if (path === "/") {
+    throw new TypeError(
+      'mcpPlugin: path must not be "/". Mount the MCP endpoint under a non-root path such as "/mcp".',
+    );
+  }
+  return path;
+}
+
 export function validateMcpPluginOptions(options: McpPluginOptions): void {
   if (options.transport === "http") {
-    if (options.port !== undefined) {
-      if (typeof options.port !== "number") {
-        throw new TypeError(
-          "mcpPlugin: when transport is 'http', port must be a number",
-        );
-      }
-      if (options.port < 0 || options.port > 65535) {
-        throw new RangeError(
-          "mcpPlugin: port must be between 0 and 65535 when transport is 'http'",
-        );
-      }
+    const removed = options as McpPluginOptions & {
+      port?: unknown;
+      host?: unknown;
+    };
+    if (removed.port !== undefined || removed.host !== undefined) {
+      throw new TypeError(
+        'mcpPlugin: `port` and `host` were removed. Define `servers.default: { host, port }` and set `server: "default"`.',
+      );
     }
-    if (options.host !== undefined && typeof options.host !== "string") {
-      throw new TypeError("mcpPlugin: when provided, host must be a string");
+    if (options.server !== undefined && options.server.length === 0) {
+      throw new TypeError("mcpPlugin: server name must not be empty");
+    }
+    if (options.path !== undefined) {
+      normalizeMcpPath(options.path);
     }
   }
 
   // Note: `cors` is silently ignored when transport is not 'http', matching
   // the `auth` posture. The stdio startup path simply does not read it.
   // The shape of `cors.origin` is validated here so misconfiguration fails at
-  // plugin-apply time alongside `auth`, `port`, and `host`; `resolveCorsOptions`
+  // plugin-apply time alongside `auth` and server selection; `resolveCorsOptions`
   // keeps the same throw as defence-in-depth for callers who bypass this gate.
   if (
     options.transport === "http" &&
@@ -65,7 +89,7 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
   }
 
   // Validate auth options
-  if (options.auth !== undefined) {
+  if (options.auth !== undefined && options.auth !== false) {
     const auth = options.auth as unknown as Record<string, unknown>;
 
     // The pre-2026 authorization-server-proxy shape. It has no `validator`, so
@@ -318,7 +342,7 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
  *
  * @example
  * import { z } from "zod";
- * const schema = z.object({ transport: z.enum(["stdio", "http"]), port: z.number().optional() });
+ * const schema = z.object({ transport: z.enum(["stdio", "http"]), server: z.string().optional() });
  * const validated = await validateWithSchema(options, schema);
  * mcpPlugin(validated);
  */
