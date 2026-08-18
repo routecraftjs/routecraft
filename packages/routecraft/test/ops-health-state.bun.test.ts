@@ -78,7 +78,6 @@ describe("the health ledger", () => {
 
     const report = state.report();
     expect(report.status).toBe("up");
-    expect(report.status).not.toBe("down");
     expect(report.routes["orders"]?.status).toBe("up");
     expect(report.routes["orders"]?.details).toEqual({
       lifecycle: "running",
@@ -219,7 +218,6 @@ describe("the health ledger", () => {
       details: { lifecycle: "completed" },
     });
     expect(report.status).toBe("up");
-    expect(report.status).not.toBe("down");
   });
 
   /**
@@ -291,6 +289,31 @@ describe("the health ledger", () => {
 
     expect(state.report().routes["nightly-export"]?.status).toBe("down");
     expect(state.report().status).toBe("down");
+  });
+
+  /**
+   * @case A pushed details map cannot be rewritten after the fact
+   * @preconditions An indicator reported down with a details object the caller keeps, then mutates, and a report whose details the reader mutates
+   * @expectedResult Neither mutation reaches a later report. The ledger is handed the caller's object and hands one back to every reader, so sharing either reference would let a verdict be rewritten after it was recorded
+   */
+  test("copies indicator details in and out", () => {
+    const { state } = ledgerAt();
+    state.contextStarted();
+    state.registerIndicator("mail");
+
+    const pushed = { subsystem: "imap" };
+    state.reportIndicator("mail", { status: "down", details: pushed });
+    pushed.subsystem = "rewritten-by-caller";
+
+    const first = state.report().indicators["mail"];
+    expect(first?.details).toMatchObject({ subsystem: "imap" });
+
+    (first?.details as Record<string, string>)["subsystem"] =
+      "rewritten-by-reader";
+
+    expect(state.report().indicators["mail"]?.details).toMatchObject({
+      subsystem: "imap",
+    });
   });
 
   /**
@@ -372,7 +395,6 @@ describe("the health ledger", () => {
     const report = state.report();
     expect(report.indicators["mail"]?.status).toBe("inactive");
     expect(report.status).toBe("up");
-    expect(report.status).not.toBe("down");
   });
 
   /**
@@ -461,7 +483,6 @@ describe("the health ledger", () => {
 
     const report = state.report();
     expect(report.status).toBe("up");
-    expect(report.status).not.toBe("down");
   });
 
   /**

@@ -143,19 +143,6 @@ function includedIn(view: HealthView, component: HealthComponent): boolean {
 }
 
 /**
- * Aggregates route and indicator health, and projects it into views.
- *
- * Both push (indicators report up or down when they run) and event-derived
- * (routes are tracked from the framework's lifecycle and exchange events).
- * There is no scheduled check: in routecraft the idiomatic periodic worker is
- * a route, so dependency probes are routes that push into an indicator here.
- *
- * One ledger backs every view. What differs between them is only which
- * components they cover, decided by failure domain, so readiness can carry a
- * routing signal while operational health carries an alerting one without the
- * two states ever drifting apart.
- */
-/**
  * The read surface other components get.
  *
  * Published on the store instead of {@link HealthState} itself. Withholding
@@ -174,6 +161,19 @@ export interface HealthLedger {
   indicatorComponentOf(name: string): HealthComponent | undefined;
 }
 
+/**
+ * Aggregates route and indicator health, and projects it into views.
+ *
+ * Both push (indicators report up or down when they run) and event-derived
+ * (routes are tracked from the framework's lifecycle and exchange events).
+ * There is no scheduled check: in routecraft the idiomatic periodic worker is
+ * a route, so dependency probes are routes that push into an indicator here.
+ *
+ * One ledger backs every view. What differs between them is only which
+ * components they cover, decided by failure domain, so readiness can carry a
+ * routing signal while operational health carries an alerting one without the
+ * two states ever drifting apart.
+ */
 export class HealthState implements HealthLedger {
   private readonly routes = new Map<string, RouteRecord>();
   private readonly indicators = new Map<string, IndicatorRecord>();
@@ -406,7 +406,14 @@ export class HealthState implements HealthLedger {
     const record = this.indicators.get(name);
     if (!record) return;
     record.lastReportAt = this.now();
-    record.lastHealth = health;
+    // Copied, not referenced: this object came from the caller and is handed
+    // back in every subsequent report, so sharing it would let either side
+    // rewrite a verdict after the fact. Values are structural scalars, so a
+    // shallow copy is a whole one.
+    record.lastHealth =
+      health.details === undefined
+        ? { status: health.status }
+        : { status: health.status, details: { ...health.details } };
     record.inactive = false;
     this.settleIndicator(name, record);
   }
@@ -555,7 +562,11 @@ export class HealthState implements HealthLedger {
 
     const age = now - record.lastReportAt;
     const last = record.lastHealth ?? { status: "up" as const };
-    const carried = last.details !== undefined ? { details: last.details } : {};
+    // Copied on the way out as well as in: the record outlives the response,
+    // so handing back the stored map would let a reader rewrite the verdict
+    // every later report is built from.
+    const carried =
+      last.details !== undefined ? { details: { ...last.details } } : {};
     if (last.status === "down") {
       return { status: "down", domain, ageMs: age, ...carried };
     }

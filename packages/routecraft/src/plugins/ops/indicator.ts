@@ -185,16 +185,22 @@ export function defineIndicator(definition: IndicatorDefinition): Indicator {
 }
 
 /**
- * Names of handles this process declared that no live context has bound.
+ * Names of handles this process declared that NO context has bound.
  *
  * Forgetting one entry in `ops.indicators` is the likeliest mistake with a
  * two-step API and the one that fails silently: the route keeps pushing, the
  * report never grows the key, and nothing pages.
  *
+ * Deliberately not per-context. Several independently configured contexts can
+ * share this module, and a handle registered by one of them is not something
+ * the others forgot; asking every context about every handle would tell an app
+ * to register another app's. Only a handle nobody anywhere registered is a
+ * mistake, and that is what this reports.
+ *
  * @internal
  */
-export function unboundIndicators(ctx: CraftContext): string[] {
+export function unboundIndicators(): string[] {
   return [...declared]
-    .filter((handle) => !(binders.get(handle) ?? []).some((b) => b.ctx === ctx))
+    .filter((handle) => (binders.get(handle) ?? []).length === 0)
     .map((handle) => handle.name);
 }

@@ -111,7 +111,6 @@ describe("the ops plugin", () => {
     const health = await get(port, "/health");
     expect(health.status).toBe(200);
     expect(health.body.status).toBe("up");
-    expect(health.body.status).not.toBe("down");
     expect(health.body.view).toBe("all");
     expect(health.body.context).toMatchObject({
       status: "up",
@@ -153,7 +152,6 @@ describe("the ops plugin", () => {
     // the assertion below is negative.
     expect(health.status).toBe(200);
     expect(health.body.status).toBe("up");
-    expect(health.body.status).not.toBe("down");
     expect(health.body.routes["thrower"]?.status).not.toBe("down");
     expect(health.body.routes["thrower"]?.details).toMatchObject({
       failures: 1,

@@ -114,6 +114,8 @@ Three signals, separated by what acting on the answer does:
 | `GET /health/ready` | Should this instance get traffic? | Reverse proxies, k8s readiness |
 | `GET /health` | Is anything wrong? | Uptime monitors, paging |
 
+All three answer `GET` and `HEAD`, so a monitor can take the status code without pulling the body, which on the aggregate is the whole component map. Everything else is refused with `405` and `Allow: GET, HEAD`.
+
 Point a restart trigger only at `/health/live`. It carries no dependency state at all, so a third party going down can never restart every replica in a loop.
 
 An exchange error never changes a **route's** status. A refused caller or a validation failure is a healthy route behaving correctly, so escalating it would turn every scope gap into an incident. Repeated failure reaches a route's status through a circuit breaker, which is the thing that actually stops it serving.

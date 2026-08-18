@@ -265,7 +265,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         );
       }
 
-      const unbound = unboundIndicators(ctx);
+      const unbound = unboundIndicators();
       if (unbound.length > 0) {
         ctx.logger.warn(
           { indicators: unbound, plugin: "ops" },
