@@ -419,7 +419,7 @@ describe("the ops plugin", () => {
     expect(health.body.indicators["__proto__"]).toMatchObject({
       status: "down",
     });
-    // The aggregate is the half a dropped key would silently break.
+    // The aggregate is the part a dropped key would silently break.
     expect(health.body.status).toBe("down");
     expect(health.status).toBe(503);
   });
