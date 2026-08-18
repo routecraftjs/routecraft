@@ -1,0 +1,243 @@
+---
+title: opsPlugin
+---
+
+<Lead>
+[← All plugins](/docs/reference/plugins)
+</Lead>
+
+```ts
+import { opsPlugin } from '@routecraft/routecraft'
+```
+
+Serves the operational surface: liveness, readiness, and operational health over HTTP. Health is its first capability; the `/ops` namespace is reserved for the action surface (taking a route offline, resetting a breaker) and answers 404 until that ships.
+
+Most of what it reports needs no application code. Route lifecycle, circuit-breaker position, and the context's own serving state are all derived from events the framework already emits. Indicators are the one thing an app adds by hand, for dependencies the framework cannot see.
+
+`ops` is a first-class core config key, so the common path is `defineConfig({ ops: {...} })` rather than `plugins: [opsPlugin(...)]`. The factory is exported for programmatic composition.
+
+```ts
+import { defineConfig } from '@routecraft/routecraft'
+
+export const craftConfig = defineConfig({
+  servers: { default: { host: '0.0.0.0', port: 8080 } },
+  ops: {},
+})
+```
+
+The surface is a mount on a [named server](/docs/reference/plugins/serversplugin), not a listener of its own. An internal-only ops port is a second named server this mount points at:
+
+```ts
+export const craftConfig = defineConfig({
+  servers: {
+    default: { host: '0.0.0.0', port: 8080 },
+    internal: { host: '0.0.0.0', port: 9090 },
+  },
+  http: {},                  // the app, on "default"
+  ops: { server: 'internal' },
+})
+```
+
+## Three signals, not one health check
+
+The distinction that matters is not what a check inspects, it is what acting on the answer does.
+
+| Path | Question | Consumer | Effect of failure | Sees dependencies |
+| --- | --- | --- | --- | --- |
+| `/health/live` | Should I restart this? | Docker, Kubernetes | Process killed and restarted | Never |
+| `/health/ready` | Should I route traffic here? | Reverse proxies, Kubernetes | Instance leaves the pool | Only instance-local ones |
+| `/health` | Is everything working? | Uptime monitors, humans | A human is paged | Always |
+
+Liveness excluding dependencies is the important one: restarting cannot fix someone else's outage, and a dependency blip pointed at a restart trigger would restart every replica at once. No configuration can make a component reach `/health/live`.
+
+Readiness has two parts, and the first is the one people forget. It answers "can this instance serve right now", and the usual reasons it cannot are its own: still starting, or shutting down and draining. That is what makes readiness worth having at a single replica, because it is what makes a deploy zero-downtime.
+
+The second part is which failures may also refuse traffic, which is decided by failure domain (see below).
+
+## What decides a status
+
+| Situation | Status | Why |
+| --- | --- | --- |
+| Source gave up producing | `down` | The route is not running, so nothing it exists to serve is being served |
+| Circuit breaker open or half-open | `degraded` | Live, but holding calls off, and expected to close again on its own |
+| Route deliberately taken offline | `degraded` | Deliberate reduced capability, visible without paging |
+| Route running normally | `up` | |
+| One-shot finished, or route stopped cleanly | `inactive` | Excluded from aggregation entirely |
+| An exchange failed | no change | A refused caller, a validation error, or a business rule saying no is a healthy route behaving correctly |
+
+That last row is the rule the surface is built around. **Exchange errors are route issues, not health issues.** A failing exchange never changes any status, whatever the streak, because many errors are entirely expected and paging on them turns every scope gap and every malformed request into an incident. Repeated failure reaches health through exactly two doors, both deliberate: a circuit breaker, which knows which errors it counts and actually stops the route serving, or the app catching the error and pushing an indicator down itself. The consecutive-failure count still appears in `details` as context for a human; it is never an input to status.
+
+## Failure domains
+
+Every component declares how widely its failure is felt.
+
+- `instance`: this process or replica specifically. Peers may be fine, so taking this instance out of the pool can genuinely help.
+- `deployment` (the default): every replica alike. Revoked credentials, a dead upstream, bad config baked into the image.
+
+**Readiness carries only `instance`-domain components.** A deployment-wide failure must page but must never move traffic: instance one derotates, traffic shifts to instance two, which fails identically and derotates too, until the pool is empty and a degraded service has become a total outage.
+
+Routes are always `deployment`. Indicators declare their own domain, and default to `deployment` because the two mistakes are not symmetric: wrongly admitting a component to readiness can empty the pool, while wrongly excluding one only misses a derotation that the operational signal still catches.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `server` | `string` | `'default'` | Named server to mount the health paths on. |
+| `health.details` | `'always' \| 'when-authenticated' \| 'never'` | `'when-authenticated'` | Exposure of per-component `details`. |
+| `indicators` | `Indicator[]` | `[]` | Indicators to register. See [`defineIndicator`](#defineindicator). |
+
+The mount claims the `/health` and `/ops` prefixes on its server, so a collision with another surface fails at start rather than being decided by dispatch order.
+
+Do not bind that server to `127.0.0.1` and expect probes to reach it. A Kubernetes `httpGet` probe comes from the kubelet against the pod IP and a reverse-proxy check comes from the proxy, so neither reaches loopback. Only a Docker `HEALTHCHECK`, which runs inside the container, does. Bind `0.0.0.0` and keep the port private at the network layer.
+
+## Endpoints
+
+### `GET /health`
+
+The operational aggregate: every component, whatever its domain. 200 when nothing is `down`, 503 otherwise.
+
+```json
+{
+  "ready": true,
+  "status": "up",
+  "context": { "status": "up", "domain": "instance", "details": { "state": "started" } },
+  "routes": {
+    "leave-approval": { "status": "up", "domain": "deployment", "details": { "lifecycle": "running" } }
+  },
+  "indicators": {
+    "mail": { "status": "up", "domain": "deployment", "ageMs": 42133 }
+  }
+}
+```
+
+Aggregation runs over the non-inactive components of the requested view:
+
+- `status` is `down` if any component is `down`, else `degraded` if any is `degraded`, else `up`.
+- `ready` is true when no component in the view is `down`.
+- The status code is 503 when `ready` is false.
+- A view whose components are all `inactive` is `up`, ready, 200: nothing has said this instance cannot serve.
+
+`ready` on `/health` covers every component, so it can be false while `/health/ready` still answers 200. **Nothing should route on the aggregate's `ready`**; that is what `/health/ready` is for.
+
+No response body ever carries an error message. `details` holds structural facts only: lifecycle, circuit position, counters, staleness. What went wrong and why belongs to logs and telemetry, which are not readable by everyone who can reach this port.
+
+### `GET /health/live`
+
+```json
+{ "status": "up", "uptime": 812.4 }
+```
+
+200 while the process serves, including during shutdown. No component can reach it and no configuration can change that.
+
+### `GET /health/ready`
+
+The same shape as `/health`, filtered to the `context` component plus `instance`-domain components.
+
+During boot the listener has not bound yet, so probes get connection refused, which every orchestrator reads as not-ready. At `context:stopping` readiness flips to 503 immediately while the listener stays up through the drain, which is the window that lets a load balancer stop sending work while in-flight exchanges finish.
+
+### `GET /health/routes/<id>` and `GET /health/indicators/<name>`
+
+One component with its own status code: 503 when it is `down`, 200 otherwise, 404 for an unknown name.
+
+## defineIndicator
+
+An indicator is a named dependency whose health the framework cannot see for itself: a mailbox, a third-party API, a licence server.
+
+```ts
+import { defineIndicator } from '@routecraft/routecraft'
+
+export const mailHealth = defineIndicator({
+  name: 'mail',
+  maxAgeMs: 15 * 60_000,
+  domain: 'deployment',
+  route: 'probe-mail',
+})
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | required | Unique name. Becomes the report key and the path segment. |
+| `maxAgeMs` | `number` | none | No report inside this window makes the indicator `down` (stale). Omit it for an indicator with no cadence. |
+| `domain` | `'instance' \| 'deployment'` | `'deployment'` | Whether readiness may carry this failure. |
+| `route` | `string` | none | Bind to a route's exchange outcomes. |
+
+Register it so a push has somewhere to land:
+
+```ts
+export const craftConfig = defineConfig({
+  ops: { port: 9090, indicators: [mailHealth] },
+})
+```
+
+### Route-bound: no code in the route
+
+With `route` set, a completed exchange on that route reports up, a failed exchange reports down, and no exchange inside `maxAgeMs` goes stale. The probe route carries no health code at all:
+
+```ts
+export default craft()
+  .id('probe-mail')
+  .retry({ maxAttempts: 2 })
+  .timeout(10_000)
+  .from(cron('*/5 * * * *'))
+  .enrich(mail({ folder: 'INBOX', limit: 1, markSeen: false }))
+  .to(noop())
+```
+
+The `.retry()` is the hysteresis, and it is why the binding needs no threshold of its own: a probe that fails once and succeeds on the second attempt emits `route:exchange:completed` and never touches the indicator. Only a probe that fails every attempt flips it.
+
+Note the placement. `.retry()` and `.timeout()` before `.from()` are route-scope: they sit above the pipeline in the [filter chain](/docs/reference/operations) and wrap every step. The same calls after `.from()` are step-scope and wrap only the step that follows, which is not what you want here, because a probe that grows a second step would quietly stop being covered.
+
+**Bind probe routes only.** For a probe the exchange is the health check by construction. Binding a business route would make every expected refusal (a caller without the scope, a validation error, a business rule saying no) report the dependency down, which is the escalation this design exists to prevent.
+
+### Pushed by hand
+
+For a probe checking several subsystems, or a business route flagging a dependency mid-flight, push through the handle from any `.process()` or `.error()` step:
+
+```ts
+mailHealth.down({ subsystem: 'imap' })
+mailHealth.up()
+mailHealth.inactive()   // parked for maintenance: reports inactive, never pages
+```
+
+Details must stay structural (enums, numbers, booleans). Log the error where it happened; it does not belong on the endpoint.
+
+Pushing through a handle no context has registered is inert on all three methods. Health instrumentation must not be able to kill the code it instruments: an exchange draining during shutdown, after teardown released the binding, would otherwise carry an error out of its `.error()` handler and into the route. The mistakes that a push would only report late are caught earlier instead, where the message can name the fix: an indicator naming a route no route declares fails context start, two indicators sharing a name fail the build, and an object that `defineIndicator()` did not produce is refused with [`RC5053`](/docs/reference/errors#rc-5053).
+
+## Securing it
+
+`/health` is read-only and may admit unauthenticated callers, which is what lets a probe reach it without a credential. The `/ops` action namespace is the opposite and fails closed, but ships nothing yet.
+
+`health.details` gates the per-component `details` maps. It withholds diagnostics and nothing else: it does **not** hide topology, because component names are the keys of the always-served status maps and the per-component paths answer 404 for an unknown id in every mode. An app that must not disclose its route inventory puts the ops listener somewhere the public cannot reach.
+
+`when-authenticated` resolves the caller's credential through the server's validator (`servers.<name>.auth`). An anonymous probe still gets 200 with every status, and an operator holding a token additionally gets the `details` maps. On a server with no validator there is nothing to authenticate against, so it collapses to `always`, mirroring how the http plugin collapses `/ready`'s `requireAuth`: a gate with nothing behind it does not silently withhold. Set `details: 'never'` to withhold regardless.
+
+The mount inherits the server's validator rather than opting out, but inheriting gates nothing here: the ingress never authenticates on its own, and this handler calls `authenticate()` only to decide whether to serve `details`. The surface stays reachable without a credential, which is the only way an orchestrator can use it.
+
+## Wiring the probes
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
+  CMD bun -e "fetch('http://localhost:9090/health/live').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+```
+
+Docker on `/health/live`, orchestrator readiness on `/health/ready`, uptime monitor on `/health`. Never point a restart trigger at `/health` or `/health/ready`, or someone else's outage becomes your crash loop and an ordinary deploy becomes a restart.
+
+## Disabling
+
+- No surface at all: omit `ops`. The http plugin's own `/health` and `/ready` built-ins are unaffected and behave as before.
+- Withhold diagnostics: `health.details: 'never'`. Statuses are still served.
+
+There is no per-endpoint kill switch: a mount that answers 404 on every path it claims is worse than not mounting, so an app that does not want the surface omits the key.
+
+## Coexisting with the http built-ins
+
+The http plugin still serves its own `/health` and `/ready` built-ins, which are constants: `/health` always says `ok` and `/ready` always answers 200, neither consulting lifecycle or component state. They are unchanged by this plugin.
+
+If both surfaces are configured they cannot share a server, because this mount claims the `/health` prefix and the claim validator refuses the overlap at start. Point one of them at another named server, or disable the http built-ins with `http: { builtins: { health: { enabled: false }, ready: { enabled: false } } }`. When you have both, the ops paths are the ones to point probes at: the http `/ready` cannot go red, including during boot and drain, which is the failure this surface exists to prevent.
+
+## Related
+
+- [serversPlugin](/docs/reference/plugins/serversplugin) for the listener this mounts on
+- [Events reference](/docs/reference/events#ops-plugin-events) for `plugin:ops:health:changed`
+- [httpPlugin](/docs/reference/plugins/httpplugin) for the application's own HTTP surface
+- [`RC5053`](/docs/reference/errors#rc-5053)

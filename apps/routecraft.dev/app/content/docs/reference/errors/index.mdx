@@ -730,6 +730,15 @@ Add `suspension: {}` to `defineConfig` to take the defaults, or `suspension: { s
 
 `suspension: {}` applies defaults; it does not supply a signing secret. In production, set `secret` or the `ROUTECRAFT_SUSPENSION_SECRET` environment variable, or startup fails with [`RC5040`](#rc-5040) instead. An ephemeral key is minted only for tests and development, because a key that dies with the process makes every outstanding resume token unverifiable across exactly the restart suspension exists to survive.
 
+## RC5053
+Ops plugin misconfigured
+
+**Why it happens**  
+The `ops` config does not describe a surface the plugin can serve. The common causes, each with its own message: an indicator bound to a `route` id no route declares (the message lists the known ids), two indicators sharing a name, an indicator pushed through `up()` or `down()` before any context registered it, or an invalid `port` or `health.details` value.
+
+**Suggestion**  
+For a bound route, check the id against the route's `.id(...)`; the binding is by id, not by variable name. For a duplicate, rename one indicator: names are the keys of the health report, so a duplicate would shadow one dependency with another. For a push that has nowhere to land, add the handle to `ops.indicators`, which is what gives it a ledger. A silently dropped report is the failure this refuses to allow, because a dependency nobody is watching looks healthy.
+
 ## RC9901
 Unknown error
 

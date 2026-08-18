@@ -6,6 +6,7 @@ import type { Route } from "./route.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
 import type { SuspendRequest } from "./suspension/sites.ts";
 import type { PrincipalRef } from "./suspension/types.ts";
+import type { HealthChange } from "./plugins/ops/types.ts";
 
 /**
  * Base interface for all adapters (sources, destinations, transformers, filters, etc.).
@@ -1056,6 +1057,13 @@ export interface EventDetailsMap {
   "server:closed": { server: string };
 
   // -- HTTP plugin --
+  /**
+   * A health component changed status, so an operator can alert on the
+   * transition rather than polling for it. The ops listener's own lifecycle
+   * is reported by the server events above, since the ops surface mounts on a
+   * named server rather than owning a socket.
+   */
+  "plugin:ops:health:changed": HealthChange;
   "plugin:http:request:completed": {
     method: string;
     path: string;

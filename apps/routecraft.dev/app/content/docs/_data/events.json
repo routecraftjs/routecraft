@@ -41,6 +41,12 @@
     "anchor": "authentication-events"
   },
   {
+    "pattern": "plugin:ops:*",
+    "events": ["health:changed"],
+    "anchor": "ops-plugin-events",
+    "note": "The ops surface mounts on a named server, so its listener lifecycle rides on server:* rather than on the plugin."
+  },
+  {
     "pattern": "plugin:mcp:*",
     "events": ["server", "session", "tool"],
     "anchor": "mcp-plugin-events",

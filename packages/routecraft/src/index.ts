@@ -81,6 +81,7 @@ export { type HttpConfig } from "./adapters/http/types.ts";
 // adapter knowledge.
 import "./plugins/server/config.ts";
 import "./plugins/http/config.ts";
+import "./plugins/ops/config.ts";
 import "./adapters/cron/config.ts";
 import "./adapters/direct/config.ts";
 import "./adapters/mail/config.ts";
@@ -102,6 +103,36 @@ export type {
   WebIngress,
 } from "./plugins/server/types.ts";
 export { apiKey } from "./plugins/http/auth.ts";
+
+export { opsPlugin } from "./plugins/ops/plugin.ts";
+export { defineIndicator } from "./plugins/ops/indicator.ts";
+export { OPS_HEALTH_STATE } from "./plugins/ops/store.ts";
+// Type-only: the ledger is read through `ctx.getStore(OPS_HEALTH_STATE)`. Its
+// mutators are the plugin's translation of framework events, so exporting the
+// class as a value would let an app inject a transition the framework never
+// observed.
+export type { HealthState } from "./plugins/ops/state.ts";
+export type {
+  CircuitState,
+  ContextState,
+  FailureDomain,
+  Health,
+  HealthChange,
+  HealthComponent,
+  HealthDetails,
+  HealthDetailsExposure,
+  HealthDetailValue,
+  HealthReport,
+  HealthStatus,
+  HealthView,
+  Indicator,
+  IndicatorDefinition,
+  LivenessReport,
+  OpsConfig,
+  OpsHealthOptions,
+  OpsPluginOptions,
+  RouteLifecycle,
+} from "./plugins/ops/types.ts";
 /** @deprecated Use `CraftConfig.direct` instead. Will be removed in next major version. */
 export { type DirectConfig } from "./adapters/direct/types.ts";
 
