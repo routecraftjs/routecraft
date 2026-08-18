@@ -227,6 +227,14 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         }
       }
 
+      // Every declared route is listed, whether or not it signalled. Route
+      // readiness is bounded by a timeout, so a source that never signals
+      // would otherwise be missing from the report rather than shown as
+      // unproven. Routes that did signal already have their real state.
+      for (const route of ctx.getRoutes()) {
+        runtime.state.declareRoute(route.definition.id);
+      }
+
       // Routes have started by the time a plugin's start() hook runs, so this
       // is the first moment the context can honestly claim to be serving.
       runtime.state.contextStarted();

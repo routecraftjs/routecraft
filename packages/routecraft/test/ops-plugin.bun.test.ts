@@ -402,20 +402,26 @@ describe("the ops plugin", () => {
   });
 
   /**
-   * @case A component named __proto__ still reaches the report
-   * @preconditions A route whose id is the prototype key, reported down
-   * @expectedResult The component appears and the aggregate carries it. Assigning that key on a plain object silently discards the entry, which would drop a down component out of the body and out of aggregation, so /health would read healthy while it was not
+   * @case A down component named __proto__ still reaches the report and the aggregate
+   * @preconditions An indicator whose name is the prototype key, pushed down
+   * @expectedResult The component is listed and the aggregate goes 503. Assigning that key on a plain object silently discards the entry, which would drop a down component out of the body and out of aggregation, so /health would read healthy while it was not
    */
-  test("reports a component named __proto__", async () => {
-    const port = await start({}, [
-      craft().id("__proto__").from(direct()).to(noop()),
-      craft().id("worker").from(direct()).to(noop()),
-    ]);
+  test("reports a down component named __proto__", async () => {
+    const proto = defineIndicator({ name: "__proto__" });
+    const port = await start({ indicators: [proto] });
+
+    expect((await get(port, "/health")).status).toBe(200);
+
+    proto.down();
 
     const health = await get(port, "/health");
-    expect(health.status).toBe(200);
-    expect(Object.keys(health.body.routes)).toContain("__proto__");
-    expect((await get(port, "/health/routes/__proto__")).status).toBe(200);
+    expect(Object.keys(health.body.indicators)).toContain("__proto__");
+    expect(health.body.indicators["__proto__"]).toMatchObject({
+      status: "down",
+    });
+    // The aggregate is the half a dropped key would silently break.
+    expect(health.body.status).toBe("down");
+    expect(health.status).toBe(503);
   });
 
   /**

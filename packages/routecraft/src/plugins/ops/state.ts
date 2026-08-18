@@ -284,6 +284,28 @@ export class HealthState {
     this.settleRoute(routeId, record);
   }
 
+  /**
+   * Record that a route exists, without claiming anything about its health.
+   *
+   * Route readiness is bounded by a timeout, so a source that never signals
+   * (and legitimately may not: one that reaches readiness only on its first
+   * message) leaves no lifecycle event behind. Without this the route would be
+   * absent from the report altogether, and a route stuck starting would be
+   * invisible rather than merely unproven. Seeded as `inactive` so it is
+   * listed and excluded from aggregation: there is no evidence it is serving,
+   * and none that it has failed. Any later event replaces this.
+   */
+  declareRoute(routeId: string): void {
+    if (this.routes.has(routeId)) return;
+    this.routes.set(routeId, {
+      lifecycle: "stopped",
+      breakers: new Map(),
+      consecutiveFailures: 0,
+      everSucceeded: false,
+      lastStatus: "inactive",
+    });
+  }
+
   /** An exchange completed: the route is serving, so its failure run resets. */
   exchangeCompleted(routeId: string): void {
     const record = this.ensureRoute(routeId);
