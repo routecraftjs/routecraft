@@ -1,4 +1,4 @@
-import type { HealthState } from "./state";
+import type { HealthLedger } from "./state";
 
 /**
  * Symbol key the ops plugin publishes its per-context ledger under.
@@ -15,6 +15,6 @@ export const OPS_HEALTH_STATE: unique symbol = Symbol.for(
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
-    [OPS_HEALTH_STATE]: HealthState;
+    [OPS_HEALTH_STATE]: HealthLedger;
   }
 }

@@ -1,3 +1,4 @@
+import { jsonResponse } from "./response.ts";
 import { logger as defaultLogger } from "../../logger";
 import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
 import { isRoutecraftError } from "../../brand";
@@ -405,19 +406,6 @@ function emitCompleted(
 
 function ms(started: number): number {
   return Math.round(performance.now() - started);
-}
-
-function jsonResponse(
-  payload: unknown,
-  init: { status: number; headers?: Record<string, string> },
-): Response {
-  return new Response(JSON.stringify(payload), {
-    status: init.status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      ...(init.headers ?? {}),
-    },
-  });
 }
 
 /**

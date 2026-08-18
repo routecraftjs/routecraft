@@ -93,6 +93,31 @@ export const craftConfig: CraftConfig = {
 }
 ```
 
+## Health endpoints
+
+Logs and events tell you what happened. An orchestrator needs a different thing: an answer, right now, to whether this instance should be restarted, sent traffic, or paged about. That is the [ops plugin](/docs/reference/plugins/opsplugin).
+
+```ts
+defineConfig({
+  servers: { ops: { host: '0.0.0.0', port: 9090 } },
+  ops: { server: 'ops' },
+})
+```
+
+No application code is needed. Route lifecycle, circuit-breaker position and the context's own serving state are derived from the same events this page describes, so the surface is truthful the moment you enable it.
+
+Three signals, separated by what acting on the answer does:
+
+| Path | Answers | Consumer |
+| --- | --- | --- |
+| `GET /health/live` | Is the process up? | Docker `HEALTHCHECK`, k8s liveness |
+| `GET /health/ready` | Should this instance get traffic? | Reverse proxies, k8s readiness |
+| `GET /health` | Is anything wrong? | Uptime monitors, paging |
+
+Point a restart trigger only at `/health/live`. It carries no dependency state at all, so a third party going down can never restart every replica in a loop.
+
+An exchange error never changes a status. A refused caller or a validation failure is a healthy route behaving correctly, so escalating it would turn every scope gap into an incident. Repeated failure reaches health through a circuit breaker, or through an [indicator](/docs/reference/plugins/opsplugin#define-indicator) your own code pushes.
+
 ## Telemetry plugin
 
 The built-in `telemetry()` plugin instruments the framework with [OpenTelemetry](https://opentelemetry.io/) traces and persists data to a local SQLite database for `craft tui`.

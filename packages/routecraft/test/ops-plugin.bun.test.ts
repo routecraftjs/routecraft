@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { testContext, type TestContext } from "@routecraft/testing";
-import { createHmac } from "node:crypto";
+import { signHs256, testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   defineIndicator,
@@ -37,25 +36,9 @@ async function get(
   return { status: res.status, body: (await res.json()) as Fetched["body"] };
 }
 
-function base64url(value: string): string {
-  return Buffer.from(value).toString("base64url");
-}
-
 /** A valid HS256 token for the server-level validator. */
 function makeJwt(): string {
-  const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const payload = base64url(
-    JSON.stringify({
-      iss: JWT_ISSUER,
-      aud: JWT_AUDIENCE,
-      sub: "operator",
-      exp: Math.floor(Date.now() / 1000) + 60,
-    }),
-  );
-  const signature = createHmac("sha256", JWT_SECRET)
-    .update(`${header}.${payload}`)
-    .digest("base64url");
-  return `${header}.${payload}.${signature}`;
+  return signHs256({ secret: JWT_SECRET });
 }
 
 /**
@@ -128,7 +111,7 @@ describe("the ops plugin", () => {
     const health = await get(port, "/health");
     expect(health.status).toBe(200);
     expect(health.body.status).toBe("up");
-    expect(health.body.ready).toBe(true);
+    expect(health.body.status).not.toBe("down");
     expect(health.body.view).toBe("all");
     expect(health.body.context).toMatchObject({
       status: "up",
@@ -166,13 +149,11 @@ describe("the ops plugin", () => {
     await t?.drain();
 
     const health = await get(port, "/health");
-    // The route is a finished one-shot, so `inactive` is its correct
-    // disposition. What matters is that it is not `down` and the aggregate
-    // did not go 503: were the per-exchange error channel treated as a dead
-    // source, this exact shape would page.
+    // `inactive`, not `up`: the route is a finished one-shot, which is why
+    // the assertion below is negative.
     expect(health.status).toBe(200);
     expect(health.body.status).toBe("up");
-    expect(health.body.ready).toBe(true);
+    expect(health.body.status).not.toBe("down");
     expect(health.body.routes["thrower"]?.status).not.toBe("down");
     expect(health.body.routes["thrower"]?.details).toMatchObject({
       failures: 1,
@@ -425,11 +406,11 @@ describe("the ops plugin", () => {
   });
 
   /**
-   * @case Ops and the http built-ins cannot silently share a server
-   * @preconditions Both surfaces configured on the same named server with the http /health built-in enabled
-   * @expectedResult The build is refused. The built-in is answered inside the http mount, so without an explicit claim the ops prefix would simply outscore it at dispatch and shadow it with no warning
+   * @case Ops supersedes the http /health built-in on a shared server
+   * @preconditions Both plugins in their minimal documented form on one server
+   * @expectedResult The context starts and /health is the real report, not the constant. Refusing the most natural pair of config keys would be a worse answer than letting the superset win, and the http built-in is a constant that can never go red
    */
-  test("refuses to share a server with the http /health built-in", async () => {
+  test("supersedes the http /health built-in on a shared server", async () => {
     const builder = testContext()
       .with({
         servers: { default: { port: 0, host: "127.0.0.1" } },
@@ -439,9 +420,65 @@ describe("the ops plugin", () => {
       .routes([craft().id("worker").from(direct()).to(noop())]);
 
     t = await builder.build();
-    await expect(t.ctx.start()).rejects.toThrow(
-      /mount "http" claim GET \/health conflicts with mount "ops"/,
+    let port: number | undefined;
+    t.ctx.on("server:listening", ({ details }) => {
+      port = details.port;
+    });
+    await t.startAndWaitReady();
+    if (port === undefined) throw new Error("no server reported a port");
+
+    // The constant built-in answers `{ status: "ok" }` and nothing else; the
+    // ops report carries components, so the body distinguishes them.
+    const health = await get(port, "/health");
+    expect(health.status).toBe(200);
+    expect(health.body.view).toBe("all");
+    expect(health.body.routes["worker"]).toMatchObject({ status: "up" });
+
+    // /ready is not under an ops claim, so the http built-in still owns it.
+    expect((await get(port, "/ready")).status).toBe(200);
+  });
+
+  /**
+   * @case An indicator name that is not a single path segment is refused
+   * @preconditions defineIndicator called with a name containing a slash and one containing a space
+   * @expectedResult Both throw at declaration. The name is the last segment of /health/indicators/<name>, so a slash would leave the component unreachable at its own path, presenting as an endpoint that is simply missing
+   */
+  test("refuses an indicator name that is not one path segment", () => {
+    expect(() => defineIndicator({ name: "mail/imap" })).toThrow(
+      /single URL path segment/,
     );
+    expect(() => defineIndicator({ name: "mail probe" })).toThrow(
+      /single URL path segment/,
+    );
+    expect(() => defineIndicator({ name: "mail-imap_1" })).not.toThrow();
+  });
+
+  /**
+   * @case A declared but unregistered indicator is reported at start
+   * @preconditions A handle from defineIndicator that is never listed in ops.indicators
+   * @expectedResult A warning naming it. Pushing through an unregistered handle is inert by design, so without this the route keeps reporting, the key never appears, and nothing pages: the surface looks instrumented while watching nothing
+   */
+  test("warns about a declared indicator nobody registered", async () => {
+    const orphan = defineIndicator({ name: `orphan-${Date.now()}` });
+    const warnings: string[] = [];
+
+    const builder = testContext()
+      .with({
+        servers: { default: { port: 0, host: "127.0.0.1" } },
+        plugins: [opsPlugin()],
+      })
+      .routes([craft().id("worker").from(direct()).to(noop())]);
+
+    t = await builder.build();
+    const original = t.ctx.logger.warn.bind(t.ctx.logger);
+    t.ctx.logger.warn = ((first: unknown, second?: unknown) => {
+      warnings.push(typeof first === "string" ? first : String(second));
+      return original(first as never, second as never);
+    }) as typeof t.ctx.logger.warn;
+
+    await t.startAndWaitReady();
+
+    expect(warnings.some((w) => w.includes(orphan.name))).toBe(true);
   });
 
   /**

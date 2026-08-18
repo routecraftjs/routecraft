@@ -98,7 +98,7 @@ The operational aggregate: every component, whatever its domain. 200 when nothin
 
 ```json
 {
-  "ready": true,
+  "view": "all",
   "status": "up",
   "context": { "status": "up", "domain": "instance", "details": { "state": "started" } },
   "routes": {
@@ -113,11 +113,11 @@ The operational aggregate: every component, whatever its domain. 200 when nothin
 Aggregation runs over the non-inactive components of the requested view:
 
 - `status` is `down` if any component is `down`, else `degraded` if any is `degraded`, else `up`.
-- `ready` is true when no component in the view is `down`.
-- The status code is 503 when `ready` is false.
-- A view whose components are all `inactive` is `up`, ready, 200: nothing has said this instance cannot serve.
+- The status code is 503 when `status` is `down`, and 200 otherwise.
+- A view whose components are all `inactive` is `up`, 200: nothing has said this instance cannot serve.
+- `view` names which components the report covers, so a consumer holding one can tell the operational aggregate from the routing signal without remembering which path produced it.
 
-`ready` on `/health` covers every component, so it can be false while `/health/ready` still answers 200. **Nothing should route on the aggregate's `ready`**; that is what `/health/ready` is for.
+There is deliberately no separate `ready` flag. It would be exactly `status !== "down"` on whichever view produced the report, and a derivable field called `ready` on the operational aggregate invites the one mistake this design exists to prevent: routing traffic on the deployment-wide signal. **Read `status`, and read it from `/health/ready` when the answer decides where traffic goes.**
 
 No response body ever carries an error message. `details` holds structural facts only: lifecycle, circuit position, counters, staleness. What went wrong and why belongs to logs and telemetry, which are not readable by everyone who can reach this port.
 
@@ -131,7 +131,7 @@ No response body ever carries an error message. `details` holds structural facts
 
 ### `GET /health/ready`
 
-The same shape as `/health`, filtered to the `context` component plus `instance`-domain components.
+The same shape as `/health`, with `view` set to `readiness` and the components filtered to the `context` component plus any `instance`-domain component.
 
 During boot the listener has not bound yet, so probes get connection refused, which every orchestrator reads as not-ready. At `context:stopping` readiness flips to 503 immediately while the listener stays up through the drain, which is the window that lets a load balancer stop sending work while in-flight exchanges finish.
 
@@ -234,7 +234,9 @@ There is no per-endpoint kill switch: a mount that answers 404 on every path it 
 
 The http plugin still serves its own `/health` and `/ready` built-ins, which are constants: `/health` always says `ok` and `/ready` always answers 200, neither consulting lifecycle or component state. They are unchanged by this plugin.
 
-If both surfaces are configured they cannot share a server, because this mount claims the `/health` prefix and the claim validator refuses the overlap at start. Point one of them at another named server, or disable the http built-ins with `http: { builtins: { health: { enabled: false }, ready: { enabled: false } } }`. When you have both, the ops paths are the ones to point probes at: the http `/ready` cannot go red, including during boot and drain, which is the failure this surface exists to prevent.
+They coexist on one server. When both are configured, the http `/health` built-in stands down and this surface answers that path instead, because the report is a strict superset of the constant. The http `/ready` and `/openapi.json` are untouched, since this mount claims only `/health` and `/ops`.
+
+Point probes at the ops paths. The http built-ins cannot go red, including during boot and drain, which is the failure this surface exists to prevent. Disable them with `http: { builtins: { health: { enabled: false }, ready: { enabled: false } } }` if you would rather not serve both, and note that any *other* surface claiming `/health` still fails at bind rather than silently taking the path.
 
 ## Related
 

@@ -40,12 +40,12 @@ describe("the health ledger", () => {
     const { state } = ledgerAt();
 
     const before = state.report();
-    expect(before.ready).toBe(false);
+    expect(before.status).toBe("down");
     expect(before.context.status).toBe("down");
     expect(before.context.details).toEqual({ state: "starting" });
 
     state.contextStarted();
-    expect(state.report().ready).toBe(true);
+    expect(state.report().status).not.toBe("down");
   });
 
   /**
@@ -56,11 +56,11 @@ describe("the health ledger", () => {
   test("refuses traffic as soon as shutdown begins", () => {
     const { state } = ledgerAt();
     state.contextStarted();
-    expect(state.report("readiness").ready).toBe(true);
+    expect(state.report("readiness").status).not.toBe("down");
 
     state.contextStopping();
 
-    expect(state.report("readiness").ready).toBe(false);
+    expect(state.report("readiness").status).toBe("down");
     expect(state.report().context.details).toEqual({ state: "stopping" });
   });
 
@@ -78,7 +78,7 @@ describe("the health ledger", () => {
 
     const report = state.report();
     expect(report.status).toBe("up");
-    expect(report.ready).toBe(true);
+    expect(report.status).not.toBe("down");
     expect(report.routes["orders"]?.status).toBe("up");
     expect(report.routes["orders"]?.details).toEqual({
       lifecycle: "running",
@@ -119,7 +119,7 @@ describe("the health ledger", () => {
 
     const report = state.report();
     expect(report.status).toBe("down");
-    expect(report.ready).toBe(false);
+    expect(report.status).toBe("down");
     expect(report.routes["mail-intake"]).toMatchObject({
       status: "down",
       domain: "deployment",
@@ -141,7 +141,7 @@ describe("the health ledger", () => {
 
     const report = state.report();
     expect(report.status).toBe("degraded");
-    expect(report.ready).toBe(true);
+    expect(report.status).not.toBe("down");
     expect(report.routes["invoice-sync"]).toMatchObject({
       status: "degraded",
       details: { lifecycle: "running", circuit: "open", breakers: "route" },
@@ -190,7 +190,7 @@ describe("the health ledger", () => {
 
     const report = state.report();
     expect(report.status).toBe("degraded");
-    expect(report.ready).toBe(true);
+    expect(report.status).not.toBe("down");
     expect(report.routes["nightly-export"]).toMatchObject({
       status: "degraded",
       details: { lifecycle: "offline" },
@@ -219,7 +219,7 @@ describe("the health ledger", () => {
       details: { lifecycle: "completed" },
     });
     expect(report.status).toBe("up");
-    expect(report.ready).toBe(true);
+    expect(report.status).not.toBe("down");
   });
 
   /**
@@ -254,6 +254,25 @@ describe("the health ledger", () => {
     state.routeStopped("mail-intake");
 
     expect(state.report().routes["mail-intake"]?.status).toBe("down");
+  });
+
+  /**
+   * @case An in-flight exchange settling after the source died cannot revive the route
+   * @preconditions A route whose source died, then a completed exchange, then the stop
+   * @expectedResult It stays down and the aggregate stays down. route:source:failed is emitted before the route's controller aborts, so exchanges already in flight settle afterwards; treating one as evidence of life would clear the failure, and the later stop would then read as a clean finish and drop the route out of aggregation entirely
+   */
+  test("keeps a failed route failed when a late exchange completes", () => {
+    const { state } = ledgerAt();
+    state.contextStarted();
+    state.routeStarted("mail-intake");
+    state.sourceDied("mail-intake");
+
+    state.exchangeCompleted("mail-intake");
+    expect(state.report().routes["mail-intake"]?.status).toBe("down");
+
+    state.routeStopped("mail-intake");
+    expect(state.report().routes["mail-intake"]?.status).toBe("down");
+    expect(state.report().status).toBe("down");
   });
 
   /**
@@ -292,7 +311,7 @@ describe("the health ledger", () => {
       status: "down",
       details: { reason: "stale" },
     });
-    expect(report.ready).toBe(false);
+    expect(report.status).toBe("down");
   });
 
   /**
@@ -335,7 +354,7 @@ describe("the health ledger", () => {
     const report = state.report();
     expect(report.indicators["mail"]?.status).toBe("inactive");
     expect(report.status).toBe("up");
-    expect(report.ready).toBe(true);
+    expect(report.status).not.toBe("down");
   });
 
   /**
@@ -353,10 +372,10 @@ describe("the health ledger", () => {
 
     const all = state.report("all");
     expect(all.status).toBe("down");
-    expect(all.ready).toBe(false);
+    expect(all.status).toBe("down");
 
     const readiness = state.report("readiness");
-    expect(readiness.ready).toBe(true);
+    expect(readiness.status).not.toBe("down");
     expect(readiness.indicators["mail"]).toBeUndefined();
     expect(readiness.indicators["disk"]?.status).toBe("up");
   });
@@ -373,7 +392,7 @@ describe("the health ledger", () => {
 
     state.reportIndicator("disk", { status: "down" });
 
-    expect(state.report("readiness").ready).toBe(false);
+    expect(state.report("readiness").status).toBe("down");
   });
 
   /**
@@ -389,7 +408,7 @@ describe("the health ledger", () => {
 
     expect(state.report().routes["orders"]?.domain).toBe("deployment");
     expect(state.report("readiness").routes["orders"]).toBeUndefined();
-    expect(state.report("readiness").ready).toBe(true);
+    expect(state.report("readiness").status).not.toBe("down");
   });
 
   /**
@@ -424,7 +443,7 @@ describe("the health ledger", () => {
 
     const report = state.report();
     expect(report.status).toBe("up");
-    expect(report.ready).toBe(true);
+    expect(report.status).not.toBe("down");
   });
 
   /**

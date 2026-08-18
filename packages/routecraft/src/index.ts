@@ -107,11 +107,10 @@ export { apiKey } from "./plugins/http/auth.ts";
 export { opsPlugin } from "./plugins/ops/plugin.ts";
 export { defineIndicator } from "./plugins/ops/indicator.ts";
 export { OPS_HEALTH_STATE } from "./plugins/ops/store.ts";
-// Type-only: the ledger is read through `ctx.getStore(OPS_HEALTH_STATE)`. Its
-// mutators are the plugin's translation of framework events, so exporting the
-// class as a value would let an app inject a transition the framework never
-// observed.
-export type { HealthState } from "./plugins/ops/state.ts";
+// The read surface only. The ledger's mutators are the plugin's translation of
+// framework events, and the store hands back the live instance, so a type that
+// exposed them would let an app inject a transition nothing ever observed.
+export type { HealthLedger } from "./plugins/ops/state.ts";
 export type {
   CircuitState,
   ContextState,

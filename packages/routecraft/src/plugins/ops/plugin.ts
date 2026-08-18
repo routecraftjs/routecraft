@@ -15,7 +15,12 @@ import type { CraftContext, CraftPlugin } from "../../context";
 import { rcError } from "../../error";
 import { requireWebIngress } from "../server/registry";
 import type { PathClaim } from "../server/types";
-import { bindIndicator, isIndicator, unbindIndicator } from "./indicator";
+import {
+  bindIndicator,
+  isIndicator,
+  unbindIndicator,
+  unboundIndicators,
+} from "./indicator";
 import { createHealthHandler } from "./report";
 import { HealthState } from "./state";
 import { OPS_HEALTH_STATE } from "./store";
@@ -39,6 +44,7 @@ const CLAIMS: readonly PathClaim[] = [
 interface Runtime {
   state: HealthState;
   unsubscribes: (() => void)[];
+  serverAuthConfigured: boolean;
   unmount?: () => void;
 }
 
@@ -63,6 +69,13 @@ interface Runtime {
  *   so a probe arriving before that gets connection refused, which every
  *   orchestrator reads as not-ready.
  * - `teardown(ctx)`: unmount, unsubscribe, and release the indicator bindings.
+ *
+ * The mount leaves `auth` unset so it inherits the server's validator, which
+ * gates nothing on its own: the ingress never authenticates, and this surface
+ * calls `authenticate()` only to decide whether to serve `details`. A probe
+ * carrying no credential still gets every status, which is the only way an
+ * orchestrator can use it, while an operator holding a token also gets the
+ * diagnostics.
  */
 export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
   validate(options);
@@ -77,11 +90,10 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
     name: "ops",
 
     apply(ctx: CraftContext) {
-      // Resolved first: a server name no config declares must fail before the
-      // ledger is published, the indicators are bound, and the subscriptions
-      // are installed. The boot unwind is not guaranteed to reach this
-      // plugin's own teardown, so bindings installed before the throw would
-      // outlive the dead context in the module-scope binder map.
+      // Everything below is resolved and validated before anything with a
+      // side effect happens. The boot unwind is not guaranteed to reach this
+      // plugin's teardown, so a binding or subscription installed before a
+      // later throw would outlive the dead context.
       const ingress = requireWebIngress(ctx, serverName);
 
       const state = new HealthState({
@@ -89,14 +101,14 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
           ctx.emit("plugin:ops:health:changed", change);
         },
       });
-      const runtime: Runtime = { state, unsubscribes: [] };
+      const runtime: Runtime = {
+        state,
+        unsubscribes: [],
+        serverAuthConfigured: ingress.serverAuthConfigured,
+      };
       runtimes.set(ctx, runtime);
       ctx.setStore(OPS_HEALTH_STATE, state);
 
-      // Validated in full before anything is bound: a throw partway through
-      // would otherwise leave earlier handles bound to a context that never
-      // starts, and the boot unwind is not guaranteed to reach this plugin's
-      // teardown.
       const names = new Set<string>();
       for (const indicator of indicators) {
         if (!isIndicator(indicator)) {
@@ -141,7 +153,6 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         // marked started in this plugin's own start() hook instead, which the
         // framework runs after route readiness settles.
         ctx.on("context:stopping", () => state.contextStopping()),
-        ctx.on("context:stopped", () => state.contextStopped()),
         ctx.on("route:started", ({ details }) => {
           state.routeStarted(details.routeId);
         }),
@@ -163,6 +174,12 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
             }
           }
         }),
+        // `route:exchange:dropped` is deliberately not subscribed. A drop is
+        // the third terminal state and suppresses `completed`, but it is not
+        // evidence either way: the exchange may have been filtered out before
+        // the dependency was ever reached. Reporting a verdict from it would
+        // be inventing one, so a bound indicator on a route that only drops
+        // goes stale, which is the truthful answer.
         ctx.on("route:exchange:failed", ({ details }) => {
           state.exchangeFailed(details.routeId);
           if (hasBoundIndicators) {
@@ -196,13 +213,6 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       runtime.unmount = ingress.mountHttp({
         id: "ops",
         claims: () => CLAIMS,
-        // `auth` is deliberately left unset so the mount inherits the server's
-        // validator. Inheriting does not gate anything here: the ingress never
-        // authenticates on its own, the mount does, and this handler only ever
-        // calls `authenticate()` to decide whether to serve `details`. The
-        // surface therefore stays open to a probe with no credential, which is
-        // the only way an orchestrator can use it, while an operator holding a
-        // token still gets the diagnostics.
         handler,
       });
     },
@@ -235,6 +245,24 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         runtime.state.declareRoute(route.definition.id);
       }
 
+      if (
+        detailsExposure === "when-authenticated" &&
+        !runtime.serverAuthConfigured
+      ) {
+        ctx.logger.warn(
+          { server: serverName, plugin: "ops" },
+          `ops.health.details is "when-authenticated" but servers.${serverName} has no validator, so per-component details are served to every caller. Set an auth validator on the server, or set health.details to "always" to say so deliberately, or "never" to withhold.`,
+        );
+      }
+
+      const unbound = unboundIndicators(ctx);
+      if (unbound.length > 0) {
+        ctx.logger.warn(
+          { indicators: unbound, plugin: "ops" },
+          `Indicators declared but not registered: ${unbound.join(", ")}. A push through an unregistered handle is inert, so these dependencies would never appear in the health report. Add them to ops.indicators.`,
+        );
+      }
+
       // Routes have started by the time a plugin's start() hook runs, so this
       // is the first moment the context can honestly claim to be serving.
       runtime.state.contextStarted();
@@ -251,6 +279,11 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       try {
         runtime.unmount?.();
       } finally {
+        // The terminal state is set here rather than from `context:stopped`,
+        // which the framework emits after every teardown has run and so after
+        // these subscriptions are gone. Without it a store reader would see a
+        // context draining forever.
+        runtime.state.contextStopped();
         for (const unsubscribe of runtime.unsubscribes) unsubscribe();
         for (const indicator of indicators) unbindIndicator(indicator, ctx);
         runtimes.delete(ctx);

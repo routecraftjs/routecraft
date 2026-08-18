@@ -118,3 +118,6 @@ export {
   testSubscription,
   type TestSubscriptionOptions,
 } from "./test-subscription";
+
+// HS256 token minting, so suites exercising the JWT validator share one signer
+export { signHs256, type SignHs256Options } from "./jwt";

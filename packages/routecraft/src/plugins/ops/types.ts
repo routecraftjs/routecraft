@@ -121,10 +121,12 @@ export interface HealthComponent extends Health {
  * A report body. This shape is the external contract, so it is add-only:
  * fields may be added, never removed or repurposed.
  *
- * `ready` is true when no component in the requested view is `down`. On
- * `/health` the view is every component, so `ready` there can be false while
- * `/health/ready` still answers 200. Nothing should route on the aggregate's
- * `ready`; that is what the readiness view is for.
+ * There is deliberately no separate `ready` flag. It would be exactly
+ * `status !== "down"` on whichever view produced the report, and a derivable
+ * field named `ready` on the operational aggregate invites the one mistake
+ * this design exists to prevent: routing traffic on the deployment-wide
+ * signal. Read `status`, and read it from `/health/ready` when the answer
+ * decides where traffic goes.
  */
 export interface HealthReport {
   /**
@@ -133,7 +135,6 @@ export interface HealthReport {
    * signal, rather than having to remember which path produced it.
    */
   view: HealthView;
-  ready: boolean;
   status: HealthStatus;
   /** The app's own serving lifecycle. Always present, always instance-domain. */
   context: HealthComponent;

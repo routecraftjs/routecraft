@@ -155,7 +155,26 @@ function includedIn(view: HealthView, component: HealthComponent): boolean {
  * routing signal while operational health carries an alerting one without the
  * two states ever drifting apart.
  */
-export class HealthState {
+/**
+ * The read surface other components get.
+ *
+ * Published on the store instead of {@link HealthState} itself. Withholding
+ * the constructor prevents nothing: `ctx.getStore(OPS_HEALTH_STATE)` hands
+ * back the live instance, so a wider type would let any consumer call
+ * `sourceDied` or `reportIndicator` and drive the ledger into a state the
+ * framework never observed, which is the invariant the whole design rests on.
+ * The `/ops` action surface will get a deliberate mutating interface when it
+ * ships, rather than inheriting every method by default.
+ */
+export interface HealthLedger {
+  /** Where the app is in its serving lifecycle. */
+  readonly lifecycle: ContextState;
+  report(view?: HealthView): HealthReport;
+  routeComponentOf(routeId: string): HealthComponent | undefined;
+  indicatorComponentOf(name: string): HealthComponent | undefined;
+}
+
+export class HealthState implements HealthLedger {
   private readonly routes = new Map<string, RouteRecord>();
   private readonly indicators = new Map<string, IndicatorRecord>();
   private readonly now: () => number;
@@ -306,10 +325,21 @@ export class HealthState {
     });
   }
 
-  /** An exchange completed: the route is serving, so its failure run resets. */
+  /**
+   * An exchange completed: the route is serving, so its failure run resets.
+   *
+   * A dead source is not revived by one. `route:source:failed` is emitted
+   * before the route's controller aborts, so exchanges already in flight
+   * settle afterwards; treating those as evidence of life would clear the
+   * failure, and the subsequent stop would then read as a clean finish and
+   * drop the route out of aggregation. Only `routeStarted` clears `failed`,
+   * matching how `routeStopped` already preserves it.
+   */
   exchangeCompleted(routeId: string): void {
     const record = this.ensureRoute(routeId);
-    if (record.lifecycle !== "offline") record.lifecycle = "running";
+    if (record.lifecycle !== "offline" && record.lifecycle !== "failed") {
+      record.lifecycle = "running";
+    }
     record.everSucceeded = true;
     record.consecutiveFailures = 0;
     this.settleRoute(routeId, record);
@@ -364,11 +394,6 @@ export class HealthState {
       inactive: false,
       lastStatus: "up",
     });
-  }
-
-  /** Whether an indicator of this name is registered on this ledger. */
-  hasIndicator(name: string): boolean {
-    return this.indicators.has(name);
   }
 
   /** Record an indicator report. Any report clears a prior `inactive` marker. */
@@ -438,7 +463,7 @@ export class HealthState {
         ? "degraded"
         : "up";
 
-    return { view, ready: !anyDown, status, context, routes, indicators };
+    return { view, status, context, routes, indicators };
   }
 
   /** One route's component, or `undefined` if no such route is tracked. */

@@ -29,6 +29,14 @@ interface Bound {
 const binders = new WeakMap<Indicator, Bound[]>();
 
 /**
+ * Every handle `defineIndicator` produced, so the plugin can report the ones
+ * an app forgot to register. Strongly held on purpose: handles are
+ * module-scope constants whose lifetime is the process anyway, and the set is
+ * bounded by how many an app declares in source.
+ */
+const declared = new Set<Indicator>();
+
+/**
  * Bind a handle to a context's ledger. Bindings are keyed by context, never
  * held in a single slot, because one plugin instance may serve several
  * contexts in a process.
@@ -40,12 +48,9 @@ export function bindIndicator(
   ctx: CraftContext,
   state: HealthState,
 ): void {
-  const bound = binders.get(indicator);
-  if (!bound) {
-    throw rcError("RC5053", undefined, {
-      message: `Indicator "${indicator.name}" was not created by defineIndicator(). ops.indicators takes handles from defineIndicator({ name }); an object of the same shape has no ledger to report into.`,
-    });
-  }
+  // Callers validate with `isIndicator` before binding, so a missing entry
+  // cannot happen here; the plugin owns the refusal and its message.
+  const bound = binders.get(indicator)!;
   const existing = bound.findIndex((entry) => entry.ctx === ctx);
   if (existing >= 0) bound.splice(existing, 1);
   bound.push({ ctx, state });
@@ -68,8 +73,12 @@ export function unbindIndicator(indicator: Indicator, ctx: CraftContext): void {
  *
  * @internal
  */
-export function isIndicator(indicator: Indicator): boolean {
-  return binders.has(indicator);
+export function isIndicator(value: unknown): value is Indicator {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    binders.has(value as Indicator)
+  );
 }
 
 /**
@@ -116,6 +125,15 @@ export function defineIndicator(definition: IndicatorDefinition): Indicator {
       message: "defineIndicator: name must not be empty.",
     });
   }
+  // The name is the report key and one path segment of
+  // `/health/indicators/<name>`. A slash would split that segment and leave
+  // the component unreachable at its own path, a typo that would otherwise
+  // present as an endpoint that is simply missing.
+  if (definition.name !== encodeURIComponent(definition.name)) {
+    throw rcError("RC5053", undefined, {
+      message: `defineIndicator("${definition.name}"): name must be usable as a single URL path segment. It is the key in the health report and the last segment of /health/indicators/<name>, so it cannot contain a slash, a space, or any character needing percent-encoding.`,
+    });
+  }
   if (
     definition.maxAgeMs !== undefined &&
     (!Number.isFinite(definition.maxAgeMs) || definition.maxAgeMs <= 0)
@@ -157,5 +175,21 @@ export function defineIndicator(definition: IndicatorDefinition): Indicator {
   };
 
   binders.set(indicator, bound);
+  declared.add(indicator);
   return indicator;
+}
+
+/**
+ * Names of handles this process declared that no live context has bound.
+ *
+ * Forgetting one entry in `ops.indicators` is the likeliest mistake with a
+ * two-step API and the one that fails silently: the route keeps pushing, the
+ * report never grows the key, and nothing pages.
+ *
+ * @internal
+ */
+export function unboundIndicators(ctx: CraftContext): string[] {
+  return [...declared]
+    .filter((handle) => !(binders.get(handle) ?? []).some((b) => b.ctx === ctx))
+    .map((handle) => handle.name);
 }

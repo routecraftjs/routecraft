@@ -7,8 +7,9 @@
  * binding a port.
  */
 
+import { jsonResponse } from "../http/response";
 import type { HttpMountContext } from "../server/types";
-import type { HealthState } from "./state";
+import type { HealthLedger } from "./state";
 import type {
   HealthComponent,
   HealthDetailsExposure,
@@ -17,7 +18,7 @@ import type {
 } from "./types";
 
 export interface HealthHandlerOptions {
-  state: HealthState;
+  state: HealthLedger;
   /** Exposure of per-component `details`. */
   details: HealthDetailsExposure;
   /**
@@ -28,14 +29,6 @@ export interface HealthHandlerOptions {
   serverAuthConfigured: boolean;
   /** Process uptime in seconds, injectable for tests. */
   uptime: () => number;
-}
-
-/** JSON response with the status code the caller asked for. */
-function json(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
 }
 
 /**
@@ -92,7 +85,6 @@ function projectReport(
     );
   return {
     view: report.view,
-    ready: report.ready,
     status: report.status,
     context: project(report.context, false),
     routes: map(report.routes),
@@ -117,7 +109,7 @@ function decodeSegment(value: string): string | undefined {
 
 /** Resolve a per-component path to its component, or `undefined` if unknown. */
 function resolveComponent(
-  state: HealthState,
+  state: HealthLedger,
   pathname: string,
 ): HealthComponent | undefined {
   const routeId = /^\/health\/routes\/([^/]+)$/.exec(pathname)?.[1];
@@ -182,7 +174,7 @@ export function createHealthHandler(
       pathname.startsWith("/health/indicators/");
 
     if (!known) {
-      return json({ error: "not found" }, 404);
+      return jsonResponse({ error: "not found" }, { status: 404 });
     }
 
     if (req.method !== "GET" && req.method !== "HEAD") {
@@ -194,27 +186,36 @@ export function createHealthHandler(
 
     if (pathname === "/health/live") {
       const body: LivenessReport = { status: "up", uptime: uptime() };
-      return json(body, 200);
+      return jsonResponse(body, { status: 200 });
     }
 
+    if (pathname === "/health" || pathname === "/health/ready") {
+      const withDetails = await servesDetails(
+        details,
+        serverAuthConfigured,
+        context,
+      );
+      const report = state.report(
+        pathname === "/health/ready" ? "readiness" : "all",
+      );
+      return jsonResponse(projectReport(report, withDetails), {
+        status: report.status === "down" ? 503 : 200,
+      });
+    }
+
+    // Resolved before the gate: an unknown component answers 404 either way,
+    // so verifying a credential first would be work whose outcome cannot
+    // change the response.
+    const component = resolveComponent(state, pathname);
+    if (!component)
+      return jsonResponse({ error: "not found" }, { status: 404 });
     const withDetails = await servesDetails(
       details,
       serverAuthConfigured,
       context,
     );
-
-    if (pathname === "/health" || pathname === "/health/ready") {
-      const report = state.report(
-        pathname === "/health/ready" ? "readiness" : "all",
-      );
-      return json(projectReport(report, withDetails), report.ready ? 200 : 503);
-    }
-
-    const component = resolveComponent(state, pathname);
-    if (!component) return json({ error: "not found" }, 404);
-    return json(
-      project(component, withDetails),
-      component.status === "down" ? 503 : 200,
-    );
+    return jsonResponse(project(component, withDetails), {
+      status: component.status === "down" ? 503 : 200,
+    });
   };
 }
