@@ -8,6 +8,11 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+    ignore:
+      # changesets/action v2 requires Changesets CLI v3; this repo runs CLI
+      # v2. Lift this when the CLI is migrated to v3.
+      - dependency-name: "changesets/action"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "bun"
     directory: "/"
