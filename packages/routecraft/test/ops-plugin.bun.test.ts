@@ -388,6 +388,57 @@ describe("the ops plugin", () => {
   });
 
   /**
+   * @case A component id is exactly one path segment
+   * @preconditions A component path carrying an extra unencoded segment
+   * @expectedResult 404. The documented shape is one segment, so an id containing a slash is reachable only percent-encoded and a deeper path is simply unknown
+   */
+  test("does not match a component path with extra segments", async () => {
+    const port = await start();
+
+    expect((await get(port, "/health/routes/mail-intake/extra")).status).toBe(
+      404,
+    );
+    expect((await get(port, "/health/indicators/mail/extra")).status).toBe(404);
+  });
+
+  /**
+   * @case A component named __proto__ still reaches the report
+   * @preconditions A route whose id is the prototype key, reported down
+   * @expectedResult The component appears and the aggregate carries it. Assigning that key on a plain object silently discards the entry, which would drop a down component out of the body and out of aggregation, so /health would read healthy while it was not
+   */
+  test("reports a component named __proto__", async () => {
+    const port = await start({}, [
+      craft().id("__proto__").from(direct()).to(noop()),
+      craft().id("worker").from(direct()).to(noop()),
+    ]);
+
+    const health = await get(port, "/health");
+    expect(health.status).toBe(200);
+    expect(Object.keys(health.body.routes)).toContain("__proto__");
+    expect((await get(port, "/health/routes/__proto__")).status).toBe(200);
+  });
+
+  /**
+   * @case Ops and the http built-ins cannot silently share a server
+   * @preconditions Both surfaces configured on the same named server with the http /health built-in enabled
+   * @expectedResult The build is refused. The built-in is answered inside the http mount, so without an explicit claim the ops prefix would simply outscore it at dispatch and shadow it with no warning
+   */
+  test("refuses to share a server with the http /health built-in", async () => {
+    const builder = testContext()
+      .with({
+        servers: { default: { port: 0, host: "127.0.0.1" } },
+        http: {},
+        plugins: [opsPlugin()],
+      })
+      .routes([craft().id("worker").from(direct()).to(noop())]);
+
+    t = await builder.build();
+    await expect(t.ctx.start()).rejects.toThrow(
+      /mount "http" claim GET \/health conflicts with mount "ops"/,
+    );
+  });
+
+  /**
    * @case The reserved action namespace answers 404
    * @preconditions A request to /ops
    * @expectedResult 404. The namespace is claimed so no other surface can take it, but ships nothing: every action there mutates and will require an authenticated principal
@@ -401,7 +452,7 @@ describe("the ops plugin", () => {
   /**
    * @case Writes to the health surface are refused
    * @preconditions A POST to the aggregate
-   * @expectedResult 405 with an Allow header. The read surface is read-only by contract, which is what lets it admit unauthenticated callers
+   * @expectedResult 405 advertising the two read methods. The read surface is read-only by contract, which is what lets it admit unauthenticated callers
    */
   test("refuses non-read methods", async () => {
     const port = await start();
@@ -410,7 +461,7 @@ describe("the ops plugin", () => {
       method: "POST",
     });
     expect(res.status).toBe(405);
-    expect(res.headers.get("Allow")).toBe("GET");
+    expect(res.headers.get("Allow")).toBe("GET, HEAD");
   });
 
   /**

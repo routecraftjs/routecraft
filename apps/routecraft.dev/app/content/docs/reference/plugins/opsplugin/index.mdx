@@ -84,7 +84,7 @@ Routes are always `deployment`. Indicators declare their own domain, and default
 | --- | --- | --- | --- |
 | `server` | `string` | `'default'` | Named server to mount the health paths on. |
 | `health.details` | `'always' \| 'when-authenticated' \| 'never'` | `'when-authenticated'` | Exposure of per-component `details`. |
-| `indicators` | `Indicator[]` | `[]` | Indicators to register. See [`defineIndicator`](#defineindicator). |
+| `indicators` | `Indicator[]` | `[]` | Indicators to register. See [`defineIndicator`](#define-indicator). |
 
 The mount claims the `/health` and `/ops` prefixes on its server, so a collision with another surface fails at start rather than being decided by dispatch order.
 
@@ -165,7 +165,8 @@ Register it so a push has somewhere to land:
 
 ```ts
 export const craftConfig = defineConfig({
-  ops: { port: 9090, indicators: [mailHealth] },
+  servers: { ops: { host: '0.0.0.0', port: 9090 } },
+  ops: { server: 'ops', indicators: [mailHealth] },
 })
 ```
 

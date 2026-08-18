@@ -248,6 +248,19 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
               const claims: PathClaim[] = [
                 { kind: "prefix", path: mount.path },
               ];
+              // Built-ins are answered inside this mount's dispatcher, so
+              // without an explicit claim they are invisible to bind-time
+              // validation and another surface claiming the same path (the
+              // ops plugin's /health) silently wins on score instead of
+              // being refused.
+              for (const [path, enabled] of [
+                ["/health", isDefaultRoot && healthEnabled],
+                ["/ready", isDefaultRoot && readyEnabled],
+                ["/openapi.json", isDefaultRoot && openapiEnabled],
+              ] as const) {
+                if (enabled)
+                  claims.push({ kind: "exact", path, methods: ["GET"] });
+              }
               for (const entry of runtime.registry.values()) {
                 claims.push({
                   kind: "pattern",

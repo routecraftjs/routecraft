@@ -77,6 +77,13 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
     name: "ops",
 
     apply(ctx: CraftContext) {
+      // Resolved first: a server name no config declares must fail before the
+      // ledger is published, the indicators are bound, and the subscriptions
+      // are installed. The boot unwind is not guaranteed to reach this
+      // plugin's own teardown, so bindings installed before the throw would
+      // outlive the dead context in the module-scope binder map.
+      const ingress = requireWebIngress(ctx, serverName);
+
       const state = new HealthState({
         onChange: (change) => {
           ctx.emit("plugin:ops:health:changed", change);
@@ -86,17 +93,26 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       runtimes.set(ctx, runtime);
       ctx.setStore(OPS_HEALTH_STATE, state);
 
+      // Validated in full before anything is bound: a throw partway through
+      // would otherwise leave earlier handles bound to a context that never
+      // starts, and the boot unwind is not guaranteed to reach this plugin's
+      // teardown.
+      const names = new Set<string>();
       for (const indicator of indicators) {
         if (!isIndicator(indicator)) {
           throw rcError("RC5053", undefined, {
             message: `ops.indicators contains a value defineIndicator() did not produce. Declare indicators with defineIndicator({ name }); an object of the same shape has no ledger to report into.`,
           });
         }
-        if (state.hasIndicator(indicator.name)) {
+        if (names.has(indicator.name)) {
           throw rcError("RC5053", undefined, {
             message: `Duplicate indicator name "${indicator.name}" in ops.indicators. Indicator names are the keys of the health report, so they must be unique.`,
           });
         }
+        names.add(indicator.name);
+      }
+
+      for (const indicator of indicators) {
         const { maxAgeMs, domain } = indicator.definition;
         state.registerIndicator(indicator.name, {
           ...(maxAgeMs !== undefined ? { maxAgeMs } : {}),
@@ -119,7 +135,11 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
 
       const { unsubscribes } = runtime;
       unsubscribes.push(
-        ctx.on("context:started", () => state.contextStarted()),
+        // `context:started` is deliberately not subscribed. It fires before
+        // routes are started, so readiness taken from it would answer 200 to
+        // an orchestrator while a source is still coming up. The context is
+        // marked started in this plugin's own start() hook instead, which the
+        // framework runs after route readiness settles.
         ctx.on("context:stopping", () => state.contextStopping()),
         ctx.on("context:stopped", () => state.contextStopped()),
         ctx.on("route:started", ({ details }) => {
@@ -166,7 +186,6 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         }),
       );
 
-      const ingress = requireWebIngress(ctx, serverName);
       const handler = createHealthHandler({
         state,
         details: detailsExposure,
@@ -207,6 +226,10 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
           });
         }
       }
+
+      // Routes have started by the time a plugin's start() hook runs, so this
+      // is the first moment the context can honestly claim to be serving.
+      runtime.state.contextStarted();
     },
 
     teardown(ctx: CraftContext) {

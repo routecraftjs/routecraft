@@ -116,9 +116,12 @@ export function defineIndicator(definition: IndicatorDefinition): Indicator {
       message: "defineIndicator: name must not be empty.",
     });
   }
-  if (definition.maxAgeMs !== undefined && definition.maxAgeMs <= 0) {
+  if (
+    definition.maxAgeMs !== undefined &&
+    (!Number.isFinite(definition.maxAgeMs) || definition.maxAgeMs <= 0)
+  ) {
     throw rcError("RC5053", undefined, {
-      message: `defineIndicator("${definition.name}"): maxAgeMs must be a positive number of milliseconds.`,
+      message: `defineIndicator("${definition.name}"): maxAgeMs must be a positive, finite number of milliseconds.`,
     });
   }
 
@@ -128,11 +131,11 @@ export function defineIndicator(definition: IndicatorDefinition): Indicator {
   });
 
   const indicator: Indicator = {
-    name: definition.name,
+    name: frozen.name,
     definition: frozen,
     up(details) {
       for (const entry of bound) {
-        entry.state.reportIndicator(definition.name, {
+        entry.state.reportIndicator(frozen.name, {
           status: "up",
           ...(details !== undefined ? { details } : {}),
         });
@@ -140,7 +143,7 @@ export function defineIndicator(definition: IndicatorDefinition): Indicator {
     },
     down(details) {
       for (const entry of bound) {
-        entry.state.reportIndicator(definition.name, {
+        entry.state.reportIndicator(frozen.name, {
           status: "down",
           ...(details !== undefined ? { details } : {}),
         });
@@ -148,7 +151,7 @@ export function defineIndicator(definition: IndicatorDefinition): Indicator {
     },
     inactive() {
       for (const entry of bound) {
-        entry.state.setIndicatorInactive(definition.name, true);
+        entry.state.setIndicatorInactive(frozen.name, true);
       }
     },
   };

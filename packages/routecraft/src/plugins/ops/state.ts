@@ -35,9 +35,6 @@ import type {
   RouteLifecycle,
 } from "./types";
 
-/** Reserved route key for context-level errors that carry no route. */
-const CONTEXT_KEY = "__context__";
-
 export interface HealthStateOptions {
   /** Injectable clock, for tests. Defaults to `Date.now`. */
   now?: () => number;
@@ -89,21 +86,6 @@ interface IndicatorRecord {
 }
 
 /**
- * Map a route's lifecycle and breakers onto the status vocabulary.
- *
- * Only `failed` is `down`: the route is not running, so nothing it is meant to
- * serve is being served. An open breaker is `degraded` instead, because the
- * route is live and the breaker is expected to close again on its own. So is a
- * route deliberately taken offline, which makes reduced capability visible in
- * the aggregate without paging. A route that ran once and closed, or was
- * stopped cleanly, reports `inactive`: still listed (so "did it run?" is
- * answerable) but excluded from aggregation.
- *
- * Recent exchange failures ride along in `details` whatever the status, since
- * "up, but its last four calls failed" is the report a human actually needs,
- * and is precisely the thing that must not page.
- */
-/**
  * A route's status, without building its details map.
  *
  * Split from {@link routeComponent} because transition detection runs on every
@@ -118,6 +100,21 @@ function routeStatus(record: RouteRecord): HealthStatus {
   return "inactive";
 }
 
+/**
+ * Map a route's lifecycle and breakers onto the status vocabulary.
+ *
+ * Only `failed` is `down`: the route is not running, so nothing it is meant to
+ * serve is being served. An open breaker is `degraded` instead, because the
+ * route is live and the breaker is expected to close again on its own. So is a
+ * route deliberately taken offline, which makes reduced capability visible in
+ * the aggregate without paging. A route that ran once and closed, or was
+ * stopped cleanly, reports `inactive`: still listed (so "did it run?" is
+ * answerable) but excluded from aggregation.
+ *
+ * Recent exchange failures ride along in `details` whatever the status, since
+ * "up, but its last four calls failed" is the report a human actually needs,
+ * and is precisely the thing that must not page.
+ */
 function routeComponent(record: RouteRecord): HealthComponent {
   const { lifecycle, breakers } = record;
   const details: HealthDetails = { lifecycle };
@@ -279,13 +276,12 @@ export class HealthState {
   /**
    * A source gave up producing, so the route is no longer running. This is the
    * genuine liveness signal: nothing this route serves is being served, and no
-   * exchange outcome can say the same. Without a route id it is context-level.
+   * exchange outcome can say the same.
    */
-  sourceDied(routeId: string | undefined): void {
-    const id = routeId ?? CONTEXT_KEY;
-    const record = this.ensureRoute(id);
+  sourceDied(routeId: string): void {
+    const record = this.ensureRoute(routeId);
     record.lifecycle = "failed";
-    this.settleRoute(id, record);
+    this.settleRoute(routeId, record);
   }
 
   /** An exchange completed: the route is serving, so its failure run resets. */
@@ -385,13 +381,21 @@ export class HealthState {
    * what refuses traffic during boot and drain.
    */
   report(view: HealthView = "all"): HealthReport {
-    const routes: Record<string, HealthComponent> = {};
+    // Null-prototype maps: component names are caller-chosen, and assigning
+    // `__proto__` on a plain object silently discards the entry. A dropped
+    // component is not merely missing from the body, it is missing from the
+    // aggregate, so a down dependency would read as healthy.
+    const routes: Record<string, HealthComponent> = Object.create(
+      null,
+    ) as Record<string, HealthComponent>;
     for (const [id, record] of this.routes) {
       const component = routeComponent(record);
       if (includedIn(view, component)) routes[id] = component;
     }
 
-    const indicators: Record<string, HealthComponent> = {};
+    const indicators: Record<string, HealthComponent> = Object.create(
+      null,
+    ) as Record<string, HealthComponent>;
     for (const [name, record] of this.indicators) {
       const component = this.indicatorComponent(record);
       if (includedIn(view, component)) indicators[name] = component;

@@ -172,7 +172,7 @@ export const craftConfig = defineConfig({
 |--------|------|---------|-------------|
 | `server` | `string` | `'default'` | Named server to mount `/health` and `/ops` on. Give the surface its own entry in `servers` to put it on a dedicated port. |
 | `health` | `{ details?: 'always' \| 'when-authenticated' \| 'never' }` | `{ details: 'when-authenticated' }` | How much per-component detail to expose. Statuses are always served. |
-| `indicators` | `Indicator[]` | `[]` | Indicators to register, declared with [`defineIndicator`](/docs/reference/plugins/opsplugin#defineindicator). |
+| `indicators` | `Indicator[]` | `[]` | Indicators to register, declared with [`defineIndicator`](/docs/reference/plugins/opsplugin#define-indicator). |
 
 Route lifecycle, circuit-breaker position, and the serving state are derived from events the framework already emits, so `ops: {}` alone gives a truthful surface. Indicators cover the dependencies the framework cannot see.
 

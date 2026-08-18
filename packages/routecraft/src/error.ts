@@ -542,7 +542,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Definition",
     message: "Ops plugin misconfigured",
     suggestion:
-      "Check the `ops` config. Common causes: an indicator bound to a `route` id no route declares (the message lists the known ids), two indicators sharing a name (names are the keys of the health report, so they must be unique), an indicator pushed through `up()` or `down()` before any context registered it (list it in `ops.indicators`), or an invalid `port` or `health.details` value.",
+      "Check the `ops` config. Common causes: an indicator bound to a `route` id no route declares (the message lists the known ids), two indicators sharing a name (names are the keys of the health report, so they must be unique), a value in `ops.indicators` that `defineIndicator()` did not produce, or an invalid `health.details` value.",
     docs: `${DOCS_BASE}#rc-5053`,
     retryable: false,
   },

@@ -120,13 +120,13 @@ function resolveComponent(
   state: HealthState,
   pathname: string,
 ): HealthComponent | undefined {
-  const routeId = /^\/health\/routes\/(.+)$/.exec(pathname)?.[1];
+  const routeId = /^\/health\/routes\/([^/]+)$/.exec(pathname)?.[1];
   if (routeId !== undefined) {
     const decoded = decodeSegment(routeId);
     return decoded === undefined ? undefined : state.routeComponentOf(decoded);
   }
 
-  const indicator = /^\/health\/indicators\/(.+)$/.exec(pathname)?.[1];
+  const indicator = /^\/health\/indicators\/([^/]+)$/.exec(pathname)?.[1];
   if (indicator !== undefined) {
     const decoded = decodeSegment(indicator);
     return decoded === undefined
@@ -186,7 +186,10 @@ export function createHealthHandler(
     }
 
     if (req.method !== "GET" && req.method !== "HEAD") {
-      return new Response(null, { status: 405, headers: { Allow: "GET" } });
+      return new Response(null, {
+        status: 405,
+        headers: { Allow: "GET, HEAD" },
+      });
     }
 
     if (pathname === "/health/live") {

@@ -734,10 +734,12 @@ Add `suspension: {}` to `defineConfig` to take the defaults, or `suspension: { s
 Ops plugin misconfigured
 
 **Why it happens**  
-The `ops` config does not describe a surface the plugin can serve. The common causes, each with its own message: an indicator bound to a `route` id no route declares (the message lists the known ids), two indicators sharing a name, an indicator pushed through `up()` or `down()` before any context registered it, or an invalid `port` or `health.details` value.
+The `ops` config does not describe a surface the plugin can serve. The common causes, each with its own message: an indicator bound to a `route` id no route declares (the message lists the known ids), two indicators sharing a name, a value in `ops.indicators` that `defineIndicator()` did not produce, or an invalid `health.details` value.
 
 **Suggestion**  
-For a bound route, check the id against the route's `.id(...)`; the binding is by id, not by variable name. For a duplicate, rename one indicator: names are the keys of the health report, so a duplicate would shadow one dependency with another. For a push that has nowhere to land, add the handle to `ops.indicators`, which is what gives it a ledger. A silently dropped report is the failure this refuses to allow, because a dependency nobody is watching looks healthy.
+For a bound route, check the id against the route's `.id(...)`; the binding is by id, not by variable name. For a duplicate, rename one indicator: names are the keys of the health report, so a duplicate would shadow one dependency with another. For a hand-rolled handle, declare it with `defineIndicator({ name })`: an object of the same shape has no ledger to report into, so every push through it would be silently dropped, and a dependency nobody is watching looks healthy.
+
+Pushing through a handle that is merely unregistered is not this error. It is deliberately inert, so health instrumentation can never kill the code it instruments.
 
 ## RC9901
 Unknown error
