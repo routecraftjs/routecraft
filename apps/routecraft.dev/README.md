@@ -100,6 +100,10 @@ CI builds the image and pushes it to GHCR; Dokploy pulls it. Nothing is built on
 host, and Dokploy discovers nothing on its own: it deploys the image reference you configure it
 with, when something tells it to.
 
+The image is `linux/arm64` only, built natively on an ARM64 runner, because the Dokploy host is
+ARM64 and an amd64 image fails there at startup with `exec format error`. Serving another
+architecture means a multi-arch manifest, not switching this one over.
+
 Every push to main that passes CI publishes two tags of the same image:
 
 | Tag | Moves | What it is for |

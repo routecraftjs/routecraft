@@ -228,7 +228,10 @@ jobs:
           && github.event.workflow_run.event == 'push'
         )
       )
-    runs-on: ubuntu-latest
+    # ARM64, because the deploy target is an ARM64 host and an amd64 image dies
+    # there as `exec format error`. GitHub's hosted ARM runners are free on
+    # public repositories, so this builds natively rather than under QEMU.
+    runs-on: ubuntu-24.04-arm
     concurrency:
       # One image build at a time: two runs pushing `latest` concurrently would
       # leave the moving tag on whichever finished last rather than on the
@@ -422,7 +425,11 @@ jobs:
           # VITE_BASE_URL is left to the Dockerfile default, the production
           # origin, so the image's canonicals and social cards are the deployed
           # ones.
+          # Explicit rather than inherited from the runner: on an amd64 runner
+          # this fails loudly instead of silently publishing an image the
+          # ARM64 host cannot exec.
           docker build \
+            --platform linux/arm64 \
             --file apps/routecraft.dev/Dockerfile \
             --build-arg VITE_DOC_VERSION="$DOC_VERSION" \
             --build-arg VITE_POSTHOG_KEY="$POSTHOG_KEY" \
