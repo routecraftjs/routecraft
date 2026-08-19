@@ -70,6 +70,12 @@ export class ImapPool {
   async acquire(
     mailbox?: string,
   ): Promise<InstanceType<typeof import("imapflow").ImapFlow>> {
+    // A drained pool never serves again, and every path below would strand
+    // the caller: creating opens a fresh connection mid-shutdown, and
+    // queueing waits on a queue drain() already emptied and will never
+    // revisit, so that promise would never settle at all.
+    if (this.drained) throw drainedError();
+
     // 1. Prefer idle connection with same mailbox already open
     if (mailbox) {
       const sameMailbox = this.entries.find(
@@ -100,6 +106,15 @@ export class ImapPool {
         currentMailbox: null,
       };
       this.entries.push(placeholder);
+      // Both the drained branch and the catch release the reservation, and
+      // the drained branch reaches the catch by throwing. Removal has to be
+      // idempotent: a bare splice(indexOf(x), 1) on an already-removed entry
+      // splices at -1, which silently drops somebody else's slot and leaves
+      // that connection with nothing to close it.
+      const releaseReservation = () => {
+        const index = this.entries.indexOf(placeholder);
+        if (index >= 0) this.entries.splice(index, 1);
+      };
       try {
         const client = await this.createClient();
         // The pool can be drained while this connect is in flight, which is
@@ -107,14 +122,14 @@ export class ImapPool {
         // has already walked the entries by then, so this connection would
         // otherwise stay open with nothing left holding a reference to it.
         if (this.drained) {
-          this.entries.splice(this.entries.indexOf(placeholder), 1);
+          releaseReservation();
           await client.logout().catch(() => {});
           throw drainedError();
         }
         placeholder.client = client;
         return client;
       } catch (error) {
-        this.entries.splice(this.entries.indexOf(placeholder), 1);
+        releaseReservation();
         throw error;
       }
     }

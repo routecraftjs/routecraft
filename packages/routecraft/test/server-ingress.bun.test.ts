@@ -210,6 +210,7 @@ describe("named server ingress", () => {
       await t.stop();
     }
 
+    expect((caught as { rc?: string }).rc).toBe("RC5003");
     const message = (caught as Error).message;
     expect(message).toContain('"mcp"');
     expect(message).toContain('"ops"');

@@ -3264,12 +3264,15 @@ describe("ImapPool drain", () => {
    * Build a pool whose connect is under the test's control, so the window
    * between reserving a slot and filling it can be held open.
    */
-  function pausedPool(): {
+  function pausedPool(poolSize?: number): {
     pool: ImapPool;
     connected: (client: unknown) => void;
     failed: (error: Error) => void;
   } {
-    const pool = new ImapPool({ host: "imap.example.test" });
+    const pool = new ImapPool({
+      host: "imap.example.test",
+      ...(poolSize !== undefined ? { poolSize } : {}),
+    });
     let connected!: (client: unknown) => void;
     let failed!: (error: Error) => void;
     const pending = new Promise((resolve, reject) => {
@@ -3320,6 +3323,26 @@ describe("ImapPool drain", () => {
 
     await expect(acquiring).rejects.toThrow(/drained during shutdown/);
     expect(loggedOut).toBe(true);
+  });
+
+  /**
+   * @case A fresh acquire arrives after the pool was drained
+   * @preconditions drain() completed and nothing is in flight
+   * @expectedResult It rejects without ever calling createClient. A drained pool never serves again, so dialling out mid-shutdown only opens a socket to tear down again
+   */
+  test("refuses an acquire that starts after the drain", async () => {
+    const { pool } = pausedPool();
+    let connectAttempts = 0;
+    (pool as unknown as { createClient: () => Promise<unknown> }).createClient =
+      () => {
+        connectAttempts += 1;
+        return new Promise(() => {});
+      };
+
+    await pool.drain();
+
+    await expect(pool.acquire()).rejects.toThrow(/drained during shutdown/);
+    expect(connectAttempts).toBe(0);
   });
 
   /**

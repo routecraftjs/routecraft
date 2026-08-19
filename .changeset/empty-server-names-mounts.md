@@ -10,7 +10,7 @@ for it never mounted, not that the config naming it is wrong. The refusal now
 lists every mount and the server it landed on, and reports all empty servers
 together rather than one boot at a time:
 
-```
+```text
 servers.mcp: server has no mounts. Mounted surfaces: http -> servers.public.
 Either remove the unused server, or bind a surface to it. A surface that names
 the server in config but did not mount is usually a plugin that failed to
