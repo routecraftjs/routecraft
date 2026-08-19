@@ -139,6 +139,7 @@ export async function buildVercelTools(
         try {
           if (guard) await guard(input, callCtx);
           let output = await handler(input, callCtx);
+          let suspended = false;
           if (isSuspendSentinel(output)) {
             // ctx.suspend already refuses (AI1006) when the bridge has no
             // suspension channel, so a sentinel arriving without one means
@@ -159,8 +160,13 @@ export async function buildVercelTools(
             // every tool call to carry a result, which is why the bridge
             // answers instead of throwing.
             output = SUSPENDED_TOOL_PLACEHOLDER;
+            suspended = true;
           }
-          if (ctx && dispatchIdentity) {
+          // A loader that suspends did NOT load its block: emitting
+          // `block:loaded` with the placeholder snapshot would be the same
+          // false receipt the MCP surface refuses, and it matches the
+          // throw-form path below, which already stays silent for loaders.
+          if (ctx && dispatchIdentity && !(suspended && isLoader)) {
             if (isLoader) {
               ctx.emit("route:agent:block:loaded", {
                 routeId: dispatchIdentity.routeId,

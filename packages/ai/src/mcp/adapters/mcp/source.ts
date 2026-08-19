@@ -1,5 +1,6 @@
 import {
   rcError,
+  routeCanSuspend,
   type Exchange,
   type Source,
   type Subscription,
@@ -123,10 +124,7 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     // definite; a suspend-capable step (an agent) only MAY park, and the
     // over-approximation is the honest direction for a client.
     const definition = context.getRouteById(endpoint)?.definition;
-    if (
-      (definition?.suspendSteps?.length ?? 0) > 0 ||
-      (definition?.reentrantSuspendSteps?.length ?? 0) > 0
-    ) {
+    if (definition && routeCanSuspend(definition)) {
       entry.suspendable = true;
     }
 

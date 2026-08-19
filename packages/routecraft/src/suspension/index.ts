@@ -63,7 +63,7 @@ export {
 } from "./suspended.ts";
 export type { Suspended } from "./suspended.ts";
 
-export { markSuspendCapable } from "./sites.ts";
+export { markSuspendCapable, routeCanSuspend } from "./sites.ts";
 export type { SuspendSite } from "./sites.ts";
 
 export { SuspendSignal, isSuspendSignal } from "./signal.ts";

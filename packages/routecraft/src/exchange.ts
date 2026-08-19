@@ -409,9 +409,10 @@ type ExchangeInternals = {
   /**
    * Step-owned closure state read back off a suspension record, set by the
    * resume path just before a re-entrant continuation runs. The suspending
-   * step consumes it with take-once semantics ({@link takeResumeStepState})
-   * so a second dispatch of the same step later in the continuation starts
-   * fresh instead of resuming again.
+   * step reads it without consuming ({@link peekResumeStepState}) and the
+   * executor clears it when that step settles, so a retried attempt still
+   * resumes while a second dispatch of the same step later in the
+   * continuation starts fresh instead of resuming again.
    *
    * On internals rather than headers deliberately: it is runtime context
    * for exactly one step execution on this process, not exchange state, and
@@ -495,7 +496,8 @@ export function setExchangeRoute(exchange: Exchange, route: Route): void {
 
 /**
  * Attach a suspension record's `stepState` for the re-entrant step about to
- * re-run. Set by the resume path; consumed by {@link takeResumeStepState}.
+ * re-run. Set by the resume path; read by {@link peekResumeStepState} and
+ * cleared by the executor once that step settles.
  *
  * @internal
  */
@@ -505,18 +507,31 @@ export function setResumeStepState(exchange: Exchange, state: unknown): void {
 }
 
 /**
- * Read and clear the step state a resume attached. Take-once, so only the
- * first suspend-capable step of a re-entrant continuation resumes; anything
- * after it (including a later dispatch of the same adapter) starts fresh.
+ * The step state a resume attached for the re-entrant step about to re-run,
+ * or `undefined` when this execution is not resuming that step.
+ *
+ * A suspend-capable adapter (see {@link markSuspendCapable}) calls this at
+ * the top of its execution to decide between a fresh run and a resumed one.
+ * Reading does NOT consume the state: the executor clears it when the step
+ * settles, so a step-scope or route-scope `.retry()` re-running a failed
+ * resume attempt still sees it, while a later suspend-capable step in the
+ * same continuation (or a fresh park by the same step) starts clean.
+ */
+export function peekResumeStepState(exchange: Exchange): unknown {
+  return internalsOf(exchange)?.resumeStepState;
+}
+
+/**
+ * Drop the resume step state once the re-entrant host step has settled
+ * (any committed outcome: success, drop, or a fresh suspend). Called by the
+ * pipeline executor, never by adapters; a thrown failure leaves the state
+ * in place so a retry of the attempt can still resume.
  *
  * @internal
  */
-export function takeResumeStepState(exchange: Exchange): unknown {
+export function clearResumeStepState(exchange: Exchange): void {
   const internals = internalsOf(exchange);
-  if (!internals) return undefined;
-  const state = internals.resumeStepState;
-  internals.resumeStepState = undefined;
-  return state;
+  if (internals) internals.resumeStepState = undefined;
 }
 
 /**

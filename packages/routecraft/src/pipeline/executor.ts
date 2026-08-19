@@ -4,13 +4,16 @@ import {
   HeadersKeys,
   DefaultExchange,
   EXCHANGE_INTERNALS,
+  clearResumeStepState,
   isDropped,
   isSuspendedRun,
   OperationType,
+  peekResumeStepState,
+  setResumeStepState,
   setStartedAt,
 } from "../exchange.ts";
 import { isRecovery, applyDropDirective } from "../recovery.ts";
-import { denyParkedOnCancellation, parkExchange } from "../suspension/park.ts";
+import { parkExchange } from "../suspension/park.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -470,6 +473,12 @@ export async function runPipeline(
 
     try {
       const outcome = await step.execute(exchange, stepContext);
+      // A settled step consumed any resume step state a revival attached:
+      // the re-entrant host is by construction the first step of its
+      // continuation, so clearing on every committed outcome keeps the
+      // once-only contract while a thrown attempt (a retryable provider
+      // failure) leaves the state in place for the retry to resume.
+      clearResumeStepState(exchange);
 
       // The executor owns scheduling: translate the outcome into queue
       // entries. Pushes carry no events, so push-vs-emit ordering below
@@ -512,9 +521,10 @@ export async function runPipeline(
           // caller is being told the run failed (a timeout, a stop), so an
           // approver clicking days later would continue work its caller
           // already saw cancelled. Before the store write, refusing to park
-          // is free; after it, the just-created suspension is denied so a
-          // replay of its token reads RC5050. The caller's RC5054 is the
-          // notification; no re-ask is delivered.
+          // is free; an abort that lands during the write is resolved
+          // inside `parkExchange` (deny, then RC5054) BEFORE the suspended
+          // event, so one exchange never announces two terminals. The
+          // caller's RC5054 is the notification; no re-ask is delivered.
           if (deps.abortSignal?.aborted) {
             throw rcError("RC5054", deps.abortSignal.reason, {
               message: `Step "${stepLabel}" raised a suspension after its run was cancelled; nothing was parked.`,
@@ -525,21 +535,8 @@ export async function runPipeline(
             outcome.exchange,
             outcome.request,
             deps.routeId,
+            deps.abortSignal,
           );
-          if (deps.abortSignal?.aborted) {
-            const body = parked.body as { suspensionId?: string };
-            if (typeof body?.suspensionId === "string") {
-              await denyParkedOnCancellation(
-                deps.context,
-                parked,
-                body.suspensionId,
-                deps.routeId,
-              );
-            }
-            throw rcError("RC5054", deps.abortSignal.reason, {
-              message: `Step "${stepLabel}" parked an exchange while its run was being cancelled; the suspension was denied so its resume link is dead.`,
-            });
-          }
           queue.push({ exchange: parked, steps: [] });
           break;
         }
@@ -1179,16 +1176,25 @@ function buildRetrySegmentStep(
         stepLabel: "route",
         scope: "route" as const,
       };
+      // A resumed continuation may retry: each attempt must re-enter the
+      // suspending step with the same parked state, even though a settled
+      // step inside a prior attempt already cleared it (a later step's
+      // retryable failure would otherwise re-run the agent from scratch).
+      const resumeSnapshot = peekResumeStepState(exchange);
       const result = await executeWithRetry(
-        () =>
-          runPipeline(
+        () => {
+          if (resumeSnapshot !== undefined) {
+            setResumeStepState(exchange, resumeSnapshot);
+          }
+          return runPipeline(
             nestedDeps(deps, segment, {
               rethrowUnhandled: true,
               abortSignal: abandon,
             }),
             exchange,
             Date.now(),
-          ),
+          );
+        },
         options,
         {
           // An abandoned run must stop sleeping between attempts, not just

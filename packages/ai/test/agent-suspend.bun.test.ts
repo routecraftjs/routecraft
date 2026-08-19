@@ -5,11 +5,14 @@ import {
   SUSPENSION_RUNTIME,
   craft,
   direct,
-  isSuspended,
   noop,
-  type Suspended,
 } from "@routecraft/routecraft";
-import { spy, testContext, type TestContext } from "@routecraft/testing";
+import {
+  asSuspended,
+  spy,
+  testContext,
+  type TestContext,
+} from "@routecraft/testing";
 import type { CraftPlugin } from "@routecraft/routecraft";
 import {
   SuspendError,
@@ -22,6 +25,7 @@ import {
   type FnHandlerContext,
 } from "../src/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
+import { Approval, MODEL, askFn } from "./helpers/suspend-fixtures.ts";
 
 // One process-global scripted dispatcher; each test refills its script.
 // Registered at module load like every other file that mocks this barrel.
@@ -30,10 +34,6 @@ mock.module("../src/llm/providers/index.ts", () => ({
   callLlm: llm.callLlm,
   streamLlm: llm.streamLlm,
 }));
-
-const Approval = z.object({ approved: z.boolean() });
-
-const MODEL = "anthropic:claude-opus-4-7";
 
 /** Plugins every suspending agent context needs: a provider and the fns. */
 type PluginFns = NonNullable<
@@ -44,15 +44,6 @@ function plugins(functions: PluginFns): CraftPlugin[] {
     llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
     agentPlugin({ functions }),
   ];
-}
-
-function asSuspended(value: unknown): Suspended {
-  if (!isSuspended(value)) {
-    throw new Error(
-      `expected a Suspended acknowledgment, got ${String(value)}`,
-    );
-  }
-  return value;
 }
 
 describe("agent durable suspension (ctx.suspend)", () => {
@@ -67,17 +58,6 @@ describe("agent durable suspension (ctx.suspend)", () => {
     t = undefined;
   });
 
-  const askFn = {
-    description: "Ask a human for approval",
-    input: z.object({ question: z.string() }),
-    handler: (input: unknown, ctx: FnHandlerContext) =>
-      ctx.suspend({
-        expect: Approval,
-        ttl: "72h",
-        question: (input as { question: string }).question,
-      }),
-  };
-
   const assistantRoutes = (sink: ReturnType<typeof spy>) => [
     craft()
       .id("assistant")
@@ -88,19 +68,29 @@ describe("agent durable suspension (ctx.suspend)", () => {
   ];
 
   /**
-   * @case A fn handler's ctx.suspend parks the run and execution one answers with the core Suspended value
+   * @case A fn handler's ctx.suspend parks the run, and execution one answers with the core Suspended value
    * @preconditions direct-fronted agent route; scripted model calls the "ask" tool, whose handler returns ctx.suspend({ expect, ttl, question })
    * @expectedResult The caller receives the branded Suspended acknowledgment carrying id, token, the Approval JSON Schema and the question; the sink after the agent has not run; ctx.suspensionId matched the acknowledgment's id
    */
   test("ctx.suspend parks the run and answers with the Suspended acknowledgment", async () => {
     const sink = spy();
     const seenIds: Array<string | undefined> = [];
+    // Recorded, not asserted, inside the handler: the tool bridge converts
+    // a handler throw (a failed expect() included) into an error-text tool
+    // result, so an in-handler assertion would surface as an unrelated
+    // failure at the acknowledgment instead of reporting itself.
+    const seenSuspensions: Array<{
+      id: string | undefined;
+      token: string | undefined;
+    }> = [];
     const askWithCapture = {
       ...askFn,
       handler: (input: unknown, ctx: FnHandlerContext) => {
         seenIds.push(ctx.suspensionId);
-        expect(ctx.suspension?.id).toBe(ctx.suspensionId!);
-        expect(ctx.suspension?.token).toBeString();
+        seenSuspensions.push({
+          id: ctx.suspension?.id,
+          token: ctx.suspension?.token,
+        });
         return ctx.suspend({
           expect: Approval,
           ttl: "72h",
@@ -126,6 +116,8 @@ describe("agent durable suspension (ctx.suspend)", () => {
     expect(parked.expect).toBeDefined();
     expect(parked.expiresAt).toBeString();
     expect(seenIds[0]).toBe(parked.suspensionId);
+    expect(seenSuspensions[0]!.id).toBe(seenIds[0]!);
+    expect(seenSuspensions[0]!.token).toBeString();
     expect(sink.received).toHaveLength(0);
     // The loop stopped at the park: no further scripted turns were consumed.
     expect(llm.script).toHaveLength(0);
@@ -134,7 +126,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
   /**
    * @case A resumed answer re-enters the agent step, lands as the suspended call's tool result, and the loop finishes
    * @preconditions A parked run; the resume ingress receives the token plus an answer; one more scripted text turn
-   * @expectedResult The acknowledgment reports a completed execution two, the sink receives the final AgentResult, the second model call's thread contains the answer as the suspended call's tool result, and a duplicate resume returns the cached outcome without another model call
+   * @expectedResult The acknowledgment reports that execution two completed, the sink receives the final AgentResult, the second model call's thread contains the answer as the suspended call's tool result, and a duplicate resume returns the cached outcome without another model call
    */
   test("resume re-enters the loop with the answer and a duplicate is idempotent", async () => {
     const sink = spy();
@@ -176,6 +168,73 @@ describe("agent durable suspension (ctx.suspend)", () => {
     expect(duplicate.status).toBe("duplicate");
     expect(duplicate.outcome.status).toBe("completed");
     expect(llm.calls).toHaveLength(2);
+    expect(t.errors).toHaveLength(0);
+  });
+
+  /**
+   * @case A revived agent run parks AGAIN later in the same continuation, minting a fresh suspension
+   * @preconditions Park one is resumed; the resumed model asks the "ask" tool a second question; a second resume answers it
+   * @expectedResult The second park is a new record under a new id and token (never a re-serialization of the first stepState), the first resume's outcome reports "suspended" with no body, and the second resume completes the run with both answers in the final model call's thread
+   */
+  test("a resumed run can park again: two suspensions, two resumes, one completion", async () => {
+    const sink = spy();
+    const tokens: string[] = [];
+    const ids: string[] = [];
+    const askWithCapture = {
+      ...askFn,
+      handler: (input: unknown, ctx: FnHandlerContext) => {
+        ids.push(ctx.suspensionId!);
+        tokens.push(ctx.suspension!.token);
+        return ctx.suspend({
+          expect: Approval,
+          question: (input as { question: string }).question,
+        });
+      },
+    };
+    llm.script.push({
+      toolCalls: [{ toolName: "ask", input: { question: "pay acme?" } }],
+    });
+
+    t = await testContext()
+      .with({ suspension: {}, plugins: plugins({ ask: askWithCapture }) })
+      .routes(assistantRoutes(sink))
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("assistant", "go"));
+    // The resumed model immediately asks a second question, parking again.
+    llm.script.push({
+      toolCalls: [{ toolName: "ask", input: { question: "ship it too?" } }],
+    });
+    const first = (await t.client.sendDirect("answers", {
+      token: parked.token,
+      result: { approved: true },
+    })) as { status: string; outcome: { status: string; body?: unknown } };
+    expect(first.status).toBe("resumed");
+    expect(first.outcome.status).toBe("suspended");
+    // No body: handing the second acknowledgment (token included) to the
+    // first answerer would give approver A approver B's capability.
+    expect(first.outcome.body).toBeUndefined();
+
+    expect(ids).toHaveLength(2);
+    expect(ids[1]).not.toBe(ids[0]);
+    expect(sink.received).toHaveLength(0);
+
+    llm.script.push({ text: "both approved" });
+    const second = (await t.client.sendDirect("answers", {
+      token: tokens[1]!,
+      result: { approved: true },
+    })) as { status: string; outcome: { status: string } };
+    expect(second.status).toBe("resumed");
+    expect(second.outcome.status).toBe("completed");
+
+    expect(sink.received).toHaveLength(1);
+    expect((sink.received[0]!.body as AgentResult).text).toBe("both approved");
+    // The final call's thread carries both suspended calls' answers.
+    expect(llm.calls).toHaveLength(3);
+    const finalPrompt = JSON.stringify(llm.calls[2]!.user);
+    expect(finalPrompt).toContain("pay acme?");
+    expect(finalPrompt).toContain("ship it too?");
     expect(t.errors).toHaveLength(0);
   });
 
@@ -227,6 +286,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
       result: { approved: true },
     });
 
+    expect(llm.calls.length).toBeGreaterThanOrEqual(2);
     const resumedPrompt = JSON.stringify(llm.calls[1]!.user);
     expect(resumedPrompt).toContain('"sku":42');
     expect(resumedPrompt).toContain('"approved":true');
@@ -283,6 +343,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
       token: parked.token,
       result: { approved: true },
     });
+    expect(llm.calls.length).toBeGreaterThanOrEqual(2);
     const resumedPrompt = JSON.stringify(llm.calls[1]!.user);
     expect(resumedPrompt).toContain("already suspended the run");
     expect(resumedPrompt).toContain('"approved":true');
@@ -327,6 +388,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
       result: "free-form text, no schema anywhere",
     })) as { status: string };
     expect(ack.status).toBe("resumed");
+    expect(llm.calls.length).toBeGreaterThanOrEqual(2);
     const resumedPrompt = JSON.stringify(llm.calls[1]!.user);
     expect(resumedPrompt).toContain("free-form text, no schema anywhere");
     expect(t.errors).toHaveLength(0);
@@ -357,6 +419,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
     })) as { status: string; outcome: { status: string } };
     expect(ack.status).toBe("resumed");
     expect(ack.outcome.status).toBe("completed");
+    expect(llm.calls.length).toBeGreaterThanOrEqual(2);
     expect(JSON.stringify(llm.calls[1]!.user)).toContain(
       "not an approval object",
     );

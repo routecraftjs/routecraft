@@ -125,10 +125,25 @@ export async function testFn<TIn, TOut>(
   const ctx: TestFnHandlerContext = {
     logger: options.logger ?? defaultLogger.child({ test: "fn" }),
     abortSignal: options.signal ?? new AbortController().signal,
-    suspend: (suspendOptions) => ({
-      status: "suspend-requested",
-      request: suspendOptions,
-    }),
+    suspend: (suspendOptions) => {
+      // Same refusal as the production ctx.suspend (RC5003 from
+      // makeSuspend), so a handler exercised in isolation cannot pass with
+      // a suspension request the agent runtime would reject.
+      const validate = (
+        suspendOptions?.expect as
+          { ["~standard"]?: { validate?: unknown } } | undefined
+      )?.["~standard"]?.validate;
+      if (typeof validate !== "function") {
+        throw rcError("RC5003", undefined, {
+          message:
+            'testFn: ctx.suspend "expect" is required and must be a Standard Schema. It renders what a valid answer looks like on the Suspended acknowledgment.',
+        });
+      }
+      return {
+        status: "suspend-requested",
+        request: suspendOptions,
+      };
+    },
   };
 
   const validated = "value" in result ? (result.value as TIn) : (input as TIn);

@@ -9,8 +9,8 @@ import {
   direct,
   markSuspendCapable,
   noop,
+  peekResumeStepState,
   simple,
-  takeResumeStepState,
   type Enricher,
   type Exchange,
 } from "../src/index.ts";
@@ -32,7 +32,7 @@ const sleep = (ms: number): Promise<void> =>
 function suspendCapable(): Enricher<unknown, unknown> {
   const adapter: Enricher<unknown, unknown> = {
     fetch: (ex: Exchange<unknown>) => {
-      const state = takeResumeStepState(ex);
+      const state = peekResumeStepState(ex);
       if (state !== undefined) {
         return { resumed: true, state, answer: ex.suspension.result };
       }
@@ -91,6 +91,44 @@ describe("re-entrant suspend sites (suspend-capable steps)", () => {
       state: { n: 1 },
       answer: { approved: true },
     });
+    expect(t.errors).toHaveLength(0);
+  });
+
+  /**
+   * @case Step-owned state carrying a Date survives park and resume intact
+   * @preconditions A capable step whose stepState holds a Date; the store owns the one encoding boundary (the park does not pre-encode)
+   * @expectedResult The resumed step receives a real Date at the parked instant, not a tagged envelope and not an RC5042 refusal
+   */
+  test("stepState round-trips a Date through the store", async () => {
+    const parkedAt = new Date("2026-08-19T12:00:00.000Z");
+    const withDate: Enricher<unknown, unknown> = {
+      fetch: (ex: Exchange<unknown>) => {
+        const state = peekResumeStepState(ex);
+        if (state !== undefined) return { state };
+        throw new SuspendSignal({ expect: Approval, stepState: { parkedAt } });
+      },
+    };
+    markSuspendCapable(withDate);
+    const sink = spy();
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft().id("dated").from(direct()).to(withDate).to(sink),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("dated", "work"));
+    await t.client.sendDirect("answers", {
+      token: parked.token,
+      result: { approved: true },
+    });
+
+    expect(sink.received).toHaveLength(1);
+    const body = sink.received[0]!.body as { state: { parkedAt: unknown } };
+    expect(body.state.parkedAt).toBeInstanceOf(Date);
+    expect((body.state.parkedAt as Date).getTime()).toBe(parkedAt.getTime());
     expect(t.errors).toHaveLength(0);
   });
 
@@ -249,11 +287,18 @@ describe("cancellation around the park (RC5054)", () => {
     await expect(
       t.client.sendDirect("payout", { go: true }),
     ).rejects.toMatchObject({ rc: "RC5011" });
-    await sleep(250);
+    // The denial finishes on the abandoned run after the injected create
+    // delay; poll the record to a terminal status rather than guessing a
+    // wall-clock margin a loaded runner can miss.
+    const deadline = Date.now() + 2_000;
+    let record = await backing.get(ids[0]!);
+    while (record?.status === "suspended" && Date.now() < deadline) {
+      await sleep(10);
+      record = await backing.get(ids[0]!);
+    }
 
     const parked = await backing.pending();
     expect(parked.count).toBe(0);
-    const record = await backing.get(ids[0]!);
     expect(record?.status).toBe("denied");
     expect(record?.deniedReason).toBe("run cancelled");
 

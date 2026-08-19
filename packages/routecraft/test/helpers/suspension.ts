@@ -1,18 +1,7 @@
-import {
-  isSuspended,
-  type CraftConfig,
-  type Suspended,
-  type SuspensionStore,
-} from "../../src/index.ts";
+import type { SuspensionStore } from "../../src/index.ts";
 
-/**
- * A config whose suspension runtime is the in-memory backend with an
- * ephemeral signing key. `testContext()` substitutes both as soon as a
- * `suspension` block is present, so every suspending test declares one.
- */
-export function suspending(): CraftConfig {
-  return { suspension: {} };
-}
+// Shared with the ecosystem suites; core's consumers import through here.
+export { asSuspended, suspending } from "@routecraft/testing";
 
 /**
  * A store that behaves exactly like `backing` except for the methods named
@@ -38,14 +27,4 @@ export function storeWith(
       return typeof value === "function" ? value.bind(target) : value;
     },
   }) as SuspensionStore;
-}
-
-/** Read the acknowledgment execution one answered with. */
-export function asSuspended(value: unknown): Suspended {
-  if (!isSuspended(value)) {
-    throw new Error(
-      `expected a Suspended acknowledgment, got ${String(value)}`,
-    );
-  }
-  return value;
 }

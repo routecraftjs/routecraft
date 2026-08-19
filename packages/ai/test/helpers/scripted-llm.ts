@@ -1,4 +1,7 @@
-import type { CallLlmParams } from "../../src/llm/providers/llm-utils.ts";
+import {
+  addUsage,
+  type CallLlmParams,
+} from "../../src/llm/providers/llm-utils.ts";
 import type {
   LlmResult,
   LlmToolCallSummary,
@@ -19,6 +22,11 @@ export interface ScriptedTurn {
 /** A scripted stand-in for the providers barrel. */
 export interface ScriptedLlm {
   callLlm: (params: CallLlmParams) => Promise<LlmResult>;
+  /**
+   * Aliases the non-streaming implementation: no deltas are ever emitted,
+   * so a test that supplies an `onDelta` listener gets silence, not a
+   * production bug. Script a streaming assertion elsewhere if one is needed.
+   */
   streamLlm: (params: CallLlmParams) => Promise<LlmResult>;
   /** Every params object callLlm received, for assertions on prompt/messages. */
   calls: CallLlmParams[];
@@ -128,7 +136,9 @@ export function scriptedLlm(script: ScriptedTurn[]): ScriptedLlm {
               r.error !== undefined
                 ? {
                     type: "error-text",
-                    value: String((r.error as Error).message),
+                    value: String(
+                      r.error instanceof Error ? r.error.message : r.error,
+                    ),
                   }
                 : { type: "json", value: r.output },
           })),
@@ -195,17 +205,4 @@ async function stopped(stopWhen: unknown, steps: unknown[]): Promise<boolean> {
     }
   }
   return false;
-}
-
-function addUsage(
-  total: LlmUsage | undefined,
-  step: LlmUsage | undefined,
-): LlmUsage | undefined {
-  if (!step) return total;
-  if (!total) return { ...step };
-  return {
-    inputTokens: (total.inputTokens ?? 0) + (step.inputTokens ?? 0),
-    outputTokens: (total.outputTokens ?? 0) + (step.outputTokens ?? 0),
-    totalTokens: (total.totalTokens ?? 0) + (step.totalTokens ?? 0),
-  };
 }

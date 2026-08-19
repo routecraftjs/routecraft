@@ -24,7 +24,9 @@ import {
   replaceToolResultOutput,
   type AgentStepState,
   type AgentSuspendSignalRecord,
+  type ThreadMessage,
 } from "./suspension-state.ts";
+import { addUsage } from "../llm/providers/llm-utils.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
   AgentOptions,
@@ -167,8 +169,40 @@ export interface AgentSessionSuspension {
  * @internal
  */
 export interface AgentSessionResume {
-  readonly messages: unknown[];
+  readonly messages: readonly ThreadMessage[];
   readonly turnsUsed: number;
+}
+
+/**
+ * The structured cause on an `AI1005` cancellation error: what the run had
+ * spent when the abort discarded it, as typed fields rather than prose.
+ *
+ * Consumers read it off the error's `cause`:
+ *
+ * ```ts
+ * if (isRcError(err, "AI1005") && err.cause instanceof AgentCancellationCause) {
+ *   report(err.cause.turnsUsed, err.cause.usage);
+ * }
+ * ```
+ */
+export class AgentCancellationCause extends Error {
+  /** Full model turns completed before the abort. */
+  readonly turnsUsed: number;
+  /** Token spend accumulated across the completed model calls, if any reported. */
+  readonly usage?: LlmUsage;
+
+  constructor(reason: unknown, turnsUsed: number, usage: LlmUsage | undefined) {
+    super(
+      reason instanceof Error
+        ? reason.message
+        : reason !== undefined && reason !== null
+          ? String(reason)
+          : "cancelled",
+    );
+    this.name = "AgentCancellationCause";
+    this.turnsUsed = turnsUsed;
+    if (usage) this.usage = usage;
+  }
 }
 
 /**
@@ -270,8 +304,9 @@ export class AgentSession {
     // park is not a fresh dispatch. A run that resumes with the budget
     // already exhausted takes the ordinary max-turns path below.
     let turnsUsed = this.input.resume?.turnsUsed ?? 0;
-    let currentUser: string | unknown[] =
-      this.input.resume?.messages ?? this.input.user;
+    let currentUser: string | ThreadMessage[] = this.input.resume
+      ? [...this.input.resume.messages]
+      : this.input.user;
     let lastValidatorMsg: string | undefined;
     const accumulatedToolCalls: LlmToolCallSummary[] = [];
     let accumulatedUsage: LlmUsage | undefined;
@@ -385,7 +420,7 @@ export class AgentSession {
   private buildParkSignal(
     signals: AgentSuspendSignalRecord[],
     result: LlmResult,
-    currentUser: string | unknown[],
+    currentUser: string | ThreadMessage[],
     turnsUsed: number,
   ): SuspendSignal {
     // Signals are only ever recorded through a bridge this session created,
@@ -398,14 +433,41 @@ export class AgentSession {
           "A tool suspended, but this dispatch carries no suspension wiring. Durable suspension is only available inside an agent dispatch on a route-bound exchange.",
       });
     }
-    let messages = historyMessages(this.input.user, currentUser, result);
+    let messages: readonly ThreadMessage[] = historyMessages(
+      this.input.user,
+      currentUser,
+      result,
+    );
     const winner = pickWinningSignal(signals, messages);
+    // Prove the answer has somewhere to land BEFORE the record is written:
+    // a park whose thread lacks the winning call would hand out a token
+    // whose first resume throws AI1007 and burns the single-use claim,
+    // stranding the work. Failing here keeps the run re-drivable.
+    if (
+      !replaceToolResultOutput(messages, winner.toolCallId, {
+        type: "json",
+        value: null,
+      }).found
+    ) {
+      throw rcError("AI1007", undefined, {
+        message: `Tool "${winner.toolName}" suspended, but its call "${winner.toolCallId}" is not in the thread about to be persisted, so no resume could ever deliver the answer. Nothing was parked.`,
+      });
+    }
     for (const signal of signals) {
       if (signal === winner) continue;
-      messages = replaceToolResultOutput(messages, signal.toolCallId, {
+      const swapped = replaceToolResultOutput(messages, signal.toolCallId, {
         type: "error-text",
         value: SIBLING_SUSPENDED_MESSAGE,
-      }).messages;
+      });
+      if (!swapped.found) {
+        // Leaving the placeholder in place tells the resumed model the
+        // sibling ALSO parked, the opposite of the retry hint it needs.
+        this.input.exchange.logger.warn(
+          { toolCallId: signal.toolCallId, toolName: signal.toolName },
+          "A losing suspend signal's tool call is not in the persisted thread; the resumed model will see its suspended placeholder instead of a retryable error.",
+        );
+      }
+      messages = swapped.messages;
     }
     const stepState: AgentStepState = {
       agentId: suspension.agentId,
@@ -436,20 +498,17 @@ export class AgentSession {
     turnsUsed: number,
     usage: LlmUsage | undefined,
   ): Error {
-    const spend = {
-      turnsUsed,
-      ...(usage ? { usage } : {}),
-      ...(cause !== undefined && cause !== null
-        ? { reason: cause instanceof Error ? cause.message : String(cause) }
-        : {}),
-    };
-    return rcError("AI1005", JSON.stringify(spend), {
-      message: `Agent run cancelled after ${turnsUsed} turn(s)${
-        usage?.totalTokens !== undefined
-          ? ` and ${usage.totalTokens} tokens`
-          : ""
-      }.`,
-    });
+    return rcError(
+      "AI1005",
+      new AgentCancellationCause(cause, turnsUsed, usage),
+      {
+        message: `Agent run cancelled after ${turnsUsed} turn(s)${
+          usage?.totalTokens !== undefined
+            ? ` and ${usage.totalTokens} tokens`
+            : ""
+        }.`,
+      },
+    );
   }
 
   /**
@@ -635,7 +694,7 @@ interface PreparedSession {
  */
 async function callOnce(
   prepared: PreparedSession,
-  user: string | unknown[],
+  user: string | ThreadMessage[],
   remainingTurns: number,
   abortSignal: AbortSignal,
   onDelta: AgentDeltaListener | undefined,
@@ -686,38 +745,19 @@ async function buildStopWhen(
  */
 function historyMessages(
   initialUser: string,
-  currentUser: string | unknown[],
+  currentUser: string | ThreadMessage[],
   lastResult: LlmResult,
-): unknown[] {
-  const userMsgs: unknown[] =
+): ThreadMessage[] {
+  const userMsgs: ThreadMessage[] =
     typeof currentUser === "string"
       ? [{ role: "user", content: initialUser }]
       : currentUser;
-  return [...userMsgs, ...(lastResult.responseMessages ?? [])];
-}
-
-/**
- * Accumulate token usage across the model calls of one dispatch, for the
- * cancellation error's honest spend report.
- *
- * @internal
- */
-function addUsage(
-  total: LlmUsage | undefined,
-  step: LlmUsage | undefined,
-): LlmUsage | undefined {
-  if (!step) return total;
-  if (!total) return { ...step };
-  const sum = (a?: number, b?: number): number | undefined =>
-    a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
-  const inputTokens = sum(total.inputTokens, step.inputTokens);
-  const outputTokens = sum(total.outputTokens, step.outputTokens);
-  const totalTokens = sum(total.totalTokens, step.totalTokens);
-  return {
-    ...(inputTokens !== undefined ? { inputTokens } : {}),
-    ...(outputTokens !== undefined ? { outputTokens } : {}),
-    ...(totalTokens !== undefined ? { totalTokens } : {}),
-  };
+  // The SDK owns the full ModelMessage shape; ThreadMessage is the
+  // structural slice the park persists. One cast, at the SDK boundary.
+  return [
+    ...userMsgs,
+    ...((lastResult.responseMessages ?? []) as ThreadMessage[]),
+  ];
 }
 
 /**
@@ -747,15 +787,18 @@ function isAbortLike(err: unknown): boolean {
  */
 function buildRetryPrompt(
   initialUser: string,
-  currentUser: string | unknown[],
+  currentUser: string | ThreadMessage[],
   lastResult: LlmResult,
   validatorMsg: string,
-): unknown[] {
-  const userMsgs: unknown[] =
+): ThreadMessage[] {
+  const userMsgs: ThreadMessage[] =
     typeof currentUser === "string"
       ? [{ role: "user", content: initialUser }]
       : currentUser;
-  const responseMessages = lastResult.responseMessages ?? [];
+  // Same SDK-boundary cast as historyMessages: ModelMessage narrowed to
+  // the structural slice this module threads through.
+  const responseMessages = (lastResult.responseMessages ??
+    []) as ThreadMessage[];
   return [
     ...userMsgs,
     ...responseMessages,

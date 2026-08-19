@@ -115,6 +115,9 @@ export function fixtureEach<T extends FixtureWithName>(
   }
 }
 
+// Durable-suspension test helpers shared by core and ecosystem suites
+export { asSuspended, suspending } from "./suspension";
+
 // Subscription builder for driving source adapters directly in unit tests
 export {
   testSubscription,

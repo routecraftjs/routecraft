@@ -259,6 +259,12 @@ function raceAbort(
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const onAbort = (): void => reject(abortError(routeId, signal.reason));
+    // An already-aborted signal never fires "abort" again, so a listener
+    // installed now would wait out the downstream instead of unwinding.
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
     signal.addEventListener("abort", onAbort, { once: true });
     dispatch.then(
       (value) => {

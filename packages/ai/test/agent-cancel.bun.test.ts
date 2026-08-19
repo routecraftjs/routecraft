@@ -9,6 +9,7 @@ import {
 } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
+  AgentCancellationCause,
   agent,
   agentPlugin,
   directTool,
@@ -139,7 +140,7 @@ describe("cooperative cancellation of agent runs", () => {
   /**
    * @case The cancellation error carries the spend so far: turns completed and token usage
    * @preconditions One completed model call (a validate retry sends the loop back), then a second call that hangs until the stop
-   * @expectedResult AI1005 reports 1 turn and the accumulated token count in its message
+   * @expectedResult AI1005 reports 1 turn and the accumulated token count in its message, and its cause is the typed AgentCancellationCause carrying the same spend structurally
    */
   test("AI1005 reports turns completed and tokens spent", async () => {
     const sink = spy();
@@ -182,11 +183,19 @@ describe("cooperative cancellation of agent runs", () => {
       .catch((err: unknown) => err);
     await sleep(30);
     await t.stop();
-    const err = (await dispatch) as { rc?: string; message?: string };
+    const err = (await dispatch) as {
+      rc?: string;
+      message?: string;
+      cause?: unknown;
+    };
 
     expect(err.rc).toBe("AI1005");
     expect(err.message).toMatch(/cancelled after 1 turn/);
     expect(err.message).toMatch(/10 tokens/);
+    expect(err.cause).toBeInstanceOf(AgentCancellationCause);
+    const cause = err.cause as AgentCancellationCause;
+    expect(cause.turnsUsed).toBe(1);
+    expect(cause.usage?.totalTokens).toBe(10);
     t = undefined;
   });
 

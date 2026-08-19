@@ -5,10 +5,9 @@ import {
   craft,
   direct,
   noop,
-  type CraftConfig,
   type Exchange,
 } from "@routecraft/routecraft";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { suspending, testContext, type TestContext } from "@routecraft/testing";
 import { McpServer } from "../src/mcp/server.ts";
 import {
   MCP_LOCAL_TOOL_REGISTRY,
@@ -78,7 +77,7 @@ describe("MCP carries Suspended (#581)", () => {
    */
   test("a suspendable tool advertises the derived oneOf union", async () => {
     t = await testContext()
-      .with({ suspension: {} } as unknown as CraftConfig)
+      .with(suspending())
       .store(MCP_STORE_KEY, true)
       .routes([
         craft()
@@ -157,7 +156,7 @@ describe("MCP carries Suspended (#581)", () => {
    */
   test("a suspendable tool without .output() advertises no schema", async () => {
     t = await testContext()
-      .with({ suspension: {} } as unknown as CraftConfig)
+      .with(suspending())
       .store(MCP_STORE_KEY, true)
       .routes([
         craft()
@@ -185,7 +184,7 @@ describe("MCP carries Suspended (#581)", () => {
   test("park over MCP, resume through an ingress, contract honored end to end", async () => {
     const events: Array<{ name: string; detail: Record<string, unknown> }> = [];
     t = await testContext()
-      .with({ suspension: {} } as unknown as CraftConfig)
+      .with(suspending())
       .store(MCP_STORE_KEY, true)
       .routes([
         craft()

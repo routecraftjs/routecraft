@@ -71,7 +71,10 @@ export class SuspendSignal extends Error {
 /**
  * Whether a thrown value is the framework's own {@link SuspendSignal}.
  *
- * @internal
+ * Public alongside {@link SuspendSignal} for the same audience: a runtime
+ * hosting suspend-capable steps (the agent tier is the shipped one) uses it
+ * to let a raised suspension pass through its own error accounting instead
+ * of reporting a park as a failure.
  */
 export function isSuspendSignal(value: unknown): value is SuspendSignal {
   return isBranded(value, BRAND.SuspendSignal);

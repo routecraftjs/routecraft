@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { McpServer } from "../src/mcp/server.ts";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { suspending, testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   DefaultExchange,
@@ -9,7 +9,6 @@ import {
   noop,
   rcError,
   type AnyRouteBuilder,
-  type CraftConfig,
   type Principal,
 } from "@routecraft/routecraft";
 import { mcp, mcpPlugin } from "../src/index.ts";
@@ -3952,7 +3951,7 @@ describe("McpServer", () => {
      */
     test("publishes the acknowledgment when the route suspends", async () => {
       t = await testContext()
-        .with({ suspension: {} } as unknown as CraftConfig)
+        .with(suspending())
         .store(MCP_STORE_KEY, true)
         .routes([
           craft()

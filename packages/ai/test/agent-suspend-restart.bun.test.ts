@@ -1,32 +1,31 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { z } from "zod";
 import {
   MemorySuspensionStore,
   craft,
   direct,
-  isSuspended,
   type RouteDefinition,
-  type Suspended,
 } from "@routecraft/routecraft";
-import { spy, testContext, type TestContext } from "@routecraft/testing";
+import {
+  asSuspended,
+  spy,
+  testContext,
+  type TestContext,
+} from "@routecraft/testing";
 import {
   agent,
   agentPlugin,
   llmPlugin,
   tools,
   type AgentResult,
-  type FnHandlerContext,
 } from "../src/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
+import { MODEL, askFn } from "./helpers/suspend-fixtures.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
   callLlm: llm.callLlm,
   streamLlm: llm.streamLlm,
 }));
-
-const Approval = z.object({ approved: z.boolean() });
-const MODEL = "anthropic:claude-opus-4-7";
 
 /**
  * Tokens must survive the simulated restart, so both contexts share one
@@ -35,17 +34,6 @@ const MODEL = "anthropic:claude-opus-4-7";
  * the framework's own model of a restart (`close()` keeps records).
  */
 const SECRET = "agent-restart-test-secret-key-0123456789";
-
-const askFn = {
-  description: "Ask a human for approval",
-  input: z.object({ question: z.string() }),
-  handler: (input: unknown, ctx: FnHandlerContext) =>
-    ctx.suspend({
-      expect: Approval,
-      ttl: "72h",
-      question: (input as { question: string }).question,
-    }),
-};
 
 function buildRoutes(
   sink: ReturnType<typeof spy>,
@@ -76,15 +64,6 @@ function contextWith(
       ],
     })
     .routes(buildRoutes(sink, system));
-}
-
-function asSuspended(value: unknown): Suspended {
-  if (!isSuspended(value)) {
-    throw new Error(
-      `expected a Suspended acknowledgment, got ${String(value)}`,
-    );
-  }
-  return value;
 }
 
 describe("agent suspension across a restart (stepState adoption)", () => {

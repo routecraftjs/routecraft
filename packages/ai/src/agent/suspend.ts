@@ -1,5 +1,6 @@
 import type { Duration } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { wrapJsonSchemaAsStandard } from "../llm/structured-output.ts";
 
 /**
  * Cross-instance brand for {@link AgentSuspendSentinel}, `Symbol.for`-keyed
@@ -92,16 +93,9 @@ export function isSuspendSentinel(
  *
  * @internal
  */
-export const anyAnswerSchema: StandardSchemaV1<unknown, unknown> = {
-  "~standard": {
-    version: 1,
-    vendor: "routecraft",
-    validate: (value) => ({ value }),
-    // Non-standard extension the JSON Schema conversion sites look up
-    // defensively; an empty schema accepts any JSON value.
-    jsonSchema: { input: () => ({}), output: () => ({}) },
-  } as StandardSchemaV1<unknown, unknown>["~standard"],
-};
+export const anyAnswerSchema: StandardSchemaV1<unknown, unknown> =
+  // An empty JSON Schema accepts any JSON value.
+  wrapJsonSchemaAsStandard({});
 
 /**
  * Escape-hatch signal: throw from a fn handler to suspend the agent's tool

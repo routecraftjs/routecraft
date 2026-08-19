@@ -19,10 +19,22 @@ import "../errors.ts";
  * unbounded-budget loop.
  */
 export interface AgentStepState {
-  agentId: string;
-  messages: unknown[];
-  suspendedToolCallId: string;
-  turnsUsed: number;
+  readonly agentId: string;
+  readonly messages: readonly ThreadMessage[];
+  readonly suspendedToolCallId: string;
+  readonly turnsUsed: number;
+}
+
+/**
+ * One message of the persisted model thread. The SDK owns the full
+ * ModelMessage shape; this is the minimal structural slice the agent tier
+ * reads and writes, so the producers ({@link AgentStepState.messages}, the
+ * resume splice) and the consumers stay compile-time linked while unknown
+ * SDK fields pass through untouched.
+ */
+export interface ThreadMessage {
+  readonly role: string;
+  readonly content?: unknown;
 }
 
 /**
@@ -71,12 +83,19 @@ export const SIBLING_SUSPENDED_MESSAGE =
  * @internal
  */
 export function parseStepState(value: unknown): AgentStepState {
-  const state = value as Partial<AgentStepState> | null | undefined;
+  const state = value as
+    { [K in keyof AgentStepState]?: unknown } | null | undefined;
   if (
     state === null ||
     typeof state !== "object" ||
     typeof state.agentId !== "string" ||
     !Array.isArray(state.messages) ||
+    !state.messages.every(
+      (m: unknown) =>
+        m !== null &&
+        typeof m === "object" &&
+        typeof (m as { role?: unknown }).role === "string",
+    ) ||
     typeof state.suspendedToolCallId !== "string" ||
     typeof state.turnsUsed !== "number" ||
     !Number.isFinite(state.turnsUsed) ||
@@ -88,6 +107,64 @@ export function parseStepState(value: unknown): AgentStepState {
     });
   }
   return state as AgentStepState;
+}
+
+/**
+ * Turn a persisted `stepState` back into the session input a re-entrant
+ * dispatch resumes from: validate the record, check it was parked by the
+ * agent this route now dispatches, and splice the approver's answer into
+ * the suspended call's tool result.
+ *
+ * Owns the rehydration policy in one testable place, next to the state
+ * shape it interprets; the enricher only decides WHEN to rehydrate (a
+ * resume state is present) and what identity to check against.
+ *
+ * @param raw - The value read off the exchange's resume slot
+ * @param agentIdentity - The identity the dispatching route resolves today
+ *   (agent name, or route id for an inline agent), `undefined` for a
+ *   synthetic dispatch with no identity
+ * @param answer - The validated-or-raw resume result to deliver as the
+ *   suspended call's tool output
+ * @returns The thread with the answer in place, and the turns already spent
+ * @throws AI1007 when the state is malformed, was parked by a different
+ *   agent, or its thread no longer contains the suspended call
+ *
+ * @internal
+ */
+export function rehydrateSession(
+  raw: unknown,
+  agentIdentity: string | undefined,
+  answer: unknown,
+): { messages: readonly ThreadMessage[]; turnsUsed: number } {
+  const state = parseStepState(raw);
+  if (agentIdentity === undefined || state.agentId !== agentIdentity) {
+    // The registered options behind a by-name agent are NOT covered by
+    // the continuation hash (only step definitions are), so the name is
+    // the one identity the record can pin. A mismatch means the route
+    // was rebound to a different agent under the parked exchange.
+    throw rcError("AI1007", undefined, {
+      message: `This suspension was parked by agent "${state.agentId}", but the resumed route now dispatches ${
+        agentIdentity === undefined
+          ? "an agent with no identity (synthetic dispatch)"
+          : `"${agentIdentity}"`
+      }. Restore the original agent binding, or treat the parked work as lost and re-ask.`,
+    });
+  }
+  const swapped = replaceToolResultOutput(
+    state.messages,
+    state.suspendedToolCallId,
+    // Strictly a tool-result payload, never merged anywhere else: the
+    // answer skipped expect validation at revival (no live schema
+    // exists for a re-entrant site), so the model treats it like any
+    // other untrusted tool output.
+    { type: "json", value: answer },
+  );
+  if (!swapped.found) {
+    throw rcError("AI1007", undefined, {
+      message: `The resumed suspension's persisted thread does not contain the suspended tool call "${state.suspendedToolCallId}", so the answer has nowhere to land.`,
+    });
+  }
+  return { messages: swapped.messages, turnsUsed: state.turnsUsed };
 }
 
 /**
@@ -119,21 +196,14 @@ export interface ToolResultOutput {
  * @internal
  */
 export function replaceToolResultOutput(
-  messages: unknown[],
+  messages: readonly ThreadMessage[],
   toolCallId: string,
   output: ToolResultOutput,
-): { messages: unknown[]; found: boolean } {
+): { messages: readonly ThreadMessage[]; found: boolean } {
   let found = false;
   const next = messages.map((message) => {
-    if (
-      message === null ||
-      typeof message !== "object" ||
-      (message as { role?: unknown }).role !== "tool" ||
-      !Array.isArray((message as { content?: unknown }).content)
-    ) {
-      return message;
-    }
-    const content = (message as { content: unknown[] }).content;
+    const content = contentPartsOf(message, "tool");
+    if (!content) return message;
     let touched = false;
     const nextContent = content.map((part) => {
       if (
@@ -148,9 +218,27 @@ export function replaceToolResultOutput(
       found = true;
       return { ...(part as Record<string, unknown>), output };
     });
-    return touched ? { ...(message as object), content: nextContent } : message;
+    return touched ? { ...message, content: nextContent } : message;
   });
   return { messages: found ? next : messages, found };
+}
+
+/**
+ * The content parts of a thread message of the given role, or `undefined`
+ * when it is not one. The single decoder for the SDK's known-but-external
+ * message shape, so an SDK representation change is fixed in one place
+ * rather than drifting between the two walks below.
+ *
+ * @internal
+ */
+function contentPartsOf(
+  message: ThreadMessage,
+  role: "tool" | "assistant",
+): unknown[] | undefined {
+  if (message === null || typeof message !== "object") return undefined;
+  return message.role === role && Array.isArray(message.content)
+    ? message.content
+    : undefined;
 }
 
 /**
@@ -164,19 +252,13 @@ export function replaceToolResultOutput(
  */
 export function pickWinningSignal(
   signals: AgentSuspendSignalRecord[],
-  messages: unknown[],
+  messages: readonly ThreadMessage[],
 ): AgentSuspendSignalRecord {
   const byId = new Map(signals.map((s) => [s.toolCallId, s]));
   for (const message of messages) {
-    if (
-      message === null ||
-      typeof message !== "object" ||
-      (message as { role?: unknown }).role !== "assistant" ||
-      !Array.isArray((message as { content?: unknown }).content)
-    ) {
-      continue;
-    }
-    for (const part of (message as { content: unknown[] }).content) {
+    const content = contentPartsOf(message, "assistant");
+    if (!content) continue;
+    for (const part of content) {
       if (
         part !== null &&
         typeof part === "object" &&

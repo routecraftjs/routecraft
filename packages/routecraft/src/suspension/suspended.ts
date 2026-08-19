@@ -119,6 +119,10 @@ export const suspendedSchema: StandardSchemaV1<unknown, Suspended> = {
     vendor: "routecraft",
     validate(value) {
       if (isSuspended(value)) return { value };
+      // Mirror SUSPENDED_JSON_SCHEMA exactly (types of the optional fields
+      // included, undeclared string keys rejected) so the runtime check and
+      // the advertised contract cannot say different things. The brand rides
+      // a symbol key, which JSON never carries and Object.keys never lists.
       if (
         typeof value === "object" &&
         value !== null &&
@@ -126,7 +130,23 @@ export const suspendedSchema: StandardSchemaV1<unknown, Suspended> = {
         (value as { status?: unknown }).status === "suspended" &&
         typeof (value as { suspensionId?: unknown }).suspensionId ===
           "string" &&
-        typeof (value as { token?: unknown }).token === "string"
+        typeof (value as { token?: unknown }).token === "string" &&
+        Object.entries(value).every(([key, field]) => {
+          switch (key) {
+            case "status":
+            case "suspensionId":
+            case "token":
+              return true;
+            case "expect":
+              return true;
+            case "expiresAt":
+            case "question":
+            case "reason":
+              return typeof field === "string";
+            default:
+              return false;
+          }
+        })
       ) {
         return { value: value as Suspended };
       }
@@ -134,7 +154,7 @@ export const suspendedSchema: StandardSchemaV1<unknown, Suspended> = {
         issues: [
           {
             message:
-              'Expected the framework Suspended acknowledgment: { status: "suspended", suspensionId, token, ... }.',
+              'Expected the framework Suspended acknowledgment: { status: "suspended", suspensionId, token, ... } with no undeclared properties.',
           },
         ],
       };

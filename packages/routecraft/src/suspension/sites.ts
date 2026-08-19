@@ -24,7 +24,8 @@ export interface SuspendSite {
    * is a real position that a flat index cannot name. Two processes running
    * the same route source derive the same numbers, which is all the address
    * has to guarantee. The record's `position` field carries it, and
-   * `position + 1` onward is {@link SuspendSite.continuation}.
+   * `position + 1` onward is {@link SuspendSite.continuation}, except for a
+   * re-entrant site, whose continuation starts at `position` itself.
    */
   readonly position: number;
   /**
@@ -213,6 +214,20 @@ export interface ResolvedSuspendSites {
 }
 
 /**
+ * Whether a built route can raise a durable suspension: statically (a
+ * declared `.suspend()`) or at runtime (a suspend-capable step that MAY
+ * park). The predicate transports key on to advertise a `Suspended`
+ * acknowledgment arm, owned here next to the fields it reads so a new way
+ * for a route to park updates every consumer in one edit.
+ */
+export function routeCanSuspend(definition: RouteDefinition): boolean {
+  return (
+    (definition.suspendSteps?.length ?? 0) > 0 ||
+    (definition.reentrantSuspendSteps?.length ?? 0) > 0
+  );
+}
+
+/**
  * Resolve every suspend site in a route, refusing the positions where a
  * durable park cannot be revived.
  *
@@ -309,16 +324,10 @@ function walk(
 
     if (step.operation === OperationType.SUSPEND) {
       if (splitDepth > 0) {
-        throw refuse(
-          route.id,
-          "inside a .split() fan-out, between the split and its .aggregate(). Reviving one parked child would mean tracking every outstanding sibling across restarts, which is a distributed coordination problem in disguise. Move the suspend out of the fan-out, or split the work into per-item child capabilities: each is then its own exchange and suspends independently",
-        );
+        throw refuse(route.id, "split");
       }
       if (scope.sealed) {
-        throw refuse(
-          route.id,
-          "inside a .multicast() path or .dispatch() target. Those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin. Move the suspend onto the main flow, or onto a .choice() branch of it",
-        );
+        throw refuse(route.id, "sealed");
       }
       const suspend = step as SuspendableStep;
       suspend.site = { position, continuation: after };
@@ -333,10 +342,14 @@ function walk(
       // step ever suspends is dynamic, so the refusal fires as RC5051 on
       // the first actual suspension instead of failing every route that
       // merely places an agent inside a fan-out or a side flow.
+      // A rebuilt walk starts every host clean so a stale field from an
+      // earlier resolution can never outrank the fresh one.
+      delete host.suspendRefusal;
+      delete host.suspendSite;
       if (splitDepth > 0) {
-        host.suspendRefusal = `Route "${route.id}" raised a durable suspension inside a .split() fan-out, between the split and its .aggregate(). Reviving one parked child would mean tracking every outstanding sibling across restarts. Move the suspending step out of the fan-out, or split the work into per-item child capabilities: each is then its own exchange and suspends independently.`;
+        host.suspendRefusal = unrevivablePosition(route.id, "split", "raised");
       } else if (scope.sealed) {
-        host.suspendRefusal = `Route "${route.id}" raised a durable suspension inside a .multicast() path or .dispatch() target. Those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin. Move the suspending step onto the main flow, or onto a .choice() branch of it.`;
+        host.suspendRefusal = unrevivablePosition(route.id, "sealed", "raised");
       } else {
         // The step itself heads the continuation: a re-entrant resume runs
         // the step again to finish the work it parked in the middle of.
@@ -413,8 +426,35 @@ const NESTING_OPERATIONS: ReadonlySet<OperationType> = new Set([
 ]);
 
 /** @internal */
-function refuse(routeId: string, where: string): Error {
+function refuse(routeId: string, position: "split" | "sealed"): Error {
   return rcError("RC5051", undefined, {
-    message: `Route "${routeId}" declares a .suspend() ${where}.`,
+    message: unrevivablePosition(routeId, position, "declares"),
   });
+}
+
+/**
+ * One fact, two raisers: the positions a durable suspension cannot be
+ * revived from, phrased for whichever site reports it. The build-time throw
+ * (a static `.suspend()`) and the recorded runtime refusal (a
+ * suspend-capable step, RC5051 on its first actual suspension) must never
+ * drift into telling users different stories about the same constraint, so
+ * both render from here.
+ *
+ * @internal
+ */
+function unrevivablePosition(
+  routeId: string,
+  position: "split" | "sealed",
+  form: "declares" | "raised",
+): string {
+  const subject =
+    form === "declares"
+      ? "declares a .suspend()"
+      : "raised a durable suspension";
+  const mover = form === "declares" ? "the suspend" : "the suspending step";
+  const body =
+    position === "split"
+      ? `inside a .split() fan-out, between the split and its .aggregate(). Reviving one parked child would mean tracking every outstanding sibling across restarts, which is a distributed coordination problem in disguise. Move ${mover} out of the fan-out, or split the work into per-item child capabilities: each is then its own exchange and suspends independently.`
+      : `inside a .multicast() path or .dispatch() target. Those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin. Move ${mover} onto the main flow, or onto a .choice() branch of it.`;
+  return `Route "${routeId}" ${subject} ${body}`;
 }

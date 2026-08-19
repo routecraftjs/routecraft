@@ -86,6 +86,8 @@ Two checks stand behind that promise. The route's own output validation runs fir
 
 A tool whose route declares no `.output()` advertises no schema, so nothing is checked and its result passes through as-is.
 
+One exception to "advertises that schema": a route that can park at a durable suspension advertises `oneOf: [Output, Suspended]` instead, because execution one may answer with the framework's `Suspended` acknowledgment rather than the declared output. See [Suspendable tools](/docs/advanced/expose-as-mcp#suspendable-tools).
+
 **Declined calls:**
 
 A route that drops the exchange (a `.filter()` rejecting, a `.choice()` matching no branch, an error handler returning `recovery.drop()`) has produced no result. The call comes back as `isError: true` saying the tool declined the request (`AI2002`), which mirrors [RC5031](/docs/reference/errors#rc-5031) on the direct and forward surfaces. This applies to every tool, declared output or not.

@@ -1,5 +1,6 @@
 import { rcError, type CraftContext, type Tag } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { wrapJsonSchemaAsStandard } from "../../llm/structured-output.ts";
 import { ADAPTER_FN_REGISTRY } from "../../fn/store.ts";
 import type { FnOptions, ToolGuard } from "../../fn/types.ts";
 import { dispatchMcpCall } from "../../mcp/dispatch.ts";
@@ -857,34 +858,6 @@ function mcpEntryToResolvedTool(
   }
   if (guard) tool.guard = guard;
   return tool;
-}
-
-/**
- * Lightweight Standard Schema wrapper around a raw JSON Schema. The
- * `~standard.validate` is a pass-through (MCP server validates); the
- * `~standard.jsonSchema` extension hands the JSON Schema to the
- * Vercel AI SDK bridge via `toAiInputSchema`. Follows the same shape
- * `emptyObjectSchema` in `builders.ts` uses so the bridge code stays
- * uniform.
- *
- * @internal
- */
-function wrapJsonSchemaAsStandard(
-  schema: Record<string, unknown>,
-): StandardSchemaV1<unknown, unknown> {
-  return {
-    "~standard": {
-      version: 1,
-      vendor: "routecraft",
-      validate(value) {
-        return { value };
-      },
-      jsonSchema: {
-        input: () => schema,
-        output: () => schema,
-      },
-    } as StandardSchemaV1<unknown, unknown>["~standard"],
-  };
 }
 
 function listKnownMcpClients(registry: McpToolRegistry): string[] {

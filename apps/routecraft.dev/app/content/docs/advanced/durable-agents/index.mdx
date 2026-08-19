@@ -56,6 +56,12 @@ On resume, the answer lands as the suspended call's tool result and the loop con
 - **`maxTurns` survives the park.** A park is not a fresh dispatch; a reset would make park/resume cycling an unbounded-budget loop. A run that resumes with its budget already exhausted fails immediately on the ordinary max-turns path.
 - **One park per batch.** If two tools in one parallel batch both suspend, the first in the model's own emission order wins; the loser's tool result is rewritten to a retryable error ("a sibling already suspended this run") that the resumed model sees and can retry.
 
+<Callout type="warning" title="One resume credential per park">
+
+Every handler in a batch reads the same `ctx.suspension` (one suspension id, one token: they name the park, not the tool call). When two suspending handlers each send their own out-of-band approval request before returning, both requests carry a live credential for the SAME park, and whichever approver answers first delivers their answer to the WINNING tool call's question. Design so at most one tool per turn can park (one approval tool, or mutually exclusive guards); do not hand two different approvers two different questions backed by one token.
+
+</Callout>
+
 Because resume re-enters the agent step itself, the step's own definition is covered by the continuation hash: **editing an inline agent's options (system prompt, model, tools) invalidates its parked runs**, refusing the resume with [`RC5048`](/docs/reference/errors#rc-5048) so the route can re-ask. A by-name agent's registered options are outside the hash (only step definitions are covered); the persisted `agentId` pins the binding, and a route rebound to a different agent refuses rehydration with [`AI1007`](/docs/reference/errors#ai-1007).
 
 <Callout type="warning" title="The model validates the answer">
@@ -63,6 +69,8 @@ Because resume re-enters the agent step itself, the step's own definition is cov
 An agent-raised suspension cannot re-validate the answer against `expect` after a restart: the schema lives in the handler's own code. Revival delivers whatever JSON the resume carried as an ordinary tool result, so a resume-token holder can send the agent arbitrary data. That is the trust level every tool result already has; treat it accordingly in the prompt and in what the loop is allowed to do with it.
 
 </Callout>
+
+Identity is restored, not re-verified: execution two's principal came back from storage, so it is [marked restored](/docs/reference/operations/resume#security) and any route the resumed agent dispatches into (a `Direct(...)` tool) refuses it under `.authorize()` until a live credential re-verifies it. The `principal` system-prompt block and tool guards render and read the restored shape as data; authorization is what refuses it. Put post-approval authorization on the resume ingress route, where the answering principal is verified live.
 
 ## Where suspension is refused
 

@@ -709,11 +709,14 @@ async function runContinuation(
 /**
  * Find the suspending step and its site by the address on the record.
  *
- * `expect` is present only for a static `.suspend()` site: it is the live
- * schema read back off the route, which is what the answer is validated
- * against. A re-entrant site carries none (the schema was raised inside the
- * step's own code), so its answer skips validation and its hash comparison
- * uses the stored descriptor.
+ * The two arms are mutually exclusive BY TYPE, because `expect` presence is
+ * what gates answer validation (`RC5049`): a static `.suspend()` site always
+ * carries the live schema read back off the route, and a re-entrant site
+ * never does (the schema was raised inside the step's own code), so its
+ * answer skips validation and its hash comparison uses the stored
+ * descriptor. Making the static arm's `expect` required keeps a future
+ * refactor from silently disabling validation for static sites by returning
+ * one without it.
  *
  * @internal
  */
@@ -721,7 +724,8 @@ function findSite(
   route: Route,
   suspension: Suspension,
 ):
-  | { step: Step<Adapter>; site: SuspendSite; expect?: StandardSchemaV1 }
+  | { step: Step<Adapter>; site: SuspendSite; expect: StandardSchemaV1 }
+  | { step: Step<Adapter>; site: SuspendSite; expect?: undefined }
   | undefined {
   for (const step of route.definition.suspendSteps ?? []) {
     if (step.site?.position === suspension.position) {

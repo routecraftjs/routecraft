@@ -2,8 +2,8 @@ import {
   getExchangeContext,
   getExchangeRoute,
   markSuspendCapable,
+  peekResumeStepState,
   rcError,
-  takeResumeStepState,
   type CraftContext,
   type Enricher,
   type Exchange,
@@ -21,7 +21,7 @@ import {
   type AgentSessionResume,
   type AgentSessionSuspension,
 } from "./session.ts";
-import { parseStepState, replaceToolResultOutput } from "./suspension-state.ts";
+import { rehydrateSession } from "./suspension-state.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
@@ -148,41 +148,15 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
         : undefined;
 
     // A resumed exchange re-enters this step carrying the parked loop
-    // state. Take-once, so a second agent step later in the continuation
-    // starts fresh.
-    const resumeRaw = takeResumeStepState(exchange);
-    let resume: AgentSessionResume | undefined;
-    if (resumeRaw !== undefined) {
-      const state = parseStepState(resumeRaw);
-      if (agentIdentity === undefined || state.agentId !== agentIdentity) {
-        // The registered options behind a by-name agent are NOT covered by
-        // the continuation hash (only step definitions are), so the name is
-        // the one identity the record can pin. A mismatch means the route
-        // was rebound to a different agent under the parked exchange.
-        throw rcError("AI1007", undefined, {
-          message: `This suspension was parked by agent "${state.agentId}", but the resumed route now dispatches ${
-            agentIdentity === undefined
-              ? "an agent with no identity (synthetic dispatch)"
-              : `"${agentIdentity}"`
-          }. Restore the original agent binding, or treat the parked work as lost and re-ask.`,
-        });
-      }
-      const swapped = replaceToolResultOutput(
-        state.messages,
-        state.suspendedToolCallId,
-        // Strictly a tool-result payload, never merged anywhere else: the
-        // answer skipped expect validation at revival (no live schema
-        // exists for a re-entrant site), so the model treats it like any
-        // other untrusted tool output.
-        { type: "json", value: exchange.suspension.result },
-      );
-      if (!swapped.found) {
-        throw rcError("AI1007", undefined, {
-          message: `The resumed suspension's persisted thread does not contain the suspended tool call "${state.suspendedToolCallId}", so the answer has nowhere to land.`,
-        });
-      }
-      resume = { messages: swapped.messages, turnsUsed: state.turnsUsed };
-    }
+    // state. Read without consuming: the executor clears the slot when
+    // this step settles, so a retried attempt (a provider 429 here, or a
+    // setup failure below) still resumes instead of silently re-running
+    // the whole loop from the original prompt.
+    const resumeRaw = peekResumeStepState(exchange);
+    const resume: AgentSessionResume | undefined =
+      resumeRaw !== undefined
+        ? rehydrateSession(resumeRaw, agentIdentity, exchange.suspension.result)
+        : undefined;
 
     const userTools = resolveAgentTools(
       merged,

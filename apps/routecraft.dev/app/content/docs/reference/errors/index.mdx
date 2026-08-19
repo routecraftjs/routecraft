@@ -447,7 +447,7 @@ A `skills:` ref in agent frontmatter did not resolve to a directory on disk:
 Agent run cancelled
 
 **Why it happens**  
-The dispatch's abort signal fired (a route stop, an elapsed `.timeout()`, or context shutdown) and the agent loop stopped cooperatively: between turns at the cheap checkpoint, or mid-turn when the signal reached the model call or a tool handler. The error's cause carries the turns completed and the token usage accumulated before the abort, so cost accounting and traces stay honest about work the cancellation discarded; a partial result never masquerades as a finished `AgentResult`.
+The dispatch's abort signal fired (a route stop, an elapsed `.timeout()`, or context shutdown) and the agent loop stopped cooperatively: between turns at the cheap checkpoint, or mid-turn when the signal reached the model call or a tool handler. The error's `cause` is an `AgentCancellationCause` with typed `turnsUsed` and `usage` fields (cache tokens included when the provider reports them), so cost accounting and traces read the spend structurally instead of parsing a message; a partial result never masquerades as a finished `AgentResult`.
 
 **Suggestion**  
 Cancellation is terminal: re-dispatch the work as a new exchange if it should run again. A run that parked at a suspension BEFORE the abort survives independently; a run whose park raced the abort is refused or denied with [RC5054](#rc-5054), so no stale resume link is left behind.

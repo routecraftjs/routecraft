@@ -141,6 +141,7 @@
         "@modelcontextprotocol/server": "^2.0.0",
         "@openrouter/ai-sdk-provider": "^2.10.0",
         "@routecraft/routecraft": "workspace:*",
+        "@routecraft/testing": "workspace:*",
         "@sinonjs/fake-timers": "^11.3.1",
         "@types/sinonjs__fake-timers": "^15.0.1",
         "jose": "^6.2.8",

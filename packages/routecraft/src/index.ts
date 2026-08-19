@@ -48,7 +48,7 @@ export {
   type HeaderLiteral,
   isDropped,
   OperationType,
-  takeResumeStepState,
+  peekResumeStepState,
   wasOutputValidated,
   type RoutecraftHeaders,
 } from "./exchange.ts";
@@ -578,6 +578,7 @@ export {
   isSuspendSignal,
   isSuspended,
   markSuspendCapable,
+  routeCanSuspend,
   suspendedSchema,
   suspensionPlugin,
 } from "./suspension/index.ts";

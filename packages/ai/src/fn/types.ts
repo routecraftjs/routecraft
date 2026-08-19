@@ -78,6 +78,11 @@ export interface FnHandlerContext {
    * route-bound exchange; undefined on other surfaces (proxied MCP tool
    * guards, `testFn`). Renamed from the `checkpointId` stub per the naming
    * decision on #417.
+   *
+   * Deliberately an alias of {@link FnSuspensionView.id} on
+   * {@link FnHandlerContext.suspension}, kept as the flat ergonomic form
+   * the #417 rename recorded; `ctx.suspension` is the authoritative view
+   * and the two always agree.
    */
   readonly suspensionId?: string;
 

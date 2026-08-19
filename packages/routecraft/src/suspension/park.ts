@@ -18,7 +18,7 @@ import {
   suspensionIdOf,
 } from "./exchange-state.ts";
 import { SUSPENSION_RUNTIME } from "./runtime-key.ts";
-import { encodePersistable, serializeExchange } from "./serialize.ts";
+import { serializeExchange } from "./serialize.ts";
 import { type Suspended, createSuspended } from "./suspended.ts";
 import type { NewSuspension } from "./types.ts";
 
@@ -39,10 +39,14 @@ import type { NewSuspension } from "./types.ts";
  * @param exchange - The exchange as the suspend step handed it over
  * @param request - What the suspend step resolved: schema, TTL, and site
  * @param routeId - Route the parked exchange belongs to
+ * @param abortSignal - The run's cancellation signal; an abort that lands
+ *   during the store write denies the just-created suspension and fails the
+ *   park with RC5054 before anything is announced
  * @returns The exchange execution one terminates with, its body replaced by
  *   the {@link Suspended} acknowledgment
  * @throws RC5052 when the context has no suspension runtime, RC5042 when
- *   the exchange cannot be persisted, RC5044 when the store write fails
+ *   the exchange cannot be persisted, RC5044 when the store write fails,
+ *   RC5054 when the run was cancelled around the write
  *
  * @internal
  */
@@ -51,6 +55,7 @@ export async function parkExchange(
   exchange: Exchange,
   request: SuspendRequest,
   routeId: string,
+  abortSignal?: AbortSignal,
 ): Promise<Exchange> {
   const runtime = context.getStore(SUSPENSION_RUNTIME);
   if (!runtime) {
@@ -78,13 +83,13 @@ export async function parkExchange(
   // for a re-entrant site it includes it (it runs again). The hash covers
   // whichever is true.
   const hash = continuationTailHash(request.site.continuation, expect);
-  // The plain-JSON rule applies to step-owned closure state the same as to
-  // the exchange: a resolver, a Date without the envelope, or a secret in
-  // there must fail the park, not surprise the revival.
-  const stepState =
-    request.stepState !== undefined
-      ? encodePersistable(request.stepState, "stepState")
-      : undefined;
+  // `stepState` crosses the persistence boundary raw: the store's `create`
+  // applies the same plain-JSON rule as the exchange (both backends encode
+  // it, refusing a resolver, a secret, or a non-envelope Date with RC5042),
+  // so the park still fails here rather than surprising the revival, and
+  // encoding happens exactly once. Encoding it here too would double-wrap
+  // the Date envelope, which the second pass refuses as a reserved shape.
+  const stepState = request.stepState;
   const suspendedAt = new Date();
   const ttlMs = request.expiresInMs ?? runtime.defaultTtlMs;
   const record: NewSuspension = {
@@ -112,6 +117,26 @@ export async function parkExchange(
   };
 
   await runtime.store.create(record);
+
+  // A cancellation that raced the store write and lost is resolved HERE,
+  // after the durable write but before the mark and the announcement: the
+  // just-created suspension is denied (claim-first, so a replayed token
+  // reads RC5050 from the settled path) and the run fails with RC5054
+  // without ever emitting `route:exchange:suspended`. Announcing first
+  // would give one `exchange:started` two terminals, breaking the events
+  // page's exactly-one lifecycle guarantee.
+  if (abortSignal?.aborted) {
+    await denyParkedOnCancellation(
+      context,
+      parking,
+      id,
+      routeId,
+      record.expiresAt,
+    );
+    throw rcError("RC5054", abortSignal.reason, {
+      message: `Route "${routeId}" parked an exchange while its run was being cancelled; the suspension was denied so its resume link is dead.`,
+    });
+  }
 
   // After the durable write, not before: this file's ordering promises that
   // nothing is announced that cannot be resumed, and a park that fails at
@@ -168,11 +193,12 @@ export async function parkExchange(
  *
  * @internal
  */
-export async function denyParkedOnCancellation(
+async function denyParkedOnCancellation(
   context: CraftContext,
   exchange: Exchange,
   suspensionId: string,
   routeId: string,
+  expiresAt?: Date,
 ): Promise<void> {
   const runtime = context.getStore(SUSPENSION_RUNTIME);
   if (!runtime) return;
@@ -184,8 +210,10 @@ export async function denyParkedOnCancellation(
     await runtime.store.markDenied(suspensionId, "run cancelled");
   } catch (err) {
     exchange.logger.error(
-      { suspensionId, routeId, err },
-      "Could not deny a suspension parked by a cancelled run. Its resume link stays live until the ttl retires it.",
+      { suspensionId, routeId, expiresAt, err },
+      expiresAt
+        ? "Could not deny a suspension parked by a cancelled run. Its resume link stays live until the ttl retires it."
+        : 'Could not deny a suspension parked by a cancelled run. It has no ttl (defaultTtl: "never"), so its resume link stays live until it is settled by hand.',
     );
   }
 }

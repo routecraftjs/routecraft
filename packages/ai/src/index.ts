@@ -123,6 +123,7 @@ export type {
 // For by-name use, register agents via `agentPlugin({ agents: { name: {...} } })`.
 export {
   agent,
+  AgentCancellationCause,
   AgentEnricherAdapter,
   agentPlugin,
   agents,
@@ -144,6 +145,7 @@ export type {
   AgentSuspendSentinel,
   AgentToolCallSummary,
   AgentUserPromptSource,
+  ThreadMessage,
 } from "./agent/index.ts";
 
 // Fn primitive: ad-hoc in-process functions registered via
