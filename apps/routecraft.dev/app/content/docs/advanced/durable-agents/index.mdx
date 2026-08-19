@@ -49,11 +49,11 @@ The runtime awaits the batch's in-flight sibling tool calls (their real results 
 
 ## What survives, and how the loop continues
 
-The persisted `stepState` is `{ agentId, messages, suspendedToolCallId, turnsUsed }`: plain JSON, nothing live. The system prompt, blocks, and tools are deliberately **not** persisted; the agent step re-runs its full preparation at resume, so inject blocks and `lifetime: "context"` blocks are re-resolved live, and only resolved strings ever cross the wire (progressive block loads that happened before the park are ordinary tool results inside the thread).
+The persisted `stepState` is `{ agentId, messages, suspendedToolCallId, turnsUsed, usage? }`: plain JSON, nothing live. The system prompt, blocks, and tools are deliberately **not** persisted; the agent step re-runs its full preparation at resume, so inject blocks and `lifetime: "context"` blocks are re-resolved live, and only resolved strings ever cross the wire (progressive block loads that happened before the park are ordinary tool results inside the thread).
 
 On resume, the answer lands as the suspended call's tool result and the loop continues from exactly that point. Two consequences:
 
-- **`maxTurns` survives the park.** A park is not a fresh dispatch; a reset would make park/resume cycling an unbounded-budget loop. A run that resumes with its budget already exhausted fails immediately on the ordinary max-turns path.
+- **`maxTurns` and the token spend survive the park.** A park is not a fresh dispatch; a reset would make park/resume cycling an unbounded-budget loop, and a cancelled resumed run reports the WHOLE run's spend on [`AI1005`](/docs/reference/errors#ai-1005), not just the slice after the resume. A run that resumes with its budget already exhausted fails immediately on the ordinary max-turns path.
 - **One park per batch.** If two tools in one parallel batch both suspend, the first in the model's own emission order wins; the loser's tool result is rewritten to a retryable error ("a sibling already suspended this run") that the resumed model sees and can retry.
 
 <Callout type="warning" title="One resume credential per park">

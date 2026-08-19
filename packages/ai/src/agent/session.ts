@@ -171,6 +171,8 @@ export interface AgentSessionSuspension {
 export interface AgentSessionResume {
   readonly messages: readonly ThreadMessage[];
   readonly turnsUsed: number;
+  /** Token spend accumulated before the park, when any call reported one. */
+  readonly usage?: LlmUsage;
 }
 
 /**
@@ -309,7 +311,9 @@ export class AgentSession {
       : this.input.user;
     let lastValidatorMsg: string | undefined;
     const accumulatedToolCalls: LlmToolCallSummary[] = [];
-    let accumulatedUsage: LlmUsage | undefined;
+    // Seeded from the park for the same reason turnsUsed is: a cancelled
+    // resumed run reports the whole run's spend, not the post-resume slice.
+    let accumulatedUsage: LlmUsage | undefined = this.input.resume?.usage;
     // Filled by the tool bridge when a handler suspends. Checked after
     // every model call: a non-empty batch means the loop is over and the
     // exchange parks.
@@ -352,10 +356,12 @@ export class AgentSession {
             signals,
           );
         } catch (err) {
-          // An aborted run surfaces as whatever the SDK threw on the way
-          // down; report it as the one thing it is (a cancellation), with
-          // the spend so far, rather than as a provider failure.
-          if (abortSignal.aborted || isAbortLike(err)) {
+          // The dispatch signal is the one definition of cancellation:
+          // whatever the SDK threw on the way down, an aborted signal means
+          // the run was cancelled, and a signal that never fired means the
+          // provider failed on its own (a provider-side timeout must stay a
+          // provider failure, not masquerade as AI1005).
+          if (abortSignal.aborted) {
             throw this.cancelledError(err, turnsUsed, accumulatedUsage);
           }
           throw err;
@@ -366,7 +372,13 @@ export class AgentSession {
           accumulatedToolCalls.push(...result.toolCalls);
         }
         if (signals.length > 0) {
-          throw this.buildParkSignal(signals, result, currentUser, turnsUsed);
+          throw this.buildParkSignal(
+            signals,
+            result,
+            currentUser,
+            turnsUsed,
+            accumulatedUsage,
+          );
         }
         if (!validate) {
           this.emitFinished(result);
@@ -422,6 +434,7 @@ export class AgentSession {
     result: LlmResult,
     currentUser: string | ThreadMessage[],
     turnsUsed: number,
+    usage: LlmUsage | undefined,
   ): SuspendSignal {
     // Signals are only ever recorded through a bridge this session created,
     // and the bridge exists only when the input carries suspension wiring,
@@ -474,6 +487,7 @@ export class AgentSession {
       messages,
       suspendedToolCallId: winner.toolCallId,
       turnsUsed,
+      ...(usage !== undefined ? { usage } : {}),
     };
     const { expect, ttl, question, reason } = winner.request;
     return new SuspendSignal({
@@ -758,20 +772,6 @@ function historyMessages(
     ...userMsgs,
     ...((lastResult.responseMessages ?? []) as ThreadMessage[]),
   ];
-}
-
-/**
- * Whether a thrown value reads as an abort, whatever layer wrapped it. The
- * primary cancellation test is the signal itself; this catches an SDK that
- * throws before the signal flag is observable to us.
- *
- * @internal
- */
-function isAbortLike(err: unknown): boolean {
-  return (
-    err instanceof Error &&
-    (err.name === "AbortError" || err.name === "TimeoutError")
-  );
 }
 
 /**

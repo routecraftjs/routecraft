@@ -126,15 +126,21 @@ export async function parkExchange(
   // would give one `exchange:started` two terminals, breaking the events
   // page's exactly-one lifecycle guarantee.
   if (abortSignal?.aborted) {
-    await denyParkedOnCancellation(
+    const settled = await denyParkedOnCancellation(
       context,
       parking,
       id,
       routeId,
       record.expiresAt,
     );
+    // The RC5054 must land whatever the store does (the caller was told
+    // the run failed), but it must not claim a denial that did not commit:
+    // a store failure leaves the link live until the ttl retires it, and
+    // the error-level log above is the operator's cue to settle it by hand.
     throw rcError("RC5054", abortSignal.reason, {
-      message: `Route "${routeId}" parked an exchange while its run was being cancelled; the suspension was denied so its resume link is dead.`,
+      message: settled
+        ? `Route "${routeId}" parked an exchange while its run was being cancelled; the suspension was denied so its resume link is dead.`
+        : `Route "${routeId}" parked an exchange while its run was being cancelled, and denying the suspension failed; its resume link may stay live until the ttl retires it (suspension "${id}", see the error log).`,
     });
   }
 
@@ -190,6 +196,11 @@ export async function parkExchange(
  *
  * Best effort by design: the cancellation error must reach the caller
  * whatever the store does, so a store failure here is logged and swallowed.
+ * The return value keeps the caller's RC5054 honest about what happened.
+ *
+ * @returns Whether the record is confirmed settled (denied here, or already
+ *   settled by whoever won the claim). `false` means the denial failed and
+ *   the resume link may still be live.
  *
  * @internal
  */
@@ -199,15 +210,16 @@ async function denyParkedOnCancellation(
   suspensionId: string,
   routeId: string,
   expiresAt?: Date,
-): Promise<void> {
+): Promise<boolean> {
   const runtime = context.getStore(SUSPENSION_RUNTIME);
-  if (!runtime) return;
+  if (!runtime) return false;
   try {
     const claim = await runtime.store.claimExpiry(suspensionId, new Date());
     // Losing the claim means someone else already settled the record (an
     // answer that raced in, the sweeper). Whoever won owns the outcome.
-    if (!claim.won) return;
+    if (!claim.won) return true;
     await runtime.store.markDenied(suspensionId, "run cancelled");
+    return true;
   } catch (err) {
     exchange.logger.error(
       { suspensionId, routeId, expiresAt, err },
@@ -215,5 +227,6 @@ async function denyParkedOnCancellation(
         ? "Could not deny a suspension parked by a cancelled run. Its resume link stays live until the ttl retires it."
         : 'Could not deny a suspension parked by a cancelled run. It has no ttl (defaultTtl: "never"), so its resume link stays live until it is settled by hand.',
     );
+    return false;
   }
 }

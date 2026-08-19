@@ -1,4 +1,5 @@
 import { rcError } from "@routecraft/routecraft";
+import type { LlmUsage } from "../llm/types.ts";
 import type { AgentSuspendOptions } from "./suspend.ts";
 // Registers AI1007, thrown from the rehydration checks below.
 import "../errors.ts";
@@ -23,6 +24,13 @@ export interface AgentStepState {
   readonly messages: readonly ThreadMessage[];
   readonly suspendedToolCallId: string;
   readonly turnsUsed: number;
+  /**
+   * Token spend accumulated before the park, when any model call reported
+   * one. Travels with `turnsUsed` for the same reason: a cancelled resumed
+   * run must report the WHOLE run's spend, not just the slice after the
+   * resume.
+   */
+  readonly usage?: LlmUsage;
 }
 
 /**
@@ -98,8 +106,14 @@ export function parseStepState(value: unknown): AgentStepState {
     ) ||
     typeof state.suspendedToolCallId !== "string" ||
     typeof state.turnsUsed !== "number" ||
-    !Number.isFinite(state.turnsUsed) ||
-    state.turnsUsed < 0
+    // A safe integer, not merely finite: a fractional or astronomically
+    // large persisted value would corrupt the remaining-budget arithmetic.
+    !Number.isSafeInteger(state.turnsUsed) ||
+    state.turnsUsed < 0 ||
+    (state.usage !== undefined &&
+      (state.usage === null ||
+        typeof state.usage !== "object" ||
+        Array.isArray(state.usage)))
   ) {
     throw rcError("AI1007", undefined, {
       message:
@@ -135,7 +149,11 @@ export function rehydrateSession(
   raw: unknown,
   agentIdentity: string | undefined,
   answer: unknown,
-): { messages: readonly ThreadMessage[]; turnsUsed: number } {
+): {
+  messages: readonly ThreadMessage[];
+  turnsUsed: number;
+  usage?: LlmUsage;
+} {
   const state = parseStepState(raw);
   if (agentIdentity === undefined || state.agentId !== agentIdentity) {
     // The registered options behind a by-name agent are NOT covered by
@@ -164,7 +182,11 @@ export function rehydrateSession(
       message: `The resumed suspension's persisted thread does not contain the suspended tool call "${state.suspendedToolCallId}", so the answer has nowhere to land.`,
     });
   }
-  return { messages: swapped.messages, turnsUsed: state.turnsUsed };
+  return {
+    messages: swapped.messages,
+    turnsUsed: state.turnsUsed,
+    ...(state.usage !== undefined ? { usage: state.usage } : {}),
+  };
 }
 
 /**

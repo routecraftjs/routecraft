@@ -239,6 +239,84 @@ describe("agent durable suspension (ctx.suspend)", () => {
   });
 
   /**
+   * @case Token spend survives the park: a cancelled resumed run reports the whole run's usage
+   * @preconditions Turn one reports 10 tokens and parks; the record persists stepState.usage; the resumed turn hangs in a tool until the context stops
+   * @expectedResult The parked record carries usage.totalTokens 10, and the cancellation of the resumed run fails with AI1005 reporting 1 turn and the 10 pre-park tokens rather than a spend of nothing
+   */
+  test("a cancelled resumed run reports the pre-park token spend", async () => {
+    const sink = spy();
+    const hang = {
+      description: "Hang until the run is cancelled",
+      input: z.object({}),
+      handler: (_input: unknown, ctx: FnHandlerContext) =>
+        new Promise((_resolve, reject) => {
+          ctx.abortSignal.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          );
+        }),
+    };
+    llm.script.push({
+      toolCalls: [{ toolName: "ask", input: { question: "pay acme?" } }],
+      usage: { inputTokens: 6, outputTokens: 4, totalTokens: 10 },
+    });
+
+    t = await testContext()
+      .with({ suspension: {}, plugins: plugins({ ask: askFn, hang }) })
+      .routes([
+        craft()
+          .id("assistant")
+          .from(direct())
+          .to(
+            agent({ model: MODEL, system: "x", tools: tools(["ask", "hang"]) }),
+          )
+          .to(sink),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("assistant", "go"));
+    const runtime = t.ctx.getStore(SUSPENSION_RUNTIME)!;
+    const record = await runtime.store.get(parked.suspensionId);
+    expect(
+      (record?.stepState as { usage?: { totalTokens?: number } })?.usage
+        ?.totalTokens,
+    ).toBe(10);
+
+    // The resumed turn hangs in a tool; stopping the context cancels it.
+    llm.script.push({ toolCalls: [{ toolName: "hang", input: {} }] });
+    const ack = t.client
+      .sendDirect("answers", {
+        token: parked.token,
+        result: { approved: true },
+      })
+      .then(
+        (value) =>
+          value as {
+            outcome: {
+              status: string;
+              error?: { rc?: string; message?: string };
+            };
+          },
+      )
+      .catch((err: unknown) => err as { rc?: string; message?: string });
+    const deadline = Date.now() + 2_000;
+    while (llm.calls.length < 2 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(llm.calls.length).toBe(2);
+    await t.stop();
+
+    const settled = await ack;
+    const text = JSON.stringify(settled);
+    expect(text).toContain("AI1005");
+    expect(text).toMatch(
+      /cancelled after 1 turn\(s\)? and 10 tokens|1 turn\(s\) and 10 tokens/,
+    );
+    t = undefined;
+  });
+
+  /**
    * @case Suspension during a parallel batch flushes in-flight siblings and persists their real results
    * @preconditions One batch calling "ask" (suspends) and "lookup" (answers slowly); resume afterwards
    * @expectedResult The park waits for the sibling, whose real output is in the persisted thread the resumed model call receives alongside the swapped answer

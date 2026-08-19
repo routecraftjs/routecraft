@@ -133,7 +133,9 @@ export function scriptedLlm(script: ScriptedTurn[]): ScriptedLlm {
             toolCallId: r.toolCallId,
             toolName: r.toolName,
             output:
-              r.error !== undefined
+              // Property presence, not value: a handler that throws
+              // undefined is still a failed call.
+              "error" in r
                 ? {
                     type: "error-text",
                     value: String(
@@ -148,9 +150,7 @@ export function scriptedLlm(script: ScriptedTurn[]): ScriptedLlm {
             toolCallId: r.toolCallId,
             toolName: r.toolName,
             input: r.input,
-            ...(r.error !== undefined
-              ? { error: r.error }
-              : { output: r.output }),
+            ...("error" in r ? { error: r.error } : { output: r.output }),
           });
         }
         steps.push({ toolCalls: batch });
