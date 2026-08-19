@@ -1,11 +1,14 @@
 import {
   getExchangeContext,
   getExchangeRoute,
+  markSuspendCapable,
   rcError,
+  takeResumeStepState,
   type CraftContext,
   type Enricher,
   type Exchange,
   type Principal,
+  type StepSignalContext,
 } from "@routecraft/routecraft";
 import { BLOCK_RESERVED_PREFIX, resolveBlocks } from "../block/resolve.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
@@ -15,7 +18,10 @@ import {
   buildUserPrompt,
   dispatchIdentityFrom,
   type AgentDispatchIdentity,
+  type AgentSessionResume,
+  type AgentSessionSuspension,
 } from "./session.ts";
+import { parseStepState, replaceToolResultOutput } from "./suspension-state.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
@@ -86,9 +92,17 @@ export type AgentBinding =
 export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
   readonly adapterId = "routecraft.adapter.agent";
 
-  constructor(public readonly binding: AgentBinding) {}
+  constructor(public readonly binding: AgentBinding) {
+    // A tool handler may park the run (ctx.suspend / SuspendError), so the
+    // suspend-site walk assigns this adapter's hosting step a re-entrant
+    // site at build time. Routes that never suspend pay nothing for it.
+    markSuspendCapable(this);
+  }
 
-  async fetch(exchange: Exchange<unknown>): Promise<AgentResult> {
+  async fetch(
+    exchange: Exchange<unknown>,
+    stepCtx?: StepSignalContext,
+  ): Promise<AgentResult> {
     const context = getExchangeContext(exchange);
     const baseOptions = this.resolveOptions(context);
     const merged = mergeWithDefaults(baseOptions, context);
@@ -116,6 +130,60 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
       exchange,
       route?.definition.id,
     );
+
+    // Durable suspension is available exactly when the exchange is
+    // route-bound: without a dispatch identity there is no site to park
+    // against, so no wiring is handed out and ctx.suspend refuses (AI1006).
+    const agentIdentity = agentName ?? dispatchIdentity?.routeId;
+    const suspension: AgentSessionSuspension | undefined =
+      dispatchIdentity && agentIdentity !== undefined
+        ? {
+            id: exchange.suspension.id,
+            // Lazy: minting reads the context's signer and throws RC5052
+            // without a suspension runtime; a handler that never builds a
+            // resume link should not pay for or fail on it.
+            mintToken: () => exchange.suspension.token,
+            agentId: agentIdentity,
+          }
+        : undefined;
+
+    // A resumed exchange re-enters this step carrying the parked loop
+    // state. Take-once, so a second agent step later in the continuation
+    // starts fresh.
+    const resumeRaw = takeResumeStepState(exchange);
+    let resume: AgentSessionResume | undefined;
+    if (resumeRaw !== undefined) {
+      const state = parseStepState(resumeRaw);
+      if (agentIdentity === undefined || state.agentId !== agentIdentity) {
+        // The registered options behind a by-name agent are NOT covered by
+        // the continuation hash (only step definitions are), so the name is
+        // the one identity the record can pin. A mismatch means the route
+        // was rebound to a different agent under the parked exchange.
+        throw rcError("AI1007", undefined, {
+          message: `This suspension was parked by agent "${state.agentId}", but the resumed route now dispatches ${
+            agentIdentity === undefined
+              ? "an agent with no identity (synthetic dispatch)"
+              : `"${agentIdentity}"`
+          }. Restore the original agent binding, or treat the parked work as lost and re-ask.`,
+        });
+      }
+      const swapped = replaceToolResultOutput(
+        state.messages,
+        state.suspendedToolCallId,
+        // Strictly a tool-result payload, never merged anywhere else: the
+        // answer skipped expect validation at revival (no live schema
+        // exists for a re-entrant site), so the model treats it like any
+        // other untrusted tool output.
+        { type: "json", value: exchange.suspension.result },
+      );
+      if (!swapped.found) {
+        throw rcError("AI1007", undefined, {
+          message: `The resumed suspension's persisted thread does not contain the suspended tool call "${state.suspendedToolCallId}", so the answer has nowhere to land.`,
+        });
+      }
+      resume = { messages: swapped.messages, turnsUsed: state.turnsUsed };
+    }
+
     const userTools = resolveAgentTools(
       merged,
       context,
@@ -166,14 +234,23 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
       context,
       exchange,
       dispatchIdentity,
+      ...(suspension !== undefined && { suspension }),
+      ...(resume !== undefined && { resume }),
     });
 
-    // Thread the route's abort signal through so the agent dispatch
-    // (LLM call + in-flight tool handlers) is cancelled when the
-    // route or context shuts down. Falls back to a never-firing
-    // signal when the exchange has no route binding (rare; mostly
-    // synthetic exchanges in tests).
-    const abortSignal = route?.signal ?? new AbortController().signal;
+    // Thread cancellation through so the agent dispatch (LLM call plus
+    // in-flight tool handlers) stops when either owner says so: the
+    // route's signal (stop, context shutdown) or the step's signal (a
+    // route-scope .timeout() abandoning this run). Falls back to a
+    // never-firing signal when the exchange has no route binding (rare;
+    // mostly synthetic exchanges in tests).
+    const signals = [route?.signal, stepCtx?.signal].filter(
+      (s): s is AbortSignal => s !== undefined,
+    );
+    const abortSignal =
+      signals.length > 1
+        ? AbortSignal.any(signals)
+        : (signals[0] ?? new AbortController().signal);
 
     // Streaming is selected by the presence of `onDelta` on the
     // merged options or as a per-call override at the by-name call

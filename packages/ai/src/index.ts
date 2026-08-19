@@ -139,6 +139,9 @@ export type {
   AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
+  AgentStepState,
+  AgentSuspendOptions,
+  AgentSuspendSentinel,
   AgentToolCallSummary,
   AgentUserPromptSource,
 } from "./agent/index.ts";
@@ -151,6 +154,7 @@ export type {
   FnHandlerContext,
   FnOptions,
   FnRegistry,
+  FnSuspensionView,
   ReadonlyPrincipal,
   RegisteredFnId,
 } from "./fn/index.ts";

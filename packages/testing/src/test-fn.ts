@@ -3,6 +3,7 @@ import {
   formatSchemaIssues,
   logger as defaultLogger,
   rcError,
+  type Duration,
 } from "@routecraft/routecraft";
 
 /**
@@ -27,6 +28,36 @@ export interface TestFnSpec<TIn, TOut> {
 export interface TestFnHandlerContext {
   logger: ReturnType<typeof defaultLogger.child>;
   abortSignal: AbortSignal;
+  /**
+   * Structural twin of the production `ctx.suspend`: returns a sentinel
+   * shaped like the one the agent runtime parks on, so a unit test can
+   * assert that a handler asked to suspend (and with what) without
+   * standing up an agent loop. Nothing is parked under `testFn`; drive the
+   * handler through a route to exercise the durable path.
+   */
+  suspend: (options: TestFnSuspendOptions) => TestFnSuspendSentinel;
+}
+
+/**
+ * Structural twin of the agent tier's suspend options. Kept structural so
+ * this package carries no dependency on `@routecraft/ai`; a real
+ * `AgentSuspendOptions` value satisfies it.
+ */
+export interface TestFnSuspendOptions {
+  expect: StandardSchemaV1;
+  ttl?: Duration;
+  question?: string;
+  reason?: string;
+}
+
+/**
+ * What {@link TestFnHandlerContext.suspend} returns: the same structural
+ * shape as the agent runtime's sentinel, carrying the request back to the
+ * test for assertion.
+ */
+export interface TestFnSuspendSentinel {
+  readonly status: "suspend-requested";
+  readonly request: TestFnSuspendOptions;
 }
 
 /**
@@ -94,6 +125,10 @@ export async function testFn<TIn, TOut>(
   const ctx: TestFnHandlerContext = {
     logger: options.logger ?? defaultLogger.child({ test: "fn" }),
     abortSignal: options.signal ?? new AbortController().signal,
+    suspend: (suspendOptions) => ({
+      status: "suspend-requested",
+      request: suspendOptions,
+    }),
   };
 
   const validated = "value" in result ? (result.value as TIn) : (input as TIn);

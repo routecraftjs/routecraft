@@ -12,6 +12,8 @@ export {
   ADAPTER_AGENT_REGISTRY,
 } from "./store.ts";
 export { SuspendError, isSuspendError } from "./suspend.ts";
+export type { AgentSuspendOptions, AgentSuspendSentinel } from "./suspend.ts";
+export type { AgentStepState } from "./suspension-state.ts";
 export type {
   AgentDefaultOptions,
   AgentOptions,

@@ -213,6 +213,13 @@ async function dispatchDirect<TIn>(
   routeId: string,
   input: TIn,
 ): Promise<unknown> {
+  // A cancelled run must not START new downstream work; a dispatch already
+  // in flight when the abort fires unwinds the agent promptly below while
+  // the downstream route finishes under its own lifecycle (its cancellation
+  // story is the route's, not this tool's).
+  if (hctx.abortSignal.aborted) {
+    throw abortError(routeId, hctx.abortSignal.reason);
+  }
   // Forward the calling principal so the downstream direct route sees
   // the same authenticated identity as the agent that invoked the
   // tool. The agent layer never lets a tool override or escalate this:
@@ -228,11 +235,53 @@ async function dispatchDirect<TIn>(
   if (hctx.principal) {
     headers[HeadersKeys.AUTH_PRINCIPAL] = cloneFrozenPrincipal(hctx.principal);
   }
-  return new CraftClient(ctx).sendDirect(
+  const dispatch = new CraftClient(ctx).sendDirect(
     routeId,
     input,
     Object.keys(headers).length > 0 ? headers : undefined,
   );
+  return raceAbort(dispatch, hctx.abortSignal, routeId);
+}
+
+/**
+ * Resolve with the dispatch, or reject as soon as the run's abort signal
+ * fires: the agent must unwind promptly on cancellation instead of waiting
+ * out a downstream route it no longer wants the answer from. The dispatch
+ * promise is left to settle on its own (and observed, so an eventual
+ * rejection is not an unhandled one).
+ *
+ * @internal
+ */
+function raceAbort(
+  dispatch: Promise<unknown>,
+  signal: AbortSignal,
+  routeId: string,
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => reject(abortError(routeId, signal.reason));
+    signal.addEventListener("abort", onAbort, { once: true });
+    dispatch.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
+/** @internal */
+function abortError(routeId: string, reason: unknown): Error {
+  const err = new Error(
+    `directTool "${routeId}": the agent run was cancelled${
+      reason ? ` (${String(reason)})` : ""
+    }.`,
+  );
+  err.name = "AbortError";
+  return err;
 }
 
 /**

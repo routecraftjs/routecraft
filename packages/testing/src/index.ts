@@ -48,6 +48,8 @@ export {
   type TestFnHandlerContext,
   type TestFnOptions,
   type TestFnSpec,
+  type TestFnSuspendOptions,
+  type TestFnSuspendSentinel,
 } from "./test-fn";
 
 /**

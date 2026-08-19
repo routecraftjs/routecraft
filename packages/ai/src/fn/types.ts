@@ -5,6 +5,10 @@ import type {
   logger as frameworkLogger,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import type {
+  AgentSuspendOptions,
+  AgentSuspendSentinel,
+} from "../agent/suspend.ts";
 
 /**
  * Deep-readonly view of a `Principal`. Prevents tool code from
@@ -68,16 +72,58 @@ export interface FnHandlerContext {
   readonly correlationId?: string;
 
   /**
-   * Identifier for the durable-agents checkpoint when the fn is
-   * running inside a checkpointed agent session. Undefined today (no
-   * runtime populates it); the durable-agents epic supplies a real
-   * value so a tool handler that suspends can hand it to the
-   * resumption channel (e.g. embed it in a callback URL).
-   *
-   * Exposed now so handlers written today can be forward-compat with
-   * the durable epic without changing signature.
+   * Id of the suspension this dispatch's exchange would park as (or parked
+   * as), populated BEFORE the handler runs so a callback URL can be built
+   * ahead of the actual park. Present only inside an agent dispatch on a
+   * route-bound exchange; undefined on other surfaces (proxied MCP tool
+   * guards, `testFn`). Renamed from the `checkpointId` stub per the naming
+   * decision on #417.
    */
-  readonly checkpointId?: string;
+  readonly suspensionId?: string;
+
+  /**
+   * Suspension view of the dispatching exchange, mirroring
+   * `ex.suspension`: the id above plus the signed resume token, both
+   * mintable before the handler suspends so an approval request can carry
+   * a working resume link. Reading `token` throws `RC5052` when the
+   * context has no suspension runtime configured. Present only inside an
+   * agent dispatch on a route-bound exchange.
+   */
+  readonly suspension?: FnSuspensionView;
+
+  /**
+   * Park the run: the handler cannot answer now, so the agent's tool loop
+   * stops, the exchange is durably suspended through the core store, and
+   * the caller receives the framework's `Suspended` acknowledgment.
+   * `return ctx.suspend({ expect, ttl })` is the whole protocol; the
+   * returned sentinel must be returned as-is, immediately.
+   *
+   * In-flight sibling tool calls of the same batch are awaited and their
+   * results persisted before the park; a second suspend signal in one
+   * batch is recorded as a tool error the resumed model can retry.
+   *
+   * Only available inside an agent dispatch on a route-bound exchange:
+   * anywhere else (a proxied MCP tool guard, `testFn` without its own
+   * stub, an agent dispatched over a synthetic exchange) the call throws
+   * `AI1006` at the moment it is made and nothing is written.
+   */
+  readonly suspend: (options: AgentSuspendOptions) => AgentSuspendSentinel;
+}
+
+/**
+ * The suspension affordance handed to fn handlers, a snapshot of the
+ * dispatching exchange's `ex.suspension` narrowed to what a handler needs
+ * to build its resumption channel.
+ */
+export interface FnSuspensionView {
+  /** Id the exchange would park as (or parked as). */
+  readonly id: string;
+  /**
+   * Signed, single-use resume token for {@link FnSuspensionView.id}.
+   * Minted lazily on read; throws `RC5052` when the context has no
+   * suspension runtime configured.
+   */
+  readonly token: string;
 }
 
 /**

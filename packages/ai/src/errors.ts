@@ -8,11 +8,12 @@ import { registerErrorCodes, type RCMeta } from "@routecraft/routecraft";
  * metadata. Loaded as a side-effect import from this package's index so
  * the codes are registered before any adapter can throw them.
  *
- * Numbering: AI1xxx = agent blocks and configuration (formerly core
- * RC5025-RC5027, renumbered when the codes moved into this package),
- * AI2xxx = MCP boundary, AI3xxx = built-in agent tools. Ranges are claimed
- * in the range-allocation table on the error reference page before use, so
- * two lanes landing in parallel cannot mint the same code.
+ * Numbering: AI1xxx = agent blocks, configuration, and runtime (formerly
+ * core RC5025-RC5027, renumbered when the codes moved into this package;
+ * charter widened to runtime with AI1005/AI1006/AI1007), AI2xxx = MCP
+ * boundary, AI3xxx = built-in agent tools. Ranges are claimed in the
+ * range-allocation table on the error reference page before use, so two
+ * lanes landing in parallel cannot mint the same code.
  */
 /**
  * Provenance of an MCP tool-lifecycle event. Modeled as a discriminated
@@ -67,6 +68,12 @@ declare module "@routecraft/routecraft" {
     AI1003: RCMeta;
     /** Skills source could not be resolved */
     AI1004: RCMeta;
+    /** Agent run cancelled */
+    AI1005: RCMeta;
+    /** Agent suspension unavailable on this surface */
+    AI1006: RCMeta;
+    /** Agent suspension state invalid at rehydration */
+    AI1007: RCMeta;
     /** MCP tool result violated the tool's advertised output schema */
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
@@ -109,6 +116,30 @@ registerErrorCodes(
       suggestion:
         "A `skills:` ref in agent frontmatter did not resolve to a directory. A local ref is relative to the agent file; an `npm:` ref resolves against installed packages, so check the package is a dependency of the project and that the subpath exists inside it.",
       docs: `${DOCS_BASE}#ai-1004`,
+      retryable: false,
+    },
+    AI1005: {
+      category: "Adapter",
+      message: "Agent run cancelled",
+      suggestion:
+        "The run's abort signal fired (a route stop, an elapsed .timeout(), or context shutdown) and the agent loop stopped cooperatively instead of finishing the turn and discarding it. The error's cause carries the turns completed and the token usage accumulated before the abort, so cost accounting stays honest. Cancellation is terminal; re-dispatch the work as a new exchange if it should run again.",
+      docs: `${DOCS_BASE}#ai-1005`,
+      retryable: false,
+    },
+    AI1006: {
+      category: "Adapter",
+      message: "Agent suspension unavailable on this surface",
+      suggestion:
+        "ctx.suspend() was called where no exchange can be durably parked: a proxied MCP tool guard, a testFn dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the call, before anything is written. Dispatch the agent through a route (its exchange is then route-bound and parkable), or drop the suspension from this handler.",
+      docs: `${DOCS_BASE}#ai-1006`,
+      retryable: false,
+    },
+    AI1007: {
+      category: "Adapter",
+      message: "Agent suspension state invalid at rehydration",
+      suggestion:
+        "A resumed exchange carried stepState this agent cannot re-enter: the persisted shape is not the { agentId, messages, suspendedToolCallId, turnsUsed } record the runtime writes, or it names a different agent than the one the route now dispatches. The suspension was already claimed, so this failure is recorded as its terminal outcome and reaches the suspended route's error channel. Restore the agent binding the record names, or treat the parked work as lost and re-ask.",
+      docs: `${DOCS_BASE}#ai-1007`,
       retryable: false,
     },
     AI2001: {

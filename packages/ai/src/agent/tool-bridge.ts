@@ -1,11 +1,42 @@
 import { randomUUID } from "node:crypto";
-import { type CraftContext, type Principal } from "@routecraft/routecraft";
+import {
+  rcError,
+  type CraftContext,
+  type Principal,
+} from "@routecraft/routecraft";
 import { isBlockLoaderTool } from "../block/resolve.ts";
 import { toAiInputSchema } from "../llm/structured-output.ts";
-import { makeFnHandlerContext } from "../fn/handler-context.ts";
+import {
+  makeFnHandlerContext,
+  type FnSuspensionWiring,
+} from "../fn/handler-context.ts";
 import type { FnHandlerContext } from "../fn/types.ts";
+import {
+  anyAnswerSchema,
+  isSuspendError,
+  isSuspendSentinel,
+} from "./suspend.ts";
+import {
+  SUSPENDED_TOOL_PLACEHOLDER,
+  type AgentSuspendSignalRecord,
+} from "./suspension-state.ts";
 import type { AgentDispatchIdentity } from "./session.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
+
+/**
+ * The suspension channel between one agent dispatch and its tools: the
+ * exchange identity `ctx.suspend` / `ctx.suspension` are wired from, and
+ * the collector the bridge records raised signals into. The session reads
+ * the collector after each model call; a non-empty batch stops the loop
+ * and parks. Absent when the dispatch cannot park (no route-bound
+ * exchange), which turns `ctx.suspend` into a typed AI1006 refusal.
+ *
+ * @internal
+ */
+export interface AgentSuspensionBridge {
+  readonly wiring: FnSuspensionWiring;
+  readonly signals: AgentSuspendSignalRecord[];
+}
 
 /**
  * Convert a list of `ResolvedTool` entries (the output of
@@ -37,6 +68,7 @@ export async function buildVercelTools(
   abortSignal: AbortSignal,
   dispatchIdentity?: AgentDispatchIdentity,
   principal?: Principal,
+  suspensions?: AgentSuspensionBridge,
 ): Promise<Record<string, unknown>> {
   if (resolved.length === 0)
     return Object.create(null) as Record<string, unknown>;
@@ -54,6 +86,7 @@ export async function buildVercelTools(
       r.name,
       abortSignal,
       principal,
+      suspensions?.wiring,
     );
     // Block-loader synthetic tools emit `agent:block:loaded` /
     // `agent:block:error` events instead of the user-tool family so
@@ -105,7 +138,28 @@ export async function buildVercelTools(
 
         try {
           if (guard) await guard(input, callCtx);
-          const output = await handler(input, callCtx);
+          let output = await handler(input, callCtx);
+          if (isSuspendSentinel(output)) {
+            // ctx.suspend already refuses (AI1006) when the bridge has no
+            // suspension channel, so a sentinel arriving without one means
+            // it was minted outside the handler context. Same refusal.
+            if (!suspensions) {
+              throw rcError("AI1006", undefined, {
+                message: `Tool "${r.name}" returned a suspend sentinel, but this dispatch has no exchange to park. Durable suspension is only available inside an agent dispatch on a route-bound exchange.`,
+              });
+            }
+            suspensions.signals.push({
+              toolCallId,
+              toolName: r.name,
+              request: output.request,
+            });
+            // The recorded result is a neutral placeholder: the winner's is
+            // replaced by the real answer at resume, a loser's is rewritten
+            // to a retryable error before the park. The SDK still requires
+            // every tool call to carry a result, which is why the bridge
+            // answers instead of throwing.
+            output = SUSPENDED_TOOL_PLACEHOLDER;
+          }
           if (ctx && dispatchIdentity) {
             if (isLoader) {
               ctx.emit("route:agent:block:loaded", {
@@ -134,6 +188,36 @@ export async function buildVercelTools(
           }
           return output;
         } catch (err) {
+          // The throw form of the suspend signal, honoured as an escape
+          // hatch for handlers that cannot thread a return value out. Only
+          // inside a parkable dispatch: elsewhere it stays an ordinary
+          // error, which is the pre-durable behaviour.
+          if (isSuspendError(err) && suspensions) {
+            suspensions.signals.push({
+              toolCallId,
+              toolName: r.name,
+              request: {
+                expect: err.expect ?? anyAnswerSchema,
+                ...(err.ttl !== undefined ? { ttl: err.ttl } : {}),
+                ...(err.question !== undefined
+                  ? { question: err.question }
+                  : {}),
+                ...(err.reason !== undefined ? { reason: err.reason } : {}),
+              },
+            });
+            if (!isLoader && ctx && dispatchIdentity) {
+              ctx.emit("route:agent:tool:result", {
+                routeId: dispatchIdentity.routeId,
+                exchangeId: dispatchIdentity.exchangeId,
+                correlationId: dispatchIdentity.correlationId,
+                toolCallId,
+                toolName: r.name,
+                _snapshot: { output: SUSPENDED_TOOL_PLACEHOLDER },
+                duration: Date.now() - start,
+              });
+            }
+            return SUSPENDED_TOOL_PLACEHOLDER;
+          }
           if (ctx && dispatchIdentity) {
             if (isLoader) {
               ctx.emit("route:agent:block:error", {

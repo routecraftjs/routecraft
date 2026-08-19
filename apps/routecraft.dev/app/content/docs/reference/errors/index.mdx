@@ -443,6 +443,33 @@ A `skills:` ref in agent frontmatter did not resolve to a directory on disk:
 - Install the package the ref names; resolution reads `node_modules` only, with no network access at boot.
 - `npm:<pkg>/<subpath>` looks for `<root>/<subpath>` then `<root>/skills/<subpath>`; `npm:<pkg>` looks for `<root>/skills` then `<root>`. The error message lists the paths that were tried.
 
+## AI1005
+Agent run cancelled
+
+**Why it happens**  
+The dispatch's abort signal fired (a route stop, an elapsed `.timeout()`, or context shutdown) and the agent loop stopped cooperatively: between turns at the cheap checkpoint, or mid-turn when the signal reached the model call or a tool handler. The error's cause carries the turns completed and the token usage accumulated before the abort, so cost accounting and traces stay honest about work the cancellation discarded; a partial result never masquerades as a finished `AgentResult`.
+
+**Suggestion**  
+Cancellation is terminal: re-dispatch the work as a new exchange if it should run again. A run that parked at a suspension BEFORE the abort survives independently; a run whose park raced the abort is refused or denied with [RC5054](#rc-5054), so no stale resume link is left behind.
+
+## AI1006
+Agent suspension unavailable on this surface
+
+**Why it happens**  
+`ctx.suspend()` was called where no exchange can be durably parked: a proxied MCP tool guard, a `testFn` dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the moment of the call, before anything could be written, so there is never a half-created record.
+
+**Suggestion**  
+Dispatch the agent through a route: its exchange is then route-bound, the hosting `.to()` / `.enrich()` step carries a revivable suspend site, and `ctx.suspend()` parks. If this surface genuinely cannot park (an MCP proxy guard), drop the suspension from the handler; a guard's job is admission, not waiting.
+
+## AI1007
+Agent suspension state invalid at rehydration
+
+**Why it happens**  
+A resumed exchange carried `stepState` this agent cannot re-enter. Either the persisted value is not the `{ agentId, messages, suspendedToolCallId, turnsUsed }` record the runtime writes, the thread does not contain the suspended tool call the answer should land on, or the record names a different agent than the one the route now dispatches. That last case exists because a by-name agent's registered options are not covered by the continuation hash (only step definitions are), so the persisted `agentId` is the identity the record can pin.
+
+**Suggestion**  
+Restore the agent binding the record names, or treat the parked work as lost and re-ask with a fresh suspension. The suspension was already claimed when this fired, so the failure is recorded as its terminal outcome and the suspended route's `.error()` handler receives it.
+
 ## AI2001
 MCP tool output violated its declared schema
 
@@ -740,6 +767,15 @@ The `ops` config does not describe a surface the plugin can serve. The common ca
 For a bound route, check the id against the route's `.id(...)`; the binding is by id, not by variable name. For a duplicate, rename one indicator: names are the keys of the health report, so a duplicate would shadow one dependency with another. For a hand-rolled handle, declare it with `defineIndicator({ name })`: an object of the same shape has no ledger to report into, so every push through it would be silently dropped, and a dependency nobody is watching looks healthy.
 
 Pushing through a handle that is merely unregistered is not this error. It is deliberately inert, so health instrumentation can never kill the code it instruments.
+
+## RC5054
+Suspension cancelled by run abort
+
+**Why it happens**  
+The run raised a durable suspension while it was being cancelled: a route stop or an elapsed `.timeout()` aborted the run in the narrow window around the park. If the abort won the race, the exchange was never parked; if the park won, the just-created suspension was immediately denied so its resume link is dead, and a token presented later reads [RC5050](#rc-5050). Either way the caller sees this error instead of a resumable acknowledgment, which keeps the two stories consistent: a run reported as cancelled must not be resumable later.
+
+**Suggestion**  
+Nothing needs repair; the exchange's work simply did not park. Re-dispatch it as a new exchange if it should run again. Note the boundary: this is about the cancellation race only. A parked exchange whose process merely stops or restarts SURVIVES it; `context.stop()` never denies parked work, because surviving the stop is the store's entire purpose.
 
 ## RC9901
 Unknown error
