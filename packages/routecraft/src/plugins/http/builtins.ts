@@ -35,10 +35,9 @@ export interface BuiltinsOptions {
  * registered at the same path takes precedence.
  *
  * The plugin decides which of these to serve based on its `builtins` config;
- * a path served by the auth-aware layer (e.g. `/ready` with
- * `details: "when-authenticated"`, `/openapi.json` with
- * `access: "authenticated"`) is omitted from this handler so the dispatcher
- * runs the auth middleware first.
+ * a path served by the auth-aware or gated layer (`/ready` or
+ * `/openapi.json` with `requireAuth: true` on a walled mount) is omitted
+ * from this handler so the dispatcher runs the auth middleware first.
  *
  * Returns `null` for any other request so the dispatcher can answer 404.
  */
@@ -91,9 +90,9 @@ export function createOpenApiGatedHandler(
 
 /**
  * Build the `/ready` response when the path is served by the dispatcher's
- * auth-aware layer (`details: "when-authenticated"`). Always returns 200 so
- * k8s readiness probes keep working without a credential; the body varies
- * with the auth result. Spring Boot Actuator calls this same pattern
+ * auth-aware layer (`requireAuth: true` on a walled mount). Always returns
+ * 200 so k8s readiness probes keep working without a credential; the body
+ * varies with the auth result. Spring Boot Actuator calls this same pattern
  * `show-details: when-authorized`.
  */
 export function buildReadyResponse(

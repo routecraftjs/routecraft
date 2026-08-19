@@ -370,8 +370,12 @@ export interface McpPluginOptions {
    * Authentication for the HTTP transport. When set, every request to the
    * configured MCP `path` must include a valid `Authorization: Bearer
    * <token>` header. When omitted, the named server's validator (if any) is
-   * inherited. `false` makes the MCP surface public: credentials are never
-   * inspected even when the server declares a validator. Ignored for stdio.
+   * inherited. `false` removes the wall: this surface never demands
+   * credentials, requires no scopes, and issues no challenge, but the
+   * server's validator stays reachable, so a valid token still attaches a
+   * principal to tool calls (which is how a tool's `.authorize()` admits on
+   * a public mount) and an invalid or expired one is treated as absent.
+   * Ignored for stdio.
    *
    * @example
    * ```ts

@@ -761,10 +761,10 @@ Add `suspension: {}` to `defineConfig` to take the defaults, or `suspension: { s
 Ops plugin misconfigured
 
 **Why it happens**  
-The `ops` config does not describe a surface the plugin can serve. The common causes, each with its own message: an indicator bound to a `route` id no route declares (the message lists the known ids), two indicators sharing a name, a value in `ops.indicators` that `defineIndicator()` did not produce, or an invalid `health.details` value.
+The `ops` config does not describe a surface the plugin can serve. The common causes, each with its own message: an indicator bound to a `route` id no route declares (the message lists the known ids), two indicators sharing a name, a value in `ops.indicators` that `defineIndicator()` did not produce, an invalid `health.details` value, `health.details: 'when-authenticated'` written explicitly with no validator in scope (no `ops.auth` and no `servers.<name>.auth`), or `ops.auth: false`, which is refused as a no-op because the health surface never walls.
 
 **Suggestion**  
-For a bound route, check the id against the route's `.id(...)`; the binding is by id, not by variable name. For a duplicate, rename one indicator: names are the keys of the health report, so a duplicate would shadow one dependency with another. For a hand-rolled handle, declare it with `defineIndicator({ name })`: an object of the same shape has no ledger to report into, so every push through it would be silently dropped, and a dependency nobody is watching looks healthy.
+For a bound route, check the id against the route's `.id(...)`; the binding is by id, not by variable name. For a duplicate, rename one indicator: names are the keys of the health report, so a duplicate would shadow one dependency with another. For a hand-rolled handle, declare it with `defineIndicator({ name })`: an object of the same shape has no ledger to report into, so every push through it would be silently dropped, and a dependency nobody is watching looks healthy. For the explicit gate with nothing to gate on, set `ops.auth` (or `servers.<name>.auth`), or say what you mean with `health.details: 'always'` or `'never'`. For `ops.auth: false`, remove it; if the intent was serving details to every caller, that is `health.details: 'always'`.
 
 Pushing through a handle that is merely unregistered is not this error. It is deliberately inert, so health instrumentation can never kill the code it instruments.
 

@@ -43,9 +43,9 @@ export interface GatedBuiltins {
 /**
  * Built-ins that always return a response (200) but vary the body based on
  * whether the request was authenticated. Used by `/ready` under
- * `details: "when-authenticated"`: anonymous callers get a minimal body,
- * authenticated callers get the full one. The endpoint never returns 401
- * so k8s readiness probes keep working without a credential.
+ * `requireAuth: true` on a walled mount: anonymous callers get a minimal
+ * body, authenticated callers get the full one. The endpoint never returns
+ * 401 so k8s readiness probes keep working without a credential.
  */
 export interface AuthAwareBuiltins {
   paths: ReadonlySet<string>;
@@ -70,7 +70,7 @@ export interface DispatcherOptions {
   builtins: BuiltinHandler;
   /** Optional gated built-ins (e.g. /openapi.json under `access: "authenticated"`). */
   gatedBuiltins?: GatedBuiltins;
-  /** Optional auth-aware built-ins (e.g. /ready under `details: "when-authenticated"`). */
+  /** Optional auth-aware built-ins (/ready under `requireAuth: true`). */
   authAwareBuiltins?: AuthAwareBuiltins;
   onRequestCompleted?: RequestCompletedHandler;
   /**
@@ -144,10 +144,10 @@ export function createDispatcher(
     //         deployments). Always-200.
     //      b) Auth-aware: run auth without forcing 401. The handler returns
     //         a richer response when admitted, a minimal one otherwise.
-    //         Used by /ready under `details: "when-authenticated"` so
-    //         readiness probes keep working without a credential.
+    //         Used by /ready under `requireAuth: true` so readiness probes
+    //         keep working without a credential.
     //      c) Gated: require admission, 401 otherwise. Used by
-    //         /openapi.json under `access: "authenticated"`.
+    //         /openapi.json under `requireAuth: true`.
     if (!methodMatch && pathMatchMethods.length === 0) {
       // Public built-ins (and plain 404s) bypass auth entirely: probes and
       // unmatched paths must never pay validator work or emit auth events.

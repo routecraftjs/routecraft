@@ -17,6 +17,7 @@ import type {
 } from "@modelcontextprotocol/server";
 import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 import type {
+  HttpMountAuth,
   HttpMountContext,
   Principal,
   ValidatorAuthOptions,
@@ -511,7 +512,13 @@ export class McpServer {
         }
 
         const auth = await mountContext.authenticate();
-        const refusal = this.refuseAuth(auth, ingress, path, corsHeaders);
+        const refusal = this.refuseAuth(
+          auth,
+          mountContext.auth,
+          ingress,
+          path,
+          corsHeaders,
+        );
         if (refusal) return refusal;
 
         const principal = auth?.kind === "admit" ? auth.principal : undefined;
@@ -609,11 +616,25 @@ export class McpServer {
    */
   private refuseAuth(
     auth: Awaited<ReturnType<HttpMountContext["authenticate"]>>,
+    mountAuth: HttpMountAuth,
     ingress: WebIngress,
     path: string,
     corsHeaders: Record<string, string>,
   ): Response | null {
     if (auth === undefined) return null;
+    // No wall: a rejected credential is served anonymously, never worse than
+    // presenting none. Infrastructure failures still fall through to 500,
+    // since a broken JWKS fetch is a server-side outage either way.
+    if (mountAuth.optedOut) {
+      if (auth.kind === "absent") return null;
+      if (auth.kind === "reject" && auth.reason !== "infrastructure") {
+        this.context.logger.debug(
+          { reason: auth.reason, scheme: "bearer", source: "mcp" },
+          "Auth rejected on an unwalled mount; serving anonymously",
+        );
+        return null;
+      }
+    }
     if (auth.kind === "reject") {
       const reason = auth.reason;
       if (reason === "unsupported_scheme") {
