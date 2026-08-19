@@ -145,15 +145,75 @@ describe("named server ingress", () => {
   });
 
   /**
-   * @case A named listener has no mounted surface
-   * @preconditions An empty ingress registry
-   * @expectedResult Validation refuses a useless listener
+   * @case A declared server nothing mounted on names the mounts that did land
+   * @preconditions Two servers declared, http mounts on one, the other is left empty
+   * @expectedResult Startup refuses with RC5003 whose message names the empty
+   *   server AND the surface that mounted elsewhere, so a reader can see the
+   *   intended surface is missing rather than guessing at their own config
    */
-  test("rejects mountless servers", async () => {
-    const context = (await testContext().build()).ctx;
-    expect(() => new HttpMountRegistry("empty", context).validate()).toThrow(
-      /no mounts/,
-    );
+  test("rejects a mountless server and names what did mount", async () => {
+    const t = await testContext()
+      .with({
+        servers: { public: { port: 0 }, mcp: { port: 0 } },
+        http: { server: "public" },
+      })
+      .routes([
+        craft()
+          .id("http-holder")
+          .from(http({ path: "/api" }))
+          .to(noop()),
+      ])
+      .build();
+
+    let caught: unknown;
+    try {
+      await t.ctx.start();
+    } catch (error) {
+      caught = error;
+    } finally {
+      await t.stop();
+    }
+
+    expect((caught as { rc?: string }).rc).toBe("RC5003");
+    const message = (caught as Error).message;
+    expect(message).toContain("servers.mcp: server has no mounts");
+    expect(message).toContain("http -> servers.public");
+    expect(message).toContain("predates named servers");
+  });
+
+  /**
+   * @case Several empty servers are reported together
+   * @preconditions Three servers declared, only one carries a mount
+   * @expectedResult One RC5003 names both empty servers, so an app does not
+   *   learn about them one boot at a time
+   */
+  test("reports every mountless server at once", async () => {
+    const t = await testContext()
+      .with({
+        servers: { public: { port: 0 }, mcp: { port: 0 }, ops: { port: 0 } },
+        http: { server: "public" },
+      })
+      .routes([
+        craft()
+          .id("http-holder")
+          .from(http({ path: "/api" }))
+          .to(noop()),
+      ])
+      .build();
+
+    let caught: unknown;
+    try {
+      await t.ctx.start();
+    } catch (error) {
+      caught = error;
+    } finally {
+      await t.stop();
+    }
+
+    const message = (caught as Error).message;
+    expect(message).toContain('"mcp"');
+    expect(message).toContain('"ops"');
+    expect(message).toContain("http -> servers.public");
   });
 
   /**

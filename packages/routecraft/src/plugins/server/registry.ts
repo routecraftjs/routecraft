@@ -205,12 +205,12 @@ export class HttpMountRegistry implements WebIngress {
     this.boundAddress = { host, port };
   }
 
+  /** Mount ids registered on this server, in registration order. */
+  mountIds(): readonly string[] {
+    return [...this.mounts.keys()];
+  }
+
   validate(): void {
-    if (this.mounts.size === 0) {
-      throw rcError("RC5003", undefined, {
-        message: `servers.${this.serverName}: server has no mounts. Remove it or bind a surface to it.`,
-      });
-    }
     const evaluated = [...this.mounts.values()].map((mount) => ({
       mount,
       claims: [...mount.claims()],

@@ -231,7 +231,7 @@ const releases = [...keep]
 const snapshotPath = join(changesetDir, "snapshot-canary.md");
 writeFileSync(
   snapshotPath,
-  `---\n${releases.join("\n")}\n---\n\nCanary snapshot of the packages changed in this push.\n`,
+  `---\n${releases.join("\n")}\n---\n\nCanary snapshot of the packages this push changed, plus any the registry was behind on.\n`,
 );
 console.log(readFileSync(snapshotPath, "utf8"));
 setOutput("publish=true");
