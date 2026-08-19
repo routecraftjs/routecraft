@@ -6,18 +6,22 @@
  * Scopes the canary snapshot to the packages the push actually changed,
  * while keeping the version line aimed at the next stable release:
  *
- * 1. Diffs `<base-sha>..HEAD` to find the changed public packages. No
- *    public package changed means no canary (`publish=false`).
+ * 1. Diffs `<base-sha>..HEAD` to find the changed public packages.
  * 2. Collects the highest pending bump per package from the changesets on
  *    main, then deletes them: they belong to the next stable release, and
  *    `changeset version --snapshot` would otherwise consume them and pull
  *    every package they mention into every canary.
  * 3. Expands `fixed` groups from .changeset/config.json so the core train
  *    moves together whenever any member changed.
- * 4. Folds in any public package whose current version is absent from the
- *    npm registry: `changeset publish` publishes every locally unpublished
- *    version, snapshot-bumped or not, so a never-released stable version
- *    would otherwise leak onto npm from the canary job.
+ * 4. Folds in any public package the registry is behind on: one whose
+ *    current version is absent (`changeset publish` publishes every locally
+ *    unpublished version, snapshot-bumped or not, so a never-released stable
+ *    version would otherwise leak onto npm from the canary job), and one
+ *    whose newest canary was cut from a commit that predates a change to it.
+ *    The second rule is what makes a missed canary self-healing: scoping to
+ *    a single push means a failed canary job drops that push's packages for
+ *    good, since no later push has them in its diff range.
+ *    Nothing kept after all four steps means no canary (`publish=false`).
  * 5. Writes .changeset/snapshot-canary.md giving each kept package its
  *    pending bump (patch when none), so canaries keep previewing the next
  *    stable version (e.g. 0.6.0-canary-<datetime> while a minor is
@@ -88,12 +92,6 @@ const keep = new Set(
     .map(([name]) => name),
 );
 
-if (keep.size === 0) {
-  console.log("No public package changed; skipping canary.");
-  setOutput("publish=false");
-  process.exit(0);
-}
-
 // 2. Record the highest pending bump per package, then drop the pending
 // changesets so only the synthetic one below drives the snapshot.
 const pendingBump = new Map();
@@ -132,35 +130,99 @@ function expandFixedGroups() {
 }
 expandFixedGroups();
 
-// 4. Fold in public packages whose current version was never published.
-for (const [name, pkg] of packages) {
-  if (keep.has(name)) continue;
+/**
+ * Fetch JSON from the npm registry. A 404 resolves to null so a package that
+ * has never been published reads as absent rather than an error.
+ */
+async function registryJson(path, accept) {
   let res;
   try {
-    res = await fetch(
-      `https://registry.npmjs.org/${encodeURIComponent(name)}`,
-      {
-        headers: { accept: "application/vnd.npm.install-v1+json" },
-        // Fail loudly instead of letting a stalled connection hang the job.
-        signal: AbortSignal.timeout(10_000),
-      },
-    );
+    res = await fetch(`https://registry.npmjs.org/${path}`, {
+      headers: accept ? { accept } : {},
+      // Fail loudly instead of letting a stalled connection hang the job.
+      signal: AbortSignal.timeout(10_000),
+    });
   } catch (err) {
-    throw new Error(`npm registry lookup failed for ${name}`, { cause: err });
+    throw new Error(`npm registry lookup failed for ${path}`, { cause: err });
   }
-  if (res.status !== 404) {
-    if (!res.ok) {
-      throw new Error(`npm registry returned ${res.status} for ${name}`);
-    }
-    const meta = await res.json();
-    if (meta.versions?.[pkg.version]) continue;
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`npm registry returned ${res.status} for ${path}`);
   }
-  console.log(
-    `${name}@${pkg.version} is not on npm; folding it into the canary.`,
+  return await res.json();
+}
+
+/**
+ * The commit the package's newest canary was built from, or null when that
+ * cannot be established. npm records `gitHead` on publish, so the published
+ * canary carries its own base and no state has to be kept on our side.
+ */
+async function publishedCanaryBase(name, meta) {
+  const version = meta["dist-tags"]?.canary;
+  if (!version) return null;
+  const manifest = await registryJson(
+    `${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
   );
-  keep.add(name);
+  const sha = manifest?.gitHead;
+  if (typeof sha !== "string" || !sha) return null;
+  // A shallow or rewritten history cannot resolve it; treat as unknown.
+  try {
+    execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`], {
+      cwd: rootDir,
+      stdio: "ignore",
+    });
+  } catch {
+    return null;
+  }
+  return sha;
+}
+
+function changedSince(sha, dir) {
+  const out = execFileSync(
+    "git",
+    ["diff", "--name-only", sha, "HEAD", "--", `packages/${dir}/`],
+    { cwd: rootDir, encoding: "utf8" },
+  );
+  return out.trim().length > 0;
+}
+
+// 4. Fold in public packages the registry is behind on: never-published
+// versions, and packages changed since their newest canary was cut.
+for (const [name, pkg] of packages) {
+  if (keep.has(name)) continue;
+  const meta = await registryJson(
+    encodeURIComponent(name),
+    "application/vnd.npm.install-v1+json",
+  );
+  if (!meta?.versions?.[pkg.version]) {
+    console.log(
+      `${name}@${pkg.version} is not on npm; folding it into the canary.`,
+    );
+    keep.add(name);
+    continue;
+  }
+  const canaryBase = await publishedCanaryBase(name, meta);
+  if (canaryBase === null) {
+    console.log(
+      `${name} has no resolvable canary base; folding it into the canary.`,
+    );
+    keep.add(name);
+    continue;
+  }
+  if (changedSince(canaryBase, pkg.dir)) {
+    console.log(
+      `${name} changed since its canary at ${canaryBase.slice(0, 7)}; folding it into the canary.`,
+    );
+    keep.add(name);
+  }
 }
 expandFixedGroups();
+
+if (keep.size === 0) {
+  console.log("Registry is level with main; skipping canary.");
+  setOutput("publish=false");
+  process.exit(0);
+}
 
 // 5. Write the synthetic changeset, carrying the pending bump intent.
 const releases = [...keep]
