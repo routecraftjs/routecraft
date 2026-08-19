@@ -44,7 +44,8 @@ const CLAIMS: readonly PathClaim[] = [
 interface Runtime {
   state: HealthState;
   unsubscribes: (() => void)[];
-  serverAuthConfigured: boolean;
+  /** The mount's effective validator exists (its own auth, or the server's). */
+  authConfigured: boolean;
   unmount?: () => void;
 }
 
@@ -70,18 +71,20 @@ interface Runtime {
  *   orchestrator reads as not-ready.
  * - `teardown(ctx)`: unmount, unsubscribe, and release the indicator bindings.
  *
- * The mount leaves `auth` unset so it inherits the server's validator, which
- * gates nothing on its own: the ingress never authenticates, and this surface
- * calls `authenticate()` only to decide whether to serve `details`. A probe
- * carrying no credential still gets every status, which is the only way an
- * orchestrator can use it, while an operator holding a token also gets the
- * diagnostics.
+ * The health surface never walls, whatever `auth` says: the ingress never
+ * authenticates on its own, and this surface calls `authenticate()` only to
+ * decide whether to serve `details`. A probe carrying no credential still
+ * gets every status, which is the only way an orchestrator can use it, while
+ * an operator holding a token the effective validator (the mount's own
+ * `auth`, else the server's) admits also gets the diagnostics.
  */
 export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
   validate(options);
 
   const serverName = options.server ?? "default";
   const detailsExposure = options.health?.details ?? "when-authenticated";
+  const detailsExplicit = options.health?.details !== undefined;
+  const mountAuthOption = options.auth === false ? undefined : options.auth;
   const indicators: readonly Indicator[] = options.indicators ?? [];
 
   const runtimes = new WeakMap<CraftContext, Runtime>();
@@ -95,6 +98,21 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       // plugin's teardown, so a binding or subscription installed before a
       // later throw would outlive the dead context.
       const ingress = requireWebIngress(ctx, serverName);
+      const mountAuth = ingress.resolveMountAuth(mountAuthOption);
+
+      // Written explicitly, the gate is a statement of intent, and intent
+      // with nothing to gate on is a misconfiguration to refuse, not to
+      // reinterpret in either direction. Only the unwritten default may
+      // collapse (to `never`, in the handler).
+      if (
+        detailsExplicit &&
+        detailsExposure === "when-authenticated" &&
+        !mountAuth.configured
+      ) {
+        throw rcError("RC5053", undefined, {
+          message: `ops.health.details is "when-authenticated" but no validator is in scope: the ops mount declares no auth and servers.${serverName} has none. Set ops.auth (or servers.${serverName}.auth) to gate details, "always" to serve them to every caller, or "never" to withhold them.`,
+        });
+      }
 
       // Refused here rather than at mountHttp: by the time the mount is
       // registered this apply() has already replaced the published ledger and
@@ -114,7 +132,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       const runtime: Runtime = {
         state,
         unsubscribes: [],
-        serverAuthConfigured: ingress.serverAuthConfigured,
+        authConfigured: mountAuth.configured,
       };
       runtimes.set(ctx, runtime);
       ctx.setStore(OPS_HEALTH_STATE, state);
@@ -216,12 +234,12 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       const handler = createHealthHandler({
         state,
         details: detailsExposure,
-        serverAuthConfigured: ingress.serverAuthConfigured,
         uptime: () => process.uptime(),
       });
 
       runtime.unmount = ingress.mountHttp({
         id: "ops",
+        ...(mountAuthOption !== undefined ? { auth: mountAuthOption } : {}),
         claims: () => CLAIMS,
         handler,
       });
@@ -255,13 +273,14 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         runtime.state.declareRoute(route.definition.id);
       }
 
-      if (
-        detailsExposure === "when-authenticated" &&
-        !runtime.serverAuthConfigured
-      ) {
+      // The explicit case was refused at apply(), so reaching here with the
+      // gate mode and no validator means the unwritten default collapsed to
+      // `never`. Without this line the collapse would be invisible to a
+      // reader who does not yet know details exist to miss.
+      if (detailsExposure === "when-authenticated" && !runtime.authConfigured) {
         ctx.logger.warn(
           { server: serverName, plugin: "ops" },
-          `ops.health.details is "when-authenticated" but servers.${serverName} has no validator, so per-component details are served to every caller. Set an auth validator on the server, or set health.details to "always" to say so deliberately, or "never" to withhold.`,
+          `ops.health serves statuses only: no validator is in scope, so the default "when-authenticated" gate withholds per-component details from every caller. Set ops.auth (or servers.${serverName}.auth) to gate them, or health.details: "always" to serve them to everyone.`,
         );
       }
 
@@ -303,6 +322,12 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
 }
 
 function validate(options: OpsPluginOptions): void {
+  if (options.auth === false) {
+    throw rcError("RC5053", undefined, {
+      message:
+        'ops.auth: false is a no-op: the health surface never walls. Remove it, or if you meant to serve details to every caller, set health.details: "always".',
+    });
+  }
   const exposure = options.health?.details;
   if (
     exposure !== undefined &&

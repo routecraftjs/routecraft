@@ -21,12 +21,6 @@ export interface HealthHandlerOptions {
   state: HealthLedger;
   /** Exposure of per-component `details`. */
   details: HealthDetailsExposure;
-  /**
-   * Whether the server carrying this mount has a credential validator. With
-   * none, `when-authenticated` has nothing to authenticate against and
-   * collapses to `always`.
-   */
-  serverAuthConfigured: boolean;
   /** Process uptime in seconds, injectable for tests. */
   uptime: () => number;
 }
@@ -35,20 +29,22 @@ export interface HealthHandlerOptions {
  * Whether `details` maps are served on this request.
  *
  * `when-authenticated` resolves the caller's credential through the mount's
- * effective validator. With no validator on the server there is nothing to
- * authenticate against, so it collapses to `always`, mirroring how the http
- * plugin collapses `/ready`'s `requireAuth`: a gate with nothing behind it
- * does not silently withhold. Verification runs only in that one mode, so a
- * probe against an open surface never pays for it.
+ * effective validator, read off the mount context's resolved facts so this
+ * gate and `authenticate()` can never disagree about what "has a validator"
+ * means. With no validator in scope it fails closed: writing the mode
+ * explicitly with nothing to gate on is refused at boot by the plugin, so
+ * the unauthenticated-serving path here is only ever the unwritten default,
+ * and a default must not leak app-supplied diagnostics to an anonymous
+ * caller. Verification runs only in that one mode, so a probe against an
+ * open surface never pays for it.
  */
 async function servesDetails(
   exposure: HealthDetailsExposure,
-  serverAuthConfigured: boolean,
   context: HttpMountContext,
 ): Promise<boolean> {
   if (exposure === "never") return false;
   if (exposure === "always") return true;
-  if (!serverAuthConfigured) return true;
+  if (!context.auth.configured) return false;
   const result = await context.authenticate();
   return result?.kind === "admit";
 }
@@ -158,7 +154,7 @@ function resolveComponent(
 export function createHealthHandler(
   options: HealthHandlerOptions,
 ): (req: Request, context: HttpMountContext) => Promise<Response> {
-  const { state, details, serverAuthConfigured, uptime } = options;
+  const { state, details, uptime } = options;
 
   return async function handle(
     req: Request,
@@ -190,11 +186,7 @@ export function createHealthHandler(
     }
 
     if (pathname === "/health" || pathname === "/health/ready") {
-      const withDetails = await servesDetails(
-        details,
-        serverAuthConfigured,
-        context,
-      );
+      const withDetails = await servesDetails(details, context);
       const report = state.report(
         pathname === "/health/ready" ? "readiness" : "all",
       );
@@ -209,11 +201,7 @@ export function createHealthHandler(
     const component = resolveComponent(state, pathname);
     if (!component)
       return jsonResponse({ error: "not found" }, { status: 404 });
-    const withDetails = await servesDetails(
-      details,
-      serverAuthConfigured,
-      context,
-    );
+    const withDetails = await servesDetails(details, context);
     return jsonResponse(project(component, withDetails), {
       status: component.status === "down" ? 503 : 200,
     });

@@ -255,34 +255,95 @@ describe("named server ingress", () => {
   });
 
   /**
-   * @case A mount explicitly disables inherited server authentication
-   * @preconditions A secured server and a mount configured with auth false
-   * @expectedResult The public mount runs without invoking the server verifier
+   * @case auth false removes the wall but keeps the inherited validator reachable
+   * @preconditions A secured server and a mount configured with auth false; the handler pulls authenticate() itself
+   * @expectedResult The resolved facts say configured, opted out, not walled; the pull verifies through the server validator and admits. Nothing verifies unless the mount pulls, so the surface is public while a route's .authorize() can still resolve identity
    */
-  test("supports auth false as a mount override", async () => {
+  test("keeps the inherited validator reachable on an opted-out mount", async () => {
     const context = (await testContext().build()).ctx;
     let calls = 0;
     const ingress = new HttpMountRegistry("secure", context, {
       validator: () => {
         calls++;
-        return { kind: "custom", scheme: "bearer", subject: "unexpected" };
+        return { kind: "custom", scheme: "bearer", subject: "pulled" };
       },
     });
     ingress.mountHttp({
       id: "public",
       auth: false,
       claims: () => [{ kind: "exact", path: "/public" }],
-      handler: async (_request, mount) =>
-        Response.json({
-          authenticated: (await mount.authenticate()) !== undefined,
-        }),
+      handler: async (request, mount) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("pull") !== "yes") {
+          return Response.json({ facts: mount.auth });
+        }
+        const result = await mount.authenticate();
+        return Response.json({
+          facts: mount.auth,
+          subject: result?.kind === "admit" ? result.principal.subject : null,
+        });
+      },
     });
     ingress.validate();
 
-    expect(
-      await (await ingress.dispatch(new Request("http://local/public"))).json(),
-    ).toEqual({ authenticated: false });
+    const unpulled = await (
+      await ingress.dispatch(new Request("http://local/public"))
+    ).json();
+    expect(unpulled).toEqual({
+      facts: { configured: true, own: false, optedOut: true, walled: false },
+    });
     expect(calls).toBe(0);
+
+    const pulled = await (
+      await ingress.dispatch(
+        new Request("http://local/public?pull=yes", {
+          headers: { authorization: "Bearer anything" },
+        }),
+      )
+    ).json();
+    expect(pulled).toMatchObject({ subject: "pulled" });
+    expect(calls).toBe(1);
+  });
+
+  /**
+   * @case The inherited-authentication log stays silent for opted-out mounts
+   * @preconditions A secured server carrying one inheriting mount and one auth false mount
+   * @expectedResult The info line names only the inheriting mount. An opted-out mount also resolves the server validator, but announcing inheritance for a surface that opted out of walling reads as the opposite of what was configured
+   */
+  test("logs inherited authentication only for walled mounts", async () => {
+    const context = (await testContext().build()).ctx;
+    const inherited: string[] = [];
+    const original = context.logger.info.bind(context.logger);
+    context.logger.info = ((first: unknown, second?: unknown) => {
+      if (
+        typeof second === "string" &&
+        second.includes("inherited authentication")
+      ) {
+        inherited.push((first as { mount: string }).mount);
+      }
+      return original(first as never, second as never);
+    }) as typeof context.logger.info;
+    const ingress = new HttpMountRegistry("secure", context, {
+      validator: () => ({
+        kind: "custom",
+        scheme: "bearer",
+        subject: "anyone",
+      }),
+    });
+    ingress.mountHttp({
+      id: "walled",
+      claims: () => [{ kind: "exact", path: "/walled" }],
+      handler: async () => Response.json({}),
+    });
+    ingress.mountHttp({
+      id: "public",
+      auth: false,
+      claims: () => [{ kind: "exact", path: "/public" }],
+      handler: async () => Response.json({}),
+    });
+    ingress.validate();
+
+    expect(inherited).toEqual(["walled"]);
   });
 
   /**

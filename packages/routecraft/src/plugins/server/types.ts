@@ -53,9 +53,12 @@ export interface HttpMount {
    */
   readonly claims: () => readonly PathClaim[];
   /**
-   * Mount-level auth override. Unset inherits the server's validator;
-   * `false` opts out explicitly so an open surface on an authenticated
-   * server is always a visible config decision.
+   * Mount-level auth override. Unset inherits the server's validator as this
+   * mount's effective auth. A config of its own replaces the server's.
+   * `false` removes the wall while keeping the inherited validator reachable
+   * for pull-based verification (a route's `.authorize()`), so an open
+   * surface on an authenticated server is a visible config decision that
+   * never strands routes needing identity.
    */
   readonly auth?: HttpAuth | false;
   /**
@@ -69,6 +72,24 @@ export interface HttpMount {
     request: Request,
     context: HttpMountContext,
   ) => Response | Promise<Response>;
+}
+
+/**
+ * Resolved auth facts for a mount: which validator is effective and whether
+ * the author asked for a wall. Facts, not policy: the registry computes them
+ * in one place so no surface re-derives the rule, and each surface decides
+ * for itself whether to honour `walled` (http and mcp do; ops never walls its
+ * health paths).
+ */
+export interface HttpMountAuth {
+  /** An effective validator exists (the mount's own, or inherited). */
+  readonly configured: boolean;
+  /** The mount declared its own validator rather than inheriting. */
+  readonly own: boolean;
+  /** The mount said `auth: false`: no wall, inherited validator reachable. */
+  readonly optedOut: boolean;
+  /** `configured && !optedOut`. The author asked for a wall. */
+  readonly walled: boolean;
 }
 
 /**
@@ -95,11 +116,19 @@ export interface HttpMountContext {
    */
   readonly authenticate: () => Promise<AuthResult | undefined>;
   readonly authPolicy: HttpMountAuthPolicy | undefined;
+  /** Resolved auth facts for this mount. */
+  readonly auth: HttpMountAuth;
 }
 
 export interface WebIngress {
   readonly serverName: string;
-  readonly serverAuthConfigured: boolean;
+  /**
+   * Resolve the auth facts a mount option would get on this server. Pure in
+   * the option and the server's own validator, so a surface can consult it
+   * before or after mounting (bind-time refusals, startup warnings) and the
+   * request-time `HttpMountContext.auth` is guaranteed to agree.
+   */
+  resolveMountAuth(auth: HttpMount["auth"]): HttpMountAuth;
   /**
    * Whether a mount with this id is registered on the same server.
    *

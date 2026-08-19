@@ -613,6 +613,22 @@ export class McpServer {
     corsHeaders: Record<string, string>,
   ): Response | null {
     if (auth === undefined) return null;
+    // `auth: false` removed the wall, not the validator: the inherited one
+    // still resolves so a valid token attaches a principal. A refusal must
+    // then admit anonymously, because on a surface with no wall a credential
+    // can never make the caller worse off than presenting nothing; anything
+    // else is a wall for token-holders only. Infrastructure failures fall
+    // through: a broken JWKS fetch is a server-side outage either way.
+    if (this.options.auth === false) {
+      if (auth.kind === "absent") return null;
+      if (auth.kind === "reject" && auth.reason !== "infrastructure") {
+        this.context.logger.debug(
+          { reason: auth.reason, scheme: "bearer", source: "mcp" },
+          "Auth rejected on an unwalled mount; serving anonymously",
+        );
+        return null;
+      }
+    }
     if (auth.kind === "reject") {
       const reason = auth.reason;
       if (reason === "unsupported_scheme") {

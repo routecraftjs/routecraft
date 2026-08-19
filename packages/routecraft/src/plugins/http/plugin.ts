@@ -37,6 +37,7 @@ const DEFAULT_MAX_BODY_SIZE = 10 * 1024 * 1024;
 interface ResolvedMount {
   readonly name: string;
   readonly path: string;
+  readonly server: string;
   readonly auth: HttpAuth | false | undefined;
 }
 
@@ -50,19 +51,18 @@ interface ResolvedMount {
  *
  * The mount is the authentication wall: a mount with an effective validator
  * (its own `auth`, or the server's) requires a valid credential for every
- * route; `auth: false` is a public surface whose routes never see
- * credentials, except routes that declare `.authorize()`, which pull
- * verification through the server validator.
+ * route; `auth: false` removes the wall while keeping the inherited validator
+ * reachable, so routes never see credentials except those that declare
+ * `.authorize()`, which pull verification through it.
  *
  * Lifecycle:
  *   - `apply(ctx)`: validate options, publish the mount table on the context
- *     store, and mount each dispatcher on the selected named server.
+ *     store, and mount each dispatcher on its mount's named server.
  *   - `teardown(ctx)`: unmount the dispatchers and clear the registries.
  */
 export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
   const mountsResolved = validate(options);
 
-  const serverName = options.server ?? "default";
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
   const perRequestEnabled = options.events?.perRequest ?? true;
 
@@ -96,27 +96,30 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
     });
   }
 
-  // Built-ins (/health, /ready, /openapi.json) report routes across EVERY
-  // mount but serve only from the "default" mount when it owns the "/"
-  // catch-all; a mounts config without one has no root to serve them from.
-  const allRoutes: HttpRouteView = {
+  // Built-ins (/health, /ready, /openapi.json) serve only from the "default"
+  // mount when it owns the "/" catch-all, and report routes across every
+  // mount ON THAT MOUNT'S SERVER only. Aggregating across servers would
+  // publish an internal listener's route inventory and schemas through the
+  // public listener's OpenAPI document.
+  const routesOnServer = (server: string): HttpRouteView => ({
     get size() {
       let total = 0;
-      for (const runtime of mountRuntimes.values()) {
-        total += runtime.registry.size;
+      for (const mount of mountsResolved) {
+        if (mount.server !== server) continue;
+        total += mountRuntimes.get(mount.name)!.registry.size;
       }
       return total;
     },
     *values() {
-      for (const runtime of mountRuntimes.values()) {
-        yield* runtime.registry.values();
+      for (const mount of mountsResolved) {
+        if (mount.server !== server) continue;
+        yield* mountRuntimes.get(mount.name)!.registry.values();
       }
     },
-  };
+  });
 
   return {
     async apply(ctx: CraftContext) {
-      const ingress = requireWebIngress(ctx, serverName);
       ctx.setStore(HTTP_PLUGIN_REGISTERED, true);
       ctx.setStore(HTTP_MOUNTS, mountRuntimes);
 
@@ -126,6 +129,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           : undefined;
 
       for (const mount of mountsResolved) {
+        const ingress = requireWebIngress(ctx, mount.server);
         const runtime = mountRuntimes.get(mount.name)!;
         const mountId =
           mount.name === "default" ? "http" : `http:${mount.name}`;
@@ -157,16 +161,15 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           });
         };
 
-        // The wall: an effective validator exists and the mount did not opt
-        // out. `auth: false` keeps the server validator REACHABLE (for
-        // routes that declare .authorize()) while removing the wall, so the
-        // ingress mount is registered without `auth: false`; enforcement is
-        // entirely this dispatcher's job.
-        const hasOwnAuth = mount.auth !== undefined && mount.auth !== false;
-        const hasValidator = hasOwnAuth || ingress.serverAuthConfigured;
-        const walled = mount.auth !== false && hasValidator;
+        // The wall and validator facts come from the registry, which is the
+        // one place the effective-auth rule lives. `auth: false` keeps the
+        // inherited validator reachable there (for routes that declare
+        // .authorize()) while removing the wall.
+        const mountAuth = ingress.resolveMountAuth(mount.auth);
+        const walled = mountAuth.walled;
         const isDefaultRoot = mount.name === "default" && mount.path === "/";
         const authConfigured = walled;
+        const serverRoutes = routesOnServer(mount.server);
 
         // Built-ins layering (default-root mount only). See the matrix in
         // HttpBuiltinOptions: /ready and /openapi.json gate on the mount
@@ -188,7 +191,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           authConfigured;
 
         const builtins = createBuiltins({
-          registry: allRoutes,
+          registry: serverRoutes,
           serveHealth: isDefaultRoot && healthEnabled,
           ready: readyLayer === "public-full" ? "full" : "off",
           serveOpenApi: openapiServedPublic,
@@ -201,7 +204,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
                 paths: new Set(["/ready"]),
                 handler: (_req, pathname, isAuthenticated) =>
                   pathname === "/ready"
-                    ? buildReadyResponse(allRoutes, isAuthenticated)
+                    ? buildReadyResponse(serverRoutes, isAuthenticated)
                     : null,
               }
             : undefined;
@@ -209,7 +212,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         const gatedBuiltins: GatedBuiltins | undefined = openapiServedGated
           ? {
               paths: new Set(["/openapi.json"]),
-              handler: createOpenApiGatedHandler(allRoutes, openapiInfo),
+              handler: createOpenApiGatedHandler(serverRoutes, openapiInfo),
             }
           : undefined;
 
@@ -228,19 +231,20 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         unmounts.push(
           ingress.mountHttp({
             id: mountId,
-            // Never `auth: false` here (see `walled` above): the thunk keeps
-            // the inherited validator so authorize-pull works on public
-            // mounts; whether it is ever called is the dispatcher's call.
-            ...(hasOwnAuth ? { auth: mount.auth as HttpAuth } : {}),
+            // Forwarded verbatim, `false` included: the registry keeps the
+            // inherited validator reachable on an opted-out mount so
+            // authorize-pull works; whether the wall is enforced is this
+            // dispatcher's job.
+            ...(mount.auth !== undefined ? { auth: mount.auth } : {}),
             claims: () => {
               // Routes that demand identity on an unwalled mount need a
               // validator in scope; with none anywhere the route can never
               // serve, so refuse at bind rather than 401 every request.
-              if (!walled && !hasValidator) {
+              if (!walled && !mountAuth.configured) {
                 for (const entry of runtime.registry.values()) {
                   if (entry.requiresPrincipal) {
                     throw rcError("RC5003", undefined, {
-                      message: `http mount "${mount.name}": route "${entry.routeId}" declares .authorize() but no validator is in scope. Set auth on the mount or on servers.${serverName}.auth.`,
+                      message: `http mount "${mount.name}": route "${entry.routeId}" declares .authorize() but no validator is in scope. Set auth on the mount or on servers.${mount.server}.auth.`,
                     });
                   }
                 }
@@ -324,6 +328,12 @@ function validate(options: HttpPluginOptions): ResolvedMount[] {
         "httpPlugin: `auth` and `mounts` are mutually exclusive. Top-level `auth` is sugar for a single default mount; with `mounts`, set auth per mount.",
     });
   }
+  if (options.mounts !== undefined && options.server !== undefined) {
+    throw rcError("RC5003", undefined, {
+      message:
+        "httpPlugin: `server` and `mounts` are mutually exclusive. Top-level `server` is sugar for a single default mount; with `mounts`, set server per mount.",
+    });
+  }
   if (
     options.maxBodySize !== undefined &&
     (!Number.isInteger(options.maxBodySize) || options.maxBodySize <= 0)
@@ -387,6 +397,7 @@ function resolveMounts(options: HttpPluginOptions): ResolvedMount[] {
       {
         name: "default",
         path: "/",
+        server: options.server ?? "default",
         auth: options.auth,
       },
     ];
@@ -397,6 +408,9 @@ function resolveMounts(options: HttpPluginOptions): ResolvedMount[] {
       message: "httpPlugin: `mounts` must declare at least one mount.",
     });
   }
+  // Keyed by server AND path: two mounts may claim the same path on
+  // different listeners. The registry re-checks claim overlap per server at
+  // bind; this is the same refusal made early, with the config names.
   const seenPaths = new Map<string, string>();
   const resolved: ResolvedMount[] = [];
   for (const [name, definition] of entries) {
@@ -405,15 +419,22 @@ function resolveMounts(options: HttpPluginOptions): ResolvedMount[] {
         message: "httpPlugin: mount names must not be empty",
       });
     }
-    const path = normalizeMountPath(name, definition);
-    const owner = seenPaths.get(path);
-    if (owner !== undefined) {
+    if (definition.server !== undefined && definition.server.length === 0) {
       throw rcError("RC5003", undefined, {
-        message: `httpPlugin: mounts "${owner}" and "${name}" both claim path "${path}".`,
+        message: `httpPlugin: mount "${name}": server name must not be empty`,
       });
     }
-    seenPaths.set(path, name);
-    resolved.push({ name, path, auth: definition.auth });
+    const server = definition.server ?? "default";
+    const path = normalizeMountPath(name, definition);
+    const key = `${server}\u0000${path}`;
+    const owner = seenPaths.get(key);
+    if (owner !== undefined) {
+      throw rcError("RC5003", undefined, {
+        message: `httpPlugin: mounts "${owner}" and "${name}" both claim path "${path}" on servers.${server}.`,
+      });
+    }
+    seenPaths.set(key, name);
+    resolved.push({ name, path, server, auth: definition.auth });
   }
   return resolved;
 }

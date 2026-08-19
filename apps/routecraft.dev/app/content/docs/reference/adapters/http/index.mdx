@@ -233,7 +233,7 @@ OAuth 2.1 is reserved in the auth union for a future release.
 
 #### Mounts and authentication
 
-The mount, not the route, decides authentication. `http.mounts` declares named path-scoped surfaces; each is a wall or public, and routes belong to exactly one:
+The mount, not the route, decides authentication. `http.mounts` declares named path-scoped surfaces, each a complete self-description (`path`, `server`, `auth`); each is a wall or public, and routes belong to exactly one:
 
 ```typescript
 defineConfig({
@@ -250,14 +250,36 @@ defineConfig({
 | Mount posture | Route without `.authorize()` | Route with `.authorize()` |
 | --- | --- | --- |
 | Walled (`auth` set, or inherited from the server) | 401 without a valid credential | wall, then roles/scopes |
-| Public (`auth: false`) | served; credentials never inspected, no auth events | verification forced via the server validator: absent or invalid is 401, then roles/scopes |
+| No wall (`auth: false`) | served; credentials never inspected, no auth events | verification forced via the inherited validator, which `auth: false` keeps reachable: absent or invalid is 401, then roles/scopes |
 | No validator anywhere | served | refused at bind with RC5003: the route demands identity nothing can supply |
 
 Rules that keep this safe:
 
+- `auth: false` means no wall, never no validator: it removes the demand while keeping the inherited validator reachable for routes that pull.
 - `.authorize()` can only make a route stricter, never looser; there is no route-level way to weaken a mount's wall.
 - Route `path`s are relative to the mount prefix, so a route `'/orders/:id'` on the `api` mount serves `/api/orders/:id`.
 - An omitted `mount` resolves only to a mount literally named `default`; with mounts configured and none named `default`, the route fails loudly instead of landing on an unintended surface.
+
+#### Mounts and servers
+
+Each mount also names its listener: `server` defaults to `'default'`, so an app with one listener names it `default` and never writes the key. A mount on another listener says so itself; there is no plugin-level default to override, the same rule the single-mount shorthand follows (with no `mounts`, the top level of `http` is the one mount, and `server` there is its key).
+
+```typescript
+defineConfig({
+  servers: {
+    default:  { port: 8080, host: '0.0.0.0' },
+    internal: { port: 9090 },
+  },
+  http: {
+    mounts: {
+      api:   { path: '/api' },                       // servers.default
+      admin: { path: '/admin', server: 'internal' }, // its own listener
+    },
+  },
+})
+```
+
+Two mounts may claim the same path on different listeners; the same path on one listener is refused at construction. The built-ins (`/health`, `/ready`, `/openapi.json`) serve from the mount named `default` at `/` and describe only routes on that mount's server, so an internal listener's inventory never leaks through the public OpenAPI document.
 - A route cannot be carved out under another mount's prefix: a `default`-mount route resolving inside `/api` fails bind-time claim validation.
 - Mount `path`s are static canonical pathname prefixes: no `?`, `#`, `:param` segments, empty segments, backslashes, or percent-encoding, and no `.` or `..` segments, spaces, or anything else URL parsing would rewrite into a different pathname. Anything else is refused at construction with RC5003.
 - The top-level `http: { auth }` remains as sugar for a single `default` mount at `/`.

@@ -128,25 +128,33 @@ export interface HttpPluginEventOptions {
  * @experimental
  */
 export interface HttpPluginOptions {
-  /** Named entry from `CraftConfig.servers`. Defaults to `"default"`. */
+  /**
+   * Single-mount shorthand: named entry from `CraftConfig.servers` for the
+   * implicit `default` mount at `"/"`. Defaults to `"default"`. Mutually
+   * exclusive with `mounts`, where each mount names its own server; the top
+   * level of this options object is the mount definition when there is only
+   * one, exactly as mcp and ops options are theirs.
+   */
   server?: string;
   /**
-   * Sugar for a single mount named `default` at `"/"` with this auth.
+   * Single-mount shorthand: auth for the implicit `default` mount at `"/"`.
    * Mutually exclusive with `mounts`. The mount is the wall: with a
    * validator in scope every route on it requires a valid credential; the
    * only route-level escalation is `.authorize()`. Omit (with a
    * server-level `servers.<name>.auth`) to inherit the server validator,
-   * or pass `false` for a public surface.
+   * or pass `false` for a surface with no wall.
    */
   auth?: HttpAuth | false;
   /**
-   * Named path-scoped surfaces on the listener, each with its own auth
-   * posture. Mutually exclusive with the top-level `auth` sugar.
+   * Named path-scoped surfaces, each a complete self-description: path,
+   * server, auth. Mutually exclusive with the top-level `server` and `auth`
+   * shorthand.
    *
    * ```ts
    * http: {
    *   mounts: {
-   *     api:     { path: "/api" },           // inherits the server wall
+   *     api:     { path: "/api" },           // servers.default, inherits its wall
+   *     admin:   { path: "/admin", server: "internal" },
    *     default: { path: "/", auth: false }, // public catch-all
    *   },
    * }
@@ -172,20 +180,24 @@ export interface HttpPluginOptions {
 }
 
 /**
- * One path-scoped surface under {@link HttpPluginOptions.mounts}.
+ * One path-scoped surface under {@link HttpPluginOptions.mounts}. Each mount
+ * describes itself completely: which listener it sits on and which validator
+ * applies. There is no plugin-level default to override.
  *
  * The mount decides authentication for every route on it:
  * - `auth` unset inherits the server validator (`servers.<name>.auth`) as
  *   a wall when one is configured, else the mount is open.
- * - `auth` set is the mount's own wall.
- * - `auth: false` is explicitly public: requests are served without the
- *   credential ever being inspected. A route that declares `.authorize()`
- *   still forces verification through the server validator, so identity
- *   demands can only tighten a public mount, never the reverse.
+ * - `auth` set is the mount's own wall, replacing the server's validator.
+ * - `auth: false` removes the wall: requests are served without credentials
+ *   being demanded, and the inherited validator stays reachable, so a route
+ *   that declares `.authorize()` still pulls verification through it.
+ *   Identity demands can only tighten a public mount, never the reverse.
  */
 export interface HttpMountDefinition {
   /** Path prefix this mount owns. `"/"` is the catch-all fallback. */
   path: string;
+  /** Named entry from `CraftConfig.servers`. Defaults to `"default"`. */
+  server?: string;
   auth?: HttpAuth | false;
 }
 

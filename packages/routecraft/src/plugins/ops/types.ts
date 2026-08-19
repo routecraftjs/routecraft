@@ -6,6 +6,8 @@
  * fields may be added, never removed or repurposed.
  */
 
+import type { HttpAuth } from "../../adapters/http/types";
+
 /**
  * The four-member health vocabulary.
  *
@@ -152,11 +154,14 @@ export interface LivenessReport {
  * Exposure of the per-component `details` maps.
  *
  * - `always`: serve details to every caller.
- * - `when-authenticated`: serve details only to a caller the server's validator
- *   admits. On a server with no validator configured there is nothing to
- *   authenticate against, so this collapses to `always`, the same collapse the
- *   http plugin applies to its `/ready` built-in. Put the mount on a server
- *   that is not publicly reachable if that collapse is not what you want.
+ * - `when-authenticated`: serve details only to a caller the mount's
+ *   effective validator admits (the ops mount's own `auth`, else the
+ *   server's). Written explicitly with no validator in scope it fails the
+ *   boot: the operator asked for a gate and there is nothing to gate with.
+ *   As the unwritten default with no validator it collapses to `never`,
+ *   with a startup warning naming the ways out: a missing diagnostic is
+ *   visible and self-correcting, a leak is silent, and indicator details are
+ *   arbitrary app-supplied objects.
  * - `never`: never serve details.
  *
  * The gate withholds per-component diagnostics and nothing else. It does not
@@ -188,6 +193,18 @@ export interface OpsPluginOptions {
    * rather than by binding loopback.
    */
   server?: string;
+  /**
+   * Validator for the details gate: `health.details: "when-authenticated"`
+   * admits callers through this, falling back to the server's validator when
+   * unset. It is not a wall. The health surface answers every probe without
+   * a credential whatever this says, because an orchestrator's probe carries
+   * none and a health endpoint that answers it 401 is a health endpoint that
+   * restarts the pod. `false` is refused as a no-op: there is no wall here
+   * to remove; `health.details: "always"` is the way to serve details to
+   * every caller. The `/ops` action namespace will define its own admission
+   * rule when actions ship.
+   */
+  auth?: HttpAuth | false;
   /** Health endpoint configuration. */
   health?: OpsHealthOptions;
   /** Indicators to register. See `defineIndicator`. */

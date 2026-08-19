@@ -3,6 +3,7 @@ import { rcError } from "../../error.ts";
 import type { HttpMethod } from "../../adapters/http/types.ts";
 import type {
   HttpMount,
+  HttpMountAuth,
   HttpMountAuthPolicy,
   PathClaim,
   WebIngress,
@@ -142,7 +143,6 @@ function scoreClaim(claim: PathClaim, path: string): number | undefined {
 
 export class HttpMountRegistry implements WebIngress {
   readonly serverName: string;
-  readonly serverAuthConfigured: boolean;
   boundAddress: { readonly host: string; readonly port: number } | undefined;
   private readonly mounts = new Map<string, HttpMount>();
   private readonly serverAuth: ValidatorAuthOptions | undefined;
@@ -169,7 +169,15 @@ export class HttpMountRegistry implements WebIngress {
     this.serverName = serverName;
     this.context = context;
     this.serverAuth = serverAuth;
-    this.serverAuthConfigured = serverAuth !== undefined;
+  }
+
+  resolveMountAuth(auth: HttpMount["auth"]): HttpMountAuth {
+    const own = auth !== undefined && auth !== false;
+    const optedOut = auth === false;
+    // `false` keeps the inherited validator: it removes the wall, not the
+    // ability of a route's .authorize() to pull identity through it.
+    const configured = own || this.serverAuth !== undefined;
+    return { configured, own, optedOut, walled: configured && !optedOut };
   }
 
   mountHttp(mount: HttpMount): () => void {
@@ -220,10 +228,16 @@ export class HttpMountRegistry implements WebIngress {
     this.authByMount.clear();
     this.authPolicyByMount.clear();
     for (const { mount } of evaluated) {
-      const inherited =
-        mount.auth === undefined && this.serverAuth !== undefined;
+      const facts = this.resolveMountAuth(mount.auth);
+      // The log fires only for a mount whose wall is the inherited validator.
+      // An opted-out mount also resolves the server validator, but announcing
+      // "inherited authentication" for a surface that opted out of walling
+      // would read as the opposite of what was configured.
+      const inherited = facts.walled && !facts.own;
       const auth =
-        mount.auth === false ? undefined : (mount.auth ?? this.serverAuth);
+        mount.auth === false || mount.auth === undefined
+          ? this.serverAuth
+          : mount.auth;
       this.authByMount.set(mount.id, createAuthMiddleware(auth));
       const issuer =
         auth !== undefined && "issuer" in auth
@@ -340,6 +354,7 @@ export class HttpMountRegistry implements WebIngress {
       serverName: this.serverName,
       authenticate,
       authPolicy: this.authPolicyByMount.get(mount.id),
+      auth: this.resolveMountAuth(mount.auth),
     });
   }
 }

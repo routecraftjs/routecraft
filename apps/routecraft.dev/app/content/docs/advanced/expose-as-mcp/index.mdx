@@ -107,7 +107,7 @@ export default {
 }
 ```
 
-Use the same server name for HTTP and other web surfaces to share one port. Use a separate server name when a surface needs an isolated listener. MCP inherits authentication from that server, accepts its own `auth` override, and supports `auth: false` for an explicitly public mount.
+Use the same server name for HTTP and other web surfaces to share one port. Use a separate server name when a surface needs an isolated listener. MCP inherits authentication from that server, accepts its own `auth` override, and takes `auth: false` to remove the wall: the surface never demands credentials, requires no scopes, and issues no challenge, but a valid token for the inherited validator still attaches a principal (which is how a tool's `.authorize()` admits on a public mount) and an invalid one is treated as absent.
 
 Protected-resource metadata is exposed only at the path-suffixed RFC 9728 URL. For the default MCP path this is `/.well-known/oauth-protected-resource/mcp`.
 

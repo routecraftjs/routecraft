@@ -43,7 +43,7 @@ Each entry in the `servers` record:
 | `port` | `number` | -- (required) | Port to bind. Use `0` to let the OS choose; the resolved port arrives on `server:listening`. |
 | `host` | `string` | `127.0.0.1` | Host to bind. Use `0.0.0.0` to expose externally. |
 | `kind` | `'http'` | `'http'` | Listener kind. Reserved for future non-HTTP listeners; only `'http'` is valid today. |
-| `auth` | `ValidatorAuthOptions` | -- | Server-level credential validator inherited by every mount that sets no `auth` of its own. Verification only: each mount keeps its admission policy and refusal format, and a mount opts out with `auth: false`. |
+| `auth` | `ValidatorAuthOptions` | -- | Server-level credential validator inherited by every mount that sets no `auth` of its own. Verification only: each mount keeps its admission policy and refusal format. A mount removes the wall with `auth: false`, which keeps this validator reachable for routes that pull identity. |
 | `shutdownGraceMs` | `number` | `30000` | How long a graceful close may drain in-flight work before the listener is force-closed. |
 
 ## Mounts and claims
