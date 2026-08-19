@@ -1,0 +1,14 @@
+---
+"@routecraft/routecraft": minor
+---
+
+Re-entrant suspend sites: a step can park the exchange it is executing, own the closure state that revives it, and be denied cleanly when its run is cancelled (#268, #269, #552, #581 groundwork).
+
+The core seam the agent tier plugs into, kept agent-ignorant:
+
+- **`markSuspendCapable(adapter)`** brands a `.to()` / `.enrich()` adapter as able to raise a durable suspension from inside its own execution. The suspend-site walk assigns such steps a re-entrant `SuspendSite` whose continuation includes the step itself, so a resume re-runs the step to finish the work it parked in the middle of. The step's own definition is therefore covered by the continuation hash: editing it invalidates its parked exchanges through the `RC5048` re-ask path. The `.split()` / `.multicast()` / `.dispatch()` refusals a static `.suspend()` gets at build time apply as recorded refusals that fire on the first actual suspension (`RC5051`), because whether a capable step ever parks is dynamic.
+- **`SuspendSignal`** is the throwable a branded adapter raises: `{ expect, ttl?, question?, reason?, stepState? }`. It converts into the ordinary `suspend` StepOutcome inside the hosting step, before any step-scope wrapper can observe the throw (a retry wrapper seeing the raw signal would re-run the park and charge the work twice).
+- **`stepState`** rides `SuspendRequest` into the record's existing opaque slot, under the same plain-JSON rule as the exchange (`RC5042`), and comes back through exchange internals with take-once semantics for exactly one re-entrant execution. Nothing agent-shaped enters the core record.
+- **Validation narrows for re-entrant sites only**: no live `expect` schema can be read back off the route (it was raised inside the step's own code), so `RC5049` never fires there and the raw answer is delivered to the re-entering step as its suspended call's payload. A resume-token holder can therefore hand such a step arbitrary JSON; the step is the validator. Static `.suspend()` sites keep full validation.
+- **`Suspended` gains `question` and `reason`**, populated when the suspending step supplies them (the agent tier's `ctx.suspend()` is the producer; `.suspend()` itself deliberately grows no such options). New `suspendedSchema` / `SUSPENDED_JSON_SCHEMA` exports give transports a Standard Schema for the acknowledgment, which is what lets the MCP server advertise `oneOf: [Output, Suspended]`.
+- **New `RC5054`**: a run cancelled around its own park (an elapsed route-scope `.timeout()`) refuses to park before the store write, or immediately denies the just-written suspension after it, so no live resume link survives a run whose caller was told it failed. A token presented later reads `RC5050`. `context.stop()` is not cancellation: parked exchanges survive it, which is the store's entire purpose.

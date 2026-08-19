@@ -270,6 +270,16 @@ proxy: [
 
 **When to proxy and when to write a route.** A proxied call runs no route pipeline: no `authorize()`, no input validation, no caching, throttling, or timeouts. The caller's authenticated principal is also not forwarded to the remote server; the Routecraft-to-client hop authenticates with the client's registered `auth`. Proxy simple, read-only tools (a document fetch, a search) raw, add a `guard` when a tool needs an identity or role check, and the moment a tool needs anything stateful or time-based (caching, throttling, retries, audit), put a `.from(mcp())` route in front of it instead -- see [Calling an MCP -> Guardrails](/docs/advanced/call-an-mcp#guardrails-raw-guarded-or-wrapped) for the same tiering applied to agent tools.
 
+## Suspendable tools
+
+A tool whose route can park at a durable [`.suspend()`](/docs/reference/operations/suspend), or whose pipeline dispatches an [agent](/docs/advanced/durable-agents) (its tool handlers may park at runtime), answers a parked run with the framework's `Suspended` acknowledgment instead of its declared output. MCP has no out-of-band status channel the way HTTP has `202`, so the union is real and is published:
+
+- **Advertisement.** When the route declares `.output()`, `tools/list` advertises `outputSchema` as the derived union `oneOf: [Output, Suspended]`. You declare only the output arm; the acknowledgment arm is the framework's. A tool with no `.output()` advertises nothing, parkable or not.
+- **The wire result.** A park is an ordinary `isError: false` result whose `structuredContent` is the acknowledgment: `{ status: "suspended", suspensionId, token, expect?, expiresAt?, question?, reason? }`, with the same JSON mirrored in the text block. The caller (a human client, or an agent that can escalate to its own caller) holds the resume token; the answer arrives through any [`.resume()`](/docs/reference/operations/resume) ingress, and the route's real output flows to its destinations on execution two.
+- **Events.** A park emits `plugin:mcp:tool:suspended` with the suspension id, never `completed` (a parked run reported as finished is a false receipt) and never `failed` or `declined`.
+
+The advertised union over-approximates for agent-bearing routes: the framework cannot rule suspension out statically, so a client of such a tool must handle the acknowledgment even if a given deployment never parks. Note that `oneOf` is exact-match: a declared output schema loose enough to also accept the acknowledgment shape (an open passthrough object) makes a strict client's validation of a park ambiguous, so keep `.output()` closed.
+
 ## Production
 
 Pin the CLI version so your capabilities do not break on package updates:

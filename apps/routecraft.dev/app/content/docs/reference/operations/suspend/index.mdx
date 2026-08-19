@@ -50,15 +50,20 @@ A durable suspend cannot hold a caller: the answer arrives in hours or days and 
   "suspensionId": "3f1c…~0",
   "token": "eyJ2Ijox…",       // signed, single use
   "expect": { "type": "object", … },  // when the schema renders one
-  "expiresAt": "2026-08-13T09:00:00.000Z"
+  "expiresAt": "2026-08-13T09:00:00.000Z",
+  "question": "May I pay acme 900.00?", // when the suspending step supplied one
+  "reason": "awaiting-human-approval"   // same
 }
 ```
+
+`question` and `reason` have no option on `.suspend()` itself (a route notifies through ordinary steps before the park); their producer is an agent tool handler's [`ctx.suspend()`](/docs/advanced/durable-agents).
 
 A route with a reachable suspend therefore has output type `Output | Suspended`. Each source renders that its own way:
 
 | Source | Rendering |
 |--------|-----------|
 | `http()` | `202 Accepted`, the `Suspended` value as the body, `Retry-After` from the `ttl` |
+| `mcp()` | an ordinary `isError: false` tool result whose `structuredContent` is the acknowledgment; a tool that declares `.output()` and can park advertises `oneOf: [Output, Suspended]` (see [Running an MCP server](/docs/advanced/expose-as-mcp#suspendable-tools)) |
 | `direct()` | the value itself; the caller narrows with `isSuspended(result)` |
 | `cron()`, `simple()`, file | nothing on the wire, a log line only; completion is simply deferred |
 | queue sources | ack, never nack: the work is parked in the suspension store, and a redelivery would ask the approver twice |
@@ -135,6 +140,17 @@ Two limits are worth knowing before you rely on this for money:
 Retiring a suspension emits [`route:exchange:expired`](/docs/reference/events) and re-enters the route's error channel with [`RC5047`](/docs/reference/errors#rc-5047). The sweeper competes for the same transition a late answer competes for, so an approval landing on the deadline is either accepted or expired, never both, and only the winner notifies.
 
 **Expiry notification is at-least-once, not exactly-once.** Delivery is claim-then-notify-then-finalize, so a process that dies mid-delivery leaves a claim the sweeper releases after [`expiryLease`](/docs/reference/configuration#suspension) (60 minutes by default) and redelivers: the approver hears about the expiry despite the crash. The accepted cost is the other crash window; a process that dies after notifying but before finalizing redelivers one duplicate escalation once the lease elapses. Make the `.error()` re-ask path tolerant of a repeat, the way any notification handler should be.
+
+**An agent-raised suspension accepts any JSON answer.** A `.suspend()` on a route validates the answer against the live `expect` schema read back off the route, refusing a mismatch with [`RC5049`](/docs/reference/errors#rc-5049). A suspension raised from inside an agent tool handler ([`ctx.suspend()`](/docs/advanced/durable-agents)) cannot be re-validated after a restart: its schema lives in the handler's own code, so revival delivers the raw answer as an ordinary tool result and the model is the validator. A resume-token holder can therefore feed the agent arbitrary JSON, which is the same trust level every tool result already has; the `expect` rendering on the acknowledgment is guidance for the answerer, not enforcement.
+
+## Suspension raised from a step
+
+`.suspend()` is one of two ways an exchange parks. The other is a **suspend-capable step** raising a suspension from inside its own execution; the shipped case is the agent step, whose tool handlers park through `ctx.suspend()` (see [Durable agents](/docs/advanced/durable-agents)). The differences are worth knowing:
+
+- **Resume re-enters the step itself**, not the step after it: the step must finish the work it parked in the middle of. Its own definition is therefore covered by the continuation hash, so editing an inline agent's options (system prompt, model, tools) invalidates its parked runs through the [`RC5048`](/docs/reference/errors#rc-5048) re-ask path, exactly as editing a continuation step does.
+- **Positional refusals move to runtime.** Whether a capable step ever suspends is dynamic, so a route that fans an agent out over a `.split()` or into a `.multicast()` path builds fine; the first actual suspension from such a position is refused with [`RC5051`](/docs/reference/errors#rc-5051), carrying the same explanation the build-time refusal gives a static `.suspend()`.
+- **The startup runtime check stays static.** A context needs a [`suspension`](/docs/reference/configuration#suspension) block at startup only for static `.suspend()` (and `.resume()`) routes; an agent route without one starts fine, and a `ctx.suspend()` there fails as an ordinary step error with [`RC5052`](/docs/reference/errors#rc-5052) naming the one config line.
+- **A cancelled run cannot leave a live link.** A run aborted around its own park (an elapsed route-scope `.timeout()`) refuses to park, or immediately denies the just-written suspension, failing with [`RC5054`](/docs/reference/errors#rc-5054); a token presented later reads [`RC5050`](/docs/reference/errors#rc-5050). `context.stop()` is not cancellation: a parked exchange survives the stop, which is the store's entire purpose.
 
 ## Related
 

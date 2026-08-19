@@ -1,0 +1,87 @@
+---
+title: Durable agents
+---
+
+<Lead>
+An agent tool handler that cannot answer now parks the whole run through the core suspension store. The loop survives a process restart and continues, mid-conversation, when the answer arrives days later through any ingress.
+</Lead>
+
+Suspension is a pipeline primitive, not an agent feature: the store, tokens, TTL, idempotency, and restart semantics are all [`.suspend()` / `.resume()`](/docs/reference/operations/suspend)'s, shared with plain capabilities. The agent tier contributes exactly one thing: what goes into the record's opaque `stepState` slot, which is the messages thread and outstanding tool-call id that a mid-loop agent is.
+
+## Parking from a tool handler
+
+`ctx.suspend()` on the handler context is the whole protocol. Return its sentinel immediately:
+
+```ts
+agentPlugin({
+  functions: {
+    askApproval: {
+      description: "Ask a human for approval",
+      input: z.object({ question: z.string() }),
+      handler: async (input, ctx) => {
+        await sendApprovalRequest({
+          question: input.question,
+          // Mintable BEFORE the park, so the message carries a working link.
+          suspensionId: ctx.suspensionId,
+          token: ctx.suspension.token,
+        })
+        return ctx.suspend({
+          expect: Approval,
+          ttl: "72h",
+          question: input.question,
+        })
+      },
+    },
+  },
+})
+```
+
+The runtime awaits the batch's in-flight sibling tool calls (their real results persist), stops the loop, and parks the exchange. Execution one answers the caller with the framework's `Suspended` acknowledgment, `question` and `reason` included; the agent's real `AgentResult` flows to the route's destinations on execution two.
+
+| `ctx.suspend` option | Required | Description |
+|---------------------|----------|-------------|
+| `expect` | Yes | What a valid answer looks like. Rendered onto the acknowledgment for the answerer; see the trust note below for what it does not do. |
+| `ttl` | No | How long the suspension stays resumable. Defaults to the context's [`defaultTtl`](/docs/reference/configuration#suspension); expiry re-enters the route's error channel with [`RC5047`](/docs/reference/errors#rc-5047). |
+| `question` | No | Human-facing question, surfaced as `Suspended.question`. |
+| `reason` | No | Machine-facing reason, surfaced as `Suspended.reason`. |
+
+`throw new SuspendError({ expect, ttl, question })` is honoured as an escape hatch for handlers that cannot thread a return value out. Prefer the sentinel: a handler that wraps its work in `try/catch` silently swallows a thrown suspension and hands the model a garbage tool result, a footgun the returned sentinel cannot reproduce. A `SuspendError` without `expect` parks with an accept-anything schema.
+
+## What survives, and how the loop continues
+
+The persisted `stepState` is `{ agentId, messages, suspendedToolCallId, turnsUsed }`: plain JSON, nothing live. The system prompt, blocks, and tools are deliberately **not** persisted; the agent step re-runs its full preparation at resume, so inject blocks and `lifetime: "context"` blocks are re-resolved live, and only resolved strings ever cross the wire (progressive block loads that happened before the park are ordinary tool results inside the thread).
+
+On resume, the answer lands as the suspended call's tool result and the loop continues from exactly that point. Two consequences:
+
+- **`maxTurns` survives the park.** A park is not a fresh dispatch; a reset would make park/resume cycling an unbounded-budget loop. A run that resumes with its budget already exhausted fails immediately on the ordinary max-turns path.
+- **One park per batch.** If two tools in one parallel batch both suspend, the first in the model's own emission order wins; the loser's tool result is rewritten to a retryable error ("a sibling already suspended this run") that the resumed model sees and can retry.
+
+Because resume re-enters the agent step itself, the step's own definition is covered by the continuation hash: **editing an inline agent's options (system prompt, model, tools) invalidates its parked runs**, refusing the resume with [`RC5048`](/docs/reference/errors#rc-5048) so the route can re-ask. A by-name agent's registered options are outside the hash (only step definitions are covered); the persisted `agentId` pins the binding, and a route rebound to a different agent refuses rehydration with [`AI1007`](/docs/reference/errors#ai-1007).
+
+<Callout type="warning" title="The model validates the answer">
+
+An agent-raised suspension cannot re-validate the answer against `expect` after a restart: the schema lives in the handler's own code. Revival delivers whatever JSON the resume carried as an ordinary tool result, so a resume-token holder can send the agent arbitrary data. That is the trust level every tool result already has; treat it accordingly in the prompt and in what the loop is allowed to do with it.
+
+</Callout>
+
+## Where suspension is refused
+
+- **Outside an agent dispatch on a route-bound exchange** ([`AI1006`](/docs/reference/errors#ai-1006)): a proxied MCP tool guard, `testFn`, or an agent invoked over a synthetic exchange. The refusal happens at the `ctx.suspend()` call; nothing is written.
+- **In a context with no [`suspension`](/docs/reference/configuration#suspension) block** ([`RC5052`](/docs/reference/errors#rc-5052)): agent routes do not require the runtime at startup (most agents never suspend), so the park itself fails as an ordinary step error naming the one config line.
+- **Inside a `.split()` fan-out or a `.multicast()` / `.dispatch()` side flow** ([`RC5051`](/docs/reference/errors#rc-5051)): the route builds (whether an agent suspends is dynamic), and the first actual park from such a position is refused with the same explanation a static `.suspend()` gets at build time.
+
+## Cancellation
+
+A cancelled run is terminal and honest about its spend: the abort signal (route stop, context shutdown, or a route-scope `.timeout()`) is observed between turns, inside the model call, and inside tool dispatch, and the run fails with [`AI1005`](/docs/reference/errors#ai-1005) carrying turns completed and tokens spent. Cancellation racing the park itself refuses or denies the suspension with [`RC5054`](/docs/reference/errors#rc-5054), so a run whose caller was told it failed never leaves a live resume link.
+
+`context.stop()` is not cancellation of parked work: a suspended agent survives the stop and the restart, which is the point.
+
+## Over MCP
+
+A tool whose route dispatches an agent may park, so if it declares `.output()` its advertised `outputSchema` is the derived union `oneOf: [Output, Suspended]`, and a park answers with the acknowledgment in `structuredContent` on an ordinary `isError: false` result, emitting `plugin:mcp:tool:suspended`. See [Running an MCP server](/docs/advanced/expose-as-mcp#suspendable-tools).
+
+## Related
+
+- [`.suspend()`](/docs/reference/operations/suspend) and [`.resume()`](/docs/reference/operations/resume): the primitive this rides on, including the crash boundary (durability starts at a declared park, never mid-step).
+- [agentPlugin](/docs/reference/plugins/agentplugin): registering the fns whose handlers park.
+- [Events](/docs/reference/events): `route:exchange:suspended` / `:resumed` / `:expired` fire for agent parks exactly as for route parks; the agent tier adds no parallel event set.

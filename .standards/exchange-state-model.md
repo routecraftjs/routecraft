@@ -51,7 +51,9 @@ Persisting an exchange = serializing `{ body, headers }`. Resuming an exchange =
 
 Durable suspend and resume is the first live consumer of this contract: `.suspend()` persists exactly these two slots, and `.resume()` rebuilds a `DefaultExchange` around them on whichever process holds the answer. The suspension's own state follows the same rule rather than earning a bag of its own: the park counter, the validated result, and the resume receipt are `routecraft.suspension.*` headers, and `ex.suspension` is the derivation over them.
 
-The getters (`id`, `principal`, `logger`, `suspension`) work immediately because they derive lazily. The `EXCHANGE_INTERNALS` WeakMap (route binding, parse hook, validation hook, startedAt, dropped flag) is NOT serialized -- it's runtime context, rehydrated by re-attaching the route via `headers["routecraft.route"]` on the new context.
+The getters (`id`, `principal`, `logger`, `suspension`) work immediately because they derive lazily. The `EXCHANGE_INTERNALS` WeakMap (route binding, parse hook, validation hook, startedAt, dropped flag, resume step state) is NOT serialized -- it's runtime context, rehydrated by re-attaching the route via `headers["routecraft.route"]` on the new context.
+
+One documented exception to "the serialized exchange is the complete continuation": a suspend-capable step (the agent step is the shipped case) IS closure state mid-execution -- a messages thread and an outstanding tool-call id that live nowhere on the exchange. That state rides the suspension record's opaque `stepState` slot, not `body` or `headers`: it is step-owned, not exchange state, and it must never be re-serialized into a second park. On revival it is handed back through internals (`setResumeStepState` / `takeResumeStepState`, take-once) for exactly one re-entrant execution of the step that parked it.
 
 The serialization surface is exactly two slots (`body`, `headers`), by construction. A future halt/continue PR does not need to enumerate which fields to serialize; the model dictates it.
 
