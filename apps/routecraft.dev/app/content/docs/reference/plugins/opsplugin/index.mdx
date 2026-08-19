@@ -190,6 +190,31 @@ Note the placement. `.retry()` and `.timeout()` before `.from()` are route-scope
 
 **Bind probe routes only.** For a probe the exchange is the health check by construction. Binding a business route would make every expected refusal (a caller without the scope, a validation error, a business rule saying no) report the dependency down, which is the escalation this design exists to prevent.
 
+### What moves a bound indicator
+
+A bound indicator and its route are separate components that move on different rules, so it is worth seeing both at once. A single failed exchange is enough to report the dependency `down`, with no threshold: on a probe the exchange is the check, and a probe that failed has answered the question.
+
+| Event on the bound route | Indicator | Route | Aggregate |
+| --- | --- | --- | --- |
+| Exchange completes | `up` | `up` | 200 |
+| Exchange fails | `down` | `up`, `details.failures` climbs | 503 |
+| Retry recovers inside the exchange | no change | `up` | 200 |
+| Exchange dropped | no change | `up` | 200 |
+| Breaker open, no `fallback` | `down` | `degraded` | 503 |
+| Breaker open, with `fallback` | `up` | `degraded` | 200 |
+| No exchange within `maxAgeMs` | `down`, `reason: 'stale'` | no change | 503 |
+| Source gave up producing | no change until stale | `down` | 503 |
+
+Three rows earn an explanation.
+
+**A dropped exchange reports nothing.** A drop is a terminal state that suppresses `completed`, but it is not evidence either way: the exchange may have been filtered out before the dependency was ever reached. A verdict read from it would be invented. A bound indicator on a route that only ever drops goes stale, which is the truthful answer.
+
+**An open breaker holds the indicator down.** Each rejected call fails with [`RC5025`](/docs/reference/errors#rc-5025) before the protected work runs, and that rejection is a failed exchange like any other. So the indicator stays `down` for the whole cooldown even though nothing is touching the dependency any more, which is the reading you want: the breaker is open precisely because the dependency was failing.
+
+**A breaker with a `fallback` does not.** The fallback resolves the rejected exchange successfully, so it emits `route:exchange:completed` and reports the indicator `up` while the route still reads `degraded`. On a business route that is correct, because it is serving. On a probe it is a lie, because the fallback answers without ever reaching the dependency. **Do not put a `fallback` on a breaker on a route you have bound an indicator to.**
+
+Source death and staleness stay independent on purpose. A dead scheduler takes the route `down` at once and lets the indicator go stale on its own clock, so "the probe stopped running" and "the dependency is unreachable" never get confused for one another.
+
 ### Pushed by hand
 
 For a probe checking several subsystems, or a business route flagging a dependency mid-flight, push through the handle from any `.process()` or `.error()` step:
