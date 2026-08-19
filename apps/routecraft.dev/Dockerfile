@@ -38,8 +38,12 @@ ENV VITE_DOC_VERSION=$VITE_DOC_VERSION \
     VITE_POSTHOG_KEY=$VITE_POSTHOG_KEY \
     VITE_POSTHOG_HOST=$VITE_POSTHOG_HOST
 
+# No second install: the deps stage above already copied every workspace
+# manifest and the lockfile, so the dependency graph is fully resolved by
+# then, and .dockerignore keeps this COPY from touching node_modules. A
+# manifest arriving only here would fail the deps install outright, since a
+# frozen install needs every member the lockfile names.
 COPY . .
-RUN bun install --frozen-lockfile --ignore-scripts
 WORKDIR /repo/apps/routecraft.dev
 RUN bun run build
 
