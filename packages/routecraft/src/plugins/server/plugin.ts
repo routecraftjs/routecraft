@@ -97,6 +97,7 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
   };
 
   async function bindAll(ctx: CraftContext, state: ServerState): Promise<void> {
+    assertEveryServerMounted(state.registries);
     for (const registry of state.registries.values()) registry.validate();
     for (const [name, definition] of Object.entries(definitions)) {
       const registry = state.registries.get(name)!;
@@ -134,6 +135,48 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
       ctx.emit("server:listening", { server: name, host, port: handle.port });
     }
   }
+}
+
+/**
+ * Refuse declared servers that nothing mounted on, naming the whole mount
+ * topology in the message.
+ *
+ * The check lives here rather than on the registry because a registry only
+ * knows its own mounts, and the fact a reader needs is the one it cannot
+ * see: what mounted somewhere else. An empty server almost always means the
+ * surface meant for it never mounted (a plugin that failed to apply, a
+ * misspelt server name, or a plugin predating named servers), and the mount
+ * list is what makes that visible at a glance. Every empty server is
+ * reported at once so an app declaring several does not learn about them one
+ * boot at a time.
+ */
+function assertEveryServerMounted(
+  registries: ReadonlyMap<string, HttpMountRegistry>,
+): void {
+  const empty: string[] = [];
+  const mounted: string[] = [];
+  for (const [name, registry] of registries) {
+    const ids = registry.mountIds();
+    if (ids.length === 0) {
+      empty.push(name);
+      continue;
+    }
+    for (const id of ids) mounted.push(`${id} -> servers.${name}`);
+  }
+  if (empty.length === 0) return;
+  const subject =
+    empty.length === 1
+      ? `servers.${empty[0]}: server has no mounts.`
+      : `servers: ${empty.map((name) => `"${name}"`).join(", ")} have no mounts.`;
+  const topology =
+    mounted.length > 0
+      ? ` Mounted surfaces: ${mounted.join(", ")}.`
+      : " No surface mounted on any server.";
+  throw rcError("RC5003", undefined, {
+    message:
+      `${subject}${topology} Either remove the unused ${empty.length === 1 ? "server" : "servers"}, or bind a surface to ${empty.length === 1 ? "it" : "them"}. ` +
+      "A surface that names the server in config but did not mount is usually a plugin that failed to apply, a misspelt server name, or a plugin version that predates named servers.",
+  });
 }
 
 function validateDefinitions(definitions: ServerDefinitions): void {

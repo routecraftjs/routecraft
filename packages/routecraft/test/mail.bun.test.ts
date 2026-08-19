@@ -19,6 +19,7 @@ import {
   buildSearchCriteriaSets,
   isMissingPeerError,
 } from "../src/adapters/mail/shared.ts";
+import { ImapPool } from "../src/adapters/mail/client-manager.ts";
 import { rcError } from "../src/error.ts";
 import {
   analyzeHeaders,
@@ -3255,5 +3256,116 @@ describe("isMissingPeerError", () => {
       isMissingPeerError(new Error("Cannot find package 'mailparser'")),
     ).toBe(false);
     expect(isMissingPeerError(undefined)).toBe(false);
+  });
+});
+
+describe("ImapPool drain", () => {
+  /**
+   * Build a pool whose connect is under the test's control, so the window
+   * between reserving a slot and filling it can be held open.
+   */
+  function pausedPool(poolSize?: number): {
+    pool: ImapPool;
+    connected: (client: unknown) => void;
+    failed: (error: Error) => void;
+  } {
+    const pool = new ImapPool({
+      host: "imap.example.test",
+      ...(poolSize !== undefined ? { poolSize } : {}),
+    });
+    let connected!: (client: unknown) => void;
+    let failed!: (error: Error) => void;
+    const pending = new Promise((resolve, reject) => {
+      connected = resolve;
+      failed = reject;
+    });
+    // createClient is private and would otherwise reach the network; the pool
+    // under test is the slot bookkeeping around it, not imapflow.
+    (pool as unknown as { createClient: () => Promise<unknown> }).createClient =
+      () => pending;
+    return { pool, connected, failed };
+  }
+
+  /**
+   * @case Shutdown begins while a pooled connection is still being established
+   * @preconditions An acquire has reserved a slot and its connect has not resolved
+   * @expectedResult drain() resolves rather than throwing. The reserved slot holds no client yet, and dereferencing it turned an ordinary shutdown-during-startup into a teardown failure that masked the real boot error
+   */
+  test("drains a slot whose connect has not resolved", async () => {
+    const { pool, connected } = pausedPool();
+    const acquiring = pool.acquire("INBOX");
+    acquiring.catch(() => {});
+
+    await pool.drain();
+
+    connected({ usable: true, logout: async () => {} });
+    await expect(acquiring).rejects.toThrow(/drained during shutdown/);
+  });
+
+  /**
+   * @case A connection lands after the pool was drained
+   * @preconditions drain() completed while a connect was in flight, then it succeeds
+   * @expectedResult The late connection is logged out by the acquire itself. Drain has already walked the entries, so nothing else holds a reference and the socket would stay open for the life of the process
+   */
+  test("logs out a connection that arrives after the drain", async () => {
+    const { pool, connected } = pausedPool();
+    let loggedOut = false;
+    const acquiring = pool.acquire();
+    acquiring.catch(() => {});
+
+    await pool.drain();
+    connected({
+      usable: true,
+      logout: async () => {
+        loggedOut = true;
+      },
+    });
+
+    await expect(acquiring).rejects.toThrow(/drained during shutdown/);
+    expect(loggedOut).toBe(true);
+  });
+
+  /**
+   * @case A fresh acquire arrives after the pool was drained
+   * @preconditions drain() completed and nothing is in flight
+   * @expectedResult It rejects without ever calling createClient. A drained pool never serves again, so dialling out mid-shutdown only opens a socket to tear down again
+   */
+  test("refuses an acquire that starts after the drain", async () => {
+    const { pool } = pausedPool();
+    let connectAttempts = 0;
+    (pool as unknown as { createClient: () => Promise<unknown> }).createClient =
+      () => {
+        connectAttempts += 1;
+        return new Promise(() => {});
+      };
+
+    await pool.drain();
+
+    await expect(pool.acquire()).rejects.toThrow(/drained during shutdown/);
+    expect(connectAttempts).toBe(0);
+  });
+
+  /**
+   * @case An ordinary drain of a live connection
+   * @preconditions One connection acquired and released normally
+   * @expectedResult It is logged out, so the null-slot handling above did not buy itself a skipped logout on the path that matters
+   */
+  test("logs out an established connection", async () => {
+    const { pool, connected } = pausedPool();
+    let loggedOut = false;
+    const acquiring = pool.acquire();
+    connected({
+      usable: true,
+      logout: async () => {
+        loggedOut = true;
+      },
+    });
+    pool.release(
+      (await acquiring) as unknown as Parameters<typeof pool.release>[0],
+    );
+
+    await pool.drain();
+
+    expect(loggedOut).toBe(true);
   });
 });
