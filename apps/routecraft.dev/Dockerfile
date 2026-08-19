@@ -1,7 +1,12 @@
 # The build context is the repository root, because the site is a bun workspace
 # member and the lockfile lives there:
 #   docker build -f apps/routecraft.dev/Dockerfile -t routecraft-dev .
-FROM oven/bun:1 AS base
+# Pinned, not floating. The repo runs bun 1.3.11 everywhere else (root
+# package.json `packageManager`, which setup-bun reads in CI), and `oven/bun:1`
+# drifted to 1.3.14, whose `bun install` hangs in "Resolving dependencies"
+# here: the same install, same lockfile and same .npmrc completes on the CI
+# runner in under two minutes. Keep this in step with `packageManager`.
+FROM oven/bun:1.3.11 AS base
 WORKDIR /repo
 
 # --- Dependencies ---
