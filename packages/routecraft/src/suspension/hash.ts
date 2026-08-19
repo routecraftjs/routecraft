@@ -82,8 +82,25 @@ export function continuationHash(
   position: number,
   expect: SuspensionExpect,
 ): string {
-  const tail = steps.slice(position + 1).map(describeStep);
-  return sha256(canonical({ tail, expect: expect.hash }));
+  return continuationTailHash(steps.slice(position + 1), expect);
+}
+
+/**
+ * Hash an already-resolved continuation tail. The tail is exactly what a
+ * resume would run, which for a static `.suspend()` is the steps after it
+ * and for a re-entrant site includes the suspending step itself at its
+ * head. Same digest as {@link continuationHash} over the equivalent slice,
+ * so records parked before this helper existed keep verifying.
+ *
+ * @internal
+ */
+export function continuationTailHash(
+  tail: ReadonlyArray<Step<Adapter>>,
+  expect: SuspensionExpect,
+): string {
+  return sha256(
+    canonical({ tail: tail.map(describeStep), expect: expect.hash }),
+  );
 }
 
 /**

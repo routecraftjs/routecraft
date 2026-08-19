@@ -406,6 +406,21 @@ type ExchangeInternals = {
    * @internal
    */
   suspended?: boolean;
+  /**
+   * Step-owned closure state read back off a suspension record, set by the
+   * resume path just before a re-entrant continuation runs. The suspending
+   * step consumes it with take-once semantics ({@link takeResumeStepState})
+   * so a second dispatch of the same step later in the continuation starts
+   * fresh instead of resuming again.
+   *
+   * On internals rather than headers deliberately: it is runtime context
+   * for exactly one step execution on this process, not exchange state, and
+   * it must never be re-serialized into the next park (the step builds a
+   * fresh stepState for that).
+   *
+   * @internal
+   */
+  resumeStepState?: unknown;
 };
 
 /**
@@ -476,6 +491,32 @@ export function getExchangeRoute(exchange: Exchange): Route | undefined {
 export function setExchangeRoute(exchange: Exchange, route: Route): void {
   const internals = internalsOf(exchange);
   if (internals) internals.route = route;
+}
+
+/**
+ * Attach a suspension record's `stepState` for the re-entrant step about to
+ * re-run. Set by the resume path; consumed by {@link takeResumeStepState}.
+ *
+ * @internal
+ */
+export function setResumeStepState(exchange: Exchange, state: unknown): void {
+  const internals = internalsOf(exchange);
+  if (internals) internals.resumeStepState = state;
+}
+
+/**
+ * Read and clear the step state a resume attached. Take-once, so only the
+ * first suspend-capable step of a re-entrant continuation resumes; anything
+ * after it (including a later dispatch of the same adapter) starts fresh.
+ *
+ * @internal
+ */
+export function takeResumeStepState(exchange: Exchange): unknown {
+  const internals = internalsOf(exchange);
+  if (!internals) return undefined;
+  const state = internals.resumeStepState;
+  internals.resumeStepState = undefined;
+  return state;
 }
 
 /**

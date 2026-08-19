@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { BRAND, isBranded, setBrand } from "../brand.ts";
 
 /**
@@ -33,6 +34,15 @@ export interface Suspended {
   readonly expect?: unknown;
   /** When the suspension expires, ISO-8601. Absent when `.suspend()` declared no `ttl`. */
   readonly expiresAt?: string;
+  /**
+   * Human-facing question the suspension is waiting on. Populated when the
+   * suspending step supplied one (the agent tier's `ctx.suspend()` is the
+   * shipped producer); `.suspend()` deliberately has no option for it, since
+   * a route notifies through ordinary steps before the park.
+   */
+  readonly question?: string;
+  /** Machine-facing reason the run parked, when the suspending step supplied one. */
+  readonly reason?: string;
 }
 
 /**
@@ -62,3 +72,78 @@ export function createSuspended(value: Omit<Suspended, "status">): Suspended {
 export function isSuspended(value: unknown): value is Suspended {
   return isBranded(value, BRAND.Suspended);
 }
+
+/**
+ * JSON Schema for the {@link Suspended} acknowledgment, draft 2020-12.
+ *
+ * The shape a transport publishes when it advertises that a tool or route
+ * may park: the MCP server derives `oneOf: [Output, Suspended]` for a
+ * suspendable tool's `outputSchema` from this rendering. Closed for
+ * additional properties so the advertised contract is exactly the value
+ * {@link createSuspended} mints.
+ */
+export const SUSPENDED_JSON_SCHEMA = {
+  type: "object",
+  description:
+    "The run parked at a durable suspension. Present the question to whoever can answer it; the answer is delivered out of band with the resume token, and the real result is produced when the run continues.",
+  properties: {
+    status: { const: "suspended" },
+    suspensionId: { type: "string" },
+    token: { type: "string" },
+    expect: {
+      description:
+        "JSON Schema of what a valid answer looks like, when the suspending step's expect schema renders one.",
+    },
+    expiresAt: { type: "string", format: "date-time" },
+    question: { type: "string" },
+    reason: { type: "string" },
+  },
+  required: ["status", "suspensionId", "token"],
+  additionalProperties: false,
+} as const;
+
+/**
+ * Standard Schema for the {@link Suspended} acknowledgment.
+ *
+ * Exists so surfaces that reason in schema arms (the MCP server's
+ * advertised-output arms are the shipped consumer) can carry the
+ * acknowledgment as an ordinary `StandardSchemaV1` next to a route's own
+ * `.output()` schema. Validation accepts the framework's own acknowledgment
+ * by brand first, so a genuine `Suspended` value always passes whatever a
+ * structural check would say, and falls back to the structural check for
+ * values that crossed a process boundary and lost the brand.
+ */
+export const suspendedSchema: StandardSchemaV1<unknown, Suspended> = {
+  "~standard": {
+    version: 1,
+    vendor: "routecraft",
+    validate(value) {
+      if (isSuspended(value)) return { value };
+      if (
+        typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        (value as { status?: unknown }).status === "suspended" &&
+        typeof (value as { suspensionId?: unknown }).suspensionId ===
+          "string" &&
+        typeof (value as { token?: unknown }).token === "string"
+      ) {
+        return { value: value as Suspended };
+      }
+      return {
+        issues: [
+          {
+            message:
+              'Expected the framework Suspended acknowledgment: { status: "suspended", suspensionId, token, ... }.',
+          },
+        ],
+      };
+    },
+    // Non-standard `jsonSchema` extension, the same one Zod and ArkType
+    // expose and the JSON Schema conversion sites look up defensively.
+    jsonSchema: {
+      input: () => SUSPENDED_JSON_SCHEMA,
+      output: () => SUSPENDED_JSON_SCHEMA,
+    },
+  } as StandardSchemaV1<unknown, Suspended>["~standard"],
+};

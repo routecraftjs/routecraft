@@ -50,7 +50,10 @@ import {
   type ExecutorDeps,
 } from "./pipeline/executor.ts";
 import { detachedDefinition } from "./pipeline/chain-policy.ts";
-import type { SuspendableStep } from "./suspension/sites.ts";
+import type {
+  SuspendCapableStep,
+  SuspendableStep,
+} from "./suspension/sites.ts";
 
 // Re-exported for existing imports (builder.ts and @internal consumers).
 export { buildCacheCheckStep, buildCacheStoreStep, buildThrottleCheckStep };
@@ -329,6 +332,21 @@ export type RouteDefinition<T = unknown> = {
    * @internal
    */
   suspendSteps?: SuspendableStep[];
+
+  /**
+   * Every suspend-capable `.to()` / `.enrich()` step the route carries on
+   * its primary flow, each holding the re-entrant {@link SuspendSite} the
+   * walk assigned it. Separate from {@link RouteDefinition.suspendSteps}
+   * deliberately: a capable step only MAY park at runtime, so it does not
+   * make the route require a suspension runtime at startup (`RC5052` stays
+   * keyed to static sites; a runtime park without the runtime fails as an
+   * ordinary step error naming the config line), and it does not trip the
+   * route-scope cache refusal, whose "silently never caches" reasoning
+   * assumes every run parks.
+   *
+   * @internal
+   */
+  reentrantSuspendSteps?: SuspendCapableStep[];
 
   /**
    * The route can reach a `.resume()`. Recorded alongside

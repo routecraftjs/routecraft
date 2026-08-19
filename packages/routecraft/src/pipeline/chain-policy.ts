@@ -24,6 +24,10 @@ type NonChainField =
   | "consumer"
   | "discovery"
   | "suspendSteps"
+  // Site bookkeeping like suspendSteps: which steps could park, not a
+  // chain position. A detached run reaches those steps through its own
+  // step array, and each host carries its site on the instance.
+  | "reentrantSuspendSteps"
   | "usesResume"
   // Metadata mirrored to sources (transport admission), not a chain
   // position: the authorize steps it describes already answer for

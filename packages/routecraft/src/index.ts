@@ -48,6 +48,7 @@ export {
   type HeaderLiteral,
   isDropped,
   OperationType,
+  takeResumeStepState,
   wasOutputValidated,
   type RoutecraftHeaders,
 } from "./exchange.ts";
@@ -567,12 +568,17 @@ export type {
 export {
   DEFAULT_SUSPENSION_DB_PATH,
   MemorySuspensionStore,
+  SUSPENDED_JSON_SCHEMA,
   SUSPENSION_RUNTIME,
   SUSPENSION_SECRET_ENV,
   SUSPENSION_STORE_ENV,
   SqliteSuspensionStore,
+  SuspendSignal,
   SuspensionHeaders,
+  isSuspendSignal,
   isSuspended,
+  markSuspendCapable,
+  suspendedSchema,
   suspensionPlugin,
 } from "./suspension/index.ts";
 export type {
@@ -580,6 +586,8 @@ export type {
   DurationUnit,
   ExpiredScanCursor,
   NewSuspension,
+  SuspendSignalRequest,
+  SuspendSite,
   PendingSuspensionSummary,
   PrincipalRef,
   ResumeAcknowledgment,

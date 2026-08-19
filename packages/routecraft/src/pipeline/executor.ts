@@ -10,7 +10,7 @@ import {
   setStartedAt,
 } from "../exchange.ts";
 import { isRecovery, applyDropDirective } from "../recovery.ts";
-import { parkExchange } from "../suspension/park.ts";
+import { denyParkedOnCancellation, parkExchange } from "../suspension/park.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -508,13 +508,38 @@ export async function runPipeline(
               message: `Step "${stepLabel}" returned a "suspend" outcome without a suspend request, so the engine cannot work out what to park or what would resume.`,
             });
           }
+          // A cancelled run must not leave a live resume link behind: the
+          // caller is being told the run failed (a timeout, a stop), so an
+          // approver clicking days later would continue work its caller
+          // already saw cancelled. Before the store write, refusing to park
+          // is free; after it, the just-created suspension is denied so a
+          // replay of its token reads RC5050. The caller's RC5054 is the
+          // notification; no re-ask is delivered.
+          if (deps.abortSignal?.aborted) {
+            throw rcError("RC5054", deps.abortSignal.reason, {
+              message: `Step "${stepLabel}" raised a suspension after its run was cancelled; nothing was parked.`,
+            });
+          }
           const parked = await parkExchange(
             deps.context,
             outcome.exchange,
             outcome.request,
             deps.routeId,
-            step,
           );
+          if (deps.abortSignal?.aborted) {
+            const body = parked.body as { suspensionId?: string };
+            if (typeof body?.suspensionId === "string") {
+              await denyParkedOnCancellation(
+                deps.context,
+                parked,
+                body.suspensionId,
+                deps.routeId,
+              );
+            }
+            throw rcError("RC5054", deps.abortSignal.reason, {
+              message: `Step "${stepLabel}" parked an exchange while its run was being cancelled; the suspension was denied so its resume link is dead.`,
+            });
+          }
           queue.push({ exchange: parked, steps: [] });
           break;
         }

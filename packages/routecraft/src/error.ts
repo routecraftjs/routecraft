@@ -97,6 +97,7 @@ export interface ErrorCodeRegistry {
   RC5051: RCMeta;
   RC5052: RCMeta;
   RC5053: RCMeta;
+  RC5054: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -544,6 +545,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "Check the `ops` config. Common causes: an indicator bound to a `route` id no route declares (the message lists the known ids), two indicators sharing a name (names are the keys of the health report, so they must be unique), a value in `ops.indicators` that `defineIndicator()` did not produce, or an invalid `health.details` value.",
     docs: `${DOCS_BASE}#rc-5053`,
+    retryable: false,
+  },
+  RC5054: {
+    category: "Runtime",
+    message: "Suspension cancelled by run abort",
+    suggestion:
+      "The run raised a durable suspension while it was being cancelled (a route stop or an elapsed .timeout()). If the abort won the race the exchange was never parked; if the park won, the just-created suspension was immediately denied so its resume link is dead, and a presented token reads RC5050. Either way the caller sees this error instead of a resumable acknowledgment, which keeps the two stories consistent: a run reported as cancelled must not be resumable later. This is about the cancellation race only; a parked exchange whose process merely stops SURVIVES the stop, which is the store's entire purpose.",
+    docs: `${DOCS_BASE}#rc-5054`,
     retryable: false,
   },
   RC9901: {

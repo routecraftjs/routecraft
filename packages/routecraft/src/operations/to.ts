@@ -22,6 +22,9 @@ import {
   resolveAdapterOverride,
   invokeSendOverride,
 } from "../testing-hooks.ts";
+import { SUSPEND_HOST } from "../dsl-symbol.ts";
+import type { SuspendCapableStep, SuspendSite } from "../suspension/sites.ts";
+import { convertSuspendSignal, isSuspendSignal } from "../suspension/signal.ts";
 
 /**
  * Context handed to a destination's `send`. Extends the abort surface with a
@@ -97,11 +100,22 @@ export type ToTarget<T = unknown, R = unknown> =
  * invoked directly: a returned value (other than `undefined`) replaces the
  * body, mirroring the static send/fetch split on the inferred return type.
  */
-export class ToStep<T = unknown, R = unknown> implements Step<Adapter> {
+export class ToStep<T = unknown, R = unknown>
+  implements Step<Adapter>, SuspendCapableStep
+{
   operation: OperationType = OperationType.TO;
   adapter: Adapter;
+  /** Assigned by the suspend-site walk when the adapter is suspend-capable. */
+  suspendSite?: SuspendSite;
+  /** Why the walk refused a site (fan-out or sealed side flow), when it did. */
+  suspendRefusal?: string;
   /** Function form, when constructed from a bare callable. */
   private readonly callable: CallableEnricher<T, R | void> | undefined;
+
+  /** This step hosts its own suspend site; wrappers forward here. @internal */
+  [SUSPEND_HOST](): SuspendCapableStep {
+    return this;
+  }
 
   constructor(target: ToTarget<T, R>) {
     if (typeof target === "function") {
@@ -151,25 +165,35 @@ export class ToStep<T = unknown, R = unknown> implements Step<Adapter> {
 
     let result: unknown;
     let sendResolved = false;
-    if (override) {
-      result = await invokeSendOverride(exchange, this.adapter, override);
-      // A mocked send stays a send: the body continues unchanged even if
-      // the mock returned a value. Only fetch-resolved calls replace it.
-      if (!this.callable && hasSend<T>(this.adapter)) {
+    try {
+      if (override) {
+        result = await invokeSendOverride(exchange, this.adapter, override);
+        // A mocked send stays a send: the body continues unchanged even if
+        // the mock returned a value. Only fetch-resolved calls replace it.
+        if (!this.callable && hasSend<T>(this.adapter)) {
+          result = undefined;
+        }
+      } else if (this.callable) {
+        result = await Promise.resolve(this.callable(exchange, sendContext));
+      } else if (hasSend<T>(this.adapter)) {
+        sendResolved = true;
+        await Promise.resolve(this.adapter.send(exchange, sendContext));
         result = undefined;
+      } else if (hasFetch<T, R>(this.adapter)) {
+        result = await Promise.resolve(
+          this.adapter.fetch(exchange, toSignalContext(ctx)),
+        );
+      } else {
+        throw missingSlotError("`.to()`");
       }
-    } else if (this.callable) {
-      result = await Promise.resolve(this.callable(exchange, sendContext));
-    } else if (hasSend<T>(this.adapter)) {
-      sendResolved = true;
-      await Promise.resolve(this.adapter.send(exchange, sendContext));
-      result = undefined;
-    } else if (hasFetch<T, R>(this.adapter)) {
-      result = await Promise.resolve(
-        this.adapter.fetch(exchange, toSignalContext(ctx)),
-      );
-    } else {
-      throw missingSlotError("`.to()`");
+    } catch (err) {
+      // Converted here, inside the step, so a step-scope wrapper never
+      // observes the raw throw (a retry wrapper would re-run the adapter
+      // and charge the parked work twice).
+      if (isSuspendSignal(err)) {
+        return convertSuspendSignal(this, exchange, err);
+      }
+      throw err;
     }
 
     const collectedHeaders = Object.keys(receiptHeaders).length

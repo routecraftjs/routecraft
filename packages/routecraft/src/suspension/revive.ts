@@ -7,13 +7,18 @@ import {
   DefaultExchange,
   HeadersKeys,
   setExchangeRoute,
+  setResumeStepState,
 } from "../exchange.ts";
 import type { Route } from "../route.ts";
 import type { Adapter, Step } from "../types.ts";
-import { continuationHash, describeExpect } from "./hash.ts";
+import { continuationTailHash, describeExpect } from "./hash.ts";
 import { SuspensionHeaders } from "./exchange-state.ts";
 import { SUSPENSION_RUNTIME } from "./runtime-key.ts";
-import { deserializeExchange, encodePersistable } from "./serialize.ts";
+import {
+  decodePersistable,
+  deserializeExchange,
+  encodePersistable,
+} from "./serialize.ts";
 import type { SuspendSite } from "./sites.ts";
 import type {
   PrincipalRef,
@@ -180,17 +185,22 @@ export async function reviveSuspension(
     );
   }
 
-  // `describeExpect(site.expect)`, never `suspension.expect`: the stored
-  // descriptor is the one that was folded into `suspension.continuationHash`
-  // at park time, so comparing it against itself is inert and a widened
-  // `expect` would resume into a contract its approver never saw. The
-  // suspending step's own definition is excluded from the hashed tail by
-  // design, which makes this descriptor the ONLY representation of that step
-  // in the digest.
-  const current = continuationHash(
-    [site.step, ...site.site.continuation],
-    0,
-    describeExpect(site.expect),
+  // For a static site: `describeExpect(site.expect)`, never
+  // `suspension.expect`. The stored descriptor is the one that was folded
+  // into `suspension.continuationHash` at park time, so comparing it against
+  // itself is inert and a widened `expect` would resume into a contract its
+  // approver never saw. The suspending step's own definition is excluded
+  // from the hashed tail by design, which makes this descriptor the ONLY
+  // representation of that step in the digest.
+  //
+  // For a re-entrant site the stored descriptor is all there is: the live
+  // schema was raised inside the step's own code and cannot be read back
+  // off the route, so the expect arm IS inert there. The step itself heads
+  // the hashed tail instead, so its definition is covered; the schema is
+  // the same residue class as the behaviour of what the tail calls.
+  const current = continuationTailHash(
+    site.site.continuation,
+    site.expect ? describeExpect(site.expect) : suspension.expect,
   );
   if (current !== suspension.continuationHash) {
     return await refuseContinuation(
@@ -207,19 +217,31 @@ export async function reviveSuspension(
   // Schema is an object with a validate function and cannot be persisted.
   // Reaching here means the hash check above already confirmed that live
   // schema is the one the approval was taken against.
-  const result = await validateAgainst(site.expect, request.result);
-  if (!result.ok) {
-    // Ingress only, deliberately: unlike an expiry or a changed
-    // continuation, a malformed answer is not a change in the world the
-    // suspended route has to react to. It is a per-request input error, and
-    // re-entering the suspended route's error channel for it would hand any
-    // token holder a lever to drive that route's re-ask path (approver
-    // notifications included) with junk. The suspension is left resumable,
-    // so the answerer simply corrects the payload; shaping a reply to a bad
-    // answer is the ingress route's own `.error()` handler's job.
-    throw rcError("RC5049", result.message, {
-      message: `The answer for suspension "${id}" does not satisfy the expect schema: ${result.message}`,
-    });
+  //
+  // A re-entrant site has no live schema to read back (it was raised inside
+  // the step's own code), so the check is skipped THERE AND ONLY THERE: the
+  // raw answer is handed to the re-entering step as its suspended call's
+  // payload, and the step is the validator. A token holder can therefore
+  // resume a re-entrant suspension with any JSON; the consuming step (the
+  // agent tier's model loop is the shipped case) must treat it as untrusted
+  // input, which a tool result already is.
+  let answer: unknown = request.result;
+  if (site.expect) {
+    const result = await validateAgainst(site.expect, request.result);
+    if (!result.ok) {
+      // Ingress only, deliberately: unlike an expiry or a changed
+      // continuation, a malformed answer is not a change in the world the
+      // suspended route has to react to. It is a per-request input error, and
+      // re-entering the suspended route's error channel for it would hand any
+      // token holder a lever to drive that route's re-ask path (approver
+      // notifications included) with junk. The suspension is left resumable,
+      // so the answerer simply corrects the payload; shaping a reply to a bad
+      // answer is the ingress route's own `.error()` handler's job.
+      throw rcError("RC5049", result.message, {
+        message: `The answer for suspension "${id}" does not satisfy the expect schema: ${result.message}`,
+      });
+    }
+    answer = result.value;
   }
 
   const resumedAt = new Date();
@@ -279,10 +301,17 @@ export async function reviveSuspension(
   let outcome: SerializedOutcome;
   try {
     const exchange = rehydrate(context, route, suspension, {
-      result: result.value,
+      result: answer,
       resumedAt,
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
     });
+    // The step-owned closure state goes back to the step that parked it,
+    // through internals rather than headers: it is runtime context for one
+    // re-entrant execution on this process, never exchange state, and must
+    // not be re-serialized into a second park.
+    if (site.site.reentrant && suspension.stepState !== undefined) {
+      setResumeStepState(exchange, decodePersistable(suspension.stepState));
+    }
 
     context.emit("route:exchange:resumed", {
       routeId: suspension.routeId,
@@ -680,17 +709,28 @@ async function runContinuation(
 /**
  * Find the suspending step and its site by the address on the record.
  *
+ * `expect` is present only for a static `.suspend()` site: it is the live
+ * schema read back off the route, which is what the answer is validated
+ * against. A re-entrant site carries none (the schema was raised inside the
+ * step's own code), so its answer skips validation and its hash comparison
+ * uses the stored descriptor.
+ *
  * @internal
  */
 function findSite(
   route: Route,
   suspension: Suspension,
 ):
-  | { step: Step<Adapter>; site: SuspendSite; expect: StandardSchemaV1 }
+  | { step: Step<Adapter>; site: SuspendSite; expect?: StandardSchemaV1 }
   | undefined {
   for (const step of route.definition.suspendSteps ?? []) {
     if (step.site?.position === suspension.position) {
       return { step, site: step.site, expect: step.expect };
+    }
+  }
+  for (const host of route.definition.reentrantSuspendSteps ?? []) {
+    if (host.suspendSite?.position === suspension.position) {
+      return { step: host, site: host.suspendSite };
     }
   }
   return undefined;

@@ -25,9 +25,25 @@ export const BRAND = {
   /**
    * The `Suspended` acknowledgment execution one answers with. Branded so a
    * transport recognises a parked exchange without shape-sniffing a body a
-   * user route could also produce.
+   * user route could also carry.
    */
   Suspended: Symbol.for("routecraft.suspended"),
+  /**
+   * An adapter that may raise a durable suspension from inside its own
+   * execution (the agent tier's tool loop is the one shipped case). The
+   * suspend-site walk assigns a re-entrant site to `.to()` / `.enrich()`
+   * steps whose adapter carries this brand, so a runtime suspension from
+   * such a step parks against a continuation that re-runs the step first.
+   * Core owns the symbol; consumer packages mark their adapters with it and
+   * never define their own.
+   */
+  SuspendCapable: Symbol.for("routecraft.adapter.suspendCapable"),
+  /**
+   * The throwable a suspend-capable adapter raises to park the exchange it
+   * is executing. Converted into the ordinary `suspend` StepOutcome at the
+   * step boundary (`.to()` / `.enrich()`), never propagated as a failure.
+   */
+  SuspendSignal: Symbol.for("routecraft.suspendSignal"),
 } as const;
 
 export const INTERNALS_KEY = Symbol.for("routecraft.exchange.internals");

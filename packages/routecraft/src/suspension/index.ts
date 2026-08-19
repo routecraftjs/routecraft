@@ -56,8 +56,18 @@ export type {
   SuspensionTestSeams,
 } from "./config.ts";
 
-export { isSuspended } from "./suspended.ts";
+export {
+  SUSPENDED_JSON_SCHEMA,
+  isSuspended,
+  suspendedSchema,
+} from "./suspended.ts";
 export type { Suspended } from "./suspended.ts";
+
+export { markSuspendCapable } from "./sites.ts";
+export type { SuspendSite } from "./sites.ts";
+
+export { SuspendSignal, isSuspendSignal } from "./signal.ts";
+export type { SuspendSignalRequest } from "./signal.ts";
 
 export { SuspensionHeaders } from "./exchange-state.ts";
 export type { SuspensionAffordance } from "./exchange-state.ts";

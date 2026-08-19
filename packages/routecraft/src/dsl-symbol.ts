@@ -35,3 +35,17 @@ export const COLLECT_STEPS: unique symbol = Symbol.for(
 export const NESTED_STEPS: unique symbol = Symbol.for(
   "routecraft.step.nestedSteps",
 );
+
+/**
+ * Symbol a step implements to expose the step instance that hosts a
+ * re-entrant suspend site: the `.to()` / `.enrich()` step whose adapter
+ * carries the suspend-capable brand. Step-scope wrappers forward it to
+ * their inner step (like {@link NESTED_STEPS}), so the suspend-site walk
+ * can store the site on the instance whose `execute` converts the suspend
+ * signal, however deeply the step is wrapped.
+ *
+ * @internal
+ */
+export const SUSPEND_HOST: unique symbol = Symbol.for(
+  "routecraft.step.suspendHost",
+);
