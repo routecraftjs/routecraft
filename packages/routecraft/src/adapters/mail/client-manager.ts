@@ -19,6 +19,10 @@ import { loadOptionalPeer } from "../shared/optional-peer.ts";
 // ImapPool: fixed-size, mailbox-aware IMAP connection pool for one account
 // ---------------------------------------------------------------------------
 
+function drainedError(): Error {
+  return new Error("IMAP pool drained during shutdown");
+}
+
 /**
  * Fixed-size IMAP connection pool for a single account.
  * Tracks which mailbox each connection has open to avoid unnecessary switches.
@@ -26,7 +30,12 @@ import { loadOptionalPeer } from "../shared/optional-peer.ts";
  */
 export class ImapPool {
   private readonly entries: Array<{
-    client: InstanceType<typeof import("imapflow").ImapFlow>;
+    /**
+     * Null while the slot is reserved and its connect is still in flight.
+     * The reservation is what bounds the pool, so it has to exist before
+     * there is a client to put in it.
+     */
+    client: InstanceType<typeof import("imapflow").ImapFlow> | null;
     inUse: boolean;
     currentMailbox: string | null;
   }> = [];
@@ -34,6 +43,7 @@ export class ImapPool {
     resolve: (client: InstanceType<typeof import("imapflow").ImapFlow>) => void;
     reject: (error: Error) => void;
   }> = [];
+  private drained = false;
   private readonly poolSize: number;
   private readonly imapConfig: {
     host?: string;
@@ -63,9 +73,9 @@ export class ImapPool {
     // 1. Prefer idle connection with same mailbox already open
     if (mailbox) {
       const sameMailbox = this.entries.find(
-        (c) => !c.inUse && c.currentMailbox === mailbox,
+        (c) => c.client !== null && !c.inUse && c.currentMailbox === mailbox,
       );
-      if (sameMailbox) {
+      if (sameMailbox?.client) {
         sameMailbox.inUse = true;
         if (sameMailbox.client.usable) return sameMailbox.client;
         // Dead connection, remove and fall through
@@ -74,8 +84,8 @@ export class ImapPool {
     }
 
     // 2. Any idle connection
-    const idle = this.entries.find((c) => !c.inUse);
-    if (idle) {
+    const idle = this.entries.find((c) => c.client !== null && !c.inUse);
+    if (idle?.client) {
       idle.inUse = true;
       if (idle.client.usable) return idle.client;
       // Dead connection, remove and fall through
@@ -85,15 +95,22 @@ export class ImapPool {
     // 3. Create new if under limit (reserve slot before async connect)
     if (this.entries.length < this.poolSize) {
       const placeholder = {
-        client: null as unknown as InstanceType<
-          typeof import("imapflow").ImapFlow
-        >,
+        client: null as InstanceType<typeof import("imapflow").ImapFlow> | null,
         inUse: true,
         currentMailbox: null,
       };
       this.entries.push(placeholder);
       try {
         const client = await this.createClient();
+        // The pool can be drained while this connect is in flight, which is
+        // the ordinary shape of a shutdown that begins during startup. Drain
+        // has already walked the entries by then, so this connection would
+        // otherwise stay open with nothing left holding a reference to it.
+        if (this.drained) {
+          this.entries.splice(this.entries.indexOf(placeholder), 1);
+          await client.logout().catch(() => {});
+          throw drainedError();
+        }
         placeholder.client = client;
         return client;
       } catch (error) {
@@ -146,13 +163,17 @@ export class ImapPool {
    * Drain all connections. Called during context teardown.
    */
   async drain(): Promise<void> {
-    const drainError = new Error("IMAP pool drained during shutdown");
+    this.drained = true;
+    const drainError = drainedError();
     for (const waiter of this.waitQueue) {
       waiter.reject(drainError);
     }
     this.waitQueue.length = 0;
     for (const entry of this.entries) {
-      await entry.client.logout().catch(() => {});
+      // A slot whose connect has not resolved holds no client yet. That
+      // acquire logs its own connection out when it lands, so skipping it
+      // here leaves nothing open.
+      if (entry.client) await entry.client.logout().catch(() => {});
     }
     this.entries.length = 0;
   }
