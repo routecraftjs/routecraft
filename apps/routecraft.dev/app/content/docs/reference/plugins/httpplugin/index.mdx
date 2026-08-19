@@ -30,14 +30,14 @@ export const craftConfig = defineConfig({
 
 | Option | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
-| `server` | `string` | `default` | No | Named server to mount on. |
-| `auth` | `ValidatorAuthOptions \| ApiKeyAuthOptions \| false` | inherited | No | Single-mount sugar: the wall for a lone `default` mount at `/`. Omit to inherit server auth, `false` for a public surface. Mutually exclusive with `mounts`. |
-| `mounts` | `Record<string, { path, auth? }>` | one `default` mount at `/` | No | Named path-scoped surfaces, each its own wall or public. See [Mounts and authentication](/docs/reference/adapters/http#mounts-and-authentication). |
+| `server` | `string` | `default` | No | Single-mount sugar: named server for the lone `default` mount. Mutually exclusive with `mounts`. |
+| `auth` | `HttpAuth \| false` | inherited | No | Single-mount sugar: the wall for a lone `default` mount at `/`. Omit to inherit server auth, `false` to remove the wall (the inherited validator stays reachable for `.authorize()`). Mutually exclusive with `mounts`. |
+| `mounts` | `Record<string, { path, server?, auth? }>` | one `default` mount at `/` | No | Named path-scoped surfaces, each a complete self-description: path, server, auth. See [Mounts and authentication](/docs/reference/adapters/http#mounts-and-authentication) and [Mounts and servers](/docs/reference/adapters/http#mounts-and-servers). |
 | `maxBodySize` | `number` | `10485760` (10 MB) | No | Maximum request body in bytes. Larger requests get `413`. |
 | `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | No | Toggle the `plugin:http:request:completed` event. |
 | `builtins` | `{ health?, ready?, openapi?: { enabled?: boolean; requireAuth?: boolean } }` | see below | No | Per-endpoint config for `/health`, `/ready`, `/openapi.json`. Each takes the same `{ enabled, requireAuth }` shape. See [Configuring built-ins](/docs/reference/adapters/http#configuring-built-ins) on the adapter reference for defaults and the per-endpoint behaviour table. |
 
-Per-route authorization uses the existing [`.authorize({ roles, scopes })`](/docs/reference/operations/authorize) builder. The mount, not the route, decides authentication: routes on a walled mount require a valid credential, routes on a public mount (`auth: false`) never see one, and a public-mount route that declares `.authorize()` forces verification through the server validator for itself alone. See [Mounts and authentication](/docs/reference/adapters/http#mounts-and-authentication) for the full matrix. Built-in endpoints `/health`, `/ready`, and `/openapi.json` serve from the `default` mount at `/` unless a user route claims the same path.
+Per-route authorization uses the existing [`.authorize({ roles, scopes })`](/docs/reference/operations/authorize) builder. The mount, not the route, decides authentication: routes on a walled mount require a valid credential, routes on a mount with no wall (`auth: false`) never see one, and such a route that declares `.authorize()` forces verification through the inherited validator for itself alone. See [Mounts and authentication](/docs/reference/adapters/http#mounts-and-authentication) for the full matrix. Built-in endpoints `/health`, `/ready`, and `/openapi.json` serve from the `default` mount at `/` unless a user route claims the same path, and describe only routes on that mount's server when mounts span several listeners.
 
 ## Custom mounts
 

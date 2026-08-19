@@ -41,6 +41,17 @@ function makeJwt(): string {
   return signHs256({ secret: JWT_SECRET });
 }
 
+/** Capture warn-level messages on a context's logger for the test's lifetime. */
+function captureWarnings(ctx: TestContext["ctx"]): string[] {
+  const warnings: string[] = [];
+  const original = ctx.logger.warn.bind(ctx.logger);
+  ctx.logger.warn = ((first: unknown, second?: unknown) => {
+    warnings.push(typeof first === "string" ? first : String(second));
+    return original(first as never, second as never);
+  }) as typeof ctx.logger.warn;
+  return warnings;
+}
+
 /**
  * The ops plugin end to end: the endpoints an orchestrator and an uptime
  * monitor actually call.
@@ -134,7 +145,7 @@ describe("the ops plugin", () => {
    * @expectedResult The aggregate stays 200 and the route stays up, carrying the failure as diagnostic detail. This is the rule the whole surface is built on: a refused caller or a validation error is a healthy route behaving correctly, and escalating it turns every scope gap into an incident
    */
   test("keeps a failing exchange out of the health verdict", async () => {
-    const port = await start({}, [
+    const port = await start({ health: { details: "always" } }, [
       craft()
         .id("thrower")
         .from(simple("tick"))
@@ -182,7 +193,10 @@ describe("the ops plugin", () => {
    */
   test("pages on a deployment failure without failing readiness", async () => {
     const dependency = defineIndicator({ name: "mail" });
-    const port = await start({ indicators: [dependency] });
+    const port = await start({
+      health: { details: "always" },
+      indicators: [dependency],
+    });
 
     dependency.down({ subsystem: "imap" });
 
@@ -490,7 +504,6 @@ describe("the ops plugin", () => {
    */
   test("warns about a declared indicator nobody registered", async () => {
     const orphan = defineIndicator({ name: `orphan-${Date.now()}` });
-    const warnings: string[] = [];
 
     const builder = testContext()
       .with({
@@ -500,11 +513,7 @@ describe("the ops plugin", () => {
       .routes([craft().id("worker").from(direct()).to(noop())]);
 
     t = await builder.build();
-    const original = t.ctx.logger.warn.bind(t.ctx.logger);
-    t.ctx.logger.warn = ((first: unknown, second?: unknown) => {
-      warnings.push(typeof first === "string" ? first : String(second));
-      return original(first as never, second as never);
-    }) as typeof t.ctx.logger.warn;
+    const warnings = captureWarnings(t.ctx);
 
     await t.startAndWaitReady();
 
@@ -560,15 +569,122 @@ describe("the ops plugin", () => {
   });
 
   /**
-   * @case The details gate collapses when the server has no validator
-   * @preconditions The default exposure on a server with no auth configured
-   * @expectedResult Details are served. A gate with nothing behind it does not silently withhold, which is the same collapse the http plugin applies to its /ready built-in
+   * @case The defaulted details gate collapses to never when no validator exists
+   * @preconditions The unwritten default exposure on a server with no auth configured and no ops.auth
+   * @expectedResult Statuses are served, details are withheld from every caller, and a startup warning names the ways out. A default must not leak app-supplied diagnostics to an anonymous caller; a missing diagnostic is visible, a leak is silent
    */
-  test("collapses the details gate when no validator exists", async () => {
-    const port = await start();
+  test("collapses the defaulted details gate to never when no validator exists", async () => {
+    const builder = testContext()
+      .with({
+        servers: { default: { port: 0, host: "127.0.0.1" } },
+        plugins: [opsPlugin()],
+      })
+      .routes([craft().id("worker").from(direct()).to(noop())]);
+    t = await builder.build();
+    let port: number | undefined;
+    t.ctx.on("server:listening", ({ details }) => {
+      port = details.port;
+    });
+    const warnings = captureWarnings(t.ctx);
+    await t.startAndWaitReady();
+    if (port === undefined) throw new Error("no server reported a port");
 
     const health = await get(port, "/health");
-    expect(health.body.routes["worker"]?.details).toEqual({
+    expect(health.status).toBe(200);
+    expect(health.body.routes["worker"]?.status).toBe("up");
+    expect(health.body.routes["worker"]?.details).toBeUndefined();
+    expect(warnings.some((w) => w.includes("statuses only"))).toBe(true);
+  });
+
+  /**
+   * @case An explicit when-authenticated gate with no validator fails the boot
+   * @preconditions health.details written as "when-authenticated", no ops.auth, no server validator
+   * @expectedResult RC5053 at apply. The operator asked for a gate and there is nothing to gate with; reinterpreting that in either direction is guessing at intent
+   */
+  test("refuses an explicit when-authenticated gate with no validator", async () => {
+    const builder = testContext()
+      .with({
+        servers: { default: { port: 0, host: "127.0.0.1" } },
+        plugins: [opsPlugin({ health: { details: "when-authenticated" } })],
+      })
+      .routes([craft().id("worker").from(direct()).to(noop())]);
+    await expect(builder.build()).rejects.toThrow(/no validator is in scope/);
+  });
+
+  /**
+   * @case ops.auth: false is refused as a no-op
+   * @preconditions The plugin constructed with auth: false
+   * @expectedResult RC5053 naming the actual lever. The health surface never walls, so there is no wall for false to remove; an operator writing it means health.details: "always"
+   */
+  test("refuses ops.auth false", () => {
+    // The type no longer admits `false`; the cast simulates a JS caller.
+    const options = {
+      auth: false,
+      health: { details: "always" },
+    } as unknown as OpsPluginOptions;
+    expect(() => opsPlugin(options)).toThrow(/no-op/);
+  });
+
+  /**
+   * @case The details gate admits through the inherited server validator
+   * @preconditions when-authenticated exposure on a server with a jwt validator, ops.auth unset
+   * @expectedResult An anonymous caller gets statuses without details and never a 401; a caller the inherited validator admits gets the details too
+   */
+  test("gates details on the inherited server validator", async () => {
+    const port = await start(
+      { health: { details: "when-authenticated" } },
+      undefined,
+      true,
+    );
+
+    const anonymous = await get(port, "/health");
+    expect(anonymous.status).toBe(200);
+    expect(anonymous.body.routes["worker"]?.status).toBe("up");
+    expect(anonymous.body.routes["worker"]?.details).toBeUndefined();
+
+    const admitted = await get(port, "/health", makeJwt());
+    expect(admitted.status).toBe(200);
+    expect(admitted.body.routes["worker"]?.details).toEqual({
+      lifecycle: "running",
+    });
+  });
+
+  /**
+   * @case The details gate admits through the ops mount's own validator
+   * @preconditions ops.auth is an api key on a server with no validator of its own
+   * @expectedResult The wrong key and no key both get statuses without details and never a 401 (the surface has no wall, so /health/live keeps answering the kubelet); the right key gets details
+   */
+  test("gates details on the ops mount's own validator", async () => {
+    const port = await start({
+      auth: {
+        kind: "apiKey",
+        in: "header",
+        name: "x-ops-key",
+        keys: ["s3cret"],
+      },
+      health: { details: "when-authenticated" },
+    });
+
+    const anonymous = await get(port, "/health");
+    expect(anonymous.status).toBe(200);
+    expect(anonymous.body.routes["worker"]?.details).toBeUndefined();
+
+    const live = await get(port, "/health/live");
+    expect(live.status).toBe(200);
+
+    const wrongKey = await fetch(`http://127.0.0.1:${port}/health`, {
+      headers: { "x-ops-key": "wrong" },
+    });
+    expect(wrongKey.status).toBe(200);
+    const wrongBody = (await wrongKey.json()) as Fetched["body"];
+    expect(wrongBody.routes["worker"]?.details).toBeUndefined();
+
+    const rightKey = await fetch(`http://127.0.0.1:${port}/health`, {
+      headers: { "x-ops-key": "s3cret" },
+    });
+    expect(rightKey.status).toBe(200);
+    const rightBody = (await rightKey.json()) as Fetched["body"];
+    expect(rightBody.routes["worker"]?.details).toEqual({
       lifecycle: "running",
     });
   });

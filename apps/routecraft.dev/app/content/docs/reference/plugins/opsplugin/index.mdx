@@ -83,6 +83,7 @@ Routes are always `deployment`. Indicators declare their own domain, and default
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `server` | `string` | `'default'` | Named server to mount the health paths on. |
+| `auth` | `HttpAuth` | inherits `servers.<name>.auth` | Validator for the details gate. Not a wall: the surface answers every probe without a credential whatever this says. |
 | `health.details` | `'always' \| 'when-authenticated' \| 'never'` | `'when-authenticated'` | Exposure of per-component `details`. |
 | `indicators` | `Indicator[]` | `[]` | Indicators to register. See [`defineIndicator`](#define-indicator). |
 
@@ -235,9 +236,17 @@ Pushing through a handle no context has registered is inert on all three methods
 
 `health.details` gates the per-component `details` maps. It withholds diagnostics and nothing else: it does **not** hide topology, because component names are the keys of the always-served status maps and the per-component paths answer 404 for an unknown id in every mode. An app that must not disclose its route inventory puts the ops listener somewhere the public cannot reach.
 
-`when-authenticated` resolves the caller's credential through the server's validator (`servers.<name>.auth`). An anonymous probe still gets 200 with every status, and an operator holding a token additionally gets the `details` maps. On a server with no validator there is nothing to authenticate against, so it collapses to `always`, mirroring how the http plugin collapses `/ready`'s `requireAuth`: a gate with nothing behind it does not silently withhold. Set `details: 'never'` to withhold regardless.
+`when-authenticated` resolves the caller's credential through the mount's effective validator: `ops.auth` when set, else the server's (`servers.<name>.auth`). An anonymous probe still gets 200 with every status, and an operator holding an admitted credential additionally gets the `details` maps. With no validator in scope the gate fails closed: written explicitly it refuses the boot, because the operator asked for a gate and there is nothing to gate with, and as the unwritten default it collapses to `never` with a startup warning naming the ways out. Set `details: 'never'` to withhold regardless, or `details: 'always'` to serve details to every caller.
 
-The mount inherits the server's validator rather than opting out, but inheriting gates nothing here: the ingress never authenticates on its own, and this handler calls `authenticate()` only to decide whether to serve `details`. The surface stays reachable without a credential, which is the only way an orchestrator can use it.
+`ops.auth` is not a wall. The ingress never authenticates on its own, and this handler calls `authenticate()` only to decide whether to serve `details`, so the surface stays reachable without a credential, which is the only way an orchestrator can use it. `auth: false` is refused as a no-op: there is no wall here to remove. The `/ops` action namespace will define its own admission rule when actions ship.
+
+```ts
+// One listener, no server-wide validator: the gate is the ops mount's own.
+ops: {
+  auth: { kind: 'apiKey', in: 'header', name: 'x-ops-key', keys: [process.env.OPS_KEY!] },
+  health: { details: 'when-authenticated' },
+}
+```
 
 ## Wiring the probes
 

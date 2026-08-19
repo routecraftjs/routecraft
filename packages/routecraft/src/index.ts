@@ -95,6 +95,7 @@ export { requireWebIngress } from "./plugins/server/registry.ts";
 export { normalizeStaticPathPrefix } from "./plugins/server/mount-path.ts";
 export type {
   HttpMount,
+  HttpMountAuth,
   HttpMountAuthPolicy,
   HttpMountContext,
   HttpServerDefinition,

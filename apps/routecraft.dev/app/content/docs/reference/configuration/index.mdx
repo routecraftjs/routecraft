@@ -135,13 +135,13 @@ export const craftConfig = defineConfig({
 })
 ```
 
-Each server accepts `port` (required), `host` (default `127.0.0.1`), `kind` (currently only `http`), an optional validator `auth`, and `shutdownGraceMs` (default `30000`) bounding the graceful drain on stop. A surface inherits server auth unless it supplies its own `auth`, or sets `auth: false` to opt out. Every named server must receive at least one mount, and two names cannot claim the same non-ephemeral `host:port`. Full listener behaviour lives on the [serversPlugin reference](/docs/reference/plugins/serversplugin).
+Each server accepts `port` (required), `host` (default `127.0.0.1`), `kind` (currently only `http`), an optional validator `auth`, and `shutdownGraceMs` (default `30000`) bounding the graceful drain on stop. A surface inherits server auth unless it supplies its own `auth`; `auth: false` removes the wall while keeping the inherited validator reachable for routes that pull identity. Every named server must receive at least one mount, and two names cannot claim the same non-ephemeral `host:port`. Full listener behaviour lives on the [serversPlugin reference](/docs/reference/plugins/serversplugin).
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `server` | `string` | `default` | Named entry under `servers`. |
-| `auth` | `ValidatorAuthOptions \| ApiKeyAuthOptions \| false` | inherited | Single-mount sugar: wall for a lone `default` mount at `/`. `false` makes it public. Mutually exclusive with `mounts`. |
-| `mounts` | `Record<string, { path, auth? }>` | one `default` mount at `/` | Named path-scoped surfaces with per-mount walls; routes pick one via `http({ mount })`. See the [adapter reference](/docs/reference/adapters/http#mounts-and-authentication). |
+| `server` | `string` | `default` | Single-mount sugar: named entry under `servers` for the lone `default` mount. Mutually exclusive with `mounts`. |
+| `auth` | `HttpAuth \| false` | inherited | Single-mount sugar: wall for a lone `default` mount at `/`. `false` removes the wall; the inherited validator stays reachable for `.authorize()`. Mutually exclusive with `mounts`. |
+| `mounts` | `Record<string, { path, server?, auth? }>` | one `default` mount at `/` | Named path-scoped surfaces, each naming its own listener and wall; routes pick one via `http({ mount })`. See the [adapter reference](/docs/reference/adapters/http#mounts-and-authentication). |
 | `maxBodySize` | `number` | `10485760` (10 MB) | Maximum request body in bytes; larger requests return `413`. |
 | `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | Toggle the per-request `plugin:http:request:completed` event. |
 | `builtins` | `{ health?, ready?, openapi?: { enabled?: boolean; requireAuth?: boolean } }` | see [adapter reference](/docs/reference/adapters/http#configuring-built-ins) | Per-endpoint config for `/health`, `/ready`, `/openapi.json`. Uniform `{ enabled, requireAuth }` shape per built-in (inspired by Spring Boot Actuator). |
@@ -171,7 +171,8 @@ export const craftConfig = defineConfig({
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `server` | `string` | `'default'` | Named server to mount `/health` and `/ops` on. Give the surface its own entry in `servers` to put it on a dedicated port. |
-| `health` | `{ details?: 'always' \| 'when-authenticated' \| 'never' }` | `{ details: 'when-authenticated' }` | How much per-component detail to expose. Statuses are always served. |
+| `auth` | `HttpAuth` | inherits `servers.<name>.auth` | Validator for the details gate. Not a wall: probes always answer without a credential. |
+| `health` | `{ details?: 'always' \| 'when-authenticated' \| 'never' }` | `{ details: 'when-authenticated' }` | How much per-component detail to expose. Statuses are always served; with no validator in scope the default withholds details (explicit `when-authenticated` with none refuses the boot). |
 | `indicators` | `Indicator[]` | `[]` | Indicators to register, declared with [`defineIndicator`](/docs/reference/plugins/opsplugin#define-indicator). |
 
 Route lifecycle, circuit-breaker position, and the serving state are derived from events the framework already emits, so `ops: {}` alone gives a truthful surface. Indicators cover the dependencies the framework cannot see.
