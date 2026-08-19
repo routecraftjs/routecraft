@@ -2,6 +2,8 @@ import type { BuiltinHandler } from "./dispatcher";
 import { buildOpenApiDocument, type HttpOpenApiInfo } from "./openapi";
 import type { HttpRouteView } from "./registry";
 
+import { jsonResponse } from "./response.ts";
+
 export interface BuiltinsOptions {
   registry: HttpRouteView;
   /** Whether the always-on built-ins layer should serve `/health`. */
@@ -53,16 +55,19 @@ export function createBuiltins(opts: BuiltinsOptions): BuiltinHandler {
     }
 
     if (pathname === "/health") {
-      return jsonResponse({ status: "ok" }, 200);
+      return jsonResponse({ status: "ok" }, { status: 200 });
     }
 
     if (pathname === "/ready") {
-      return jsonResponse({ status: "ready", routes: opts.registry.size }, 200);
+      return jsonResponse(
+        { status: "ready", routes: opts.registry.size },
+        { status: 200 },
+      );
     }
 
     // pathname === "/openapi.json" && opts.serveOpenApi (covered by isKnown above)
     const doc = buildOpenApiDocument(opts.registry, opts.openapiInfo);
-    return jsonResponse(doc, 200);
+    return jsonResponse(doc, { status: 200 });
   };
 }
 
@@ -80,7 +85,7 @@ export function createOpenApiGatedHandler(
     if (req.method !== "GET") {
       return new Response(null, { status: 405, headers: { Allow: "GET" } });
     }
-    return jsonResponse(buildOpenApiDocument(registry, info), 200);
+    return jsonResponse(buildOpenApiDocument(registry, info), { status: 200 });
   };
 }
 
@@ -96,13 +101,6 @@ export function buildReadyResponse(
   isAuthenticated: boolean,
 ): Response {
   return isAuthenticated
-    ? jsonResponse({ status: "ready", routes: registry.size }, 200)
-    : jsonResponse({ status: "ready" }, 200);
-}
-
-function jsonResponse(payload: unknown, status: number): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8" },
-  });
+    ? jsonResponse({ status: "ready", routes: registry.size }, { status: 200 })
+    : jsonResponse({ status: "ready" }, { status: 200 });
 }

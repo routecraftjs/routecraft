@@ -248,6 +248,25 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
               const claims: PathClaim[] = [
                 { kind: "prefix", path: mount.path },
               ];
+              // Built-ins are answered inside this mount's dispatcher, so
+              // without an explicit claim they are invisible to bind-time
+              // validation and any other surface claiming the same path wins
+              // silently on dispatch score instead of being refused.
+              //
+              // The ops surface is the deliberate exception: its `/health` is
+              // a strict superset of the constant this one serves, so rather
+              // than refusing the most natural pair of config keys
+              // (`http: {}` alongside `ops: {}`) the built-in stands down and
+              // lets ops answer. Every other collision still fails at bind.
+              const opsOwnsHealth = ingress.hasMount("ops");
+              for (const [path, enabled] of [
+                ["/health", isDefaultRoot && healthEnabled && !opsOwnsHealth],
+                ["/ready", isDefaultRoot && readyEnabled],
+                ["/openapi.json", isDefaultRoot && openapiEnabled],
+              ] as const) {
+                if (enabled)
+                  claims.push({ kind: "exact", path, methods: ["GET"] });
+              }
               for (const entry of runtime.registry.values()) {
                 claims.push({
                   kind: "pattern",

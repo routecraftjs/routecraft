@@ -96,6 +96,7 @@ export interface ErrorCodeRegistry {
   RC5050: RCMeta;
   RC5051: RCMeta;
   RC5052: RCMeta;
+  RC5053: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -535,6 +536,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A route in this context can reach a durable `.suspend()`, but nothing configured where parked exchanges are stored or how resume tokens are signed. Add `suspension: {}` to `defineConfig` to take the defaults (sqlite plus the `ROUTECRAFT_SUSPENSION_SECRET` environment variable), or `suspension: { store, secret }` to be explicit. It is deliberately not implicit: a durable suspend that silently parks into memory loses everything it promised on the next restart.",
     docs: `${DOCS_BASE}#rc-5052`,
+    retryable: false,
+  },
+  RC5053: {
+    category: "Definition",
+    message: "Ops plugin misconfigured",
+    suggestion:
+      "Check the `ops` config. Common causes: an indicator bound to a `route` id no route declares (the message lists the known ids), two indicators sharing a name (names are the keys of the health report, so they must be unique), a value in `ops.indicators` that `defineIndicator()` did not produce, or an invalid `health.details` value.",
+    docs: `${DOCS_BASE}#rc-5053`,
     retryable: false,
   },
   RC9901: {

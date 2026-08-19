@@ -62,6 +62,14 @@ The auth surface adds four more boundaries (source credential verification, rout
 
 All boundaries use `err.meta.message` (`RoutecraftError`) or `err.message` (plain `Error`) as the log message, with a fallback string specific to the boundary.
 
+A `catch` that classifies malformed caller input and produces no error is not a
+boundary and does not belong in this list. Decoding a percent-escaped path
+segment is the standing example: `decodeURIComponent` throws `URIError` on input
+any client can send, so `path-matcher` turns that into a non-match and the ops
+health handler turns it into the same 404 an unknown component gets. There is
+nothing to hand on and nothing an operator would act on, and logging it would
+hand every caller a log-volume lever.
+
 ---
 
 ## Error Code Philosophy

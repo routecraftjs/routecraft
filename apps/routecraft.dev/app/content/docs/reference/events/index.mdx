@@ -404,6 +404,18 @@ Events emitted by the HTTP plugin (configured via `defineConfig({ http })`). The
 
 `plugin:http:request:completed` fires for every request by default; disable it with `http: { events: { perRequest: false } }`. Built-in endpoints (`/health`, `/ready`, `/openapi.json`) do not emit it.
 
+## Ops plugin events
+
+Events emitted by the ops plugin (configured via `defineConfig({ ops })`).
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `plugin:ops:health:changed` | A health component moved to a different status | `{ component, name, from, to }` |
+
+The ops surface is a mount on a named server, so its listener lifecycle is reported by [`server:listening`](#server-events) and its siblings under the server's own name, not by the plugin.
+
+`plugin:ops:health:changed` is what an operator alerts on instead of polling. `component` is `context`, `route`, or `indicator`, and `name` is the component's id (the reserved id `context` for the serving lifecycle). Transitions are detected per component as it changes, so a hot route costs one status comparison per exchange rather than a walk of the whole report. Staleness is the exception: an indicator going stale is a function of elapsed time rather than of any call, so it surfaces on the next read of the endpoint and not as a transition.
+
 ---
 
 ## Related

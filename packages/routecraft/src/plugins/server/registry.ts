@@ -175,6 +175,7 @@ export class HttpMountRegistry implements WebIngress {
   mountHttp(mount: HttpMount): () => void {
     // Claims are evaluated once at start() validation; a mount arriving after
     // that would silently never dispatch, so refuse it loudly instead.
+    // (see hasMount below for why registration order does not matter to it)
     if (this.validated) {
       throw rcError("RC5003", undefined, {
         message: `servers.${this.serverName}: mount "${mount.id}" registered after the server validated its mounts. Register mounts during plugin apply(), before context start().`,
@@ -266,6 +267,17 @@ export class HttpMountRegistry implements WebIngress {
         }
       }
     }
+  }
+
+  /**
+   * Whether a mount with this id is registered here.
+   *
+   * Answered from the registration map rather than the evaluated snapshot, so
+   * a `claims()` thunk can consult it: thunks run once every mount has
+   * registered, which makes the answer independent of plugin order.
+   */
+  hasMount(id: string): boolean {
+    return this.mounts.has(id);
   }
 
   async dispatch(

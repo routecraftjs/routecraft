@@ -330,6 +330,12 @@
     "retryable": false
   },
   {
+    "code": "RC5053",
+    "category": "Definition",
+    "message": "Ops plugin misconfigured",
+    "retryable": false
+  },
+  {
     "code": "AI1001",
     "category": "Adapter",
     "message": "Agent block resolution failed",

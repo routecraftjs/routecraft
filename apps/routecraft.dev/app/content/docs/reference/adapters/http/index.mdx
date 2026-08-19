@@ -151,8 +151,14 @@ Override via the exchange before the response is built:
 
 Registered alongside user routes; user routes with the same path always win.
 
-- `GET /health` -> `200` `{ status: "ok" }`. K8s liveness target.
-- `GET /ready` -> `200` `{ status: "ready", routes }` for authenticated callers; `{ status: "ready" }` for anonymous callers when global `auth` is configured. K8s readiness target.
+- `GET /health` -> `200` `{ status: "ok" }`. A constant: it reports that the listener is up and nothing else.
+- `GET /ready` -> `200` `{ status: "ready", routes }` for authenticated callers; `{ status: "ready" }` for anonymous callers when global `auth` is configured. Also a constant, which is to say it cannot go red.
+
+<Callout type="note">
+
+These two never fail, so neither can tell an orchestrator to restart or derotate anything. For probes that answer from real route, breaker and dependency state, use the [ops plugin](/docs/reference/plugins/opsplugin), which serves `/health`, `/health/live` and `/health/ready`. Enabling it on the same server stands the `/health` built-in down and answers that path with the real report.
+
+</Callout>
 - `GET /openapi.json` -> OpenAPI 3.1 document built from the route registry. Paths, methods, summaries, descriptions, and path params populate in v1; request/response body schemas are stubs until the Standard-Schema-to-JSON-Schema follow-up lands.
 
 #### Configuring built-ins

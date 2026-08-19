@@ -100,6 +100,15 @@ export interface HttpMountContext {
 export interface WebIngress {
   readonly serverName: string;
   readonly serverAuthConfigured: boolean;
+  /**
+   * Whether a mount with this id is registered on the same server.
+   *
+   * Only meaningful from inside a `claims()` thunk, which the server evaluates
+   * once every mount has registered. It exists so a surface can stand down for
+   * one that supersedes it, rather than colliding at bind time over a path
+   * both would answer.
+   */
+  hasMount(id: string): boolean;
   readonly boundAddress:
     { readonly host: string; readonly port: number } | undefined;
   mountHttp(mount: HttpMount): () => void;

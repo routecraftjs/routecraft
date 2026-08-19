@@ -35,8 +35,9 @@ export const craftConfig = defineConfig({
 | `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | One-time event handlers that fire once then auto-unsubscribe |
 | `cron` | `Partial<CronOptions>` | No | -- | Default options for all `cron()` sources ([details](#cron)) |
 | `direct` | `{ channelType?: DirectChannelType }` | No | -- | Custom channel implementation for all `direct()` endpoints ([details](#direct)) |
-| `servers` | `Record<string, HttpServerDefinition>` | Only when a surface mounts HTTP | -- | Named HTTP listeners that HTTP, MCP, and custom plugins mount onto ([details](#servers-and-http)) |
+| `servers` | `Record<string, HttpServerDefinition>` | Only when a surface mounts HTTP | -- | Named HTTP listeners that HTTP, MCP, ops, and custom plugins mount onto ([details](#servers-and-http)) |
 | `http` | `HttpPluginOptions` | No | -- | Serve routes over HTTP for the `http()` source ([details](#servers-and-http)) |
+| `ops` | `OpsConfig` | No | -- | Health, readiness, and liveness endpoints ([details](#ops)) |
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
 | `suspension` | `SuspensionConfig` | Only when a route can reach `.suspend()` or `.resume()` | -- | Where parked exchanges are stored and how resume tokens are signed. A context with a suspendable route and no `suspension` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#suspension)) |
@@ -144,6 +145,38 @@ Each server accepts `port` (required), `host` (default `127.0.0.1`), `kind` (cur
 | `maxBodySize` | `number` | `10485760` (10 MB) | Maximum request body in bytes; larger requests return `413`. |
 | `events` | `{ perRequest?: boolean }` | `{ perRequest: true }` | Toggle the per-request `plugin:http:request:completed` event. |
 | `builtins` | `{ health?, ready?, openapi?: { enabled?: boolean; requireAuth?: boolean } }` | see [adapter reference](/docs/reference/adapters/http#configuring-built-ins) | Per-endpoint config for `/health`, `/ready`, `/openapi.json`. Uniform `{ enabled, requireAuth }` shape per built-in (inspired by Spring Boot Actuator). |
+
+### ops
+
+Configures the operational surface: liveness, readiness, and operational health over HTTP, mounted on a [named server](#servers-and-http). See [opsPlugin](/docs/reference/plugins/opsplugin) for the full behaviour and the response shapes.
+
+```ts
+import { defineConfig, defineIndicator } from '@routecraft/routecraft'
+
+export const mailHealth = defineIndicator({
+  name: 'mail',
+  maxAgeMs: 15 * 60_000,
+  route: 'probe-mail',
+})
+
+export const craftConfig = defineConfig({
+  servers: { ops: { port: 9090 } },
+  ops: {
+    server: 'ops',
+    indicators: [mailHealth],
+  },
+})
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `server` | `string` | `'default'` | Named server to mount `/health` and `/ops` on. Give the surface its own entry in `servers` to put it on a dedicated port. |
+| `health` | `{ details?: 'always' \| 'when-authenticated' \| 'never' }` | `{ details: 'when-authenticated' }` | How much per-component detail to expose. Statuses are always served. |
+| `indicators` | `Indicator[]` | `[]` | Indicators to register, declared with [`defineIndicator`](/docs/reference/plugins/opsplugin#define-indicator). |
+
+Route lifecycle, circuit-breaker position, and the serving state are derived from events the framework already emits, so `ops: {}` alone gives a truthful surface. Indicators cover the dependencies the framework cannot see.
+
+Bind the server the surface sits on somewhere the probes can reach. A Kubernetes `httpGet` probe comes from the kubelet against the pod IP and a reverse-proxy check comes from the proxy, so neither reaches `127.0.0.1`; only a Docker `HEALTHCHECK`, which runs inside the container, does. Keep an internal-only port private at the network layer rather than by binding loopback.
 
 ### suspension
 
