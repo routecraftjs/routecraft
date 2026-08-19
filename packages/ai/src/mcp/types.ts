@@ -98,6 +98,18 @@ export interface McpLocalToolEntry {
   input?: import("@routecraft/routecraft").RouteSchemas;
   /** Output schemas (response body, response headers); forwarded to `tools/list`. */
   output?: import("@routecraft/routecraft").RouteSchemas;
+  /**
+   * The route behind this tool can park at a durable suspension: it carries
+   * a static `.suspend()` site, or a suspend-capable step (an agent whose
+   * tool may raise one). Recorded at registration so the advertised output
+   * arms include the framework's `Suspended` acknowledgment: a run that
+   * parks answers with it instead of the declared output, and a schema that
+   * omitted the arm would be one the server provably violates. Deliberately
+   * an over-approximation ("may suspend"), which is the honest direction:
+   * a client must be able to handle the acknowledgment even if a given
+   * deployment never produces one.
+   */
+  suspendable?: boolean;
   /** MCP tool annotations (read-only hints, destructive hints, etc.). */
   annotations?: McpToolAnnotations;
   /** Icons forwarded to `tools/list` per the MCP spec. */
@@ -657,9 +669,14 @@ export interface McpTool {
     required?: string[];
     [key: string]: unknown;
   };
-  /** JSON Schema for the tool output when the route declares one. */
+  /**
+   * JSON Schema for the tool output when the route declares one. The root
+   * is usually an object schema, but not always: a suspendable tool
+   * advertises `oneOf: [Output, Suspended]` with no `type` at the root
+   * (SEP-2106 permits non-object roots; see #574 for the wider question).
+   */
   outputSchema?: {
-    type: "object";
+    type?: "object";
     properties?: Record<string, unknown>;
     required?: string[];
     [key: string]: unknown;

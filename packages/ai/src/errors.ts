@@ -40,6 +40,19 @@ declare module "@routecraft/routecraft" {
     } & McpToolProvenance;
     /** MCP tool call completed successfully. */
     "plugin:mcp:tool:completed": { tool: string } & McpToolProvenance;
+    /**
+     * MCP tool call parked at a durable suspension: execution one answered
+     * with the `Suspended` acknowledgment and the real result belongs to
+     * execution two. Separate from `completed` because a parked run
+     * reported as finished is a false receipt (the same honesty rule that
+     * gives declines their own event).
+     *
+     * Local routes only: a proxied call cannot park an exchange of ours.
+     */
+    "plugin:mcp:tool:suspended": {
+      tool: string;
+      suspensionId: string;
+    };
     /** MCP tool call failed. */
     "plugin:mcp:tool:failed": {
       tool: string;

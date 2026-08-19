@@ -3,6 +3,7 @@ import {
   DefaultExchange,
   HeadersKeys,
   isRoutecraftError,
+  isSuspended,
   markAuthentic,
   requireWebIngress,
 } from "@routecraft/routecraft";
@@ -1190,10 +1191,21 @@ export class McpServer {
       tool.title = entry.title;
     }
     const outputArms = advertisedOutputArms(entry);
-    if (outputArms.length > 0) {
+    if (outputArms.length === 1) {
       tool.outputSchema = this.schemaToJsonSchema(outputArms[0]) as NonNullable<
         McpTool["outputSchema"]
       >;
+    } else if (outputArms.length > 1) {
+      // A suspendable tool's contract is the union: a parked run answers
+      // with the Suspended acknowledgment instead of the declared output,
+      // and advertising only the first arm would publish a schema this
+      // server provably violates on every park. `oneOf` per the epic's
+      // published shape; the arms are disjoint by construction (`status:
+      // "suspended"` is const in the acknowledgment arm and reserved in no
+      // user schema the framework mints).
+      tool.outputSchema = {
+        oneOf: outputArms.map((arm) => this.schemaToJsonSchema(arm)),
+      } as NonNullable<McpTool["outputSchema"]>;
     }
     if (entry.annotations !== undefined) {
       tool.annotations = entry.annotations;
@@ -1359,9 +1371,20 @@ export class McpServer {
           ? publishedBody
           : JSON.stringify(publishedBody);
 
-      this.context.emit(`plugin:mcp:tool:completed`, {
-        tool: toolName,
-      });
+      // A parked run is neither finished nor failed: reporting it as
+      // `completed` would publish a false receipt to every dashboard, the
+      // same honesty rule that gave SerializedOutcome its distinct
+      // "suspended" status and declines their own event (#576).
+      if (isSuspended(publishedBody)) {
+        this.context.emit(`plugin:mcp:tool:suspended`, {
+          tool: toolName,
+          suspensionId: publishedBody.suspensionId,
+        });
+      } else {
+        this.context.emit(`plugin:mcp:tool:completed`, {
+          tool: toolName,
+        });
+      }
 
       // A tool that advertises an outputSchema (the route declares .output())
       // MUST return structuredContent per the MCP spec; spec-compliant clients
