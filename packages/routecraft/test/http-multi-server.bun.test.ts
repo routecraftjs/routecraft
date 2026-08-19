@@ -1,13 +1,6 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
-import {
-  craft,
-  http,
-  httpPlugin,
-  noop,
-  type CraftConfig,
-  type EventName,
-} from "@routecraft/routecraft";
+import { craft, http, httpPlugin, noop } from "@routecraft/routecraft";
 
 /**
  * Per-mount server selection: one http plugin whose mounts sit on different
@@ -33,16 +26,6 @@ describe("http mounts across named servers", () => {
   ): Promise<Record<string, number>> {
     const ports: Record<string, number> = {};
     const builder = testContext()
-      .on(
-        "server:listening" as EventName,
-        ((payload: { details: unknown }) => {
-          const { server, port } = payload.details as {
-            server: string;
-            port: number;
-          };
-          ports[server] = port;
-        }) as Parameters<ReturnType<typeof testContext>["on"]>[1],
-      )
       .routes(routes)
       .with({
         servers: {
@@ -50,8 +33,11 @@ describe("http mounts across named servers", () => {
           internal: { port: 0, host: "127.0.0.1" },
         },
         http: { mounts },
-      } as CraftConfig);
+      });
     t = await builder.build();
+    t.ctx.on("server:listening", ({ details }) => {
+      ports[details.server] = details.port;
+    });
     await t.startAndWaitReady();
     expect(Object.keys(ports).sort()).toEqual(["default", "internal"]);
     return ports;
@@ -156,6 +142,37 @@ describe("http mounts across named servers", () => {
         },
       }),
     ).toThrow(/both claim path "\/api" on servers\.default/);
+  });
+
+  /**
+   * @case A misspelt mount server name fails the build with nothing mounted
+   * @preconditions Two mounts, the second naming a server that does not exist
+   * @expectedResult RC5003 naming the unknown server, and a rebuild with the name corrected boots cleanly, proving the first mount was not left registered by the failed attempt
+   */
+  test("refuses an unknown mount server before mounting anything", async () => {
+    const plugin = httpPlugin({
+      mounts: {
+        api: { path: "/api" },
+        admin: { path: "/admin", server: "intrenal" },
+      },
+    });
+    await expect(
+      testContext()
+        .with({
+          servers: {
+            default: { port: 0, host: "127.0.0.1" },
+            internal: { port: 0, host: "127.0.0.1" },
+          },
+          plugins: [plugin],
+        })
+        .routes([
+          craft()
+            .id("api-route")
+            .from(http({ mount: "api", path: "/ping", method: "GET" }))
+            .to(noop()),
+        ])
+        .build(),
+    ).rejects.toThrow(/"intrenal" is not defined/);
   });
 
   /**

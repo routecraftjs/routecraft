@@ -41,6 +41,17 @@ function makeJwt(): string {
   return signHs256({ secret: JWT_SECRET });
 }
 
+/** Capture warn-level messages on a context's logger for the test's lifetime. */
+function captureWarnings(ctx: TestContext["ctx"]): string[] {
+  const warnings: string[] = [];
+  const original = ctx.logger.warn.bind(ctx.logger);
+  ctx.logger.warn = ((first: unknown, second?: unknown) => {
+    warnings.push(typeof first === "string" ? first : String(second));
+    return original(first as never, second as never);
+  }) as typeof ctx.logger.warn;
+  return warnings;
+}
+
 /**
  * The ops plugin end to end: the endpoints an orchestrator and an uptime
  * monitor actually call.
@@ -493,7 +504,6 @@ describe("the ops plugin", () => {
    */
   test("warns about a declared indicator nobody registered", async () => {
     const orphan = defineIndicator({ name: `orphan-${Date.now()}` });
-    const warnings: string[] = [];
 
     const builder = testContext()
       .with({
@@ -503,11 +513,7 @@ describe("the ops plugin", () => {
       .routes([craft().id("worker").from(direct()).to(noop())]);
 
     t = await builder.build();
-    const original = t.ctx.logger.warn.bind(t.ctx.logger);
-    t.ctx.logger.warn = ((first: unknown, second?: unknown) => {
-      warnings.push(typeof first === "string" ? first : String(second));
-      return original(first as never, second as never);
-    }) as typeof t.ctx.logger.warn;
+    const warnings = captureWarnings(t.ctx);
 
     await t.startAndWaitReady();
 
@@ -568,7 +574,6 @@ describe("the ops plugin", () => {
    * @expectedResult Statuses are served, details are withheld from every caller, and a startup warning names the ways out. A default must not leak app-supplied diagnostics to an anonymous caller; a missing diagnostic is visible, a leak is silent
    */
   test("collapses the defaulted details gate to never when no validator exists", async () => {
-    const warnings: string[] = [];
     const builder = testContext()
       .with({
         servers: { default: { port: 0, host: "127.0.0.1" } },
@@ -580,11 +585,7 @@ describe("the ops plugin", () => {
     t.ctx.on("server:listening", ({ details }) => {
       port = details.port;
     });
-    const original = t.ctx.logger.warn.bind(t.ctx.logger);
-    t.ctx.logger.warn = ((first: unknown, second?: unknown) => {
-      warnings.push(typeof first === "string" ? first : String(second));
-      return original(first as never, second as never);
-    }) as typeof t.ctx.logger.warn;
+    const warnings = captureWarnings(t.ctx);
     await t.startAndWaitReady();
     if (port === undefined) throw new Error("no server reported a port");
 
@@ -616,9 +617,12 @@ describe("the ops plugin", () => {
    * @expectedResult RC5053 naming the actual lever. The health surface never walls, so there is no wall for false to remove; an operator writing it means health.details: "always"
    */
   test("refuses ops.auth false", () => {
-    expect(() =>
-      opsPlugin({ auth: false, health: { details: "always" } }),
-    ).toThrow(/no-op/);
+    // The type no longer admits `false`; the cast simulates a JS caller.
+    const options = {
+      auth: false,
+      health: { details: "always" },
+    } as unknown as OpsPluginOptions;
+    expect(() => opsPlugin(options)).toThrow(/no-op/);
   });
 
   /**

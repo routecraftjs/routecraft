@@ -65,7 +65,7 @@ export const craftConfig: CraftConfig = {
 | `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol for the MCP server |
 | `server` | `string` | `'default'` | Named entry under `defineConfig({ servers })` to mount the HTTP transport on (http transport only) |
 | `path` | `string` | `'/mcp'` | HTTP path for the MCP endpoint on the shared listener (http transport only) |
-| `auth` | `McpHttpAuthOptions` | -- | Auth for the HTTP endpoint (http transport only; see below) |
+| `auth` | `McpHttpAuthOptions \| false` | inherits `servers.<name>.auth` | Auth for the HTTP endpoint (http transport only; see below). `false` removes the wall while keeping the inherited validator reachable. |
 | `cors` | `false \| McpCorsOptions` | loopback-only | CORS for the HTTP transport. Default reflects loopback `Origin` headers; set to `false` to disable or `{ origin }` to allowlist production browser clients. See [Securing capabilities -> CORS](/docs/advanced/securing-capabilities#cors). |
 | `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of local route tool names to expose, or a filter function. Applies to both `tools/list` and `tools/call`. |
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
@@ -101,6 +101,8 @@ The stdio transport uses stdout as the protocol channel. Routecraft's logger def
 **HTTP server auth (`McpHttpAuthOptions`):**
 
 When `auth` is set and `transport` is `'http'`, every request to `/mcp` must include a valid `Authorization: Bearer <token>` header. The `auth` object requires a `validator` function that receives the raw bearer token and returns an `AuthPrincipal` on success or `null` to reject. The principal is made available on exchange headers so routes can read the caller's identity.
+
+When `auth` is omitted, the named server's validator (if any) is inherited as the wall. `auth: false` removes the wall: the surface never demands credentials, requires no scopes, and issues no challenge, but the inherited validator stays reachable, so a valid token still attaches a principal to tool calls (which is how a tool's `.authorize()` admits on a public mount), an invalid or expired one is treated as absent, and a validator infrastructure failure still maps to 500.
 
 | Field | Type | Description |
 |-------|------|-------------|

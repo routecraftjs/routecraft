@@ -62,6 +62,14 @@ export interface HttpMount {
    */
   readonly auth?: HttpAuth | false;
   /**
+   * Whether this surface enforces the resolved wall. Defaults to true. The
+   * ops surface sets false because its health paths answer every probe
+   * without a credential whatever the facts say; the registry uses this to
+   * keep the inherited-authentication log from claiming a gate the surface
+   * never enforces.
+   */
+  readonly enforcesWall?: boolean;
+  /**
    * Responses on this mount may stream or stay quiet indefinitely (MCP
    * streamable HTTP, SSE). The ingress exempts its requests from the
    * listener's idle timeout so a silent stream is not reaped, while every
@@ -82,6 +90,12 @@ export interface HttpMount {
  * health paths).
  */
 export interface HttpMountAuth {
+  /**
+   * Only three combinations are reachable, one per spelling of `auth`:
+   * unset resolves { own: false, optedOut: false, walled: configured },
+   * a config of its own { own: true, optedOut: false, configured: true,
+   * walled: true }, and `false` { own: false, optedOut: true, walled: false }.
+   */
   /** An effective validator exists (the mount's own, or inherited). */
   readonly configured: boolean;
   /** The mount declared its own validator rather than inheriting. */

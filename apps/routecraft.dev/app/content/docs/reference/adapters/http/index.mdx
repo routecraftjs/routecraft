@@ -259,6 +259,11 @@ Rules that keep this safe:
 - `.authorize()` can only make a route stricter, never looser; there is no route-level way to weaken a mount's wall.
 - Route `path`s are relative to the mount prefix, so a route `'/orders/:id'` on the `api` mount serves `/api/orders/:id`.
 - An omitted `mount` resolves only to a mount literally named `default`; with mounts configured and none named `default`, the route fails loudly instead of landing on an unintended surface.
+- A route cannot be carved out under another mount's prefix: a `default`-mount route resolving inside `/api` fails bind-time claim validation.
+- Mount `path`s are static canonical pathname prefixes: no `?`, `#`, `:param` segments, empty segments, backslashes, or percent-encoding, and no `.` or `..` segments, spaces, or anything else URL parsing would rewrite into a different pathname. Anything else is refused at construction with RC5003.
+- The top-level `http: { auth }` remains as sugar for a single `default` mount at `/`.
+
+The identity-when-present personalisation pattern (formerly `auth: "optional"`) has no mount-level equivalent: a route is walled, identity-demanding via `.authorize()`, or credential-blind.
 
 #### Mounts and servers
 
@@ -279,12 +284,7 @@ defineConfig({
 })
 ```
 
-Two mounts may claim the same path on different listeners; the same path on one listener is refused at construction. The built-ins (`/health`, `/ready`, `/openapi.json`) serve from the mount named `default` at `/` and describe only routes on that mount's server, so an internal listener's inventory never leaks through the public OpenAPI document.
-- A route cannot be carved out under another mount's prefix: a `default`-mount route resolving inside `/api` fails bind-time claim validation.
-- Mount `path`s are static canonical pathname prefixes: no `?`, `#`, `:param` segments, empty segments, backslashes, or percent-encoding, and no `.` or `..` segments, spaces, or anything else URL parsing would rewrite into a different pathname. Anything else is refused at construction with RC5003.
-- The top-level `http: { auth }` remains as sugar for a single `default` mount at `/`.
-
-The identity-when-present personalisation pattern (formerly `auth: "optional"`) has no mount-level equivalent: a route is walled, identity-demanding via `.authorize()`, or credential-blind.
+Two mounts may claim the same path on different listeners; the same path on one listener is refused at construction. The built-ins (`/health`, `/ready`, `/openapi.json`) serve from the mount named `default` at `/` and describe only routes on that mount's server, so an internal listener's inventory never leaks through the public OpenAPI document. The `/health` built-in also stands down for an ops mount on the same listener only; an ops surface on another listener leaves this mount's `/health` serving its own constant body.
 
 ### Signed webhooks
 

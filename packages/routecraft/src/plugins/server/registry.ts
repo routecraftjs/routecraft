@@ -155,6 +155,7 @@ export class HttpMountRegistry implements WebIngress {
     string,
     HttpMountAuthPolicy | undefined
   >();
+  private readonly authFactsByMount = new Map<string, HttpMountAuth>();
   private evaluatedClaims: ReadonlyArray<{
     mount: HttpMount;
     claims: readonly PathClaim[];
@@ -195,6 +196,7 @@ export class HttpMountRegistry implements WebIngress {
       });
     }
     this.mounts.set(mount.id, mount);
+    this.authFactsByMount.set(mount.id, this.resolveMountAuth(mount.auth));
     return () => {
       if (this.mounts.get(mount.id) !== mount) return;
       this.mounts.delete(mount.id);
@@ -206,6 +208,7 @@ export class HttpMountRegistry implements WebIngress {
       );
       this.authByMount.delete(mount.id);
       this.authPolicyByMount.delete(mount.id);
+      this.authFactsByMount.delete(mount.id);
     };
   }
 
@@ -228,12 +231,13 @@ export class HttpMountRegistry implements WebIngress {
     this.authByMount.clear();
     this.authPolicyByMount.clear();
     for (const { mount } of evaluated) {
-      const facts = this.resolveMountAuth(mount.auth);
-      // The log fires only for a mount whose wall is the inherited validator.
-      // An opted-out mount also resolves the server validator, but announcing
-      // "inherited authentication" for a surface that opted out of walling
-      // would read as the opposite of what was configured.
-      const inherited = facts.walled && !facts.own;
+      const facts = this.authFactsByMount.get(mount.id)!;
+      // Walled, inheriting, and enforcing: an opted-out mount and a surface
+      // that never walls (ops) both resolve the server validator without it
+      // gating anything, so announcing inheritance for them would misstate
+      // the exposure.
+      const inherited =
+        facts.walled && !facts.own && mount.enforcesWall !== false;
       const auth =
         mount.auth === false || mount.auth === undefined
           ? this.serverAuth
@@ -354,7 +358,9 @@ export class HttpMountRegistry implements WebIngress {
       serverName: this.serverName,
       authenticate,
       authPolicy: this.authPolicyByMount.get(mount.id),
-      auth: this.resolveMountAuth(mount.auth),
+      auth:
+        this.authFactsByMount.get(mount.id) ??
+        this.resolveMountAuth(mount.auth),
     });
   }
 }

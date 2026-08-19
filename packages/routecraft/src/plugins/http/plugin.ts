@@ -128,8 +128,18 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           ? (event) => ctx.emit("plugin:http:request:completed", { ...event })
           : undefined;
 
+      // All server names resolve before anything mounts, so a misspelt
+      // `server` on the third mount cannot leave the first two registered on
+      // a context whose boot then fails; the unwind is not guaranteed to
+      // reach this plugin's teardown.
+      const ingresses = new Map(
+        mountsResolved.map((mount) => [
+          mount.name,
+          requireWebIngress(ctx, mount.server),
+        ]),
+      );
       for (const mount of mountsResolved) {
-        const ingress = requireWebIngress(ctx, mount.server);
+        const ingress = ingresses.get(mount.name)!;
         const runtime = mountRuntimes.get(mount.name)!;
         const mountId =
           mount.name === "default" ? "http" : `http:${mount.name}`;
@@ -161,10 +171,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           });
         };
 
-        // The wall and validator facts come from the registry, which is the
-        // one place the effective-auth rule lives. `auth: false` keeps the
-        // inherited validator reachable there (for routes that declare
-        // .authorize()) while removing the wall.
+        // The effective-auth rule lives in the registry; these are facts.
         const mountAuth = ingress.resolveMountAuth(mount.auth);
         const walled = mountAuth.walled;
         const isDefaultRoot = mount.name === "default" && mount.path === "/";
@@ -231,10 +238,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         unmounts.push(
           ingress.mountHttp({
             id: mountId,
-            // Forwarded verbatim, `false` included: the registry keeps the
-            // inherited validator reachable on an opted-out mount so
-            // authorize-pull works; whether the wall is enforced is this
-            // dispatcher's job.
+            // Forwarded verbatim, `false` included (see the plugin JSDoc).
             ...(mount.auth !== undefined ? { auth: mount.auth } : {}),
             claims: () => {
               // Routes that demand identity on an unwalled mount need a

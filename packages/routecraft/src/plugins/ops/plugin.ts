@@ -84,7 +84,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
   const serverName = options.server ?? "default";
   const detailsExposure = options.health?.details ?? "when-authenticated";
   const detailsExplicit = options.health?.details !== undefined;
-  const mountAuthOption = options.auth === false ? undefined : options.auth;
+  const mountAuthOption = options.auth;
   const indicators: readonly Indicator[] = options.indicators ?? [];
 
   const runtimes = new WeakMap<CraftContext, Runtime>();
@@ -100,10 +100,8 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       const ingress = requireWebIngress(ctx, serverName);
       const mountAuth = ingress.resolveMountAuth(mountAuthOption);
 
-      // Written explicitly, the gate is a statement of intent, and intent
-      // with nothing to gate on is a misconfiguration to refuse, not to
-      // reinterpret in either direction. Only the unwritten default may
-      // collapse (to `never`, in the handler).
+      // Explicit intent with nothing to gate on is refused; only the
+      // unwritten default may collapse (to `never`, in the handler).
       if (
         detailsExplicit &&
         detailsExposure === "when-authenticated" &&
@@ -239,6 +237,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
 
       runtime.unmount = ingress.mountHttp({
         id: "ops",
+        // The health surface never walls; the flag keeps the registry's
+        // inherited-authentication log from claiming a gate it never runs.
+        enforcesWall: false,
         ...(mountAuthOption !== undefined ? { auth: mountAuthOption } : {}),
         claims: () => CLAIMS,
         handler,
@@ -273,10 +274,8 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         runtime.state.declareRoute(route.definition.id);
       }
 
-      // The explicit case was refused at apply(), so reaching here with the
-      // gate mode and no validator means the unwritten default collapsed to
-      // `never`. Without this line the collapse would be invisible to a
-      // reader who does not yet know details exist to miss.
+      // Reaching this with the gate mode and no validator means the
+      // unwritten default collapsed; the explicit case was refused at apply.
       if (detailsExposure === "when-authenticated" && !runtime.authConfigured) {
         ctx.logger.warn(
           { server: serverName, plugin: "ops" },
@@ -322,7 +321,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
 }
 
 function validate(options: OpsPluginOptions): void {
-  if (options.auth === false) {
+  // The type no longer admits `false` (TypeScript users get the refusal at
+  // the keystroke); this guard is for JS callers and untyped config files.
+  if ((options as { auth?: unknown }).auth === false) {
     throw rcError("RC5053", undefined, {
       message:
         'ops.auth: false is a no-op: the health surface never walls. Remove it, or if you meant to serve details to every caller, set health.details: "always".',

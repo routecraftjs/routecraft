@@ -204,7 +204,7 @@ export interface OpsPluginOptions {
    * every caller. The `/ops` action namespace will define its own admission
    * rule when actions ship.
    */
-  auth?: HttpAuth | false;
+  auth?: HttpAuth;
   /** Health endpoint configuration. */
   health?: OpsHealthOptions;
   /** Indicators to register. See `defineIndicator`. */

@@ -32,6 +32,10 @@ describe("MCP on an opted-out mount over a secured server", () => {
     call: (
       token?: string,
     ) => Promise<{ status: number; principal: Principal | undefined }>;
+    post: (
+      body: unknown,
+      token?: string,
+    ) => Promise<{ status: number; body: string }>;
   }> {
     let captured: Principal | undefined;
     let port = 0;
@@ -56,6 +60,13 @@ describe("MCP on an opted-out mount over a secured server", () => {
             port: 0,
             auth: {
               validator: (token: string) => {
+                if (token === "jwks-down") {
+                  throw new TypeError("fetch failed", {
+                    cause: Object.assign(new Error("refused"), {
+                      code: "ECONNREFUSED",
+                    }),
+                  });
+                }
                 if (token !== "good-token") throw new Error("bad token");
                 return {
                   kind: "custom" as const,
@@ -89,6 +100,7 @@ describe("MCP on an opted-out mount over a secured server", () => {
     }
 
     return {
+      post,
       call: async (token?: string) => {
         captured = undefined;
         const init = await post(
@@ -144,5 +156,42 @@ describe("MCP on an opted-out mount over a secured server", () => {
     const result = await call("good-token");
     expect(result.status).toBe(200);
     expect(result.principal?.subject).toBe("user-7");
+  });
+
+  /**
+   * @case A validator infrastructure failure is a 500, not anonymous service
+   * @preconditions mcp auth false, verifying the token throws a network-shaped error the shared classifier maps to infrastructure
+   * @expectedResult 500 and the tool does not run. This is the one refusal an opted-out mount keeps: a broken JWKS fetch is a server-side outage, and silently downgrading an authenticated client to anonymous would change tool behaviour with no signal
+   */
+  test("maps a validator infrastructure failure to 500", async () => {
+    const { post } = await boot();
+    const res = await post(
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: INIT_PARAMS },
+      "jwks-down",
+    );
+    expect(res.status).toBe(500);
+    expect(res.body).toContain("Authentication unavailable");
+  });
+
+  /**
+   * @case userinfo with auth false fails the build eagerly
+   * @preconditions mcp auth false plus a userinfo enricher; the inherited validator cannot be wrapped
+   * @expectedResult The context build rejects before binding, naming the explicit-auth requirement, so enrichment can never appear configured while silently not running
+   */
+  test("refuses userinfo on an opted-out mount before binding", async () => {
+    await expect(
+      testContext()
+        .with({
+          servers: { default: { host: "127.0.0.1", port: 0 } },
+          plugins: [
+            mcpPlugin({
+              transport: "http",
+              auth: false,
+              userinfo: async () => ({ email: "ada@example.com" }),
+            }),
+          ],
+        })
+        .build(),
+    ).rejects.toThrow(/explicit mcp\.auth validator/);
   });
 });
