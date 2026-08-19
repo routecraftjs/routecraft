@@ -156,6 +156,13 @@ describe("http mounts across named servers", () => {
         admin: { path: "/admin", server: "intrenal" },
       },
     });
+    const routes = () => [
+      craft()
+        .id("api-route")
+        .from(http({ mount: "api", path: "/ping", method: "GET" }))
+        .transform(() => ({ ok: true }))
+        .to(noop()),
+    ];
     await expect(
       testContext()
         .with({
@@ -165,14 +172,30 @@ describe("http mounts across named servers", () => {
           },
           plugins: [plugin],
         })
-        .routes([
-          craft()
-            .id("api-route")
-            .from(http({ mount: "api", path: "/ping", method: "GET" }))
-            .to(noop()),
-        ])
+        .routes(routes())
         .build(),
     ).rejects.toThrow(/"intrenal" is not defined/);
+
+    // The same plugin instance boots once the name resolves, which is the
+    // proof the failed attempt registered nothing it left behind.
+    t = await testContext()
+      .with({
+        servers: {
+          default: { port: 0, host: "127.0.0.1" },
+          intrenal: { port: 0, host: "127.0.0.1" },
+        },
+        plugins: [plugin],
+      })
+      .routes(routes())
+      .build();
+    let port: number | undefined;
+    t.ctx.on("server:listening", ({ details }) => {
+      if (details.server === "default") port = details.port;
+    });
+    await t.startAndWaitReady();
+    if (port === undefined) throw new Error("no default server port");
+    const res = await fetch(`http://127.0.0.1:${port}/api/ping`);
+    expect(await res.json()).toEqual({ ok: true });
   });
 
   /**
