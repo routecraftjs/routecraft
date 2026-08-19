@@ -70,7 +70,7 @@ An agent-raised suspension cannot re-validate the answer against `expect` after 
 
 </Callout>
 
-Identity is restored, not re-verified: execution two's principal came back from storage, so it is [marked restored](/docs/reference/operations/resume#security) and any route the resumed agent dispatches into (a `Direct(...)` tool) refuses it under `.authorize()` until a live credential re-verifies it. The `principal` system-prompt block and tool guards render and read the restored shape as data; authorization is what refuses it. Put post-approval authorization on the resume ingress route, where the answering principal is verified live.
+Identity is restored, not re-verified: execution two's principal came back from storage, so it is [marked restored](/docs/reference/operations/resume#authorizing-the-answerer) and any route the resumed agent dispatches into (a `Direct(...)` tool) refuses it under `.authorize()` until a live credential re-verifies it. The `principal` system-prompt block and tool guards render and read the restored shape as data; authorization is what refuses it. Put post-approval authorization on the resume ingress route, where the answering principal is verified live.
 
 ## Where suspension is refused
 
