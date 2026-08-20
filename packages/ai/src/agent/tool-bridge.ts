@@ -217,10 +217,6 @@ export async function buildVercelTools(
               request: {
                 ...(err.schema !== undefined ? { schema: err.schema } : {}),
                 ...(err.ttl !== undefined ? { ttl: err.ttl } : {}),
-                ...(err.question !== undefined
-                  ? { question: err.question }
-                  : {}),
-                ...(err.reason !== undefined ? { reason: err.reason } : {}),
                 ...(err.meta !== undefined ? { meta: err.meta } : {}),
               },
             });

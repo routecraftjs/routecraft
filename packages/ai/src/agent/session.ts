@@ -157,9 +157,9 @@ export interface AgentSessionSuspension {
    * (lazily; may throw RC5052).
    *
    * Per call, not per park: a parallel batch produces one record and one
-   * question, so a handler that sends an approver a link and then loses the
-   * park must not have handed out a credential that answers the winner's
-   * question.
+   * park, so a handler that sends a recipient a link and then loses the
+   * park must not have handed out a credential that resumes the winner's
+   * park.
    */
   readonly mintToken: (callBinding: string) => string;
   /**
@@ -497,12 +497,10 @@ export class AgentSession {
       turnsUsed,
       ...(usage !== undefined ? { usage } : {}),
     };
-    const { schema, ttl, question, reason, meta } = winner.request;
+    const { schema, ttl, meta } = winner.request;
     return new SuspendSignal({
       ...(schema !== undefined ? { schema } : {}),
       ...(ttl !== undefined ? { ttl } : {}),
-      ...(question !== undefined ? { question } : {}),
-      ...(reason !== undefined ? { reason } : {}),
       ...(meta !== undefined ? { meta } : {}),
       // The winner's call is what the record binds to, so exactly the
       // credential the winning handler handed its approver is the one that

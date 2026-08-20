@@ -50,7 +50,7 @@ export interface SuspendSite {
    * it. Set on sites assigned to suspend-capable `.to()` / `.enrich()`
    * steps; absent on static `.suspend()` sites.
    *
-   * Two consequences at revival, both deliberate: the answer is NOT
+   * Two consequences at revival, both deliberate: the payload is NOT
    * validated against a live schema (the schema the step raised at suspend
    * time lives in its own code and cannot be read back off the route, so
    * `RC5049` never fires for a re-entrant site and the step is the
@@ -141,7 +141,7 @@ export function suspendHostOf(
  */
 export interface SuspendRequest {
   /**
-   * Live schema the eventual answer is validated against, when the site
+   * Live schema the eventual resume payload is validated against, when the site
    * declared one. Absent parks with no ingress validation, which is the
    * click-yes case: the route's own continuation is then the only reader of
    * whatever arrives.
@@ -168,10 +168,6 @@ export interface SuspendRequest {
    * store never interprets it; the plain-JSON rule (`RC5042`) applies.
    */
   readonly stepState?: unknown;
-  /** Human-facing question carried onto the `Suspended` acknowledgment. */
-  readonly question?: string;
-  /** Machine-facing reason carried onto the `Suspended` acknowledgment. */
-  readonly reason?: string;
 }
 
 /**
@@ -184,8 +180,8 @@ export interface SuspendRequest {
 export interface SuspendableStep extends Step<Adapter> {
   readonly operation: OperationType.SUSPEND;
   /**
-   * The live answer schema, when the site declared one. Read back off the
-   * step at resume time to validate the candidate answer, because a
+   * The live resume-payload schema, when the site declared one. Read back
+   * off the step at resume time to validate the submitted payload, because a
    * Standard Schema cannot be persisted with the record.
    */
   readonly schema?: StandardSchemaV1;
@@ -290,7 +286,7 @@ export function resolveSuspendSites(
  * suspending route does: it verifies tokens against the signer and reads
  * the store. Without this a resume-only deployment (the common shape, since
  * the ingress is usually its own capability) starts clean and then refuses
- * every answer at request time, which is the failure the startup check
+ * every resume at request time, which is the failure the startup check
  * exists to move forward.
  *
  * @internal

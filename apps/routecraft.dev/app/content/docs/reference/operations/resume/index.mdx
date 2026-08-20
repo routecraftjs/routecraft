@@ -19,7 +19,7 @@ resume(options: {
 Revive an exchange parked by [`.suspend()`](/docs/reference/operations/suspend) and run its continuation.
 
 ```ts
-// Preferred: map the ingress exchange to the answer it carries.
+// Preferred: map the ingress exchange to the payload it carries.
 craft()
   .id('approval-replies')
   .from(mail('INBOX'))
@@ -34,33 +34,33 @@ craft()
 craft().id('resume-api').from(http({ path: '/resume', method: 'POST' })).resume()
 ```
 
-`.resume()` addresses an **exchange**, not a route. `direct('x')` names a route and enters it through its source; resume names one parked exchange and re-enters its pipeline partway down. That is what lets a mail-born exchange be continued by a chat-born answer: the original source takes no part in execution two, because sources create exchanges rather than revive them.
+`.resume()` addresses an **exchange**, not a route. `direct('x')` names a route and enters it through its source; resume names one parked exchange and re-enters its pipeline partway down. That is what lets a mail-born exchange be continued by a chat-born resume: the original source takes no part in execution two, because sources create exchanges rather than revive them.
 
-Any route that uses `.resume()` is a resume ingress: an HTTP webhook, a mail-reply parser, an ops CLI. There is no special resume transport, and the route need not end there: steps after the resume see the acknowledgment and can answer the approver's own channel.
+Any route that uses `.resume()` is a resume ingress: an HTTP webhook, a mail-reply parser, an ops CLI. There is no special resume transport, and the route need not end there: steps after the resume see the acknowledgment and can reply on the caller's own channel.
 
 ## The boundary
 
-The mapping function owns **shape**: find the token, build the candidate answer. Only the ingress route knows what its transport looks like.
+The mapping function owns **shape**: find the token, build the payload. Only the ingress route knows what its transport looks like.
 
-Revival owns **validation**: only the suspension knows the schema the suspending step declared, so the candidate answer is checked against the live schema read back off the route.
+Revival owns **validation**: only the suspension knows the schema the suspending step declared, so the payload is checked against the live schema read back off the route.
 
 This route owns **authorization**, through `authorize`. See [Securing resume](#securing-resume).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `token` | `string` | The signed token minted when the exchange parked. |
-| `result` | `unknown` | The candidate answer, validated against the suspending step's `schema` when it declared one. |
-| `resumedBy` | `PrincipalRef` | Who answered. Defaults to the ingress exchange's own principal, which is the value worth recording: it was verified live here. Set it explicitly only when the answerer is not the caller. |
+| `result` | `unknown` | The submitted payload, validated against the suspending step's `schema` when it declared one. |
+| `resumedBy` | `PrincipalRef` | Who resumed it. Defaults to the ingress exchange's own principal, which is the value worth recording: it was verified live here. Set it explicitly only when the resuming principal is not the caller. |
 
-The door's own options are deliberately not on the mapper's request: the mapper shapes an attacker-controlled payload, so letting it supply the hook or name the answerer would let the untrusted half of an ingress choose what the trusted half checks.
+The door's own options are deliberately not on the mapper's request: the mapper shapes an attacker-controlled payload, so letting it supply the hook or name the principal would let the untrusted half of an ingress choose what the trusted half checks.
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `authorize` | `({ answerer, parked, record }) => boolean \| Promise<boolean>` | Decides who may answer. Omitted, the door is bearer. See [Securing resume](#securing-resume). |
+| `authorize` | `({ principal, parked, payload, record }) => boolean \| Promise<boolean>` | Decides who may resume. Omitted, the door is bearer. See [Securing resume](#securing-resume). |
 
 ## What the ingress route receives
 
-The revived route runs to completion before `.resume()` continues, so the acknowledgment it puts in the body reports how execution two actually ended, and the ingress route can answer the approver's own channel.
+The revived route runs to completion before `.resume()` continues, so the acknowledgment it puts in the body reports how execution two actually ended, and the ingress route can reply on the caller's own channel.
 
 ```jsonc
 {
@@ -73,38 +73,50 @@ The revived route runs to completion before `.resume()` continues, so the acknow
 
 `outcome.status` is how execution two ended, so it is not always `completed`: a continuation that reaches a second `.suspend()` reports `suspended` and carries no body, because that body would be the SECOND suspension's acknowledgment and handing approver A approver B's resume token is not a receipt. `dropped` and `failed` are the other two.
 
-A duplicate answer (an approver double-clicks, a webhook is redelivered) returns the first one's cached terminal outcome with `status: "duplicate"` and re-runs nothing.
+A duplicate resume (an approver double-clicks, a webhook is redelivered) returns the first one's cached terminal outcome with `status: "duplicate"` and re-runs nothing.
 
 ## Securing resume
 
-The token proves this deployment minted it. It does **not** prove its holder may answer.
+The token proves this deployment minted it. It does **not** prove its holder may resume.
 
-Routecraft ships no answer to who may. It has no notion of an approver, a role, a four-eyes rule, or an escalation, because how approvals work is your design and every framework that guesses gets it wrong for somebody. What it ships instead is the one thing you cannot build from outside: the decision runs **before the store's compare-and-swap**, so a refusal never spends the rightful answerer's single-use answer, and **before the record's lifecycle is disclosed**, so a refused caller cannot even learn whether the question is still open.
+Routecraft ships no answer to who may. It has no notion of an approver, a role, a four-eyes rule, or an escalation, because how approvals work is your design and every framework that guesses gets it wrong for somebody. What it ships instead is the one thing you cannot build from outside: the decision runs **before the store's compare-and-swap**, so a refusal never spends the rightful principal's single-use link, and **before the record's lifecycle is disclosed**, so a refused caller cannot even learn whether the park is still open.
+
+The whole contract in one line: **the acknowledgment carries the contract, the record carries the context, and nothing spends the link except a valid, authorized resume winning the claim.**
 
 ```ts
 craft()
   .id('approvals')
   .from(http({ path: '/approvals', method: 'POST', auth: 'required' }))
   .throttle({ rate: 20, per: 'minute', mode: 'reject' })
-  .resume(mapAnswer, {
-    authorize: ({ answerer, parked, record }) => yourPolicy(answerer, parked, record),
+  .resume(mapPayload, {
+    authorize: ({ principal, parked, payload, record }) =>
+      yourPolicy(principal, parked, payload, record),
   })
   .to(log())
 ```
 
 | Argument | What it is |
 |----------|------------|
-| `answerer` | Whoever this route's `.authenticate()` resolved, verified live at click time. `undefined` when it resolved nobody. |
+| `principal` | Whoever this route's `.authenticate()` resolved, verified live at click time. `undefined` when it resolved nobody. |
 | `parked` | The principal that parked the exchange, restored from storage and branded as such. Reference data, never a credential. |
-| `record` | `id`, `meta`, `question`, `reason`, `routeId`, `position`, `suspendedAt`, `expiresAt`. Never the parked body. |
+| `payload` | The submission exactly as it arrived, **before** `schema` validation. Narrow it yourself: a hook that reads into it is reading unvalidated input. |
+| `record` | `id`, `meta`, `routeId`, `suspendedAt`, `expiresAt`. Never the parked body. |
 
-Return false or throw to refuse. Both, and a hook that never settles, produce one [`RC5056`](/docs/reference/errors#rc-5056) with one message: a hook whose failures can be told apart from outside is an oracle for what it knows. The log distinguishes them and a thrown cause never reaches the wire. An async hook is bounded by this route's own `.timeout()` rather than by a framework knob, and the suspension's deadline is re-checked once it resolves, so an answer that arrived in time and then sat behind a slow hook reports [`RC5047`](/docs/reference/errors#rc-5047) rather than a refusal.
+Return false or throw to refuse. Both, and a hook that never settles, produce one [`RC5056`](/docs/reference/errors#rc-5056) with one message: a hook whose failures can be told apart from outside is an oracle for what it knows. The log distinguishes them and a thrown cause never reaches the wire. An async hook is bounded by this route's own `.timeout()` rather than by a framework knob, and the suspension's deadline is re-checked once it resolves, so a resume that arrived in time and then sat behind a slow hook reports [`RC5047`](/docs/reference/errors#rc-5047) rather than a refusal.
 
-**With no hook, the door is bearer**: any holder of a valid token may answer. That is the historical behaviour and it stays the default. Resume is securable, not secured; a public door with no hook is an unauthenticated endpoint, and the `.throttle()` above is the only thing between it and your store.
+**With no hook, the door is bearer**: any holder of a valid token may resume. That is the historical behaviour and it stays the default. Resume is securable, not secured; a public door with no hook is an unauthenticated endpoint, and the `.throttle()` above is the only thing between it and your store.
+
+`meta` is the parker's own channel to the hook. It rides the record, never the acknowledgment, so a policy snapshot cannot be read by the party the hook exists to judge.
 
 <Callout type="warning" title="The continuation runs as the parked principal">
 
-The hook gates who may inject the answer and receive the result. It does not change whose authority the rest of the route executes under: the continuation runs as the principal that parked, restored from storage, with the answerer recorded as `resumedBy`. An approver who may answer a payout question is not thereby granted the parked run's authority. A restored principal fails a downstream route-entry [`.authorize()`](/docs/reference/operations/authorize) with [`RC5043`](/docs/reference/errors#rc-5043) precisely so this cannot be confused. That is the route operation, not this hook: the hook receives `parked` on purpose and never refuses it by itself.
+The hook gates who may inject the payload and receive the result. It does not change whose authority the rest of the route executes under: the continuation runs as the principal that parked, restored from storage, with the resuming principal recorded as `resumedBy`. An approver who may resume a payout is not thereby granted the parked run's authority. A restored principal fails a downstream route-entry [`.authorize()`](/docs/reference/operations/authorize) with [`RC5043`](/docs/reference/errors#rc-5043) precisely so this cannot be confused. That is the route operation, not this hook: the hook receives `parked` on purpose and never refuses it by itself.
+
+</Callout>
+
+<Callout type="warning" title="On the agent surface, meta is model-influenced">
+
+A tool handler supplies `meta` on an agent park, and that handler ran inside a model loop that has read whatever untrusted tool output is in its thread. Treat it as what the parker chose, not as a fact the framework vouches for, and do not let it be the only input a hook decides on.
 
 </Callout>
 
@@ -112,35 +124,35 @@ The hook gates who may inject the answer and receive the result. It does not cha
 
 Each of these is real running code, proven in `packages/routecraft/test/securing-resume.bun.test.ts` on both its accept and its refuse path.
 
-**Four eyes.** The principal that parked may not answer their own question. Both subjects must be present, or two anonymous parties would count as two different people:
+**Four eyes.** The principal that parked may not resume their own run. Both subjects must be present, or two anonymous parties would count as two different people:
 
 ```ts
-authorize: ({ answerer, parked }) => {
-  const answering = answerer?.subject
+authorize: ({ principal, parked }) => {
+  const resuming = principal?.subject
   const requester = parked?.subject
-  if (!answering || !requester) return false
-  return answering !== requester
+  if (!resuming || !requester) return false
+  return resuming !== requester
 }
 ```
 
-**Scope gate.** The parker records what the answerer must hold, so the requirement is the one in force when the question was asked:
+**Scope gate.** The parker records what the resuming principal must hold, so the requirement is the one in force at park time:
 
 ```ts
 // .suspend({ schema: Approval, meta: { requires: ['payouts:approve'] } })
-authorize: ({ answerer, record }) => {
+authorize: ({ principal, record }) => {
   const required = (record.meta as { requires?: string[] })?.requires
   // No recorded requirement is a parker bug, not a grant. Without this,
   // `[].every(...)` returns true and a site that forgot its `meta` opens
   // the door to every token holder.
   if (!required?.length) return false
-  const held = new Set(answerer?.scopes ?? [])
+  const held = new Set(principal?.scopes ?? [])
   return required.every((scope) => held.has(scope))
 }
 ```
 
 That guard is the pattern, not decoration. Every hook you write is the whole gate: there is no framework default behind it to catch a case you did not handle, which is the cost of the framework not having an opinion.
 
-**Channel segmentation.** Several classes of question share a context under different transport auth, and each door answers only its own:
+**Channel segmentation.** Several classes of park share a context under different transport auth, and each door serves only its own:
 
 ```ts
 // .suspend({ schema: Approval, meta: { channel: 'finance' } })
@@ -148,20 +160,20 @@ const servesChannel = (channel: string) => ({
   authorize: ({ record }) => (record.meta as { channel?: string })?.channel === channel,
 })
 
-craft().id('finance-door').from(financeIngress).resume(mapAnswer, servesChannel('finance'))
-craft().id('ops-door').from(opsIngress).resume(mapAnswer, servesChannel('ops'))
+craft().id('finance-door').from(financeIngress).resume(mapPayload, servesChannel('finance'))
+craft().id('ops-door').from(opsIngress).resume(mapPayload, servesChannel('ops'))
 ```
 
-**Policy travels with the question.** The parker snapshots its policy onto the record; the door enforces the record's copy, so editing the suspend site never reaches questions already parked:
+**Policy travels with the park.** The parker snapshots its policy onto the record; the door enforces the record's copy, so editing the suspend site never reaches records already parked:
 
 ```ts
 // .suspend({ schema: Approval, meta: { fourEyes: true } })
-authorize: ({ answerer, parked, record }) => {
+authorize: ({ principal, parked, record }) => {
   const policy = record.meta as { fourEyes?: boolean } | undefined
   if (!policy?.fourEyes) return true
-  const answering = answerer?.subject
+  const resuming = principal?.subject
   const requester = parked?.subject
-  return Boolean(answering && requester && answering !== requester)
+  return Boolean(resuming && requester && resuming !== requester)
 }
 ```
 
@@ -170,36 +182,53 @@ This is a property of where you put the policy, not a framework behaviour. Read 
 **Same-user continuation.** A wizard or a long-running form resumes only for the person who left it:
 
 ```ts
-authorize: ({ answerer, parked }) => {
-  const answering = answerer?.subject
+authorize: ({ principal, parked }) => {
+  const resuming = principal?.subject
   const requester = parked?.subject
-  if (!answering || !requester) return false
-  return answering === requester
+  if (!resuming || !requester) return false
+  return resuming === requester
 }
 ```
 
 An anonymous parker can never satisfy this, and the hook says so rather than matching one absent subject against another.
 
+**Threshold by scope.** What was submitted decides which scope the hook demands, so a junior approver clears the small payments and escalates the large ones:
+
+```ts
+// .suspend({ schema: Settlement, meta: { threshold: 1000, senior: 'payouts:approve:large' } })
+authorize: ({ principal, payload, record }) => {
+  const { threshold, senior } = record.meta as { threshold: number; senior: string }
+  // `payload` is the raw submission: schema validation has not run yet,
+  // so narrow it here rather than trusting its shape.
+  const amount = (payload as { amount?: unknown } | null)?.amount
+  if (typeof amount !== 'number') return false
+  if (amount <= threshold) return true
+  return (principal?.scopes ?? []).includes(senior)
+}
+```
+
+Reading `payload` is what makes this expressible, and it is raw on purpose: the hook runs first, so a submission it refuses never reaches the validator and never spends the link.
+
 ## Revival failures
 
-Each of these throws in the ingress route when a `.resume()` discovers it, so the answerer gets a typed error. `RC5047` also arrives with no answerer at all: the background sweeper retires overdue suspensions on its own schedule and re-enters the suspended route's error channel directly ([expiry](/docs/reference/operations/suspend)).
+Each of these throws in the ingress route when a `.resume()` discovers it, so the caller gets a typed error. `RC5047` also arrives with no caller at all: the background sweeper retires overdue suspensions on its own schedule and re-enters the suspended route's error channel directly ([expiry](/docs/reference/operations/suspend)).
 
 Three of them additionally re-enter the **suspended** route's error channel, so a route-scope `.error()` there can notify the approver and re-ask instead of leaving them at a dead link: `RC5047`, `RC5048` and `RC5050`. Those are changes in the world the suspended route has to react to, and none of them is something a caller can provoke on demand.
 
-`RC5049` deliberately stays in the ingress route. A malformed answer is a per-request input error, the suspension stays resumable, and routing it through the suspended route would let anyone holding a token drive that route's re-ask path (approver notifications included) with junk. Shaping a reply to a bad answer belongs to the ingress route's own `.error()` handler, which is where the answerer's channel is.
+`RC5049` deliberately stays in the ingress route. A malformed payload is a per-request input error, the suspension stays resumable, and routing it through the suspended route would let anyone holding a token drive that route's re-ask path (approver notifications included) with junk. Shaping a reply to a bad payload belongs to the ingress route's own `.error()` handler, which is where the caller's channel is.
 
-The two authorization refusals (`RC5055`, `RC5056`) stay in the ingress route for the same reason, and go further: both are decided before the settled-state disclosure and before either transition that can settle a record and notify. A refused holder therefore learns only that they were refused, cannot burn the rightful answerer's claim, and cannot drive an approver notification with a token they should never have been able to use.
+The two authorization refusals (`RC5055`, `RC5056`) stay in the ingress route for the same reason, and go further: both are decided before the settled-state disclosure and before either transition that can settle a record and notify. A refused holder therefore learns only that they were refused, cannot burn the rightful principal's claim, and cannot drive an approver notification with a token they should never have been able to use.
 
 | Code | Cause |
 |------|-------|
 | [`RC5041`](/docs/reference/errors#rc-5041) | The token is malformed or its signature does not verify. |
 | [`RC5046`](/docs/reference/errors#rc-5046) | The token verifies but the store holds no such suspension, or its route is not registered in this context. |
-| [`RC5047`](/docs/reference/errors#rc-5047) | The suspension's `ttl` elapsed. Raised by a late answer or by the sweeper, whichever reaches it first. |
-| [`RC5048`](/docs/reference/errors#rc-5048) | The steps after the suspend point, the answer schema, or an `authorize` predicate changed while the exchange was parked, so the stored approval no longer authorizes what would run. Refused before any of those steps execute. |
-| [`RC5049`](/docs/reference/errors#rc-5049) | The answer does not satisfy the declared `schema`. Ingress route only. The suspension stays resumable, so a corrected answer still works. |
+| [`RC5047`](/docs/reference/errors#rc-5047) | The suspension's `ttl` elapsed. Raised by a late resume or by the sweeper, whichever reaches it first. |
+| [`RC5048`](/docs/reference/errors#rc-5048) | The steps after the suspend point, or the declared `schema`, changed while the exchange was parked, so the stored approval no longer authorizes what would run. Refused before any of those steps execute. |
+| [`RC5049`](/docs/reference/errors#rc-5049) | The payload does not satisfy the declared `schema`. Ingress route only. The suspension stays resumable, so a corrected payload still works. |
 | [`RC5050`](/docs/reference/errors#rc-5050) | The suspension was denied, typically because the run carrying it was cancelled. |
-| [`RC5055`](/docs/reference/errors#rc-5055) | The credential names a different question than the one this record parked on. Non-destructive: the record stays resumable by the rightful credential. |
-| [`RC5056`](/docs/reference/errors#rc-5056) | This route's `authorize` hook refused the answerer. Non-destructive. |
+| [`RC5055`](/docs/reference/errors#rc-5055) | The credential names a different call than the one this record parked on. Non-destructive: the record stays resumable by the rightful credential. |
+| [`RC5056`](/docs/reference/errors#rc-5056) | This route's `authorize` hook refused the principal. Non-destructive. |
 
 ## Related
 

@@ -10,13 +10,11 @@ title: suspend
 suspend(options: {
   schema?: StandardSchemaV1
   ttl?: Duration
-  question?: string
-  reason?: string
   meta?: JsonValue
 }): RouteBuilder<Current>
 ```
 
-Park the exchange durably and exit the pipeline. The run that reaches a `.suspend()` ends there and answers immediately; the exchange continues from the next step later, when [`.resume()`](/docs/reference/operations/resume) arrives with the answer.
+Park the exchange durably and exit the pipeline. The run that reaches a `.suspend()` ends there and replies immediately; the exchange continues from the next step later, when [`.resume()`](/docs/reference/operations/resume) arrives with the payload.
 
 ```ts
 craft()
@@ -43,21 +41,19 @@ craft()
 
 | Option | Type | Default | Required | Description |
 |--------|------|---------|----------|-------------|
-| `schema` | `StandardSchemaV1` | -- | No | What a valid answer looks like. Types `ex.suspension.result` for every step after the suspend, and is what the candidate answer is validated against at resume time. Omit to declare no contract: nothing is validated at the ingress and `ex.suspension.result` types `unknown`. |
+| `schema` | `StandardSchemaV1` | -- | No | What a valid resume payload looks like. Types `ex.suspension.result` for every step after the suspend, and is what the submitted payload is validated against at resume time. Omit to declare no contract: nothing is validated at the ingress and `ex.suspension.result` types `unknown`. |
 | `ttl` | `Duration`: milliseconds, or `"<n><unit>"` with unit `ms` / `s` / `m` / `h` / `d` | [`suspension.defaultTtl`](/docs/reference/configuration#suspension), itself `72h` | No | How long the suspension stays resumable, for example `"500ms"`, `"30s"`, `"72h"`, `"7d"`. Omit to inherit the context default. A suspension with no deadline at all needs `defaultTtl: 'never'` on the context, because a parked exchange nothing will ever retire is a leak rather than a default. |
-| `question` | `string` | -- | No | Human-facing question, surfaced as `Suspended.question` and handed to the answering route's hook. |
-| `reason` | `string` | -- | No | Machine-facing reason, surfaced and handed the same way. |
-| `meta` | plain JSON | -- | No | Anything the answering route needs to decide who may answer, or an operator needs to read off the record. Persisted verbatim and never interpreted. See [Who may answer](#who-may-answer). |
+| `meta` | plain JSON | -- | No | Anything the resuming route needs to decide who may resume, or an operator needs to read off the record. Persisted verbatim, never interpreted, and never surfaced on the acknowledgment. See [Who may resume](#who-may-resume). |
 
 <Callout type="warning" title="There is no approve or deny">
 
-A suspension is a durable pause with one single-use answer slot of arbitrary shape. The framework has no approve/deny concept, does not read the answer, and attaches no meaning to it: this route's own continuation interprets whatever arrives, which is why the shipped example ends in a `.filter()`. `schema` describes the slot; it does not make an answer an approval, and the framework never reads the answer to decide anything.
+A suspension is a durable pause with one single-use payload slot of arbitrary shape. The framework has no approve/deny concept, does not read the payload, and attaches no meaning to it: this route's own continuation interprets whatever arrives, which is why the shipped example ends in a `.filter()`. `schema` describes the slot; it does not make a payload an approval, and the framework never reads it to decide anything.
 
 </Callout>
 
-## Execution one always answers
+## Execution one always replies
 
-A durable suspend cannot hold a caller: the answer arrives in hours or days and the process will be restarted first. So the run terminates at the suspend and returns a `Suspended` value instead of the route's declared output.
+A durable suspend cannot hold a caller: the resume payload arrives in hours or days and the process will be restarted first. So the run terminates at the suspend and returns a `Suspended` value instead of the route's declared output.
 
 ```jsonc
 {
@@ -65,13 +61,11 @@ A durable suspend cannot hold a caller: the answer arrives in hours or days and 
   "suspensionId": "3f1c…~0",
   "token": "eyJ2Ijox…",       // signed, single use
   "schema": { "type": "object", … },  // when a declared schema renders one
-  "expiresAt": "2026-08-13T09:00:00.000Z",
-  "question": "May I pay acme 900.00?", // when the suspending step supplied one
-  "reason": "awaiting-human-approval"   // same
+  "expiresAt": "2026-08-13T09:00:00.000Z"
 }
 ```
 
-`question` and `reason` are optional on both suspend surfaces: a route usually notifies through ordinary steps before the park, but a question worth showing an approver is also worth carrying on the record, where the answering route's hook and an operator reading the store can both see it.
+That is the whole acknowledgment. It carries the CONTRACT (what to send back, where, and until when) and nothing else: everything policy-shaped lives on the record, because the acknowledgment crosses the wire to whoever called the route, including the party a resume hook exists to judge.
 
 A route with a reachable suspend therefore has output type `Output | Suspended`. Each source renders that its own way:
 
@@ -94,41 +88,40 @@ The route's real output flows to its destinations on execution two, not back to 
 | Suspend only sometimes | a `.choice()` branch contains the suspend |
 | Notify the approver | ordinary steps before it, e.g. `.tap(direct('notify-approver'))`. `ex.suspension.token` is readable BEFORE the suspend runs, so the message can carry a working link |
 | Handle a rejection | the last step of the branch consumes the verdict, e.g. `.filter()` |
-| Authenticate and authorize the answerer | the resume ingress route: `.authenticate()` for who they are, [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume) for whether they may answer. `meta` here carries whatever that decision needs |
+| Authenticate and authorize the resuming principal | the resume ingress route: `.authenticate()` for who they are, [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume) for whether they may resume. `meta` here carries whatever that decision needs |
 | Expiry handling | `ttl` plus a route-scope `.error()`; the sweeper retires an overdue suspension on its own and re-enters that channel with [`RC5047`](/docs/reference/errors#rc-5047) |
 
-## Who may answer
+## Who may resume
 
-The framework does not define how approvals work. It has no notion of an approver, a role, a four-eyes rule, or an escalation: a suspension is a durable pause with one single-use answer slot, and what makes an answerer legitimate is your design, not ours.
+The framework does not define how approvals work. It has no notion of an approver, a role, a four-eyes rule, or an escalation: a suspension is a durable pause with one single-use payload slot, and what makes a resuming principal legitimate is your design, not ours.
 
 What it does guarantee is the part you cannot build from outside:
 
 - The token addresses exactly one parked record and is single-use.
-- The claim is a compare-and-swap, so one answer wins and late or duplicate ones read the settled outcome.
-- **Every refusal happens before that claim**, so saying no costs the rightful answerer nothing.
+- The claim is a compare-and-swap, so one resume wins and late or duplicate ones read the settled outcome.
+- **Every refusal happens before that claim**, so saying no costs the rightful principal nothing.
 - Both principals and the record are handed to your code at the one moment deciding is free.
 
-So the decision lives on the answering route, in [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume), and `meta` is how the question carries whatever that decision needs:
+So the decision lives on the resuming route, in [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume), and `meta` is how the park carries whatever that decision needs:
 
 ```ts
 .tap(direct('notify-approver'))
 .suspend({
   schema: Approval,
   ttl: '72h',
-  question: `Approve ${payout.amountCents / 100} to ${payout.payee}?`,
   meta: { channel: 'finance', requires: ['payouts:approve'], fourEyes: true },
 })
 ```
 
-`meta` is plain JSON under the same rule as the exchange body ([`RC5042`](/docs/reference/errors#rc-5042) for anything that cannot round-trip), persisted verbatim, and never read by the framework. Because it lives only on the record, a parker that snapshots its policy there gets **policy travels with the question** by construction: the answering hook reads the record, so editing this site changes nothing for questions already asked.
+`meta` is plain JSON under the same rule as the exchange body ([`RC5042`](/docs/reference/errors#rc-5042) for anything that cannot round-trip), persisted verbatim, and never read by the framework. Because it lives only on the record, a parker that snapshots its policy there gets **policy travels with the park** by construction: the resuming hook reads the record, so editing this site changes nothing for records already parked.
 
-<Callout type="warning" title="`meta`, `question` and `reason` are authored by the suspending step">
+<Callout type="warning" title="`meta` is authored by the suspending step">
 
-On the agent surface that step is the MODEL, and the model has read whatever untrusted tool output is in its thread. Route on them, log them, render them. Do not let one of them be the only thing standing between a caller and an approval.
+On the agent surface that step is the MODEL, and the model has read whatever untrusted tool output is in its thread. Route on it, log it, render it. Do not let it be the only thing standing between a caller and an approval.
 
 </Callout>
 
-The continuation always runs as the **parked** principal, restored from storage and [marked restored](/docs/reference/operations/resume#securing-resume). The answering hook gates who may inject the answer and receive the result; it never changes whose authority the rest of the route executes under.
+The continuation always runs as the **parked** principal, restored from storage and [marked restored](/docs/reference/operations/resume#securing-resume). The resuming hook gates who may inject the payload and receive the result; it never changes whose authority the rest of the route executes under.
 
 ## The branch-rejoin rule
 
@@ -142,11 +135,11 @@ A suspend branch rejoins the main flow only if it restored the main flow's contr
 |-------|-----------|-------------|
 | `id` | always | The suspension id this exchange would park as. |
 | `token` | always | Signed, single-use resume token for that id. Mintable before the suspend runs, which is what makes a notification step useful. |
-| `tokenFor(call)` | always | A credential bound to one question on the record. Only a step that can raise several questions against one park needs it; see [Durable agents](/docs/advanced/durable-agents). |
+| `tokenFor(call)` | always | A credential bound to one call on the record. Only a step that can raise several calls against one park needs it; see [Durable agents](/docs/advanced/durable-agents). |
 | `sequence` | always | How many times this exchange has already parked. |
-| `result` | after a resume | The validated answer, typed by `schema`. `unknown` when the site declared none. |
-| `resumedBy` | after a resume | Who answered, when the resume ingress had an authenticated principal. |
-| `resumedAt` | after a resume | When the answer was accepted. |
+| `result` | after a resume | The validated payload, typed by `schema`. `unknown` when the site declared none. |
+| `resumedBy` | after a resume | Who resumed it, when the resume ingress had an authenticated principal. |
+| `resumedAt` | after a resume | When the resume was accepted. |
 
 ## What is refused
 
@@ -180,17 +173,17 @@ Because `.retry()` applies to execution two, the steps after a `.suspend()` are 
 
 Two limits are worth knowing before you rely on this for money:
 
-**A resume is spent whether or not the continuation ultimately succeeds.** `.resume()` wins the store's compare-and-swap before running anything, so once retries and the deadline have settled, a continuation that still fails records a `failed` terminal and a second answer with the same token receives that cached failure rather than a second run. This is what makes "did this already run?" answerable across a restart. A route-scope `.retry()` absorbs the transient case; what it cannot absorb needs a `.error()` handler that re-asks, not a re-click from the approver.
+**A resume is spent whether or not the continuation ultimately succeeds.** `.resume()` wins the store's compare-and-swap before running anything, so once retries and the deadline have settled, a continuation that still fails records a `failed` terminal and a second resume with the same token receives that cached failure rather than a second run. This is what makes "did this already run?" answerable across a restart. A route-scope `.retry()` absorbs the transient case; what it cannot absorb needs a `.error()` handler that re-asks, not a re-click from the approver.
 
-**A process that dies mid-continuation does not resume itself.** The record reads `resumed` with no terminal outcome, and nothing re-drives it; a later answer with the same token is told the first resume never recorded an outcome. Recovering that automatically needs a lease on the `resumed` state, which is not implemented: re-running a continuation whose side effects may have half happened is not something the framework can decide for you. What you do get is that the next startup counts these records and warns, so they are visible rather than silent. Treat one as needing an operator, and keep continuations short where the work is not idempotent.
+**A process that dies mid-continuation does not resume itself.** The record reads `resumed` with no terminal outcome, and nothing re-drives it; a later resume with the same token is told the first resume never recorded an outcome. Recovering that automatically needs a lease on the `resumed` state, which is not implemented: re-running a continuation whose side effects may have half happened is not something the framework can decide for you. What you do get is that the next startup counts these records and warns, so they are visible rather than silent. Treat one as needing an operator, and keep continuations short where the work is not idempotent.
 
 **Expiry fires within a sweep interval of the deadline, not on it.** A background sweeper retires overdue suspensions on a schedule ([`sweepInterval`](/docs/reference/configuration#suspension), 60 seconds by default), so a "nobody approved in 72 hours, escalate" flow runs whether or not anyone ever clicks the link. It also scans at startup, before the context reports ready, so whatever came due while the process was down reaches its routes ahead of new traffic. What it does not give you is a deadline honoured to the second: a suspension is retired on the first sweep after its `ttl` elapses.
 
-Retiring a suspension emits [`route:exchange:expired`](/docs/reference/events) and re-enters the route's error channel with [`RC5047`](/docs/reference/errors#rc-5047). The sweeper competes for the same transition a late answer competes for, so an approval landing on the deadline is either accepted or expired, never both, and only the winner notifies.
+Retiring a suspension emits [`route:exchange:expired`](/docs/reference/events) and re-enters the route's error channel with [`RC5047`](/docs/reference/errors#rc-5047). The sweeper competes for the same transition a late resume competes for, so an approval landing on the deadline is either accepted or expired, never both, and only the winner notifies.
 
 **Expiry notification is at-least-once, not exactly-once.** Delivery is claim-then-notify-then-finalize, so a process that dies mid-delivery leaves a claim the sweeper releases after [`expiryLease`](/docs/reference/configuration#suspension) (60 minutes by default) and redelivers: the approver hears about the expiry despite the crash. The accepted cost is the other crash window; a process that dies after notifying but before finalizing redelivers one duplicate escalation once the lease elapses. Make the `.error()` re-ask path tolerant of a repeat, the way any notification handler should be.
 
-**An agent-raised suspension accepts any JSON answer.** A `.suspend({ schema })` on a route validates the answer against the live schema read back off the route, refusing a mismatch with [`RC5049`](/docs/reference/errors#rc-5049). A suspension raised from inside an agent tool handler ([`ctx.suspend()`](/docs/advanced/durable-agents)) cannot be re-validated after a restart: its schema lives in the handler's own code, so revival delivers the raw answer as an ordinary tool result and the model is the validator. A resume-token holder can therefore feed the agent arbitrary JSON, which is the same trust level every tool result already has; the schema rendering on the acknowledgment is guidance for the answerer, not enforcement.
+**An agent-raised suspension accepts any JSON payload.** A `.suspend({ schema })` on a route validates the payload against the live schema read back off the route, refusing a mismatch with [`RC5049`](/docs/reference/errors#rc-5049). A suspension raised from inside an agent tool handler ([`ctx.suspend()`](/docs/advanced/durable-agents)) cannot be re-validated after a restart: its schema lives in the handler's own code, so revival delivers the raw payload as an ordinary tool result and the model is the validator. A resume-token holder can therefore feed the agent arbitrary JSON, which is the same trust level every tool result already has; the schema rendering on the acknowledgment is guidance for the caller, not enforcement.
 
 ## Suspension raised from a step
 

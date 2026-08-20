@@ -34,13 +34,12 @@ function suspendCapable(): Enricher<unknown, unknown> {
     fetch: (ex: Exchange<unknown>) => {
       const state = peekResumeStepState(ex);
       if (state !== undefined) {
-        return { resumed: true, state, answer: ex.suspension.result };
+        return { resumed: true, state, payload: ex.suspension.result };
       }
       throw new SuspendSignal({
         schema: Approval,
         ttl: "1h",
-        question: "may I?",
-        reason: "awaiting-approval",
+        meta: { channel: "finance" },
         stepState: { n: 1 },
       });
     },
@@ -60,7 +59,7 @@ describe("re-entrant suspend sites (suspend-capable steps)", () => {
   /**
    * @case A suspend-capable step parks with stepState and re-enters ITSELF on resume
    * @preconditions A .to(capable) step on the main flow; the signal carries stepState { n: 1 }; a resume ingress
-   * @expectedResult Execution one answers with the acknowledgment (question and reason populated); the resume re-runs the step, which receives the persisted stepState and the raw answer, and the steps after it run once
+   * @expectedResult Execution one replies with the acknowledgment; the resume re-runs the step, which receives the persisted stepState and the raw payload, and the steps after it run once
    */
   test("a capable step parks, and resume re-enters the step with stepState", async () => {
     const sink = spy();
@@ -74,8 +73,7 @@ describe("re-entrant suspend sites (suspend-capable steps)", () => {
     await t.startAndWaitReady();
 
     const parked = asSuspended(await t.client.sendDirect("capable", "work"));
-    expect(parked.question).toBe("may I?");
-    expect(parked.reason).toBe("awaiting-approval");
+    expect(parked.schema).toBeDefined();
     expect(sink.received).toHaveLength(0);
 
     const ack = (await t.client.sendDirect("answers", {
@@ -89,7 +87,7 @@ describe("re-entrant suspend sites (suspend-capable steps)", () => {
     expect(sink.received[0]!.body).toEqual({
       resumed: true,
       state: { n: 1 },
-      answer: { approved: true },
+      payload: { approved: true },
     });
     expect(t.errors).toHaveLength(0);
   });

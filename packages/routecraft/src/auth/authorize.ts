@@ -281,7 +281,7 @@ export function authorize(
           message:
             "Authorization failed: principal was restored from a suspension, not verified live",
           suggestion:
-            "The exchange resumed from durable storage, so its principal is a recorded shape with no live credential behind it. Re-verify the identity after resume (a fresh .authenticate() from a checked credential), or authorize the resume ingress route instead, where the answering principal is verified live. ex.suspension.resumedBy records who answered.",
+            "The exchange resumed from durable storage, so its principal is a recorded shape with no live credential behind it. Re-verify the identity after resume (a fresh .authenticate() from a checked credential), or authorize the resume ingress route instead, where the resuming principal is verified live. ex.suspension.resumedBy records who resumed it.",
         },
       );
     }

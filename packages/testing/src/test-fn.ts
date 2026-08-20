@@ -46,8 +46,6 @@ export interface TestFnHandlerContext {
 export interface TestFnSuspendOptions {
   schema?: StandardSchemaV1;
   ttl?: Duration;
-  question?: string;
-  reason?: string;
   meta?: unknown;
 }
 

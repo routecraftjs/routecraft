@@ -20,6 +20,6 @@ export const askFn = {
     ctx.suspend({
       schema: Approval,
       ttl: "72h",
-      question: (input as { question: string }).question,
+      meta: { question: (input as { question: string }).question },
     }),
 };

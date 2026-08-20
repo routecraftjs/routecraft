@@ -40,7 +40,7 @@ function asWho(ex: Exchange) {
 }
 
 /** The mapper every door in these tests uses. */
-function answerFrom(ex: Exchange) {
+function payloadFrom(ex: Exchange) {
   const body = ex.body as { token: string; result?: unknown };
   return {
     token: body.token,
@@ -71,7 +71,7 @@ describe("the resume authorize hook", () => {
           .from(direct())
           .suspend({ schema: Approval })
           .to(noop()),
-        craft().id("answers").from(direct()).resume(answerFrom),
+        craft().id("answers").from(direct()).resume(payloadFrom),
       ])
       .build();
     await t.startAndWaitReady();
@@ -85,7 +85,7 @@ describe("the resume authorize hook", () => {
   });
 
   /**
-   * @case A refused answerer costs the rightful answerer nothing and learns nothing
+   * @case A refused principal costs the rightful principal nothing and learns nothing
    * @preconditions A hook admitting only "alice", presented first by "bob"
    * @expectedResult Bob takes RC5056 against an untouched record, and alice then resumes it
    */
@@ -103,8 +103,8 @@ describe("the resume authorize hook", () => {
           .id("answers")
           .from(direct())
           .authenticate(asWho)
-          .resume(answerFrom, {
-            authorize: ({ answerer }) => answerer?.subject === "alice",
+          .resume(payloadFrom, {
+            authorize: ({ principal }) => principal?.subject === "alice",
           }),
       ])
       .build();
@@ -113,7 +113,7 @@ describe("the resume authorize hook", () => {
     const parked = asSuspended(await t.client.sendDirect("payout", {}));
     await expect(
       t.client.sendDirect("answers", { who: "bob", token: parked.token }),
-    ).rejects.toThrow(/refused this answerer/);
+    ).rejects.toThrow(/refused this principal/);
 
     const untouched = await store.get(parked.suspensionId);
     expect(untouched?.status).toBe("suspended");
@@ -128,8 +128,8 @@ describe("the resume authorize hook", () => {
   });
 
   /**
-   * @case A refused answerer cannot learn the record's lifecycle state
-   * @preconditions A record already resumed, presented again by an answerer the hook refuses
+   * @case A refused principal cannot learn the record's lifecycle state
+   * @preconditions A record already resumed, presented again by a principal the hook refuses
    * @expectedResult The hook's refusal, not the "duplicate" acknowledgment a bearer holder would receive
    */
   test("the hook runs before the settled-state disclosure", async () => {
@@ -146,8 +146,8 @@ describe("the resume authorize hook", () => {
           .id("answers")
           .from(direct())
           .authenticate(asWho)
-          .resume(answerFrom, {
-            authorize: ({ answerer }) => answerer?.subject === "alice",
+          .resume(payloadFrom, {
+            authorize: ({ principal }) => principal?.subject === "alice",
           }),
       ])
       .build();
@@ -163,15 +163,15 @@ describe("the resume authorize hook", () => {
     // Alice would now read `duplicate`. Bob must not learn even that much.
     await expect(
       t.client.sendDirect("answers", { who: "bob", token: parked.token }),
-    ).rejects.toThrow(/refused this answerer/);
+    ).rejects.toThrow(/refused this principal/);
   });
 
   /**
    * @case A refused credential cannot settle a record whose route was edited
-   * @preconditions A record whose stored continuation hash no longer matches, presented by an answerer the hook refuses
-   * @expectedResult The refusal wins first, leaving the record unclaimed and undenied; only the accepted answerer reaches the RC5048 re-ask
+   * @preconditions A record whose stored continuation hash no longer matches, presented by a principal the hook refuses
+   * @expectedResult The refusal wins first, leaving the record unclaimed and undenied; only the accepted principal reaches the RC5048 re-ask
    */
-  test("a refused answerer cannot burn a record on the hash arm", async () => {
+  test("a refused principal cannot burn a record on the hash arm", async () => {
     const store = new MemorySuspensionStore();
     t = await testContext()
       .with(shared(store))
@@ -185,8 +185,8 @@ describe("the resume authorize hook", () => {
           .id("answers")
           .from(direct())
           .authenticate(asWho)
-          .resume(answerFrom, {
-            authorize: ({ answerer }) => answerer?.subject === "alice",
+          .resume(payloadFrom, {
+            authorize: ({ principal }) => principal?.subject === "alice",
           }),
       ])
       .build();
@@ -211,7 +211,7 @@ describe("the resume authorize hook", () => {
 
     await expect(
       t.client.sendDirect("answers", { who: "bob", token }),
-    ).rejects.toThrow(/refused this answerer/);
+    ).rejects.toThrow(/refused this principal/);
     const untouched = await store.get(`${record.id}-edited`);
     expect(untouched?.status).toBe("suspended");
     expect(untouched?.deniedReason).toBeUndefined();
@@ -246,7 +246,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("answers")
           .from(direct())
-          .resume(answerFrom, {
+          .resume(payloadFrom, {
             authorize: async () => {
               await new Promise((resolve) => setTimeout(resolve, 5));
               return true;
@@ -277,7 +277,7 @@ describe("the resume authorize hook", () => {
           .from(direct())
           .suspend({ schema: Approval })
           .to(noop()),
-        craft().id("answers").from(direct()).resume(answerFrom),
+        craft().id("answers").from(direct()).resume(payloadFrom),
       ])
       .build();
     await t.startAndWaitReady();
@@ -331,7 +331,7 @@ describe("the resume authorize hook", () => {
           .from(direct())
           .suspend({ schema: Approval })
           .to(noop()),
-        craft().id("answers").from(direct()).resume(answerFrom),
+        craft().id("answers").from(direct()).resume(payloadFrom),
       ])
       .build();
     await t.startAndWaitReady();
@@ -394,11 +394,11 @@ describe("the resume authorize hook", () => {
         craft()
           .id("says-no")
           .from(direct())
-          .resume(answerFrom, { authorize: () => false }),
+          .resume(payloadFrom, { authorize: () => false }),
         craft()
           .id("blows-up")
           .from(direct())
-          .resume(answerFrom, {
+          .resume(payloadFrom, {
             authorize: () => {
               throw new Error("https://idp.internal/introspect refused");
             },
@@ -407,7 +407,7 @@ describe("the resume authorize hook", () => {
           .id("never-settles")
           .from(direct())
           .timeout(30)
-          .resume(answerFrom, {
+          .resume(payloadFrom, {
             authorize: () => new Promise<boolean>(() => {}),
           }),
       ])
@@ -428,8 +428,8 @@ describe("the resume authorize hook", () => {
       }
     }
 
-    expect(messages[0]).toContain("refused this answerer");
-    expect(messages[1]).toContain("refused this answerer");
+    expect(messages[0]).toContain("refused this principal");
+    expect(messages[1]).toContain("refused this principal");
     expect(messages[1]).not.toContain("idp.internal");
     // The route's own .timeout() is what bounds an unsettled hook, so the
     // caller may see either the refusal or the timeout; neither leaks.
@@ -447,7 +447,7 @@ describe("the resume authorize hook", () => {
   /**
    * @case An answer that arrives in time but sits behind a slow hook reports the expiry
    * @preconditions A 30ms ttl and a hook that accepts only after the deadline has passed
-   * @expectedResult RC5047, so the answerer is told the window closed rather than that they were refused
+   * @expectedResult RC5047, so the caller is told the window closed rather than that they were refused
    */
   test("the deadline is re-checked after an async hook", async () => {
     const store = new MemorySuspensionStore();
@@ -462,7 +462,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("answers")
           .from(direct())
-          .resume(answerFrom, {
+          .resume(payloadFrom, {
             authorize: async () => {
               await new Promise((resolve) => setTimeout(resolve, 60));
               return true;
@@ -480,7 +480,7 @@ describe("the resume authorize hook", () => {
 
   /**
    * @case The hook sees the record's metadata view and never the parked body
-   * @preconditions A site attaching meta, question and reason, over a body the hook must not receive
+   * @preconditions A site attaching meta, over a body the hook must not receive
    * @expectedResult Exactly the documented fields arrive, meta round-trips verbatim, and nothing carries the body
    */
   test("meta round-trips from park to hook, without the body", async () => {
@@ -493,15 +493,13 @@ describe("the resume authorize hook", () => {
           .from(direct())
           .suspend({
             schema: Approval,
-            question: "May I pay acme?",
-            reason: "awaiting-human-approval",
             meta: { channel: "finance", requires: ["payouts:approve"] },
           })
           .to(noop()),
         craft()
           .id("answers")
           .from(direct())
-          .resume(answerFrom, {
+          .resume(payloadFrom, {
             authorize: ({ record }) => {
               seen.push(record);
               return true;
@@ -521,18 +519,12 @@ describe("the resume authorize hook", () => {
       channel: "finance",
       requires: ["payouts:approve"],
     });
-    expect(view["question"]).toBe("May I pay acme?");
-    expect(view["reason"]).toBe("awaiting-human-approval");
     expect(view["routeId"]).toBe("payout");
-    expect(view["position"]).toBeNumber();
     expect(view["suspendedAt"]).toBeInstanceOf(Date);
     expect(Object.keys(view).sort()).toEqual([
       "expiresAt",
       "id",
       "meta",
-      "position",
-      "question",
-      "reason",
       "routeId",
       "suspendedAt",
     ]);
@@ -591,7 +583,7 @@ describe("the resume authorize hook", () => {
         craft()
           .id("answers")
           .from(direct())
-          .resume(answerFrom, { authorize: () => false }),
+          .resume(payloadFrom, { authorize: () => false }),
       ])
       .build();
     await t.startAndWaitReady();
@@ -599,7 +591,7 @@ describe("the resume authorize hook", () => {
     const parked = asSuspended(await t.client.sendDirect("payout", {}));
     await expect(
       t.client.sendDirect("answers", { token: parked.token }),
-    ).rejects.toThrow(/refused this answerer/);
+    ).rejects.toThrow(/refused this principal/);
     expect(transitions).toBe(0);
   });
 
@@ -646,7 +638,7 @@ describe("the parked answer schema", () => {
             seen.push(ex.suspension.result);
           })
           .to(noop()),
-        craft().id("answers").from(direct()).resume(answerFrom),
+        craft().id("answers").from(direct()).resume(payloadFrom),
       ])
       .build();
     await t.startAndWaitReady();
@@ -691,7 +683,7 @@ describe("the parked answer schema", () => {
         .with(shared(store))
         .routes([
           craft().id("payout").from(direct()).suspend({}).to(noop()),
-          craft().id("answers").from(direct()).resume(answerFrom),
+          craft().id("answers").from(direct()).resume(payloadFrom),
         ])
         .build();
       await t2.startAndWaitReady();
@@ -751,5 +743,162 @@ describe("the parked answer schema", () => {
       expect: { type: "object" },
     });
     expect("issues" in refused).toBe(true);
+  });
+  /**
+   * @case The hook is handed the submission exactly as it arrived, before validation
+   * @preconditions A site declaring a schema, resumed with a payload that would coerce or fail under it
+   * @expectedResult The hook sees the verbatim value, not the schema's output, so a policy reading it reasons about what was actually sent
+   */
+  test("the hook sees the raw pre-validation payload", async () => {
+    const seen: unknown[] = [];
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ schema: Approval })
+          .to(noop()),
+        craft()
+          .id("approvals")
+          .from(direct())
+          .resume(payloadFrom, {
+            authorize: ({ payload }) => {
+              seen.push(payload);
+              return true;
+            },
+          }),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("payout", {}));
+    // Extra keys the schema strips, so seeing them proves the hook ran first.
+    await t.client.sendDirect("approvals", {
+      token: parked.token,
+      result: { approved: true, note: "sent from the approval mail" },
+    });
+
+    expect(seen[0]).toEqual({
+      approved: true,
+      note: "sent from the approval mail",
+    });
+  });
+
+  /**
+   * @case A refused submission never reaches validation or the claim
+   * @preconditions A malformed payload the schema would reject, presented by a principal the hook refuses
+   * @expectedResult RC5056 rather than RC5049, and the record is left suspended, so the refusal is decided without the validator ever seeing the value
+   */
+  test("a hook-refused malformed payload never reaches validation", async () => {
+    const store = new MemorySuspensionStore();
+    t = await testContext()
+      .with(shared(store))
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ schema: Approval })
+          .to(noop()),
+        craft()
+          .id("approvals")
+          .from(direct())
+          .authenticate(asWho)
+          .resume(payloadFrom, {
+            authorize: ({ principal }) => principal?.subject === "alice",
+          }),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("payout", {}));
+    await expect(
+      t.client.sendDirect("approvals", {
+        who: "mallory",
+        token: parked.token,
+        result: "not an approval object at all",
+      }),
+    ).rejects.toMatchObject({ rc: "RC5056" });
+    expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
+
+    // The same malformed payload from the principal the hook accepts DOES
+    // reach the validator, which is what proves the refusal above was the
+    // hook's and not the schema's.
+    await expect(
+      t.client.sendDirect("approvals", {
+        who: "alice",
+        token: parked.token,
+        result: "not an approval object at all",
+      }),
+    ).rejects.toMatchObject({ rc: "RC5049" });
+    expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
+  });
+
+  /**
+   * @case A rejected payload does not consume the single-use link
+   * @preconditions A resume whose payload fails the declared schema, followed by a correct one on the same token
+   * @expectedResult RC5049 leaves the record suspended and undenied, and the corrected submission still resumes it
+   */
+  test("RC5049 leaves the link unspent", async () => {
+    const store = new MemorySuspensionStore();
+    t = await testContext()
+      .with(shared(store))
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ schema: Approval })
+          .to(noop()),
+        craft().id("approvals").from(direct()).resume(payloadFrom),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("payout", {}));
+    await expect(
+      t.client.sendDirect("approvals", {
+        token: parked.token,
+        result: { approved: "yes please" },
+      }),
+    ).rejects.toMatchObject({ rc: "RC5049" });
+    expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
+
+    await t.client.sendDirect("approvals", {
+      token: parked.token,
+      result: { approved: true },
+    });
+    expect((await store.get(parked.suspensionId))?.status).toBe("resumed");
+  });
+  /**
+   * @case tokenFor refuses to mint an unbound credential for an untyped caller
+   * @preconditions A step reading ex.suspension.tokenFor through a loosely typed boundary and passing no binding
+   * @expectedResult RC5003 at the mint site, rather than a link that would later refuse every resume with RC5055 and point at its holder
+   */
+  test("tokenFor refuses a missing call binding", async () => {
+    let thrown: unknown;
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .tap((ex) => {
+            const loose = ex.suspension as unknown as {
+              tokenFor: (binding?: string) => string;
+            };
+            try {
+              loose.tokenFor();
+            } catch (err) {
+              thrown = err;
+            }
+          })
+          .suspend({ schema: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+    await t.client.sendDirect("payout", {});
+
+    expect(thrown).toMatchObject({ rc: "RC5003" });
   });
 });

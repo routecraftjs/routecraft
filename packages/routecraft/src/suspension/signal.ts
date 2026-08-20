@@ -13,7 +13,7 @@ import type { SuspendCapableStep } from "./sites.ts";
  */
 export interface SuspendSignalRequest {
   /**
-   * Schema describing what a valid answer looks like. Optional: absent
+   * Schema describing what a valid resume payload looks like. Optional: absent
    * declares no contract at all, and the descriptor records that, so a site
    * edited from a declared schema to none moves the digest rather than
    * quietly accepting anything.
@@ -21,27 +21,23 @@ export interface SuspendSignalRequest {
    * Folded into the continuation hash and rendered onto the `Suspended`
    * acknowledgment. For a re-entrant site it is descriptive only at resume
    * time: the live schema exists in the raising step's own code and cannot
-   * be read back off the route, so revival delivers the raw answer and the
+   * be read back off the route, so revival delivers the raw payload and the
    * step is the validator. See `SuspendSite.reentrant`.
    */
   readonly schema?: StandardSchemaV1;
   /** How long the suspension stays resumable. Absent means the context default. */
   readonly ttl?: Duration;
   /**
-   * Anything the answering route needs to decide who may answer. Plain
+   * Anything the resuming route needs to decide who may resume. Plain
    * JSON, persisted verbatim, never interpreted by the framework.
    */
   readonly meta?: unknown;
   /**
    * Identity of the call this park belongs to, so a batch that mints one
-   * credential per call cannot have one call's approver answer another's
-   * question.
+   * credential per call cannot have one call's recipient resume another's
+   * park.
    */
   readonly callBinding?: string;
-  /** Human-facing question carried onto the `Suspended` acknowledgment. */
-  readonly question?: string;
-  /** Machine-facing reason carried onto the `Suspended` acknowledgment. */
-  readonly reason?: string;
   /**
    * Closure state owned by the raising step, persisted verbatim in the
    * record's `stepState` slot and handed back to the step when the
@@ -122,8 +118,7 @@ export function convertSuspendSignal(
       message: host.suspendRefusal ?? signal.message,
     });
   }
-  const { schema, ttl, question, reason, stepState, meta, callBinding } =
-    signal.request;
+  const { schema, ttl, stepState, meta, callBinding } = signal.request;
   return {
     kind: "suspend",
     exchange,
@@ -134,8 +129,6 @@ export function convertSuspendSignal(
       ...(ttl !== undefined
         ? { expiresInMs: parseDuration(ttl, "suspend({ ttl })") }
         : {}),
-      ...(question !== undefined ? { question } : {}),
-      ...(reason !== undefined ? { reason } : {}),
       ...(stepState !== undefined ? { stepState } : {}),
       site,
     },

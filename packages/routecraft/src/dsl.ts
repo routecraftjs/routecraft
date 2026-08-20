@@ -254,23 +254,22 @@ declare module "@routecraft/routecraft" {
      * Park the exchange durably and exit the pipeline, to be resumed later
      * at the next step.
      *
-     * This run ends here and answers immediately with the `Suspended`
+     * This run ends here and replies immediately with the `Suspended`
      * acknowledgment, because a durable suspend cannot hold a caller: the
-     * answer arrives in hours or days and the process will be restarted
-     * first. Nothing is scheduled, no worker waits, and the route stays
-     * live for every other exchange. The route's real output flows to its
-     * destinations on execution two, when `.resume()` revives the exchange
-     * with the answer.
+     * resume payload arrives in hours or days and the process will be
+     * restarted first. Nothing is scheduled, no worker waits, and the route
+     * stays live for every other exchange. The route's real output flows to
+     * its destinations on execution two, when `.resume()` revives the
+     * exchange with the payload.
      *
      * The body is unchanged across the park, so a branch that suspends
-     * rejoins the main flow with the contract it left on. The answer
+     * rejoins the main flow with the contract it left on. The payload
      * arrives beside it, on `ex.suspension.result`, typed by `schema`.
      *
-     * @param options - `schema` (what a valid answer looks like), a `ttl`
-     *   after which the suspension stops being resumable, the human-facing
-     *   `question` and machine-facing `reason` carried onto the
-     *   acknowledgment, and `meta`: anything the answering route's
-     *   `.resume({ authorize })` hook needs to decide who may answer
+     * @param options - `schema` (what a valid resume payload looks like), a
+     *   `ttl` after which the suspension stops being resumable, and `meta`:
+     *   anything the resuming route's `.resume({ authorize })` hook needs to
+     *   decide who may resume
      * @example
      * ```ts
      * craft()
@@ -303,30 +302,30 @@ declare module "@routecraft/routecraft" {
      * ending in `.resume()` is a resume ingress, whether it is fed by an
      * HTTP webhook, a mail-reply parser, or an ops CLI. The original source
      * takes no part in execution two, which is what lets a mail-born
-     * exchange be continued by a chat-born answer.
+     * exchange be continued by a chat-born resume.
      *
-     * The mapping function owns SHAPE (find the token, build the candidate
-     * answer); validation against the suspending step's `schema` happens at
-     * revival, because only the suspension knows that schema. The bare form
-     * expects the body to already be `{ token, result }`.
+     * The mapping function owns SHAPE (find the token, build the payload);
+     * validation against the suspending step's `schema` happens at revival,
+     * because only the suspension knows that schema. The bare form expects
+     * the body to already be `{ token, result }`.
      *
-     * Authorizing the answerer belongs on this route, through the
+     * Authorizing the resuming principal belongs on this route, through the
      * `authorize` option: the token proves the deployment minted it, not
-     * that its holder may answer. The hook runs before the store's claim
+     * that its holder may resume. The hook runs before the store's claim
      * and before the record's lifecycle is disclosed, so a refusal costs
-     * the rightful answerer nothing and tells a refused caller nothing.
+     * the rightful principal nothing and tells a refused caller nothing.
      * Whoever this route authenticated is recorded as `resumedBy`. A door
      * exposed publicly wants a `.throttle()` in front of it.
      *
      * The revived route runs to completion before this step continues, so
      * the acknowledgment placed in the body reports how execution two
-     * ended, and the ingress route can answer the approver's own channel.
-     * A duplicate answer returns the first one's cached terminal outcome
+     * ended, and the ingress route can reply on the caller's own channel.
+     * A duplicate resume returns the first one's cached terminal outcome
      * without re-running anything.
      *
      * @param map - Maps the ingress exchange to `{ token, result }`
-     * @param options - `authorize`, deciding who may answer. Omitted, the
-     *   door is bearer: any holder of a valid token may answer.
+     * @param options - `authorize`, deciding who may resume. Omitted, the
+     *   door is bearer: any holder of a valid token may resume.
      * @example
      * ```ts
      * craft()

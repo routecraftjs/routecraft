@@ -604,7 +604,7 @@ A blocking tool handler:
 }
 ```
 
-The durable form replaces the blocking await with `return ctx.suspend({ expect: Approval, ttl: "72h", question: input.question })` and consumes the answer when the run resumes; `ctx.suspensionId` and `ctx.suspension.token` are populated before the handler runs, so the approval request can carry a working resume link. `SuspendError` remains available as a throw-form escape hatch, with a documented footgun: a handler that wraps its work in `try/catch` silently swallows a thrown suspension. Both require the exchange to be route-bound and, at park time, a [`suspension`](/docs/reference/configuration#suspension) block on the context.
+The durable form replaces the blocking await with `return ctx.suspend({ schema: Approval, ttl: "72h" })` and consumes the payload when the run resumes; `ctx.suspensionId` and `ctx.suspension.token` are populated before the handler runs, so the approval request can carry a working resume link. `SuspendError` remains available as a throw-form escape hatch, with a documented footgun: a handler that wraps its work in `try/catch` silently swallows a thrown suspension. Both require the exchange to be route-bound and, at park time, a [`suspension`](/docs/reference/configuration#suspension) block on the context.
 
 #### Observability: two channels
 

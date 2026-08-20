@@ -30,9 +30,9 @@ export interface FnSuspensionWiring {
    *
    * Bound to THIS tool call. Every handler in a parallel batch reads the
    * same suspension id (they name the park, not the call) but gets its own
-   * credential, so an approver sent a link by a handler that then lost the
-   * park cannot answer the winner's question: their token carries the
-   * losing call's binding and takes `RC5055`.
+   * credential, so a recipient sent a link by a handler that then lost the
+   * park cannot resume the winner's park: their token carries the losing
+   * call's binding and takes `RC5055`.
    */
   readonly mintToken: () => string;
 }

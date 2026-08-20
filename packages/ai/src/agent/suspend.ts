@@ -17,12 +17,12 @@ const SUSPEND_SENTINEL_BRAND = Symbol.for("routecraft.ai.agentSuspendSentinel");
 export interface AgentSuspendOptions {
   /**
    * What a valid answer looks like. Rendered onto the `Suspended`
-   * acknowledgment (so the answerer can see the shape) and folded into the
+   * acknowledgment (so the caller can see the shape) and folded into the
    * suspension's compatibility hash.
    *
    * Descriptive at resume time, unlike the core operation's `schema`: the
    * live schema exists only in this handler's code, so after a restart the
-   * framework cannot re-validate against it and the answer reaches the
+   * framework cannot re-validate against it and the payload reaches the
    * model as an ordinary, untrusted tool result. Treat it accordingly.
    */
   schema?: StandardSchemaV1;
@@ -32,12 +32,8 @@ export interface AgentSuspendOptions {
    * with `RC5047`, exactly as with the core operation.
    */
   ttl?: Duration;
-  /** Human-facing question, surfaced on `Suspended.question`. */
-  question?: string;
-  /** Machine-facing reason, surfaced on `Suspended.reason`. */
-  reason?: string;
   /**
-   * Anything the answering route needs to decide who may answer, or that an
+   * Anything the resuming route needs to decide who may resume, or that an
    * operator needs to read off the record.
    *
    * Identical to the core `.suspend({ meta })` option, deliberately: an
@@ -47,7 +43,7 @@ export interface AgentSuspendOptions {
    * handed to `.resume({ authorize })` at revive.
    *
    * A tool handler supplies it, which means the MODEL influenced it. Design
-   * the answering route's hook so it does not trust this text on its own.
+   * the resuming route's hook so it does not trust this text on its own.
    */
   meta?: unknown;
 }
@@ -118,10 +114,10 @@ export function isSuspendSentinel(
  *
  * const askApproval: FnOptions = {
  *   description: "Ask a human for approval via email",
- *   input: z.object({ question: z.string() }),
+ *   input: z.object({ request: z.string() }),
  *   handler: async (input, ctx) => {
- *     await sendApprovalRequest({ question: input.question, ctx })
- *     throw new SuspendError({ schema: Approval, ttl: "72h", question: input.question })
+ *     await sendApprovalRequest({ request: input.request, ctx })
+ *     throw new SuspendError({ schema: Approval, ttl: "72h" })
  *   },
  * }
  * ```
@@ -130,21 +126,13 @@ export class SuspendError extends Error {
   /** Discriminator for runtime detection. */
   override readonly name = "SuspendError";
   /**
-   * What a valid answer looks like. Absent, the suspension declares no
-   * contract at all and the answer reaches the model unvalidated, which is
-   * the trust level every tool result already has.
+   * What a valid resume payload looks like. Absent, the suspension declares
+   * no contract at all and the payload reaches the model unvalidated, which
+   * is the trust level every tool result already has.
    */
   readonly schema?: StandardSchemaV1;
   /** How long the suspension stays resumable. Omitted means the context default. */
   readonly ttl?: Duration;
-  /** Human-facing question, surfaced on `Suspended.question`. */
-  readonly question?: string;
-  /**
-   * Machine-facing reason, surfaced on `Suspended.reason`. Free-form; pick
-   * whatever your product vocabulary uses ("awaiting-human-approval",
-   * "waiting-for-webhook", etc.).
-   */
-  readonly reason?: string;
   /**
    * Optional channel hint indicating how the agent will be resumed.
    * Surfaces in telemetry only; the durable record does not carry it.
@@ -157,20 +145,12 @@ export class SuspendError extends Error {
   constructor(opts?: {
     schema?: StandardSchemaV1;
     ttl?: Duration;
-    question?: string;
-    reason?: string;
     resumeChannel?: string;
     meta?: unknown;
   }) {
-    super(
-      opts?.reason
-        ? `Agent suspended: ${opts.reason}`
-        : "Agent suspended pending external resumption.",
-    );
+    super("Agent suspended pending external resumption.");
     if (opts?.schema !== undefined) this.schema = opts.schema;
     if (opts?.ttl !== undefined) this.ttl = opts.ttl;
-    if (opts?.question !== undefined) this.question = opts.question;
-    if (opts?.reason !== undefined) this.reason = opts.reason;
     if (opts?.resumeChannel !== undefined) {
       this.resumeChannel = opts.resumeChannel;
     }

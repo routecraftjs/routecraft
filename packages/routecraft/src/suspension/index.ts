@@ -41,7 +41,7 @@ export type {
   ResumeAuthorizer,
   ResumeAuthorizerInput,
   SuspensionRecordView,
-} from "./answerer.ts";
+} from "./authorize.ts";
 
 export {
   DATE_TAG,

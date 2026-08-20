@@ -146,7 +146,7 @@ A route-scope `.retry()` applies to execution two, so the steps after a `.suspen
 Inside the continuation, step-scope wrappers work normally, and because a wrapper wraps the immediately following step, a nesting operation groups a whole block under one:
 
 ```ts
-.suspend({ expect: Approval, ttl: '72h' })
+.suspend({ schema: Approval, ttl: '72h' })
 .retry({ maxAttempts: 3 })
 .choice(otherwise((b) => b
   .transform(executePayout)
@@ -157,7 +157,7 @@ Inside the continuation, step-scope wrappers work normally, and because a wrappe
 When you want the positions that stay off, hand the continuation to a route that has them:
 
 ```ts
-.suspend({ expect: Approval, ttl: '72h' })
+.suspend({ schema: Approval, ttl: '72h' })
 .to(direct('execute-payout'))
 
 craft()

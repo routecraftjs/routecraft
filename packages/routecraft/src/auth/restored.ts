@@ -32,7 +32,7 @@ const restored = new WeakSet<object>();
  * back in.
  *
  * The principal remains readable: routes still see who the exchange was
- * running as, and `resumedBy` records who answered. What it cannot do is
+ * running as, and `resumedBy` records who resumed it. What it cannot do is
  * pass an authorization check on its own.
  *
  * @param principal - The principal shape read back from a suspension.

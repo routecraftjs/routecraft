@@ -84,17 +84,14 @@ const MIGRATIONS: ReadonlyArray<string> = [
   `ALTER TABLE suspensions ADD COLUMN claimed_at INTEGER;
    DROP INDEX IF EXISTS suspensions_sweep;
    CREATE INDEX suspensions_sweep ON suspensions (status, expires_at, id);`,
-  // v3: the per-call credential binding, and the three slots the resume
-  // route's authorize hook is handed (`meta`, `question`, `reason`). All
-  // nullable: a record written before this migration carried none of them,
-  // and reading one back as such is exactly right. `expect` becomes
-  // `schema` in the same step, so the column and the field it carries stop
-  // drifting apart.
+  // v3: the per-call credential binding, and the `meta` slot the resume
+  // route's authorize hook is handed. Both nullable: a record written
+  // before this migration carried neither, and reading one back as such is
+  // exactly right. `expect` becomes `schema` in the same step, so the
+  // column and the field it carries stop drifting apart.
   `ALTER TABLE suspensions RENAME COLUMN "expect" TO "schema";
    ALTER TABLE suspensions ADD COLUMN call_binding TEXT;
-   ALTER TABLE suspensions ADD COLUMN meta TEXT;
-   ALTER TABLE suspensions ADD COLUMN question TEXT;
-   ALTER TABLE suspensions ADD COLUMN reason TEXT;`,
+   ALTER TABLE suspensions ADD COLUMN meta TEXT;`,
 ];
 
 /**
@@ -175,9 +172,9 @@ export class SqliteSuspensionStore implements SuspensionStore {
         .prepare(
           `INSERT INTO suspensions (
              id, route_id, position, continuation_hash, action_fingerprint,
-             exchange, "schema", call_binding, meta, question, reason,
+             exchange, "schema", call_binding, meta,
              step_state, status, suspended_at, expires_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           record.id,
@@ -189,8 +186,6 @@ export class SqliteSuspensionStore implements SuspensionStore {
           JSON.stringify(record.schema),
           record.callBinding ?? null,
           record.meta === undefined ? null : JSON.stringify(record.meta),
-          record.question ?? null,
-          record.reason ?? null,
           record.stepState === undefined
             ? null
             : JSON.stringify(encodePersistable(record.stepState, "stepState")),
@@ -580,8 +575,6 @@ interface SuspensionRow {
   schema: string;
   call_binding: string | null;
   meta: string | null;
-  question: string | null;
-  reason: string | null;
   step_state: string | null;
   status: string;
   suspended_at: number;
@@ -608,8 +601,6 @@ function toSuspension(row: SuspensionRow): Suspension {
     schema: JSON.parse(row.schema) as SuspensionSchema,
     ...(row.call_binding !== null ? { callBinding: row.call_binding } : {}),
     ...(row.meta !== null ? { meta: JSON.parse(row.meta) as unknown } : {}),
-    ...(row.question !== null ? { question: row.question } : {}),
-    ...(row.reason !== null ? { reason: row.reason } : {}),
     ...(row.step_state !== null
       ? { stepState: JSON.parse(row.step_state) as unknown }
       : {}),

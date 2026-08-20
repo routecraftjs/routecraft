@@ -4,9 +4,9 @@ import { BRAND, isBranded, setBrand } from "../brand.ts";
 /**
  * What execution one returns when a route parks.
  *
- * A durable suspend cannot hold a caller: the answer arrives in hours or
- * days and the process will be restarted first. So the run that reaches a
- * `.suspend()` terminates there and answers immediately with this value
+ * A durable suspend cannot hold a caller: the resume payload arrives in
+ * hours or days and the process will be restarted first. So the run that
+ * reaches a `.suspend()` terminates there and replies immediately with this value
  * instead of the route's declared output. The real output flows to the
  * route's destinations on execution two.
  *
@@ -25,7 +25,7 @@ export interface Suspended {
   /** Signed, single-use token that resumes it. */
   readonly token: string;
   /**
-   * JSON Schema rendering of what a valid answer looks like, when the
+   * JSON Schema rendering of what a valid resume payload looks like, when the
    * suspending step declared a schema and it exposes one (Zod, ArkType and
    * the AI SDK bridge do through the non-standard `~standard.jsonSchema`
    * extension). Absent otherwise, and absent whenever the site declared no
@@ -35,15 +35,6 @@ export interface Suspended {
   readonly schema?: unknown;
   /** When the suspension expires, ISO-8601. Absent when `.suspend()` declared no `ttl`. */
   readonly expiresAt?: string;
-  /**
-   * Human-facing question the suspension is waiting on. Populated when the
-   * suspending step supplied one (the agent tier's `ctx.suspend()` is the
-   * shipped producer); `.suspend()` deliberately has no option for it, since
-   * a route notifies through ordinary steps before the park.
-   */
-  readonly question?: string;
-  /** Machine-facing reason the run parked, when the suspending step supplied one. */
-  readonly reason?: string;
 }
 
 /**
@@ -86,18 +77,16 @@ export function isSuspended(value: unknown): value is Suspended {
 export const SUSPENDED_JSON_SCHEMA = {
   type: "object",
   description:
-    "The run parked at a durable suspension. Present the question to whoever can answer it; the answer is delivered out of band with the resume token, and the real result is produced when the run continues.",
+    "The run parked at a durable suspension. The resume payload is delivered out of band with the resume token, and the real result is produced when the run continues.",
   properties: {
     status: { const: "suspended" },
     suspensionId: { type: "string" },
     token: { type: "string" },
     schema: {
       description:
-        "JSON Schema of what a valid answer looks like, when the suspending step declared a schema that renders one.",
+        "JSON Schema of what a valid resume payload looks like, when the suspending step declared a schema that renders one.",
     },
     expiresAt: { type: "string", format: "date-time" },
-    question: { type: "string" },
-    reason: { type: "string" },
   },
   required: ["status", "suspensionId", "token"],
   additionalProperties: false,
@@ -141,8 +130,6 @@ export const suspendedSchema: StandardSchemaV1<unknown, Suspended> = {
             case "schema":
               return true;
             case "expiresAt":
-            case "question":
-            case "reason":
               return typeof field === "string";
             default:
               return false;

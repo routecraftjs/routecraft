@@ -278,7 +278,7 @@ export type Exchange<T = unknown> = {
 
   /**
    * Durable-suspension view of this exchange: the id and signed token it
-   * would park as, and (after a resume) the answer that revived it.
+   * would park as, and (after a resume) the payload that revived it.
    *
    * Sugar over the `routecraft.suspension.*` headers plus the context's
    * token signer, in the same shape as `principal` and `logger`. Readable

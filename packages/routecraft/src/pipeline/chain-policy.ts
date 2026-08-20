@@ -109,7 +109,7 @@ export const CHAIN_SURVIVAL: Readonly<
   preParseFilters: {
     resume: {
       survives: false,
-      why: "authorize (#2). A principal restored from the store fails RC5043 by design (#355), so re-running it would refuse every resume. The answerer is authorized live at the resume ingress.",
+      why: "authorize (#2). A principal restored from the store fails RC5043 by design (#355), so re-running it would refuse every resume. The resuming principal is authorized live at the resume ingress.",
     },
     debounce: {
       survives: false,

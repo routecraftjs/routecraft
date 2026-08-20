@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
   DefaultExchange,
+  SUSPENSION_RUNTIME,
   craft,
   direct,
   noop,
@@ -85,7 +86,10 @@ describe("MCP carries Suspended (#581)", () => {
           .description("Parks for approval before paying out")
           .output({ body: Payout })
           .from<{ amount: number }>(mcp())
-          .suspend({ schema: Approval })
+          .suspend({
+            schema: Approval,
+            meta: { channel: "finance", requires: ["payouts:approve"] },
+          })
           .transform(() => ({ paid: true })),
       ])
       .build();
@@ -186,7 +190,7 @@ describe("MCP carries Suspended (#581)", () => {
   /**
    * @case End to end: an MCP client parks a tool, resumes through an ingress route, and the original contract is honored
    * @preconditions Suspendable payout tool with .output(Payout); a direct-fronted .resume() ingress; event listeners on the plugin:mcp:tool family
-   * @expectedResult The call answers isError false with the Suspended acknowledgment in structuredContent (matching the advertised second arm); plugin:mcp:tool:suspended fires with the suspension id while completed/failed/declined stay silent; the resume runs execution two whose terminal body satisfies the declared output
+   * @expectedResult The call replies isError false with the Suspended acknowledgment in structuredContent (matching the advertised second arm) and no trace of the site's meta; the record persists that meta verbatim; plugin:mcp:tool:suspended fires with the suspension id while completed/failed/declined stay silent; the resume runs execution two whose terminal body satisfies the declared output
    */
   test("park over MCP, resume through an ingress, contract honored end to end", async () => {
     const events: Array<{ name: string; detail: Record<string, unknown> }> = [];
@@ -199,7 +203,10 @@ describe("MCP carries Suspended (#581)", () => {
           .description("Parks for approval before paying out")
           .output({ body: Payout })
           .from<{ amount: number }>(mcp())
-          .suspend({ schema: Approval })
+          .suspend({
+            schema: Approval,
+            meta: { channel: "finance", requires: ["payouts:approve"] },
+          })
           .transform(() => ({ paid: true })),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -230,6 +237,19 @@ describe("MCP carries Suspended (#581)", () => {
     // The published value satisfies the advertised second arm.
     expect(ack.suspensionId).toBeString();
     expect(result.content[0]!.text).toContain('"suspended"');
+
+    // `meta` is hook input, not wire data: it reaches the resume route's
+    // authorize hook off the record and must not ride out to the MCP client,
+    // which is the party that hook exists to judge.
+    expect(Object.keys(ack)).not.toContain("meta");
+    expect(JSON.stringify(result)).not.toContain("payouts:approve");
+    const record = await t.ctx
+      .getStore(SUSPENSION_RUNTIME)!
+      .store.get(ack.suspensionId);
+    expect(record!.meta).toEqual({
+      channel: "finance",
+      requires: ["payouts:approve"],
+    });
 
     expect(events.map((e) => e.name)).toEqual(["plugin:mcp:tool:suspended"]);
     expect(events[0]!.detail["details"]).toMatchObject({

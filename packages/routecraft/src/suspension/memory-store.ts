@@ -61,10 +61,6 @@ export class MemorySuspensionStore implements SuspensionStore {
             ? { callBinding: record.callBinding }
             : {}),
           ...(record.meta !== undefined ? { meta: record.meta } : {}),
-          ...(record.question !== undefined
-            ? { question: record.question }
-            : {}),
-          ...(record.reason !== undefined ? { reason: record.reason } : {}),
           ...(record.stepState !== undefined
             ? { stepState: record.stepState }
             : {}),

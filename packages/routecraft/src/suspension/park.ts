@@ -105,8 +105,6 @@ export async function parkExchange(
     ...(request.callBinding !== undefined
       ? { callBinding: request.callBinding }
       : {}),
-    ...(request.question !== undefined ? { question: request.question } : {}),
-    ...(request.reason !== undefined ? { reason: request.reason } : {}),
     ...(stepState !== undefined ? { stepState } : {}),
     actionFingerprint: actionFingerprint({
       routeId,
@@ -117,7 +115,7 @@ export async function parkExchange(
     suspendedAt,
     // Per-suspend `ttl` first, then the context default. A suspension with
     // no deadline at all is only reachable through `defaultTtl: "never"`,
-    // because an approval nobody answers should eventually reach the route
+    // because a park nobody resumes should eventually reach the route
     // that asked for it rather than sit in the store forever.
     ...(ttlMs !== undefined
       ? { expiresAt: new Date(suspendedAt.getTime() + ttlMs) }
@@ -159,7 +157,7 @@ export async function parkExchange(
   if (schema.degraded) {
     parking.logger.warn(
       { suspensionId: id, routeId, position: request.site.position },
-      "The answer schema advertises a JSON Schema extension that produced nothing, so this suspension cannot detect a changed schema: only the step tail is covered. Zod throws for a Date, a bigint or any transform.",
+      "The resume-payload schema advertises a JSON Schema extension that produced nothing, so this suspension cannot detect a changed schema: only the step tail is covered. Zod throws for a Date, a bigint or any transform.",
     );
   }
 
@@ -168,8 +166,6 @@ export async function parkExchange(
     token: runtime.signer.mint(id, new Date(), request.callBinding),
     ...(schema.jsonSchema !== undefined ? { schema: schema.jsonSchema } : {}),
     ...(record.expiresAt ? { expiresAt: record.expiresAt.toISOString() } : {}),
-    ...(request.question !== undefined ? { question: request.question } : {}),
-    ...(request.reason !== undefined ? { reason: request.reason } : {}),
   });
 
   const parked = DefaultExchange.rewrap(parking, { body: suspended });
@@ -224,7 +220,7 @@ async function denyParkedOnCancellation(
   try {
     const claim = await runtime.store.claimExpiry(suspensionId, new Date());
     // Losing the claim means someone else already settled the record (an
-    // answer that raced in, the sweeper). Whoever won owns the outcome.
+    // resume that raced in, the sweeper). Whoever won owns the outcome.
     if (!claim.won) return true;
     // `markDenied` is itself a compare-and-swap out of `expiring`. Reporting
     // a confirmed denial without reading it would be the one thing this

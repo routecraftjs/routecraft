@@ -6,7 +6,7 @@ import type { SerializedExchange, SuspensionSchema } from "./types.ts";
 
 /**
  * Hash the continuation of a parked exchange: the steps that have NOT run
- * yet, plus the schema the eventual answer is validated against.
+ * yet, plus the schema the eventual resume payload is validated against.
  *
  * ## Why the tail and not the pipeline
  *
@@ -72,7 +72,7 @@ import type { SerializedExchange, SuspensionSchema } from "./types.ts";
  * @param steps - The full step array of the route, in declaration order.
  * @param position - Index of the suspending step. The hash covers
  *   `position + 1` onward.
- * @param schema - The answer schema descriptor.
+ * @param schema - The resume-payload schema descriptor.
  * @returns A hex SHA-256 digest.
  *
  * @internal
@@ -133,7 +133,7 @@ export function continuationTailHash(
  *
  * A site that declares NO schema gets the absent sentinel rather than an
  * empty descriptor. The two are different facts and must hash differently:
- * "declared a schema whose rendering was lost" still validates the answer at
+ * "declared a schema whose rendering was lost" still validates the payload at
  * resume, while "declared nothing" does not, so collapsing them would let an
  * edit between the two pass the compatibility check unnoticed.
  *

@@ -465,7 +465,7 @@ Dispatch the agent through a route: its exchange is then route-bound, the hostin
 Agent suspension state invalid at rehydration
 
 **Why it happens**  
-A resumed exchange carried `stepState` this agent cannot re-enter. Either the persisted value is not the `{ agentId, messages, suspendedToolCallId, turnsUsed }` record the runtime writes, the thread does not contain the suspended tool call the answer should land on, or the record names a different agent than the one the route now dispatches. That last case exists because a by-name agent's registered options are not covered by the continuation hash (only step definitions are), so the persisted `agentId` is the identity the record can pin.
+A resumed exchange carried `stepState` this agent cannot re-enter. Either the persisted value is not the `{ agentId, messages, suspendedToolCallId, turnsUsed }` record the runtime writes, the thread does not contain the suspended tool call the payload should land on, or the record names a different agent than the one the route now dispatches. That last case exists because a by-name agent's registered options are not covered by the continuation hash (only step definitions are), so the persisted `agentId` is the identity the record can pin.
 
 **Suggestion**  
 Restore the agent binding the record names, or treat the parked work as lost and re-ask with a fresh suspension. The suspension was already claimed when this fired, so the failure is recorded as its terminal outcome and the suspended route's `.error()` handler receives it.
@@ -666,7 +666,7 @@ Principal restored from a suspension
 `authorize()` was given a principal that came back from durable storage with a resumed exchange. It is the recorded shape of an identity verified days ago, with nothing behind it now: no signature was re-checked, no expiry, no revocation lookup. The framework marks such principals restored precisely so this case is distinguishable, rather than letting a shape read off disk pass an authorization check.
 
 **Suggestion**  
-Put the authorization on the resume ingress route, where the answering principal is verified live, and read `ex.suspension.resumedBy` for the receipt. If a step after the suspend point genuinely needs an authorized identity, re-verify it there with `.authenticate()` from a checked credential.
+Put the authorization on the resume ingress route, where the resuming principal is verified live, and read `ex.suspension.resumedBy` for the receipt. If a step after the suspend point genuinely needs an authorized identity, re-verify it there with `.authenticate()` from a checked credential.
 
 Distinct from RC5023 (a self-asserted plain object) because the fix differs: re-verify, do not mint.
 
@@ -703,16 +703,16 @@ Check that `suspension.store` names the same location on every node, and that th
 Suspension expired
 
 **Why it happens**  
-The suspension's `ttl` elapsed, so the parked exchange is no longer resumable. Either a late answer arrived and was refused, or the background sweeper retired the suspension on its own schedule with no answer ever arriving, which is the case a `ttl` mostly exists for.
+The suspension's `ttl` elapsed, so the parked exchange is no longer resumable. Either a late resume arrived and was refused, or the background sweeper retired the suspension on its own schedule with no resume ever arriving, which is the case a `ttl` mostly exists for.
 
 **Suggestion**  
-This is catchable rather than terminal: the suspended route's own `.error()` handler receives it and can notify the approver and re-ask with a fresh suspension. Raise `ttl` on `.suspend()` if the window is genuinely too short for the people answering.
+This is catchable rather than terminal: the suspended route's own `.error()` handler receives it and can notify and re-ask with a fresh suspension. Raise `ttl` on `.suspend()` if the window is genuinely too short for the people it waits on.
 
 ## RC5048
 Suspension continuation changed
 
 **Why it happens**  
-The steps after the suspend point, or the `expect` schema, changed while the exchange was parked. The stored approval no longer authorizes what would now run, so resuming is refused before any of those steps execute.
+The steps after the suspend point, or the declared `schema`, changed while the exchange was parked. The stored approval no longer authorizes what would now run, so resuming is refused before any of those steps execute.
 
 Editing a step BEFORE the suspend point does not trigger this: those steps already ran, and changing them cannot affect what happens after the resume.
 
@@ -723,10 +723,10 @@ Catch it in the suspended route's route-scope `.error()` and re-ask. Note the ha
 Suspension result rejected
 
 **Why it happens**  
-The candidate result handed to `.resume()` failed the `expect` schema declared on the suspending `.suspend()`.
+The payload handed to `.resume()` failed the `schema` declared on the suspending `.suspend()`.
 
 **Suggestion**  
-The suspension is left resumable, so a corrected answer still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the answer, while validation happens at revival because only the suspension knows the schema.
+The suspension is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the suspension knows the schema.
 
 ## RC5050
 Suspension denied
@@ -778,26 +778,26 @@ The run raised a durable suspension while it was being cancelled: a route stop o
 Nothing needs repair; the exchange's work simply did not park. Re-dispatch it as a new exchange if it should run again. Note the boundary: this is about the cancellation race only. A parked exchange whose process merely stops or restarts SURVIVES it; `context.stop()` never denies parked work, because surviving the stop is the store's entire purpose.
 
 ## RC5055
-Resume credential not bound to this question
+Resume credential not bound to this call
 
 **Why it happens**  
-The token verifies and names a real suspension, but it was minted for a different question than the one the record is parked on. A parallel batch of agent tool calls produces ONE park and one question, while each handler mints its own credential: only the call that actually won the park may be answered, so a losing sibling's approver presenting their link lands here.
+The token verifies and names a real suspension, but it was minted for a different call than the one the record is parked on. A parallel batch of agent tool calls produces ONE park, while each handler mints its own credential: only the call that actually won the park may be resumed, so a losing sibling's recipient presenting their link lands here.
 
 **Suggestion**  
-Nothing is wrong with the record; it is still resumable by the rightful credential. Design so at most one tool per turn can park (one approval tool, or mutually exclusive guards) rather than handing two approvers two questions backed by one park. The refusal is deliberately non-destructive: it leaves the record exactly as it found it, so the winner's approver can still answer.
+Nothing is wrong with the record; it is still resumable by the rightful credential. Design so at most one tool per turn can park (one approval tool, or mutually exclusive guards) rather than handing two recipients two links backed by one park. The refusal is deliberately non-destructive: it leaves the record exactly as it found it, so the winning call's recipient can still resume.
 
 ## RC5056
 Resume refused by the route's authorize hook
 
 **Why it happens**  
-The [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume) hook on the ingress route refused this answerer. Who may answer a parked question is your application's policy, not the framework's: the hook receives the answerer's live principal, the parked principal snapshot, and the record's metadata, and decides.
+The [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume) hook on the ingress route refused this principal. Who may resume a parked run is your application's policy, not the framework's: the hook receives the live principal, the parked principal snapshot, the raw submitted payload, and the record's context, and decides.
 
 A hook that returns false, one that throws, and one that never settles before the route's own `.timeout()` all produce this one code with the same message. That is deliberate: a hook whose failures can be told apart from outside is an oracle for what it knows.
 
 **Suggestion**  
-Read the boundary log. It records which of the three happened and carries any thrown cause, neither of which reaches the wire. The refusal is non-destructive and runs before the record's lifecycle is disclosed, so the record stays exactly as it was and a refused caller learns nothing about it; whoever does qualify can still answer.
+Read the boundary log. It records which of the three happened and carries any thrown cause, neither of which reaches the wire. The refusal is non-destructive and runs before the record's lifecycle is disclosed, so the record stays exactly as it was and a refused caller learns nothing about it; whoever does qualify can still resume.
 
-A door that declares no hook is bearer by design: any holder of a valid token may answer. If you did not intend that, the fix is a hook, not a config flag.
+A door that declares no hook is bearer by design: any holder of a valid token may resume. If you did not intend that, the fix is a hook, not a config flag.
 
 ## RC9901
 Unknown error

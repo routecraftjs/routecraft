@@ -11,7 +11,7 @@ import {
 import { asSuspended } from "./helpers/suspension.ts";
 
 /**
- * The five patterns from the "Securing resume" docs section, each as running
+ * The six patterns from the "Securing resume" docs section, each as running
  * code with its accept and refuse path proven.
  *
  * The docs excerpt the `authorize` bodies below verbatim rather than
@@ -37,7 +37,7 @@ function asWho(ex: Exchange) {
     : undefined;
 }
 
-function answerFrom(ex: Exchange) {
+function payloadFrom(ex: Exchange) {
   return {
     token: (ex.body as { token: string }).token,
     result: { approved: true },
@@ -72,14 +72,14 @@ describe("securing resume: the documented patterns", () => {
           .id("approvals")
           .from(direct())
           .authenticate(asWho)
-          .resume(answerFrom, {
-            authorize: ({ answerer, parked }) => {
+          .resume(payloadFrom, {
+            authorize: ({ principal, parked }) => {
               // Both subjects must be present: two principals that merely
               // lack one are not two different people.
-              const answering = answerer?.subject;
+              const resuming = principal?.subject;
               const requester = parked?.subject;
-              if (!answering || !requester) return false;
-              return answering !== requester;
+              if (!resuming || !requester) return false;
+              return resuming !== requester;
             },
           }),
       ])
@@ -91,7 +91,7 @@ describe("securing resume: the documented patterns", () => {
     );
     await expect(
       t.client.sendDirect("approvals", { who: "alice", token: parked.token }),
-    ).rejects.toThrow(/refused this answerer/);
+    ).rejects.toThrow(/refused this principal/);
     expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
 
     await t.client.sendDirect("approvals", {
@@ -102,7 +102,7 @@ describe("securing resume: the documented patterns", () => {
   });
 
   /**
-   * @case Scope gate: the parker records what the answerer must hold
+   * @case Scope gate: the parker records what the resuming principal must hold
    * @preconditions meta.requires listing a scope, answered once without it and once with it
    * @expectedResult The scope requirement is read off the record, so it is the one in force when the question was asked
    */
@@ -123,8 +123,8 @@ describe("securing resume: the documented patterns", () => {
           .id("approvals")
           .from(direct())
           .authenticate(asWho)
-          .resume(answerFrom, {
-            authorize: ({ answerer, record }) => {
+          .resume(payloadFrom, {
+            authorize: ({ principal, record }) => {
               const required = (
                 record.meta as { requires?: string[] } | undefined
               )?.requires;
@@ -132,7 +132,7 @@ describe("securing resume: the documented patterns", () => {
               // Without this, `[].every(...)` returns true and a site that
               // forgot its `meta` opens the door to every token holder.
               if (!required?.length) return false;
-              const held = new Set(answerer?.scopes ?? []);
+              const held = new Set(principal?.scopes ?? []);
               return required.every((scope) => held.has(scope));
             },
           }),
@@ -147,7 +147,7 @@ describe("securing resume: the documented patterns", () => {
         scopes: ["payouts:read"],
         token: parked.token,
       }),
-    ).rejects.toThrow(/refused this answerer/);
+    ).rejects.toThrow(/refused this principal/);
 
     await t.client.sendDirect("approvals", {
       who: "carol",
@@ -176,13 +176,13 @@ describe("securing resume: the documented patterns", () => {
           .id("approvals")
           .from(direct())
           .authenticate(asWho)
-          .resume(answerFrom, {
-            authorize: ({ answerer, record }) => {
+          .resume(payloadFrom, {
+            authorize: ({ principal, record }) => {
               const required = (
                 record.meta as { requires?: string[] } | undefined
               )?.requires;
               if (!required?.length) return false;
-              const held = new Set(answerer?.scopes ?? []);
+              const held = new Set(principal?.scopes ?? []);
               return required.every((scope) => held.has(scope));
             },
           }),
@@ -197,7 +197,7 @@ describe("securing resume: the documented patterns", () => {
         scopes: ["payouts:approve"],
         token: parked.token,
       }),
-    ).rejects.toThrow(/refused this answerer/);
+    ).rejects.toThrow(/refused this principal/);
     expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
   });
 
@@ -223,11 +223,11 @@ describe("securing resume: the documented patterns", () => {
         craft()
           .id("ops-door")
           .from(direct())
-          .resume(answerFrom, servesChannel("ops")),
+          .resume(payloadFrom, servesChannel("ops")),
         craft()
           .id("finance-door")
           .from(direct())
-          .resume(answerFrom, servesChannel("finance")),
+          .resume(payloadFrom, servesChannel("finance")),
       ])
       .build();
     await t.startAndWaitReady();
@@ -235,7 +235,7 @@ describe("securing resume: the documented patterns", () => {
     const parked = asSuspended(await t.client.sendDirect("payout", {}));
     await expect(
       t.client.sendDirect("ops-door", { token: parked.token }),
-    ).rejects.toThrow(/refused this answerer/);
+    ).rejects.toThrow(/refused this principal/);
     expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
 
     await t.client.sendDirect("finance-door", { token: parked.token });
@@ -253,15 +253,15 @@ describe("securing resume: the documented patterns", () => {
       .id("approvals")
       .from(direct())
       .authenticate(asWho)
-      .resume(answerFrom, {
-        authorize: ({ answerer, parked, record }) => {
+      .resume(payloadFrom, {
+        authorize: ({ principal, parked, record }) => {
           // The policy in force is the one the record carries, not the one
           // the suspend site declares today.
           const policy = record.meta as { fourEyes?: boolean } | undefined;
           if (!policy?.fourEyes) return true;
-          const answering = answerer?.subject;
+          const resuming = principal?.subject;
           const requester = parked?.subject;
-          return Boolean(answering && requester && answering !== requester);
+          return Boolean(resuming && requester && resuming !== requester);
         },
       });
 
@@ -297,13 +297,13 @@ describe("securing resume: the documented patterns", () => {
           .id("approvals")
           .from(direct())
           .authenticate(asWho)
-          .resume(answerFrom, {
-            authorize: ({ answerer, parked: requester, record }) => {
+          .resume(payloadFrom, {
+            authorize: ({ principal, parked: requester, record }) => {
               const policy = record.meta as { fourEyes?: boolean } | undefined;
               if (!policy?.fourEyes) return true;
-              const answering = answerer?.subject;
+              const resuming = principal?.subject;
               const asked = requester?.subject;
-              return Boolean(answering && asked && answering !== asked);
+              return Boolean(resuming && asked && resuming !== asked);
             },
           }),
       ])
@@ -312,7 +312,7 @@ describe("securing resume: the documented patterns", () => {
 
     await expect(
       t.client.sendDirect("approvals", { who: "alice", token: parked.token }),
-    ).rejects.toThrow(/refused this answerer/);
+    ).rejects.toThrow(/refused this principal/);
     expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
   });
 
@@ -336,15 +336,15 @@ describe("securing resume: the documented patterns", () => {
           .id("continue")
           .from(direct())
           .authenticate(asWho)
-          .resume(answerFrom, {
-            authorize: ({ answerer, parked }) => {
+          .resume(payloadFrom, {
+            authorize: ({ principal, parked }) => {
               // An anonymous parker can never satisfy this: there is no
               // identity to continue, so the hook refuses rather than
               // matching one absent subject against another.
-              const answering = answerer?.subject;
+              const resuming = principal?.subject;
               const requester = parked?.subject;
-              if (!answering || !requester) return false;
-              return answering === requester;
+              if (!resuming || !requester) return false;
+              return resuming === requester;
             },
           }),
       ])
@@ -356,7 +356,7 @@ describe("securing resume: the documented patterns", () => {
     );
     await expect(
       t.client.sendDirect("continue", { who: "bob", token: parked.token }),
-    ).rejects.toThrow(/refused this answerer/);
+    ).rejects.toThrow(/refused this principal/);
 
     await t.client.sendDirect("continue", {
       who: "alice",
@@ -384,12 +384,12 @@ describe("securing resume: the documented patterns", () => {
           .id("continue")
           .from(direct())
           .authenticate(asWho)
-          .resume(answerFrom, {
-            authorize: ({ answerer, parked }) => {
-              const answering = answerer?.subject;
+          .resume(payloadFrom, {
+            authorize: ({ principal, parked }) => {
+              const resuming = principal?.subject;
               const requester = parked?.subject;
-              if (!answering || !requester) return false;
-              return answering === requester;
+              if (!resuming || !requester) return false;
+              return resuming === requester;
             },
           }),
       ])
@@ -399,7 +399,88 @@ describe("securing resume: the documented patterns", () => {
     const parked = asSuspended(await t.client.sendDirect("wizard", {}));
     await expect(
       t.client.sendDirect("continue", { who: "alice", token: parked.token }),
-    ).rejects.toThrow(/refused this answerer/);
+    ).rejects.toThrow(/refused this principal/);
     expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
+  });
+  /**
+   * @case Threshold by scope: the submitted amount decides which scope the hook demands
+   * @preconditions A payout parked with a threshold in meta, resumed by a junior approver under and then over that threshold
+   * @expectedResult The junior scope clears the small payment and is refused the large one, and the refused submission never reaches schema validation or the claim
+   */
+  test("threshold by scope over a narrowed payload", async () => {
+    const store = new MemorySuspensionStore();
+    const Settlement = z.object({
+      approved: z.boolean(),
+      amount: z.number(),
+    });
+    t = await testContext()
+      .with({ suspension: { store, secret: SECRET } })
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({
+            schema: Settlement,
+            meta: { threshold: 1000, senior: "payouts:approve:large" },
+          })
+          .to(noop()),
+        craft()
+          .id("approvals")
+          .from(direct())
+          .authenticate(asWho)
+          .resume(
+            (ex) => {
+              const body = ex.body as { token: string; amount: number };
+              return {
+                token: body.token,
+                result: { approved: true, amount: body.amount },
+              };
+            },
+            {
+              authorize: ({ principal, payload, record }) => {
+                const { threshold, senior } = record.meta as {
+                  threshold: number;
+                  senior: string;
+                };
+                // `payload` is the raw submission: schema validation has not
+                // run yet, so narrow it here rather than trusting its shape.
+                const amount = (payload as { amount?: unknown } | null)?.amount;
+                if (typeof amount !== "number") return false;
+                if (amount <= threshold) return true;
+                return (principal?.scopes ?? []).includes(senior);
+              },
+            },
+          ),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const small = asSuspended(await t.client.sendDirect("payout", {}));
+    await t.client.sendDirect("approvals", {
+      who: "junior",
+      scopes: ["payouts:approve"],
+      token: small.token,
+      amount: 250,
+    });
+    expect((await store.get(small.suspensionId))?.status).toBe("resumed");
+
+    const large = asSuspended(await t.client.sendDirect("payout", {}));
+    await expect(
+      t.client.sendDirect("approvals", {
+        who: "junior",
+        scopes: ["payouts:approve"],
+        token: large.token,
+        amount: 25_000,
+      }),
+    ).rejects.toThrow(/refused this principal/);
+    expect((await store.get(large.suspensionId))?.status).toBe("suspended");
+
+    await t.client.sendDirect("approvals", {
+      who: "senior",
+      scopes: ["payouts:approve", "payouts:approve:large"],
+      token: large.token,
+      amount: 25_000,
+    });
+    expect((await store.get(large.suspensionId))?.status).toBe("resumed");
   });
 });

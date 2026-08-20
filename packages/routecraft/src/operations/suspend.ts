@@ -14,10 +14,10 @@ import type { SuspendSite, SuspendableStep } from "../suspension/sites.ts";
  * option here: notify with a `.tap()` before the suspend, gate with
  * `.choice()`, consume with `.filter()` after it.
  *
- * Who may ANSWER is not an option here either, and deliberately so: the
- * framework has no model of what makes an answerer legitimate. `meta`
- * carries whatever the application's own policy needs onto the record, and
- * `.resume({ authorize })` is where that policy runs.
+ * Who may RESUME is not an option here either, and deliberately so: the
+ * framework has no model of what makes a resuming principal legitimate.
+ * `meta` carries whatever the application's own policy needs onto the
+ * record, and `.resume({ authorize })` is where that policy runs.
  *
  * @template Schema - The `schema` option, whose output types `ex.suspension.result`
  */
@@ -25,15 +25,15 @@ export interface SuspendOptions<
   Schema extends StandardSchemaV1 = StandardSchemaV1,
 > {
   /**
-   * The declared shape of the answer slot. Optional.
+   * The declared shape of the resume payload. Optional.
    *
    * The framework has no approve/deny concept: a suspension is a durable
-   * pause with one single-use answer slot of arbitrary shape, and this
+   * pause with one single-use payload slot of arbitrary shape, and this
    * route's own continuation interprets whatever arrives. Declaring a
    * schema buys three things: the JSON Schema rendering advertised on the
-   * acknowledgment so an approver UI or a calling agent can render a form,
-   * pre-claim validation of the answer (`RC5049`, so garbage cannot spend
-   * the approval), and the typing of `ex.suspension.result` downstream.
+   * acknowledgment so an approval UI or a calling agent can render a form,
+   * pre-claim validation of the payload (`RC5049`, so garbage cannot spend
+   * the link), and the typing of `ex.suspension.result` downstream.
    *
    * Absent, none of those apply: no ingress validation, and the result
    * types `unknown`. A click-yes consent flow stops paying schema ceremony
@@ -43,29 +43,21 @@ export interface SuspendOptions<
   /**
    * How long the suspension stays resumable. Omit for no expiry.
    *
-   * An expired suspension is not a dead end: the answer arriving late (or
-   * the sweeper reaching it first) re-enters this route's error channel
-   * with `RC5047`, so a route-scope `.error()` can notify the approver and
+   * An expired suspension is not a dead end: a resume arriving late (or the
+   * sweeper reaching it first) re-enters this route's error channel with
+   * `RC5047`, so a route-scope `.error()` can notify the recipient and
    * re-ask.
    */
   ttl?: Duration;
   /**
-   * Human-facing question this suspension is waiting on, surfaced on the
-   * `Suspended` acknowledgment and handed to the resume route's `authorize`
-   * hook.
-   */
-  question?: string;
-  /** Machine-facing reason, surfaced the same way. */
-  reason?: string;
-  /**
-   * Anything the answering route needs to decide who may answer, or that an
+   * Anything the resuming route needs to decide who may resume, or that an
    * operator needs to read off the record.
    *
    * Plain JSON, persisted verbatim, and never interpreted by the framework:
    * how approvals work is the application's design. A parker that snapshots
-   * its policy here gets "policy travels with the question" for free,
-   * because the record is what `.resume({ authorize })` reads and editing
-   * this site cannot reach records already parked.
+   * its policy here gets "policy travels with the park" for free, because
+   * the record is what `.resume({ authorize })` reads and editing this site
+   * cannot reach records already parked.
    */
   meta?: unknown;
 }
@@ -97,18 +89,12 @@ export class SuspendStep implements SuspendableStep {
   site?: SuspendSite;
 
   /**
-   * The live answer schema, when one was declared. Public because the
-   * resume path reads it back off the route to validate the candidate
-   * answer: a Standard Schema is an object with a validate function, so it
+   * The live resume-payload schema, when one was declared. Public because
+   * the resume path reads it back off the route to validate the submitted
+   * payload: a Standard Schema is an object with a validate function, so it
    * cannot travel in the record.
    */
   readonly schema?: StandardSchemaV1;
-
-  /** Human-facing question carried onto the acknowledgment and the record. */
-  readonly question?: string;
-
-  /** Machine-facing reason, carried the same way. */
-  readonly reason?: string;
 
   /** Policy inputs the parker attached, persisted verbatim on the record. */
   readonly meta?: unknown;
@@ -117,8 +103,6 @@ export class SuspendStep implements SuspendableStep {
 
   constructor(options: SuspendOptions = {}) {
     if (options.schema !== undefined) this.schema = options.schema;
-    if (options.question !== undefined) this.question = options.question;
-    if (options.reason !== undefined) this.reason = options.reason;
     if (options.meta !== undefined) this.meta = options.meta;
     if (options.ttl !== undefined) {
       this.#expiresInMs = parseDuration(options.ttl, ".suspend({ ttl })");
@@ -140,8 +124,6 @@ export class SuspendStep implements SuspendableStep {
         ...(this.#expiresInMs !== undefined
           ? { expiresInMs: this.#expiresInMs }
           : {}),
-        ...(this.question !== undefined ? { question: this.question } : {}),
-        ...(this.reason !== undefined ? { reason: this.reason } : {}),
         ...(this.meta !== undefined ? { meta: this.meta } : {}),
         site: this.site,
       },

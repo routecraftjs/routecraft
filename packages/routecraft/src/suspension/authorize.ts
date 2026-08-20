@@ -10,9 +10,9 @@ import type { Suspension } from "./types.ts";
  * The record, as the resume route's `authorize` hook sees it.
  *
  * Deliberately no access to the parked body. The hook runs BEFORE the
- * answerer has been authorized and before the record's own lifecycle is
- * disclosed, so a body-reading hook would put the parked payload in front
- * of exactly the party the check exists to reject.
+ * resuming principal has been authorized and before the record's own
+ * lifecycle is disclosed, so a body-reading hook would put the parked
+ * payload in front of exactly the party the check exists to reject.
  */
 export interface SuspensionRecordView {
   /** Suspension identity, the same value the acknowledgment carried. */
@@ -20,26 +20,19 @@ export interface SuspensionRecordView {
   /**
    * Whatever the suspending step attached at park.
    *
-   * The framework never reads it: this is where the question carries the
+   * The framework never reads it: this is where the park carries the
    * application's own policy inputs. A parker that snapshots its policy
-   * here gets "policy travels with the question" for free, because the
-   * record is what the hook reads and editing the site cannot reach it.
+   * here gets "policy travels with the park" for free, because the record
+   * is what the hook reads and editing the site cannot reach it.
    *
    * On the agent surface a tool handler supplies it, which means the MODEL
    * influenced it, and the model has read whatever untrusted tool output is
-   * in its thread. The same applies to {@link SuspensionRecordView.question}
-   * and {@link SuspensionRecordView.reason}. Treat all three as what the
-   * parker chose, not as facts the framework vouches for.
+   * in its thread. Treat it as what the parker chose, not as a fact the
+   * framework vouches for.
    */
   readonly meta?: unknown;
-  /** Human-facing question the suspending step asked. */
-  readonly question?: string;
-  /** Machine-facing reason the suspending step gave. */
-  readonly reason?: string;
   /** Route the parked exchange belongs to. Not the resume ingress route. */
   readonly routeId: string;
-  /** Index of the suspending step within that route. */
-  readonly position: number;
   readonly suspendedAt: Date;
   readonly expiresAt?: Date;
 }
@@ -48,27 +41,36 @@ export interface SuspensionRecordView {
  * What a `.resume({ authorize })` hook is handed.
  *
  * The two principals are not the same kind of thing, and the types say so.
- * `answerer` was verified live by this ingress route's own
+ * `principal` was verified live by this ingress route's own
  * `.authenticate()`. `parked` came back out of the store, so it is marked
  * restored (`auth/restored.ts`) and `authorize()` refuses it anywhere it is
  * offered as a credential; here it is reference data, which is what makes a
  * "not the requester" comparison expressible at all.
  */
 export interface ResumeAuthorizerInput {
-  /** Who is answering, verified live by this route. Anonymous when it verified nobody. */
-  readonly answerer: Principal | undefined;
+  /** Who is resuming, verified live by this route. Anonymous when it verified nobody. */
+  readonly principal: Principal | undefined;
   /** Who parked the exchange, restored from storage. Never a credential. */
   readonly parked: Principal | undefined;
+  /**
+   * The submission, exactly as it arrived.
+   *
+   * Raw at hook time: `schema` validation runs only once the hook has
+   * passed, so a hook that refuses a submission spends nothing and a
+   * malformed one never reaches the validator. A hook that reads into this
+   * is reading unvalidated input and should narrow it itself.
+   */
+  readonly payload: unknown;
   readonly record: SuspensionRecordView;
 }
 
 /**
- * Decides whether this answerer may answer this question.
+ * Decides whether this principal may resume this suspension.
  *
- * The framework has no opinion about what makes an answerer legitimate: it
- * guarantees that the decision happens before the single-use claim is spent
- * and that a "no" costs the rightful answerer nothing. What "no" means is
- * this function's business.
+ * The framework has no opinion about what makes a resuming principal
+ * legitimate: it guarantees that the decision happens before the single-use
+ * claim is spent and that a "no" costs the rightful principal nothing. What
+ * "no" means is this function's business.
  *
  * Returning false, throwing, and failing to settle before the route's own
  * `.timeout()` are one refusal on the wire; the log distinguishes them.
@@ -95,11 +97,11 @@ export function parkedPrincipal(suspension: Suspension): Principal | undefined {
 }
 
 /**
- * The resume credential names the question it is answering.
+ * The resume credential names the call it belongs to.
  *
  * A batch of parallel tool calls mints one credential per call against a
  * single record, because only one of them will win the park and the losers'
- * approvers must not be able to answer the winner's question. The record
+ * recipients must not be able to resume the winner's park. The record
  * records which call it belongs to and the credential carries the same
  * value as its `sub` claim, so the pairing is checked here.
  *
@@ -109,7 +111,7 @@ export function parkedPrincipal(suspension: Suspension): Principal | undefined {
  * with no binding is a claim nothing checked. Passing either would make the
  * binding advisory, and an advisory binding is not one.
  *
- * @throws RC5055 when the credential does not name this record's question
+ * @throws RC5055 when the credential does not name this record's call
  *
  * @internal
  */
@@ -119,7 +121,7 @@ export function checkCallBinding(
 ): void {
   if (suspension.callBinding === claimed) return;
   throw rcError("RC5055", undefined, {
-    message: `The resume credential presented for suspension "${suspension.id}" was not minted for the question this record is parked on.`,
+    message: `The resume credential presented for suspension "${suspension.id}" was not minted for the call this record is parked on.`,
   });
 }
 
@@ -132,12 +134,7 @@ export function recordView(suspension: Suspension): SuspensionRecordView {
   return {
     id: suspension.id,
     ...(suspension.meta !== undefined ? { meta: suspension.meta } : {}),
-    ...(suspension.question !== undefined
-      ? { question: suspension.question }
-      : {}),
-    ...(suspension.reason !== undefined ? { reason: suspension.reason } : {}),
     routeId: suspension.routeId,
-    position: suspension.position,
     suspendedAt: suspension.suspendedAt,
     ...(suspension.expiresAt !== undefined
       ? { expiresAt: suspension.expiresAt }
@@ -154,10 +151,10 @@ export function recordView(suspension: Suspension): SuspensionRecordView {
  * is that an unsettled hook can never fall through to the claim.
  *
  * Three refusals, one wire message. False is a decision, a throw is a hook
- * that broke, and an abort is a hook that did not answer; the log
- * distinguishes them for the operator and the answerer sees the same
- * RC5056 for all three, because a hook whose failures are distinguishable
- * from outside is an oracle for what it knows.
+ * that broke, and an abort is a hook that never settled; the log
+ * distinguishes them for the operator and the caller sees the same RC5056
+ * for all three, because a hook whose failures are distinguishable from
+ * outside is an oracle for what it knows.
  *
  * @throws RC5056 on false, on a thrown cause, and on an abort
  *
@@ -174,15 +171,14 @@ export async function runAuthorizer(
       {
         suspensionId: input.record.id,
         routeId: input.record.routeId,
-        position: input.record.position,
-        answerer: input.answerer?.subject,
+        principal: input.principal?.subject,
         outcome,
         ...(err !== undefined ? { err } : {}),
       },
       "A .resume({ authorize }) hook refused a resume",
     );
     return rcError("RC5056", undefined, {
-      message: `The resume route's authorize hook refused this answerer for suspension "${input.record.id}".`,
+      message: `The resume route's authorize hook refused this principal for suspension "${input.record.id}".`,
     });
   };
 
