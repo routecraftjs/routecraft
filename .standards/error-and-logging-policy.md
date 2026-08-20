@@ -58,7 +58,7 @@ Each boundary handles the error (does not re-throw it to another boundary). Do n
 | **AI server tool handler** | Tool call errors | error | `{ tool, err }` |
 | **Agent tool policy predicate** | An `agentPlugin({ toolPolicy })` predicate threw | error | `{ agent, tool, kind, err }` |
 | **Suspension deny-on-cancellation** | Store failure while denying a suspension parked by a cancelled run (best effort: the caller's RC5054 must land whatever the store does) | error | `{ suspensionId, routeId, expiresAt, err }` |
-| **Suspension answerer predicate** | A `.suspend({ authorize })` predicate refused: returned false, threw, or overran `authorizeTimeout`. All three become one RC5056 with a generic message, so this log is the only place they are distinguishable; a predicate whose failures can be told apart from outside is an oracle for what it knows | warn | `{ suspensionId, routeId, position, answerer, outcome, err? }` |
+| **Resume authorize hook** | A `.resume({ authorize })` hook refused: returned false, threw, or did not settle before the route aborted. All three become one RC5056 with a generic message, so this log is the only place they are distinguishable; a hook whose failures can be told apart from outside is an oracle for what it knows | warn | `{ suspensionId, routeId, position, answerer, outcome, err? }` |
 
 The auth surface adds four more boundaries (source credential verification, route `.authorize()`, userinfo enrichment, HTTP transport), specified in [security.md](./security.md) § Boundaries; they follow the same handle-once rule and their log levels follow security.md's rejection-level policy.
 

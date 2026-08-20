@@ -497,17 +497,13 @@ export class AgentSession {
       turnsUsed,
       ...(usage !== undefined ? { usage } : {}),
     };
-    const { schema, ttl, question, reason, key, answer } = winner.request;
+    const { schema, ttl, question, reason, meta } = winner.request;
     return new SuspendSignal({
       ...(schema !== undefined ? { schema } : {}),
       ...(ttl !== undefined ? { ttl } : {}),
       ...(question !== undefined ? { question } : {}),
       ...(reason !== undefined ? { reason } : {}),
-      // Key inheritance is core's, on the exchange headers: a re-park with
-      // no key of its own lands on the channel the record it resumed from
-      // was answered on. Naming one here overrides that.
-      ...(key !== undefined ? { key } : {}),
-      ...(answer !== undefined ? { answer } : {}),
+      ...(meta !== undefined ? { meta } : {}),
       // The winner's call is what the record binds to, so exactly the
       // credential the winning handler handed its approver is the one that
       // answers. Losing siblings' credentials name their own calls.

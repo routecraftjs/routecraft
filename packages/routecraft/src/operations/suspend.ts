@@ -5,9 +5,6 @@ import type { Adapter, StepOutcome } from "../types.ts";
 import type { Duration } from "../suspension/duration.ts";
 import { parseDuration } from "../suspension/duration.ts";
 import type { SuspendSite, SuspendableStep } from "../suspension/sites.ts";
-import { SuspensionHeaders } from "../suspension/exchange-state.ts";
-import type { AnswerPolicy } from "../suspension/types.ts";
-import type { ResumeAuthorizer } from "../suspension/answerer.ts";
 
 /**
  * Options for `.suspend()`.
@@ -17,10 +14,10 @@ import type { ResumeAuthorizer } from "../suspension/answerer.ts";
  * option here: notify with a `.tap()` before the suspend, gate with
  * `.choice()`, consume with `.filter()` after it.
  *
- * Authorizing the ANSWERER is different, and it is here rather than on the
- * resume ingress for one reason: refusing below the store claim would burn
- * the single-use answer, so the check has to run pre-claim, and the policy
- * has to travel with the question rather than with the door.
+ * Who may ANSWER is not an option here either, and deliberately so: the
+ * framework has no model of what makes an answerer legitimate. `meta`
+ * carries whatever the application's own policy needs onto the record, and
+ * `.resume({ authorize })` is where that policy runs.
  *
  * @template Schema - The `schema` option, whose output types `ex.suspension.result`
  */
@@ -53,39 +50,24 @@ export interface SuspendOptions<
    */
   ttl?: Duration;
   /**
-   * Channel this suspension is parked on, matched against the `keys` a
-   * `.resume()` door declares.
-   *
-   * Segmentation, not addressing: the single-use token already addresses
-   * exactly one record at one position, so the key's job is letting
-   * different ingress routes serve different classes of approval under
-   * different transport auth, and bounding what a misconfigured or
-   * compromised door can answer.
+   * Human-facing question this suspension is waiting on, surfaced on the
+   * `Suspended` acknowledgment and handed to the resume route's `authorize`
+   * hook.
    */
-  key?: string;
+  question?: string;
+  /** Machine-facing reason, surfaced the same way. */
+  reason?: string;
   /**
-   * The declarative floor on who may answer, persisted on the record and
-   * enforced from there.
+   * Anything the answering route needs to decide who may answer, or that an
+   * operator needs to read off the record.
    *
-   * Policy travels with the question: editing this option affects future
-   * parks only, and a parked record keeps the policy its approver was
-   * promised.
+   * Plain JSON, persisted verbatim, and never interpreted by the framework:
+   * how approvals work is the application's design. A parker that snapshots
+   * its policy here gets "policy travels with the question" for free,
+   * because the record is what `.resume({ authorize })` reads and editing
+   * this site cannot reach records already parked.
    */
-  answer?: AnswerPolicy;
-  /**
-   * Predicate escape hatch for authorization the declarative floor cannot
-   * express (thresholds, departments, org-specific relationships).
-   *
-   * Runs pre-claim, so a refusal never burns the rightful answerer's
-   * single-use answer. Returning false or throwing refuses; a thrown cause
-   * is logged at the boundary and never returned to the answerer.
-   *
-   * Unlike {@link SuspendOptions.answer} this cannot persist, so its
-   * VERBATIM SOURCE is folded into the continuation hash: editing it takes
-   * the `RC5048` re-ask rather than silently applying to records parked
-   * under the previous one.
-   */
-  authorize?: ResumeAuthorizer;
+  meta?: unknown;
 }
 
 /** Marker adapter for the suspend step; its options live on the step. */
@@ -122,34 +104,22 @@ export class SuspendStep implements SuspendableStep {
    */
   readonly schema?: StandardSchemaV1;
 
-  /**
-   * The live answerer predicate, when one was declared. Read back off the
-   * route at resume the same way the schema is, and covered by the
-   * continuation hash so an edit is caught rather than silently applied.
-   */
-  readonly authorize?: ResumeAuthorizer;
+  /** Human-facing question carried onto the acknowledgment and the record. */
+  readonly question?: string;
 
-  /** The declarative floor, persisted onto the record at park. */
-  readonly answer?: AnswerPolicy;
+  /** Machine-facing reason, carried the same way. */
+  readonly reason?: string;
 
-  /** Channel this site parks on, persisted onto the record at park. */
-  readonly key?: string;
+  /** Policy inputs the parker attached, persisted verbatim on the record. */
+  readonly meta?: unknown;
 
   readonly #expiresInMs?: number;
 
   constructor(options: SuspendOptions = {}) {
     if (options.schema !== undefined) this.schema = options.schema;
-    if (options.authorize !== undefined) this.authorize = options.authorize;
-    if (options.answer !== undefined) this.answer = options.answer;
-    if (options.key !== undefined) {
-      if (typeof options.key !== "string" || options.key.trim() === "") {
-        throw rcError("RC5003", undefined, {
-          message:
-            ".suspend({ key }) must be a non-empty string: it names the channel a .resume({ keys }) door serves.",
-        });
-      }
-      this.key = options.key;
-    }
+    if (options.question !== undefined) this.question = options.question;
+    if (options.reason !== undefined) this.reason = options.reason;
+    if (options.meta !== undefined) this.meta = options.meta;
     if (options.ttl !== undefined) {
       this.#expiresInMs = parseDuration(options.ttl, ".suspend({ ttl })");
     }
@@ -162,10 +132,6 @@ export class SuspendStep implements SuspendableStep {
           "This .suspend() is not reachable from a built route, so the framework cannot work out what would run when it resumes. Build the route through craft()...build() rather than assembling a RouteDefinition by hand.",
       });
     }
-    // A site with no key of its own inherits the channel of the record this
-    // exchange resumed from, when it resumed from one. Two-stage approvals
-    // stay on the door that served the first stage without restating it.
-    const key = this.key ?? exchange.headers[SuspensionHeaders.KEY];
     return {
       kind: "suspend",
       exchange,
@@ -174,9 +140,9 @@ export class SuspendStep implements SuspendableStep {
         ...(this.#expiresInMs !== undefined
           ? { expiresInMs: this.#expiresInMs }
           : {}),
-        ...(this.answer !== undefined ? { answer: this.answer } : {}),
-        ...(key !== undefined ? { key } : {}),
-        ...(this.authorize !== undefined ? { authorize: this.authorize } : {}),
+        ...(this.question !== undefined ? { question: this.question } : {}),
+        ...(this.reason !== undefined ? { reason: this.reason } : {}),
+        ...(this.meta !== undefined ? { meta: this.meta } : {}),
         site: this.site,
       },
     };

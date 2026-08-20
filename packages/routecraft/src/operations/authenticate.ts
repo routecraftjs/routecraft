@@ -30,15 +30,6 @@ export class AuthenticateStep<T = unknown> implements Step<Adapter> {
   operation: OperationType = OperationType.HEADER;
   adapter: Adapter = {};
 
-  /**
-   * Marks this step as a place a principal can come from, so a build-time
-   * walk can tell an ingress that resolves identity from one that does not.
-   * Structural rather than an `instanceof`, for the same reason every other
-   * cross-module recognition here is: the walk lives in `suspension/` and
-   * must not import the operations back.
-   */
-  readonly establishesPrincipal = true;
-
   constructor(private readonly resolve: CallableAuthenticator<T>) {}
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {

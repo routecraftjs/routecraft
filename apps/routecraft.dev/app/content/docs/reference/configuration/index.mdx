@@ -205,9 +205,8 @@ export const craftConfig = defineConfig({
 | `sweepInterval` | `Duration` | `60s` | How often the sweeper looks for overdue suspensions. TTLs are measured in hours, so sub-minute precision buys nothing; the knob is for tests and for deployments that want expiry noticed sooner. |
 | `expiryLease` | `Duration` | `60m` | How long an expiry-delivery claim is honoured before the sweeper releases it for redelivery. Only a crash mid-delivery ever spends it; keep it longer than your slowest `.error()` handler, or one healthy process will double-deliver by itself. |
 | `retention` | `Duration \| "never"` | `90d` | How long settled suspensions (resumed, expired, denied) are kept before the sweeper purges them. `"never"` keeps everything for audit deployments, and the store then grows with every exchange that ever suspended. |
-| `authorizeTimeout` | `Duration` | `5s` | How long a [`.suspend({ authorize })`](/docs/reference/operations/suspend#who-may-answer) predicate may run before it is refused. It sits in the window where the suspension's own deadline can elapse and the sweeper can take an expiry claim, so it is bounded rather than left to a callback. The common predicate is a pure comparison over claims the ingress already resolved; needing longer usually means a network call that should not be there. |
 
-The `store` and `secret` settings are also readable from the environment, which is how a container deployment supplies them. `defaultTtl`, `sweepInterval`, `expiryLease`, `retention` and `authorizeTimeout` are config-only:
+The `store` and `secret` settings are also readable from the environment, which is how a container deployment supplies them. `defaultTtl`, `sweepInterval`, `expiryLease` and `retention` are config-only:
 
 | Variable | Purpose |
 |----------|---------|

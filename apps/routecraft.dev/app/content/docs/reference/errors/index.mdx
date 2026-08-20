@@ -787,26 +787,17 @@ The token verifies and names a real suspension, but it was minted for a differen
 Nothing is wrong with the record; it is still resumable by the rightful credential. Design so at most one tool per turn can park (one approval tool, or mutually exclusive guards) rather than handing two approvers two questions backed by one park. The refusal is deliberately non-destructive: it leaves the record exactly as it found it, so the winner's approver can still answer.
 
 ## RC5056
-Answerer not authorized for this suspension
+Resume refused by the route's authorize hook
 
 **Why it happens**  
-The suspension declared who may answer it and this answerer does not qualify. Either the declarative `answer` floor was not met (a missing scope, or a `sub` relationship to the parked principal that does not hold), an `authorize()` predicate returned false or threw, or the predicate exceeded `suspension.authorizeTimeout`. It is also what a resume ingress with no `.authenticate()` gets when the record declares any policy: there is no answerer identity to check it against, so it fails closed rather than degrading to whoever holds the link.
+The [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume) hook on the ingress route refused this answerer. Who may answer a parked question is your application's policy, not the framework's: the hook receives the answerer's live principal, the parked principal snapshot, and the record's metadata, and decides.
 
-The policy is captured when the exchange parks and enforced from the record, so editing the suspend site does not change what an already-parked question accepts. Policy travels with the question.
-
-**Suggestion**  
-Check which half refused. For the floor, compare the answerer's scopes and subject against the site's `answer`; both `sub: "same"` and `sub: "different"` require a present, non-empty subject on BOTH sides, so a machine principal with no `sub` is refused rather than silently matching another one. For an unauthenticated ingress, add `.authenticate()` (or a route-entry `.authorize()`) to the resume route; a startup warning names both sides of that mismatch. For a predicate, read the boundary log: `false`, a throw, and a timeout are distinguished there and deliberately identical on the wire, because a predicate whose failures are distinguishable from outside is an oracle for what it knows. A thrown cause is never returned to the answerer.
-
-The refusal is non-destructive: the record stays resumable for whoever does qualify.
-
-## RC5057
-Resume door does not serve this channel
-
-**Why it happens**  
-The suspension was parked on a `.suspend({ key })` channel and the `.resume({ keys })` door that presented this token does not serve it.
+A hook that returns false, one that throws, and one that never settles before the route's own `.timeout()` all produce this one code with the same message. That is deliberate: a hook whose failures can be told apart from outside is an oracle for what it knows.
 
 **Suggestion**  
-Keys are segmentation, not addressing: the single-use token already names one record at one position, so they exist to let several classes of approval share a context under different transport auth, and to bound what one misconfigured or compromised ingress can answer. Point the answerer at the door that declares this key, or widen that door's `keys`. A door that declares none serves every channel; a context that mixes keyed sites with a keyless door gets a startup warning saying so.
+Read the boundary log. It records which of the three happened and carries any thrown cause, neither of which reaches the wire. The refusal is non-destructive and runs before the record's lifecycle is disclosed, so the record stays exactly as it was and a refused caller learns nothing about it; whoever does qualify can still answer.
+
+A door that declares no hook is bearer by design: any holder of a valid token may answer. If you did not intend that, the fix is a hook, not a config flag.
 
 ## RC9901
 Unknown error

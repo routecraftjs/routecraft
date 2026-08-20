@@ -48,11 +48,7 @@ export interface TestFnSuspendOptions {
   ttl?: Duration;
   question?: string;
   reason?: string;
-  key?: string;
-  answer?: {
-    scopes?: readonly string[];
-    sub?: "same" | "different" | "any";
-  };
+  meta?: unknown;
 }
 
 /**

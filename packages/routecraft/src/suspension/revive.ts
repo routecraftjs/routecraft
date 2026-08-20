@@ -11,17 +11,12 @@ import {
 } from "../exchange.ts";
 import type { Route } from "../route.ts";
 import type { Adapter, Step } from "../types.ts";
-import {
-  continuationTailHash,
-  describePolicy,
-  describeSchema,
-} from "./hash.ts";
+import { continuationTailHash, describeSchema } from "./hash.ts";
 import {
   type ResumeAuthorizer,
-  checkAnswerPolicy,
   checkCallBinding,
-  checkChannel,
   parkedPrincipal,
+  recordView,
   runAuthorizer,
 } from "./answerer.ts";
 import { SuspensionHeaders } from "./exchange-state.ts";
@@ -78,10 +73,12 @@ export interface ResumeRequest {
  * @internal
  */
 export interface ResumeDoor {
-  /** Channels this door serves. Absent serves every channel. */
-  readonly keys?: readonly string[];
+  /** The door's own answerer policy, when it declares one. */
+  readonly authorize?: ResumeAuthorizer;
   /** The principal this ingress route verified live, if any. */
   readonly answerer?: Principal;
+  /** The ingress step's abort signal, which is what bounds an async hook. */
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -109,43 +106,32 @@ export interface ResumeAcknowledgment {
 /**
  * Revive a parked exchange and run its continuation to completion.
  *
- * The order of checks is the security contract, and it runs in three bands.
- * The bands exist because the middle one is NOT inert: the deadline arm and
- * the continuation arm each take a compare-and-swap that settles the record
- * and drives the suspended route's error channel, which in practice sends
- * the approver a message. A credential that has no business here must be
- * refused before it can reach either, or the wrong holder can burn the
- * rightful answerer's claim and drive an outbound notification with it.
+ * The order of checks is the security contract, and it is ordered rather
+ * than merely "pre-claim" because the window before the claim is NOT inert:
+ * the deadline arm and the continuation arm each take a compare-and-swap
+ * that settles the record and drives the suspended route's error channel,
+ * which in practice sends the approver a message. A credential that has no
+ * business here must be refused before it can reach either, or the wrong
+ * holder can burn the rightful answerer's claim and drive an outbound
+ * notification with it.
  *
- * **Band 1, from the record alone.** The token verifies (`RC5041`), the
- * suspension exists (`RC5046`), the credential was minted for THIS question
- * (`RC5055`), this door serves the record's channel (`RC5057`), and the
- * answerer meets the declarative floor the record parked under (`RC5056`).
- * Nothing here reads the live route or transitions anything, and it runs
- * BEFORE the settled-state disclosure, so a wrongly-bound holder learns only
- * "not your credential" rather than whether the record resumed, expired or
- * was denied.
- *
- * **Band 2, the lifecycle.** A duplicate gets the cached terminal outcome
- * rather than a second execution, an expired record `RC5047`, a denied one
- * `RC5050`. Its route is still registered and still leads to the same
- * continuation (`RC5048`), so an approval cannot authorize steps that were
- * edited under it. The hash is COMPARED non-destructively; only a mismatch
- * reached by a caller band 1 already accepted may settle the record.
- *
- * **Band 3, the expensive checks.** The site's `authorize()` predicate runs
- * under `suspension.authorizeTimeout` (`RC5056`), and the deadline is
- * re-checked immediately after it resolves so an overrun reports the expiry
- * it is (`RC5047`) rather than an authorization failure. Then the answer
- * satisfies the suspending step's `schema` (`RC5049`, in the ingress route
- * only), and the compare-and-swap out of `suspended` is won here and not by
- * a concurrent resume or the expiry sweeper.
- *
- * The declarative policy is enforced from the RECORD and never re-read from
- * the live site: policy travels with the question, so editing a site's
- * `answer` or `key` governs future parks only. The predicate cannot persist,
- * so its verbatim source rides the continuation hash instead and an edit
- * takes the `RC5048` re-ask.
+ * 1. The token verifies (`RC5041`) and the suspension exists (`RC5046`).
+ * 2. The credential was minted for THIS question (`RC5055`), read from the
+ *    record alone.
+ * 3. The route's own `authorize` hook accepts the answerer (`RC5056`), if
+ *    it declared one. This is where an application's policy runs; the
+ *    framework has none of its own.
+ * 4. Only now the lifecycle: a duplicate gets the cached terminal outcome
+ *    rather than a second execution, an expired record `RC5047`, a denied
+ *    one `RC5050`. Steps 2 and 3 sit above this deliberately, so a refused
+ *    caller learns nothing about the record's state.
+ * 5. Its route is still registered and still leads to the same continuation
+ *    (`RC5048`), so an approval cannot authorize steps that were edited
+ *    under it. The hash is COMPARED non-destructively; only a mismatch
+ *    reached by a caller steps 2 and 3 already accepted may settle it.
+ * 6. The answer satisfies the suspending step's `schema` (`RC5049`, in the
+ *    ingress route only), and the compare-and-swap out of `suspended` is won
+ *    here and not by a concurrent resume or the expiry sweeper.
  *
  * Every failure throws in the ingress route. A failure that leaves the
  * approver STRANDED (an expiry, a changed continuation, a denied
@@ -154,8 +140,8 @@ export interface ResumeAcknowledgment {
  * (`RC5049`) deliberately does not: it is a per-request input error rather
  * than a change in the world, the suspension stays resumable, and routing
  * it through the suspended route would let any token holder drive that
- * route's re-ask path with junk. The three refusals are the same: they leave
- * the record exactly as they found it.
+ * route's re-ask path with junk. The two authorization refusals are the
+ * same: they leave the record exactly as they found it.
  *
  * @param context - The context reviving the exchange (the ingress route's)
  * @param request - Token plus candidate answer, as the mapper produced them
@@ -185,15 +171,29 @@ export async function reviveSuspension(
     });
   }
 
-  // Band 1. Record and credential only: no route lookup, no transition, no
+  // Record and credential only: no route lookup, no transition, no
   // disclosure. Placed above the settled return deliberately, so a holder
   // whose credential does not belong here cannot use the response to learn
   // the record's lifecycle state.
   checkCallBinding(suspension, sub);
-  checkChannel(suspension, door.keys);
-  checkAnswerPolicy(suspension, door.answerer);
 
-  // Band 2.
+  // The application's own policy, and the last thing that runs before the
+  // record's lifecycle becomes observable. It reads the record and the two
+  // principals; it cannot transition anything, and a refusal leaves the
+  // record exactly as it was found.
+  if (door.authorize) {
+    await runAuthorizer(
+      door.authorize,
+      {
+        answerer: door.answerer,
+        parked: parkedPrincipal(suspension),
+        record: recordView(suspension),
+      },
+      context.logger,
+      door.signal,
+    );
+  }
+
   if (suspension.status !== "suspended") {
     return settled(suspension);
   }
@@ -254,9 +254,8 @@ export async function reviveSuspension(
   // `suspension.continuationHash` at park time, so comparing it against
   // itself is inert and a widened schema would resume into a contract its
   // approver never saw. The suspending step's own definition is excluded
-  // from the hashed tail by design, which makes this descriptor, and the
-  // policy descriptor beside it, the ONLY representation of that step in
-  // the digest.
+  // from the hashed tail by design, which makes this descriptor the ONLY
+  // representation of that step in the digest.
   //
   // For a re-entrant site the stored descriptor is all there is: the live
   // schema was raised inside the step's own code and cannot be read back
@@ -264,21 +263,20 @@ export async function reviveSuspension(
   // the hashed tail instead, so its definition is covered; the schema is
   // the same residue class as the behaviour of what the tail calls.
   //
-  // The policy descriptor covers the `authorize()` closure, which cannot
-  // persist. Its declarative siblings (`answer`, `key`) do persist and are
-  // enforced from the record in band 1, so they are deliberately NOT in the
-  // digest: an edit to them governs future parks and leaves outstanding
-  // questions on the policy their approver was promised.
+  // `meta` is deliberately NOT in the digest. It lives only on the record,
+  // so there is no live copy for it to drift from: a parker that snapshots
+  // its policy into `meta` gets policy-travels-with-the-question by
+  // construction rather than by a tamper check.
   const current = continuationTailHash(
     site.site.continuation,
     site.schema ? describeSchema(site.schema) : suspension.schema,
-    describePolicy(site.authorize),
   );
   if (current !== suspension.continuationHash) {
-    // Reached only by a caller band 1 accepted. `refuseContinuation` denies
-    // the record and drives the approver notification, so a holder who
-    // failed band 1 must never get here: they would burn the rightful
-    // answerer's claim and send the message themselves.
+    // Reached only by a caller the credential binding and the door's hook
+    // both accepted. `refuseContinuation` denies the record and drives the
+    // approver notification, so a refused holder must never get here: they
+    // would burn the rightful answerer's claim and send the message
+    // themselves.
     return await refuseContinuation(
       context,
       runtime.store,
@@ -287,66 +285,6 @@ export async function reviveSuspension(
       "continuation changed",
       `Route "${suspension.routeId}" changed after position ${suspension.position} while this exchange was parked, so the stored answer no longer authorizes what would run.`,
     );
-  }
-
-  // Band 3. The predicate runs last of the refusals: band 1 has excluded
-  // credentials that do not belong here, and the hash arm has confirmed the
-  // predicate about to run is the one this record parked under.
-  if (site.authorize) {
-    // Band 1 refuses an anonymous door on a record that recorded a
-    // predicate, so this is normally already settled. It is re-checked
-    // rather than asserted because a record written before the site grew
-    // its predicate carries no such marker, and handing the predicate an
-    // undefined answerer would refuse through its throw arm and log the
-    // misconfiguration as a broken predicate.
-    if (!door.answerer) {
-      throw rcError("RC5056", undefined, {
-        message: `Suspension "${id}" is answered by a site that declares an authorize() predicate, and the .resume() route that presented this token resolves no principal, so there is nothing to check it against. Add .authenticate() to the resume route.`,
-      });
-    }
-    const parked = parkedPrincipal(suspension);
-    await runAuthorizer(
-      site.authorize,
-      {
-        answerer: door.answerer,
-        ...(parked !== undefined ? { parked } : {}),
-        suspension: {
-          id,
-          routeId: suspension.routeId,
-          position: suspension.position,
-          ...(suspension.key !== undefined ? { key: suspension.key } : {}),
-          ...(suspension.question !== undefined
-            ? { question: suspension.question }
-            : {}),
-          ...(suspension.reason !== undefined
-            ? { reason: suspension.reason }
-            : {}),
-          suspendedAt: suspension.suspendedAt,
-          ...(suspension.expiresAt !== undefined
-            ? { expiresAt: suspension.expiresAt }
-            : {}),
-        },
-      },
-      runtime.authorizeTimeoutMs,
-      context.logger,
-    );
-    // A predicate may await, so the window it opened has to be paid for
-    // here rather than at the post-claim re-check: an answer that arrived
-    // in time and then sat behind a slow predicate must report the expiry
-    // it hit, not an authorization failure it never had.
-    if (
-      suspension.expiresAt !== undefined &&
-      suspension.expiresAt.getTime() <= Date.now()
-    ) {
-      const { cas, error } = await expireSuspension(
-        context,
-        runtime.store,
-        route,
-        { ...suspension, expiresAt: suspension.expiresAt },
-      );
-      if (!cas.won && cas.suspension) return settled(cas.suspension);
-      throw error;
-    }
   }
 
   // Validation runs against the LIVE schema read off the route: a Standard
@@ -774,13 +712,6 @@ function rehydrate(
     headers: {
       ...base.headers,
       [HeadersKeys.ROUTE_ID]: suspension.routeId,
-      // Carried onto execution two so a continuation that parks AGAIN
-      // inherits the channel it was answered on. A re-park that named no
-      // key would otherwise land where no door serves it, and its approver
-      // would hold a valid-looking link every ingress refuses.
-      ...(suspension.key !== undefined
-        ? { [SuspensionHeaders.KEY]: suspension.key }
-        : {}),
       ...(resumption
         ? {
             [SuspensionHeaders.RESULT]: resumption.result,
@@ -852,13 +783,12 @@ async function runContinuation(
 /**
  * Find the suspending step and its site by the address on the record.
  *
- * A static `.suspend()` site can be read back off the route, so both its
- * live schema (when it declared one) and its live `authorize()` predicate
- * come back here: the schema gates answer validation (`RC5049`) and the
- * predicate is what band 3 runs. A re-entrant site carries neither, because
- * both were raised inside the step's own code and cannot be read back, so
- * its answer skips validation and its hash comparison uses the stored
- * descriptor. The step itself heads the hashed tail there instead.
+ * A static `.suspend()` site can be read back off the route, so its live
+ * schema comes back here when it declared one, gating answer validation
+ * (`RC5049`). A re-entrant site carries none, because the schema was raised
+ * inside the step's own code and cannot be read back, so its answer skips
+ * validation and its hash comparison uses the stored descriptor. The step
+ * itself heads the hashed tail there instead.
  *
  * @internal
  */
@@ -866,12 +796,7 @@ function findSite(
   route: Route,
   suspension: Suspension,
 ):
-  | {
-      step: Step<Adapter>;
-      site: SuspendSite;
-      schema?: StandardSchemaV1;
-      authorize?: ResumeAuthorizer;
-    }
+  | { step: Step<Adapter>; site: SuspendSite; schema?: StandardSchemaV1 }
   | undefined {
   for (const step of route.definition.suspendSteps ?? []) {
     if (step.site?.position === suspension.position) {
@@ -879,7 +804,6 @@ function findSite(
         step,
         site: step.site,
         ...(step.schema !== undefined ? { schema: step.schema } : {}),
-        ...(step.authorize !== undefined ? { authorize: step.authorize } : {}),
       };
     }
   }

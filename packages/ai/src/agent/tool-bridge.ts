@@ -222,8 +222,7 @@ export async function buildVercelTools(
                   ? { question: err.question }
                   : {}),
                 ...(err.reason !== undefined ? { reason: err.reason } : {}),
-                ...(err.key !== undefined ? { key: err.key } : {}),
-                ...(err.answer !== undefined ? { answer: err.answer } : {}),
+                ...(err.meta !== undefined ? { meta: err.meta } : {}),
               },
             });
             if (!isLoader && ctx && dispatchIdentity) {

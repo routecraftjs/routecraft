@@ -170,9 +170,9 @@ registerDsl("resume", {
   factory: (mapper?: ResumeMapper | ResumeOptions, options?: ResumeOptions) =>
     typeof mapper === "function"
       ? new ResumeStep(mapper, options)
-      : // `.resume({ keys })` puts the options first; `.resume(undefined,
-        // { keys })` is the same door written the long way, and both have to
-        // reach the step or a declared channel is silently dropped.
+      : // `.resume({ authorize })` puts the options first; `.resume(undefined,
+        // { authorize })` is the same door written the long way, and both
+        // have to reach the step or a declared hook is silently dropped.
         new ResumeStep(undefined, mapper ?? options),
 });
 
@@ -267,9 +267,10 @@ declare module "@routecraft/routecraft" {
      * arrives beside it, on `ex.suspension.result`, typed by `schema`.
      *
      * @param options - `schema` (what a valid answer looks like), a `ttl`
-     *   after which the suspension stops being resumable, and who may
-     *   answer: an `answer` floor, an `authorize` predicate, and the
-     *   channel `key` a `.resume({ keys })` door must serve
+     *   after which the suspension stops being resumable, the human-facing
+     *   `question` and machine-facing `reason` carried onto the
+     *   acknowledgment, and `meta`: anything the answering route's
+     *   `.resume({ authorize })` hook needs to decide who may answer
      * @example
      * ```ts
      * craft()
@@ -309,12 +310,12 @@ declare module "@routecraft/routecraft" {
      * revival, because only the suspension knows that schema. The bare form
      * expects the body to already be `{ token, result }`.
      *
-     * Authenticating the answerer belongs on this route: the token proves
-     * the deployment minted it, not that its holder may answer. WHO may
-     * answer is declared at the suspend site instead, and enforced from the
-     * record, so a refusal never burns the rightful answerer's single-use
-     * answer; this route supplies the live principal that policy is checked
-     * against, and is recorded on the suspension as `resumedBy`. A door
+     * Authorizing the answerer belongs on this route, through the
+     * `authorize` option: the token proves the deployment minted it, not
+     * that its holder may answer. The hook runs before the store's claim
+     * and before the record's lifecycle is disclosed, so a refusal costs
+     * the rightful answerer nothing and tells a refused caller nothing.
+     * Whoever this route authenticated is recorded as `resumedBy`. A door
      * exposed publicly wants a `.throttle()` in front of it.
      *
      * The revived route runs to completion before this step continues, so
@@ -324,8 +325,8 @@ declare module "@routecraft/routecraft" {
      * without re-running anything.
      *
      * @param map - Maps the ingress exchange to `{ token, result }`
-     * @param options - `keys`, the `.suspend({ key })` channels this door
-     *   serves. Omitted, it serves every channel.
+     * @param options - `authorize`, deciding who may answer. Omitted, the
+     *   door is bearer: any holder of a valid token may answer.
      * @example
      * ```ts
      * craft()

@@ -29,7 +29,7 @@ agentPlugin({
           schema: Approval,
           ttl: "72h",
           question: input.question,
-          answer: { scopes: ["payouts:approve"], sub: "different" },
+          meta: { requires: ["payouts:approve"], fourEyes: true },
         })
       },
     },
@@ -45,10 +45,9 @@ The runtime awaits the batch's in-flight sibling tool calls (their real results 
 | `ttl` | No | How long the suspension stays resumable. Defaults to the context's [`defaultTtl`](/docs/reference/configuration#suspension); expiry re-enters the route's error channel with [`RC5047`](/docs/reference/errors#rc-5047). |
 | `question` | No | Human-facing question, surfaced as `Suspended.question`. |
 | `reason` | No | Machine-facing reason, surfaced as `Suspended.reason`. |
-| `key` | No | The [channel](/docs/reference/operations/suspend#channels) this suspension parks on. A re-park inherits the channel it was answered on when this is omitted. |
-| `answer` | No | The declarative floor on [who may answer](/docs/reference/operations/suspend#who-may-answer), persisted on the record and enforced from there. |
+| `meta` | No | Anything the answering route needs to decide [who may answer](/docs/reference/operations/resume#securing-resume), persisted verbatim on the record. |
 
-The predicate form (`.suspend({ authorize })`) has no counterpart here. A closure raised inside a handler cannot be read back off the route at resume, so it could neither be enforced after a restart nor have its edits caught; declare the floor here, and put anything the floor cannot express on a static `.suspend()`.
+There is no agent-shaped variant of any of this. `ctx.suspend()` takes exactly what `.suspend()` takes, parks the same record, and is answered by the same `.resume({ authorize })` hook: an agent-raised question and a route-raised one are one mechanism, so there is nothing extra to learn and nothing that only half works on one surface.
 
 `throw new SuspendError({ schema, ttl, question })` is honoured as an escape hatch for handlers that cannot thread a return value out. Prefer the sentinel: a handler that wraps its work in `try/catch` silently swallows a thrown suspension and hands the model a garbage tool result, a footgun the returned sentinel cannot reproduce. A `SuspendError` with no `schema` parks with no declared contract at all, which is the same thing `ctx.suspend()` does when you omit it.
 
@@ -69,17 +68,19 @@ What the binding does not do is make two questions out of one park. The winner's
 
 </Callout>
 
-Because resume re-enters the agent step itself, the step's own definition is covered by the continuation hash: **editing an inline agent's options (system prompt, model, tools) invalidates its parked runs**, refusing the resume with [`RC5048`](/docs/reference/errors#rc-5048) so the route can re-ask. A fn handler's body is not covered, though: handlers are resolved by name out of the plugin registry, so the `answer` policy a handler declares is enforced from the record it was written onto rather than from the handler as it stands today. That is the same "policy travels with the question" rule a static site follows, and it is why the declarative form is the one available here. A by-name agent's registered options are outside the hash (only step definitions are covered); the persisted `agentId` pins the binding, and a route rebound to a different agent refuses rehydration with [`AI1007`](/docs/reference/errors#ai-1007).
+Because resume re-enters the agent step itself, the step's own definition is covered by the continuation hash: **editing an inline agent's options (system prompt, model, tools) invalidates its parked runs**, refusing the resume with [`RC5048`](/docs/reference/errors#rc-5048) so the route can re-ask. A fn handler's body is not covered, though: handlers are resolved by name out of the plugin registry, so editing one does not invalidate parked runs. That is why `meta` is the right place for anything an answer must be checked against: it lives on the record, so it cannot drift from what the handler declares today. A by-name agent's registered options are outside the hash (only step definitions are covered); the persisted `agentId` pins the binding, and a route rebound to a different agent refuses rehydration with [`AI1007`](/docs/reference/errors#ai-1007).
 
-<Callout type="warning" title="The model validates the answer">
+<Callout type="warning" title="The model authored the question, and validates the answer">
 
-An agent-raised suspension cannot re-validate the answer against its `schema` after a restart: the schema lives in the handler's own code. Revival delivers whatever JSON the resume carried as an ordinary tool result, so a resume-token holder can send the agent arbitrary data. That is the trust level every tool result already has; treat it accordingly in the prompt and in what the loop is allowed to do with it.
+Everything a tool handler puts on the record (`question`, `reason`, `meta`) was composed by the model, which has read whatever untrusted tool output is in its thread. Design the answering route's hook so none of it is the only thing standing between a caller and an approval.
+
+An agent-raised suspension also cannot re-validate the answer against its `schema` after a restart: the schema lives in the handler's own code. Revival delivers whatever JSON the resume carried as an ordinary tool result, so a resume-token holder can send the agent arbitrary data. That is the trust level every tool result already has; treat it accordingly in the prompt and in what the loop is allowed to do with it.
 
 </Callout>
 
-Identity is restored, not re-verified: execution two's principal came back from storage, so it is [marked restored](/docs/reference/operations/resume#authorizing-the-answerer) and any route the resumed agent dispatches into (a `Direct(...)` tool) refuses it under `.authorize()` until a live credential re-verifies it. The `principal` system-prompt block and tool guards render and read the restored shape as data; authorization is what refuses it.
+Identity is restored, not re-verified: execution two's principal came back from storage, so it is [marked restored](/docs/reference/operations/resume#securing-resume) and any route the resumed agent dispatches into (a `Direct(...)` tool) refuses it under `.authorize()` until a live credential re-verifies it. The `principal` system-prompt block and tool guards render and read the restored shape as data; authorization is what refuses it.
 
-The resumed loop therefore runs as the principal that PARKED it, never as the answerer's. `answer` gates who may inject the answer; the answerer is recorded as `resumedBy` and gains none of the run's authority. Post-approval authorization that needs a live credential belongs on the resume ingress route, where the answering principal is verified.
+The resumed loop therefore runs as the principal that PARKED it, never as the answerer's. The answering route's hook gates who may inject the answer; the answerer is recorded as `resumedBy` and gains none of the run's authority. Post-approval authorization that needs a live credential belongs on the resume ingress route, where the answering principal is verified.
 
 ## Where suspension is refused
 

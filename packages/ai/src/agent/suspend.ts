@@ -1,4 +1,4 @@
-import type { AnswerPolicy, Duration } from "@routecraft/routecraft";
+import type { Duration } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 /**
@@ -37,21 +37,19 @@ export interface AgentSuspendOptions {
   /** Machine-facing reason, surfaced on `Suspended.reason`. */
   reason?: string;
   /**
-   * Channel this suspension parks on, matched against the `keys` a
-   * `.resume()` door declares.
-   */
-  key?: string;
-  /**
-   * The declarative floor on who may answer, persisted on the record and
-   * enforced from there at revive.
+   * Anything the answering route needs to decide who may answer, or that an
+   * operator needs to read off the record.
    *
-   * The predicate form (`.suspend({ authorize })`) has no counterpart here:
-   * a closure raised inside a handler cannot be read back off the route at
-   * resume, so it could not be enforced after a restart and its edits could
-   * not be caught. Declare the floor here and put anything the floor cannot
-   * express on a static `.suspend()`.
+   * Identical to the core `.suspend({ meta })` option, deliberately: an
+   * agent-raised suspension and a route-raised one are the same record with
+   * the same policy point, so there is no agent-shaped variant to learn.
+   * Plain JSON, persisted verbatim, never interpreted by the framework, and
+   * handed to `.resume({ authorize })` at revive.
+   *
+   * A tool handler supplies it, which means the MODEL influenced it. Design
+   * the answering route's hook so it does not trust this text on its own.
    */
-  answer?: AnswerPolicy;
+  meta?: unknown;
 }
 
 /**
@@ -153,10 +151,8 @@ export class SuspendError extends Error {
    */
   readonly resumeChannel?: string;
 
-  /** Channel this suspension parks on. See {@link AgentSuspendOptions.key}. */
-  readonly key?: string;
-  /** Declarative answerer floor. See {@link AgentSuspendOptions.answer}. */
-  readonly answer?: AnswerPolicy;
+  /** Policy inputs the parker attached. See {@link AgentSuspendOptions.meta}. */
+  readonly meta?: unknown;
 
   constructor(opts?: {
     schema?: StandardSchemaV1;
@@ -164,8 +160,7 @@ export class SuspendError extends Error {
     question?: string;
     reason?: string;
     resumeChannel?: string;
-    key?: string;
-    answer?: AnswerPolicy;
+    meta?: unknown;
   }) {
     super(
       opts?.reason
@@ -179,8 +174,7 @@ export class SuspendError extends Error {
     if (opts?.resumeChannel !== undefined) {
       this.resumeChannel = opts.resumeChannel;
     }
-    if (opts?.key !== undefined) this.key = opts.key;
-    if (opts?.answer !== undefined) this.answer = opts.answer;
+    if (opts?.meta !== undefined) this.meta = opts.meta;
   }
 }
 

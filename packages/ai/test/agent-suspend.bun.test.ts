@@ -429,6 +429,65 @@ describe("agent durable suspension (ctx.suspend)", () => {
   });
 
   /**
+   * @case meta attached by a tool handler reaches the resume route's hook
+   * @preconditions ctx.suspend({ meta }) on the agent surface, answered through a door whose authorize reads it
+   * @expectedResult The hook receives the same value the handler attached, so agent parks and route parks are one mechanism
+   */
+  test("ctx.suspend meta round-trips to the resume hook", async () => {
+    const sink = spy();
+    const seen: unknown[] = [];
+    const askWithMeta = {
+      ...askFn,
+      handler: (input: unknown, ctx: FnHandlerContext) =>
+        ctx.suspend({
+          schema: Approval,
+          question: (input as { question: string }).question,
+          meta: { channel: "finance", requires: ["payouts:approve"] },
+        }),
+    };
+    llm.script.push({
+      toolCalls: [{ toolName: "ask", input: { question: "pay acme?" } }],
+    });
+
+    t = await testContext()
+      .with({ suspension: {}, plugins: plugins({ ask: askWithMeta }) })
+      .routes([
+        craft()
+          .id("assistant")
+          .from(direct())
+          .to(agent({ model: MODEL, system: "x", tools: tools(["ask"]) }))
+          .to(sink),
+        craft()
+          .id("answers")
+          .from(direct())
+          .resume(
+            (ex) => ({
+              token: (ex.body as { token: string }).token,
+              result: { approved: true },
+            }),
+            {
+              authorize: ({ record }) => {
+                seen.push(record.meta);
+                return true;
+              },
+            },
+          ),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("assistant", "go"));
+    llm.script.push({ text: "done" });
+    await t.client.sendDirect("answers", { token: parked.token });
+
+    expect(seen[0]).toEqual({
+      channel: "finance",
+      requires: ["payouts:approve"],
+    });
+    expect(t.errors).toHaveLength(0);
+  });
+
+  /**
    * @case A losing sibling's credential cannot answer the winner's question
    * @preconditions One batch calling two suspending tools, each capturing its own ctx.suspension.token before returning
    * @expectedResult The loser's token is refused with RC5055 without touching the record, and the winner's token still resumes the run

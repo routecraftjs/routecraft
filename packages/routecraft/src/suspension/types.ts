@@ -86,40 +86,6 @@ export interface SuspensionSchema {
 }
 
 /**
- * The declarative floor on who may answer a suspension.
- *
- * Serializable by construction, which is what lets it work identically on
- * `ctx.suspend()` where a closure could not survive the park. It is
- * persisted on the record and enforced from there, so a record keeps the
- * policy it was parked under.
- *
- * This gates who may INJECT THE ANSWER and receive the result. The
- * continuation always executes as the parked principal, restored and
- * branded, never as the answerer's.
- */
-export interface AnswerPolicy {
-  /**
-   * Scopes the answerer must hold, all of them. Compared against the
-   * principal the resume ingress authenticated, never the parked snapshot.
-   */
-  readonly scopes?: readonly string[];
-  /**
-   * How the answerer must relate to the principal that parked.
-   *
-   * - `"any"` (default): bearer, today's behaviour. Approvals are the
-   *   headline case and a different answerer is their point.
-   * - `"same"`: session continuation, the parker answers their own pause.
-   * - `"different"`: four eyes, the parker may not answer their own pause.
-   *
-   * Both non-`any` modes require a present, non-empty subject on BOTH
-   * sides. Two principals that merely lack a subject are not "the same
-   * person", and treating them as such would turn `"same"` into "anyone
-   * without a subject".
-   */
-  readonly sub?: "same" | "different" | "any";
-}
-
-/**
  * Audit record of who answered a suspension.
  *
  * A subset of `Principal` rather than the principal itself: the store is a
@@ -188,32 +154,20 @@ export interface Suspension {
   readonly exchange: SerializedExchange;
   readonly schema: SuspensionSchema;
   /**
-   * The declarative answerer policy this record was parked under, enforced
-   * at revive FROM HERE and never re-read from the live site.
+   * Whatever the suspending step attached at park, persisted verbatim and
+   * handed back to the resume route's `authorize` hook.
    *
-   * Policy travels with the question: editing a site's `answer` affects
-   * future parks only, and a record keeps the policy its approver was
-   * promised. The predicate half cannot persist (it is a closure), so it
-   * rides the continuation hash instead and an edit there takes the
-   * `RC5048` re-ask.
-   */
-  readonly answer?: AnswerPolicy;
-  /**
-   * Channel this record was parked on, matched against the `keys` a resume
-   * door declares. Absent means the record answers on any door.
-   */
-  readonly key?: string;
-  /**
-   * The site this record parked from declared an `authorize()` predicate.
+   * The framework never reads it. Who may answer a parked question is the
+   * application's policy, and this is where the question carries whatever
+   * that policy needs: a channel name, the roles the parker required, an
+   * amount, a snapshot of the policy in force when the question was asked.
+   * Subject to the same plain-JSON rule as the exchange (`RC5042`).
    *
-   * The predicate itself cannot persist, so it is re-read off the live site
-   * and its source rides the continuation hash. This flag is the one part
-   * that must be known from the record alone: it lets the record-only band
-   * refuse an unauthenticated ingress before anything destructive runs,
-   * rather than discovering at the predicate that there was never an
-   * identity to check.
+   * On the agent surface it is supplied by a tool handler, which means the
+   * MODEL influenced it. Treat it as data the parker chose, not as a fact
+   * the framework vouches for.
    */
-  readonly hasAuthorizer?: boolean;
+  readonly meta?: unknown;
   /**
    * Which call this record's question belongs to, when the suspending step
    * mints one credential per call.
@@ -232,14 +186,12 @@ export interface Suspension {
   /**
    * The human-facing question, as the acknowledgment carried it.
    *
-   * Persisted because an `authorize()` predicate is handed it at revive and
+   * Persisted because the resume route's `authorize` hook is handed it and
    * an operator reading the store deserves to see what is being asked.
-   * Authored by the suspending step, which on the agent surface is the
-   * model: it is display and routing material, never an authorization
-   * input.
+   * Carries the same authorship caveat as {@link Suspension.meta}.
    */
   readonly question?: string;
-  /** Machine-facing reason, same authorship caveat as {@link Suspension.question}. */
+  /** Machine-facing reason, same authorship caveat as {@link Suspension.meta}. */
   readonly reason?: string;
   /**
    * Opaque state owned by the suspending step. Absent for an ordinary step;

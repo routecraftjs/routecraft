@@ -5,7 +5,6 @@ import type { Exchange } from "../exchange.ts";
 import type { StepOutcome } from "../types.ts";
 import { type Duration, parseDuration } from "./duration.ts";
 import type { SuspendCapableStep } from "./sites.ts";
-import type { AnswerPolicy } from "./types.ts";
 
 /**
  * What a suspend-capable adapter resolves when it raises a suspension from
@@ -29,12 +28,10 @@ export interface SuspendSignalRequest {
   /** How long the suspension stays resumable. Absent means the context default. */
   readonly ttl?: Duration;
   /**
-   * Declarative answerer floor, persisted onto the record and enforced from
-   * there at revive.
+   * Anything the answering route needs to decide who may answer. Plain
+   * JSON, persisted verbatim, never interpreted by the framework.
    */
-  readonly answer?: AnswerPolicy;
-  /** Channel the record parks on, matched against a resume door's `keys`. */
-  readonly key?: string;
+  readonly meta?: unknown;
   /**
    * Identity of the call this park belongs to, so a batch that mints one
    * credential per call cannot have one call's approver answer another's
@@ -125,15 +122,14 @@ export function convertSuspendSignal(
       message: host.suspendRefusal ?? signal.message,
     });
   }
-  const { schema, ttl, question, reason, stepState, answer, key, callBinding } =
+  const { schema, ttl, question, reason, stepState, meta, callBinding } =
     signal.request;
   return {
     kind: "suspend",
     exchange,
     request: {
       ...(schema !== undefined ? { schema } : {}),
-      ...(answer !== undefined ? { answer } : {}),
-      ...(key !== undefined ? { key } : {}),
+      ...(meta !== undefined ? { meta } : {}),
       ...(callBinding !== undefined ? { callBinding } : {}),
       ...(ttl !== undefined
         ? { expiresInMs: parseDuration(ttl, "suspend({ ttl })") }

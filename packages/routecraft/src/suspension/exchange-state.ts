@@ -37,14 +37,6 @@ export const SuspensionHeaders = {
   RESUMED_BY: "routecraft.suspension.resumedBy",
   /** When the answer was accepted. */
   RESUMED_AT: "routecraft.suspension.resumedAt",
-  /**
-   * Channel the record this exchange resumed from was parked on.
-   *
-   * Written by the revive path so a continuation that parks AGAIN inherits
-   * the channel rather than landing on one no door serves. A per-call
-   * override still wins; this is only the default.
-   */
-  KEY: "routecraft.suspension.key",
 } as const satisfies Record<string, string>;
 
 declare module "@routecraft/routecraft" {
@@ -54,7 +46,6 @@ declare module "@routecraft/routecraft" {
     "routecraft.suspension.result"?: unknown;
     "routecraft.suspension.resumedBy"?: PrincipalRef;
     "routecraft.suspension.resumedAt"?: Date;
-    "routecraft.suspension.key"?: string;
   }
 }
 

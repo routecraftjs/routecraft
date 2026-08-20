@@ -100,7 +100,6 @@ export interface ErrorCodeRegistry {
   RC5054: RCMeta;
   RC5055: RCMeta;
   RC5056: RCMeta;
-  RC5057: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -562,24 +561,16 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Resume credential not bound to this question",
     suggestion:
-      "The token verifies and names a real suspension, but it was minted for a different question than the one the record is parked on. A batch of parallel tool calls mints one credential per call against a single record, and only the call that actually parked may answer it; a losing sibling's credential is refused here. Re-ask on the credential the answerer was sent with the winning question, and do not route two approvers to one park.",
+      "The token verifies and names a real suspension, but it was minted for a different question than the one the record is parked on. A batch of parallel tool calls mints one credential per call against a single record, and only the call that actually parked may answer it; a losing sibling's credential is refused here. Re-ask on the credential the answerer was sent with the winning question, and do not route two approvers to one park. The refusal is non-destructive: the record is left exactly as it was found, still resumable by the rightful credential.",
     docs: `${DOCS_BASE}#rc-5055`,
     retryable: false,
   },
   RC5056: {
     category: "Runtime",
-    message: "Answerer not authorized for this suspension",
+    message: "Resume refused by the route's authorize hook",
     suggestion:
-      "The suspension declared who may answer it and this answerer does not qualify: the declarative `answer` floor (scopes, or a `sub` relationship to the parked principal) was not met, an `authorize()` predicate refused, or the predicate exceeded `suspension.authorizeTimeout`. The policy was captured when the exchange parked and is enforced from the record, so editing the site does not change what an already-parked question accepts. This code is also what a resume ingress with no `.authenticate()` gets when the record declares a policy: there is no answerer identity to check it against, so it fails closed. Any cause a predicate threw is logged at the refusal, never returned.",
+      "The `.resume({ authorize })` hook on the ingress route refused this answerer. Who may answer a parked question is the application's policy, not the framework's: the hook receives the answerer's live principal, the parked principal snapshot, and the record's metadata (including whatever `meta` the suspend site attached), and decides. A hook that returns false, throws, or does not settle before the route's own `.timeout()` produces this one code with the same message, deliberately: a hook whose failures can be told apart from outside is an oracle for what it knows. The reason is in the boundary log, never on the wire, and a thrown cause is never returned. The refusal is non-destructive, so the record stays resumable by whoever does qualify.",
     docs: `${DOCS_BASE}#rc-5056`,
-    retryable: false,
-  },
-  RC5057: {
-    category: "Runtime",
-    message: "Resume door does not serve this channel",
-    suggestion:
-      "The suspension was parked on a `.suspend({ key })` channel and the `.resume({ keys })` door that presented this token does not serve it. Keys are segmentation, not addressing: they bound what one ingress can answer when several classes of approval share a context under different transport auth. Point the answerer at the door that declares this key, or widen that door's `keys`.",
-    docs: `${DOCS_BASE}#rc-5057`,
     retryable: false,
   },
   RC9901: {

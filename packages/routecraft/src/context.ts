@@ -12,7 +12,6 @@ import { logger, childBindings } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
 import { SUSPENSION_RUNTIME } from "./suspension/runtime-key.ts";
-import { auditSuspensionDoors } from "./suspension/doors.ts";
 import { EventBus } from "./event-bus.ts";
 
 import type { EventHandler, EventName, EventPayload } from "./types.ts";
@@ -920,7 +919,6 @@ export class CraftContext {
         await this.initPlugins();
       }
       this.assertSuspensionConfigured();
-      auditSuspensionDoors(this);
     } catch (err) {
       // Every exit settles the deferred: a readiness probe waiting on a
       // context that refused its config must see the refusal.

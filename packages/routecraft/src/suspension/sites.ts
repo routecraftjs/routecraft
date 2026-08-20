@@ -5,8 +5,6 @@ import { OperationType } from "../exchange.ts";
 import { NESTED_STEPS, SUSPEND_HOST } from "../dsl-symbol.ts";
 import type { Adapter, Step } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
-import type { ResumeAuthorizer } from "./answerer.ts";
-import type { AnswerPolicy } from "./types.ts";
 
 /**
  * Where a `.suspend()` sits in a route, and what runs when it is resumed.
@@ -152,18 +150,10 @@ export interface SuspendRequest {
   /** Resolved TTL in milliseconds, when one was declared. */
   readonly expiresInMs?: number;
   /**
-   * Declarative answerer floor, persisted onto the record and enforced from
-   * there. Policy travels with the question.
+   * Whatever the suspending step attached at park. Persisted verbatim and
+   * handed to the resume route's `authorize` hook; never interpreted here.
    */
-  readonly answer?: AnswerPolicy;
-  /** Channel the record is parked on, matched against a resume door's `keys`. */
-  readonly key?: string;
-  /**
-   * The live answerer predicate, when the site declared one. Not persisted
-   * (a closure cannot be); the park folds its verbatim source into the
-   * continuation hash so an edit is caught rather than silently applied.
-   */
-  readonly authorize?: ResumeAuthorizer;
+  readonly meta?: unknown;
   /**
    * Identity of the call this park belongs to, when the suspending step
    * mints one credential per call. Persisted as the record's `callBinding`
@@ -199,12 +189,6 @@ export interface SuspendableStep extends Step<Adapter> {
    * Standard Schema cannot be persisted with the record.
    */
   readonly schema?: StandardSchemaV1;
-  /**
-   * The live answerer predicate, when the site declared one. Read back off
-   * the step the same way the schema is; a closure cannot be persisted, so
-   * its source rides the continuation hash and an edit takes `RC5048`.
-   */
-  readonly authorize?: ResumeAuthorizer;
   /** Assigned by {@link resolveSuspendSites}. Absent means the step is not reachable from a built route. */
   site?: SuspendSite;
 }
@@ -312,66 +296,16 @@ export function resolveSuspendSites(
  * @internal
  */
 export function usesResume(route: RouteDefinition): boolean {
-  return resumeDoors(route).length > 0;
-}
-
-/**
- * Every `.resume()` in a route, with the channels it serves.
- *
- * Collected structurally rather than by importing `ResumeStep`, which would
- * close a cycle (the operation imports the revive path, which imports this
- * module). What a door declares is needed in three places: the revive
- * refusal, the park-time unserved-channel warning, and the startup audit,
- * and none of them should re-walk the tree for itself.
- *
- * @internal
- */
-export function resumeDoors(route: RouteDefinition): ResumeDoorSpec[] {
-  const found: ResumeDoorSpec[] = [];
-  // A route-entry `.authorize()` counts: it mirrors to identity-capable
-  // transports as `requiresPrincipal`, so the door does resolve one even
-  // with no `.authenticate()` step of its own.
-  collectDoors(route.steps, found, route.requiresPrincipal === true);
-  return found;
-}
-
-/**
- * What one `.resume()` declares, as the walk can see it.
- *
- * @internal
- */
-export interface ResumeDoorSpec {
-  /** Channels the door serves. Absent means every channel. */
-  readonly keys?: readonly string[];
-  /** The door's route resolves a principal somewhere in its own pipeline. */
-  readonly authenticates: boolean;
+  return containsResume(route.steps);
 }
 
 /** @internal */
-function collectDoors(
-  steps: ReadonlyArray<Step<Adapter>>,
-  found: ResumeDoorSpec[],
-  inherited: boolean,
-): void {
-  const authenticates =
-    inherited ||
-    steps.some(
-      (step) =>
-        (step as { establishesPrincipal?: boolean }).establishesPrincipal ===
-        true,
-    );
-  for (const step of steps) {
-    if (step.operation === OperationType.RESUME) {
-      const keys = (step as { keys?: readonly string[] }).keys;
-      found.push({
-        ...(keys !== undefined ? { keys } : {}),
-        authenticates,
-      });
-    }
-    for (const nested of nestedStepsOf(step)) {
-      collectDoors(nested.steps, found, authenticates);
-    }
-  }
+function containsResume(steps: ReadonlyArray<Step<Adapter>>): boolean {
+  return steps.some(
+    (step) =>
+      step.operation === OperationType.RESUME ||
+      nestedStepsOf(step).some((nested) => containsResume(nested.steps)),
+  );
 }
 
 /**

@@ -57,12 +57,10 @@ export class MemorySuspensionStore implements SuspensionStore {
           actionFingerprint: record.actionFingerprint,
           exchange: record.exchange,
           schema: record.schema,
-          ...(record.answer !== undefined ? { answer: record.answer } : {}),
-          ...(record.key !== undefined ? { key: record.key } : {}),
           ...(record.callBinding !== undefined
             ? { callBinding: record.callBinding }
             : {}),
-          ...(record.hasAuthorizer ? { hasAuthorizer: true } : {}),
+          ...(record.meta !== undefined ? { meta: record.meta } : {}),
           ...(record.question !== undefined
             ? { question: record.question }
             : {}),

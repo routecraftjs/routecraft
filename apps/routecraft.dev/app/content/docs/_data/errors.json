@@ -350,13 +350,7 @@
   {
     "code": "RC5056",
     "category": "Runtime",
-    "message": "Answerer not authorized for this suspension",
-    "retryable": false
-  },
-  {
-    "code": "RC5057",
-    "category": "Runtime",
-    "message": "Resume door does not serve this channel",
+    "message": "Resume refused by the route's authorize hook",
     "retryable": false
   },
   {

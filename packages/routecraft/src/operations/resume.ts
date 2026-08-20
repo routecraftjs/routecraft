@@ -13,6 +13,7 @@ import {
   reviveSuspension,
 } from "../suspension/revive.ts";
 import { principalRef } from "../suspension/principal-ref.ts";
+import type { ResumeAuthorizer } from "../suspension/answerer.ts";
 
 /**
  * Maps the ingress exchange to the suspension it answers.
@@ -39,17 +40,26 @@ export interface ResumeAdapter extends Adapter {
  */
 export interface ResumeOptions {
   /**
-   * Channels this door serves, matched against the `key` a suspension was
-   * parked on.
+   * Decides whether the answerer presenting this token may answer the
+   * question it names.
    *
-   * Segmentation, not addressing: the token already names one record at one
-   * position, so keys exist to let several classes of approval share a
-   * context under different transport auth, and to bound what one
-   * misconfigured or compromised ingress can answer. A door that declares
-   * none serves every channel, which is the single-door default; declaring
-   * any narrows it to exactly those.
+   * The framework has no model of what makes an answerer legitimate, so it
+   * does not ship one. What it guarantees is the part an application cannot
+   * build from outside: this runs BEFORE the store's compare-and-swap, so a
+   * "no" never spends the rightful answerer's single-use answer, and before
+   * the record's lifecycle is disclosed, so a refused caller learns nothing
+   * about it.
+   *
+   * Receives the answerer's live principal (whatever this route's
+   * `.authenticate()` resolved, or undefined when it resolved nobody), the
+   * parked principal restored from storage, and the record's metadata,
+   * including the `meta` the suspend site attached. Never the parked body.
+   *
+   * Omitted, the door is bearer: any holder of a valid token may answer.
+   * That is the historical behaviour and it stays the default, so securing
+   * a resume ingress is a thing you do, not a thing you inherit.
    */
-  keys?: readonly string[];
+  authorize?: ResumeAuthorizer;
 }
 
 /**
@@ -74,29 +84,21 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
     adapterId: "routecraft.operation.resume",
   };
 
-  /**
-   * Channels this door serves. Read by the revive path to refuse a record
-   * parked on a channel this ingress was not pointed at, and at build time
-   * to warn about keyed sites with keyless doors.
-   */
-  readonly keys?: readonly string[];
+  /** The door's own answerer policy, when it declares one. */
+  readonly authorize?: ResumeAuthorizer;
 
   constructor(
     private readonly mapper?: ResumeMapper<In>,
     options?: ResumeOptions,
   ) {
-    if (options?.keys !== undefined) {
-      if (
-        !Array.isArray(options.keys) ||
-        options.keys.length === 0 ||
-        options.keys.some((key) => typeof key !== "string" || key.trim() === "")
-      ) {
+    if (options?.authorize !== undefined) {
+      if (typeof options.authorize !== "function") {
         throw rcError("RC5003", undefined, {
           message:
-            ".resume({ keys }) must be a non-empty array of non-empty strings: it names the .suspend({ key }) channels this door serves. Omit it entirely for a door that serves every channel.",
+            ".resume({ authorize }) must be a function receiving { answerer, parked, record } and returning a boolean (or a promise of one).",
         });
       }
-      this.keys = [...options.keys];
+      this.authorize = options.authorize;
     }
   }
 
@@ -112,11 +114,11 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
       });
     }
 
+    const signalCtx = toSignalContext(ctx) as {
+      readonly signal?: AbortSignal;
+    };
     const request = this.mapper
-      ? await this.mapper(
-          exchange as Exchange<In>,
-          toSignalContext(ctx) as { readonly signal?: AbortSignal },
-        )
+      ? await this.mapper(exchange as Exchange<In>, signalCtx)
       : fromBody(exchange);
 
     const acknowledgment: ResumeAcknowledgment = await reviveSuspension(
@@ -132,12 +134,13 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
           : {}),
       },
       // The door's own facts, kept OFF the mapper's request on purpose. The
-      // mapper is user code shaping a transport payload; letting it name the
-      // answerer or widen the door's channels would let the untrusted half
-      // of an ingress choose what the trusted half checks.
+      // mapper shapes a transport payload, which is exactly what an attacker
+      // controls; letting it name the answerer or supply the hook would let
+      // the untrusted half of an ingress choose what the trusted half checks.
       {
-        ...(this.keys !== undefined ? { keys: this.keys } : {}),
+        ...(this.authorize !== undefined ? { authorize: this.authorize } : {}),
         ...(exchange.principal ? { answerer: exchange.principal } : {}),
+        ...(signalCtx.signal ? { signal: signalCtx.signal } : {}),
       },
     );
 
