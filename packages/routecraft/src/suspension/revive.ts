@@ -267,9 +267,16 @@ export async function reviveSuspension(
   // so there is no live copy for it to drift from: a parker that snapshots
   // its policy into `meta` gets policy-travels-with-the-question by
   // construction rather than by a tamper check.
+  //
+  // The branch keys on RE-ENTRANCY, not on whether a live schema was found.
+  // A static site always describes what it declares TODAY, absence included:
+  // keying on `site.schema` would make a removed schema fall through to the
+  // stored descriptor, compare it against itself, and accept the parked
+  // answer unvalidated with no re-ask, which is the exact edit the absent
+  // sentinel exists to catch.
   const current = continuationTailHash(
     site.site.continuation,
-    site.schema ? describeSchema(site.schema) : suspension.schema,
+    site.site.reentrant ? suspension.schema : describeSchema(site.schema),
   );
   if (current !== suspension.continuationHash) {
     // Reached only by a caller the credential binding and the door's hook

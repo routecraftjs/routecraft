@@ -104,7 +104,7 @@ Return false or throw to refuse. Both, and a hook that never settles, produce on
 
 <Callout type="warning" title="The continuation runs as the parked principal">
 
-The hook gates who may inject the answer and receive the result. It does not change whose authority the rest of the route executes under: the continuation runs as the principal that parked, restored from storage, with the answerer recorded as `resumedBy`. An approver who may answer a payout question is not thereby granted the parked run's authority. A restored principal fails `authorize()` with [`RC5043`](/docs/reference/errors#rc-5043) precisely so this cannot be confused.
+The hook gates who may inject the answer and receive the result. It does not change whose authority the rest of the route executes under: the continuation runs as the principal that parked, restored from storage, with the answerer recorded as `resumedBy`. An approver who may answer a payout question is not thereby granted the parked run's authority. A restored principal fails a downstream route-entry [`.authorize()`](/docs/reference/operations/authorize) with [`RC5043`](/docs/reference/errors#rc-5043) precisely so this cannot be confused. That is the route operation, not this hook: the hook receives `parked` on purpose and never refuses it by itself.
 
 </Callout>
 
@@ -128,11 +128,17 @@ authorize: ({ answerer, parked }) => {
 ```ts
 // .suspend({ schema: Approval, meta: { requires: ['payouts:approve'] } })
 authorize: ({ answerer, record }) => {
-  const required = (record.meta as { requires?: string[] })?.requires ?? []
+  const required = (record.meta as { requires?: string[] })?.requires
+  // No recorded requirement is a parker bug, not a grant. Without this,
+  // `[].every(...)` returns true and a site that forgot its `meta` opens
+  // the door to every token holder.
+  if (!required?.length) return false
   const held = new Set(answerer?.scopes ?? [])
   return required.every((scope) => held.has(scope))
 }
 ```
+
+That guard is the pattern, not decoration. Every hook you write is the whole gate: there is no framework default behind it to catch a case you did not handle, which is the cost of the framework not having an opinion.
 
 **Channel segmentation.** Several classes of question share a context under different transport auth, and each door answers only its own:
 

@@ -35,7 +35,7 @@ export interface TestFnHandlerContext {
    * standing up an agent loop. Nothing is parked under `testFn`; drive the
    * handler through a route to exercise the durable path.
    */
-  suspend: (options: TestFnSuspendOptions) => TestFnSuspendSentinel;
+  suspend: (options?: TestFnSuspendOptions) => TestFnSuspendSentinel;
 }
 
 /**

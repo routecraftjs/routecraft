@@ -220,7 +220,7 @@ describe("the resume authorize hook", () => {
     // Only a caller the hook accepted may settle it.
     await expect(
       t.client.sendDirect("answers", { who: "alice", token }),
-    ).rejects.toThrow(/RC5048|changed after position/);
+    ).rejects.toMatchObject({ rc: "RC5048" });
     expect((await store.get(`${record.id}-edited`))?.status).toBe("denied");
   });
 
@@ -313,7 +313,7 @@ describe("the resume authorize hook", () => {
     // The winner would now read `duplicate`. The loser must not learn that.
     await expect(
       t.client.sendDirect("answers", { token: loser }),
-    ).rejects.toThrow(/RC5055|not minted for/);
+    ).rejects.toMatchObject({ rc: "RC5055" });
   });
 
   /**
@@ -364,7 +364,7 @@ describe("the resume authorize hook", () => {
 
     await expect(
       t.client.sendDirect("answers", { token: loser }),
-    ).rejects.toThrow(/RC5055|not minted for/);
+    ).rejects.toMatchObject({ rc: "RC5055" });
     const untouched = await store.get(`${record.id}-bound`);
     expect(untouched?.status).toBe("suspended");
     expect(untouched?.deniedReason).toBeUndefined();
@@ -372,7 +372,7 @@ describe("the resume authorize hook", () => {
 
     await expect(
       t.client.sendDirect("answers", { token: winner }),
-    ).rejects.toThrow(/RC5048|changed after position/);
+    ).rejects.toMatchObject({ rc: "RC5048" });
     expect((await store.get(`${record.id}-bound`))?.status).toBe("denied");
   });
 
@@ -475,7 +475,7 @@ describe("the resume authorize hook", () => {
     const parked = asSuspended(await t.client.sendDirect("payout", {}));
     await expect(
       t.client.sendDirect("answers", { token: parked.token }),
-    ).rejects.toThrow(/RC5047|expired/);
+    ).rejects.toMatchObject({ rc: "RC5047" });
   });
 
   /**
@@ -557,9 +557,9 @@ describe("the resume authorize hook", () => {
       .build();
     await t.startAndWaitReady();
 
-    await expect(t.client.sendDirect("payout", {})).rejects.toThrow(
-      /RC5042|meta/,
-    );
+    await expect(t.client.sendDirect("payout", {})).rejects.toMatchObject({
+      rc: "RC5042",
+    });
   });
 
   /**
@@ -660,6 +660,47 @@ describe("the parked answer schema", () => {
       result: "yes",
     });
     expect(seen).toEqual(["yes"]);
+  });
+
+  /**
+   * @case Removing a static site's schema invalidates records parked under it
+   * @preconditions A record parked with a declared schema, then a redeploy whose site declares none
+   * @expectedResult RC5048, because a static site always describes what it declares today: falling back to the stored descriptor would compare it against itself and accept the parked answer unvalidated
+   */
+  test("a removed static schema takes the RC5048 re-ask", async () => {
+    const store = new MemorySuspensionStore();
+    let t2: TestContext | undefined;
+    const withSchema = await testContext()
+      .with(shared(store))
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ schema: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await withSchema.startAndWaitReady();
+    const parked = asSuspended(
+      await withSchema.client.sendDirect("payout", {}),
+    );
+    await withSchema.stop();
+
+    try {
+      t2 = await testContext()
+        .with(shared(store))
+        .routes([
+          craft().id("payout").from(direct()).suspend({}).to(noop()),
+          craft().id("answers").from(direct()).resume(answerFrom),
+        ])
+        .build();
+      await t2.startAndWaitReady();
+      await expect(
+        t2.client.sendDirect("answers", { token: parked.token }),
+      ).rejects.toMatchObject({ rc: "RC5048" });
+    } finally {
+      if (t2) await t2.stop();
+    }
   });
 
   /**

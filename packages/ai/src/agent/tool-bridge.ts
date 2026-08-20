@@ -130,7 +130,6 @@ export async function buildVercelTools(
             ? {
                 id: wiring.id,
                 mintToken: () => wiring.mintToken(toolCallId),
-                callBinding: toolCallId,
               }
             : undefined,
         );

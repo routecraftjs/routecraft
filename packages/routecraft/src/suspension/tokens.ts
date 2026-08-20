@@ -85,6 +85,16 @@ export class ResumeTokenSigner {
    *   step can ask several at once. See {@link ResumeTokenPayload.sub}.
    */
   mint(id: string, now: Date = new Date(), sub?: string): string {
+    // `verify` refuses a zero-length `sub`, so minting one would produce a
+    // credential that provably never verifies and then reports itself as a
+    // forgery (`RC5041`), pointing at the holder rather than at the call
+    // site that asked for a binding it did not have.
+    if (sub !== undefined && sub.length === 0) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "Cannot mint a resume token bound to an empty call binding: the binding must name the question this credential answers.",
+      });
+    }
     const payload: ResumeTokenPayload = {
       id,
       iat: now.getTime(),

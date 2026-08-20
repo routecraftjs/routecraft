@@ -144,11 +144,17 @@ export interface Suspension {
   readonly position: number;
   /**
    * Hash over steps `position + 1` to the end of the pipeline, plus the
-   * answer schema descriptor and the answerer-policy descriptor. Covers step
-   * DEFINITIONS only: what a `direct()` route
-   * the tail forwards to actually does, which version an adapter is on, and
-   * how an external system behaves can all change without moving this hash.
-   * See {@link continuationHash}.
+   * answer schema descriptor.
+   *
+   * {@link Suspension.meta} is deliberately NOT folded in. It lives only on
+   * the record, so it has no live copy to drift from: a parker that
+   * snapshots its policy there is protected by where the value lives rather
+   * than by a tamper check.
+   *
+   * Covers step DEFINITIONS only: what a `direct()` route the tail forwards
+   * to actually does, which version an adapter is on, and how an external
+   * system behaves can all change without moving this hash. See
+   * {@link continuationHash}.
    */
   readonly continuationHash: string;
   readonly exchange: SerializedExchange;

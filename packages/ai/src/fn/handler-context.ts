@@ -35,8 +35,6 @@ export interface FnSuspensionWiring {
    * losing call's binding and takes `RC5055`.
    */
   readonly mintToken: () => string;
-  /** Identity of the tool call this wiring belongs to. */
-  readonly callBinding: string;
 }
 
 /**
@@ -98,7 +96,7 @@ function makeSuspensionView(wiring: FnSuspensionWiring): FnSuspensionView {
 /** @internal */
 function makeSuspend(
   toolName: string,
-): (options: AgentSuspendOptions) => AgentSuspendSentinel {
+): (options?: AgentSuspendOptions) => AgentSuspendSentinel {
   return (options) => {
     if (options?.schema !== undefined) {
       const validate = (
@@ -117,7 +115,7 @@ function makeSuspend(
 /** @internal */
 function makeSuspendRefusal(
   toolName: string,
-): (options: AgentSuspendOptions) => AgentSuspendSentinel {
+): (options?: AgentSuspendOptions) => AgentSuspendSentinel {
   return () => {
     throw rcError("AI1006", undefined, {
       message: `ctx.suspend in tool "${toolName}": durable suspension is only available inside an agent dispatch on a route-bound exchange. This dispatch has no exchange to park (a proxied MCP tool guard, a synthetic test dispatch), so nothing was written.`,

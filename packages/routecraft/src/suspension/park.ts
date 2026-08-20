@@ -226,8 +226,22 @@ async function denyParkedOnCancellation(
     // Losing the claim means someone else already settled the record (an
     // answer that raced in, the sweeper). Whoever won owns the outcome.
     if (!claim.won) return true;
-    await runtime.store.markDenied(suspensionId, "run cancelled");
-    return true;
+    // `markDenied` is itself a compare-and-swap out of `expiring`. Reporting
+    // a confirmed denial without reading it would be the one thing this
+    // return value exists to prevent: if the claim's lease elapsed in
+    // between, the record stays `expiring`, `releaseExpiring` returns it to
+    // `suspended`, and the link the caller was told is dead comes back.
+    const denied = await runtime.store.markDenied(
+      suspensionId,
+      "run cancelled",
+    );
+    if (!denied.won) {
+      exchange.logger.error(
+        { suspensionId, routeId, expiresAt },
+        "A suspension parked by a cancelled run lost its denial transition, so its resume link may become live again when the expiry claim is released.",
+      );
+    }
+    return denied.won;
   } catch (err) {
     exchange.logger.error(
       { suspensionId, routeId, expiresAt, err },

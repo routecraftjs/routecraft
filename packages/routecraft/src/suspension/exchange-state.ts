@@ -142,7 +142,11 @@ export function suspensionAffordance(
     get token(): string {
       return mint();
     },
-    tokenFor: mint,
+    // Bound to a REQUIRED parameter rather than aliasing `mint` straight
+    // through: the whole point of this member is that the credential names
+    // a question, and a caller reaching it through a loosely typed boundary
+    // should not be able to ask for an unbound one from it.
+    tokenFor: (callBinding: string): string => mint(callBinding),
     result: headers[SuspensionHeaders.RESULT],
     resumedBy: headers[SuspensionHeaders.RESUMED_BY],
     resumedAt: headers[SuspensionHeaders.RESUMED_AT],

@@ -117,7 +117,7 @@ export function parseStepState(value: unknown): AgentStepState {
   ) {
     throw rcError("AI1007", undefined, {
       message:
-        "The resumed suspension's stepState is not the { agentId, messages, suspendedToolCallId, turnsUsed } record the agent runtime writes, so the tool loop cannot be re-entered.",
+        "The resumed suspension's stepState is not the { agentId, messages, suspendedToolCallId, turnsUsed, usage? } record the agent runtime writes, so the tool loop cannot be re-entered.",
     });
   }
   return state as AgentStepState;

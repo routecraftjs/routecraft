@@ -112,7 +112,7 @@ export interface FnHandlerContext {
    * stub, an agent dispatched over a synthetic exchange) the call throws
    * `AI1006` at the moment it is made and nothing is written.
    */
-  readonly suspend: (options: AgentSuspendOptions) => AgentSuspendSentinel;
+  readonly suspend: (options?: AgentSuspendOptions) => AgentSuspendSentinel;
 }
 
 /**

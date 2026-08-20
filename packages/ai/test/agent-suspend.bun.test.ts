@@ -551,7 +551,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
         token: tokens["ask2"],
         result: { approved: true },
       }),
-    ).rejects.toThrow(/RC5055|not minted for/);
+    ).rejects.toMatchObject({ rc: "RC5055" });
     expect((await runtime.store.get(parked.suspensionId))?.status).toBe(
       "suspended",
     );

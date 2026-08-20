@@ -125,9 +125,13 @@ describe("securing resume: the documented patterns", () => {
           .authenticate(asWho)
           .resume(answerFrom, {
             authorize: ({ answerer, record }) => {
-              const required =
-                (record.meta as { requires?: string[] } | undefined)
-                  ?.requires ?? [];
+              const required = (
+                record.meta as { requires?: string[] } | undefined
+              )?.requires;
+              // No recorded requirement is a parker bug, not a grant.
+              // Without this, `[].every(...)` returns true and a site that
+              // forgot its `meta` opens the door to every token holder.
+              if (!required?.length) return false;
               const held = new Set(answerer?.scopes ?? []);
               return required.every((scope) => held.has(scope));
             },
@@ -151,6 +155,50 @@ describe("securing resume: the documented patterns", () => {
       token: parked.token,
     });
     expect((await store.get(parked.suspensionId))?.status).toBe("resumed");
+  });
+
+  /**
+   * @case The scope gate refuses a record that recorded no requirement
+   * @preconditions A site that forgot its meta, answered by a caller holding every scope
+   * @expectedResult Refused, because an absent requirement is a parker bug rather than a grant
+   */
+  test("scope gate refuses a missing requirement", async () => {
+    const store = new MemorySuspensionStore();
+    t = await testContext()
+      .with({ suspension: { store, secret: SECRET } })
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ schema: Approval })
+          .to(noop()),
+        craft()
+          .id("approvals")
+          .from(direct())
+          .authenticate(asWho)
+          .resume(answerFrom, {
+            authorize: ({ answerer, record }) => {
+              const required = (
+                record.meta as { requires?: string[] } | undefined
+              )?.requires;
+              if (!required?.length) return false;
+              const held = new Set(answerer?.scopes ?? []);
+              return required.every((scope) => held.has(scope));
+            },
+          }),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("payout", {}));
+    await expect(
+      t.client.sendDirect("approvals", {
+        who: "carol",
+        scopes: ["payouts:approve"],
+        token: parked.token,
+      }),
+    ).rejects.toThrow(/refused this answerer/);
+    expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
   });
 
   /**
