@@ -326,12 +326,15 @@ function compareIds(a: string, b: string): number {
  * @internal
  */
 function normalise(record: Suspension): Suspension {
-  return record.stepState === undefined
-    ? record
-    : {
-        ...record,
-        stepState: encodePersistable(record.stepState, "stepState"),
-      };
+  return {
+    ...record,
+    ...(record.stepState !== undefined
+      ? { stepState: encodePersistable(record.stepState, "stepState") }
+      : {}),
+    ...(record.meta !== undefined
+      ? { meta: encodePersistable(record.meta, "meta") }
+      : {}),
+  };
 }
 
 /**

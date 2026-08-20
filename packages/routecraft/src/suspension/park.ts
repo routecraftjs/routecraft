@@ -18,7 +18,7 @@ import {
   suspensionIdOf,
 } from "./exchange-state.ts";
 import { SUSPENSION_RUNTIME } from "./runtime-key.ts";
-import { encodePersistable, serializeExchange } from "./serialize.ts";
+import { serializeExchange } from "./serialize.ts";
 import { type Suspended, createSuspended } from "./suspended.ts";
 import type { NewSuspension } from "./types.ts";
 
@@ -99,9 +99,7 @@ export async function parkExchange(
     continuationHash: hash,
     exchange: serialized,
     schema,
-    ...(request.meta !== undefined
-      ? { meta: encodePersistable(request.meta, "meta") }
-      : {}),
+    ...(request.meta !== undefined ? { meta: request.meta } : {}),
     ...(request.callBinding !== undefined
       ? { callBinding: request.callBinding }
       : {}),
@@ -146,7 +144,9 @@ export async function parkExchange(
     throw rcError("RC5054", abortSignal.reason, {
       message: settled
         ? `Route "${routeId}" parked an exchange while its run was being cancelled; the suspension was denied so its resume link is dead.`
-        : `Route "${routeId}" parked an exchange while its run was being cancelled, and denying the suspension failed; its resume link may stay live until the ttl retires it (suspension "${id}", see the error log).`,
+        : record.expiresAt
+          ? `Route "${routeId}" parked an exchange while its run was being cancelled, and denying the suspension failed; its resume link may stay live until the ttl retires it (suspension "${id}", see the error log).`
+          : `Route "${routeId}" parked an exchange while its run was being cancelled, and denying the suspension failed; its resume link has no expiry, so it stays live until an operator settles it (suspension "${id}", see the error log).`,
     });
   }
 

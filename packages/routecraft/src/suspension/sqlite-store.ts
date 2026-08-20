@@ -185,7 +185,9 @@ export class SqliteSuspensionStore implements SuspensionStore {
           JSON.stringify(record.exchange),
           JSON.stringify(record.schema),
           record.callBinding ?? null,
-          record.meta === undefined ? null : JSON.stringify(record.meta),
+          record.meta === undefined
+            ? null
+            : JSON.stringify(encodePersistable(record.meta, "meta")),
           record.stepState === undefined
             ? null
             : JSON.stringify(encodePersistable(record.stepState, "stepState")),
