@@ -35,7 +35,11 @@ export type {
   SigningSecretSource,
 } from "./tokens.ts";
 
-export { actionFingerprint, continuationHash, describeSchema } from "./hash.ts";
+export {
+  actionFingerprint,
+  continuationTailHash,
+  describeSchema,
+} from "./hash.ts";
 
 export type {
   ResumeAuthorizer,

@@ -10,7 +10,7 @@ import {
 // Engine machinery, reached through the intra-package barrel.
 import {
   actionFingerprint,
-  continuationHash,
+  continuationTailHash,
   describeSchema,
 } from "../src/suspension/index.ts";
 
@@ -35,9 +35,9 @@ function step(label: string, body: (value: number) => number): Step<Adapter> {
  */
 class PayoutAdapter {
   readonly adapterId = "routecraft.adapter.payout";
-  constructor(readonly options: { url: string; retries?: number }) {}
+  constructor(readonly options: { url: string | URL; retries?: number }) {}
   send = async (): Promise<void> => {
-    await Promise.resolve(this.options.url);
+    await Promise.resolve(String(this.options.url));
   };
 }
 
@@ -52,7 +52,7 @@ function destination(adapter: unknown): Step<Adapter> {
 }
 
 function configuredStep(options: {
-  url: string;
+  url: string | URL;
   retries?: number;
 }): Step<Adapter> {
   return {
@@ -81,7 +81,7 @@ const exchange: SerializedExchange = {
   headers: { "routecraft.id": "ex-1" },
 };
 
-describe("continuationHash", () => {
+describe("continuationTailHash", () => {
   /**
    * @case The headline compatibility property: a deploy that touches code
    *   before the suspend point must not kill approvals in flight
@@ -104,8 +104,8 @@ describe("continuationHash", () => {
       step("pay", (value) => value * 2),
     ];
 
-    expect(continuationHash(before, 1, expected)).toBe(
-      continuationHash(after, 1, expected),
+    expect(continuationTailHash(before.slice(2), expected)).toBe(
+      continuationTailHash(after.slice(2), expected),
     );
   });
 
@@ -119,8 +119,8 @@ describe("continuationHash", () => {
     const before = [step("suspend", (v) => v), step("pay", (v) => v * 2)];
     const after = [step("suspend", (v) => v), step("pay", (v) => v * 20)];
 
-    expect(continuationHash(before, 0, expected)).not.toBe(
-      continuationHash(after, 0, expected),
+    expect(continuationTailHash(before.slice(1), expected)).not.toBe(
+      continuationTailHash(after.slice(1), expected),
     );
   });
 
@@ -137,8 +137,8 @@ describe("continuationHash", () => {
       step("audit", (v) => v),
     ];
 
-    expect(continuationHash(before, 0, expected)).not.toBe(
-      continuationHash(after, 0, expected),
+    expect(continuationTailHash(before.slice(1), expected)).not.toBe(
+      continuationTailHash(after.slice(1), expected),
     );
   });
 
@@ -157,8 +157,8 @@ describe("continuationHash", () => {
       step("pay", (v) => v),
     ];
 
-    expect(continuationHash(short, 0, expected)).toBe(
-      continuationHash(long, 2, expected),
+    expect(continuationTailHash(short.slice(1), expected)).toBe(
+      continuationTailHash(long.slice(3), expected),
     );
   });
 
@@ -170,8 +170,8 @@ describe("continuationHash", () => {
   test("a changed expect schema invalidates a parked exchange", () => {
     const steps = [step("suspend", (v) => v), step("pay", (v) => v)];
 
-    expect(continuationHash(steps, 0, expected)).not.toBe(
-      continuationHash(steps, 0, describeSchema(schema("rejection"))),
+    expect(continuationTailHash(steps.slice(1), expected)).not.toBe(
+      continuationTailHash(steps.slice(1), describeSchema(schema("rejection"))),
     );
   });
 
@@ -182,9 +182,11 @@ describe("continuationHash", () => {
    */
   test("handles a suspend at the end of the pipeline", () => {
     const steps = [step("suspend", (v) => v)];
-    expect(continuationHash(steps, 0, expected)).toMatch(/^[0-9a-f]{64}$/);
-    expect(continuationHash(steps, 0, expected)).toBe(
-      continuationHash(steps, 0, expected),
+    expect(continuationTailHash(steps.slice(1), expected)).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+    expect(continuationTailHash(steps.slice(1), expected)).toBe(
+      continuationTailHash(steps.slice(1), expected),
     );
   });
 
@@ -209,9 +211,15 @@ describe("continuationHash", () => {
     ) => number;
 
     expect(
-      continuationHash([step("s", (v) => v), step("pay", crlf)], 0, expected),
+      continuationTailHash(
+        [step("s", (v) => v), step("pay", crlf)].slice(1),
+        expected,
+      ),
     ).not.toBe(
-      continuationHash([step("s", (v) => v), step("pay", lf)], 0, expected),
+      continuationTailHash(
+        [step("s", (v) => v), step("pay", lf)].slice(1),
+        expected,
+      ),
     );
   });
 
@@ -227,15 +235,13 @@ describe("continuationHash", () => {
     const two = () => "acct  123";
 
     expect(
-      continuationHash(
-        [step("s", (v) => v), step("pay", one as never)],
-        0,
+      continuationTailHash(
+        [step("s", (v) => v), step("pay", one as never)].slice(1),
         expected,
       ),
     ).not.toBe(
-      continuationHash(
-        [step("s", (v) => v), step("pay", two as never)],
-        0,
+      continuationTailHash(
+        [step("s", (v) => v), step("pay", two as never)].slice(1),
         expected,
       ),
     );
@@ -255,13 +261,32 @@ describe("continuationHash", () => {
       }),
     ];
 
-    expect(continuationHash(compact, 0, expected)).not.toBe(
-      continuationHash(block, 0, expected),
+    expect(continuationTailHash(compact.slice(1), expected)).not.toBe(
+      continuationTailHash(block.slice(1), expected),
     );
   });
 });
 
-describe("continuationHash over adapter configuration", () => {
+describe("continuationTailHash over adapter configuration", () => {
+  /**
+   * @case An adapter target carried as a URL moves the digest when it changes
+   * @preconditions Two tails identical but for the href of a URL-valued adapter option
+   * @expectedResult Different digests, so a payee spelled `new URL(...)` cannot be edited under a parked approval; a class instance the walk cannot project still collapses, which the hash JSDoc states as residue
+   */
+  test("a URL-valued option is part of the digest", () => {
+    expect(
+      continuationTailHash(
+        [configuredStep({ url: new URL("https://bank-a.example/pay") })],
+        expected,
+      ),
+    ).not.toBe(
+      continuationTailHash(
+        [configuredStep({ url: new URL("https://bank-b.example/pay") })],
+        expected,
+      ),
+    );
+  });
+
   /**
    * @case Repointing a destination in the tail invalidates a parked approval
    * @preconditions Two pipelines whose only difference is an adapter option
@@ -280,8 +305,8 @@ describe("continuationHash over adapter configuration", () => {
       configuredStep({ url: "https://bank-b.example/pay" }),
     ];
 
-    expect(continuationHash(toBankA, 0, expected)).not.toBe(
-      continuationHash(toBankB, 0, expected),
+    expect(continuationTailHash(toBankA.slice(1), expected)).not.toBe(
+      continuationTailHash(toBankB.slice(1), expected),
     );
   });
 
@@ -295,15 +320,13 @@ describe("continuationHash over adapter configuration", () => {
     const options = { url: "https://bank-a.example/pay", retries: 3 };
 
     expect(
-      continuationHash(
-        [step("s", (v) => v), configuredStep({ ...options })],
-        0,
+      continuationTailHash(
+        [step("s", (v) => v), configuredStep({ ...options })].slice(1),
         expected,
       ),
     ).toBe(
-      continuationHash(
-        [step("s", (v) => v), configuredStep({ ...options })],
-        0,
+      continuationTailHash(
+        [step("s", (v) => v), configuredStep({ ...options })].slice(1),
         expected,
       ),
     );
@@ -337,7 +360,10 @@ describe("continuationHash over adapter configuration", () => {
     };
 
     expect(
-      continuationHash([step("s", (v) => v), withHandle], 0, expected),
+      continuationTailHash(
+        [step("s", (v) => v), withHandle].slice(1),
+        expected,
+      ),
     ).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -360,13 +386,13 @@ describe("continuationHash over adapter configuration", () => {
       step("pay", (v) => v),
     ];
 
-    expect(continuationHash(before, 1, expected)).toBe(
-      continuationHash(after, 1, expected),
+    expect(continuationTailHash(before.slice(2), expected)).toBe(
+      continuationTailHash(after.slice(2), expected),
     );
   });
 });
 
-describe("continuationHash over factory-built adapters", () => {
+describe("continuationTailHash over factory-built adapters", () => {
   /**
    * @case Repointing a real factory-built destination invalidates a parked
    *   approval
@@ -387,8 +413,8 @@ describe("continuationHash over factory-built adapters", () => {
       destination(file({ path: "/tmp/b.txt" })),
     ];
 
-    expect(continuationHash(toA, 0, expected)).not.toBe(
-      continuationHash(toB, 0, expected),
+    expect(continuationTailHash(toA.slice(1), expected)).not.toBe(
+      continuationTailHash(toB.slice(1), expected),
     );
   });
 
@@ -410,8 +436,8 @@ describe("continuationHash over factory-built adapters", () => {
       destination(file({ path: () => "/tmp/b.txt" })),
     ];
 
-    expect(continuationHash(toA, 0, expected)).not.toBe(
-      continuationHash(toB, 0, expected),
+    expect(continuationTailHash(toA.slice(1), expected)).not.toBe(
+      continuationTailHash(toB.slice(1), expected),
     );
   });
 
@@ -432,15 +458,13 @@ describe("continuationHash over factory-built adapters", () => {
       );
 
     expect(
-      continuationHash(
-        [step("s", (v) => v), destination(file(options("user")))],
-        0,
+      continuationTailHash(
+        [step("s", (v) => v), destination(file(options("user")))].slice(1),
         expected,
       ),
     ).not.toBe(
-      continuationHash(
-        [step("s", (v) => v), destination(file(options("admin")))],
-        0,
+      continuationTailHash(
+        [step("s", (v) => v), destination(file(options("admin")))].slice(1),
         expected,
       ),
     );
@@ -454,15 +478,17 @@ describe("continuationHash over factory-built adapters", () => {
    */
   test("identical factory arguments hash identically", () => {
     expect(
-      continuationHash(
-        [step("s", (v) => v), destination(file({ path: "/tmp/a.txt" }))],
-        0,
+      continuationTailHash(
+        [step("s", (v) => v), destination(file({ path: "/tmp/a.txt" }))].slice(
+          1,
+        ),
         expected,
       ),
     ).toBe(
-      continuationHash(
-        [step("s", (v) => v), destination(file({ path: "/tmp/a.txt" }))],
-        0,
+      continuationTailHash(
+        [step("s", (v) => v), destination(file({ path: "/tmp/a.txt" }))].slice(
+          1,
+        ),
         expected,
       ),
     );

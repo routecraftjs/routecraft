@@ -26,6 +26,15 @@ import type { SerializedExchange, SuspensionSchema } from "./types.ts";
  * path and `actionFingerprint`'s audit binding. Never describe the hash as
  * covering more than step definitions.
  *
+ * Option VALUES have their own residue, and it is narrower than it looks.
+ * `describable` projects the carriers an adapter option realistically names
+ * a target with (string, number, boolean, `Date`, `URL`, `RegExp`, `Map`,
+ * `Set`, arrays, plain objects), but any other class instance collapses to
+ * `[opaque]` and anything nested five deep collapses to `[deep]`. Two
+ * options differing only there hash alike, so an adapter that hides its
+ * target inside a bespoke config class is outside the compatibility check.
+ * Prefer plain options on a route that suspends.
+ *
  * ## What makes it move
  *
  * Each step contributes its operation kind, its DSL label, its adapter id,
@@ -69,21 +78,12 @@ import type { SerializedExchange, SuspensionSchema } from "./types.ts";
  * line endings and build settings; the configuration reference says so for
  * users.
  *
- * @param steps - The full step array of the route, in declaration order.
- * @param position - Index of the suspending step. The hash covers
- *   `position + 1` onward.
+ * @param tail - Steps from the one after the suspending step to the end.
  * @param schema - The resume-payload schema descriptor.
  * @returns A hex SHA-256 digest.
  *
  * @internal
  */
-export function continuationHash(
-  steps: ReadonlyArray<Step<Adapter>>,
-  position: number,
-  schema: SuspensionSchema,
-): string {
-  return continuationTailHash(steps.slice(position + 1), schema);
-}
 
 /**
  * Hash an already-resolved continuation tail. The tail is exactly what a
@@ -339,6 +339,25 @@ function describable(value: unknown, depth = 0): unknown {
   // would let the tail's actual target change under a parked approval.
   if (kind === "function") return sourceOf(value as object);
   if (value instanceof Date) return value.toISOString();
+  // Carriers an adapter option realistically uses to name its target. Left
+  // to the opaque collapse below they would all hash alike, so a payee
+  // spelled `new URL(...)` could be edited under a parked approval without
+  // moving the digest.
+  if (value instanceof URL) return `[url:${value.href}]`;
+  if (value instanceof RegExp) return `[regexp:${value.source}/${value.flags}]`;
+  if (value instanceof Map) {
+    return {
+      "[map]": [...value].map(([key, entry]) => [
+        describable(key, depth + 1),
+        describable(entry, depth + 1),
+      ]),
+    };
+  }
+  if (value instanceof Set) {
+    return {
+      "[set]": [...value].map((entry) => describable(entry, depth + 1)),
+    };
+  }
   // Bound the walk: a deeply nested or self-referential options object must
   // not turn hashing a route into a graph traversal.
   if (depth >= 4) return "[deep]";
