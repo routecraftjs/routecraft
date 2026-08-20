@@ -559,7 +559,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
   },
   RC5055: {
     category: "Runtime",
-    message: "Resume credential not bound to this question",
+    message: "Resume credential not bound to this call",
     suggestion:
       "The token verifies and names a real suspension, but it was minted for a different call than the one the record is parked on. A batch of parallel tool calls mints one credential per call against a single record, and only the call that actually parked may be resumed; a losing sibling's credential is refused here. Re-ask on the credential minted for the winning call, and do not route two recipients to one park. The refusal is non-destructive: the record is left exactly as it was found, still resumable by the rightful credential.",
     docs: `${DOCS_BASE}#rc-5055`,

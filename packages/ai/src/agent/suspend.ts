@@ -11,12 +11,13 @@ const SUSPEND_SENTINEL_BRAND = Symbol.for("routecraft.ai.agentSuspendSentinel");
 
 /**
  * What a fn handler passes to `ctx.suspend()`: the same pieces the core
- * `.suspend({ schema, ttl })` operation declares, plus the two human-facing
- * fields the `Suspended` acknowledgment reserves for exactly this producer.
+ * `.suspend({ schema, ttl, meta })` operation declares, so an agent-raised
+ * suspension and a route-raised one are the same record with the same
+ * options.
  */
 export interface AgentSuspendOptions {
   /**
-   * What a valid answer looks like. Rendered onto the `Suspended`
+   * What a valid resume payload looks like. Rendered onto the `Suspended`
    * acknowledgment (so the caller can see the shape) and folded into the
    * suspension's compatibility hash.
    *

@@ -344,7 +344,7 @@
   {
     "code": "RC5055",
     "category": "Runtime",
-    "message": "Resume credential not bound to this question",
+    "message": "Resume credential not bound to this call",
     "retryable": false
   },
   {

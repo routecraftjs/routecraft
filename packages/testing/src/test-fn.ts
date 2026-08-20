@@ -135,7 +135,7 @@ export async function testFn<TIn, TOut>(
         if (typeof validate !== "function") {
           throw rcError("RC5003", undefined, {
             message:
-              'testFn: ctx.suspend "schema" must be a Standard Schema when given. It renders what a valid answer looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.',
+              'testFn: ctx.suspend "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.',
           });
         }
       }

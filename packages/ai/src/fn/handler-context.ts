@@ -104,7 +104,7 @@ function makeSuspend(
       )?.["~standard"]?.validate;
       if (typeof validate !== "function") {
         throw rcError("RC5003", undefined, {
-          message: `ctx.suspend in tool "${toolName}": "schema" must be a Standard Schema when given. It renders what a valid answer looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.`,
+          message: `ctx.suspend in tool "${toolName}": "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.`,
         });
       }
     }
