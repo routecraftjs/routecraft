@@ -112,7 +112,7 @@ export interface BuilderState {
   body: unknown;
   /**
    * Type of `ex.suspension.result` for the steps that follow a
-   * `.suspend({ expect })`, threaded in from the `expect` schema the way
+   * `.suspend({ schema })`, threaded in from the declared schema the way
    * `body` is threaded in from `.input()`. `unknown` before any suspend.
    *
    * Optional, per the extension rule above: an existing augmentation or a
@@ -148,7 +148,7 @@ export type SetBody<S extends BuilderState, B> = {
  * every read after a suspend. After a `.suspend()` the field is known.
  *
  * @template S - The incoming state bag
- * @template R - The expected-result type declared by `.suspend({ expect })`
+ * @template R - The expected-result type declared by `.suspend({ schema })`
  */
 export type SetSuspension<S extends BuilderState, R> = Omit<S, "suspension"> & {
   suspension: R;
@@ -157,7 +157,7 @@ export type SetSuspension<S extends BuilderState, R> = Omit<S, "suspension"> & {
 /**
  * The exchange type a callable sees at this point in the chain: the body
  * type from the bag, plus `ex.suspension.result` narrowed to whatever the
- * last `.suspend({ expect })` declared.
+ * last `.suspend({ schema })` declared.
  *
  * An intersection rather than a rewritten `Exchange`, so the narrowing is
  * additive: `Exchange<T>` already carries `suspension`, and

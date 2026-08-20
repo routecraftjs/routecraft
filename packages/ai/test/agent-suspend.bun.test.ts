@@ -69,7 +69,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
 
   /**
    * @case A fn handler's ctx.suspend parks the run, and execution one answers with the core Suspended value
-   * @preconditions direct-fronted agent route; scripted model calls the "ask" tool, whose handler returns ctx.suspend({ expect, ttl, question })
+   * @preconditions direct-fronted agent route; scripted model calls the "ask" tool, whose handler returns ctx.suspend({ schema, ttl, question })
    * @expectedResult The caller receives the branded Suspended acknowledgment carrying id, token, the Approval JSON Schema and the question; the sink after the agent has not run; ctx.suspensionId matched the acknowledgment's id
    */
   test("ctx.suspend parks the run and answers with the Suspended acknowledgment", async () => {
@@ -92,7 +92,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
           token: ctx.suspension?.token,
         });
         return ctx.suspend({
-          expect: Approval,
+          schema: Approval,
           ttl: "72h",
           question: (input as { question: string }).question,
         });
@@ -113,7 +113,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
     expect(parked.suspensionId).toBeString();
     expect(parked.token).toBeString();
     expect(parked.question).toBe("pay acme?");
-    expect(parked.expect).toBeDefined();
+    expect(parked.schema).toBeDefined();
     expect(parked.expiresAt).toBeString();
     expect(seenIds[0]).toBe(parked.suspensionId);
     expect(seenSuspensions[0]!.id).toBe(seenIds[0]!);
@@ -186,7 +186,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
         ids.push(ctx.suspensionId!);
         tokens.push(ctx.suspension!.token);
         return ctx.suspend({
-          expect: Approval,
+          schema: Approval,
           question: (input as { question: string }).question,
         });
       },
@@ -383,7 +383,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
       input: z.object({ question: z.string() }),
       handler: (input: unknown, ctx: FnHandlerContext) =>
         ctx.suspend({
-          expect: Approval,
+          schema: Approval,
           question: (input as { question: string }).question,
         }),
     };
@@ -429,8 +429,85 @@ describe("agent durable suspension (ctx.suspend)", () => {
   });
 
   /**
-   * @case The SuspendError throw is honoured as an escape hatch, with an open expect
-   * @preconditions Handler throws SuspendError({ question }) without an expect schema
+   * @case A losing sibling's credential cannot answer the winner's question
+   * @preconditions One batch calling two suspending tools, each capturing its own ctx.suspension.token before returning
+   * @expectedResult The loser's token is refused with RC5055 without touching the record, and the winner's token still resumes the run
+   */
+  test("a losing sibling's credential is refused", async () => {
+    const sink = spy();
+    const tokens: Record<string, string> = {};
+    const capture = (name: string) => ({
+      description: `Ask via ${name}`,
+      input: z.object({ question: z.string() }),
+      handler: (input: unknown, ctx: FnHandlerContext) => {
+        tokens[name] = ctx.suspension!.token;
+        return ctx.suspend({
+          schema: Approval,
+          question: (input as { question: string }).question,
+        });
+      },
+    });
+    llm.script.push({
+      toolCalls: [
+        { toolName: "ask", input: { question: "first?" } },
+        { toolName: "ask2", input: { question: "second?" } },
+      ],
+    });
+
+    t = await testContext()
+      .with({
+        suspension: {},
+        plugins: plugins({ ask: capture("ask"), ask2: capture("ask2") }),
+      })
+      .routes([
+        craft()
+          .id("assistant")
+          .from(direct())
+          .to(
+            agent({ model: MODEL, system: "x", tools: tools(["ask", "ask2"]) }),
+          )
+          .to(sink),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("assistant", "go"));
+    // One record, one question, two credentials: they name the calls, not
+    // the park, which is exactly what makes the losing one refusable.
+    expect(parked.question).toBe("first?");
+    expect(tokens["ask"]).not.toBe(tokens["ask2"]);
+
+    const runtime = t.ctx.getStore(SUSPENSION_RUNTIME)!;
+    // The acknowledgment carries the WINNING call's binding, so the link
+    // the winning handler already sent its approver is the one that works.
+    expect(runtime.signer.verify(parked.token).sub).toBe(
+      runtime.signer.verify(tokens["ask"]!).sub,
+    );
+    expect(runtime.signer.verify(tokens["ask2"]!).sub).not.toBe(
+      runtime.signer.verify(parked.token).sub,
+    );
+    await expect(
+      t.client.sendDirect("answers", {
+        token: tokens["ask2"],
+        result: { approved: true },
+      }),
+    ).rejects.toThrow(/RC5055|not minted for/);
+    expect((await runtime.store.get(parked.suspensionId))?.status).toBe(
+      "suspended",
+    );
+
+    llm.script.push({ text: "done" });
+    const ack = (await t.client.sendDirect("answers", {
+      token: parked.token,
+      result: { approved: true },
+    })) as { status: string };
+    expect(ack.status).toBe("resumed");
+  });
+
+  /**
+   * @case The SuspendError throw is honoured as an escape hatch, with no declared schema
+   * @preconditions Handler throws SuspendError({ question }) declaring no schema
    * @expectedResult The run parks with the question on the acknowledgment; a later answer of any JSON shape resumes the loop (the model validates, not the framework)
    */
   test("SuspendError parks the run and any JSON answer resumes it", async () => {
@@ -474,7 +551,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
 
   /**
    * @case A re-entrant resume skips expect validation: a token holder can send any JSON
-   * @preconditions ctx.suspend declared expect: Approval; the answer is a string that does not satisfy it
+   * @preconditions ctx.suspend declared schema: Approval; the answer is a string that does not satisfy it
    * @expectedResult The resume is accepted (no RC5049) and the raw answer reaches the model as the tool result, which is the documented model-validates property
    */
   test("an agent resume accepts an answer the expect schema would reject", async () => {

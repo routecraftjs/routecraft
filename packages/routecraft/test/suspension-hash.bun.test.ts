@@ -11,7 +11,7 @@ import {
 import {
   actionFingerprint,
   continuationHash,
-  describeExpect,
+  describeSchema,
 } from "../src/suspension/index.ts";
 
 /**
@@ -74,7 +74,7 @@ function schema(id: string): StandardSchemaV1 {
   } as unknown as StandardSchemaV1;
 }
 
-const expected = describeExpect(schema("approval"));
+const expected = describeSchema(schema("approval"));
 
 const exchange: SerializedExchange = {
   body: { amountCents: 75_000 },
@@ -171,7 +171,7 @@ describe("continuationHash", () => {
     const steps = [step("suspend", (v) => v), step("pay", (v) => v)];
 
     expect(continuationHash(steps, 0, expected)).not.toBe(
-      continuationHash(steps, 0, describeExpect(schema("rejection"))),
+      continuationHash(steps, 0, describeSchema(schema("rejection"))),
     );
   });
 
@@ -469,14 +469,14 @@ describe("continuationHash over factory-built adapters", () => {
   });
 });
 
-describe("describeExpect", () => {
+describe("describeSchema", () => {
   /**
    * @case The schema descriptor carries a rendering for the caller
    * @preconditions A schema exposing the ~standard.jsonSchema extension
    * @expectedResult The rendering is captured alongside the hash
    */
   test("captures a JSON Schema rendering when the schema exposes one", () => {
-    const described = describeExpect(schema("approval"));
+    const described = describeSchema(schema("approval"));
     expect(described.jsonSchema).toEqual({ type: "object", title: "approval" });
     expect(described.hash).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -495,7 +495,7 @@ describe("describeExpect", () => {
       },
     } as unknown as StandardSchemaV1;
 
-    const described = describeExpect(bare);
+    const described = describeSchema(bare);
 
     expect(described.jsonSchema).toBeUndefined();
     expect(described.hash).toMatch(/^[0-9a-f]{64}$/);
@@ -519,13 +519,13 @@ describe("describeExpect", () => {
         },
       }) as unknown as StandardSchemaV1;
 
-    const described = describeExpect(lazy("approval"));
+    const described = describeSchema(lazy("approval"));
 
     expect(described.jsonSchema).toEqual({ type: "object", title: "approval" });
     // The load-bearing property: an unresolved producer hashes to the same
     // digest for every schema (a function is not JSON), which would silently
     // disable the changed-expect half of the compatibility check.
-    expect(described.hash).not.toBe(describeExpect(lazy("rejection")).hash);
+    expect(described.hash).not.toBe(describeSchema(lazy("rejection")).hash);
     // And the descriptor is written to the store as-is, so it has to be
     // data. `structuredClone` is what the in-memory backend does.
     expect(() => structuredClone(described)).not.toThrow();
@@ -550,7 +550,7 @@ describe("describeExpect", () => {
       },
     } as unknown as StandardSchemaV1;
 
-    const described = describeExpect(hostile);
+    const described = describeSchema(hostile);
 
     expect(described.jsonSchema).toBeUndefined();
     expect(described.hash).toMatch(/^[0-9a-f]{64}$/);
@@ -578,8 +578,8 @@ describe("describeExpect", () => {
         },
       }) as unknown as StandardSchemaV1;
 
-    const first = describeExpect(requiresOptions("approval"));
-    const second = describeExpect(requiresOptions("rejection"));
+    const first = describeSchema(requiresOptions("approval"));
+    const second = describeSchema(requiresOptions("rejection"));
 
     expect(first.jsonSchema).toBeDefined();
     expect(first.degraded).toBeUndefined();
@@ -606,7 +606,7 @@ describe("describeExpect", () => {
       },
     } as unknown as StandardSchemaV1;
 
-    const described = describeExpect(optionsUnaware);
+    const described = describeSchema(optionsUnaware);
 
     expect(described.jsonSchema).toEqual({ type: "object", title: "legacy" });
     expect(described.degraded).toBeUndefined();
@@ -627,7 +627,7 @@ describe("describeExpect", () => {
       },
     } as unknown as StandardSchemaV1;
 
-    const described = describeExpect(advertisedButEmpty);
+    const described = describeSchema(advertisedButEmpty);
 
     expect(described.jsonSchema).toBeUndefined();
     expect(described.degraded).toBe(true);
@@ -647,7 +647,7 @@ describe("describeExpect", () => {
       },
     } as unknown as StandardSchemaV1;
 
-    const described = describeExpect(plain);
+    const described = describeSchema(plain);
 
     expect(described.jsonSchema).toBeUndefined();
     expect(described.degraded).toBeUndefined();

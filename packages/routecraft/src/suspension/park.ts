@@ -10,13 +10,15 @@ import type { SuspendRequest } from "./sites.ts";
 import {
   actionFingerprint,
   continuationTailHash,
-  describeExpect,
+  describePolicy,
+  describeSchema,
 } from "./hash.ts";
 import {
   SuspensionHeaders,
   readSequence,
   suspensionIdOf,
 } from "./exchange-state.ts";
+import { servesKey } from "./doors.ts";
 import { SUSPENSION_RUNTIME } from "./runtime-key.ts";
 import { serializeExchange } from "./serialize.ts";
 import { type Suspended, createSuspended } from "./suspended.ts";
@@ -37,7 +39,7 @@ import type { NewSuspension } from "./types.ts";
  *
  * @param context - Context whose suspension runtime holds the store and signer
  * @param exchange - The exchange as the suspend step handed it over
- * @param request - What the suspend step resolved: schema, TTL, and site
+ * @param request - What the suspend step resolved: schema, policy, TTL, and site
  * @param routeId - Route the parked exchange belongs to
  * @param abortSignal - The run's cancellation signal; an abort that lands
  *   during the store write denies the just-created suspension and fails the
@@ -76,13 +78,23 @@ export async function parkExchange(
     },
   });
 
-  const expect = describeExpect(request.expect);
+  const schema = describeSchema(request.schema);
   const serialized = serializeExchange(parking);
   // The site's continuation is exactly what a resume would run: for a
   // static `.suspend()` it excludes the step itself (it already ran), and
   // for a re-entrant site it includes it (it runs again). The hash covers
   // whichever is true.
-  const hash = continuationTailHash(request.site.continuation, expect);
+  //
+  // The policy descriptor is what makes the predicate half of the answerer
+  // policy tamper-evident. `answer` and `key` persist on the record and are
+  // enforced from there, but an `authorize()` closure cannot travel, so its
+  // verbatim source joins the digest: editing it takes the RC5048 re-ask
+  // rather than silently governing records parked under the previous one.
+  const hash = continuationTailHash(
+    request.site.continuation,
+    schema,
+    describePolicy(request.authorize),
+  );
   // `stepState` crosses the persistence boundary raw: the store's `create`
   // applies the same plain-JSON rule as the exchange (both backends encode
   // it, refusing a resolver, a secret, or a non-envelope Date with RC5042),
@@ -98,7 +110,15 @@ export async function parkExchange(
     position: request.site.position,
     continuationHash: hash,
     exchange: serialized,
-    expect,
+    schema,
+    ...(request.answer !== undefined ? { answer: request.answer } : {}),
+    ...(request.key !== undefined ? { key: request.key } : {}),
+    ...(request.callBinding !== undefined
+      ? { callBinding: request.callBinding }
+      : {}),
+    ...(request.authorize !== undefined ? { hasAuthorizer: true } : {}),
+    ...(request.question !== undefined ? { question: request.question } : {}),
+    ...(request.reason !== undefined ? { reason: request.reason } : {}),
     ...(stepState !== undefined ? { stepState } : {}),
     actionFingerprint: actionFingerprint({
       routeId,
@@ -148,17 +168,29 @@ export async function parkExchange(
   // nothing is announced that cannot be resumed, and a park that fails at
   // serialization or the store write must not leave an operator a warning
   // about a suspension that never existed.
-  if (expect.degraded) {
+  if (schema.degraded) {
     parking.logger.warn(
       { suspensionId: id, routeId, position: request.site.position },
-      "The expect schema advertises a JSON Schema extension that produced nothing, so this suspension cannot detect a changed expect: only the step tail is covered. Zod throws for a Date, a bigint or any transform.",
+      "The answer schema advertises a JSON Schema extension that produced nothing, so this suspension cannot detect a changed schema: only the step tail is covered. Zod throws for a Date, a bigint or any transform.",
+    );
+  }
+
+  // A record parked on a channel no door serves is answerable by nobody: a
+  // structurally valid token takes RC5057 at every ingress, and because
+  // nothing denies or expires it early, the run sits until its ttl and then
+  // re-asks with nothing in the log naming the real cause. Cheap to catch
+  // here, where the key and the registered doors are both known.
+  if (request.key !== undefined && !servesKey(context, request.key)) {
+    parking.logger.warn(
+      { suspensionId: id, routeId, position: request.site.position },
+      `Suspension parked on channel "${request.key}", which no registered .resume() door serves. Every token presented for it will be refused with RC5057. Add the key to a .resume({ keys }) door, or drop it from the suspend site.`,
     );
   }
 
   const suspended: Suspended = createSuspended({
     suspensionId: id,
-    token: runtime.signer.mint(id),
-    ...(expect.jsonSchema !== undefined ? { expect: expect.jsonSchema } : {}),
+    token: runtime.signer.mint(id, new Date(), request.callBinding),
+    ...(schema.jsonSchema !== undefined ? { schema: schema.jsonSchema } : {}),
     ...(record.expiresAt ? { expiresAt: record.expiresAt.toISOString() } : {}),
     ...(request.question !== undefined ? { question: request.question } : {}),
     ...(request.reason !== undefined ? { reason: request.reason } : {}),

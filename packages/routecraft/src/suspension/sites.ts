@@ -5,6 +5,8 @@ import { OperationType } from "../exchange.ts";
 import { NESTED_STEPS, SUSPEND_HOST } from "../dsl-symbol.ts";
 import type { Adapter, Step } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
+import type { ResumeAuthorizer } from "./answerer.ts";
+import type { AnswerPolicy } from "./types.ts";
 
 /**
  * Where a `.suspend()` sits in a route, and what runs when it is resumed.
@@ -51,11 +53,11 @@ export interface SuspendSite {
    * steps; absent on static `.suspend()` sites.
    *
    * Two consequences at revival, both deliberate: the answer is NOT
-   * validated against a live `expect` schema (the schema the step raised at
-   * suspend time lives in its own code and cannot be read back off the
-   * route, so `RC5049` never fires for a re-entrant site and the step is
-   * the validator), and the stored `expect` hash is compared against
-   * itself, so a changed expect cannot be detected. Both are the same
+   * validated against a live schema (the schema the step raised at suspend
+   * time lives in its own code and cannot be read back off the route, so
+   * `RC5049` never fires for a re-entrant site and the step is the
+   * validator), and the stored schema descriptor is compared against
+   * itself, so a changed schema cannot be detected. Both are the same
    * residue class as "the hash covers step definitions, never the behaviour
    * of what the tail calls".
    */
@@ -140,10 +142,34 @@ export function suspendHostOf(
  * @internal
  */
 export interface SuspendRequest {
-  /** Live schema the eventual answer is validated against. */
-  readonly expect: StandardSchemaV1;
+  /**
+   * Live schema the eventual answer is validated against, when the site
+   * declared one. Absent parks with no ingress validation, which is the
+   * click-yes case: the route's own continuation is then the only reader of
+   * whatever arrives.
+   */
+  readonly schema?: StandardSchemaV1;
   /** Resolved TTL in milliseconds, when one was declared. */
   readonly expiresInMs?: number;
+  /**
+   * Declarative answerer floor, persisted onto the record and enforced from
+   * there. Policy travels with the question.
+   */
+  readonly answer?: AnswerPolicy;
+  /** Channel the record is parked on, matched against a resume door's `keys`. */
+  readonly key?: string;
+  /**
+   * The live answerer predicate, when the site declared one. Not persisted
+   * (a closure cannot be); the park folds its verbatim source into the
+   * continuation hash so an edit is caught rather than silently applied.
+   */
+  readonly authorize?: ResumeAuthorizer;
+  /**
+   * Identity of the call this park belongs to, when the suspending step
+   * mints one credential per call. Persisted as the record's `callBinding`
+   * and carried as the token's `sub` claim.
+   */
+  readonly callBinding?: string;
   /** Where this suspend sits, and what runs on resume. */
   readonly site: SuspendSite;
   /**
@@ -168,11 +194,17 @@ export interface SuspendRequest {
 export interface SuspendableStep extends Step<Adapter> {
   readonly operation: OperationType.SUSPEND;
   /**
-   * The live `expect` schema. Read back off the step at resume time to
-   * validate the candidate answer, because a Standard Schema cannot be
-   * persisted with the record.
+   * The live answer schema, when the site declared one. Read back off the
+   * step at resume time to validate the candidate answer, because a
+   * Standard Schema cannot be persisted with the record.
    */
-  readonly expect: StandardSchemaV1;
+  readonly schema?: StandardSchemaV1;
+  /**
+   * The live answerer predicate, when the site declared one. Read back off
+   * the step the same way the schema is; a closure cannot be persisted, so
+   * its source rides the continuation hash and an edit takes `RC5048`.
+   */
+  readonly authorize?: ResumeAuthorizer;
   /** Assigned by {@link resolveSuspendSites}. Absent means the step is not reachable from a built route. */
   site?: SuspendSite;
 }
@@ -280,16 +312,66 @@ export function resolveSuspendSites(
  * @internal
  */
 export function usesResume(route: RouteDefinition): boolean {
-  return containsResume(route.steps);
+  return resumeDoors(route).length > 0;
+}
+
+/**
+ * Every `.resume()` in a route, with the channels it serves.
+ *
+ * Collected structurally rather than by importing `ResumeStep`, which would
+ * close a cycle (the operation imports the revive path, which imports this
+ * module). What a door declares is needed in three places: the revive
+ * refusal, the park-time unserved-channel warning, and the startup audit,
+ * and none of them should re-walk the tree for itself.
+ *
+ * @internal
+ */
+export function resumeDoors(route: RouteDefinition): ResumeDoorSpec[] {
+  const found: ResumeDoorSpec[] = [];
+  // A route-entry `.authorize()` counts: it mirrors to identity-capable
+  // transports as `requiresPrincipal`, so the door does resolve one even
+  // with no `.authenticate()` step of its own.
+  collectDoors(route.steps, found, route.requiresPrincipal === true);
+  return found;
+}
+
+/**
+ * What one `.resume()` declares, as the walk can see it.
+ *
+ * @internal
+ */
+export interface ResumeDoorSpec {
+  /** Channels the door serves. Absent means every channel. */
+  readonly keys?: readonly string[];
+  /** The door's route resolves a principal somewhere in its own pipeline. */
+  readonly authenticates: boolean;
 }
 
 /** @internal */
-function containsResume(steps: ReadonlyArray<Step<Adapter>>): boolean {
-  return steps.some(
-    (step) =>
-      step.operation === OperationType.RESUME ||
-      nestedStepsOf(step).some((nested) => containsResume(nested.steps)),
-  );
+function collectDoors(
+  steps: ReadonlyArray<Step<Adapter>>,
+  found: ResumeDoorSpec[],
+  inherited: boolean,
+): void {
+  const authenticates =
+    inherited ||
+    steps.some(
+      (step) =>
+        (step as { establishesPrincipal?: boolean }).establishesPrincipal ===
+        true,
+    );
+  for (const step of steps) {
+    if (step.operation === OperationType.RESUME) {
+      const keys = (step as { keys?: readonly string[] }).keys;
+      found.push({
+        ...(keys !== undefined ? { keys } : {}),
+        authenticates,
+      });
+    }
+    for (const nested of nestedStepsOf(step)) {
+      collectDoors(nested.steps, found, authenticates);
+    }
+  }
 }
 
 /**

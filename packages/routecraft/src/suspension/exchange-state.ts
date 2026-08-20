@@ -37,6 +37,14 @@ export const SuspensionHeaders = {
   RESUMED_BY: "routecraft.suspension.resumedBy",
   /** When the answer was accepted. */
   RESUMED_AT: "routecraft.suspension.resumedAt",
+  /**
+   * Channel the record this exchange resumed from was parked on.
+   *
+   * Written by the revive path so a continuation that parks AGAIN inherits
+   * the channel rather than landing on one no door serves. A per-call
+   * override still wins; this is only the default.
+   */
+  KEY: "routecraft.suspension.key",
 } as const satisfies Record<string, string>;
 
 declare module "@routecraft/routecraft" {
@@ -46,6 +54,7 @@ declare module "@routecraft/routecraft" {
     "routecraft.suspension.result"?: unknown;
     "routecraft.suspension.resumedBy"?: PrincipalRef;
     "routecraft.suspension.resumedAt"?: Date;
+    "routecraft.suspension.key"?: string;
   }
 }
 
@@ -77,6 +86,24 @@ export interface SuspensionAffordance<R = unknown> {
    * @throws RC5052 when the context has no suspension runtime configured.
    */
   readonly token: string;
+  /**
+   * A resume token bound to one specific question on this record.
+   *
+   * Only a step that can raise several questions against one park needs
+   * this: the agent tier's parallel tool batch is the shipped case, where
+   * every handler sees the same suspension id (it names the park, not the
+   * call) and each sends its own approver a link. Binding the credential to
+   * the call means the handler that then LOSES the park cannot have its
+   * approver answer the winner's question; they take `RC5055` instead.
+   *
+   * The binding is checked against what the record actually parked with, so
+   * minting one here without the park recording the same value refuses
+   * every resume. Plain `.suspend()` sites use {@link
+   * SuspensionAffordance.token}.
+   *
+   * @throws RC5052 when the context has no suspension runtime configured.
+   */
+  readonly tokenFor: (callBinding: string) => string;
   /** The validated answer. Present only after a resume. */
   readonly result: R;
   /** Who answered. Present only after a resume, and only when the ingress route had a principal. */
@@ -108,19 +135,23 @@ export function suspensionAffordance(
 ): SuspensionAffordance {
   const sequence = readSequence(headers);
   const id = suspensionIdOf(headers, exchangeId);
+  const mint = (callBinding?: string): string => {
+    const runtime = context?.getStore(SUSPENSION_RUNTIME);
+    if (!runtime) {
+      throw rcError("RC5052", undefined, {
+        message:
+          "Cannot mint a resume token: this context has no suspension runtime. Add suspension: {} to defineConfig.",
+      });
+    }
+    return runtime.signer.mint(id, new Date(), callBinding);
+  };
   return {
     id,
     sequence,
     get token(): string {
-      const runtime = context?.getStore(SUSPENSION_RUNTIME);
-      if (!runtime) {
-        throw rcError("RC5052", undefined, {
-          message:
-            "Cannot mint a resume token: this context has no suspension runtime. Add suspension: {} to defineConfig.",
-        });
-      }
-      return runtime.signer.mint(id);
+      return mint();
     },
+    tokenFor: mint,
     result: headers[SuspensionHeaders.RESULT],
     resumedBy: headers[SuspensionHeaders.RESUMED_BY],
     resumedAt: headers[SuspensionHeaders.RESUMED_AT],

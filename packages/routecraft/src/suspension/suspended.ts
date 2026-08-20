@@ -26,12 +26,13 @@ export interface Suspended {
   readonly token: string;
   /**
    * JSON Schema rendering of what a valid answer looks like, when the
-   * `expect` schema exposes one (Zod, ArkType and the AI SDK bridge do
-   * through the non-standard `~standard.jsonSchema` extension). Absent
-   * otherwise; validation always runs against the live schema at resume, so
-   * nothing depends on this being present.
+   * suspending step declared a schema and it exposes one (Zod, ArkType and
+   * the AI SDK bridge do through the non-standard `~standard.jsonSchema`
+   * extension). Absent otherwise, and absent whenever the site declared no
+   * schema at all; validation always runs against the live schema at
+   * resume, so nothing depends on this being present.
    */
-  readonly expect?: unknown;
+  readonly schema?: unknown;
   /** When the suspension expires, ISO-8601. Absent when `.suspend()` declared no `ttl`. */
   readonly expiresAt?: string;
   /**
@@ -90,9 +91,9 @@ export const SUSPENDED_JSON_SCHEMA = {
     status: { const: "suspended" },
     suspensionId: { type: "string" },
     token: { type: "string" },
-    expect: {
+    schema: {
       description:
-        "JSON Schema of what a valid answer looks like, when the suspending step's expect schema renders one.",
+        "JSON Schema of what a valid answer looks like, when the suspending step declared a schema that renders one.",
     },
     expiresAt: { type: "string", format: "date-time" },
     question: { type: "string" },
@@ -137,7 +138,7 @@ export const suspendedSchema: StandardSchemaV1<unknown, Suspended> = {
             case "suspensionId":
             case "token":
               return true;
-            case "expect":
+            case "schema":
               return true;
             case "expiresAt":
             case "question":

@@ -42,7 +42,7 @@ describe("the filter chain on a resumed continuation", () => {
           .id("payout")
           .concurrency({ max: 1 })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .process(async (ex) => {
             inFlight++;
             peak = Math.max(peak, inFlight);
@@ -104,7 +104,7 @@ describe("the filter chain on a resumed continuation", () => {
           .concurrency({ max: 1 })
           .from(direct())
           .process(occupy)
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .process(occupy)
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -144,7 +144,7 @@ describe("the filter chain on a resumed continuation", () => {
           .id("payout")
           .retry({ maxAttempts: 3, backoffMs: 1 })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .process((ex) => {
             attempts++;
             if (attempts < 3) throw new Error("downstream refused");
@@ -187,7 +187,7 @@ describe("the filter chain on a resumed continuation", () => {
           // continuation's wait exceeds it several times over.
           .timeout(150)
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .process(async (ex) => {
             await sleep(600);
             return ex;
@@ -225,7 +225,7 @@ describe("the filter chain on a resumed continuation", () => {
           .timeout(150)
           .concurrency({ max: 5 })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .process(async (ex) => {
             await sleep(600);
             return ex;
@@ -271,7 +271,7 @@ describe("the filter chain on a resumed continuation", () => {
           .id("payout")
           .concurrency({ max: 1, mode: "reject" })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .process(async (ex) => {
             ran++;
             inFlight++;
@@ -324,7 +324,7 @@ describe("the filter chain on a resumed continuation", () => {
           .timeout(2_000)
           .concurrency({ max: 1, mode: "reject" })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .process(async (ex) => {
             ran++;
             await sleep(40);
@@ -371,7 +371,7 @@ describe("the filter chain on a resumed continuation", () => {
           .id("payout")
           .concurrency({ max: 1 })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .process(async (ex) => {
             ran++;
             await sleep(120);

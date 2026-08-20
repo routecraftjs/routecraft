@@ -51,6 +51,7 @@ import {
 } from "./pipeline/executor.ts";
 import { detachedDefinition } from "./pipeline/chain-policy.ts";
 import type {
+  ResumeDoorSpec,
   SuspendCapableStep,
   SuspendableStep,
 } from "./suspension/sites.ts";
@@ -357,6 +358,16 @@ export type RouteDefinition<T = unknown> = {
    * @internal
    */
   usesResume?: boolean;
+
+  /**
+   * Every `.resume()` in the route, with the channels it serves and whether
+   * the route resolves a principal. Resolved once at build time so the
+   * revive refusal, the park-time unserved-channel warning, and the startup
+   * audit all read one answer.
+   *
+   * @internal
+   */
+  resumeDoors?: ResumeDoorSpec[];
 };
 
 /**

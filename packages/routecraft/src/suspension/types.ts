@@ -42,38 +42,81 @@ export interface SerializedExchange {
 }
 
 /**
- * How the expected-result schema is carried on a stored suspension.
+ * How the answer schema is carried on a stored suspension.
  *
  * A Standard Schema is a live object with a validate function, so it cannot
  * be persisted. What is persisted is a reference: the `(routeId, position)`
- * pair on the record identifies the suspending step, whose live `expect`
- * schema is read back off the route at resume time, and `hash` is folded
- * into `continuationHash` so a schema that changed under a parked exchange
- * fails the compatibility check rather than validating against the wrong
+ * pair on the record identifies the suspending step, whose live `schema` is
+ * read back off the route at resume time, and `hash` is folded into
+ * `continuationHash` so a schema that changed under a parked exchange fails
+ * the compatibility check rather than validating against the wrong
  * contract.
  *
  * `jsonSchema` is populated opportunistically from the non-standard
  * `~standard.jsonSchema` extension that Zod, ArkType and the AI SDK bridge
  * expose. It is descriptive only: it tells a caller and an operator what a
  * valid answer looks like. Validation always runs against the live schema.
+ *
+ * A site that declares NO schema still gets a descriptor, carrying
+ * {@link SuspensionSchema.absent}. That sentinel is deliberately distinct
+ * from the degraded fallback below: without it, editing a site from a
+ * declared-but-unrenderable schema to no schema at all would leave the
+ * digest unmoved, so an approver told there was a contract would have their
+ * answer accepted unvalidated with no re-ask.
  */
-export interface SuspensionExpect {
-  /** Stable hash of the expected-result schema. */
+export interface SuspensionSchema {
+  /** Stable hash of the answer schema, or the absent sentinel. */
   readonly hash: string;
+  /** Set when the site declared no schema at all. */
+  readonly absent?: boolean;
   /** JSON Schema rendering when the schema exposes one. Never used to validate. */
   readonly jsonSchema?: unknown;
   /**
    * Set when the schema advertised a `~standard.jsonSchema` extension that
-   * then produced nothing, so {@link SuspensionExpect.hash} identifies only
+   * then produced nothing, so {@link SuspensionSchema.hash} identifies only
    * the vendor rather than the contract.
    *
    * The consequence is worth stating where it is read: the step tail is
-   * still hashed, but a widened or narrowed `expect` on such a schema cannot
+   * still hashed, but a widened or narrowed schema of that kind cannot
    * move the digest, so a resume will not catch it. Zod throws for
    * unrepresentable types (a `Date`, a `bigint`, any `.transform()`), which
    * makes this reachable with an ordinary approval schema.
    */
   readonly degraded?: boolean;
+}
+
+/**
+ * The declarative floor on who may answer a suspension.
+ *
+ * Serializable by construction, which is what lets it work identically on
+ * `ctx.suspend()` where a closure could not survive the park. It is
+ * persisted on the record and enforced from there, so a record keeps the
+ * policy it was parked under.
+ *
+ * This gates who may INJECT THE ANSWER and receive the result. The
+ * continuation always executes as the parked principal, restored and
+ * branded, never as the answerer's.
+ */
+export interface AnswerPolicy {
+  /**
+   * Scopes the answerer must hold, all of them. Compared against the
+   * principal the resume ingress authenticated, never the parked snapshot.
+   */
+  readonly scopes?: readonly string[];
+  /**
+   * How the answerer must relate to the principal that parked.
+   *
+   * - `"any"` (default): bearer, today's behaviour. Approvals are the
+   *   headline case and a different answerer is their point.
+   * - `"same"`: session continuation, the parker answers their own pause.
+   * - `"different"`: four eyes, the parker may not answer their own pause.
+   *
+   * Both non-`any` modes require a present, non-empty subject on BOTH
+   * sides. Two principals that merely lack a subject are not "the same
+   * person", and treating them as such would turn `"same"` into "anyone
+   * without a subject".
+   */
+  readonly sub?: "same" | "different" | "any";
 }
 
 /**
@@ -134,15 +177,70 @@ export interface Suspension {
   /** Index of the suspending step. Execution two resumes at `position + 1`. */
   readonly position: number;
   /**
-   * Hash over steps `position + 1` to the end of the pipeline plus the
-   * `expect` schema. Covers step DEFINITIONS only: what a `direct()` route
+   * Hash over steps `position + 1` to the end of the pipeline, plus the
+   * answer schema descriptor and the answerer-policy descriptor. Covers step
+   * DEFINITIONS only: what a `direct()` route
    * the tail forwards to actually does, which version an adapter is on, and
    * how an external system behaves can all change without moving this hash.
    * See {@link continuationHash}.
    */
   readonly continuationHash: string;
   readonly exchange: SerializedExchange;
-  readonly expect: SuspensionExpect;
+  readonly schema: SuspensionSchema;
+  /**
+   * The declarative answerer policy this record was parked under, enforced
+   * at revive FROM HERE and never re-read from the live site.
+   *
+   * Policy travels with the question: editing a site's `answer` affects
+   * future parks only, and a record keeps the policy its approver was
+   * promised. The predicate half cannot persist (it is a closure), so it
+   * rides the continuation hash instead and an edit there takes the
+   * `RC5048` re-ask.
+   */
+  readonly answer?: AnswerPolicy;
+  /**
+   * Channel this record was parked on, matched against the `keys` a resume
+   * door declares. Absent means the record answers on any door.
+   */
+  readonly key?: string;
+  /**
+   * The site this record parked from declared an `authorize()` predicate.
+   *
+   * The predicate itself cannot persist, so it is re-read off the live site
+   * and its source rides the continuation hash. This flag is the one part
+   * that must be known from the record alone: it lets the record-only band
+   * refuse an unauthenticated ingress before anything destructive runs,
+   * rather than discovering at the predicate that there was never an
+   * identity to check.
+   */
+  readonly hasAuthorizer?: boolean;
+  /**
+   * Which call this record's question belongs to, when the suspending step
+   * mints one credential per call.
+   *
+   * A batch of parallel tool calls shares one record (one park, one
+   * question) while each handler sends its own approver a link. Only the
+   * call that actually won the park may be answered, so its identity is
+   * recorded here and every credential carries the same value as its `sub`
+   * claim. A losing sibling's approver then takes `RC5055` instead of
+   * answering a question they were never asked.
+   *
+   * Absent for an ordinary `.suspend()`, where the record IS the question
+   * and there is nothing to disambiguate.
+   */
+  readonly callBinding?: string;
+  /**
+   * The human-facing question, as the acknowledgment carried it.
+   *
+   * Persisted because an `authorize()` predicate is handed it at revive and
+   * an operator reading the store deserves to see what is being asked.
+   * Authored by the suspending step, which on the agent surface is the
+   * model: it is display and routing material, never an authorization
+   * input.
+   */
+  readonly question?: string;
+  /** Machine-facing reason, same authorship caveat as {@link Suspension.question}. */
+  readonly reason?: string;
   /**
    * Opaque state owned by the suspending step. Absent for an ordinary step;
    * an agent step puts its messages thread and outstanding tool-call id

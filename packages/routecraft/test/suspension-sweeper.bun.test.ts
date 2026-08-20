@@ -62,7 +62,7 @@ function overdue(
       body: { amountCents: 1, payee: "acme" },
       headers: { "routecraft.id": id, "routecraft.route": "payout" },
     },
-    expect: { hash: "e".repeat(64) },
+    schema: { hash: "e".repeat(64) },
     suspendedAt: new Date(now - 60_000),
     expiresAt: new Date(now - 1_000),
     ...overrides,
@@ -145,7 +145,7 @@ describe("the suspension sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: Approval, ttl: "1h" })
+          .suspend({ schema: Approval, ttl: "1h" })
           .tap((ex) => {
             continued.push(ex.body);
           })
@@ -247,7 +247,7 @@ describe("the suspension sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: Approval, ttl: "1h" })
+          .suspend({ schema: Approval, ttl: "1h" })
           .tap((ex) => {
             continued.push(ex.body);
           })
@@ -299,7 +299,7 @@ describe("the suspension sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -344,7 +344,7 @@ describe("the suspension sweeper", () => {
             throw new Error("the escalation webhook is down");
           })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -387,7 +387,7 @@ describe("the suspension sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -423,7 +423,7 @@ describe("the suspension sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -456,7 +456,7 @@ describe("the suspension sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -510,7 +510,7 @@ describe("the suspension sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -543,7 +543,7 @@ describe("the suspension sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -571,7 +571,7 @@ describe("the suspension sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -601,7 +601,7 @@ describe("the suspension sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -633,7 +633,7 @@ describe("the suspension sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -685,7 +685,7 @@ describe("the suspension sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build());
@@ -725,7 +725,7 @@ describe("the suspension sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build());
@@ -759,7 +759,7 @@ describe("the suspension sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build());
@@ -792,7 +792,7 @@ describe("the suspension sweeper", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -827,7 +827,7 @@ describe("the suspension sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -858,7 +858,7 @@ describe("the suspension sweeper", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .suspend({ expect: Approval, ttl: "1ms" })
+          .suspend({ schema: Approval, ttl: "1ms" })
           .tap((ex) => {
             continued.push(ex.body);
           })
@@ -911,7 +911,7 @@ describe("the suspension sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval, ttl: "1h" })
+          .suspend({ schema: Approval, ttl: "1h" })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -959,7 +959,7 @@ describe("the suspension sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -989,7 +989,7 @@ describe("the suspension sweeper", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();

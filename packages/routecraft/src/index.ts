@@ -254,7 +254,7 @@ export {
 export { type HeaderSetter } from "./operations/header.ts";
 
 export { type SuspendOptions } from "./operations/suspend.ts";
-export { type ResumeMapper } from "./operations/resume.ts";
+export { type ResumeMapper, type ResumeOptions } from "./operations/resume.ts";
 
 export { type CallableAuthenticator } from "./operations/authenticate.ts";
 
@@ -593,15 +593,19 @@ export type {
   PendingSuspensionSummary,
   PrincipalRef,
   ResumeAcknowledgment,
+  ResumeAuthorizer,
+  ResumeAuthorizerInput,
   ResumeRequest,
   Suspended,
+  SuspensionFacts,
   SuspensionAffordance,
   SerializedExchange,
   SerializedOutcome,
   Suspension,
   SuspensionCasResult,
   SuspensionConfig,
-  SuspensionExpect,
+  AnswerPolicy,
+  SuspensionSchema,
   SuspensionResumption,
   SuspensionRuntime,
   SuspensionStatus,

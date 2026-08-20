@@ -6,16 +6,9 @@ import {
 } from "@routecraft/routecraft";
 import { isBlockLoaderTool } from "../block/resolve.ts";
 import { toAiInputSchema } from "../llm/structured-output.ts";
-import {
-  makeFnHandlerContext,
-  type FnSuspensionWiring,
-} from "../fn/handler-context.ts";
+import { makeFnHandlerContext } from "../fn/handler-context.ts";
 import type { FnHandlerContext } from "../fn/types.ts";
-import {
-  anyAnswerSchema,
-  isSuspendError,
-  isSuspendSentinel,
-} from "./suspend.ts";
+import { isSuspendError, isSuspendSentinel } from "./suspend.ts";
 import {
   SUSPENDED_TOOL_PLACEHOLDER,
   type AgentSuspendSignalRecord,
@@ -34,8 +27,22 @@ import type { ResolvedTool } from "./tools/selection.ts";
  * @internal
  */
 export interface AgentSuspensionBridge {
-  readonly wiring: FnSuspensionWiring;
+  readonly wiring: AgentSuspensionWiring;
   readonly signals: AgentSuspendSignalRecord[];
+}
+
+/**
+ * The park identity one dispatch shares across its whole tool batch.
+ *
+ * One level up from the per-CALL wiring the handler context gets: the id
+ * names the park and is the same for every handler in a batch, while the
+ * credential each handler hands out names its own call.
+ *
+ * @internal
+ */
+export interface AgentSuspensionWiring {
+  readonly id: string;
+  readonly mintToken: (callBinding: string) => string;
 }
 
 /**
@@ -82,12 +89,10 @@ export async function buildVercelTools(
   for (const r of resolved) {
     const guard = r.guard;
     const handler = r.handler;
-    const baseCtx: FnHandlerContext = makeFnHandlerContext(
-      r.name,
-      abortSignal,
-      principal,
-      suspensions?.wiring,
-    );
+    // Built per CALL below, not here: the resume credential is bound to the
+    // tool call that hands it out, and the call id is only known inside
+    // `execute`. What is shared per tool is everything else.
+    const wiring = suspensions?.wiring;
     // Block-loader synthetic tools emit `agent:block:loaded` /
     // `agent:block:error` events instead of the user-tool family so
     // observability consumers can wire framework bookkeeping separately
@@ -109,18 +114,26 @@ export async function buildVercelTools(
           messages?: unknown[];
         },
       ) => {
-        // Merge per-call options (the SDK passes its own abortSignal
-        // and toolCallId per invocation) into the handler context so
-        // a tool can react to per-step cancellation, not just the
-        // session-wide signal captured at buildVercelTools time.
-        const callCtx: FnHandlerContext = {
-          ...baseCtx,
-          abortSignal: callOpts?.abortSignal ?? baseCtx.abortSignal,
-        };
         // The Vercel SDK passes a unique toolCallId per invocation;
         // synthesise one when absent so invoked → result events still
         // correlate (a shared empty-string id would alias every call).
         const toolCallId = callOpts?.toolCallId ?? randomUUID();
+        // Per-call options (the SDK passes its own abortSignal per
+        // invocation) so a tool can react to per-step cancellation, not
+        // just the session-wide signal captured at buildVercelTools time,
+        // and the resume credential this handler hands out names THIS call.
+        const callCtx: FnHandlerContext = makeFnHandlerContext(
+          r.name,
+          callOpts?.abortSignal ?? abortSignal,
+          principal,
+          wiring
+            ? {
+                id: wiring.id,
+                mintToken: () => wiring.mintToken(toolCallId),
+                callBinding: toolCallId,
+              }
+            : undefined,
+        );
         const start = Date.now();
 
         if (!isLoader && ctx && dispatchIdentity) {
@@ -203,12 +216,14 @@ export async function buildVercelTools(
               toolCallId,
               toolName: r.name,
               request: {
-                expect: err.expect ?? anyAnswerSchema,
+                ...(err.schema !== undefined ? { schema: err.schema } : {}),
                 ...(err.ttl !== undefined ? { ttl: err.ttl } : {}),
                 ...(err.question !== undefined
                   ? { question: err.question }
                   : {}),
                 ...(err.reason !== undefined ? { reason: err.reason } : {}),
+                ...(err.key !== undefined ? { key: err.key } : {}),
+                ...(err.answer !== undefined ? { answer: err.answer } : {}),
               },
             });
             if (!isLoader && ctx && dispatchIdentity) {

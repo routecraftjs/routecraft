@@ -18,7 +18,7 @@ export const askFn = {
   input: z.object({ question: z.string() }),
   handler: (input: unknown, ctx: FnHandlerContext) =>
     ctx.suspend({
-      expect: Approval,
+      schema: Approval,
       ttl: "72h",
       question: (input as { question: string }).question,
     }),

@@ -1,0 +1,23 @@
+---
+"@routecraft/routecraft": minor
+"@routecraft/ai": minor
+"@routecraft/testing": minor
+---
+
+Suspension: declare who may answer a parked question, and enforce it from the record before anything can be spent (#632).
+
+**`.suspend({ answer, authorize, key })`.** Authorization lives on the QUESTION, not on the door. A refusal below the store's compare-and-swap would spend the single-use answer, so the check has to run pre-claim, and only the suspension knows what its own approval was worth. `answer: { scopes?, sub? }` is the declarative floor (`sub: "same"` for session continuation, `"different"` for four eyes, `"any"`, the default, for a bearer approval); `authorize` is a predicate for what the floor cannot express, receiving the live answerer, the restored parked principal, and the non-secret facts about the question. The resume ingress still authenticates: `.resume()` hands revival the principal it verified.
+
+**Policy travels with the question.** The declarative half persists at park and is enforced from the record, never re-read from the live site, so editing a site governs future parks only and one deploy cannot silently weaken every outstanding four-eyes approval. The predicate half cannot persist, so its verbatim source joins the continuation hash and an edit takes the `RC5048` re-ask; the source is hashed as written and never normalized, so a predicate that varies only by a value it closes over is in the same residue class as everything else the hash covers.
+
+**The pre-claim window is now ordered in three bands.** Record-only checks (credential binding, channel, declarative floor) run before the settled-state disclosure and before BOTH pre-claim transitions that settle a record and drive the suspended route's error channel. Previously the deadline arm and the continuation arm were reachable by a party the new checks exist to reject, who could deny the record, burn the rightful answerer's claim, and drive an approver notification with it. The hash is compared non-destructively for the same reason, and the predicate runs last, with the deadline re-checked once it resolves so an overrun reports `RC5047` rather than an authorization failure.
+
+**Channels.** `.suspend({ key })` pairs with `.resume(map?, { keys })` so several classes of approval can share a context under different transport auth, bounding what one misconfigured or compromised door can answer. A door declaring no `keys` serves every channel; a context that mixes keyed sites with a keyless door warns at startup, parking on a channel no door serves warns at the park, and a continuation that parks again inherits the channel it was answered on.
+
+**Per-call resume credentials.** A parallel agent tool batch produces one park and one question while each handler mints its own credential through `ex.suspension.tokenFor(call)`. An approver sent a link by a handler that then lost the park takes `RC5055` instead of answering the winner's question.
+
+**Three new refusals, all non-retryable and all non-destructive**: `RC5055` (credential not bound to this question), `RC5056` (answerer not authorized, including an ingress that resolved no principal to check against), `RC5057` (door does not serve this channel). Each leaves the record exactly as it found it. A predicate that returns false, throws, or overruns `suspension.authorizeTimeout` (5s) is one `RC5056` with a generic message; the three are distinguished only in the boundary log, because a predicate whose failures can be told apart from outside is an oracle for what it knows, and a thrown cause is never returned.
+
+**Fail-closed hardening.** An unauthenticated ingress cannot satisfy a declared policy. Both `sub` modes require a present, non-empty subject on both sides, so two principals that merely lack one are never the same person. A bound credential against an unbound record, and an unbound one against a bound record, both refuse.
+
+**Breaking.** `.suspend({ expect })` is now `.suspend({ schema })` and the option is OPTIONAL: a site that declares none parks with no contract, validates nothing at the ingress, and types `ex.suspension.result` as `unknown`. The rename carries through `ctx.suspend()`, `SuspendError`, `testFn`'s structural suspend, the `Suspended` acknowledgment's wire field (both the advertised JSON Schema and the structural validator), the stored record, and `describeExpect` → `describeSchema`. The sqlite store migrates itself. `SuspensionExpect` is now `SuspensionSchema` and carries an `absent` sentinel distinct from the degraded fallback, so a site edited between "declared but unrenderable" and "no schema at all" moves the digest instead of quietly accepting anything.

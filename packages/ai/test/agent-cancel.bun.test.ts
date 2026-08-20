@@ -273,7 +273,7 @@ describe("cooperative cancellation of agent runs", () => {
       description: "Ask",
       input: z.object({}),
       handler: (_i: unknown, ctx: FnHandlerContext) =>
-        ctx.suspend({ expect: Approval }),
+        ctx.suspend({ schema: Approval }),
     };
     llm.script.push({ toolCalls: [{ toolName: "ask", input: {} }] });
 

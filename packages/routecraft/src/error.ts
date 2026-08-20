@@ -98,6 +98,9 @@ export interface ErrorCodeRegistry {
   RC5052: RCMeta;
   RC5053: RCMeta;
   RC5054: RCMeta;
+  RC5055: RCMeta;
+  RC5056: RCMeta;
+  RC5057: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -553,6 +556,30 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The run raised a durable suspension while it was being cancelled (a route stop or an elapsed .timeout()). If the abort won the race the exchange was never parked; if the park won, the just-created suspension was immediately denied so its resume link is dead, and a presented token reads RC5050. Either way the caller sees this error instead of a resumable acknowledgment, which keeps the two stories consistent: a run reported as cancelled must not be resumable later. This is about the cancellation race only; a parked exchange whose process merely stops SURVIVES the stop, which is the store's entire purpose.",
     docs: `${DOCS_BASE}#rc-5054`,
+    retryable: false,
+  },
+  RC5055: {
+    category: "Runtime",
+    message: "Resume credential not bound to this question",
+    suggestion:
+      "The token verifies and names a real suspension, but it was minted for a different question than the one the record is parked on. A batch of parallel tool calls mints one credential per call against a single record, and only the call that actually parked may answer it; a losing sibling's credential is refused here. Re-ask on the credential the answerer was sent with the winning question, and do not route two approvers to one park.",
+    docs: `${DOCS_BASE}#rc-5055`,
+    retryable: false,
+  },
+  RC5056: {
+    category: "Runtime",
+    message: "Answerer not authorized for this suspension",
+    suggestion:
+      "The suspension declared who may answer it and this answerer does not qualify: the declarative `answer` floor (scopes, or a `sub` relationship to the parked principal) was not met, an `authorize()` predicate refused, or the predicate exceeded `suspension.authorizeTimeout`. The policy was captured when the exchange parked and is enforced from the record, so editing the site does not change what an already-parked question accepts. This code is also what a resume ingress with no `.authenticate()` gets when the record declares a policy: there is no answerer identity to check it against, so it fails closed. Any cause a predicate threw is logged at the refusal, never returned.",
+    docs: `${DOCS_BASE}#rc-5056`,
+    retryable: false,
+  },
+  RC5057: {
+    category: "Runtime",
+    message: "Resume door does not serve this channel",
+    suggestion:
+      "The suspension was parked on a `.suspend({ key })` channel and the `.resume({ keys })` door that presented this token does not serve it. Keys are segmentation, not addressing: they bound what one ingress can answer when several classes of approval share a context under different transport auth. Point the answerer at the door that declares this key, or widen that door's `keys`.",
+    docs: `${DOCS_BASE}#rc-5057`,
     retryable: false,
   },
   RC9901: {

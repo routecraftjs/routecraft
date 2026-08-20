@@ -35,6 +35,24 @@ export interface ResumeAdapter extends Adapter {
 }
 
 /**
+ * Options for `.resume()`.
+ */
+export interface ResumeOptions {
+  /**
+   * Channels this door serves, matched against the `key` a suspension was
+   * parked on.
+   *
+   * Segmentation, not addressing: the token already names one record at one
+   * position, so keys exist to let several classes of approval share a
+   * context under different transport auth, and to bound what one
+   * misconfigured or compromised ingress can answer. A door that declares
+   * none serves every channel, which is the single-door default; declaring
+   * any narrows it to exactly those.
+   */
+  keys?: readonly string[];
+}
+
+/**
  * Step that revives a parked exchange addressed by a signed token.
  *
  * It addresses an EXCHANGE, not a route. `direct("x")` names a route and
@@ -56,7 +74,31 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
     adapterId: "routecraft.operation.resume",
   };
 
-  constructor(private readonly mapper?: ResumeMapper<In>) {}
+  /**
+   * Channels this door serves. Read by the revive path to refuse a record
+   * parked on a channel this ingress was not pointed at, and at build time
+   * to warn about keyed sites with keyless doors.
+   */
+  readonly keys?: readonly string[];
+
+  constructor(
+    private readonly mapper?: ResumeMapper<In>,
+    options?: ResumeOptions,
+  ) {
+    if (options?.keys !== undefined) {
+      if (
+        !Array.isArray(options.keys) ||
+        options.keys.length === 0 ||
+        options.keys.some((key) => typeof key !== "string" || key.trim() === "")
+      ) {
+        throw rcError("RC5003", undefined, {
+          message:
+            ".resume({ keys }) must be a non-empty array of non-empty strings: it names the .suspend({ key }) channels this door serves. Omit it entirely for a door that serves every channel.",
+        });
+      }
+      this.keys = [...options.keys];
+    }
+  }
 
   async execute(exchange: Exchange, ctx: StepContext): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
@@ -88,6 +130,14 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
         ...(request.resumedBy === undefined && exchange.principal
           ? { resumedBy: principalRef(exchange.principal) }
           : {}),
+      },
+      // The door's own facts, kept OFF the mapper's request on purpose. The
+      // mapper is user code shaping a transport payload; letting it name the
+      // answerer or widen the door's channels would let the untrusted half
+      // of an ingress choose what the trusted half checks.
+      {
+        ...(this.keys !== undefined ? { keys: this.keys } : {}),
+        ...(exchange.principal ? { answerer: exchange.principal } : {}),
       },
     );
 

@@ -56,7 +56,17 @@ export class MemorySuspensionStore implements SuspensionStore {
           continuationHash: record.continuationHash,
           actionFingerprint: record.actionFingerprint,
           exchange: record.exchange,
-          expect: record.expect,
+          schema: record.schema,
+          ...(record.answer !== undefined ? { answer: record.answer } : {}),
+          ...(record.key !== undefined ? { key: record.key } : {}),
+          ...(record.callBinding !== undefined
+            ? { callBinding: record.callBinding }
+            : {}),
+          ...(record.hasAuthorizer ? { hasAuthorizer: true } : {}),
+          ...(record.question !== undefined
+            ? { question: record.question }
+            : {}),
+          ...(record.reason !== undefined ? { reason: record.reason } : {}),
           ...(record.stepState !== undefined
             ? { stepState: record.stepState }
             : {}),

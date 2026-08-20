@@ -14,6 +14,7 @@ import {
 } from "./tokens.ts";
 import type { SuspensionStore } from "./types.ts";
 import { type Duration, parseDuration } from "./duration.ts";
+import { DEFAULT_AUTHORIZE_TIMEOUT } from "./answerer.ts";
 import {
   DEFAULT_EXPIRY_LEASE,
   DEFAULT_SUSPENSION_RETENTION,
@@ -102,6 +103,19 @@ export interface SuspensionConfig {
    */
   expiryLease?: Duration;
   /**
+   * How long a `.suspend({ authorize })` predicate may run before it is
+   * refused.
+   *
+   * Defaults to {@link DEFAULT_AUTHORIZE_TIMEOUT}. The predicate sits inside
+   * the pre-claim window, where the suspension's own deadline can elapse and
+   * the sweeper can take an expiry claim, so it is bounded rather than left
+   * to a user callback. Raise it only if a predicate genuinely has to make a
+   * network call, which is a design smell worth removing instead: the
+   * answerer's claims were already resolved by the ingress route's
+   * `.authenticate()`.
+   */
+  authorizeTimeout?: Duration;
+  /**
    * How long settled suspensions (resumed, expired, denied) are kept before
    * the sweeper purges them.
    *
@@ -171,6 +185,8 @@ export interface SuspensionRuntime {
   readonly sweepIntervalMs: number;
   /** Milliseconds an expiry-delivery claim is honoured before redelivery. */
   readonly expiryLeaseMs: number;
+  /** Milliseconds an `authorize()` predicate may run before it is refused. */
+  readonly authorizeTimeoutMs: number;
   /** Milliseconds settled records are kept. Undefined means keep forever. */
   readonly retentionMs?: number;
 }
@@ -213,6 +229,10 @@ export async function createSuspensionRuntime(
     config.expiryLease ?? DEFAULT_EXPIRY_LEASE,
     "suspension.expiryLease",
   );
+  const authorizeTimeoutMs = parseDuration(
+    config.authorizeTimeout ?? DEFAULT_AUTHORIZE_TIMEOUT,
+    "suspension.authorizeTimeout",
+  );
   const configuredRetention = config.retention ?? DEFAULT_SUSPENSION_RETENTION;
   const retentionMs =
     configuredRetention === "never"
@@ -246,6 +266,7 @@ export async function createSuspensionRuntime(
     ownsStore,
     sweepIntervalMs,
     expiryLeaseMs,
+    authorizeTimeoutMs,
     ...(retentionMs !== undefined ? { retentionMs } : {}),
     ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
   });

@@ -57,7 +57,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .tap((ex) => {
             after.push(ex.body);
           })
@@ -75,7 +75,7 @@ describe("suspend and resume", () => {
     expect(suspended.status).toBe("suspended");
     expect(suspended.suspensionId).toBeString();
     expect(suspended.token).toBeString();
-    expect(suspended.expect).toBeDefined();
+    expect(suspended.schema).toBeDefined();
     expect(after).toHaveLength(0);
   });
 
@@ -92,7 +92,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .tap((ex) => {
             ran.push({
               body: ex.body,
@@ -143,7 +143,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .transform((body) => {
             runs++;
             return { paid: (body as Payout).amountCents };
@@ -193,7 +193,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents }))
           .to(noop()),
       ])
@@ -219,7 +219,7 @@ describe("suspend and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           // The edit: the tail now pays a different amount than the one
           // the approver was shown.
           .transform((body) => ({ paid: (body as Payout).amountCents * 2 }))
@@ -266,7 +266,7 @@ describe("suspend and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .tap((ex) => {
             ran.push(ex.suspension.result);
           })
@@ -328,7 +328,7 @@ describe("suspend and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: Approval, ttl: "1ms" })
+          .suspend({ schema: Approval, ttl: "1ms" })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -365,7 +365,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -406,7 +406,7 @@ describe("suspend and resume", () => {
             when<Payout>(
               (ex) => ex.body.amountCents >= 50_000,
               (b) => b
-                .suspend({ expect: Approval })
+                .suspend({ schema: Approval })
                 .filter((ex) =>
                   ex.suspension.result.approved ? true : { reason: "rejected" },
                 ),
@@ -464,7 +464,7 @@ describe("suspend and resume", () => {
           .choice(
             when<Payout>(
               (ex) => ex.body.amountCents >= 50_000,
-              (b) => b.suspend({ expect: Approval }).filter((ex) =>
+              (b) => b.suspend({ schema: Approval }).filter((ex) =>
                 ex.suspension.result.approved
                   ? true
                   : {
@@ -517,7 +517,7 @@ describe("suspend and resume", () => {
               token: ex.suspension.token,
             });
           })
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -556,7 +556,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .tap((ex) => {
             receipts.push({
               subject: ex.suspension.resumedBy?.subject,
@@ -609,7 +609,7 @@ describe("suspend and resume", () => {
             subject: "requester@acme.test",
             roles: ["payer"],
           }))
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .validate(authorize({ roles: ["payer"] }))
           .tap((ex) => {
             reached.push(ex.body);
@@ -662,7 +662,7 @@ describe("suspend and resume", () => {
           .id("payout")
           .from(direct())
           .process(capture("before"))
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .process(capture("after"))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -699,8 +699,8 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
+          .suspend({ schema: Approval })
           .transform(() => ({ paid: true }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -750,7 +750,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents }))
           .to(noop()),
       ])
@@ -775,7 +775,7 @@ describe("suspend and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents * 2 }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -812,7 +812,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -874,7 +874,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents }))
           .to(noop()),
       ])
@@ -899,7 +899,7 @@ describe("suspend and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents * 2 }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -959,7 +959,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -1000,7 +1000,7 @@ describe("suspend and resume", () => {
           .id("payout")
           .from(direct())
           .transform(() => ({ callback: () => "nope" }))
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -1025,7 +1025,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(simple({ amountCents: 1 }))
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(log()),
       ])
       .build();
@@ -1046,7 +1046,7 @@ describe("suspend and resume", () => {
         .id("bulk")
         .from(direct())
         .split()
-        .suspend({ expect: Approval })
+        .suspend({ schema: Approval })
         .to(noop())
         .build(),
     ).toThrow(expect.objectContaining({ rc: "RC5051" }) as unknown as Error);
@@ -1062,7 +1062,7 @@ describe("suspend and resume", () => {
       craft()
         .id("fanout")
         .from(direct())
-        .multicast((b) => b.suspend({ expect: Approval }).to(noop()))
+        .multicast((b) => b.suspend({ schema: Approval }).to(noop()))
         .to(noop())
         .build(),
     ).toThrow(expect.objectContaining({ rc: "RC5051" }) as unknown as Error);
@@ -1079,7 +1079,7 @@ describe("suspend and resume", () => {
         .id("payout")
         .cache()
         .from(direct())
-        .suspend({ expect: Approval })
+        .suspend({ schema: Approval })
         .to(noop())
         .build(),
     ).toThrow(expect.objectContaining({ rc: "RC5003" }) as unknown as Error);
@@ -1108,7 +1108,7 @@ describe("suspend and resume", () => {
           .id("payout")
           .error(() => ({ reasked: true }))
           .from(direct())
-          .suspend({ expect: Approval, ttl: "1ms" })
+          .suspend({ schema: Approval, ttl: "1ms" })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -1147,7 +1147,7 @@ describe("suspend and resume", () => {
         .id("payout")
         .from(direct())
         .retry()
-        .suspend({ expect: Approval })
+        .suspend({ schema: Approval })
         .to(noop()),
     ).toThrow(expect.objectContaining({ rc: "RC5003" }) as unknown as Error);
   });
@@ -1169,7 +1169,7 @@ describe("suspend and resume", () => {
             const before: unknown = ex.suspension.result;
             seen.push(typeof before);
           })
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .tap((ex) => {
             // No cast: `approved` is boolean because `expect` said so.
             const approved: boolean = ex.suspension.result.approved;
@@ -1225,7 +1225,7 @@ describe("suspend and resume", () => {
             return { reasked: true };
           })
           .from(direct())
-          .suspend({ expect: SlowApproval as never, ttl: "200ms" })
+          .suspend({ schema: SlowApproval as never, ttl: "200ms" })
           .tap((ex) => {
             continued.push(ex.body);
           })
@@ -1279,7 +1279,7 @@ describe("suspend and resume", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .transform((body) => ({ paid: (body as Payout).amountCents }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),

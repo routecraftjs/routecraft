@@ -29,6 +29,10 @@ type NonChainField =
   // step array, and each host carries its site on the instance.
   | "reentrantSuspendSteps"
   | "usesResume"
+  // Door bookkeeping, the resume-side twin of `suspendSteps`: which
+  // `.resume()` steps exist and what channels they serve. Read at park time
+  // and at startup, never as a chain position.
+  | "resumeDoors"
   // Metadata mirrored to sources (transport admission), not a chain
   // position: the authorize steps it describes already answer for
   // themselves under `preParseFilters`.

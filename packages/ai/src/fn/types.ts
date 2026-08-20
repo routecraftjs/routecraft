@@ -100,7 +100,7 @@ export interface FnHandlerContext {
    * Park the run: the handler cannot answer now, so the agent's tool loop
    * stops, the exchange is durably suspended through the core store, and
    * the caller receives the framework's `Suspended` acknowledgment.
-   * `return ctx.suspend({ expect, ttl })` is the whole protocol; the
+   * `return ctx.suspend({ schema, ttl })` is the whole protocol; the
    * returned sentinel must be returned as-is, immediately.
    *
    * In-flight sibling tool calls of the same batch are awaited and their

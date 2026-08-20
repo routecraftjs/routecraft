@@ -85,7 +85,7 @@ describe("MCP carries Suspended (#581)", () => {
           .description("Parks for approval before paying out")
           .output({ body: Payout })
           .from<{ amount: number }>(mcp())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .transform(() => ({ paid: true })),
       ])
       .build();
@@ -108,6 +108,13 @@ describe("MCP carries Suspended (#581)", () => {
       properties: { status: { const: "suspended" } },
     });
     expect((oneOf[1]!["required"] as string[]) ?? []).toContain("token");
+    // Both wire enforcement points name the same key. The advertised arm is
+    // closed for additional properties, so an acknowledgment carrying the
+    // pre-rename `expect` would be rejected on this arm while the
+    // structural fallback still accepted it, or the reverse.
+    expect(
+      Object.keys(oneOf[1]!["properties"] as Record<string, unknown>),
+    ).toContain("schema");
     expect(tool.outputSchema?.type).toBeUndefined();
   });
 
@@ -163,7 +170,7 @@ describe("MCP carries Suspended (#581)", () => {
           .id("quiet")
           .description("Suspends but declares no output")
           .from<{ amount: number }>(mcp())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -192,7 +199,7 @@ describe("MCP carries Suspended (#581)", () => {
           .description("Parks for approval before paying out")
           .output({ body: Payout })
           .from<{ amount: number }>(mcp())
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .transform(() => ({ paid: true })),
         craft().id("answers").from(direct()).resume(),
       ])
@@ -216,7 +223,7 @@ describe("MCP carries Suspended (#581)", () => {
       status: string;
       suspensionId: string;
       token: string;
-      expect?: unknown;
+      schema?: unknown;
     };
     expect(ack).toMatchObject({ status: "suspended" });
     expect(ack.token).toBeString();

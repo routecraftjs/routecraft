@@ -285,7 +285,7 @@ export type Exchange<T = unknown> = {
    * before the `.suspend()` runs, which is what lets a notification step
    * earlier in the pipeline send a working resume link.
    *
-   * `result` is `unknown` here; `.suspend({ expect })` narrows it to the
+   * `result` is `unknown` here; `.suspend({ schema })` narrows it to the
    * schema's output type for every step after the suspend.
    */
   readonly suspension: SuspensionAffordance;

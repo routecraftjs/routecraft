@@ -33,7 +33,7 @@ function record(overrides: Partial<NewSuspension> = {}): NewSuspension {
       body: { amountCents: 75_000, memo: "quarterly" },
       headers: { "routecraft.id": "ex-1", "routecraft.route": "payout" },
     },
-    expect: { hash: "e".repeat(64), jsonSchema: { type: "object" } },
+    schema: { hash: "e".repeat(64), jsonSchema: { type: "object" } },
     suspendedAt: new Date("2026-08-10T09:00:00.000Z"),
     ...overrides,
   };
@@ -82,7 +82,7 @@ function contractSuite(
       expect(read?.continuationHash).toBe(written.continuationHash);
       expect(read?.actionFingerprint).toBe(written.actionFingerprint);
       expect(read?.exchange).toEqual(written.exchange);
-      expect(read?.expect).toEqual(written.expect);
+      expect(read?.schema).toEqual(written.schema);
       expect(read?.stepState).toEqual(written.stepState);
       expect(read?.status).toBe("suspended");
       expect(read?.suspendedAt.getTime()).toBe(written.suspendedAt.getTime());

@@ -1,6 +1,5 @@
-import type { Duration } from "@routecraft/routecraft";
+import type { AnswerPolicy, Duration } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { wrapJsonSchemaAsStandard } from "../llm/structured-output.ts";
 
 /**
  * Cross-instance brand for {@link AgentSuspendSentinel}, `Symbol.for`-keyed
@@ -12,7 +11,7 @@ const SUSPEND_SENTINEL_BRAND = Symbol.for("routecraft.ai.agentSuspendSentinel");
 
 /**
  * What a fn handler passes to `ctx.suspend()`: the same pieces the core
- * `.suspend({ expect, ttl })` operation declares, plus the two human-facing
+ * `.suspend({ schema, ttl })` operation declares, plus the two human-facing
  * fields the `Suspended` acknowledgment reserves for exactly this producer.
  */
 export interface AgentSuspendOptions {
@@ -21,12 +20,12 @@ export interface AgentSuspendOptions {
    * acknowledgment (so the answerer can see the shape) and folded into the
    * suspension's compatibility hash.
    *
-   * Descriptive at resume time, unlike the core operation's `expect`: the
+   * Descriptive at resume time, unlike the core operation's `schema`: the
    * live schema exists only in this handler's code, so after a restart the
    * framework cannot re-validate against it and the answer reaches the
    * model as an ordinary, untrusted tool result. Treat it accordingly.
    */
-  expect: StandardSchemaV1;
+  schema?: StandardSchemaV1;
   /**
    * How long the suspension stays resumable (e.g. `"72h"`). Omitted means
    * the context's `defaultTtl`. Expiry re-enters the route's error channel
@@ -37,6 +36,22 @@ export interface AgentSuspendOptions {
   question?: string;
   /** Machine-facing reason, surfaced on `Suspended.reason`. */
   reason?: string;
+  /**
+   * Channel this suspension parks on, matched against the `keys` a
+   * `.resume()` door declares.
+   */
+  key?: string;
+  /**
+   * The declarative floor on who may answer, persisted on the record and
+   * enforced from there at revive.
+   *
+   * The predicate form (`.suspend({ authorize })`) has no counterpart here:
+   * a closure raised inside a handler cannot be read back off the route at
+   * resume, so it could not be enforced after a restart and its edits could
+   * not be caught. Declare the floor here and put anything the floor cannot
+   * express on a static `.suspend()`.
+   */
+  answer?: AnswerPolicy;
 }
 
 /**
@@ -86,18 +101,6 @@ export function isSuspendSentinel(
 }
 
 /**
- * Accept-anything Standard Schema used as the `expect` when a handler
- * suspends through the {@link SuspendError} escape hatch without declaring
- * one. The acknowledgment then carries an open JSON Schema, honestly
- * telling the answerer any JSON is accepted.
- *
- * @internal
- */
-export const anyAnswerSchema: StandardSchemaV1<unknown, unknown> =
-  // An empty JSON Schema accepts any JSON value.
-  wrapJsonSchemaAsStandard({});
-
-/**
  * Escape-hatch signal: throw from a fn handler to suspend the agent's tool
  * loop when returning is impossible (the suspension decision is made deep
  * inside a call stack that cannot thread a return value out).
@@ -120,7 +123,7 @@ export const anyAnswerSchema: StandardSchemaV1<unknown, unknown> =
  *   input: z.object({ question: z.string() }),
  *   handler: async (input, ctx) => {
  *     await sendApprovalRequest({ question: input.question, ctx })
- *     throw new SuspendError({ expect: Approval, ttl: "72h", question: input.question })
+ *     throw new SuspendError({ schema: Approval, ttl: "72h", question: input.question })
  *   },
  * }
  * ```
@@ -129,11 +132,11 @@ export class SuspendError extends Error {
   /** Discriminator for runtime detection. */
   override readonly name = "SuspendError";
   /**
-   * What a valid answer looks like. Optional on the escape hatch (unlike
-   * `ctx.suspend()`, where it is required): when absent, the suspension
-   * accepts any JSON answer and advertises an open schema.
+   * What a valid answer looks like. Absent, the suspension declares no
+   * contract at all and the answer reaches the model unvalidated, which is
+   * the trust level every tool result already has.
    */
-  readonly expect?: StandardSchemaV1;
+  readonly schema?: StandardSchemaV1;
   /** How long the suspension stays resumable. Omitted means the context default. */
   readonly ttl?: Duration;
   /** Human-facing question, surfaced on `Suspended.question`. */
@@ -150,25 +153,34 @@ export class SuspendError extends Error {
    */
   readonly resumeChannel?: string;
 
+  /** Channel this suspension parks on. See {@link AgentSuspendOptions.key}. */
+  readonly key?: string;
+  /** Declarative answerer floor. See {@link AgentSuspendOptions.answer}. */
+  readonly answer?: AnswerPolicy;
+
   constructor(opts?: {
-    expect?: StandardSchemaV1;
+    schema?: StandardSchemaV1;
     ttl?: Duration;
     question?: string;
     reason?: string;
     resumeChannel?: string;
+    key?: string;
+    answer?: AnswerPolicy;
   }) {
     super(
       opts?.reason
         ? `Agent suspended: ${opts.reason}`
         : "Agent suspended pending external resumption.",
     );
-    if (opts?.expect !== undefined) this.expect = opts.expect;
+    if (opts?.schema !== undefined) this.schema = opts.schema;
     if (opts?.ttl !== undefined) this.ttl = opts.ttl;
     if (opts?.question !== undefined) this.question = opts.question;
     if (opts?.reason !== undefined) this.reason = opts.reason;
     if (opts?.resumeChannel !== undefined) {
       this.resumeChannel = opts.resumeChannel;
     }
+    if (opts?.key !== undefined) this.key = opts.key;
+    if (opts?.answer !== undefined) this.answer = opts.answer;
   }
 }
 

@@ -25,8 +25,18 @@ import "../errors.ts";
 export interface FnSuspensionWiring {
   /** Id the dispatching exchange would park as. */
   readonly id: string;
-  /** Mint the signed resume token for that id (lazily; may throw RC5052). */
+  /**
+   * Mint the signed resume token for that id (lazily; may throw RC5052).
+   *
+   * Bound to THIS tool call. Every handler in a parallel batch reads the
+   * same suspension id (they name the park, not the call) but gets its own
+   * credential, so an approver sent a link by a handler that then lost the
+   * park cannot answer the winner's question: their token carries the
+   * losing call's binding and takes `RC5055`.
+   */
   readonly mintToken: () => string;
+  /** Identity of the tool call this wiring belongs to. */
+  readonly callBinding: string;
 }
 
 /**
@@ -90,15 +100,17 @@ function makeSuspend(
   toolName: string,
 ): (options: AgentSuspendOptions) => AgentSuspendSentinel {
   return (options) => {
-    const validate = (
-      options?.expect as { ["~standard"]?: { validate?: unknown } } | undefined
-    )?.["~standard"]?.validate;
-    if (typeof validate !== "function") {
-      throw rcError("RC5003", undefined, {
-        message: `ctx.suspend in tool "${toolName}": "expect" is required and must be a Standard Schema. It renders what a valid answer looks like on the Suspended acknowledgment.`,
-      });
+    if (options?.schema !== undefined) {
+      const validate = (
+        options.schema as { ["~standard"]?: { validate?: unknown } }
+      )?.["~standard"]?.validate;
+      if (typeof validate !== "function") {
+        throw rcError("RC5003", undefined, {
+          message: `ctx.suspend in tool "${toolName}": "schema" must be a Standard Schema when given. It renders what a valid answer looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.`,
+        });
+      }
     }
-    return createSuspendSentinel(options);
+    return createSuspendSentinel(options ?? {});
   };
 }
 

@@ -7,7 +7,8 @@ export type {
   SerializedOutcome,
   Suspension,
   SuspensionCasResult,
-  SuspensionExpect,
+  AnswerPolicy,
+  SuspensionSchema,
   SuspensionResumption,
   SuspensionStatus,
   SuspensionStore,
@@ -35,7 +36,18 @@ export type {
   SigningSecretSource,
 } from "./tokens.ts";
 
-export { actionFingerprint, continuationHash, describeExpect } from "./hash.ts";
+export {
+  actionFingerprint,
+  continuationHash,
+  describePolicy,
+  describeSchema,
+} from "./hash.ts";
+
+export type {
+  ResumeAuthorizer,
+  ResumeAuthorizerInput,
+  SuspensionFacts,
+} from "./answerer.ts";
 
 export {
   DATE_TAG,

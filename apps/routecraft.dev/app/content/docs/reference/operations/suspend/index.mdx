@@ -7,7 +7,13 @@ title: suspend
 </Lead>
 
 ```ts
-suspend(options: { expect: StandardSchemaV1; ttl?: Duration }): RouteBuilder<Current>
+suspend(options: {
+  schema?: StandardSchemaV1
+  ttl?: Duration
+  key?: string
+  answer?: { scopes?: string[]; sub?: 'same' | 'different' | 'any' }
+  authorize?: (input: ResumeAuthorizerInput) => boolean | Promise<boolean>
+}): RouteBuilder<Current>
 ```
 
 Park the exchange durably and exit the pipeline. The run that reaches a `.suspend()` ends there and answers immediately; the exchange continues from the next step later, when [`.resume()`](/docs/reference/operations/resume) arrives with the answer.
@@ -23,7 +29,7 @@ craft()
       (b) =>
         b
           .tap(direct('notify-approver'))
-          .suspend({ expect: Approval, ttl: '72h' })
+          .suspend({ schema: Approval, ttl: '72h' })
           .filter((ex) =>
             ex.suspension.result.approved
               ? true
@@ -37,8 +43,17 @@ craft()
 
 | Option | Type | Default | Required | Description |
 |--------|------|---------|----------|-------------|
-| `expect` | `StandardSchemaV1` | -- | Yes | What a valid answer looks like. Types `ex.suspension.result` for every step after the suspend, and is what the candidate answer is validated against at resume time. |
+| `schema` | `StandardSchemaV1` | -- | No | What a valid answer looks like. Types `ex.suspension.result` for every step after the suspend, and is what the candidate answer is validated against at resume time. Omit to declare no contract: nothing is validated at the ingress and `ex.suspension.result` types `unknown`. |
 | `ttl` | `Duration`: milliseconds, or `"<n><unit>"` with unit `ms` / `s` / `m` / `h` / `d` | [`suspension.defaultTtl`](/docs/reference/configuration#suspension), itself `72h` | No | How long the suspension stays resumable, for example `"500ms"`, `"30s"`, `"72h"`, `"7d"`. Omit to inherit the context default. A suspension with no deadline at all needs `defaultTtl: 'never'` on the context, because a parked exchange nothing will ever retire is a leak rather than a default. |
+| `key` | `string` | -- | No | Channel this suspension parks on, matched against the `keys` a [`.resume()`](/docs/reference/operations/resume) door declares. See [Channels](#channels). |
+| `answer` | `{ scopes?, sub? }` | -- | No | The declarative floor on who may answer. See [Who may answer](#who-may-answer). |
+| `authorize` | predicate | -- | No | Escape hatch for authorization the floor cannot express. See [Who may answer](#who-may-answer). |
+
+<Callout type="warning" title="There is no approve or deny">
+
+A suspension is a durable pause with one single-use answer slot of arbitrary shape. The framework has no approve/deny concept, does not read the answer, and attaches no meaning to it: this route's own continuation interprets whatever arrives, which is why the shipped example ends in a `.filter()`. `schema` describes the slot; it does not make an answer an approval.
+
+</Callout>
 
 ## Execution one always answers
 
@@ -49,7 +64,7 @@ A durable suspend cannot hold a caller: the answer arrives in hours or days and 
   "status": "suspended",
   "suspensionId": "3f1c…~0",
   "token": "eyJ2Ijox…",       // signed, single use
-  "expect": { "type": "object", … },  // when the schema renders one
+  "schema": { "type": "object", … },  // when a declared schema renders one
   "expiresAt": "2026-08-13T09:00:00.000Z",
   "question": "May I pay acme 900.00?", // when the suspending step supplied one
   "reason": "awaiting-human-approval"   // same
@@ -72,15 +87,84 @@ The route's real output flows to its destinations on execution two, not back to 
 
 ## Everything else is existing grammar
 
-`.suspend()` takes two options because everything else a suspend appears to need is already a verb in the DSL:
+`.suspend()` stays small because most of what a suspend appears to need is already a verb in the DSL:
 
 | Concern | Where it goes |
 |---------|---------------|
 | Suspend only sometimes | a `.choice()` branch contains the suspend |
 | Notify the approver | ordinary steps before it, e.g. `.tap(direct('notify-approver'))`. `ex.suspension.token` is readable BEFORE the suspend runs, so the message can carry a working link |
 | Handle a rejection | the last step of the branch consumes the verdict, e.g. `.filter()` |
-| Authorize the answerer | the resume ingress route: `.authorize()`, sender verification, a per-approver link |
+| Authenticate the answerer | the resume ingress route, which verifies whoever presents the token |
+| Authorize the answerer | `answer` / `authorize` HERE, on the question, not on the door (see [Who may answer](#who-may-answer)) |
 | Expiry handling | `ttl` plus a route-scope `.error()`; the sweeper retires an overdue suspension on its own and re-enters that channel with [`RC5047`](/docs/reference/errors#rc-5047) |
+
+## Who may answer
+
+The token proves the deployment minted it. It does not prove its holder should be the one answering, and a link that travels through mail or chat is a bearer credential once it leaves. `answer` and `authorize` say who qualifies.
+
+They live on the **question**, not on the door, for one reason: refusing below the store's compare-and-swap would spend the single-use answer, so the check has to run before the claim, and only the suspension knows what its own approval was worth. A resume ingress route still does the other half, authenticating whoever presents the token.
+
+```ts
+.tap(direct('notify-approver'))
+.suspend({
+  schema: Approval,
+  ttl: '72h',
+  answer: { scopes: ['payouts:approve'], sub: 'different' },
+})
+```
+
+| Field | Meaning |
+|-------|---------|
+| `answer.scopes` | Scopes the answerer must hold, all of them. |
+| `answer.sub: 'any'` | Default. Whoever the ingress authenticated may answer; a different answerer is the point of an approval. |
+| `answer.sub: 'same'` | Session continuation: the principal that parked answers their own pause. |
+| `answer.sub: 'different'` | Four eyes: the principal that parked may not answer it. |
+| `authorize` | A predicate for what the floor cannot express (thresholds, departments, org-specific relationships). |
+
+Both `sub` modes require a present, non-empty subject on **both** sides. A machine principal authenticated by API key legitimately carries scopes and no subject, and two principals that merely lack one are not the same person; comparing them as equal would turn `'same'` into "anyone without a subject".
+
+The continuation always runs as the **parked** principal, restored from storage and [marked restored](/docs/reference/operations/resume#authorizing-the-answerer). The answerer's identity is recorded as `resumedBy` and gates the answer; it never becomes the identity the rest of the route executes under.
+
+<Callout type="warning" title="Policy travels with the question">
+
+The declarative half is captured when the exchange parks and enforced from the stored record. Editing a site's `answer` or `key` governs **future** parks only: a question already outstanding keeps the policy its approver was promised, because weakening forty parked four-eyes approvals with one deploy is exactly the failure this ordering exists to prevent.
+
+The predicate cannot be stored (it is a closure), so its verbatim source joins the continuation hash instead. Editing it invalidates parked records through the ordinary [`RC5048`](/docs/reference/errors#rc-5048) re-ask rather than silently governing questions asked under the previous one. The source is hashed as written and never normalized, so a predicate whose *text* is unchanged is unchanged: one that varies only by a value it closes over, or by what it calls, is in the same residue class as everything else the hash covers, which is step definitions and never behaviour.
+
+</Callout>
+
+A predicate receives the live answerer, the restored parked principal, and the non-secret facts about the question. It has no access to the parked body: it runs before the answerer is authorized, so a body-reading predicate would put the payload in front of exactly the party the check exists to reject.
+
+```ts
+authorize: ({ answerer, parked, suspension }) =>
+  answerer.claims?.department === parked?.claims?.department
+```
+
+<Callout type="warning" title="`question` and `reason` are authored by the suspending step">
+
+On the agent surface that step is the MODEL, and the model has read whatever untrusted tool output is in its thread. Route on them, log them, render them; do not branch an authorization decision on them.
+
+</Callout>
+
+Refusals are non-destructive by design: a wrong answerer takes [`RC5056`](/docs/reference/errors#rc-5056) and the record stays exactly as it was, still resumable by whoever does qualify. `false`, a throw, and a timeout are distinguished in the boundary log and deliberately identical on the wire, because a predicate whose failures can be told apart from outside is an oracle for what it knows; a thrown cause is never returned to the answerer. The predicate is bounded by [`suspension.authorizeTimeout`](/docs/reference/configuration#suspension) (5 seconds), because it sits in the window where the suspension's own deadline can elapse. The common predicate is a pure comparison over claims the ingress already resolved; a network call in there is a design smell rather than a supported pattern.
+
+An ingress that resolves **no** principal cannot satisfy any declared policy, so a record that declares one is refused there with `RC5056` naming the ingress rather than the answerer. A context that pairs a policed site with an anonymous door says so once at startup, rather than letting the mismatch surface days later on a link the approver was already sent.
+
+## Channels
+
+`key` on the suspension and `keys` on the door segment which ingress can answer which class of approval.
+
+```ts
+.suspend({ schema: Approval, key: 'finance' })
+// elsewhere
+craft().id('finance-approvals').from(http({ path: '/approvals/finance' }))
+  .authenticate(verifySender)
+  .resume(mapAnswer, { keys: ['finance'] })
+```
+
+It is segmentation, not addressing: the single-use token already names one record at one position. Keys bound what one misconfigured or compromised door can answer when several classes of approval share a context under different transport auth. A door that declares no `keys` serves every channel, which keeps the single-door case unchanged; a context that mixes keyed sites with a keyless door warns at startup, and parking on a channel no door serves warns at the park, because otherwise the approver holds a structurally valid link every ingress refuses and nothing names the cause.
+
+A continuation that parks **again** inherits the channel it was answered on unless the second site names its own, so a two-stage approval stays on one door without restating it.
 
 ## The branch-rejoin rule
 
@@ -94,8 +178,9 @@ A suspend branch rejoins the main flow only if it restored the main flow's contr
 |-------|-----------|-------------|
 | `id` | always | The suspension id this exchange would park as. |
 | `token` | always | Signed, single-use resume token for that id. Mintable before the suspend runs, which is what makes a notification step useful. |
+| `tokenFor(call)` | always | A credential bound to one question on the record. Only a step that can raise several questions against one park needs it; see [Durable agents](/docs/advanced/durable-agents). |
 | `sequence` | always | How many times this exchange has already parked. |
-| `result` | after a resume | The validated answer, typed by `expect`. |
+| `result` | after a resume | The validated answer, typed by `schema`. `unknown` when the site declared none. |
 | `resumedBy` | after a resume | Who answered, when the resume ingress had an authenticated principal. |
 | `resumedAt` | after a resume | When the answer was accepted. |
 
@@ -141,7 +226,7 @@ Retiring a suspension emits [`route:exchange:expired`](/docs/reference/events) a
 
 **Expiry notification is at-least-once, not exactly-once.** Delivery is claim-then-notify-then-finalize, so a process that dies mid-delivery leaves a claim the sweeper releases after [`expiryLease`](/docs/reference/configuration#suspension) (60 minutes by default) and redelivers: the approver hears about the expiry despite the crash. The accepted cost is the other crash window; a process that dies after notifying but before finalizing redelivers one duplicate escalation once the lease elapses. Make the `.error()` re-ask path tolerant of a repeat, the way any notification handler should be.
 
-**An agent-raised suspension accepts any JSON answer.** A `.suspend()` on a route validates the answer against the live `expect` schema read back off the route, refusing a mismatch with [`RC5049`](/docs/reference/errors#rc-5049). A suspension raised from inside an agent tool handler ([`ctx.suspend()`](/docs/advanced/durable-agents)) cannot be re-validated after a restart: its schema lives in the handler's own code, so revival delivers the raw answer as an ordinary tool result and the model is the validator. A resume-token holder can therefore feed the agent arbitrary JSON, which is the same trust level every tool result already has; the `expect` rendering on the acknowledgment is guidance for the answerer, not enforcement.
+**An agent-raised suspension accepts any JSON answer.** A `.suspend({ schema })` on a route validates the answer against the live schema read back off the route, refusing a mismatch with [`RC5049`](/docs/reference/errors#rc-5049). A suspension raised from inside an agent tool handler ([`ctx.suspend()`](/docs/advanced/durable-agents)) cannot be re-validated after a restart: its schema lives in the handler's own code, so revival delivers the raw answer as an ordinary tool result and the model is the validator. A resume-token holder can therefore feed the agent arbitrary JSON, which is the same trust level every tool result already has; the schema rendering on the acknowledgment is guidance for the answerer, not enforcement.
 
 ## Suspension raised from a step
 

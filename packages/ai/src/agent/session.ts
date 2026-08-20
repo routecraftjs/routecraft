@@ -152,8 +152,16 @@ export interface AgentSessionInput {
 export interface AgentSessionSuspension {
   /** Id the dispatching exchange would park as (or parked as). */
   readonly id: string;
-  /** Mint the signed resume token for that id (lazily; may throw RC5052). */
-  readonly mintToken: () => string;
+  /**
+   * Mint the signed resume token for that id, bound to one tool call
+   * (lazily; may throw RC5052).
+   *
+   * Per call, not per park: a parallel batch produces one record and one
+   * question, so a handler that sends an approver a link and then loses the
+   * park must not have handed out a credential that answers the winner's
+   * question.
+   */
+  readonly mintToken: (callBinding: string) => string;
   /**
    * Identity written into `stepState.agentId` and verified at
    * rehydration: the registered agent name, or the route id for inline
@@ -489,12 +497,21 @@ export class AgentSession {
       turnsUsed,
       ...(usage !== undefined ? { usage } : {}),
     };
-    const { expect, ttl, question, reason } = winner.request;
+    const { schema, ttl, question, reason, key, answer } = winner.request;
     return new SuspendSignal({
-      expect,
+      ...(schema !== undefined ? { schema } : {}),
       ...(ttl !== undefined ? { ttl } : {}),
       ...(question !== undefined ? { question } : {}),
       ...(reason !== undefined ? { reason } : {}),
+      // Key inheritance is core's, on the exchange headers: a re-park with
+      // no key of its own lands on the channel the record it resumed from
+      // was answered on. Naming one here overrides that.
+      ...(key !== undefined ? { key } : {}),
+      ...(answer !== undefined ? { answer } : {}),
+      // The winner's call is what the record binds to, so exactly the
+      // credential the winning handler handed its approver is the one that
+      // answers. Losing siblings' credentials name their own calls.
+      callBinding: winner.toolCallId,
       stepState,
     });
   }
@@ -671,7 +688,10 @@ export class AgentSession {
     } = this.input;
     const bridge: AgentSuspensionBridge | undefined = suspension
       ? {
-          wiring: { id: suspension.id, mintToken: suspension.mintToken },
+          wiring: {
+            id: suspension.id,
+            mintToken: suspension.mintToken,
+          },
           signals,
         }
       : undefined;

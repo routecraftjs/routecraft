@@ -40,7 +40,7 @@ function record(overrides: Partial<NewSuspension> = {}): NewSuspension {
       body: { amountCents: 50_000 },
       headers: { "routecraft.id": "ex-1" },
     },
-    expect: { hash: "e".repeat(64) },
+    schema: { hash: "e".repeat(64) },
     suspendedAt: new Date("2026-08-10T09:00:00.000Z"),
     ...overrides,
   };

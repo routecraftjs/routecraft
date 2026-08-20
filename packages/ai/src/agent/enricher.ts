@@ -142,7 +142,8 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
             // Lazy: minting reads the context's signer and throws RC5052
             // without a suspension runtime; a handler that never builds a
             // resume link should not pay for or fail on it.
-            mintToken: () => exchange.suspension.token,
+            mintToken: (callBinding: string) =>
+              exchange.suspension.tokenFor(callBinding),
             agentId: agentIdentity,
           }
         : undefined;

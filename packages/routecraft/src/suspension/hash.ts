@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { getAdapterArgs } from "../adapters/shared/factory-tag.ts";
 import type { Adapter, Step } from "../types.ts";
-import type { SerializedExchange, SuspensionExpect } from "./types.ts";
+import type { SerializedExchange, SuspensionSchema } from "./types.ts";
 
 /**
  * Hash the continuation of a parked exchange: the steps that have NOT run
@@ -72,7 +72,8 @@ import type { SerializedExchange, SuspensionExpect } from "./types.ts";
  * @param steps - The full step array of the route, in declaration order.
  * @param position - Index of the suspending step. The hash covers
  *   `position + 1` onward.
- * @param expect - The expected-result schema descriptor.
+ * @param schema - The answer schema descriptor.
+ * @param policy - The answerer-policy descriptor, when the site declares a predicate.
  * @returns A hex SHA-256 digest.
  *
  * @internal
@@ -80,9 +81,10 @@ import type { SerializedExchange, SuspensionExpect } from "./types.ts";
 export function continuationHash(
   steps: ReadonlyArray<Step<Adapter>>,
   position: number,
-  expect: SuspensionExpect,
+  schema: SuspensionSchema,
+  policy?: string,
 ): string {
-  return continuationTailHash(steps.slice(position + 1), expect);
+  return continuationTailHash(steps.slice(position + 1), schema, policy);
 }
 
 /**
@@ -96,10 +98,52 @@ export function continuationHash(
  */
 export function continuationTailHash(
   tail: ReadonlyArray<Step<Adapter>>,
-  expect: SuspensionExpect,
+  schema: SuspensionSchema,
+  policy?: string,
 ): string {
   return sha256(
-    canonical({ tail: tail.map(describeStep), expect: expect.hash }),
+    canonical({
+      tail: tail.map(describeStep),
+      // Kept under the historical key so a digest computed before the
+      // rename verifies unchanged. The wire and the record moved; this
+      // string is an internal hash input nobody reads.
+      expect: schema.hash,
+      // Absent for a site with no predicate, which keeps the digest of
+      // every such site identical to what it was before policy descriptors
+      // existed.
+      ...(policy !== undefined ? { policy } : {}),
+    }),
+  );
+}
+
+/**
+ * Describe the answerer-authorization predicate for hashing.
+ *
+ * The predicate is a closure, so unlike the declarative `answer` policy it
+ * cannot be persisted and enforced from the record. The only way an edit to
+ * it can be caught is to fold its source into the continuation digest, so a
+ * changed predicate takes the `RC5048` re-ask instead of silently applying
+ * to exchanges parked under the previous one. Weakening a predicate under
+ * parked records is the direction that matters: without this, deleting a
+ * four-eyes check would leave every parked approval answerable by anyone
+ * holding the link.
+ *
+ * Source is taken VERBATIM, under the same never-normalize rule the step
+ * tail follows and for the same reason: every normalization is a chance to
+ * fold two distinct predicates onto one digest, and that error resumes a
+ * parked approval under a policy its approver never saw.
+ *
+ * @param authorize - The predicate declared on `.suspend()`, if any.
+ * @returns A digest of the predicate source, or undefined when none was declared.
+ *
+ * @internal
+ */
+export function describePolicy(
+  authorize?: (...args: never[]) => unknown,
+): string | undefined {
+  if (!authorize) return undefined;
+  return sha256(
+    canonical({ authorize: Function.prototype.toString.call(authorize) }),
   );
 }
 
@@ -123,14 +167,23 @@ export function continuationTailHash(
  * resolves either. Storing the unresolved function instead would be
  * quietly destructive twice over: it cannot be persisted, and it hashes to
  * the same digest for EVERY schema, which silently disables the
- * changed-`expect` half of the compatibility check.
+ * changed-schema half of the compatibility check.
  *
- * @param schema - The `expect` schema declared on `.suspend()`.
+ * A site that declares NO schema gets the absent sentinel rather than an
+ * empty descriptor. The two are different facts and must hash differently:
+ * "declared a schema whose rendering was lost" still validates the answer at
+ * resume, while "declared nothing" does not, so collapsing them would let an
+ * edit between the two pass the compatibility check unnoticed.
+ *
+ * @param schema - The `schema` declared on `.suspend()`, if any.
  * @returns A serializable descriptor of the schema.
  *
  * @internal
  */
-export function describeExpect(schema: StandardSchemaV1): SuspensionExpect {
+export function describeSchema(schema?: StandardSchemaV1): SuspensionSchema {
+  if (!schema) {
+    return { hash: sha256(canonical({ absent: true })), absent: true };
+  }
   const standard = (
     schema as {
       "~standard"?: {
@@ -194,7 +247,7 @@ const JSON_SCHEMA_TARGET = "draft-2020-12";
  * the options argument; the first covers one that requires it. Both matter
  * because an arm that yields nothing does not merely lose the rendering: the
  * descriptor falls back to vendor and version, which is identical for every
- * schema that vendor produces, so the changed-`expect` half of the
+ * schema that vendor produces, so the changed-schema half of the
  * compatibility check goes silently dead.
  *
  * @internal

@@ -19,7 +19,8 @@ import type {
   SerializedOutcome,
   Suspension,
   SuspensionCasResult,
-  SuspensionExpect,
+  AnswerPolicy,
+  SuspensionSchema,
   SuspensionResumption,
   SuspensionStatus,
   SuspensionStore,
@@ -37,7 +38,7 @@ export const DEFAULT_SUSPENSION_DB_PATH = ".routecraft/suspensions.db";
  * Schema version this build writes. Bumped whenever
  * {@link MIGRATIONS} grows an entry.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * How long a writer waits for a competing write lock before giving up.
@@ -84,6 +85,19 @@ const MIGRATIONS: ReadonlyArray<string> = [
   `ALTER TABLE suspensions ADD COLUMN claimed_at INTEGER;
    DROP INDEX IF EXISTS suspensions_sweep;
    CREATE INDEX suspensions_sweep ON suspensions (status, expires_at, id);`,
+  // v3: the answerer policy the record was parked under, the channel it
+  // parked on, the per-call credential binding, and the question text an
+  // authorize() predicate is handed. All nullable: a record written before
+  // this migration parked under no policy, and reading one back as such is
+  // exactly right. `expect` becomes `schema` in the same step, so the
+  // column and the field it carries stop drifting apart.
+  `ALTER TABLE suspensions RENAME COLUMN "expect" TO "schema";
+   ALTER TABLE suspensions ADD COLUMN answer TEXT;
+   ALTER TABLE suspensions ADD COLUMN channel_key TEXT;
+   ALTER TABLE suspensions ADD COLUMN call_binding TEXT;
+   ALTER TABLE suspensions ADD COLUMN has_authorizer INTEGER;
+   ALTER TABLE suspensions ADD COLUMN question TEXT;
+   ALTER TABLE suspensions ADD COLUMN reason TEXT;`,
 ];
 
 /**
@@ -164,8 +178,10 @@ export class SqliteSuspensionStore implements SuspensionStore {
         .prepare(
           `INSERT INTO suspensions (
              id, route_id, position, continuation_hash, action_fingerprint,
-             exchange, expect, step_state, status, suspended_at, expires_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             exchange, "schema", answer, channel_key, call_binding,
+             has_authorizer, question, reason, step_state, status,
+             suspended_at, expires_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           record.id,
@@ -174,7 +190,13 @@ export class SqliteSuspensionStore implements SuspensionStore {
           record.continuationHash,
           record.actionFingerprint,
           JSON.stringify(record.exchange),
-          JSON.stringify(record.expect),
+          JSON.stringify(record.schema),
+          record.answer === undefined ? null : JSON.stringify(record.answer),
+          record.key ?? null,
+          record.callBinding ?? null,
+          record.hasAuthorizer ? 1 : null,
+          record.question ?? null,
+          record.reason ?? null,
           record.stepState === undefined
             ? null
             : JSON.stringify(encodePersistable(record.stepState, "stepState")),
@@ -561,7 +583,13 @@ interface SuspensionRow {
   continuation_hash: string;
   action_fingerprint: string;
   exchange: string;
-  expect: string;
+  schema: string;
+  answer: string | null;
+  channel_key: string | null;
+  call_binding: string | null;
+  has_authorizer: number | null;
+  question: string | null;
+  reason: string | null;
   step_state: string | null;
   status: string;
   suspended_at: number;
@@ -585,7 +613,15 @@ function toSuspension(row: SuspensionRow): Suspension {
     continuationHash: row.continuation_hash,
     actionFingerprint: row.action_fingerprint,
     exchange: JSON.parse(row.exchange) as SerializedExchange,
-    expect: JSON.parse(row.expect) as SuspensionExpect,
+    schema: JSON.parse(row.schema) as SuspensionSchema,
+    ...(row.answer !== null
+      ? { answer: JSON.parse(row.answer) as AnswerPolicy }
+      : {}),
+    ...(row.channel_key !== null ? { key: row.channel_key } : {}),
+    ...(row.call_binding !== null ? { callBinding: row.call_binding } : {}),
+    ...(row.has_authorizer ? { hasAuthorizer: true } : {}),
+    ...(row.question !== null ? { question: row.question } : {}),
+    ...(row.reason !== null ? { reason: row.reason } : {}),
     ...(row.step_state !== null
       ? { stepState: JSON.parse(row.step_state) as unknown }
       : {}),

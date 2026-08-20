@@ -23,7 +23,11 @@ import { TransformStep, mapper } from "./operations/transform.ts";
 import { ValidateStep, schema } from "./operations/validate.ts";
 import { log, debug, type LogOptions } from "./adapters/log/index.ts";
 import { SuspendStep, type SuspendOptions } from "./operations/suspend.ts";
-import { ResumeStep, type ResumeMapper } from "./operations/resume.ts";
+import {
+  ResumeStep,
+  type ResumeMapper,
+  type ResumeOptions,
+} from "./operations/resume.ts";
 import type { ResumeAcknowledgment } from "./suspension/revive.ts";
 
 // ---------------------------------------------------------------------------
@@ -163,7 +167,13 @@ registerDsl("suspend", {
 registerDsl("resume", {
   kind: "process",
   label: "resume",
-  factory: (mapper?: ResumeMapper) => new ResumeStep(mapper),
+  factory: (mapper?: ResumeMapper | ResumeOptions, options?: ResumeOptions) =>
+    typeof mapper === "function"
+      ? new ResumeStep(mapper, options)
+      : // `.resume({ keys })` puts the options first; `.resume(undefined,
+        // { keys })` is the same door written the long way, and both have to
+        // reach the step or a declared channel is silently dropped.
+        new ResumeStep(undefined, mapper ?? options),
 });
 
 // ---------------------------------------------------------------------------
@@ -254,10 +264,12 @@ declare module "@routecraft/routecraft" {
      *
      * The body is unchanged across the park, so a branch that suspends
      * rejoins the main flow with the contract it left on. The answer
-     * arrives beside it, on `ex.suspension.result`, typed by `expect`.
+     * arrives beside it, on `ex.suspension.result`, typed by `schema`.
      *
-     * @param options - `expect` (what a valid answer looks like) and an
-     *   optional `ttl` after which the suspension stops being resumable
+     * @param options - `schema` (what a valid answer looks like), a `ttl`
+     *   after which the suspension stops being resumable, and who may
+     *   answer: an `answer` floor, an `authorize` predicate, and the
+     *   channel `key` a `.resume({ keys })` door must serve
      * @example
      * ```ts
      * craft()
@@ -268,7 +280,7 @@ declare module "@routecraft/routecraft" {
      *     when((ex) => ex.body.amountCents >= 50_000, (b) =>
      *       b
      *         .tap(direct("notify-approver"))
-     *         .suspend({ expect: Approval, ttl: "72h" })
+     *         .suspend({ schema: Approval, ttl: "72h" })
      *         .filter((ex) =>
      *           ex.suspension.result.approved
      *             ? true
@@ -293,14 +305,17 @@ declare module "@routecraft/routecraft" {
      * exchange be continued by a chat-born answer.
      *
      * The mapping function owns SHAPE (find the token, build the candidate
-     * answer); validation against the suspending step's `expect` happens at
+     * answer); validation against the suspending step's `schema` happens at
      * revival, because only the suspension knows that schema. The bare form
      * expects the body to already be `{ token, result }`.
      *
-     * Authorizing the answerer belongs on this route (`.authorize()`,
-     * sender verification, a per-approver link): the token proves the
-     * deployment minted it, not that its holder may answer. Whoever the
-     * route authenticated is recorded on the suspension as `resumedBy`.
+     * Authenticating the answerer belongs on this route: the token proves
+     * the deployment minted it, not that its holder may answer. WHO may
+     * answer is declared at the suspend site instead, and enforced from the
+     * record, so a refusal never burns the rightful answerer's single-use
+     * answer; this route supplies the live principal that policy is checked
+     * against, and is recorded on the suspension as `resumedBy`. A door
+     * exposed publicly wants a `.throttle()` in front of it.
      *
      * The revived route runs to completion before this step continues, so
      * the acknowledgment placed in the body reports how execution two
@@ -309,6 +324,8 @@ declare module "@routecraft/routecraft" {
      * without re-running anything.
      *
      * @param map - Maps the ingress exchange to `{ token, result }`
+     * @param options - `keys`, the `.suspend({ key })` channels this door
+     *   serves. Omitted, it serves every channel.
      * @example
      * ```ts
      * craft()
@@ -327,6 +344,10 @@ declare module "@routecraft/routecraft" {
         exchange: ExchangeOf<S>,
         ctx?: { readonly signal?: AbortSignal },
       ) => ReturnType<ResumeMapper<S["body"]>>,
+      options?: ResumeOptions,
+    ): Retyped<this, SetBody<S, ResumeAcknowledgment>>;
+    resume(
+      options: ResumeOptions,
     ): Retyped<this, SetBody<S, ResumeAcknowledgment>>;
   }
 }

@@ -44,10 +44,15 @@ export interface TestFnHandlerContext {
  * `AgentSuspendOptions` value satisfies it.
  */
 export interface TestFnSuspendOptions {
-  expect: StandardSchemaV1;
+  schema?: StandardSchemaV1;
   ttl?: Duration;
   question?: string;
   reason?: string;
+  key?: string;
+  answer?: {
+    scopes?: readonly string[];
+    sub?: "same" | "different" | "any";
+  };
 }
 
 /**
@@ -129,19 +134,20 @@ export async function testFn<TIn, TOut>(
       // Same refusal as the production ctx.suspend (RC5003 from
       // makeSuspend), so a handler exercised in isolation cannot pass with
       // a suspension request the agent runtime would reject.
-      const validate = (
-        suspendOptions?.expect as
-          { ["~standard"]?: { validate?: unknown } } | undefined
-      )?.["~standard"]?.validate;
-      if (typeof validate !== "function") {
-        throw rcError("RC5003", undefined, {
-          message:
-            'testFn: ctx.suspend "expect" is required and must be a Standard Schema. It renders what a valid answer looks like on the Suspended acknowledgment.',
-        });
+      if (suspendOptions?.schema !== undefined) {
+        const validate = (
+          suspendOptions.schema as { ["~standard"]?: { validate?: unknown } }
+        )?.["~standard"]?.validate;
+        if (typeof validate !== "function") {
+          throw rcError("RC5003", undefined, {
+            message:
+              'testFn: ctx.suspend "schema" must be a Standard Schema when given. It renders what a valid answer looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.',
+          });
+        }
       }
       return {
         status: "suspend-requested",
-        request: suspendOptions,
+        request: suspendOptions ?? {},
       };
     },
   };

@@ -5,24 +5,42 @@ import type { Exchange } from "../exchange.ts";
 import type { StepOutcome } from "../types.ts";
 import { type Duration, parseDuration } from "./duration.ts";
 import type { SuspendCapableStep } from "./sites.ts";
+import type { AnswerPolicy } from "./types.ts";
 
 /**
  * What a suspend-capable adapter resolves when it raises a suspension from
- * inside its own execution: the same pieces `.suspend({ expect, ttl })`
+ * inside its own execution: the same pieces `.suspend({ schema, ttl })`
  * declares statically, plus the closure state only the step can produce.
  */
 export interface SuspendSignalRequest {
   /**
-   * Schema describing what a valid answer looks like. Folded into the
-   * continuation hash and rendered onto the `Suspended` acknowledgment. For
-   * a re-entrant site it is descriptive only at resume time: the live
-   * schema exists in the raising step's own code and cannot be read back
-   * off the route, so revival delivers the raw answer and the step is the
-   * validator. See `SuspendSite.reentrant`.
+   * Schema describing what a valid answer looks like. Optional: absent
+   * declares no contract at all, and the descriptor records that, so a site
+   * edited from a declared schema to none moves the digest rather than
+   * quietly accepting anything.
+   *
+   * Folded into the continuation hash and rendered onto the `Suspended`
+   * acknowledgment. For a re-entrant site it is descriptive only at resume
+   * time: the live schema exists in the raising step's own code and cannot
+   * be read back off the route, so revival delivers the raw answer and the
+   * step is the validator. See `SuspendSite.reentrant`.
    */
-  readonly expect: StandardSchemaV1;
+  readonly schema?: StandardSchemaV1;
   /** How long the suspension stays resumable. Absent means the context default. */
   readonly ttl?: Duration;
+  /**
+   * Declarative answerer floor, persisted onto the record and enforced from
+   * there at revive.
+   */
+  readonly answer?: AnswerPolicy;
+  /** Channel the record parks on, matched against a resume door's `keys`. */
+  readonly key?: string;
+  /**
+   * Identity of the call this park belongs to, so a batch that mints one
+   * credential per call cannot have one call's approver answer another's
+   * question.
+   */
+  readonly callBinding?: string;
   /** Human-facing question carried onto the `Suspended` acknowledgment. */
   readonly question?: string;
   /** Machine-facing reason carried onto the `Suspended` acknowledgment. */
@@ -107,12 +125,16 @@ export function convertSuspendSignal(
       message: host.suspendRefusal ?? signal.message,
     });
   }
-  const { expect, ttl, question, reason, stepState } = signal.request;
+  const { schema, ttl, question, reason, stepState, answer, key, callBinding } =
+    signal.request;
   return {
     kind: "suspend",
     exchange,
     request: {
-      expect,
+      ...(schema !== undefined ? { schema } : {}),
+      ...(answer !== undefined ? { answer } : {}),
+      ...(key !== undefined ? { key } : {}),
+      ...(callBinding !== undefined ? { callBinding } : {}),
       ...(ttl !== undefined
         ? { expiresInMs: parseDuration(ttl, "suspend({ ttl })") }
         : {}),

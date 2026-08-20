@@ -105,7 +105,7 @@ describe("suspend and resume across transports", () => {
         craft()
           .id("payout")
           .from(http({ path: "/payouts", method: "POST" }))
-          .suspend({ expect: Approval, ttl: "72h" })
+          .suspend({ schema: Approval, ttl: "72h" })
           .transform(() => ({ paid: true }))
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -170,7 +170,7 @@ describe("suspend and resume across transports", () => {
           .choice(
             when<{ amountCents: number }>(
               (ex) => ex.body.amountCents >= 50_000,
-              (b) => b.suspend({ expect: Approval }),
+              (b) => b.suspend({ schema: Approval }),
             ),
             otherwise((b) => b),
           )
@@ -226,7 +226,7 @@ describe("suspend and resume across transports", () => {
           .tap((ex) => {
             parked.push(ex.suspension.token);
           })
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .tap((ex) => {
             continued.push({
               from: ex.headers["routecraft.mail.from"],
@@ -277,7 +277,7 @@ describe("suspend and resume across transports", () => {
         craft()
           .id("queued")
           .from(queueSource({ amountCents: 90_000 }, settled))
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();

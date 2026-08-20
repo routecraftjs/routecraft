@@ -3959,7 +3959,7 @@ describe("McpServer", () => {
             .description("Parks for approval before paying out")
             .output({ body: z.object({ paid: z.boolean() }) })
             .from<{ amount: number }>(mcp())
-            .suspend({ expect: z.object({ approved: z.boolean() }) })
+            .suspend({ schema: z.object({ approved: z.boolean() }) })
             .transform(() => ({ paid: true })),
         ])
         .build();

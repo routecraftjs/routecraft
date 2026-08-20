@@ -28,6 +28,24 @@ export interface ResumeTokenPayload {
   readonly id: string;
   /** Mint time, epoch milliseconds. Carried for audit, not enforced. */
   readonly iat: number;
+  /**
+   * The question this credential answers, when the suspending step can ask
+   * more than one at a time.
+   *
+   * A suspension id names a RECORD; on the agent surface a single record is
+   * reached through whichever tool call won a parallel batch, and every
+   * handler in that batch is handed a credential before the winner is
+   * known. Binding the credential to its own call is what stops the loser's
+   * approver from answering the winner's question: revive compares this
+   * claim against the record's own `stepState.suspendedToolCallId` and
+   * refuses a mismatch before touching the record.
+   *
+   * Absent for a static `.suspend()`, which has exactly one logical asker.
+   * Both mismatched arms fail closed: a token without this claim cannot
+   * answer a record that has a bound call, and a token carrying it cannot
+   * answer a record that has none.
+   */
+  readonly sub?: string;
 }
 
 /**
@@ -63,11 +81,14 @@ export class ResumeTokenSigner {
    *
    * @param id - The suspension id this token will resume.
    * @param now - Mint timestamp, injectable for deterministic tests.
+   * @param sub - The question this credential answers, when the suspending
+   *   step can ask several at once. See {@link ResumeTokenPayload.sub}.
    */
-  mint(id: string, now: Date = new Date()): string {
+  mint(id: string, now: Date = new Date(), sub?: string): string {
     const payload: ResumeTokenPayload = {
       id,
       iat: now.getTime(),
+      ...(sub !== undefined ? { sub } : {}),
     };
     const body = encode(JSON.stringify({ v: TOKEN_VERSION, ...payload }));
     return `${body}.${this.#sign(body)}`;
@@ -97,16 +118,27 @@ export class ResumeTokenSigner {
     } catch {
       throw reject();
     }
-    const claims = parsed as { v?: unknown; id?: unknown; iat?: unknown };
+    const claims = parsed as {
+      v?: unknown;
+      id?: unknown;
+      iat?: unknown;
+      sub?: unknown;
+    };
     if (
       claims.v !== TOKEN_VERSION ||
       typeof claims.id !== "string" ||
       claims.id.length === 0 ||
-      typeof claims.iat !== "number"
+      typeof claims.iat !== "number" ||
+      (claims.sub !== undefined &&
+        (typeof claims.sub !== "string" || claims.sub.length === 0))
     ) {
       throw reject();
     }
-    return { id: claims.id, iat: claims.iat };
+    return {
+      id: claims.id,
+      iat: claims.iat,
+      ...(typeof claims.sub === "string" ? { sub: claims.sub } : {}),
+    };
   }
 
   #sign(body: string): string {

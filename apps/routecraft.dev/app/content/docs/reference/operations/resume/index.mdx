@@ -7,7 +7,11 @@ title: resume
 </Lead>
 
 ```ts
-resume(map?: (exchange: Exchange<Current>) => ResumeRequest | Promise<ResumeRequest>): RouteBuilder<ResumeAcknowledgment>
+resume(
+  map?: (exchange: Exchange<Current>) => ResumeRequest | Promise<ResumeRequest>,
+  options?: { keys?: string[] },
+): RouteBuilder<ResumeAcknowledgment>
+resume(options: { keys?: string[] }): RouteBuilder<ResumeAcknowledgment>
 ```
 
 Revive an exchange parked by [`.suspend()`](/docs/reference/operations/suspend) and run its continuation.
@@ -36,13 +40,19 @@ Any route that uses `.resume()` is a resume ingress: an HTTP webhook, a mail-rep
 
 The mapping function owns **shape**: find the token, build the candidate answer. Only the ingress route knows what its transport looks like.
 
-Revival owns **validation**: only the suspension knows the `expect` schema the suspending step declared, so the candidate answer is checked there, against the live schema read back off the route.
+Revival owns **validation and authorization**: only the suspension knows the schema the suspending step declared, so the candidate answer is checked there against the live schema read back off the route, and only the suspension knows what its own approval was worth, so [who may answer it](/docs/reference/operations/suspend#who-may-answer) is declared and enforced there too.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `token` | `string` | The signed token minted when the exchange parked. |
-| `result` | `unknown` | The candidate answer, validated against the suspending step's `expect`. |
+| `result` | `unknown` | The candidate answer, validated against the suspending step's `schema` when it declared one. |
 | `resumedBy` | `PrincipalRef` | Who answered. Defaults to the ingress exchange's own principal, which is the value worth recording: it was verified live here. Set it explicitly only when the answerer is not the caller. |
+
+The door itself declares one thing, `keys`, and it is deliberately not on the mapper's request: the mapper shapes an attacker-controlled payload, so letting it name the answerer or widen the door's channels would let the untrusted half of an ingress choose what the trusted half checks.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `keys` | `string[]` | The [`.suspend({ key })`](/docs/reference/operations/suspend#channels) channels this door serves. Omitted, it serves every channel. |
 
 ## What the ingress route receives
 
@@ -63,18 +73,32 @@ A duplicate answer (an approver double-clicks, a webhook is redelivered) returns
 
 ## Authorizing the answerer
 
-The token proves this deployment minted it. It does **not** prove its holder may answer. Authorizing the answerer is this route's job, and this route is where an authenticated principal is actually available:
+The token proves this deployment minted it. It does **not** prove its holder may answer. The two halves of that split across the two routes:
+
+**This route authenticates.** It is where a live credential actually exists, so it resolves the answering principal and hands it to revival:
 
 ```ts
 craft()
   .id('resume-api')
-  .authorize({ roles: ['approver'] })
   .from(http({ path: '/resume', method: 'POST', auth: 'required' }))
-  .resume()
+  .throttle({ rate: 20, per: 'minute', mode: 'reject' })
+  .resume(mapAnswer, { keys: ['finance'] })
   .to(log())
 ```
 
+A public resume door is an unauthenticated-by-token endpoint that anyone with a link can reach, so put a route-scope [`.throttle()`](/docs/reference/operations/throttle) in front of it: it is the only rate limiter standing between the internet and the store.
+
+**The suspension authorizes.** [`answer` and `authorize`](/docs/reference/operations/suspend#who-may-answer) are declared at the suspend site and enforced from the stored record, before the store's compare-and-swap, so a refusal never spends the rightful answerer's single-use answer. A door that resolves no principal cannot satisfy a declared policy and is refused with [`RC5056`](/docs/reference/errors#rc-5056) naming the ingress; a context that pairs one with a policed site says so at startup.
+
+A route-entry `.authorize()` here is still useful for keeping unauthorized callers out of the door entirely, and it is the right place for anything about the ingress rather than about the question. It is not where an approval's own policy belongs: this route does not know which suspension a token names until revival reads it.
+
 A principal that came back from the store with the parked exchange is marked restored and refused by `authorize()` with [`RC5043`](/docs/reference/errors#rc-5043): it is a recorded shape with no live credential behind it. Re-verify after resume, or authorize here.
+
+<Callout type="info" title="The continuation runs as the parked principal">
+
+Authorizing the answer gates who may inject it. It does not change whose authority the rest of the route executes under: the continuation runs as the principal that parked, restored from storage, with the answerer recorded as `resumedBy`. An approver who may answer a payout question is not thereby granted the parked run's authority.
+
+</Callout>
 
 ## Revival failures
 
@@ -84,14 +108,19 @@ Three of them additionally re-enter the **suspended** route's error channel, so 
 
 `RC5049` deliberately stays in the ingress route. A malformed answer is a per-request input error, the suspension stays resumable, and routing it through the suspended route would let anyone holding a token drive that route's re-ask path (approver notifications included) with junk. Shaping a reply to a bad answer belongs to the ingress route's own `.error()` handler, which is where the answerer's channel is.
 
+The three authorization refusals (`RC5055`, `RC5056`, `RC5057`) stay in the ingress route for the same reason, and go further: they are checked from the record alone, before the settled-state disclosure and before either transition that can settle a record and notify. A holder whose credential does not belong here therefore learns only "not your credential", cannot burn the rightful answerer's claim, and cannot drive an approver notification with a token they should never have been able to use.
+
 | Code | Cause |
 |------|-------|
 | [`RC5041`](/docs/reference/errors#rc-5041) | The token is malformed or its signature does not verify. |
 | [`RC5046`](/docs/reference/errors#rc-5046) | The token verifies but the store holds no such suspension, or its route is not registered in this context. |
 | [`RC5047`](/docs/reference/errors#rc-5047) | The suspension's `ttl` elapsed. Raised by a late answer or by the sweeper, whichever reaches it first. |
-| [`RC5048`](/docs/reference/errors#rc-5048) | The steps after the suspend point (or the `expect` schema) changed while the exchange was parked, so the stored approval no longer authorizes what would run. Refused before any of those steps execute. |
-| [`RC5049`](/docs/reference/errors#rc-5049) | The answer does not satisfy `expect`. Ingress route only. The suspension stays resumable, so a corrected answer still works. |
+| [`RC5048`](/docs/reference/errors#rc-5048) | The steps after the suspend point, the answer schema, or an `authorize` predicate changed while the exchange was parked, so the stored approval no longer authorizes what would run. Refused before any of those steps execute. |
+| [`RC5049`](/docs/reference/errors#rc-5049) | The answer does not satisfy the declared `schema`. Ingress route only. The suspension stays resumable, so a corrected answer still works. |
 | [`RC5050`](/docs/reference/errors#rc-5050) | The suspension was denied, typically because the run carrying it was cancelled. |
+| [`RC5055`](/docs/reference/errors#rc-5055) | The credential names a different question than the one this record parked on. Non-destructive: the record stays resumable by the rightful credential. |
+| [`RC5056`](/docs/reference/errors#rc-5056) | The answerer does not meet the policy the record parked under, or the door resolved no principal to check it against. Non-destructive. |
+| [`RC5057`](/docs/reference/errors#rc-5057) | The record is parked on a channel this door does not serve. Non-destructive. |
 
 ## Related
 

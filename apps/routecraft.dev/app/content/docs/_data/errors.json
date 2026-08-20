@@ -342,6 +342,24 @@
     "retryable": false
   },
   {
+    "code": "RC5055",
+    "category": "Runtime",
+    "message": "Resume credential not bound to this question",
+    "retryable": false
+  },
+  {
+    "code": "RC5056",
+    "category": "Runtime",
+    "message": "Answerer not authorized for this suspension",
+    "retryable": false
+  },
+  {
+    "code": "RC5057",
+    "category": "Runtime",
+    "message": "Resume door does not serve this channel",
+    "retryable": false
+  },
+  {
     "code": "AI1001",
     "category": "Adapter",
     "message": "Agent block resolution failed",

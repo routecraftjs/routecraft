@@ -37,7 +37,7 @@ function suspendCapable(): Enricher<unknown, unknown> {
         return { resumed: true, state, answer: ex.suspension.result };
       }
       throw new SuspendSignal({
-        expect: Approval,
+        schema: Approval,
         ttl: "1h",
         question: "may I?",
         reason: "awaiting-approval",
@@ -105,7 +105,7 @@ describe("re-entrant suspend sites (suspend-capable steps)", () => {
       fetch: (ex: Exchange<unknown>) => {
         const state = peekResumeStepState(ex);
         if (state !== undefined) return { state };
-        throw new SuspendSignal({ expect: Approval, stepState: { parkedAt } });
+        throw new SuspendSignal({ schema: Approval, stepState: { parkedAt } });
       },
     };
     markSuspendCapable(withDate);
@@ -235,7 +235,7 @@ describe("cancellation around the park (RC5054)", () => {
             await sleep(120);
             return ex;
           })
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
       ])
       .build();
@@ -277,7 +277,7 @@ describe("cancellation around the park (RC5054)", () => {
             tokens.push(ex.suspension.token);
             ids.push(ex.suspension.id);
           })
-          .suspend({ expect: Approval })
+          .suspend({ schema: Approval })
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
       ])
