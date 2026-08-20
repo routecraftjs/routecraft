@@ -94,7 +94,7 @@ A route-entry `.authorize()` here is still useful for keeping unauthorized calle
 
 A principal that came back from the store with the parked exchange is marked restored and refused by `authorize()` with [`RC5043`](/docs/reference/errors#rc-5043): it is a recorded shape with no live credential behind it. Re-verify after resume, or authorize here.
 
-<Callout type="info" title="The continuation runs as the parked principal">
+<Callout title="The continuation runs as the parked principal">
 
 Authorizing the answer gates who may inject it. It does not change whose authority the rest of the route executes under: the continuation runs as the principal that parked, restored from storage, with the answerer recorded as `resumedBy`. An approver who may answer a payout question is not thereby granted the parked run's authority.
 
