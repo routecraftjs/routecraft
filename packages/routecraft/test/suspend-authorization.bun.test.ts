@@ -225,6 +225,158 @@ describe("the resume authorize hook", () => {
   });
 
   /**
+   * @case An async hook that accepts resumes normally
+   * @preconditions A hook that awaits before returning true
+   * @expectedResult The continuation runs, so an async decision is a first-class one rather than a tolerated case
+   */
+  test("an async hook that accepts resumes the exchange", async () => {
+    const store = new MemorySuspensionStore();
+    const ran: unknown[] = [];
+    t = await testContext()
+      .with(shared(store))
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ schema: Approval })
+          .tap((ex) => {
+            ran.push(ex.suspension.result);
+          })
+          .to(noop()),
+        craft()
+          .id("answers")
+          .from(direct())
+          .resume(answerFrom, {
+            authorize: async () => {
+              await new Promise((resolve) => setTimeout(resolve, 5));
+              return true;
+            },
+          }),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("payout", {}));
+    await t.client.sendDirect("answers", { token: parked.token });
+    expect(ran).toEqual([{ approved: true }]);
+    expect((await store.get(parked.suspensionId))?.status).toBe("resumed");
+  });
+
+  /**
+   * @case A wrongly-bound credential learns nothing about a settled record
+   * @preconditions A record already resumed, presented by a credential minted for a different call
+   * @expectedResult The binding refusal, not the "duplicate" acknowledgment the rightful credential would receive
+   */
+  test("the binding check runs before the settled-state disclosure", async () => {
+    const store = new MemorySuspensionStore();
+    t = await testContext()
+      .with(shared(store))
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ schema: Approval })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(answerFrom),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("payout", {}));
+    const record = (await store.get(parked.suspensionId)) as Suspension;
+    await store.create({
+      ...record,
+      id: `${record.id}-bound`,
+      callBinding: "call-winner",
+      status: undefined,
+      terminal: undefined,
+      resumedAt: undefined,
+      resumedBy: undefined,
+      claimedAt: undefined,
+      deniedReason: undefined,
+    } as never);
+    const runtime = t.ctx.getStore(SUSPENSION_RUNTIME)!;
+    const winner = runtime.signer.mint(
+      `${record.id}-bound`,
+      new Date(),
+      "call-winner",
+    );
+    const loser = runtime.signer.mint(
+      `${record.id}-bound`,
+      new Date(),
+      "call-loser",
+    );
+
+    await t.client.sendDirect("answers", { token: winner });
+    expect((await store.get(`${record.id}-bound`))?.status).toBe("resumed");
+
+    // The winner would now read `duplicate`. The loser must not learn that.
+    await expect(
+      t.client.sendDirect("answers", { token: loser }),
+    ).rejects.toThrow(/RC5055|not minted for/);
+  });
+
+  /**
+   * @case A wrongly-bound credential cannot settle a record whose route was edited
+   * @preconditions A per-call record whose stored continuation hash no longer matches, presented by a losing sibling's credential
+   * @expectedResult The binding refusal wins first, leaving the record unclaimed and undenied; only the rightful credential reaches the RC5048 re-ask
+   */
+  test("a wrongly-bound credential cannot burn a record on the hash arm", async () => {
+    const store = new MemorySuspensionStore();
+    t = await testContext()
+      .with(shared(store))
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .suspend({ schema: Approval })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(answerFrom),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = asSuspended(await t.client.sendDirect("payout", {}));
+    const record = (await store.get(parked.suspensionId)) as Suspension;
+    await store.create({
+      ...record,
+      id: `${record.id}-bound`,
+      callBinding: "call-winner",
+      continuationHash: "0".repeat(64),
+      status: undefined,
+      terminal: undefined,
+      resumedAt: undefined,
+      resumedBy: undefined,
+      claimedAt: undefined,
+      deniedReason: undefined,
+    } as never);
+    const runtime = t.ctx.getStore(SUSPENSION_RUNTIME)!;
+    const loser = runtime.signer.mint(
+      `${record.id}-bound`,
+      new Date(),
+      "call-loser",
+    );
+    const winner = runtime.signer.mint(
+      `${record.id}-bound`,
+      new Date(),
+      "call-winner",
+    );
+
+    await expect(
+      t.client.sendDirect("answers", { token: loser }),
+    ).rejects.toThrow(/RC5055|not minted for/);
+    const untouched = await store.get(`${record.id}-bound`);
+    expect(untouched?.status).toBe("suspended");
+    expect(untouched?.deniedReason).toBeUndefined();
+    expect(untouched?.claimedAt).toBeUndefined();
+
+    await expect(
+      t.client.sendDirect("answers", { token: winner }),
+    ).rejects.toThrow(/RC5048|changed after position/);
+    expect((await store.get(`${record.id}-bound`))?.status).toBe("denied");
+  });
+
+  /**
    * @case False, a throw, and an unsettled hook are one refusal on the wire
    * @preconditions Three doors: one returning false, one throwing an internal detail, one never settling under a route timeout
    * @expectedResult All three answer the same RC5056 message, none leaks the cause, and the log distinguishes them
