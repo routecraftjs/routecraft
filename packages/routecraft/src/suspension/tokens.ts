@@ -128,6 +128,9 @@ export class ResumeTokenSigner {
     } catch {
       throw reject();
     }
+    // `JSON.parse("null")` yields null, whose property read would escape as a
+    // TypeError rather than the RC5041 this method's contract promises.
+    if (parsed === null || typeof parsed !== "object") throw reject();
     const claims = parsed as {
       v?: unknown;
       id?: unknown;

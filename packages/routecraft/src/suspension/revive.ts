@@ -501,7 +501,17 @@ async function refuseContinuation(
     throw error;
   }
   await reask(context, route, suspension, error);
-  await store.markDenied(suspension.id, reason);
+  const finalized = await store.markDenied(suspension.id, reason);
+  if (!finalized.won) {
+    // The claim was released before the denial landed, which puts the record
+    // back to suspended with a hash that can never match again. Every replay
+    // of a still-valid token now re-wins this path and re-drives the re-ask,
+    // which is the outbound amplifier the latch exists to remove.
+    context.logger.warn(
+      { suspensionId: suspension.id, routeId: suspension.routeId, reason },
+      "A continuation refusal was released before its denial finalized, so the record is resumable again and a replay will re-drive the re-ask",
+    );
+  }
   throw error;
 }
 
