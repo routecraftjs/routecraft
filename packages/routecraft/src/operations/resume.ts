@@ -4,7 +4,9 @@ import {
   DefaultExchange,
   OperationType,
   getExchangeContext,
+  getExchangeRoute,
 } from "../exchange.ts";
+import { isRestored } from "../auth/restored.ts";
 import { toSignalContext } from "../types.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import {
@@ -118,6 +120,24 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
     const signalCtx = toSignalContext(ctx) as {
       readonly signal?: AbortSignal;
     };
+    // The hook's bound is the route's stop signal as well as an enclosing
+    // .timeout(): ctx.signal is populated only by a route-scope timeout, so
+    // racing the hook against that alone leaves a resume route without one
+    // unable to interrupt a hook that never settles, and an unsettled hook
+    // holds the step, which holds drain().
+    const route = getExchangeRoute(exchange);
+    const bounds = [route?.signal, signalCtx.signal].filter(
+      (candidate): candidate is AbortSignal => candidate !== undefined,
+    );
+    const hookSignal = bounds.length > 1 ? AbortSignal.any(bounds) : bounds[0];
+    // Only a principal this ingress verified live may stand as the resuming
+    // party. A revived exchange carries its parked principal back marked
+    // restored, so a route that both suspends and resumes would otherwise
+    // hand the hook storage data under a contract that says verified live.
+    const live =
+      exchange.principal && !isRestored(exchange.principal)
+        ? exchange.principal
+        : undefined;
     const request = this.mapper
       ? await this.mapper(exchange as Exchange<In>, signalCtx)
       : fromBody(exchange);
@@ -131,8 +151,8 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
         // unlike anything read back out of the store. An explicit
         // `resumedBy` from the mapper wins, for an ops tool resuming on
         // someone's behalf.
-        ...(request.resumedBy === undefined && exchange.principal
-          ? { resumedBy: principalRef(exchange.principal) }
+        ...(request.resumedBy === undefined && live
+          ? { resumedBy: principalRef(live) }
           : {}),
       },
       // The door's own facts, kept OFF the mapper's request on purpose. The
@@ -141,8 +161,8 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
       // the untrusted half of an ingress choose what the trusted half checks.
       {
         ...(this.authorize !== undefined ? { authorize: this.authorize } : {}),
-        ...(exchange.principal ? { principal: exchange.principal } : {}),
-        ...(signalCtx.signal ? { signal: signalCtx.signal } : {}),
+        ...(live ? { principal: live } : {}),
+        ...(hookSignal ? { signal: hookSignal } : {}),
       },
     );
 
