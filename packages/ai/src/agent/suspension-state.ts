@@ -172,7 +172,7 @@ export function rehydrateSession(
     state.messages,
     state.suspendedToolCallId,
     // Strictly a tool-result payload, never merged anywhere else: the
-    // answer skipped expect validation at revival (no live schema
+    // resume payload skipped schema validation at revival (no live schema
     // exists for a re-entrant site), so the model treats it like any
     // other untrusted tool output.
     { type: "json", value: answer },

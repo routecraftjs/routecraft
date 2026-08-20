@@ -311,11 +311,11 @@ const out = await testFn(greet, { name: 'alice' })
 // out === 'hello alice'
 ```
 
-`testFn` validates the input against the `input` schema, calls the handler with a synthetic `{ logger, abortSignal }` context, and returns the handler's output. Validation failures throw `RC5002`. It works structurally on any `{ input, handler }` shape, so real `FnOptions` values pass without modification.
+`testFn` validates the input against the `input` schema, calls the handler with a synthetic `{ logger, abortSignal, suspend }` context, and returns the handler's output. Validation failures throw `RC5002`. It works structurally on any `{ input, handler }` shape, so real `FnOptions` values pass without modification.
 
 ## Agent tools
 
-> **Status: live.** Tools an agent declares via `tools([...])` are bridged into the Vercel AI SDK's tool-calling loop at dispatch time. The model sees each tool's name, description, and JSON schema; the SDK validates tool-call arguments against the schema, reports validation errors back to the model for self-correction, and otherwise invokes the agent's handler. Synchronous in-memory loop today; streaming and durable suspend/resume are tracked separately ([streaming agents](https://github.com/routecraftjs/routecraft/issues/257), [durable agents epic](https://github.com/routecraftjs/routecraft/issues/258)).
+> **Status: live.** Tools an agent declares via `tools([...])` are bridged into the Vercel AI SDK's tool-calling loop at dispatch time. The model sees each tool's name, description, and JSON schema; the SDK validates tool-call arguments against the schema, reports validation errors back to the model for self-correction, and otherwise invokes the agent's handler. Durable park and resume through `ctx.suspend()` is live; see [Durable agents](/docs/advanced/durable-agents). Streaming is tracked separately ([streaming agents](https://github.com/routecraftjs/routecraft/issues/257)).
 
 Tags, the `tools([...])` selector, the builder helpers, and the context-level `defaultOptions` bag compose to give an agent a typed, whitelisted set of capabilities.
 

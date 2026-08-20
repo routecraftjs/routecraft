@@ -134,27 +134,13 @@ export class SuspendError extends Error {
   readonly schema?: StandardSchemaV1;
   /** How long the suspension stays resumable. Omitted means the context default. */
   readonly ttl?: Duration;
-  /**
-   * Optional channel hint indicating how the agent will be resumed.
-   * Surfaces in telemetry only; the durable record does not carry it.
-   */
-  readonly resumeChannel?: string;
-
   /** Policy inputs the parker attached. See {@link AgentSuspendOptions.meta}. */
   readonly meta?: unknown;
 
-  constructor(opts?: {
-    schema?: StandardSchemaV1;
-    ttl?: Duration;
-    resumeChannel?: string;
-    meta?: unknown;
-  }) {
+  constructor(opts?: AgentSuspendOptions) {
     super("Agent suspended pending external resumption.");
     if (opts?.schema !== undefined) this.schema = opts.schema;
     if (opts?.ttl !== undefined) this.ttl = opts.ttl;
-    if (opts?.resumeChannel !== undefined) {
-      this.resumeChannel = opts.resumeChannel;
-    }
     if (opts?.meta !== undefined) this.meta = opts.meta;
   }
 }

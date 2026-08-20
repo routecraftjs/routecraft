@@ -292,7 +292,7 @@ declare module "@routecraft/routecraft" {
      * ```
      */
     suspend<Schema extends StandardSchemaV1>(
-      options: SuspendOptions<Schema>,
+      options?: SuspendOptions<Schema>,
     ): Retyped<this, SetSuspension<S, StandardSchemaV1.InferOutput<Schema>>>;
 
     /**
