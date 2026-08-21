@@ -345,6 +345,10 @@ function describable(value: unknown, depth = 0): unknown {
   // moving the digest.
   if (value instanceof URL) return `[url:${value.href}]`;
   if (value instanceof RegExp) return `[regexp:${value.source}/${value.flags}]`;
+  // Bound the walk: a deeply nested or self-referential options object must
+  // not turn hashing a route into a graph traversal. Above every branch that
+  // recurses, collections included, or a cycle through a Map never reaches it.
+  if (depth >= 4) return "[deep]";
   if (value instanceof Map) {
     return {
       "[map]": [...value].map(([key, entry]) => [
@@ -358,9 +362,6 @@ function describable(value: unknown, depth = 0): unknown {
       "[set]": [...value].map((entry) => describable(entry, depth + 1)),
     };
   }
-  // Bound the walk: a deeply nested or self-referential options object must
-  // not turn hashing a route into a graph traversal.
-  if (depth >= 4) return "[deep]";
   if (Array.isArray(value)) {
     return value.map((entry) => describable(entry, depth + 1));
   }

@@ -72,8 +72,9 @@ export interface ResumeAuthorizerInput {
  * claim is spent and that a "no" costs the rightful principal nothing. What
  * "no" means is this function's business.
  *
- * Returning false, throwing, and failing to settle before the route's own
- * `.timeout()` are one refusal on the wire; the log distinguishes them.
+ * Returning false, throwing, and failing to settle before the route stops
+ * or its `.timeout()` fires are one refusal on the wire; the log
+ * distinguishes them.
  */
 export type ResumeAuthorizer = (
   input: ResumeAuthorizerInput,
@@ -145,10 +146,13 @@ export function recordView(suspension: Suspension): SuspensionRecordView {
 /**
  * Run the resume route's `authorize` hook.
  *
- * Bounded by the ingress route's own abort signal rather than by a
- * framework knob: the hook is ordinary code on a running route, and a route
- * that wants to bound it already has `.timeout()`. What the framework owns
- * is that an unsettled hook can never fall through to the claim.
+ * Bounded by the ingress route's own abort signal rather than by a framework
+ * knob: the hook is ordinary code on a running route, so its bound is the
+ * route's stop signal, widened by an enclosing `.timeout()` where the route
+ * declares one. Stop has to be in there: without it a resume route with no
+ * `.timeout()` could never interrupt a hook that never settles, and an
+ * unsettled hook holds the step, which holds `drain()`. What the framework
+ * owns is that such a hook can never fall through to the claim.
  *
  * Three refusals, one wire message. False is a decision, a throw is a hook
  * that broke, and an abort is a hook that never settled; the log

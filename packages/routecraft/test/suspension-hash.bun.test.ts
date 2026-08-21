@@ -35,9 +35,9 @@ function step(label: string, body: (value: number) => number): Step<Adapter> {
  */
 class PayoutAdapter {
   readonly adapterId = "routecraft.adapter.payout";
-  constructor(readonly options: { url: string | URL; retries?: number }) {}
+  constructor(readonly options: Record<string, unknown>) {}
   send = async (): Promise<void> => {
-    await Promise.resolve(String(this.options.url));
+    await Promise.resolve(String(this.options["url"]));
   };
 }
 
@@ -51,10 +51,7 @@ function destination(adapter: unknown): Step<Adapter> {
   };
 }
 
-function configuredStep(options: {
-  url: string | URL;
-  retries?: number;
-}): Step<Adapter> {
+function configuredStep(options: Record<string, unknown>): Step<Adapter> {
   return {
     operation: OperationType.TO,
     label: "pay",
@@ -282,6 +279,35 @@ describe("continuationTailHash over adapter configuration", () => {
     ).not.toBe(
       continuationTailHash(
         [configuredStep({ url: new URL("https://bank-b.example/pay") })],
+        expected,
+      ),
+    );
+  });
+
+  /**
+   * @case A cycle through a collection-valued option terminates instead of exhausting the stack
+   * @preconditions An adapter option holding a Map that contains itself, hashed at park time
+   * @expectedResult The digest is produced rather than thrown, because the depth bound sits above every recursing branch; a Map is projected within the bound, so two different in-bounds Maps still differ
+   */
+  test("a self-referential collection option is bounded, not fatal", () => {
+    const cyclic = new Map<string, unknown>([["name", "payee"]]);
+    cyclic.set("self", cyclic);
+
+    expect(() =>
+      continuationTailHash(
+        [configuredStep({ url: "https://x", cyclic })],
+        expected,
+      ),
+    ).not.toThrow();
+
+    expect(
+      continuationTailHash(
+        [configuredStep({ url: "https://x", m: new Map([["to", "bank-a"]]) })],
+        expected,
+      ),
+    ).not.toBe(
+      continuationTailHash(
+        [configuredStep({ url: "https://x", m: new Map([["to", "bank-b"]]) })],
         expected,
       ),
     );
