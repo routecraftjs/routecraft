@@ -1,5 +1,10 @@
 /// <reference types="bun-types" />
-import type { TelemetryEvent } from "@routecraft/routecraft";
+import type {
+  SqliteDatabase,
+  SqliteDatabaseConstructor,
+  SqliteStatement,
+  TelemetryEvent,
+} from "@routecraft/routecraft";
 import type {
   AgentSummary,
   ToolSummary,
@@ -149,26 +154,13 @@ interface ToolAcc {
 }
 
 /**
- * Minimal type for the bun:sqlite database to avoid pulling bun-types
- * into the CLI's public type surface.
+ * The TUI reads the telemetry database through the framework's shared
+ * minimal surface, which is exactly what it uses. Declaring it here again
+ * is what let the three copies drift in the first place.
  */
-interface Database {
-  prepare(sql: string): Statement;
-  query(sql: string): Statement;
-  exec(sql: string): void;
-  close(): void;
-}
-
-interface Statement {
-  all(...params: unknown[]): unknown[];
-  get(...params: unknown[]): unknown;
-  run(...params: unknown[]): unknown;
-}
-
-type DatabaseConstructor = new (
-  filename: string,
-  options?: { readonly?: boolean; create?: boolean },
-) => Database;
+type Database = SqliteDatabase;
+type Statement = SqliteStatement;
+type DatabaseConstructor = SqliteDatabaseConstructor;
 
 /**
  * Read-only accessor for the telemetry SQLite database.

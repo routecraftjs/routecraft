@@ -561,6 +561,15 @@ export type {
   TelemetryEvent,
 } from "./telemetry/index.ts";
 
+// The minimal sqlite surface every storage subsystem shares. Published
+// because the CLI's telemetry reader sits on the same shape, and a store
+// backend written outside this repo needs it to type its driver.
+export type {
+  SqliteDatabase,
+  SqliteDatabaseConstructor,
+  SqliteStatement,
+} from "./shared/sqlite/types.ts";
+
 // The suspension engine (hashing, serialization, token minting, runtime
 // resolution) stays behind `./suspension/index.ts`, which is where the
 // executor imports it from. Only the surface a user touches is published:

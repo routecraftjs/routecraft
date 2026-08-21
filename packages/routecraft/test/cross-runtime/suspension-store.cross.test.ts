@@ -12,7 +12,7 @@ import {
  *
  * The store has a genuine runtime-specific driver split (`bun:sqlite` under
  * Bun, `better-sqlite3` under Node, per the decision recorded in
- * `src/suspension/sqlite-driver.ts`), and the whole point of the feature is
+ * `src/shared/sqlite/driver.ts`), and the whole point of the feature is
  * that a parked exchange survives a restart. So the properties that make
  * durability real, a record that reads back after a reopen and a
  * compare-and-swap that produces exactly one winner, are proven on both

@@ -342,7 +342,7 @@
         "@routecraft/routecraft": "workspace:*",
       },
       "peerDependencies": {
-        "@routecraft/routecraft": ">=0.6.0 <1.0.0",
+        "@routecraft/routecraft": ">=0.7.0 <1.0.0",
       },
     },
   },

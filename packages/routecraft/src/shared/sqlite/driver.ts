@@ -1,28 +1,11 @@
-import { loadOptionalPeer } from "../adapters/shared/optional-peer.ts";
+import { loadOptionalPeer } from "../../adapters/shared/optional-peer.ts";
+import type { SqliteDatabaseConstructor } from "./types.ts";
 
-/**
- * The minimal synchronous SQLite surface the suspension store needs.
- *
- * Declared here rather than imported so neither `bun-types` nor
- * `@types/better-sqlite3` reaches the published type surface. `bun:sqlite`
- * and `better-sqlite3` both satisfy this shape, which is what lets one
- * store implementation sit on either driver.
- */
-export interface SqliteDatabase {
-  exec(sql: string): void;
-  prepare(sql: string): SqliteStatement;
-  close(): void;
-}
-
-export interface SqliteStatement {
-  run(...params: unknown[]): unknown;
-  all(...params: unknown[]): unknown[];
-  get(...params: unknown[]): unknown;
-}
-
-export type SqliteDatabaseConstructor = new (
-  filename: string,
-) => SqliteDatabase;
+export type {
+  SqliteDatabase,
+  SqliteDatabaseConstructor,
+  SqliteStatement,
+} from "./types.ts";
 
 /**
  * Which driver backs a resolved connection. Surfaced so the store factory
@@ -72,6 +55,9 @@ export interface ResolvedSqliteDriver {
  * function and nothing else: the store talks to {@link SqliteDatabase},
  * not to a driver.
  *
+ * @param consumer - Names the subsystem asking, so an absent peer names
+ *   what wanted it ("suspension store (sqlite)", "telemetry (sqlite)")
+ *   rather than reporting a generic sqlite failure.
  * @param loaders - Injection point for tests, which need to simulate a
  *   runtime that lacks a driver without leaving the runtime they run on.
  * @returns The resolved driver for this runtime.
@@ -83,7 +69,8 @@ export interface ResolvedSqliteDriver {
  *   worse than refusing to run.
  */
 export async function resolveSqliteDriver(
-  loaders: SqliteDriverLoaders = defaultLoaders,
+  consumer: string,
+  loaders: SqliteDriverLoaders = defaultLoaders(consumer),
 ): Promise<ResolvedSqliteDriver> {
   if (isBun()) {
     return { name: "bun:sqlite", Database: await loaders.bun() };
@@ -102,24 +89,32 @@ export interface SqliteDriverLoaders {
   node(): Promise<SqliteDatabaseConstructor>;
 }
 
-/** @internal */
-export const defaultLoaders: SqliteDriverLoaders = {
-  async bun() {
-    // A Bun built-in, not an optional peer: there is no package to install
-    // and no RC5017 to raise, so this is deliberately outside
-    // `loadOptionalPeer`. Under Bun the import always resolves.
-    const mod = await import("bun:sqlite");
-    return (mod as { Database: unknown }).Database as SqliteDatabaseConstructor;
-  },
-  async node() {
-    const mod = await loadOptionalPeer(() => import("better-sqlite3"), {
-      adapterName: "suspension store (sqlite)",
-      packageName: "better-sqlite3",
-    });
-    const ctor = (mod as { default?: unknown }).default ?? mod;
-    return ctor as SqliteDatabaseConstructor;
-  },
-};
+/**
+ * The real loaders for a named consumer. A factory rather than a constant
+ * because the Node arm's RC5017 has to name who wanted the driver.
+ *
+ * @internal
+ */
+export function defaultLoaders(consumer: string): SqliteDriverLoaders {
+  return {
+    async bun() {
+      // A Bun built-in, not an optional peer: there is no package to install
+      // and no RC5017 to raise, so this is deliberately outside
+      // `loadOptionalPeer`. Under Bun the import always resolves.
+      const mod = await import("bun:sqlite");
+      return (mod as { Database: unknown })
+        .Database as SqliteDatabaseConstructor;
+    },
+    async node() {
+      const mod = await loadOptionalPeer(() => import("better-sqlite3"), {
+        consumer: consumer,
+        packageName: "better-sqlite3",
+      });
+      const ctor = (mod as { default?: unknown }).default ?? mod;
+      return ctor as SqliteDatabaseConstructor;
+    },
+  };
+}
 
 /** @internal */
 export function isBun(): boolean {

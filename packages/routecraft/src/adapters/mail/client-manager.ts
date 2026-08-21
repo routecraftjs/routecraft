@@ -198,7 +198,7 @@ export class ImapPool {
   > {
     const config = buildImapConfig(this.imapConfig);
     const { ImapFlow } = await loadOptionalPeer(() => import("imapflow"), {
-      adapterName: "mail",
+      consumer: "mail adapter",
       packageName: "imapflow",
     });
     const client = new ImapFlow(config);
@@ -309,7 +309,7 @@ export class MailClientManager {
     }
 
     const nodemailer = await loadOptionalPeer(() => import("nodemailer"), {
-      adapterName: "mail",
+      consumer: "mail adapter",
       packageName: "nodemailer",
     });
     const transport = nodemailer.createTransport({

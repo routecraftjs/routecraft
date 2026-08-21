@@ -6,7 +6,7 @@ import {
   DEFAULT_SUSPENSION_DB_PATH,
   SqliteSuspensionStore,
 } from "./sqlite-store.ts";
-import type { SqliteDriverLoaders } from "./sqlite-driver.ts";
+import type { SqliteDriverLoaders } from "../shared/sqlite/driver.ts";
 import {
   type ResumeTokenSigner,
   SUSPENSION_SECRET_ENV,

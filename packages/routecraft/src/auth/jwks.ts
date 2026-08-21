@@ -17,7 +17,7 @@ import { loadOptionalPeer } from "../adapters/shared/optional-peer.ts";
 export const __jwksLoaders = {
   loadJose: (): Promise<JoseSubset> =>
     loadOptionalPeer(() => import("jose"), {
-      adapterName: "jwks",
+      consumer: "jwks verification",
       packageName: "jose",
     }) as unknown as Promise<JoseSubset>,
 };

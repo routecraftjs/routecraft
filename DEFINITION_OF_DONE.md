@@ -55,10 +55,21 @@ The checklists below apply to **packages that ship code**: anything under `packa
 - [ ] Export the adapter from the package's `index.ts`
 - [ ] If it is an AI adapter (`packages/ai/`), also update the AI package exports
 - [ ] New adapter factory functions carry no per-symbol stability tier in 0.x (see General Checklist); mark internal helpers `@internal` and scheduled removals `@deprecated`
-- [ ] If the adapter depends on a third-party package, add it as an optional `peerDependency` (with `peerDependenciesMeta.<name>.optional = true`) in `@routecraft/routecraft` and as a regular `dependency` in `@routecraft/cli` so the CLI bundles it
-- [ ] Optional peer drivers load via `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`), not a bespoke `try/catch`. The missing-peer error is `RC5017` with an install hint. See `.standards/ci-cd.md` § 6 for the contract; cron and html are the canonical references.
+- [ ] If the adapter depends on a third-party package, follow the optional-peer checklist below
 - [ ] If the adapter has a runtime-specific code path (e.g. `Bun.sql` under Bun + `pg` under Node, or `Bun.s3` + `@aws-sdk/client-s3`), add a `packages/<pkg>/test/cross-runtime/<name>.cross.test.ts` that exercises the same observable contract on both runtimes. The `adapter-cross-runtime (bun)` and `adapter-cross-runtime (node)` CI jobs run the suite on each runtime; both must pass.
 - [ ] Adapter implementations do not mutate the exchange parameter. Processor / Destination / aggregator code builds a derived exchange via spread or `DefaultExchange.rewrap`; direct assignment to `exchange.body`, `exchange.headers[...]`, or `exchange.principal` is absent. Drop signalling uses `markDropped(exchange)`. (See `.standards/type-safety-and-schemas.md` § Exchange Immutability.)
+
+## When you load an optional peer dependency
+
+> Not only adapters. Any module that reaches for a third-party package
+> through `loadOptionalPeer` is covered: the suspension store and the
+> telemetry SQLite sink are neither adapters nor in an adapter directory,
+> and both load one.
+
+- [ ] The package is an optional `peerDependency` (with `peerDependenciesMeta.<name>.optional = true`) in the package that loads it
+- [ ] The package is a regular `dependency` in `@routecraft/cli` so the CLI bundles it, **unless the CLI's runtime can never need it**. `better-sqlite3` is the standing exception: `packages/cli/src/runtime-gate.ts` refuses to start under Node, so `bun:sqlite` is always the arm the CLI takes and bundling the Node driver would ship weight nothing can reach.
+- [ ] The peer loads via `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`), not a bespoke `try/catch`. The missing-peer error is `RC5017` with an install hint naming the subsystem that wanted it. See `.standards/ci-cd.md` § 6 for the contract; cron and html are the canonical references.
+- [ ] A runtime-specific code path (e.g. `bun:sqlite` under Bun + `better-sqlite3` under Node) carries a `packages/<pkg>/test/cross-runtime/<name>.cross.test.ts` exercising the same observable contract on both runtimes
 
 ## When you add or modify an operation
 

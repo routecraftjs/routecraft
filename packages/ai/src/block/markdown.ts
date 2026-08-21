@@ -47,7 +47,7 @@ let cachedParseYaml: YamlParse | undefined;
 async function loadYamlParse(): Promise<YamlParse> {
   if (cachedParseYaml) return cachedParseYaml;
   const mod = (await loadOptionalPeer(() => import("yaml"), {
-    adapterName: "Markdown loader (agents() / skills())",
+    consumer: "Markdown loader (agents() / skills())",
     packageName: "yaml",
   })) as { parse: YamlParse };
   cachedParseYaml = mod.parse;

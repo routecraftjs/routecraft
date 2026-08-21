@@ -65,7 +65,7 @@ async function resolveOpenAI(
   modelId: string,
 ): Promise<unknown> {
   const mod = (await loadOptionalPeer(() => import("@ai-sdk/openai"), {
-    adapterName: "OpenAI LLM",
+    consumer: "OpenAI LLM",
     packageName: "@ai-sdk/openai",
   })) as {
     createOpenAI: (s: KeyedProviderSettings) => (m: string) => unknown;
@@ -79,7 +79,7 @@ async function resolveAnthropic(
   modelId: string,
 ): Promise<unknown> {
   const mod = (await loadOptionalPeer(() => import("@ai-sdk/anthropic"), {
-    adapterName: "Anthropic LLM",
+    consumer: "Anthropic LLM",
     packageName: "@ai-sdk/anthropic",
   })) as {
     createAnthropic: (s: KeyedProviderSettings) => (m: string) => unknown;
@@ -93,7 +93,7 @@ async function resolveGemini(
   modelId: string,
 ): Promise<unknown> {
   const mod = (await loadOptionalPeer(() => import("@ai-sdk/google"), {
-    adapterName: "Gemini LLM",
+    consumer: "Gemini LLM",
     packageName: "@ai-sdk/google",
   })) as {
     createGoogleGenerativeAI: (
@@ -111,7 +111,7 @@ async function resolveOpenRouter(
   const mod = (await loadOptionalPeer(
     () => import("@openrouter/ai-sdk-provider"),
     {
-      adapterName: "OpenRouter LLM",
+      consumer: "OpenRouter LLM",
       packageName: "@openrouter/ai-sdk-provider",
     },
   )) as {
@@ -131,7 +131,7 @@ async function resolveOllama(
   modelId: string,
 ): Promise<unknown> {
   const mod = (await loadOptionalPeer(() => import("ollama-ai-provider-v2"), {
-    adapterName: "Ollama LLM",
+    consumer: "Ollama LLM",
     packageName: "ollama-ai-provider-v2",
   })) as {
     createOllama: (s: { baseURL?: string }) => (name: string) => unknown;
@@ -151,7 +151,7 @@ async function resolveLmStudio(
 ): Promise<unknown> {
   const mod = (await loadOptionalPeer(
     () => import("@ai-sdk/openai-compatible"),
-    { adapterName: "LM Studio LLM", packageName: "@ai-sdk/openai-compatible" },
+    { consumer: "LM Studio LLM", packageName: "@ai-sdk/openai-compatible" },
   )) as {
     createOpenAICompatible: (s: {
       name: string;
