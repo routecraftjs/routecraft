@@ -100,6 +100,7 @@ export interface ErrorCodeRegistry {
   RC5054: RCMeta;
   RC5055: RCMeta;
   RC5056: RCMeta;
+  RC5057: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -571,6 +572,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The `.resume({ authorize })` hook on the ingress route refused this principal. Who may resume a parked run is the application's policy, not the framework's: the hook receives the live principal, the parked principal snapshot, the raw submitted payload, and the record's context (including whatever `meta` the suspend site attached), and decides. A hook that returns false, throws, or does not settle before the route's own `.timeout()` produces this one code with the same message, deliberately: a hook whose failures can be told apart from outside is an oracle for what it knows. The cause is in the boundary log, never on the wire, and a thrown cause is never returned. The refusal is non-destructive, so the record stays resumable by whoever does qualify.",
     docs: `${DOCS_BASE}#rc-5056`,
+    retryable: false,
+  },
+  RC5057: {
+    category: "Runtime",
+    message: "Suspension sequence header unusable",
+    suggestion:
+      "The framework-owned `routecraft.suspension.sequence` header carries a value the park counter cannot use, so no suspension id was derived. Headers are a writable bag, and this one is refused rather than reset because a reset counter re-derives an id an earlier park already used, and resume tokens sign the id: an old unspent link would then act on the new park. If the message says the value is malformed, find the step that overwrote or mangled the framework header (spreading headers through an external system is the usual culprit) and stop it. If it says the counter is exhausted, this exchange has parked more times than a counter can count; that is not reachable by suspending in a loop within a ttl, so treat it as the same corruption with a plausible-looking value.",
+    docs: `${DOCS_BASE}#rc-5057`,
     retryable: false,
   },
   RC9901: {

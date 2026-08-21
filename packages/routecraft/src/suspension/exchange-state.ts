@@ -191,23 +191,38 @@ export function suspensionIdOf(
 /**
  * Read the park counter off an exchange's headers.
  *
- * Tolerates a missing or non-numeric value rather than throwing: the header
- * is framework-owned, but headers are a user-writable bag, and a bad value
- * here would fail the exchange at a point that has nothing to do with what
- * the user did.
+ * A missing header is the counter at zero: every exchange that has never
+ * parked legitimately carries none. Anything else that is not a usable
+ * counter value REFUSES rather than resetting, because the suspension id
+ * derives from this counter and resume tokens sign the id: a reset counter
+ * re-derives an id an earlier park of the same owner already used, and an
+ * old unspent link would verify against the new park. The store's
+ * create-collision check backstops the case where the earlier record still
+ * exists; this refusal closes the silent path around it.
+ *
+ * The throw only ever reaches suspension surfaces (`ex.suspension` is a
+ * lazy getter, and the park calls this on the way in), so an exchange with
+ * a mangled header still flows through routes that never touch suspension.
+ *
+ * @throws RC5057 when the header holds a malformed value, or a value whose
+ *   successor could not itself survive this guard (the exhaustion bound:
+ *   accepting it would hand `sequence + 1` to a park that the next read
+ *   rejects, which is the reset this function exists to refuse)
  *
  * @internal
  */
 export function readSequence(headers: ExchangeHeaders): number {
   const raw = headers[SuspensionHeaders.SEQUENCE];
-  // Every value this returns must survive a round trip through a park, which
-  // writes `sequence + 1`: bounding at MAX_SAFE_INTEGER would accept a value
-  // whose successor this same guard rejects, resetting the counter to 0 and
-  // handing the next park an id the first one already used.
-  return typeof raw === "number" &&
-    Number.isSafeInteger(raw) &&
-    raw >= 0 &&
-    raw < Number.MAX_SAFE_INTEGER - 1
-    ? raw
-    : 0;
+  if (raw === undefined) return 0;
+  if (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw < 0) {
+    throw rcError("RC5057", undefined, {
+      message: `The suspension sequence header ("${SuspensionHeaders.SEQUENCE}") is malformed: expected a non-negative safe integer, found ${JSON.stringify(raw)}. Refusing to derive a suspension id from it, because a reset counter reuses an id an earlier park already used.`,
+    });
+  }
+  if (raw >= Number.MAX_SAFE_INTEGER - 1) {
+    throw rcError("RC5057", undefined, {
+      message: `The suspension sequence header ("${SuspensionHeaders.SEQUENCE}") is exhausted at ${raw}: its successor cannot be represented, so the next park could not mint a fresh id. This value is not reachable by suspending in a loop; treat it as corruption of the framework-owned header.`,
+    });
+  }
+  return raw;
 }
