@@ -92,9 +92,11 @@ the original error if a hook or the config refuses. A single route that
 fails to come up is not observable there, because `start()` keeps the
 remaining routes running by design; a probe that must know one specific
 route is serving watches `route:started` for it. The wait on route
-readiness is bounded (30 seconds): a source that never calls `ready()` and
-never emits delays the plugin phase by that bound rather than holding the
-context down forever.
+readiness is bounded (30 seconds): a `Source` adapter that never calls
+`ready()` and never emits delays the plugin phase by that bound rather than
+holding the context down forever. Everything `.from()` normalizes for you
+signals readiness on its own, so the bound is a guard against a
+misbehaving adapter rather than something a healthy boot approaches.
 
 A context is single-use. `start()` after `stop()` refuses with `RC1004`,
 because route controllers are built once and a restart would report ready

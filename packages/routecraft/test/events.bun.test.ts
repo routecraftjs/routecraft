@@ -277,17 +277,19 @@ describe("Events API", () => {
 
   /**
    * @case test() rejects with timeout when no route ever emits routeStarted
-   * @preconditions Route with source that never calls onReady
+   * @preconditions A Source ADAPTER (not a bare callable) that never calls ready() and never emits; since #608 a bare callable is marked ready on invocation, so an adapter object is the only shape that can still stall the gate
    * @expectedResult test() rejects after timeout with "Timeout waiting for routes to start"
    */
   test("test() rejects with timeout when route never emits routeStarted", async () => {
-    // Callable source that never calls onReady but resolves when aborted so test() can finish
-    const neverReady = (sub: { signal: AbortSignal }) =>
-      new Promise<void>((resolve) => {
-        sub.signal.addEventListener("abort", () => resolve(), {
-          once: true,
-        });
-      });
+    // Never calls ready(), but resolves when aborted so test() can finish.
+    const neverReady = {
+      subscribe: (sub: { signal: AbortSignal }) =>
+        new Promise<void>((resolve) => {
+          sub.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          });
+        }),
+    };
 
     t = await testContext()
       .routesReadyTimeout(20)
@@ -297,6 +299,31 @@ describe("Events API", () => {
     await expect(t.test()).rejects.toThrow(
       "Timeout waiting for routes to start",
     );
+  }, 5_000);
+
+  /**
+   * @case A quiet polling callable reaches readiness without producing a message and without waiting out the backstop (#608)
+   * @preconditions A bare callable source that parks until abort and never emits; the readiness backstop is set far above the time the assertion allows
+   * @expectedResult route:started fires promptly from the invocation itself, so the boot does not pay the backstop
+   */
+  test("a quiet callable source signals readiness without emitting", async () => {
+    const started: string[] = [];
+    const quietPoller = (sub: { signal: AbortSignal }) =>
+      new Promise<void>((resolve) => {
+        sub.signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+
+    t = await testContext()
+      .routesReadyTimeout(30_000)
+      .routes(craft().id("quiet-poller").from(quietPoller).to(log()))
+      .build();
+    t.ctx.on("route:started", ({ details }) => {
+      started.push(details.routeId);
+    });
+
+    await t.startAndWaitReady();
+
+    expect(started).toEqual(["quiet-poller"]);
   }, 5_000);
 
   /**

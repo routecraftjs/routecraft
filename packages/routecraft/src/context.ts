@@ -125,6 +125,13 @@ export interface CraftPlugin {
 const ROUTE_READINESS_TIMEOUT_MS = 30_000;
 
 /**
+ * What became of one route by the time the readiness gate settled.
+ * `waiting` means the backstop fired before the route signalled, which is
+ * a different operational problem from a route that failed outright.
+ */
+type RouteBootOutcome = "started" | "failed" | "waiting";
+
+/**
  * Config keys handled directly by the CraftContext constructor, as opposed
  * to keys claimed by registered config appliers. Used to detect config keys
  * that nothing consumes. Must stay in sync with the fields of
@@ -485,18 +492,23 @@ export class CraftContext {
    * waits for is that no route is still coming up, not that all of them did.
    *
    * The wait is bounded because readiness is not something every source
-   * signals. A bare callable source gets no `ready()` for free (unlike the
-   * iterable path, which calls it), so the polling shape the `from()` docs
-   * teach reaches readiness only on its first emit, and a quiet queue would
-   * otherwise hold the whole context down forever.
+   * signals. Everything `.from()` normalizes signals it (the iterable path
+   * from its loop, a bare callable on invocation), but a hand-written
+   * `Source` adapter that never calls `ready()` and never emits would
+   * otherwise hold the whole context down forever. The bound is a guard
+   * against that, not a deadline anything healthy approaches.
    *
    * @internal
    */
   private awaitRoutesStarted(): {
     ready: Promise<void>;
-    settle: (routeId: string) => void;
+    settle: (routeId: string, outcome: RouteBootOutcome) => void;
+    outcomes: Map<string, RouteBootOutcome>;
   } {
     const pending = new Map<string, { resolve: () => void }>();
+    const outcomes = new Map<string, RouteBootOutcome>(
+      this.routes.map((route) => [route.definition.id, "waiting" as const]),
+    );
     const waits = this.routes.map(
       (route) =>
         new Promise<void>((resolve) => {
@@ -504,6 +516,7 @@ export class CraftContext {
         }),
     );
     const off = this.on("route:started", ({ details }) => {
+      outcomes.set(details.routeId, "started");
       pending.get(details.routeId)?.resolve();
     });
 
@@ -512,7 +525,7 @@ export class CraftContext {
       timer = setTimeout(() => {
         this.logger.warn(
           { timeoutMs: ROUTE_READINESS_TIMEOUT_MS },
-          "Some routes did not signal readiness in time; starting plugins anyway. A source that never calls ready() and never emits reaches readiness only when it produces its first message.",
+          "Some routes did not signal readiness in time; starting plugins anyway. A Source adapter that never calls ready() and never emits reaches readiness only when it produces its first message.",
         );
         resolve();
       }, ROUTE_READINESS_TIMEOUT_MS);
@@ -526,8 +539,50 @@ export class CraftContext {
           if (timer) clearTimeout(timer);
         },
       ),
-      settle: (routeId: string) => pending.get(routeId)?.resolve(),
+      // A route that failed or completed counts as settled, not started, so
+      // the gate stops waiting on it while the summary still reports what
+      // actually happened to it.
+      settle: (routeId: string, outcome: RouteBootOutcome) => {
+        if (outcomes.get(routeId) !== "started") outcomes.set(routeId, outcome);
+        pending.get(routeId)?.resolve();
+      },
+      outcomes,
     };
+  }
+
+  /**
+   * Log one line saying whether the boot came up, after the readiness gate
+   * settles.
+   *
+   * `whenStarted()` deliberately cannot report a single route failing to
+   * bind, because partial availability is the design: one route failing
+   * does not fail the context. That leaves an operator watching a boot with
+   * no single answer to "did everything come up", visible only to whoever
+   * subscribed to `route:started` at the right moment. This is that answer,
+   * and nothing more: no new events, no semantics change.
+   */
+  private logBootSummary(outcomes: Map<string, RouteBootOutcome>): void {
+    const by = (outcome: RouteBootOutcome): string[] =>
+      [...outcomes.entries()]
+        .filter(([, value]) => value === outcome)
+        .map(([routeId]) => routeId);
+
+    const started = by("started");
+    const failed = by("failed");
+    const waiting = by("waiting");
+    const total = outcomes.size;
+    const summary = {
+      started: started.length,
+      total,
+      ...(failed.length > 0 ? { failed } : {}),
+      ...(waiting.length > 0 ? { waiting } : {}),
+    };
+    const line = `Routes started: ${started.length} of ${total}`;
+    if (failed.length > 0 || waiting.length > 0) {
+      this.logger.warn(summary, line);
+    } else {
+      this.logger.info(summary, line);
+    }
   }
 
   /**
@@ -947,6 +1002,7 @@ export class CraftContext {
           if (!this.shutdownPromise) {
             this.logger.info({ route: route.definition.id }, "Route completed");
           }
+          routes.settle(route.definition.id, "started");
           return { routeId: route.definition.id, success: true as const };
         } catch (error) {
           const msg = isRoutecraftError(error)
@@ -959,9 +1015,8 @@ export class CraftContext {
           // Abort just this failing route
           const controller = this.controllers.get(route.definition.id);
           controller?.abort();
+          routes.settle(route.definition.id, "failed");
           throw error;
-        } finally {
-          routes.settle(route.definition.id);
         }
       }),
     );
@@ -971,6 +1026,7 @@ export class CraftContext {
     // when a plugin refuses to start.
     try {
       await routes.ready;
+      this.logBootSummary(routes.outcomes);
       // Re-checked after the wait: a stop() arriving while routes were
       // still coming up has already torn the plugins down, and a start()
       // hook run now would begin work on a stopped context with nothing
