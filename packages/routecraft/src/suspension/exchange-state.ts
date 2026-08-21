@@ -223,7 +223,7 @@ export function readSequence(headers: ExchangeHeaders): number {
   }
   if (raw >= Number.MAX_SAFE_INTEGER - 1) {
     throw rcError("RC5057", undefined, {
-      message: `The suspension sequence header ("${SuspensionHeaders.SEQUENCE}") is exhausted at ${raw}: its successor cannot be represented, so the next park could not mint a fresh id. This value is not reachable by suspending in a loop; treat it as corruption of the framework-owned header.`,
+      message: `The suspension sequence header ("${SuspensionHeaders.SEQUENCE}") is exhausted at ${raw}: the counter refuses before it can store a value whose own increment would leave the safe-integer range. This value is not reachable by suspending in a loop; treat it as corruption of the framework-owned header.`,
     });
   }
   return raw;

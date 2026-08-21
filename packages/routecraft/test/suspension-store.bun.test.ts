@@ -808,13 +808,14 @@ describe("SqliteSuspensionStore durability", () => {
 
   /**
    * @case A v3 database's settled rows gain a retention clock on upgrade
-   * @preconditions A hand-built schema-v3 database holding a resumed, an
-   *   expired, a denied, and a still-suspended row, then opened by this
-   *   build
-   * @expectedResult The v4 migration backfills settledAt from the best
-   *   evidence each status carries: resumed_at exactly, expires_at for an
-   *   expired row, suspended_at as the denied row's approximation; the
-   *   suspended row gains none, and purging honours the backfilled values
+   * @preconditions A hand-built schema-v3 database holding a resumed row,
+   *   an expired and a denied row that both carry an expires_at, and a
+   *   still-suspended row, then opened by this build
+   * @expectedResult Resumed rows backfill exactly from resumed_at; expired
+   *   and denied rows take the migration moment rather than inheriting
+   *   expires_at (a due time is not a settlement time, and a long outage
+   *   puts it far before the transition), so neither can be purged before
+   *   one full post-upgrade retention window; the suspended row gains none
    */
   test("v4 migration backfills settledAt per status", async () => {
     const path = join(scratch, "migrate-v3.db");
@@ -858,25 +859,34 @@ describe("SqliteSuspensionStore durability", () => {
     const resumed = new Date("2026-08-09T09:00:00.000Z").getTime();
     insert.run("was-resumed", "resumed", parked, null, resumed);
     insert.run("was-expired", "expired", parked, due, null);
-    insert.run("was-denied", "denied", parked, null, null);
+    insert.run("was-denied", "denied", parked, due, null);
     insert.run("still-parked", "suspended", parked, null, null);
     db.close();
 
+    const floor = Date.now();
     const store = await SqliteSuspensionStore.open({ path });
     expect((await store.get("was-resumed"))?.settledAt?.getTime()).toBe(
       resumed,
     );
-    expect((await store.get("was-expired"))?.settledAt?.getTime()).toBe(due);
-    expect((await store.get("was-denied"))?.settledAt?.getTime()).toBe(parked);
+    // Neither terminal row inherits its expires_at: both are stamped at the
+    // migration itself, second precision, hence the truncated floor.
+    const flooredSecond = Math.floor(floor / 1000) * 1000;
+    for (const id of ["was-expired", "was-denied"]) {
+      const settled = (await store.get(id))?.settledAt?.getTime();
+      expect(settled).toBeGreaterThanOrEqual(flooredSecond);
+    }
     expect((await store.get("still-parked"))?.settledAt).toBeUndefined();
 
-    // The recently resumed row survives a cutoff between its park and its
-    // settlement; the two backfilled to older evidence are reclaimed.
+    // A cutoff after the resumed row's settlement but before the upgrade
+    // reclaims only the resumed row: the conservatively stamped pair keeps
+    // a full retention window from the migration moment.
     const purged = await store.purgeSettled(
-      new Date("2026-08-01T00:00:00.000Z"),
+      new Date("2026-08-10T00:00:00.000Z"),
     );
-    expect(purged).toBe(2);
-    expect((await store.get("was-resumed"))?.status).toBe("resumed");
+    expect(purged).toBe(1);
+    expect(await store.get("was-resumed")).toBeUndefined();
+    expect((await store.get("was-expired"))?.status).toBe("expired");
+    expect((await store.get("was-denied"))?.status).toBe("denied");
     await store.close();
   });
 });

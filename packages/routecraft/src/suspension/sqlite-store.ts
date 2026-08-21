@@ -95,13 +95,17 @@ const MIGRATIONS: ReadonlyArray<string> = [
   // v4: the retention clock. Retention used to be measured from
   // suspended_at because no settlement timestamp existed, which purged a
   // record that parked for 89 days and settled on day 89 one day later.
-  // Existing settled rows backfill from the best evidence each status
-  // carries: resumed_at is exact, expires_at is exactly when an expired
-  // record became purgeable, and only denied rows fall back to the
-  // suspended_at approximation.
+  // Resumed rows backfill exactly from resumed_at. Expired and denied rows
+  // carry no trustworthy settlement evidence (expires_at is when an expired
+  // row came DUE, which a long outage puts far before the transition, and a
+  // denied row's deadline says nothing about when it was denied), so they
+  // take the migration moment and get one full retention window from the
+  // upgrade: longer residence, never a purge earlier than the new contract
+  // promises.
   `ALTER TABLE suspensions ADD COLUMN settled_at INTEGER;
-   UPDATE suspensions SET settled_at = COALESCE(resumed_at, expires_at, suspended_at)
-    WHERE status IN ('resumed', 'expired', 'denied');
+   UPDATE suspensions SET settled_at = resumed_at WHERE status = 'resumed';
+   UPDATE suspensions SET settled_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+    WHERE status IN ('expired', 'denied');
    CREATE INDEX suspensions_retention ON suspensions (status, settled_at);`,
 ];
 
