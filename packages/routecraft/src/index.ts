@@ -579,6 +579,7 @@ export {
   isSuspendSignal,
   isSuspended,
   markSuspendCapable,
+  parseDuration,
   routeCanSuspend,
   suspendedSchema,
   suspensionPlugin,

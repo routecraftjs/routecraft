@@ -86,6 +86,7 @@ export class MemorySuspensionStore implements SuspensionStore {
     return this.#transition(id, {
       status: "resumed",
       resumedAt: resumption.at,
+      settledAt: resumption.at,
       ...(resumption.by ? { resumedBy: resumption.by } : {}),
     });
   }
@@ -95,7 +96,11 @@ export class MemorySuspensionStore implements SuspensionStore {
   }
 
   async markExpired(id: string): Promise<SuspensionCasResult> {
-    return this.#transition(id, { status: "expired" }, "expiring");
+    return this.#transition(
+      id,
+      { status: "expired", settledAt: new Date() },
+      "expiring",
+    );
   }
 
   async markDenied(id: string, reason?: string): Promise<SuspensionCasResult> {
@@ -103,6 +108,7 @@ export class MemorySuspensionStore implements SuspensionStore {
       id,
       {
         status: "denied",
+        settledAt: new Date(),
         ...(reason !== undefined ? { deniedReason: reason } : {}),
       },
       "expiring",
@@ -219,7 +225,10 @@ export class MemorySuspensionStore implements SuspensionStore {
         record.status !== "denied"
       )
         continue;
-      if (record.suspendedAt.getTime() >= before.getTime()) continue;
+      // Every terminal transition stamps settledAt; the fallback only
+      // covers a record injected by a test that bypassed the transitions.
+      const settled = record.settledAt ?? record.suspendedAt;
+      if (settled.getTime() >= before.getTime()) continue;
       this.#records.delete(id);
       purged++;
     }

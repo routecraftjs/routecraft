@@ -212,6 +212,14 @@ export interface Suspension {
    */
   readonly claimedAt?: Date;
   readonly status: SuspensionStatus;
+  /**
+   * When the record left `suspended` for a terminal state (`resumed`,
+   * `expired`, `denied`). This is the retention clock:
+   * {@link SuspensionStore.purgeSettled} measures from here, so a record
+   * that parks for months and settles today is kept for the full retention
+   * window from today. For a resumed record it equals {@link resumedAt}.
+   */
+  readonly settledAt?: Date;
   /** Cached terminal outcome of execution two, for idempotent re-resume. */
   readonly terminal?: SerializedOutcome;
   readonly resumedBy?: PrincipalRef;
@@ -246,6 +254,7 @@ type SuspensionTransitionField =
   | "terminal"
   | "resumedBy"
   | "resumedAt"
+  | "settledAt"
   | "deniedReason"
   | "claimedAt";
 
@@ -339,15 +348,17 @@ export interface SuspensionStore {
   claimExpiry(id: string, at: Date): Promise<SuspensionCasResult>;
 
   /**
-   * Compare-and-swap `expiring` -> `expired`, finalizing a delivered claim.
-   * No timestamp is recorded: `expiresAt` already says when the suspension
-   * came due, and `claimedAt` when its delivery was claimed (not when the
-   * notification landed).
+   * Compare-and-swap `expiring` -> `expired`, finalizing a delivered claim
+   * and stamping {@link Suspension.settledAt} at the write. `expiresAt`
+   * still says when the suspension came due and `claimedAt` when its
+   * delivery was claimed; `settledAt` is when the record actually left the
+   * live states, which is what retention measures from.
    */
   markExpired(id: string): Promise<SuspensionCasResult>;
 
   /**
-   * Compare-and-swap `expiring` -> `denied`, finalizing a delivered claim.
+   * Compare-and-swap `expiring` -> `denied`, finalizing a delivered claim
+   * and stamping {@link Suspension.settledAt} at the write.
    * The claim-first shape applies to denial for the same reason as expiry:
    * a crash between the transition and the notification must heal by
    * redelivery, not strand the approver. Cancellation (#552) will claim
@@ -430,8 +441,9 @@ export interface SuspensionStore {
   resumedWithoutTerminal(limit?: number): Promise<Suspension[]>;
 
   /**
-   * Delete settled suspensions (`resumed`, `expired`, `denied`) that were
-   * parked before `before`, and report how many went.
+   * Delete settled suspensions (`resumed`, `expired`, `denied`) whose
+   * {@link Suspension.settledAt} is before `before`, and report how many
+   * went.
    *
    * A settled record holds a full serialized exchange body plus its cached
    * terminal outcome, and nothing else ever removes one. Without a
@@ -442,9 +454,10 @@ export interface SuspensionStore {
    * whatever their age; expiring them is the sweeper's job and goes
    * through {@link SuspensionStore.markExpired}.
    *
-   * The cutoff is `suspendedAt` rather than a settled-at timestamp because
-   * that is the field the record carries, and retention is measured from
-   * when the work entered the store.
+   * The cutoff is `settledAt`, not `suspendedAt`: retention promises how
+   * long a SETTLED record is kept, and measuring from the park would purge
+   * a record that parked for 89 days and settled on day 89 one day after
+   * it settled.
    */
   purgeSettled(before: Date): Promise<number>;
 

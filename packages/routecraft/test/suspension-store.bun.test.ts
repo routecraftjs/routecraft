@@ -605,9 +605,9 @@ function contractSuite(
     /**
      * @case Settled records are reclaimable, so a long-running process does
      *   not accumulate every exchange that ever suspended
-     * @preconditions One old settled record, one old still-parked record,
-     *   and one recently settled record
-     * @expectedResult Only the old settled one is purged
+     * @preconditions One record settled before the cutoff, one old
+     *   still-parked record, and one record settled after the cutoff
+     * @expectedResult Only the one settled before the cutoff is purged
      */
     test("purgeSettled reclaims settled records past the cutoff", async () => {
       store = await open();
@@ -616,7 +616,9 @@ function contractSuite(
       await store.create(record({ id: "old-settled", suspendedAt: old }));
       await store.create(record({ id: "old-parked", suspendedAt: old }));
       await store.create(record({ id: "recent-settled", suspendedAt: recent }));
-      await store.markResumed("old-settled", { at: new Date() });
+      await store.markResumed("old-settled", {
+        at: new Date("2026-07-02T09:00:00.000Z"),
+      });
       await store.claimExpiry("recent-settled", new Date());
       await store.markDenied("recent-settled", "cancelled");
 
@@ -628,6 +630,65 @@ function contractSuite(
       expect(await store.get("old-settled")).toBeUndefined();
       expect(await store.get("old-parked")).toBeDefined();
       expect(await store.get("recent-settled")).toBeDefined();
+    });
+
+    /**
+     * @case Retention is measured from settlement, not from the park
+     * @preconditions A record parked long before the cutoff that settled
+     *   after it (the day-89 shape: parked for months, resolved recently)
+     * @expectedResult The record survives the purge; measuring from
+     *   suspendedAt would have deleted it the day after it settled
+     */
+    test("purgeSettled keeps a long-parked, recently settled record", async () => {
+      store = await open();
+      await store.create(
+        record({
+          id: "parked-in-may",
+          suspendedAt: new Date("2026-05-01T09:00:00.000Z"),
+        }),
+      );
+      await store.markResumed("parked-in-may", {
+        at: new Date("2026-08-09T09:00:00.000Z"),
+      });
+
+      const purged = await store.purgeSettled(
+        new Date("2026-08-01T00:00:00.000Z"),
+      );
+
+      expect(purged).toBe(0);
+      const kept = await store.get("parked-in-may");
+      expect(kept?.status).toBe("resumed");
+      expect(kept?.settledAt?.toISOString()).toBe("2026-08-09T09:00:00.000Z");
+    });
+
+    /**
+     * @case Every terminal transition stamps the retention clock
+     * @preconditions One record resumed, one expired, one denied
+     * @expectedResult All three read back with a settledAt; the resumed one
+     *   equals the resumption time, the claim-finalized ones are stamped at
+     *   the write
+     */
+    test("markExpired and markDenied stamp settledAt at the write", async () => {
+      store = await open();
+      const floor = Date.now();
+      await store.create(record({ id: "r" }));
+      await store.create(record({ id: "e" }));
+      await store.create(record({ id: "d" }));
+      await store.markResumed("r", {
+        at: new Date("2026-08-11T09:00:00.000Z"),
+      });
+      await store.claimExpiry("e", new Date());
+      await store.markExpired("e");
+      await store.claimExpiry("d", new Date());
+      await store.markDenied("d", "cancelled");
+
+      expect((await store.get("r"))?.settledAt?.toISOString()).toBe(
+        "2026-08-11T09:00:00.000Z",
+      );
+      const expired = (await store.get("e"))?.settledAt;
+      const denied = (await store.get("d"))?.settledAt;
+      expect(expired?.getTime()).toBeGreaterThanOrEqual(floor);
+      expect(denied?.getTime()).toBeGreaterThanOrEqual(floor);
     });
 
     /**
@@ -717,6 +778,80 @@ describe("SqliteSuspensionStore durability", () => {
     await second.close();
 
     expect(summary.count).toBe(1);
+  });
+
+  /**
+   * @case A v3 database's settled rows gain a retention clock on upgrade
+   * @preconditions A hand-built schema-v3 database holding a resumed, an
+   *   expired, a denied, and a still-suspended row, then opened by this
+   *   build
+   * @expectedResult The v4 migration backfills settledAt from the best
+   *   evidence each status carries: resumed_at exactly, expires_at for an
+   *   expired row, suspended_at as the denied row's approximation; the
+   *   suspended row gains none, and purging honours the backfilled values
+   */
+  test("v4 migration backfills settledAt per status", async () => {
+    const path = join(scratch, "migrate-v3.db");
+    const { Database } = await import("bun:sqlite");
+    const db = new Database(path);
+    // The v3 schema verbatim: v1 DDL with the v2 and v3 alterations already
+    // applied, pinned here so this test keeps proving the v3 -> v4 step
+    // after future migrations move the head schema on.
+    db.exec(`CREATE TABLE suspensions (
+       id                 TEXT PRIMARY KEY,
+       route_id           TEXT    NOT NULL,
+       position           INTEGER NOT NULL,
+       continuation_hash  TEXT    NOT NULL,
+       action_fingerprint TEXT    NOT NULL,
+       exchange           TEXT    NOT NULL,
+       "schema"           TEXT    NOT NULL,
+       step_state         TEXT,
+       status             TEXT    NOT NULL,
+       suspended_at       INTEGER NOT NULL,
+       expires_at         INTEGER,
+       resumed_at         INTEGER,
+       resumed_by         TEXT,
+       denied_reason      TEXT,
+       terminal           TEXT,
+       claimed_at         INTEGER,
+       call_binding       TEXT,
+       meta               TEXT
+     );
+     CREATE INDEX suspensions_sweep ON suspensions (status, expires_at, id);
+     CREATE INDEX suspensions_pending ON suspensions (status, suspended_at);
+     PRAGMA user_version = 3;`);
+    const insert = db.prepare(
+      `INSERT INTO suspensions
+         (id, route_id, position, continuation_hash, action_fingerprint,
+          exchange, "schema", status, suspended_at, expires_at, resumed_at)
+       VALUES (?, 'payout', 1, 'c', 'f', '{"body":{},"headers":{}}',
+          '{"hash":"e","jsonSchema":{"type":"object"}}', ?, ?, ?, ?)`,
+    );
+    const parked = new Date("2026-05-01T09:00:00.000Z").getTime();
+    const due = new Date("2026-06-01T09:00:00.000Z").getTime();
+    const resumed = new Date("2026-08-09T09:00:00.000Z").getTime();
+    insert.run("was-resumed", "resumed", parked, null, resumed);
+    insert.run("was-expired", "expired", parked, due, null);
+    insert.run("was-denied", "denied", parked, null, null);
+    insert.run("still-parked", "suspended", parked, null, null);
+    db.close();
+
+    const store = await SqliteSuspensionStore.open({ path });
+    expect((await store.get("was-resumed"))?.settledAt?.getTime()).toBe(
+      resumed,
+    );
+    expect((await store.get("was-expired"))?.settledAt?.getTime()).toBe(due);
+    expect((await store.get("was-denied"))?.settledAt?.getTime()).toBe(parked);
+    expect((await store.get("still-parked"))?.settledAt).toBeUndefined();
+
+    // The recently resumed row survives a cutoff between its park and its
+    // settlement; the two backfilled to older evidence are reclaimed.
+    const purged = await store.purgeSettled(
+      new Date("2026-08-01T00:00:00.000Z"),
+    );
+    expect(purged).toBe(2);
+    expect((await store.get("was-resumed"))?.status).toBe("resumed");
+    await store.close();
   });
 });
 
