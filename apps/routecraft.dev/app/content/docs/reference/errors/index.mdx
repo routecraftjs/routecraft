@@ -799,6 +799,17 @@ Read the boundary log. It records which of the three happened and carries any th
 
 A door that declares no hook is bearer by design: any holder of a valid token may resume. If you did not intend that, the fix is a hook, not a config flag.
 
+## RC5057
+Suspension sequence header unusable
+
+**Why it happens**  
+The framework-owned `routecraft.suspension.sequence` header carries a value the park counter cannot use: a non-numeric or negative value, or one at the exhaustion bound, refused before the counter can ever store a value whose own increment would leave the safe-integer range. Headers are a writable bag, so a step (or an external system the headers were round-tripped through) can mangle this one like any other.
+
+It is a refusal rather than a reset on purpose. The suspension id derives from this counter, and resume tokens sign the id: a counter silently reset to zero re-derives an id an earlier park of the same exchange already used, and an old unspent resume link would then verify against the new park. The error is raised only on suspension surfaces (`ex.suspension`, or the park itself); routes that never touch suspension are unaffected by a mangled header.
+
+**Suggestion**  
+Find what overwrote the header. The usual culprit is code that rebuilds a headers object by hand or passes headers through an external system that coerces values to strings. If the message reports exhaustion rather than a malformed value, treat it the same way: the bound is not reachable by suspending in a loop, so a plausible-looking huge value is still corruption.
+
 ## RC9901
 Unknown error
 

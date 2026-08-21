@@ -309,6 +309,27 @@ describe("testFn - exercise fn handlers in isolation", () => {
   });
 
   /**
+   * @case A malformed ttl fails at the ctx.suspend call, not at park time
+   * @preconditions Handler calls ctx.suspend({ ttl: "3 days" }), which is
+   *   not a duration the grammar accepts
+   * @expectedResult RC5003 thrown from the handler's own call frame, same
+   *   as the production ctx.suspend, so a handler proven under testFn does
+   *   not fail later inside the agent runtime
+   */
+  test("testFn ctx.suspend rejects a malformed ttl with RC5003", async () => {
+    await expect(
+      testFn(
+        {
+          input: z.object({}),
+          handler: async (_input, ctx) =>
+            ctx.suspend({ ttl: "3 days" as never }),
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ rc: "RC5003" });
+  });
+
+  /**
    * @case testFn passes a real FnOptions value structurally without complaint
    * @preconditions FnOptions value (extra `description` field present)
    * @expectedResult testFn ignores `description`, runs schema + handler, returns output

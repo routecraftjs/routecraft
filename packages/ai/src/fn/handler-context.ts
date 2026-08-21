@@ -2,6 +2,7 @@ import {
   logger as frameworkLogger,
   isAuthentic,
   markAuthentic,
+  parseDuration,
   rcError,
   type Principal,
 } from "@routecraft/routecraft";
@@ -107,6 +108,12 @@ function makeSuspend(
           message: `ctx.suspend in tool "${toolName}": "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.`,
         });
       }
+    }
+    // Validated here, not only at signal conversion, so a malformed
+    // duration throws from the handler's own call frame instead of after
+    // the handler has already unwound.
+    if (options?.ttl !== undefined) {
+      parseDuration(options.ttl, `ctx.suspend({ ttl }) in tool "${toolName}"`);
     }
     return createSuspendSentinel(options ?? {});
   };

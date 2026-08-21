@@ -33,6 +33,19 @@ import type {
 export class MemorySuspensionStore implements SuspensionStore {
   readonly #records = new Map<string, Suspension>();
 
+  /**
+   * The live record map, bypassing the transitions and the clone-on-read
+   * boundary. A test seam: the purge contract must hold for states the
+   * public transitions cannot produce (a terminal record with no
+   * `settledAt`), and proving that on this backend requires injecting one.
+   * Sqlite's equivalent seam is raw SQL against the database file.
+   *
+   * @internal
+   */
+  static unsafeRecords(store: MemorySuspensionStore): Map<string, Suspension> {
+    return store.#records;
+  }
+
   async create(record: NewSuspension): Promise<void> {
     if (this.#records.has(record.id)) {
       throw rcError("RC5044", undefined, {
@@ -86,6 +99,7 @@ export class MemorySuspensionStore implements SuspensionStore {
     return this.#transition(id, {
       status: "resumed",
       resumedAt: resumption.at,
+      settledAt: resumption.at,
       ...(resumption.by ? { resumedBy: resumption.by } : {}),
     });
   }
@@ -95,7 +109,11 @@ export class MemorySuspensionStore implements SuspensionStore {
   }
 
   async markExpired(id: string): Promise<SuspensionCasResult> {
-    return this.#transition(id, { status: "expired" }, "expiring");
+    return this.#transition(
+      id,
+      { status: "expired", settledAt: new Date() },
+      "expiring",
+    );
   }
 
   async markDenied(id: string, reason?: string): Promise<SuspensionCasResult> {
@@ -103,6 +121,7 @@ export class MemorySuspensionStore implements SuspensionStore {
       id,
       {
         status: "denied",
+        settledAt: new Date(),
         ...(reason !== undefined ? { deniedReason: reason } : {}),
       },
       "expiring",
@@ -219,7 +238,12 @@ export class MemorySuspensionStore implements SuspensionStore {
         record.status !== "denied"
       )
         continue;
-      if (record.suspendedAt.getTime() >= before.getTime()) continue;
+      // A terminal record without settledAt is only reachable by injection
+      // around the transitions. Skipped, never dated by fallback: sqlite's
+      // NULL comparison skips the same row, and refusing to delete a record
+      // you cannot date beats purging it on the clock #634 removed.
+      if (record.settledAt === undefined) continue;
+      if (record.settledAt.getTime() >= before.getTime()) continue;
       this.#records.delete(id);
       purged++;
     }

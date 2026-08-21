@@ -27,14 +27,17 @@ const PATTERN = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/;
 /**
  * Resolve a {@link Duration} to milliseconds.
  *
+ * Exported so application code (a harness, a config loader, a route that
+ * computes a ttl) can validate a duration under exactly the rules the
+ * suspend surfaces apply, instead of re-implementing the grammar and
+ * drifting from it.
+ *
  * @param value - Milliseconds, or a duration string
  * @param field - Option name quoted in the error message
  * @returns The duration in milliseconds
  * @throws RC5003 when the value is not a duration an `expiresAt` `Date`
  *   can represent: at least one millisecond, and not past the end of the
  *   representable time range
- *
- * @internal
  */
 export function parseDuration(value: Duration, field: string): number {
   if (typeof value === "number") return assertRepresentable(value, field);

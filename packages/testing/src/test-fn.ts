@@ -2,6 +2,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   formatSchemaIssues,
   logger as defaultLogger,
+  parseDuration,
   rcError,
   type Duration,
 } from "@routecraft/routecraft";
@@ -138,6 +139,9 @@ export async function testFn<TIn, TOut>(
               'testFn: ctx.suspend "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.',
           });
         }
+      }
+      if (suspendOptions?.ttl !== undefined) {
+        parseDuration(suspendOptions.ttl, "testFn: ctx.suspend({ ttl })");
       }
       return {
         status: "suspend-requested",

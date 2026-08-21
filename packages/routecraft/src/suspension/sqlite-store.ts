@@ -37,7 +37,7 @@ export const DEFAULT_SUSPENSION_DB_PATH = ".routecraft/suspensions.db";
  * Schema version this build writes. Bumped whenever
  * {@link MIGRATIONS} grows an entry.
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /**
  * How long a writer waits for a competing write lock before giving up.
@@ -92,6 +92,21 @@ const MIGRATIONS: ReadonlyArray<string> = [
   `ALTER TABLE suspensions RENAME COLUMN "expect" TO "schema";
    ALTER TABLE suspensions ADD COLUMN call_binding TEXT;
    ALTER TABLE suspensions ADD COLUMN meta TEXT;`,
+  // v4: the retention clock. Retention used to be measured from
+  // suspended_at because no settlement timestamp existed, which purged a
+  // record that parked for 89 days and settled on day 89 one day later.
+  // Resumed rows backfill exactly from resumed_at. Expired and denied rows
+  // carry no trustworthy settlement evidence (expires_at is when an expired
+  // row came DUE, which a long outage puts far before the transition, and a
+  // denied row's deadline says nothing about when it was denied), so they
+  // take the migration moment and get one full retention window from the
+  // upgrade: longer residence, never a purge earlier than the new contract
+  // promises.
+  `ALTER TABLE suspensions ADD COLUMN settled_at INTEGER;
+   UPDATE suspensions SET settled_at = resumed_at WHERE status = 'resumed';
+   UPDATE suspensions SET settled_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+    WHERE status IN ('expired', 'denied');
+   CREATE INDEX suspensions_retention ON suspensions (status, settled_at);`,
 ];
 
 /**
@@ -237,9 +252,10 @@ export class SqliteSuspensionStore implements SuspensionStore {
     return this.#transition(
       id,
       `UPDATE suspensions
-          SET status = 'resumed', resumed_at = ?, resumed_by = ?
+          SET status = 'resumed', resumed_at = ?, settled_at = ?, resumed_by = ?
         WHERE id = ? AND status = 'suspended'`,
       [
+        resumption.at.getTime(),
         resumption.at.getTime(),
         resumption.by ? JSON.stringify(resumption.by) : null,
       ],
@@ -258,18 +274,18 @@ export class SqliteSuspensionStore implements SuspensionStore {
   async markExpired(id: string): Promise<SuspensionCasResult> {
     return this.#transition(
       id,
-      `UPDATE suspensions SET status = 'expired'
+      `UPDATE suspensions SET status = 'expired', settled_at = ?
         WHERE id = ? AND status = 'expiring'`,
-      [],
+      [Date.now()],
     );
   }
 
   async markDenied(id: string, reason?: string): Promise<SuspensionCasResult> {
     return this.#transition(
       id,
-      `UPDATE suspensions SET status = 'denied', denied_reason = ?
+      `UPDATE suspensions SET status = 'denied', denied_reason = ?, settled_at = ?
         WHERE id = ? AND status = 'expiring'`,
-      [reason ?? null],
+      [reason ?? null, Date.now()],
     );
   }
 
@@ -377,7 +393,7 @@ export class SqliteSuspensionStore implements SuspensionStore {
         .prepare(
           `DELETE FROM suspensions
           WHERE status IN ('resumed', 'expired', 'denied')
-            AND suspended_at < ?`,
+            AND settled_at < ?`,
         )
         .run(before.getTime());
       return (
@@ -582,6 +598,7 @@ interface SuspensionRow {
   suspended_at: number;
   expires_at: number | null;
   claimed_at: number | null;
+  settled_at: number | null;
   resumed_at: number | null;
   resumed_by: string | null;
   denied_reason: string | null;
@@ -610,6 +627,7 @@ function toSuspension(row: SuspensionRow): Suspension {
     suspendedAt: new Date(row.suspended_at),
     ...(row.expires_at !== null ? { expiresAt: new Date(row.expires_at) } : {}),
     ...(row.claimed_at != null ? { claimedAt: new Date(row.claimed_at) } : {}),
+    ...(row.settled_at != null ? { settledAt: new Date(row.settled_at) } : {}),
     ...(row.resumed_at !== null ? { resumedAt: new Date(row.resumed_at) } : {}),
     ...(row.resumed_by !== null
       ? { resumedBy: JSON.parse(row.resumed_by) as PrincipalRef }

@@ -24,6 +24,7 @@ import {
   type AgentResult,
   type FnHandlerContext,
 } from "../src/index.ts";
+import { makeFnHandlerContext } from "../src/fn/handler-context.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { Approval, MODEL, askFn } from "./helpers/suspend-fixtures.ts";
 
@@ -755,5 +756,33 @@ describe("agent durable suspension (ctx.suspend)", () => {
     const runtime = t.ctx.getStore(SUSPENSION_RUNTIME)!;
     const pending = await runtime.store.pending();
     expect(pending.count).toBe(0);
+  });
+
+  /**
+   * @case A malformed ttl is refused at the ctx.suspend call, before the
+   *   handler unwinds
+   * @preconditions A wired handler context (the dispatch could park); the
+   *   handler passes ttl: "3 days", which the duration grammar rejects
+   * @expectedResult RC5003 thrown synchronously from ctx.suspend itself,
+   *   with the tool named in the message, instead of surfacing later at
+   *   signal conversion with the framework's call frame
+   */
+  test("ctx.suspend rejects a malformed ttl with RC5003 at the call", () => {
+    const ctx = makeFnHandlerContext(
+      "ask",
+      new AbortController().signal,
+      undefined,
+      { id: "sus-1", mintToken: () => "token" },
+    );
+
+    expect(() => ctx.suspend({ ttl: "3 days" as never })).toThrow();
+    try {
+      ctx.suspend({ ttl: "3 days" as never });
+    } catch (error) {
+      expect(error).toMatchObject({ rc: "RC5003" });
+      expect(String((error as Error).message)).toContain('tool "ask"');
+    }
+    // The grammar's accepted forms still mint the sentinel.
+    expect(ctx.suspend({ ttl: "72h" }).status).toBe("suspend-requested");
   });
 });

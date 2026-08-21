@@ -354,6 +354,12 @@
     "retryable": false
   },
   {
+    "code": "RC5057",
+    "category": "Runtime",
+    "message": "Suspension sequence header unusable",
+    "retryable": false
+  },
+  {
     "code": "AI1001",
     "category": "Adapter",
     "message": "Agent block resolution failed",

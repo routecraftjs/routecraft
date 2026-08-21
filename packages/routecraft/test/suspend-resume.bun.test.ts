@@ -1304,3 +1304,102 @@ describe("suspend and resume", () => {
     expect((await backing.get(parked.suspensionId))?.terminal).toBeUndefined();
   });
 });
+
+describe("the suspension sequence guard", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case A missing sequence header is the counter at zero
+   * @preconditions Headers without the framework-owned sequence entry
+   * @expectedResult readSequence returns 0 and the derived id carries ~0,
+   *   because every exchange that has never parked legitimately carries no
+   *   counter
+   */
+  test("a missing header reads as zero", async () => {
+    const { readSequence, suspensionIdOf } =
+      await import("../src/suspension/exchange-state.ts");
+    expect(readSequence({})).toBe(0);
+    expect(suspensionIdOf({}, "ex-1")).toBe("ex-1~0");
+  });
+
+  /**
+   * @case A tampered sequence header refuses instead of resetting
+   * @preconditions Header values a counter cannot use: a string, a negative,
+   *   a float, and a non-safe integer
+   * @expectedResult RC5057 naming the header as malformed for each, never a
+   *   silent reset to 0: a reset re-derives an id an earlier park already
+   *   used, and resume tokens sign the id
+   */
+  test("a malformed header refuses with RC5057", async () => {
+    const { readSequence } =
+      await import("../src/suspension/exchange-state.ts");
+    const key = "routecraft.suspension.sequence";
+    for (const bad of ["3", -1, 1.5, Number.MAX_SAFE_INTEGER + 2]) {
+      try {
+        readSequence({ [key]: bad as never });
+        throw new Error(`accepted ${String(bad)}`);
+      } catch (error) {
+        expect(error).toMatchObject({ rc: "RC5057" });
+        expect(String((error as Error).message)).toContain("malformed");
+      }
+    }
+  });
+
+  /**
+   * @case Exhaustion is refused distinguishably, and the bound is coherent
+   * @preconditions The bound value, and the last acceptable value below it
+   * @expectedResult The bound refuses with an exhaustion message (not
+   *   "malformed"); its predecessor is accepted, and the successor a park
+   *   would write for it is exactly the bound, so the failure surfaces on
+   *   the next read instead of resetting
+   */
+  test("the exhaustion bound refuses distinguishably from tampering", async () => {
+    const { readSequence } =
+      await import("../src/suspension/exchange-state.ts");
+    const key = "routecraft.suspension.sequence";
+    const bound = Number.MAX_SAFE_INTEGER - 1;
+    try {
+      readSequence({ [key]: bound });
+      throw new Error("accepted the bound");
+    } catch (error) {
+      expect(error).toMatchObject({ rc: "RC5057" });
+      expect(String((error as Error).message)).toContain("exhausted");
+    }
+    expect(readSequence({ [key]: bound - 1 })).toBe(bound - 1);
+  });
+
+  /**
+   * @case A route that mangles the framework header cannot park
+   * @preconditions A step overwrites the sequence header with a string
+   *   before .suspend()
+   * @expectedResult The park fails with RC5057 as an ordinary step failure
+   *   (the exchange was never parked and no record exists), instead of
+   *   deriving a reused id from a reset counter
+   */
+  test("a park after header tampering fails with RC5057 and writes nothing", async () => {
+    t = await testContext()
+      .with(suspending())
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .header("routecraft.suspension.sequence", "oops")
+          .suspend({ schema: Approval })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    await expect(
+      t.client.sendDirect("payout", { amountCents: 1_000, payee: "acme" }),
+    ).rejects.toMatchObject({ rc: "RC5057" });
+
+    const runtime = t.ctx.getStore(SUSPENSION_RUNTIME)!;
+    expect((await runtime.store.pending()).count).toBe(0);
+  });
+});

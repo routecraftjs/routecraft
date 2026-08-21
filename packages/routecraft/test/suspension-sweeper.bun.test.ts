@@ -939,11 +939,15 @@ describe("the suspension sweeper", () => {
   test("purges settled records past retention at boot", async () => {
     const store = new MemorySuspensionStore();
     const day = 24 * 60 * 60 * 1000;
+    // Settled via markResumed because its resumption time is the one
+    // controllable settlement clock; retention measures settledAt, so a
+    // record merely PARKED 100 days ago would rightly be kept.
     await store.create(
       overdue("sus-ancient", { suspendedAt: new Date(Date.now() - 100 * day) }),
     );
-    await store.claimExpiry("sus-ancient", new Date());
-    await store.markExpired("sus-ancient");
+    await store.markResumed("sus-ancient", {
+      at: new Date(Date.now() - 100 * day),
+    });
     await store.create(
       overdue("sus-recent", {
         suspendedAt: new Date(Date.now() - day),
@@ -980,8 +984,9 @@ describe("the suspension sweeper", () => {
     await store.create(
       overdue("sus-ancient", { suspendedAt: new Date(Date.now() - 100 * day) }),
     );
-    await store.claimExpiry("sus-ancient", new Date());
-    await store.markExpired("sus-ancient");
+    await store.markResumed("sus-ancient", {
+      at: new Date(Date.now() - 100 * day),
+    });
 
     t = await testContext()
       .with(suspendingWith(store, { retention: "never" }))
