@@ -225,10 +225,12 @@ export class MemorySuspensionStore implements SuspensionStore {
         record.status !== "denied"
       )
         continue;
-      // Every terminal transition stamps settledAt; the fallback only
-      // covers a record injected by a test that bypassed the transitions.
-      const settled = record.settledAt ?? record.suspendedAt;
-      if (settled.getTime() >= before.getTime()) continue;
+      // A terminal record without settledAt is only reachable by injection
+      // around the transitions. Skipped, never dated by fallback: sqlite's
+      // NULL comparison skips the same row, and refusing to delete a record
+      // you cannot date beats purging it on the clock #634 removed.
+      if (record.settledAt === undefined) continue;
+      if (record.settledAt.getTime() >= before.getTime()) continue;
       this.#records.delete(id);
       purged++;
     }

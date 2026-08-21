@@ -204,10 +204,12 @@ export function suspensionIdOf(
  * lazy getter, and the park calls this on the way in), so an exchange with
  * a mangled header still flows through routes that never touch suspension.
  *
- * @throws RC5057 when the header holds a malformed value, or a value whose
- *   successor could not itself survive this guard (the exhaustion bound:
- *   accepting it would hand `sequence + 1` to a park that the next read
- *   rejects, which is the reset this function exists to refuse)
+ * @throws RC5057 when the header holds a malformed value, or a value at or
+ *   above the exhaustion bound (`MAX_SAFE_INTEGER - 1`). The bound sits one
+ *   below the safe-integer ceiling so every accepted value has a writable
+ *   successor; that successor may be the bound itself, in which case
+ *   exhaustion surfaces loudly on the read after the final park rather
+ *   than as the reset this function exists to refuse
  *
  * @internal
  */

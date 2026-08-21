@@ -781,6 +781,33 @@ describe("SqliteSuspensionStore durability", () => {
   });
 
   /**
+   * @case A terminal record that cannot be dated is skipped, not purged
+   * @preconditions A resumed record whose settled_at was nulled by hand,
+   *   which no public transition can produce
+   * @expectedResult purgeSettled leaves it in place, however generous the
+   *   cutoff. Refusing to delete a record you cannot date is the contract
+   *   both backends share: sqlite's NULL comparison and the memory store's
+   *   explicit skip must not diverge into a fallback on the old clock
+   */
+  test("purgeSettled skips a settled row with no settled_at", async () => {
+    const path = join(scratch, "undated.db");
+    const seed = await SqliteSuspensionStore.open({ path });
+    await seed.create(record({ id: "undated" }));
+    await seed.markResumed("undated", { at: new Date() });
+    await seed.close();
+
+    const { Database } = await import("bun:sqlite");
+    const db = new Database(path);
+    db.exec("UPDATE suspensions SET settled_at = NULL WHERE id = 'undated'");
+    db.close();
+
+    const store = await SqliteSuspensionStore.open({ path });
+    expect(await store.purgeSettled(new Date("2999-01-01"))).toBe(0);
+    expect((await store.get("undated"))?.status).toBe("resumed");
+    await store.close();
+  });
+
+  /**
    * @case A v3 database's settled rows gain a retention clock on upgrade
    * @preconditions A hand-built schema-v3 database holding a resumed, an
    *   expired, a denied, and a still-suspended row, then opened by this
