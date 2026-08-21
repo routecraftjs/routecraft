@@ -42,33 +42,42 @@ export interface SerializedExchange {
 }
 
 /**
- * How the expected-result schema is carried on a stored suspension.
+ * How the resume-payload schema is carried on a stored suspension.
  *
  * A Standard Schema is a live object with a validate function, so it cannot
  * be persisted. What is persisted is a reference: the `(routeId, position)`
- * pair on the record identifies the suspending step, whose live `expect`
- * schema is read back off the route at resume time, and `hash` is folded
- * into `continuationHash` so a schema that changed under a parked exchange
- * fails the compatibility check rather than validating against the wrong
+ * pair on the record identifies the suspending step, whose live `schema` is
+ * read back off the route at resume time, and `hash` is folded into
+ * `continuationHash` so a schema that changed under a parked exchange fails
+ * the compatibility check rather than validating against the wrong
  * contract.
  *
  * `jsonSchema` is populated opportunistically from the non-standard
  * `~standard.jsonSchema` extension that Zod, ArkType and the AI SDK bridge
  * expose. It is descriptive only: it tells a caller and an operator what a
- * valid answer looks like. Validation always runs against the live schema.
+ * a valid resume payload looks like. Validation always runs against the live schema.
+ *
+ * A site that declares NO schema still gets a descriptor, carrying
+ * {@link SuspensionSchema.absent}. That sentinel is deliberately distinct
+ * from the degraded fallback below: without it, editing a site from a
+ * declared-but-unrenderable schema to no schema at all would leave the
+ * digest unmoved, so a recipient told there was a contract would have their
+ * payload accepted unvalidated with no re-ask.
  */
-export interface SuspensionExpect {
-  /** Stable hash of the expected-result schema. */
+export interface SuspensionSchema {
+  /** Stable hash of the resume-payload schema, or the absent sentinel. */
   readonly hash: string;
+  /** Set when the site declared no schema at all. */
+  readonly absent?: boolean;
   /** JSON Schema rendering when the schema exposes one. Never used to validate. */
   readonly jsonSchema?: unknown;
   /**
    * Set when the schema advertised a `~standard.jsonSchema` extension that
-   * then produced nothing, so {@link SuspensionExpect.hash} identifies only
+   * then produced nothing, so {@link SuspensionSchema.hash} identifies only
    * the vendor rather than the contract.
    *
    * The consequence is worth stating where it is read: the step tail is
-   * still hashed, but a widened or narrowed `expect` on such a schema cannot
+   * still hashed, but a widened or narrowed schema of that kind cannot
    * move the digest, so a resume will not catch it. Zod throws for
    * unrepresentable types (a `Date`, a `bigint`, any `.transform()`), which
    * makes this reachable with an ordinary approval schema.
@@ -77,7 +86,7 @@ export interface SuspensionExpect {
 }
 
 /**
- * Audit record of who answered a suspension.
+ * Audit record of who resumed a suspension.
  *
  * A subset of `Principal` rather than the principal itself: the store is a
  * persistence surface, and a full principal carries claims, scopes and a
@@ -89,7 +98,7 @@ export interface PrincipalRef {
   readonly subject: string;
   readonly issuer?: string;
   readonly clientId?: string;
-  /** The outermost actor's subject when a delegate answered on someone's behalf. */
+  /** The outermost actor's subject when a delegate resumed on someone's behalf. */
   readonly actorSubject?: string;
 }
 
@@ -105,7 +114,7 @@ export interface SerializedOutcome {
    * work is neither finished nor failed. It is recorded distinctly because
    * calling it `completed` would tell a receipt, a dashboard, and every
    * duplicate resume that the work finished while it is still waiting on
-   * the next answer.
+   * the next resume.
    */
   readonly status: "completed" | "failed" | "dropped" | "suspended";
   /** Terminal body on a completed run. Plain JSON data, same rule as {@link SerializedExchange}. */
@@ -134,15 +143,52 @@ export interface Suspension {
   /** Index of the suspending step. Execution two resumes at `position + 1`. */
   readonly position: number;
   /**
-   * Hash over steps `position + 1` to the end of the pipeline plus the
-   * `expect` schema. Covers step DEFINITIONS only: what a `direct()` route
-   * the tail forwards to actually does, which version an adapter is on, and
-   * how an external system behaves can all change without moving this hash.
-   * See {@link continuationHash}.
+   * Hash over steps `position + 1` to the end of the pipeline, plus the
+   * resume-payload schema descriptor.
+   *
+   * {@link Suspension.meta} is deliberately NOT folded in. It lives only on
+   * the record, so it has no live copy to drift from: a parker that
+   * snapshots its policy there is protected by where the value lives rather
+   * than by a tamper check.
+   *
+   * Covers step DEFINITIONS only: what a `direct()` route the tail forwards
+   * to actually does, which version an adapter is on, and how an external
+   * system behaves can all change without moving this hash. See
+   * {@link continuationHash}.
    */
   readonly continuationHash: string;
   readonly exchange: SerializedExchange;
-  readonly expect: SuspensionExpect;
+  readonly schema: SuspensionSchema;
+  /**
+   * Whatever the suspending step attached at park, persisted verbatim and
+   * handed back to the resume route's `authorize` hook.
+   *
+   * The framework never reads it. Who may resume a parked run is the
+   * application's policy, and this is where the park carries whatever that
+   * policy needs: a channel name, the roles the parker required, an amount,
+   * a snapshot of the policy in force at park time. Subject to the same
+   * plain-JSON rule as the exchange (`RC5042`).
+   *
+   * On the agent surface it is supplied by a tool handler, which means the
+   * MODEL influenced it. Treat it as data the parker chose, not as a fact
+   * the framework vouches for.
+   */
+  readonly meta?: unknown;
+  /**
+   * Which call this record belongs to, when the suspending step mints one
+   * credential per call.
+   *
+   * A batch of parallel tool calls shares one record (one park) while each
+   * handler sends its own recipient a link. Only the call that actually won
+   * the park may be resumed, so its identity is recorded here and every
+   * credential carries the same value as its `sub` claim. A losing sibling's
+   * recipient then takes `RC5055` rather than resuming a park that was never
+   * theirs.
+   *
+   * Absent for an ordinary `.suspend()`, where there is nothing to
+   * disambiguate.
+   */
+  readonly callBinding?: string;
   /**
    * Opaque state owned by the suspending step. Absent for an ordinary step;
    * an agent step puts its messages thread and outstanding tool-call id
@@ -266,7 +312,7 @@ export interface SuspensionStore {
   get(id: string): Promise<Suspension | undefined>;
 
   /**
-   * Compare-and-swap `suspended` -> `resumed`, recording who answered and
+   * Compare-and-swap `suspended` -> `resumed`, recording who resumed it and
    * when. Exactly one concurrent caller wins.
    */
   markResumed(
@@ -323,7 +369,7 @@ export interface SuspensionStore {
 
   /**
    * Cache the terminal outcome of execution two so a duplicate resume can
-   * answer without re-running the continuation. Silently ignores an unknown
+   * reply without re-running the continuation. Silently ignores an unknown
    * id: the outcome is a convenience, and losing the race to a sweep must
    * not turn into a second failure on the way out.
    *

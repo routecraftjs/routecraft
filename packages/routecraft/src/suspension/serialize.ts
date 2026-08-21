@@ -137,6 +137,19 @@ export function encodePersistable(value: unknown, path: string): unknown {
 }
 
 /**
+ * The read half of {@link encodePersistable}: revive the reserved envelopes
+ * (a `Date` written by `encode`) in a stored free-form slot. `stepState` is
+ * the consumer, so a step-owned `Date` round-trips the same way an
+ * exchange-held one does rather than resurfacing as the raw envelope
+ * object.
+ *
+ * @internal
+ */
+export function decodePersistable(value: unknown): unknown {
+  return decode(value);
+}
+
+/**
  * Deep-check and copy `value` into JSON data, or throw `RC5042` naming the
  * exact path that failed.
  *

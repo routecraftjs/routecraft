@@ -79,7 +79,7 @@ export interface SuspensionConfig {
    * How long a suspension stays resumable when `.suspend()` names no `ttl`.
    *
    * Defaults to {@link DEFAULT_SUSPENSION_TTL}. Set `"never"` to opt a
-   * context out of default expiry entirely, which means an unanswered
+   * context out of default expiry entirely, which means an unresumed
    * suspension is kept until something else retires it.
    */
   defaultTtl?: Duration | "never";

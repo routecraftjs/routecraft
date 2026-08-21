@@ -20,6 +20,9 @@ import {
   resolveAdapterOverride,
   invokeSendOverride,
 } from "../testing-hooks.ts";
+import { SUSPEND_HOST } from "../dsl-symbol.ts";
+import type { SuspendCapableStep, SuspendSite } from "../suspension/sites.ts";
+import { convertSuspendSignal, isSuspendSignal } from "../suspension/signal.ts";
 
 /**
  * Function form of an enricher: receives the exchange and produces a value
@@ -173,10 +176,21 @@ export type EnrichAggregatorOption<T, R> =
  * REPLACES the body; pass an aggregator (`only()`, `none()`, or a custom
  * function) to merge instead.
  */
-export class EnrichStep<T = unknown, R = unknown> implements Step<Adapter> {
+export class EnrichStep<T = unknown, R = unknown>
+  implements Step<Adapter>, SuspendCapableStep
+{
   operation: OperationType = OperationType.ENRICH;
   adapter: Adapter;
   aggregator: EnrichAggregatorOption<T, R> | undefined;
+  /** Assigned by the suspend-site walk when the adapter is suspend-capable. */
+  suspendSite?: SuspendSite;
+  /** Why the walk refused a site (fan-out or sealed side flow), when it did. */
+  suspendRefusal?: string;
+
+  /** This step hosts its own suspend site; wrappers forward here. @internal */
+  [SUSPEND_HOST](): SuspendCapableStep {
+    return this;
+  }
 
   constructor(
     enricher: Enricher<T, R> | CallableEnricher<T, R>,
@@ -201,23 +215,33 @@ export class EnrichStep<T = unknown, R = unknown> implements Step<Adapter> {
     // Pull the enrichment data through the fetch slot (or the mock handler
     // when an override is registered).
     let enrichmentData: R;
-    if (override) {
-      enrichmentData = (await invokeSendOverride(
-        exchange,
-        this.adapter,
-        override,
-      )) as R;
-    } else {
-      if (!hasFetch<T, R>(this.adapter)) {
-        throw rcError("RC5003", undefined, {
-          message: "`.enrich()` target does not implement `fetch`",
-          suggestion:
-            "Enrichment pulls data in; pass an Enricher (fetch) or a function form. Push-out sends belong in `.to()` / `.tap()`",
-        });
+    try {
+      if (override) {
+        enrichmentData = (await invokeSendOverride(
+          exchange,
+          this.adapter,
+          override,
+        )) as R;
+      } else {
+        if (!hasFetch<T, R>(this.adapter)) {
+          throw rcError("RC5003", undefined, {
+            message: "`.enrich()` target does not implement `fetch`",
+            suggestion:
+              "Enrichment pulls data in; pass an Enricher (fetch) or a function form. Push-out sends belong in `.to()` / `.tap()`",
+          });
+        }
+        enrichmentData = await Promise.resolve(
+          this.adapter.fetch(exchange, toSignalContext(ctx)),
+        );
       }
-      enrichmentData = await Promise.resolve(
-        this.adapter.fetch(exchange, toSignalContext(ctx)),
-      );
+    } catch (err) {
+      // Converted here, inside the step, so a step-scope wrapper never
+      // observes the raw throw (a retry wrapper would re-run the adapter
+      // and charge the parked work twice).
+      if (isSuspendSignal(err)) {
+        return convertSuspendSignal(this, exchange, err);
+      }
+      throw err;
     }
 
     // The metadata rides the OUTCOME, not the step: Step instances are

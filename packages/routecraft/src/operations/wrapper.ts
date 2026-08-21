@@ -8,8 +8,13 @@ import {
   OperationType,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import { NESTED_STEPS } from "../dsl-symbol.ts";
-import { type NestedSteps, nestedStepsOf } from "../suspension/sites.ts";
+import { NESTED_STEPS, SUSPEND_HOST } from "../dsl-symbol.ts";
+import {
+  type NestedSteps,
+  type SuspendCapableStep,
+  nestedStepsOf,
+  suspendHostOf,
+} from "../suspension/sites.ts";
 
 /**
  * Operation kinds that resilience wrappers cannot safely wrap. Validated
@@ -108,6 +113,20 @@ export abstract class WrapperStep<
    */
   [NESTED_STEPS](): ReadonlyArray<NestedSteps> {
     return nestedStepsOf(this.inner);
+  }
+
+  /**
+   * Forward the suspend-host protocol to the inner step, for the same
+   * reason nested steps are forwarded: the suspend-site walk sees the
+   * wrapper (which delegates the inner adapter, so the capability brand is
+   * visible), but the site must land on the instance whose `execute`
+   * converts the suspend signal, which is the innermost `.to()` /
+   * `.enrich()` step.
+   *
+   * @internal
+   */
+  [SUSPEND_HOST](): SuspendCapableStep | undefined {
+    return suspendHostOf(this.inner);
   }
 
   constructor(protected readonly inner: Step<T>) {

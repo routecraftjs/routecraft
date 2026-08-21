@@ -2,9 +2,40 @@ import {
   logger as frameworkLogger,
   isAuthentic,
   markAuthentic,
+  rcError,
   type Principal,
 } from "@routecraft/routecraft";
-import type { FnHandlerContext } from "./types.ts";
+import {
+  createSuspendSentinel,
+  type AgentSuspendOptions,
+  type AgentSuspendSentinel,
+} from "../agent/suspend.ts";
+import type { FnHandlerContext, FnSuspensionView } from "./types.ts";
+// Registers AI1006, thrown from the default suspend refusal below.
+import "../errors.ts";
+
+/**
+ * What the agent tool bridge wires into a handler context when the
+ * dispatch can actually park: the dispatching exchange's suspension
+ * identity. Absent on every other surface, which is what makes
+ * `ctx.suspend` a typed refusal there.
+ *
+ * @internal
+ */
+export interface FnSuspensionWiring {
+  /** Id the dispatching exchange would park as. */
+  readonly id: string;
+  /**
+   * Mint the signed resume token for that id (lazily; may throw RC5052).
+   *
+   * Bound to THIS tool call. Every handler in a parallel batch reads the
+   * same suspension id (they name the park, not the call) but gets its own
+   * credential, so a recipient sent a link by a handler that then lost the
+   * park cannot resume the winner's park: their token carries the losing
+   * call's binding and takes `RC5055`.
+   */
+  readonly mintToken: () => string;
+}
 
 /**
  * Construct the synthetic `FnHandlerContext` handed to a tool's guard
@@ -12,9 +43,15 @@ import type { FnHandlerContext } from "./types.ts";
  * and by the MCP server for proxied-tool guards. Mirrors the shape
  * `testFn` provides: `logger`, `abortSignal`, optional `principal`
  * (carried over from the dispatching exchange or the MCP caller so
- * guards can authorise without re-reading the source request),
- * optional `correlationId` (not yet populated by the runtime), and
- * optional `checkpointId` (durable-agents epic).
+ * guards can authorise without re-reading the source request), and
+ * optional `correlationId` (not yet populated by the runtime).
+ *
+ * `suspension` wires the durable-suspension affordances: with it,
+ * `ctx.suspend()` mints the sentinel the bridge converts into a park and
+ * `ctx.suspensionId` / `ctx.suspension` carry the dispatching exchange's
+ * suspension identity. Without it (proxied MCP tool guards, synthetic
+ * dispatches), `ctx.suspend()` refuses with `AI1006` at the moment it is
+ * called, before anything could be written.
  *
  * Intentionally does not expose the framework `CraftContext` to tool
  * handlers; built-in tool builders that need to forward to a route
@@ -27,11 +64,62 @@ export function makeFnHandlerContext(
   toolName: string,
   abortSignal: AbortSignal,
   principal: Principal | undefined,
+  suspension?: FnSuspensionWiring,
 ): FnHandlerContext {
   return {
     logger: frameworkLogger.child({ tool: toolName }),
     abortSignal,
     ...(principal ? { principal: freezePrincipal(principal) } : {}),
+    ...(suspension
+      ? {
+          suspensionId: suspension.id,
+          suspension: makeSuspensionView(suspension),
+          suspend: makeSuspend(toolName),
+        }
+      : { suspend: makeSuspendRefusal(toolName) }),
+  };
+}
+
+/** @internal */
+function makeSuspensionView(wiring: FnSuspensionWiring): FnSuspensionView {
+  return {
+    id: wiring.id,
+    // A getter, like `ex.suspension.token`: minting reads the context's
+    // signer, and a handler that never builds a resume link should not pay
+    // for (or fail on) it.
+    get token(): string {
+      return wiring.mintToken();
+    },
+  };
+}
+
+/** @internal */
+function makeSuspend(
+  toolName: string,
+): (options?: AgentSuspendOptions) => AgentSuspendSentinel {
+  return (options) => {
+    if (options?.schema !== undefined) {
+      const validate = (
+        options.schema as { ["~standard"]?: { validate?: unknown } }
+      )?.["~standard"]?.validate;
+      if (typeof validate !== "function") {
+        throw rcError("RC5003", undefined, {
+          message: `ctx.suspend in tool "${toolName}": "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.`,
+        });
+      }
+    }
+    return createSuspendSentinel(options ?? {});
+  };
+}
+
+/** @internal */
+function makeSuspendRefusal(
+  toolName: string,
+): (options?: AgentSuspendOptions) => AgentSuspendSentinel {
+  return () => {
+    throw rcError("AI1006", undefined, {
+      message: `ctx.suspend in tool "${toolName}": durable suspension is only available inside an agent dispatch on a route-bound exchange. This dispatch has no exchange to park (a proxied MCP tool guard, a synthetic test dispatch), so nothing was written.`,
+    });
   };
 }
 

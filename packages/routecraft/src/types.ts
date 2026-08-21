@@ -554,12 +554,12 @@ export interface EventDetailsMap {
   "route:exchange:resumed": ExchangeScoped & {
     suspensionId: string;
     position: number;
-    /** Who answered, when the resume ingress had an authenticated principal. */
+    /** Who resumed it, when the resume ingress had an authenticated principal. */
     resumedBy?: PrincipalRef;
   };
   /**
    * A suspension stopped being resumable because its `ttl` elapsed. Fires
-   * when a late answer discovers it, and (once the sweeper lands) when the
+   * when a late resume discovers it, and (once the sweeper lands) when the
    * sweeper reaches it first. The suspended route's error channel receives
    * `RC5047` alongside, which is where a re-ask belongs.
    */

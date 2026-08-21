@@ -56,7 +56,11 @@ export class MemorySuspensionStore implements SuspensionStore {
           continuationHash: record.continuationHash,
           actionFingerprint: record.actionFingerprint,
           exchange: record.exchange,
-          expect: record.expect,
+          schema: record.schema,
+          ...(record.callBinding !== undefined
+            ? { callBinding: record.callBinding }
+            : {}),
+          ...(record.meta !== undefined ? { meta: record.meta } : {}),
           ...(record.stepState !== undefined
             ? { stepState: record.stepState }
             : {}),
@@ -322,12 +326,15 @@ function compareIds(a: string, b: string): number {
  * @internal
  */
 function normalise(record: Suspension): Suspension {
-  return record.stepState === undefined
-    ? record
-    : {
-        ...record,
-        stepState: encodePersistable(record.stepState, "stepState"),
-      };
+  return {
+    ...record,
+    ...(record.stepState !== undefined
+      ? { stepState: encodePersistable(record.stepState, "stepState") }
+      : {}),
+    ...(record.meta !== undefined
+      ? { meta: encodePersistable(record.meta, "meta") }
+      : {}),
+  };
 }
 
 /**

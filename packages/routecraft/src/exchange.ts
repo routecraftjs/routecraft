@@ -278,14 +278,14 @@ export type Exchange<T = unknown> = {
 
   /**
    * Durable-suspension view of this exchange: the id and signed token it
-   * would park as, and (after a resume) the answer that revived it.
+   * would park as, and (after a resume) the payload that revived it.
    *
    * Sugar over the `routecraft.suspension.*` headers plus the context's
    * token signer, in the same shape as `principal` and `logger`. Readable
    * before the `.suspend()` runs, which is what lets a notification step
    * earlier in the pipeline send a working resume link.
    *
-   * `result` is `unknown` here; `.suspend({ expect })` narrows it to the
+   * `result` is `unknown` here; `.suspend({ schema })` narrows it to the
    * schema's output type for every step after the suspend.
    */
   readonly suspension: SuspensionAffordance;
@@ -406,6 +406,22 @@ type ExchangeInternals = {
    * @internal
    */
   suspended?: boolean;
+  /**
+   * Step-owned closure state read back off a suspension record, set by the
+   * resume path just before a re-entrant continuation runs. The suspending
+   * step reads it without consuming ({@link peekResumeStepState}) and the
+   * executor clears it when that step settles, so a retried attempt still
+   * resumes while a second dispatch of the same step later in the
+   * continuation starts fresh instead of resuming again.
+   *
+   * On internals rather than headers deliberately: it is runtime context
+   * for exactly one step execution on this process, not exchange state, and
+   * it must never be re-serialized into the next park (the step builds a
+   * fresh stepState for that).
+   *
+   * @internal
+   */
+  resumeStepState?: unknown;
 };
 
 /**
@@ -476,6 +492,46 @@ export function getExchangeRoute(exchange: Exchange): Route | undefined {
 export function setExchangeRoute(exchange: Exchange, route: Route): void {
   const internals = internalsOf(exchange);
   if (internals) internals.route = route;
+}
+
+/**
+ * Attach a suspension record's `stepState` for the re-entrant step about to
+ * re-run. Set by the resume path; read by {@link peekResumeStepState} and
+ * cleared by the executor once that step settles.
+ *
+ * @internal
+ */
+export function setResumeStepState(exchange: Exchange, state: unknown): void {
+  const internals = internalsOf(exchange);
+  if (internals) internals.resumeStepState = state;
+}
+
+/**
+ * The step state a resume attached for the re-entrant step about to re-run,
+ * or `undefined` when this execution is not resuming that step.
+ *
+ * A suspend-capable adapter (see {@link markSuspendCapable}) calls this at
+ * the top of its execution to decide between a fresh run and a resumed one.
+ * Reading does NOT consume the state: the executor clears it when the step
+ * settles, so a step-scope or route-scope `.retry()` re-running a failed
+ * resume attempt still sees it, while a later suspend-capable step in the
+ * same continuation (or a fresh park by the same step) starts clean.
+ */
+export function peekResumeStepState(exchange: Exchange): unknown {
+  return internalsOf(exchange)?.resumeStepState;
+}
+
+/**
+ * Drop the resume step state once the re-entrant host step has settled
+ * (any committed outcome: success, drop, or a fresh suspend). Called by the
+ * pipeline executor, never by adapters; a thrown failure leaves the state
+ * in place so a retry of the attempt can still resume.
+ *
+ * @internal
+ */
+export function clearResumeStepState(exchange: Exchange): void {
+  const internals = internalsOf(exchange);
+  if (internals) internals.resumeStepState = undefined;
 }
 
 /**

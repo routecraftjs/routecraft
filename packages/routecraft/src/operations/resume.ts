@@ -4,7 +4,9 @@ import {
   DefaultExchange,
   OperationType,
   getExchangeContext,
+  getExchangeRoute,
 } from "../exchange.ts";
+import { isRestored } from "../auth/restored.ts";
 import { toSignalContext } from "../types.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import {
@@ -13,12 +15,13 @@ import {
   reviveSuspension,
 } from "../suspension/revive.ts";
 import { principalRef } from "../suspension/principal-ref.ts";
+import type { ResumeAuthorizer } from "../suspension/authorize.ts";
 
 /**
- * Maps the ingress exchange to the suspension it answers.
+ * Maps the ingress exchange to the suspension it resumes.
  *
  * The preferred form of `.resume()`, because the ingress transport decides
- * where the token and the answer actually live: a token in a mail subject
+ * where the token and the payload actually live: a token in a mail subject
  * line and a verdict in the first line of the reply, a chat webhook's
  * button payload, an ops CLI's flags.
  *
@@ -35,18 +38,46 @@ export interface ResumeAdapter extends Adapter {
 }
 
 /**
+ * Options for `.resume()`.
+ */
+export interface ResumeOptions {
+  /**
+   * Decides whether the principal presenting this token may resume the
+   * suspension it names.
+   *
+   * The framework has no model of what makes a resuming principal
+   * legitimate, so it does not ship one. What it guarantees is the part an
+   * application cannot build from outside: this runs BEFORE the store's
+   * compare-and-swap, so a "no" never spends the rightful principal's
+   * single-use link, and before the record's lifecycle is disclosed, so a
+   * refused caller learns nothing about it.
+   *
+   * Receives the live principal (whatever this route's `.authenticate()`
+   * resolved, or undefined when it resolved nobody), the parked principal
+   * restored from storage, the raw submitted payload, and the record's
+   * context, including the `meta` the suspend site attached. Never the
+   * parked body.
+   *
+   * Omitted, the door is bearer: any holder of a valid token may resume.
+   * That is the historical behaviour and it stays the default, so securing
+   * a resume ingress is a thing you do, not a thing you inherit.
+   */
+  authorize?: ResumeAuthorizer;
+}
+
+/**
  * Step that revives a parked exchange addressed by a signed token.
  *
  * It addresses an EXCHANGE, not a route. `direct("x")` names a route and
  * enters it through its source; resume names one parked exchange and
  * re-enters its pipeline partway down. That is why a Gmail-born exchange
- * can be continued by a WhatsApp-born answer: the original source takes no
+ * can be continued by a WhatsApp-born resume: the original source takes no
  * part in execution two, and sources create exchanges rather than revive
  * them.
  *
  * The revived route runs to completion before this step resolves, so the
  * acknowledgment it puts in the ingress body reports how execution two
- * actually ended. That is also what makes a duplicate answer cheap: it
+ * actually ended. That is also what makes a duplicate resume cheap: it
  * returns the cached terminal outcome of the first one instead of running
  * anything.
  */
@@ -56,7 +87,23 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
     adapterId: "routecraft.operation.resume",
   };
 
-  constructor(private readonly mapper?: ResumeMapper<In>) {}
+  /** The door's own authorization policy, when it declares one. */
+  readonly authorize?: ResumeAuthorizer;
+
+  constructor(
+    private readonly mapper?: ResumeMapper<In>,
+    options?: ResumeOptions,
+  ) {
+    if (options?.authorize !== undefined) {
+      if (typeof options.authorize !== "function") {
+        throw rcError("RC5003", undefined, {
+          message:
+            ".resume({ authorize }) must be a function receiving { principal, parked, payload, record } and returning a boolean (or a promise of one).",
+        });
+      }
+      this.authorize = options.authorize;
+    }
+  }
 
   async execute(exchange: Exchange, ctx: StepContext): Promise<StepOutcome> {
     const context = getExchangeContext(exchange);
@@ -70,11 +117,29 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
       });
     }
 
+    const signalCtx = toSignalContext(ctx) as {
+      readonly signal?: AbortSignal;
+    };
+    // The hook's bound is the route's stop signal as well as an enclosing
+    // .timeout(): ctx.signal is populated only by a route-scope timeout, so
+    // racing the hook against that alone leaves a resume route without one
+    // unable to interrupt a hook that never settles, and an unsettled hook
+    // holds the step, which holds drain().
+    const route = getExchangeRoute(exchange);
+    const bounds = [route?.signal, signalCtx.signal].filter(
+      (candidate): candidate is AbortSignal => candidate !== undefined,
+    );
+    const hookSignal = bounds.length > 1 ? AbortSignal.any(bounds) : bounds[0];
+    // Only a principal this ingress verified live may stand as the resuming
+    // party. A revived exchange carries its parked principal back marked
+    // restored, so a route that both suspends and resumes would otherwise
+    // hand the hook storage data under a contract that says verified live.
+    const live =
+      exchange.principal && !isRestored(exchange.principal)
+        ? exchange.principal
+        : undefined;
     const request = this.mapper
-      ? await this.mapper(
-          exchange as Exchange<In>,
-          toSignalContext(ctx) as { readonly signal?: AbortSignal },
-        )
+      ? await this.mapper(exchange as Exchange<In>, signalCtx)
       : fromBody(exchange);
 
     const acknowledgment: ResumeAcknowledgment = await reviveSuspension(
@@ -82,12 +147,22 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
       {
         ...request,
         // The ingress route's principal is the one worth recording: it was
-        // verified live here, on the route that accepted the answer, unlike
-        // anything read back out of the store. An explicit `resumedBy` from
-        // the mapper wins, for an ops tool answering on someone's behalf.
-        ...(request.resumedBy === undefined && exchange.principal
-          ? { resumedBy: principalRef(exchange.principal) }
+        // verified live here, on the route that accepted the submission,
+        // unlike anything read back out of the store. An explicit
+        // `resumedBy` from the mapper wins, for an ops tool resuming on
+        // someone's behalf.
+        ...(request.resumedBy === undefined && live
+          ? { resumedBy: principalRef(live) }
           : {}),
+      },
+      // The door's own facts, kept OFF the mapper's request on purpose. The
+      // mapper shapes a transport payload, which is exactly what an attacker
+      // controls; letting it name the principal or supply the hook would let
+      // the untrusted half of an ingress choose what the trusted half checks.
+      {
+        ...(this.authorize !== undefined ? { authorize: this.authorize } : {}),
+        ...(live ? { principal: live } : {}),
+        ...(hookSignal ? { signal: hookSignal } : {}),
       },
     );
 
@@ -124,7 +199,7 @@ function fromBody(exchange: Exchange): ResumeRequest {
   ) {
     throw rcError("RC5041", undefined, {
       message:
-        "Bare .resume() expects the body to already be shaped { token, result }. Map it explicitly with .resume((ex) => ({ token, result })) when the ingress carries the answer in its own shape.",
+        "Bare .resume() expects the body to already be shaped { token, result }. Map it explicitly with .resume((ex) => ({ token, result })) when the ingress carries the payload in its own shape.",
     });
   }
   return { token: body.token, result: body.result };

@@ -26,16 +26,15 @@ export const SuspensionHeaders = {
    * clones an exchange (`.tap()`, `.multicast()`). A clone gets a fresh
    * `routecraft.id` by design, so without this a token minted inside a
    * `.tap()` notification would name a suspension that never exists. The
-   * canonical "tell the approver before parking" step is exactly such a
-   * tap, so the affordance follows this key back to the exchange that will
+   * canonical "notify before parking" step is exactly such a tap, so the affordance follows this key back to the exchange that will
    * actually park.
    */
   OWNER: "routecraft.suspension.owner",
-  /** The validated answer, written by the resume path before the continuation runs. */
+  /** The validated resume payload, written by the resume path before the continuation runs. */
   RESULT: "routecraft.suspension.result",
-  /** Who answered, recorded for audit. */
+  /** Who resumed it, recorded for audit. */
   RESUMED_BY: "routecraft.suspension.resumedBy",
-  /** When the answer was accepted. */
+  /** When the resume was accepted. */
   RESUMED_AT: "routecraft.suspension.resumedAt",
 } as const satisfies Record<string, string>;
 
@@ -61,10 +60,10 @@ declare module "@routecraft/routecraft" {
  * `result`, `resumedBy` and `resumedAt` are the other half: they are absent
  * on execution one and populated by the resume path before the continuation
  * runs. `result` is typed `unknown` here and narrowed by the builder, which
- * threads the `expect` schema's output type into every step after the
+ * threads the `schema` option's output type into every step after the
  * `.suspend()`, the way `.input()` types the body.
  *
- * @template R - The expected result type, threaded in by `.suspend({ expect })`
+ * @template R - The resume payload type, threaded in by `.suspend({ schema })`
  */
 export interface SuspensionAffordance<R = unknown> {
   /** Id of the suspension this exchange would park as (or parked as). */
@@ -77,11 +76,29 @@ export interface SuspensionAffordance<R = unknown> {
    * @throws RC5052 when the context has no suspension runtime configured.
    */
   readonly token: string;
-  /** The validated answer. Present only after a resume. */
+  /**
+   * A resume token bound to one specific call on this record.
+   *
+   * Only a step that can raise several calls against one park needs this:
+   * the agent tier's parallel tool batch is the shipped case, where every
+   * handler sees the same suspension id (it names the park, not the call)
+   * and each sends its own recipient a link. Binding the credential to the
+   * call means the handler that then LOSES the park cannot have its
+   * recipient resume the winner's park; they take `RC5055` instead.
+   *
+   * The binding is checked against what the record actually parked with, so
+   * minting one here without the park recording the same value refuses
+   * every resume. Plain `.suspend()` sites use {@link
+   * SuspensionAffordance.token}.
+   *
+   * @throws RC5052 when the context has no suspension runtime configured.
+   */
+  readonly tokenFor: (callBinding: string) => string;
+  /** The validated resume payload. Present only after a resume. */
   readonly result: R;
-  /** Who answered. Present only after a resume, and only when the ingress route had a principal. */
+  /** Who resumed it. Present only after a resume, and only when the ingress route had a principal. */
   readonly resumedBy: PrincipalRef | undefined;
-  /** When the answer was accepted. Present only after a resume. */
+  /** When the resume was accepted. Present only after a resume. */
   readonly resumedAt: Date | undefined;
 }
 
@@ -108,18 +125,36 @@ export function suspensionAffordance(
 ): SuspensionAffordance {
   const sequence = readSequence(headers);
   const id = suspensionIdOf(headers, exchangeId);
+  const mint = (callBinding?: string): string => {
+    const runtime = context?.getStore(SUSPENSION_RUNTIME);
+    if (!runtime) {
+      throw rcError("RC5052", undefined, {
+        message:
+          "Cannot mint a resume token: this context has no suspension runtime. Add suspension: {} to defineConfig.",
+      });
+    }
+    return runtime.signer.mint(id, new Date(), callBinding);
+  };
   return {
     id,
     sequence,
     get token(): string {
-      const runtime = context?.getStore(SUSPENSION_RUNTIME);
-      if (!runtime) {
-        throw rcError("RC5052", undefined, {
+      return mint();
+    },
+    // Checked rather than left to the type: the whole point of this member
+    // is that the credential names a call, and an untyped caller reaching it
+    // through a loosely typed boundary must not be able to get an unbound
+    // one from it. Silently minting one would produce a link that refuses
+    // every resume with RC5055, pointing at the holder rather than at the
+    // call site that asked for a binding it did not have.
+    tokenFor: (callBinding: string): string => {
+      if (typeof callBinding !== "string") {
+        throw rcError("RC5003", undefined, {
           message:
-            "Cannot mint a resume token: this context has no suspension runtime. Add suspension: {} to defineConfig.",
+            "ex.suspension.tokenFor(callBinding) requires the call binding as a string. Use ex.suspension.token for an unbound resume token.",
         });
       }
-      return runtime.signer.mint(id);
+      return mint(callBinding);
     },
     result: headers[SuspensionHeaders.RESULT],
     resumedBy: headers[SuspensionHeaders.RESUMED_BY],

@@ -24,6 +24,10 @@ type NonChainField =
   | "consumer"
   | "discovery"
   | "suspendSteps"
+  // Site bookkeeping like suspendSteps: which steps could park, not a
+  // chain position. A detached run reaches those steps through its own
+  // step array, and each host carries its site on the instance.
+  | "reentrantSuspendSteps"
   | "usesResume"
   // Metadata mirrored to sources (transport admission), not a chain
   // position: the authorize steps it describes already answer for
@@ -105,7 +109,7 @@ export const CHAIN_SURVIVAL: Readonly<
   preParseFilters: {
     resume: {
       survives: false,
-      why: "authorize (#2). A principal restored from the store fails RC5043 by design (#355), so re-running it would refuse every resume. The answerer is authorized live at the resume ingress.",
+      why: "authorize (#2). A principal restored from the store fails RC5043 by design (#355), so re-running it would refuse every resume. The resuming principal is authorized live at the resume ingress.",
     },
     debounce: {
       survives: false,

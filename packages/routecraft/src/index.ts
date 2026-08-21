@@ -48,6 +48,7 @@ export {
   type HeaderLiteral,
   isDropped,
   OperationType,
+  peekResumeStepState,
   wasOutputValidated,
   type RoutecraftHeaders,
 } from "./exchange.ts";
@@ -253,7 +254,7 @@ export {
 export { type HeaderSetter } from "./operations/header.ts";
 
 export { type SuspendOptions } from "./operations/suspend.ts";
-export { type ResumeMapper } from "./operations/resume.ts";
+export { type ResumeMapper, type ResumeOptions } from "./operations/resume.ts";
 
 export { type CallableAuthenticator } from "./operations/authenticate.ts";
 
@@ -568,12 +569,18 @@ export type {
 export {
   DEFAULT_SUSPENSION_DB_PATH,
   MemorySuspensionStore,
+  SUSPENDED_JSON_SCHEMA,
   SUSPENSION_RUNTIME,
   SUSPENSION_SECRET_ENV,
   SUSPENSION_STORE_ENV,
   SqliteSuspensionStore,
+  SuspendSignal,
   SuspensionHeaders,
+  isSuspendSignal,
   isSuspended,
+  markSuspendCapable,
+  routeCanSuspend,
+  suspendedSchema,
   suspensionPlugin,
 } from "./suspension/index.ts";
 export type {
@@ -581,18 +588,23 @@ export type {
   DurationUnit,
   ExpiredScanCursor,
   NewSuspension,
+  SuspendSignalRequest,
+  SuspendSite,
   PendingSuspensionSummary,
   PrincipalRef,
   ResumeAcknowledgment,
+  ResumeAuthorizer,
+  ResumeAuthorizerInput,
   ResumeRequest,
   Suspended,
+  SuspensionRecordView,
   SuspensionAffordance,
   SerializedExchange,
   SerializedOutcome,
   Suspension,
   SuspensionCasResult,
   SuspensionConfig,
-  SuspensionExpect,
+  SuspensionSchema,
   SuspensionResumption,
   SuspensionRuntime,
   SuspensionStatus,

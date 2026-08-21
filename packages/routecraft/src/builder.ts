@@ -1728,8 +1728,13 @@ export class RouteBuilder<
       // that cannot be revived is refused, so it runs on every build rather
       // than only when the route turns out to suspend. It runs BEFORE the
       // cache check, which reads what it resolved.
-      const suspendSteps = resolveSuspendSites(route);
-      if (suspendSteps.length > 0) route.suspendSteps = suspendSteps;
+      const sites = resolveSuspendSites(route);
+      if (sites.suspendSteps.length > 0) {
+        route.suspendSteps = sites.suspendSteps;
+      }
+      if (sites.reentrantSuspendSteps.length > 0) {
+        route.reentrantSuspendSteps = sites.reentrantSuspendSteps;
+      }
       if (usesResume(route)) route.usesResume = true;
       assertRouteScopeCacheCompatibility(route);
     }

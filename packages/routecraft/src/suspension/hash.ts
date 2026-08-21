@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { getAdapterArgs } from "../adapters/shared/factory-tag.ts";
 import type { Adapter, Step } from "../types.ts";
-import type { SerializedExchange, SuspensionExpect } from "./types.ts";
+import type { SerializedExchange, SuspensionSchema } from "./types.ts";
 
 /**
  * Hash the continuation of a parked exchange: the steps that have NOT run
- * yet, plus the schema the eventual answer is validated against.
+ * yet, plus the schema the eventual resume payload is validated against.
  *
  * ## Why the tail and not the pipeline
  *
@@ -25,6 +25,15 @@ import type { SerializedExchange, SuspensionExpect } from "./types.ts";
  * deliberate, and the mitigations are the catchable error-channel re-ask
  * path and `actionFingerprint`'s audit binding. Never describe the hash as
  * covering more than step definitions.
+ *
+ * Option VALUES have their own residue, and it is narrower than it looks.
+ * `describable` projects the carriers an adapter option realistically names
+ * a target with (string, number, boolean, `Date`, `URL`, `RegExp`, `Map`,
+ * `Set`, arrays, plain objects), but any other class instance collapses to
+ * `[opaque]` and anything nested five deep collapses to `[deep]`. Two
+ * options differing only there hash alike, so an adapter that hides its
+ * target inside a bespoke config class is outside the compatibility check.
+ * Prefer plain options on a route that suspends.
  *
  * ## What makes it move
  *
@@ -69,21 +78,35 @@ import type { SerializedExchange, SuspensionExpect } from "./types.ts";
  * line endings and build settings; the configuration reference says so for
  * users.
  *
- * @param steps - The full step array of the route, in declaration order.
- * @param position - Index of the suspending step. The hash covers
- *   `position + 1` onward.
- * @param expect - The expected-result schema descriptor.
+ * @param tail - Steps from the one after the suspending step to the end.
+ * @param schema - The resume-payload schema descriptor.
  * @returns A hex SHA-256 digest.
  *
  * @internal
  */
-export function continuationHash(
-  steps: ReadonlyArray<Step<Adapter>>,
-  position: number,
-  expect: SuspensionExpect,
+
+/**
+ * Hash an already-resolved continuation tail. The tail is exactly what a
+ * resume would run, which for a static `.suspend()` is the steps after it
+ * and for a re-entrant site includes the suspending step itself at its
+ * head. Same digest as {@link continuationHash} over the equivalent slice,
+ * so records parked before this helper existed keep verifying.
+ *
+ * @internal
+ */
+export function continuationTailHash(
+  tail: ReadonlyArray<Step<Adapter>>,
+  schema: SuspensionSchema,
 ): string {
-  const tail = steps.slice(position + 1).map(describeStep);
-  return sha256(canonical({ tail, expect: expect.hash }));
+  return sha256(
+    canonical({
+      tail: tail.map(describeStep),
+      // Kept under the historical key so a digest computed before the
+      // rename verifies unchanged. The wire and the record moved; this
+      // string is an internal hash input nobody reads.
+      expect: schema.hash,
+    }),
+  );
 }
 
 /**
@@ -106,14 +129,23 @@ export function continuationHash(
  * resolves either. Storing the unresolved function instead would be
  * quietly destructive twice over: it cannot be persisted, and it hashes to
  * the same digest for EVERY schema, which silently disables the
- * changed-`expect` half of the compatibility check.
+ * changed-schema half of the compatibility check.
  *
- * @param schema - The `expect` schema declared on `.suspend()`.
+ * A site that declares NO schema gets the absent sentinel rather than an
+ * empty descriptor. The two are different facts and must hash differently:
+ * "declared a schema whose rendering was lost" still validates the payload at
+ * resume, while "declared nothing" does not, so collapsing them would let an
+ * edit between the two pass the compatibility check unnoticed.
+ *
+ * @param schema - The `schema` declared on `.suspend()`, if any.
  * @returns A serializable descriptor of the schema.
  *
  * @internal
  */
-export function describeExpect(schema: StandardSchemaV1): SuspensionExpect {
+export function describeSchema(schema?: StandardSchemaV1): SuspensionSchema {
+  if (!schema) {
+    return { hash: sha256(canonical({ absent: true })), absent: true };
+  }
   const standard = (
     schema as {
       "~standard"?: {
@@ -177,7 +209,7 @@ const JSON_SCHEMA_TARGET = "draft-2020-12";
  * the options argument; the first covers one that requires it. Both matter
  * because an arm that yields nothing does not merely lose the rendering: the
  * descriptor falls back to vendor and version, which is identical for every
- * schema that vendor produces, so the changed-`expect` half of the
+ * schema that vendor produces, so the changed-schema half of the
  * compatibility check goes silently dead.
  *
  * @internal
@@ -307,9 +339,29 @@ function describable(value: unknown, depth = 0): unknown {
   // would let the tail's actual target change under a parked approval.
   if (kind === "function") return sourceOf(value as object);
   if (value instanceof Date) return value.toISOString();
+  // Carriers an adapter option realistically uses to name its target. Left
+  // to the opaque collapse below they would all hash alike, so a payee
+  // spelled `new URL(...)` could be edited under a parked approval without
+  // moving the digest.
+  if (value instanceof URL) return `[url:${value.href}]`;
+  if (value instanceof RegExp) return `[regexp:${value.source}/${value.flags}]`;
   // Bound the walk: a deeply nested or self-referential options object must
-  // not turn hashing a route into a graph traversal.
+  // not turn hashing a route into a graph traversal. Above every branch that
+  // recurses, collections included, or a cycle through a Map never reaches it.
   if (depth >= 4) return "[deep]";
+  if (value instanceof Map) {
+    return {
+      "[map]": [...value].map(([key, entry]) => [
+        describable(key, depth + 1),
+        describable(entry, depth + 1),
+      ]),
+    };
+  }
+  if (value instanceof Set) {
+    return {
+      "[set]": [...value].map((entry) => describable(entry, depth + 1)),
+    };
+  }
   if (Array.isArray(value)) {
     return value.map((entry) => describable(entry, depth + 1));
   }

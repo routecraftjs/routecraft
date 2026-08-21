@@ -1,24 +1,113 @@
+import type { Duration } from "@routecraft/routecraft";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+
 /**
- * Signal raised by a fn handler when it cannot complete synchronously
- * and the agent's tool-loop should pause until an external event (a
- * human reply, a webhook, a long-running batch result) supplies the
- * answer.
+ * Cross-instance brand for {@link AgentSuspendSentinel}, `Symbol.for`-keyed
+ * so duplicate copies of this package in one process agree on it.
  *
- * **Stub today.** This type is exported so user code that wants to be
- * forward-compatible with the durable-agents epic can throw it, but no
- * runtime path catches it yet. When the durable epic lands, the agent
- * runtime will catch this error, persist the message thread, and
- * return `{ status: "suspended", checkpointId }` to the calling route
- * instead of an `AgentResult`. See the durable-agents tracking issue
- * for the full design.
+ * @internal
+ */
+const SUSPEND_SENTINEL_BRAND = Symbol.for("routecraft.ai.agentSuspendSentinel");
+
+/**
+ * What a fn handler passes to `ctx.suspend()`: the same pieces the core
+ * `.suspend({ schema, ttl, meta })` operation declares, so an agent-raised
+ * suspension and a route-raised one are the same record with the same
+ * options.
+ */
+export interface AgentSuspendOptions {
+  /**
+   * What a valid resume payload looks like. Rendered onto the `Suspended`
+   * acknowledgment (so the caller can see the shape) and folded into the
+   * suspension's compatibility hash.
+   *
+   * Descriptive at resume time, unlike the core operation's `schema`: the
+   * live schema exists only in this handler's code, so after a restart the
+   * framework cannot re-validate against it and the payload reaches the
+   * model as an ordinary, untrusted tool result. Treat it accordingly.
+   */
+  schema?: StandardSchemaV1;
+  /**
+   * How long the suspension stays resumable (e.g. `"72h"`). Omitted means
+   * the context's `defaultTtl`. Expiry re-enters the route's error channel
+   * with `RC5047`, exactly as with the core operation.
+   */
+  ttl?: Duration;
+  /**
+   * Anything the resuming route needs to decide who may resume, or that an
+   * operator needs to read off the record.
+   *
+   * Identical to the core `.suspend({ meta })` option, deliberately: an
+   * agent-raised suspension and a route-raised one are the same record with
+   * the same policy point, so there is no agent-shaped variant to learn.
+   * Plain JSON, persisted verbatim, never interpreted by the framework, and
+   * handed to `.resume({ authorize })` at revive.
+   *
+   * A tool handler supplies it, which means the MODEL influenced it. Design
+   * the resuming route's hook so it does not trust this text on its own.
+   */
+  meta?: unknown;
+}
+
+/**
+ * The value `ctx.suspend()` returns and a suspending handler returns to the
+ * runtime. Opaque by convention: return it as-is, immediately. The type is
+ * structural (so test harnesses can produce a compatible shape without
+ * depending on this package), and the runtime check is the brand the
+ * factory applies.
+ */
+export interface AgentSuspendSentinel {
+  readonly status: "suspend-requested";
+  /** What the handler asked for. Read by the agent runtime at the park. */
+  readonly request: AgentSuspendOptions;
+}
+
+/**
+ * Mint the sentinel `ctx.suspend()` hands back. Branded so the tool bridge
+ * recognises it without shape-sniffing a result a tool could also produce.
  *
- * Until then, throwing this is a normal error and behaves like any
- * other tool failure (feeds back to the model for self-correction).
+ * @internal
+ */
+export function createSuspendSentinel(
+  request: AgentSuspendOptions,
+): AgentSuspendSentinel {
+  const sentinel: AgentSuspendSentinel = {
+    status: "suspend-requested",
+    request,
+  };
+  (sentinel as unknown as Record<symbol, boolean>)[SUSPEND_SENTINEL_BRAND] =
+    true;
+  return sentinel;
+}
+
+/**
+ * Whether a tool handler's return value is the `ctx.suspend()` sentinel.
  *
- * For human-in-the-loop flows where waits are short (seconds to
- * minutes), the recommended pattern is to write a tool handler that
- * blocks on the answer (`await pollUntilReply(...)`); the agent's
- * await chain holds the loop in memory until the tool resolves.
+ * @internal
+ */
+export function isSuspendSentinel(
+  value: unknown,
+): value is AgentSuspendSentinel {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Record<symbol, unknown>)[SUSPEND_SENTINEL_BRAND] === true
+  );
+}
+
+/**
+ * Escape-hatch signal: throw from a fn handler to suspend the agent's tool
+ * loop when returning is impossible (the suspension decision is made deep
+ * inside a call stack that cannot thread a return value out).
+ *
+ * **Prefer `ctx.suspend()`**, which is the documented path. Control flow
+ * through exceptions has a footgun this class cannot remove: a handler that
+ * wraps its work in `try/catch` will silently swallow a thrown suspension
+ * and carry on, handing the model a garbage tool result instead of parking
+ * the run. The sentinel return cannot be swallowed that way.
+ *
+ * Outside an agent dispatch (a proxied MCP tool guard, `testFn`), throwing
+ * this behaves like any other error.
  *
  * @example
  * ```ts
@@ -26,13 +115,10 @@
  *
  * const askApproval: FnOptions = {
  *   description: "Ask a human for approval via email",
- *   input: z.object({ question: z.string() }),
+ *   input: z.object({ request: z.string() }),
  *   handler: async (input, ctx) => {
- *     await sendApprovalRequest({
- *       question: input.question,
- *       callbackUrl: `${baseUrl}/resume/${ctx.checkpointId}`,
- *     })
- *     throw new SuspendError({ reason: "awaiting-human-approval" })
+ *     await sendApprovalRequest({ request: input.request, ctx })
+ *     throw new SuspendError({ schema: Approval, ttl: "72h" })
  *   },
  * }
  * ```
@@ -41,29 +127,21 @@ export class SuspendError extends Error {
   /** Discriminator for runtime detection. */
   override readonly name = "SuspendError";
   /**
-   * Optional reason string surfaced in telemetry and the eventual
-   * suspended-agent record. Free-form; pick whatever your product
-   * vocabulary uses ("awaiting-human-approval", "waiting-for-webhook",
-   * etc.).
+   * What a valid resume payload looks like. Absent, the suspension declares
+   * no contract at all and the payload reaches the model unvalidated, which
+   * is the trust level every tool result already has.
    */
-  readonly reason?: string;
-  /**
-   * Optional channel hint indicating how the agent will be resumed.
-   * Surfaces in telemetry and lets the surrounding route decide how
-   * to react (e.g. return `202 Accepted` to the HTTP client).
-   */
-  readonly resumeChannel?: string;
+  readonly schema?: StandardSchemaV1;
+  /** How long the suspension stays resumable. Omitted means the context default. */
+  readonly ttl?: Duration;
+  /** Policy inputs the parker attached. See {@link AgentSuspendOptions.meta}. */
+  readonly meta?: unknown;
 
-  constructor(opts?: { reason?: string; resumeChannel?: string }) {
-    super(
-      opts?.reason
-        ? `Agent suspended: ${opts.reason}`
-        : "Agent suspended pending external resumption.",
-    );
-    if (opts?.reason !== undefined) this.reason = opts.reason;
-    if (opts?.resumeChannel !== undefined) {
-      this.resumeChannel = opts.resumeChannel;
-    }
+  constructor(opts?: AgentSuspendOptions) {
+    super("Agent suspended pending external resumption.");
+    if (opts?.schema !== undefined) this.schema = opts.schema;
+    if (opts?.ttl !== undefined) this.ttl = opts.ttl;
+    if (opts?.meta !== undefined) this.meta = opts.meta;
   }
 }
 

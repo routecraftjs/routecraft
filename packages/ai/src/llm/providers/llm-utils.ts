@@ -80,6 +80,36 @@ export function assertLanguageModelShape(
   }
 }
 
+/**
+ * Sum token usage across the model calls of one dispatch, over every field
+ * `LlmUsage` declares (cache tokens included). A field absent on both sides
+ * stays absent, so a provider that never reports it does not fabricate a 0.
+ *
+ * @internal
+ */
+export function addUsage(
+  total: LlmUsage | undefined,
+  step: LlmUsage | undefined,
+): LlmUsage | undefined {
+  if (!step) return total;
+  if (!total) return { ...step };
+  const sum = (a?: number, b?: number): number | undefined =>
+    a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
+  const fields = [
+    "inputTokens",
+    "outputTokens",
+    "totalTokens",
+    "cacheReadTokens",
+    "cacheWriteTokens",
+  ] as const;
+  const out: Record<string, number> = {};
+  for (const field of fields) {
+    const value = sum(total[field], step[field]);
+    if (value !== undefined) out[field] = value;
+  }
+  return out as LlmUsage;
+}
+
 /** Pass through AI SDK usage into LlmUsage, including cache token details when present. */
 export function toLlmUsage(u: {
   inputTokens?: number | undefined;

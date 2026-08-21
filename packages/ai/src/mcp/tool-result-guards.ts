@@ -2,6 +2,7 @@ import {
   isDropped,
   isSuspended,
   rcError,
+  suspendedSchema,
   validateAgainst,
   wasOutputValidated,
   type Exchange,
@@ -19,20 +20,25 @@ import "../errors.ts";
  * {@link enforceAdvertisedOutput} accepts a body matching any of them, so the
  * promise and its enforcement cannot drift apart.
  *
- * One arm today. A route with a reachable durable `.suspend()` answers with
- * the framework's `Suspended` acknowledgment rather than its declared output,
- * which {@link enforceAdvertisedOutput} accepts. Advertising that second arm
- * as `oneOf: [Output, Suspended]` is still open: it needs a schema for the
- * acknowledgment and a signal that a route can park, neither of which core
- * exposes yet. Adding the arm here will teach both sides at once.
+ * A route that can park (a static `.suspend()` site, or a suspend-capable
+ * agent step) answers execution one with the framework's `Suspended`
+ * acknowledgment rather than its declared output, so its contract is the
+ * union: `tools/list` publishes `oneOf: [Output, Suspended]` and the
+ * enforcement accepts either arm. The author still declares only
+ * `.output(Output)`; the second arm is derived.
  *
  * Empty when the route declares no `.output({ body })`: nothing is advertised,
- * so nothing is enforced.
+ * so nothing is enforced, suspendable or not (advertising a Suspended-only
+ * schema would oblige every ordinary run of that tool to carry
+ * structuredContent it does not have).
  */
 export function advertisedOutputArms(
   entry: McpLocalToolEntry,
 ): StandardSchemaV1[] {
-  return entry.output?.body ? [entry.output.body] : [];
+  if (!entry.output?.body) return [];
+  return entry.suspendable
+    ? [entry.output.body, suspendedSchema]
+    : [entry.output.body];
 }
 
 /**

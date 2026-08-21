@@ -48,6 +48,8 @@ export {
   type TestFnHandlerContext,
   type TestFnOptions,
   type TestFnSpec,
+  type TestFnSuspendOptions,
+  type TestFnSuspendSentinel,
 } from "./test-fn";
 
 /**
@@ -112,6 +114,9 @@ export function fixtureEach<T extends FixtureWithName>(
     test(entry.name, () => run(entry));
   }
 }
+
+// Durable-suspension test helpers shared by core and ecosystem suites
+export { asSuspended, suspending } from "./suspension";
 
 // Subscription builder for driving source adapters directly in unit tests
 export {

@@ -1,5 +1,6 @@
 import {
   rcError,
+  routeCanSuspend,
   type Exchange,
   type Source,
   type Subscription,
@@ -117,6 +118,15 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     if (discovery?.title !== undefined) entry.title = discovery.title;
     if (discovery?.input !== undefined) entry.input = discovery.input;
     if (discovery?.output !== undefined) entry.output = discovery.output;
+    // A route that can park answers execution one with the framework's
+    // Suspended acknowledgment instead of its declared output, so the
+    // server must advertise the union. Static `.suspend()` sites are
+    // definite; a suspend-capable step (an agent) only MAY park, and the
+    // over-approximation is the honest direction for a client.
+    const definition = context.getRouteById(endpoint)?.definition;
+    if (definition && routeCanSuspend(definition)) {
+      entry.suspendable = true;
+    }
 
     // Derive the MCP tool annotation hints from the route's tags so the same
     // fact (does this tool mutate state? is it idempotent? does it reach

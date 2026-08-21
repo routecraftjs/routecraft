@@ -23,7 +23,11 @@ import { TransformStep, mapper } from "./operations/transform.ts";
 import { ValidateStep, schema } from "./operations/validate.ts";
 import { log, debug, type LogOptions } from "./adapters/log/index.ts";
 import { SuspendStep, type SuspendOptions } from "./operations/suspend.ts";
-import { ResumeStep, type ResumeMapper } from "./operations/resume.ts";
+import {
+  ResumeStep,
+  type ResumeMapper,
+  type ResumeOptions,
+} from "./operations/resume.ts";
 import type { ResumeAcknowledgment } from "./suspension/revive.ts";
 
 // ---------------------------------------------------------------------------
@@ -163,7 +167,13 @@ registerDsl("suspend", {
 registerDsl("resume", {
   kind: "process",
   label: "resume",
-  factory: (mapper?: ResumeMapper) => new ResumeStep(mapper),
+  factory: (mapper?: ResumeMapper | ResumeOptions, options?: ResumeOptions) =>
+    typeof mapper === "function"
+      ? new ResumeStep(mapper, options)
+      : // `.resume({ authorize })` puts the options first; `.resume(undefined,
+        // { authorize })` is the same door written the long way, and both
+        // have to reach the step or a declared hook is silently dropped.
+        new ResumeStep(undefined, mapper ?? options),
 });
 
 // ---------------------------------------------------------------------------
@@ -244,20 +254,22 @@ declare module "@routecraft/routecraft" {
      * Park the exchange durably and exit the pipeline, to be resumed later
      * at the next step.
      *
-     * This run ends here and answers immediately with the `Suspended`
+     * This run ends here and replies immediately with the `Suspended`
      * acknowledgment, because a durable suspend cannot hold a caller: the
-     * answer arrives in hours or days and the process will be restarted
-     * first. Nothing is scheduled, no worker waits, and the route stays
-     * live for every other exchange. The route's real output flows to its
-     * destinations on execution two, when `.resume()` revives the exchange
-     * with the answer.
+     * resume payload arrives in hours or days and the process will be
+     * restarted first. Nothing is scheduled, no worker waits, and the route
+     * stays live for every other exchange. The route's real output flows to
+     * its destinations on execution two, when `.resume()` revives the
+     * exchange with the payload.
      *
      * The body is unchanged across the park, so a branch that suspends
-     * rejoins the main flow with the contract it left on. The answer
-     * arrives beside it, on `ex.suspension.result`, typed by `expect`.
+     * rejoins the main flow with the contract it left on. The payload
+     * arrives beside it, on `ex.suspension.result`, typed by `schema`.
      *
-     * @param options - `expect` (what a valid answer looks like) and an
-     *   optional `ttl` after which the suspension stops being resumable
+     * @param options - `schema` (what a valid resume payload looks like), a
+     *   `ttl` after which the suspension stops being resumable, and `meta`:
+     *   anything the resuming route's `.resume({ authorize })` hook needs to
+     *   decide who may resume
      * @example
      * ```ts
      * craft()
@@ -268,7 +280,7 @@ declare module "@routecraft/routecraft" {
      *     when((ex) => ex.body.amountCents >= 50_000, (b) =>
      *       b
      *         .tap(direct("notify-approver"))
-     *         .suspend({ expect: Approval, ttl: "72h" })
+     *         .suspend({ schema: Approval, ttl: "72h" })
      *         .filter((ex) =>
      *           ex.suspension.result.approved
      *             ? true
@@ -280,7 +292,7 @@ declare module "@routecraft/routecraft" {
      * ```
      */
     suspend<Schema extends StandardSchemaV1>(
-      options: SuspendOptions<Schema>,
+      options?: SuspendOptions<Schema>,
     ): Retyped<this, SetSuspension<S, StandardSchemaV1.InferOutput<Schema>>>;
 
     /**
@@ -290,25 +302,30 @@ declare module "@routecraft/routecraft" {
      * ending in `.resume()` is a resume ingress, whether it is fed by an
      * HTTP webhook, a mail-reply parser, or an ops CLI. The original source
      * takes no part in execution two, which is what lets a mail-born
-     * exchange be continued by a chat-born answer.
+     * exchange be continued by a chat-born resume.
      *
-     * The mapping function owns SHAPE (find the token, build the candidate
-     * answer); validation against the suspending step's `expect` happens at
-     * revival, because only the suspension knows that schema. The bare form
-     * expects the body to already be `{ token, result }`.
+     * The mapping function owns SHAPE (find the token, build the payload);
+     * validation against the suspending step's `schema` happens at revival,
+     * because only the suspension knows that schema. The bare form expects
+     * the body to already be `{ token, result }`.
      *
-     * Authorizing the answerer belongs on this route (`.authorize()`,
-     * sender verification, a per-approver link): the token proves the
-     * deployment minted it, not that its holder may answer. Whoever the
-     * route authenticated is recorded on the suspension as `resumedBy`.
+     * Authorizing the resuming principal belongs on this route, through the
+     * `authorize` option: the token proves the deployment minted it, not
+     * that its holder may resume. The hook runs before the store's claim
+     * and before the record's lifecycle is disclosed, so a refusal costs
+     * the rightful principal nothing and tells a refused caller nothing.
+     * Whoever this route authenticated is recorded as `resumedBy`. A door
+     * exposed publicly wants a `.throttle()` in front of it.
      *
      * The revived route runs to completion before this step continues, so
      * the acknowledgment placed in the body reports how execution two
-     * ended, and the ingress route can answer the approver's own channel.
-     * A duplicate answer returns the first one's cached terminal outcome
+     * ended, and the ingress route can reply on the caller's own channel.
+     * A duplicate resume returns the first one's cached terminal outcome
      * without re-running anything.
      *
      * @param map - Maps the ingress exchange to `{ token, result }`
+     * @param options - `authorize`, deciding who may resume. Omitted, the
+     *   door is bearer: any holder of a valid token may resume.
      * @example
      * ```ts
      * craft()
@@ -327,6 +344,10 @@ declare module "@routecraft/routecraft" {
         exchange: ExchangeOf<S>,
         ctx?: { readonly signal?: AbortSignal },
       ) => ReturnType<ResumeMapper<S["body"]>>,
+      options?: ResumeOptions,
+    ): Retyped<this, SetBody<S, ResumeAcknowledgment>>;
+    resume(
+      options: ResumeOptions,
     ): Retyped<this, SetBody<S, ResumeAcknowledgment>>;
   }
 }

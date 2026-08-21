@@ -51,6 +51,7 @@ export const navigation = [
         title: 'Judging Agent Results',
         href: '/docs/advanced/judging-agent-results',
       },
+      { title: 'Durable Agents', href: '/docs/advanced/durable-agents' },
       {
         title: 'Securing capabilities',
         href: '/docs/advanced/securing-capabilities',

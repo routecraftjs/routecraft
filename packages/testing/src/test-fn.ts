@@ -3,6 +3,7 @@ import {
   formatSchemaIssues,
   logger as defaultLogger,
   rcError,
+  type Duration,
 } from "@routecraft/routecraft";
 
 /**
@@ -27,6 +28,35 @@ export interface TestFnSpec<TIn, TOut> {
 export interface TestFnHandlerContext {
   logger: ReturnType<typeof defaultLogger.child>;
   abortSignal: AbortSignal;
+  /**
+   * Structural twin of the production `ctx.suspend`: returns a sentinel
+   * shaped like the one the agent runtime parks on, so a unit test can
+   * assert that a handler asked to suspend (and with what) without
+   * standing up an agent loop. Nothing is parked under `testFn`; drive the
+   * handler through a route to exercise the durable path.
+   */
+  suspend: (options?: TestFnSuspendOptions) => TestFnSuspendSentinel;
+}
+
+/**
+ * Structural twin of the agent tier's suspend options. Kept structural so
+ * this package carries no dependency on `@routecraft/ai`; a real
+ * `AgentSuspendOptions` value satisfies it.
+ */
+export interface TestFnSuspendOptions {
+  schema?: StandardSchemaV1;
+  ttl?: Duration;
+  meta?: unknown;
+}
+
+/**
+ * What {@link TestFnHandlerContext.suspend} returns: the same structural
+ * shape as the agent runtime's sentinel, carrying the request back to the
+ * test for assertion.
+ */
+export interface TestFnSuspendSentinel {
+  readonly status: "suspend-requested";
+  readonly request: TestFnSuspendOptions;
 }
 
 /**
@@ -94,6 +124,26 @@ export async function testFn<TIn, TOut>(
   const ctx: TestFnHandlerContext = {
     logger: options.logger ?? defaultLogger.child({ test: "fn" }),
     abortSignal: options.signal ?? new AbortController().signal,
+    suspend: (suspendOptions) => {
+      // Same refusal as the production ctx.suspend (RC5003 from
+      // makeSuspend), so a handler exercised in isolation cannot pass with
+      // a suspension request the agent runtime would reject.
+      if (suspendOptions?.schema !== undefined) {
+        const validate = (
+          suspendOptions.schema as { ["~standard"]?: { validate?: unknown } }
+        )?.["~standard"]?.validate;
+        if (typeof validate !== "function") {
+          throw rcError("RC5003", undefined, {
+            message:
+              'testFn: ctx.suspend "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.',
+          });
+        }
+      }
+      return {
+        status: "suspend-requested",
+        request: suspendOptions ?? {},
+      };
+    },
   };
 
   const validated = "value" in result ? (result.value as TIn) : (input as TIn);

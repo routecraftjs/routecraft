@@ -1,5 +1,7 @@
 import {
   HeadersKeys,
+  SuspendSignal,
+  isSuspendSignal,
   rcError,
   type CraftContext,
   type Exchange,
@@ -11,10 +13,20 @@ import type {
   LlmModelConfig,
   LlmResult,
   LlmToolCallSummary,
+  LlmUsage,
 } from "../llm/types.ts";
 import { toAiOutputSpec } from "../llm/structured-output.ts";
 import type { AgentDeltaListener } from "./events.ts";
-import { buildVercelTools } from "./tool-bridge.ts";
+import { buildVercelTools, type AgentSuspensionBridge } from "./tool-bridge.ts";
+import {
+  SIBLING_SUSPENDED_MESSAGE,
+  pickWinningSignal,
+  replaceToolResultOutput,
+  type AgentStepState,
+  type AgentSuspendSignalRecord,
+  type ThreadMessage,
+} from "./suspension-state.ts";
+import { addUsage } from "../llm/providers/llm-utils.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
   AgentOptions,
@@ -109,9 +121,98 @@ export interface AgentSessionInput {
   /**
    * Dispatch identity used to emit `route:<routeId>:agent:*` events
    * on the context bus. Undefined for synthetic exchanges with no
-   * route binding.
+   * route binding: a deliberate arm meaning "synthetic or test
+   * dispatch", under which observability events are skipped and any
+   * suspension signal is refused with AI1006 at the moment it is
+   * raised (nothing is ever written).
    */
   readonly dispatchIdentity: AgentDispatchIdentity | undefined;
+  /**
+   * Durable-suspension wiring for this dispatch, present only when the
+   * exchange is route-bound (so it can actually park). Carries the
+   * suspension identity `ctx.suspend` / `ctx.suspension` are served from
+   * and the agent identity persisted into `stepState`.
+   */
+  readonly suspension?: AgentSessionSuspension;
+  /**
+   * Mid-loop state to re-enter after a resume: the persisted messages
+   * thread (with the suspended call's answer already swapped in) and the
+   * turns the run had spent before it parked. A park is not a fresh
+   * dispatch, so the `maxTurns` budget continues rather than resetting.
+   */
+  readonly resume?: AgentSessionResume;
+}
+
+/**
+ * Suspension identity for one dispatch. See
+ * {@link AgentSessionInput.suspension}.
+ *
+ * @internal
+ */
+export interface AgentSessionSuspension {
+  /** Id the dispatching exchange would park as (or parked as). */
+  readonly id: string;
+  /**
+   * Mint the signed resume token for that id, bound to one tool call
+   * (lazily; may throw RC5052).
+   *
+   * Per call, not per park: a parallel batch produces one record and one
+   * park, so a handler that sends a recipient a link and then loses the
+   * park must not have handed out a credential that resumes the winner's
+   * park.
+   */
+  readonly mintToken: (callBinding: string) => string;
+  /**
+   * Identity written into `stepState.agentId` and verified at
+   * rehydration: the registered agent name, or the route id for inline
+   * agents.
+   */
+  readonly agentId: string;
+}
+
+/**
+ * Mid-loop state a resumed dispatch re-enters with. See
+ * {@link AgentSessionInput.resume}.
+ *
+ * @internal
+ */
+export interface AgentSessionResume {
+  readonly messages: readonly ThreadMessage[];
+  readonly turnsUsed: number;
+  /** Token spend accumulated before the park, when any call reported one. */
+  readonly usage?: LlmUsage;
+}
+
+/**
+ * The structured cause on an `AI1005` cancellation error: what the run had
+ * spent when the abort discarded it, as typed fields rather than prose.
+ *
+ * Consumers read it off the error's `cause`:
+ *
+ * ```ts
+ * if (isRcError(err, "AI1005") && err.cause instanceof AgentCancellationCause) {
+ *   report(err.cause.turnsUsed, err.cause.usage);
+ * }
+ * ```
+ */
+export class AgentCancellationCause extends Error {
+  /** Full model turns completed before the abort. */
+  readonly turnsUsed: number;
+  /** Token spend accumulated across the completed model calls, if any reported. */
+  readonly usage?: LlmUsage;
+
+  constructor(reason: unknown, turnsUsed: number, usage: LlmUsage | undefined) {
+    super(
+      reason instanceof Error
+        ? reason.message
+        : reason !== undefined && reason !== null
+          ? String(reason)
+          : "cancelled",
+    );
+    this.name = "AgentCancellationCause";
+    this.turnsUsed = turnsUsed;
+    if (usage) this.usage = usage;
+  }
 }
 
 /**
@@ -130,9 +231,14 @@ export interface AgentSessionInput {
  *   listener, and returns the same consolidated {@link AgentResult}
  *   once the stream drains.
  *
- * Future hook (durable agents, #258): checkpoints the running messages
- * array between tool-call steps and lets a tool handler throw
- * `SuspendError` to pause the loop.
+ * Durable suspension (#268/#269): a tool handler that returns
+ * `ctx.suspend(...)`'s sentinel (or throws `SuspendError`) stops the loop
+ * after its batch settles; the session persists the messages thread and
+ * outstanding tool-call id as `stepState` and raises the core
+ * `SuspendSignal`, which the hosting `.to()` / `.enrich()` step converts
+ * into a park. A resumed dispatch re-enters through
+ * {@link AgentSessionInput.resume} with the answer already swapped into
+ * the thread.
  *
  * @internal
  */
@@ -204,18 +310,41 @@ export class AgentSession {
     const maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
     this.emitStarted(maxTurns);
 
-    let turnsUsed = 0;
-    let currentUser: string | unknown[] = this.input.user;
+    // A resumed dispatch continues its own budget and its own thread: a
+    // park is not a fresh dispatch. A run that resumes with the budget
+    // already exhausted takes the ordinary max-turns path below.
+    let turnsUsed = this.input.resume?.turnsUsed ?? 0;
+    let currentUser: string | ThreadMessage[] = this.input.resume
+      ? [...this.input.resume.messages]
+      : this.input.user;
     let lastValidatorMsg: string | undefined;
     const accumulatedToolCalls: LlmToolCallSummary[] = [];
+    // Seeded from the park for the same reason turnsUsed is: a cancelled
+    // resumed run reports the whole run's spend, not the post-resume slice.
+    let accumulatedUsage: LlmUsage | undefined = this.input.resume?.usage;
+    // Filled by the tool bridge when a handler suspends. Checked after
+    // every model call: a non-empty batch means the loop is over and the
+    // exchange parks.
+    const signals: AgentSuspendSignalRecord[] = [];
 
     try {
       // Inside the try so a prepare failure (tool resolution, schema
       // resolution) still emits agent:error; otherwise the started event
       // would be orphaned and observability would show the run as
       // running forever.
-      const prepared = await this.prepare(abortSignal);
+      const prepared = await this.prepare(abortSignal, signals);
       while (true) {
+        // Between-turn checkpoint: the cheap, always-correct place to
+        // observe cancellation. The signal also rides into the model call
+        // and every tool handler, so an abort mid-turn stops paying for
+        // tokens rather than finishing the turn and discarding it.
+        if (abortSignal.aborted) {
+          throw this.cancelledError(
+            abortSignal.reason,
+            turnsUsed,
+            accumulatedUsage,
+          );
+        }
         const remaining = maxTurns - turnsUsed;
         if (remaining <= 0) {
           throw rcError("RC5003", undefined, {
@@ -224,16 +353,40 @@ export class AgentSession {
               : `agent: maxTurns (${maxTurns}) reached.`,
           });
         }
-        const result = await callOnce(
-          prepared,
-          currentUser,
-          remaining,
-          abortSignal,
-          onDelta,
-        );
+        let result: LlmResult;
+        try {
+          result = await callOnce(
+            prepared,
+            currentUser,
+            remaining,
+            abortSignal,
+            onDelta,
+            signals,
+          );
+        } catch (err) {
+          // The dispatch signal is the one definition of cancellation:
+          // whatever the SDK threw on the way down, an aborted signal means
+          // the run was cancelled, and a signal that never fired means the
+          // provider failed on its own (a provider-side timeout must stay a
+          // provider failure, not masquerade as AI1005).
+          if (abortSignal.aborted) {
+            throw this.cancelledError(err, turnsUsed, accumulatedUsage);
+          }
+          throw err;
+        }
         turnsUsed += result.stepsCount ?? 1;
+        accumulatedUsage = addUsage(accumulatedUsage, result.usage);
         if (result.toolCalls && result.toolCalls.length > 0) {
           accumulatedToolCalls.push(...result.toolCalls);
+        }
+        if (signals.length > 0) {
+          throw this.buildParkSignal(
+            signals,
+            result,
+            currentUser,
+            turnsUsed,
+            accumulatedUsage,
+          );
         }
         if (!validate) {
           this.emitFinished(result);
@@ -263,9 +416,124 @@ export class AgentSession {
         );
       }
     } catch (err) {
-      this.emitError(err);
+      // A park is not an error: core emits route:exchange:suspended once
+      // the record is durable, and the agent tier adds no event set of its
+      // own. Everything else is a real failure.
+      if (!isSuspendSignal(err)) this.emitError(err);
       throw err;
     }
+  }
+
+  /**
+   * Turn a collected batch of suspend signals into the core signal the
+   * hosting step converts into a park.
+   *
+   * The winner is the FIRST suspended tool call in the model's own
+   * emission order (deterministic under parallel execution, unlike
+   * completion order); every other suspend signal in the batch is
+   * rewritten in the persisted thread to a retryable tool error, so one
+   * exchange parks exactly once per sequence number and the resumed model
+   * can re-ask the losers.
+   *
+   * @internal
+   */
+  private buildParkSignal(
+    signals: AgentSuspendSignalRecord[],
+    result: LlmResult,
+    currentUser: string | ThreadMessage[],
+    turnsUsed: number,
+    usage: LlmUsage | undefined,
+  ): SuspendSignal {
+    // Signals are only ever recorded through a bridge this session created,
+    // and the bridge exists only when the input carries suspension wiring,
+    // so this guard is wiring defence rather than a reachable path.
+    const suspension = this.input.suspension;
+    if (!suspension) {
+      throw rcError("AI1006", undefined, {
+        message:
+          "A tool suspended, but this dispatch carries no suspension wiring. Durable suspension is only available inside an agent dispatch on a route-bound exchange.",
+      });
+    }
+    let messages: readonly ThreadMessage[] = historyMessages(
+      this.input.user,
+      currentUser,
+      result,
+    );
+    const winner = pickWinningSignal(signals, messages);
+    // Prove the answer has somewhere to land BEFORE the record is written:
+    // a park whose thread lacks the winning call would hand out a token
+    // whose first resume throws AI1007 and burns the single-use claim,
+    // stranding the work. Failing here keeps the run re-drivable.
+    if (
+      !replaceToolResultOutput(messages, winner.toolCallId, {
+        type: "json",
+        value: null,
+      }).found
+    ) {
+      throw rcError("AI1007", undefined, {
+        message: `Tool "${winner.toolName}" suspended, but its call "${winner.toolCallId}" is not in the thread about to be persisted, so no resume could ever deliver the answer. Nothing was parked.`,
+      });
+    }
+    for (const signal of signals) {
+      if (signal === winner) continue;
+      const swapped = replaceToolResultOutput(messages, signal.toolCallId, {
+        type: "error-text",
+        value: SIBLING_SUSPENDED_MESSAGE,
+      });
+      if (!swapped.found) {
+        // Leaving the placeholder in place tells the resumed model the
+        // sibling ALSO parked, the opposite of the retry hint it needs.
+        this.input.exchange.logger.warn(
+          { toolCallId: signal.toolCallId, toolName: signal.toolName },
+          "A losing suspend signal's tool call is not in the persisted thread; the resumed model will see its suspended placeholder instead of a retryable error.",
+        );
+      }
+      messages = swapped.messages;
+    }
+    const stepState: AgentStepState = {
+      agentId: suspension.agentId,
+      messages,
+      suspendedToolCallId: winner.toolCallId,
+      turnsUsed,
+      ...(usage !== undefined ? { usage } : {}),
+    };
+    const { schema, ttl, meta } = winner.request;
+    return new SuspendSignal({
+      ...(schema !== undefined ? { schema } : {}),
+      ...(ttl !== undefined ? { ttl } : {}),
+      ...(meta !== undefined ? { meta } : {}),
+      // The winner's call is what the record binds to, so exactly the
+      // credential the winning handler handed its approver is the one that
+      // answers. Losing siblings' credentials name their own calls.
+      callBinding: winner.toolCallId,
+      stepState,
+    });
+  }
+
+  /**
+   * The typed cancellation failure (#552): what the caller sees instead of
+   * a partial `AgentResult` that reads like success. The structured cause
+   * carries turns completed and token usage so cost accounting and traces
+   * stay honest about work the abort discarded.
+   *
+   * @internal
+   */
+  private cancelledError(
+    cause: unknown,
+    turnsUsed: number,
+    usage: LlmUsage | undefined,
+  ): Error {
+    return rcError(
+      "AI1005",
+      new AgentCancellationCause(cause, turnsUsed, usage),
+      {
+        message: `Agent run cancelled after ${turnsUsed} turn(s)${
+          usage?.totalTokens !== undefined
+            ? ` and ${usage.totalTokens} tokens`
+            : ""
+        }.`,
+      },
+    );
   }
 
   /**
@@ -391,7 +659,10 @@ export class AgentSession {
    *
    * @internal
    */
-  private async prepare(abortSignal: AbortSignal): Promise<{
+  private async prepare(
+    abortSignal: AbortSignal,
+    signals: AgentSuspendSignalRecord[],
+  ): Promise<{
     modelConfig: LlmModelConfig;
     modelName: string;
     system: string;
@@ -407,13 +678,24 @@ export class AgentSession {
       context,
       exchange,
       dispatchIdentity,
+      suspension,
     } = this.input;
+    const bridge: AgentSuspensionBridge | undefined = suspension
+      ? {
+          wiring: {
+            id: suspension.id,
+            mintToken: suspension.mintToken,
+          },
+          signals,
+        }
+      : undefined;
     const vercelTools = await buildVercelTools(
       tools,
       context,
       abortSignal,
       dispatchIdentity,
       exchange.principal,
+      bridge,
     );
     const base = { modelConfig, modelName, system, vercelTools };
     return options.output !== undefined
@@ -440,16 +722,17 @@ interface PreparedSession {
  */
 async function callOnce(
   prepared: PreparedSession,
-  user: string | unknown[],
+  user: string | ThreadMessage[],
   remainingTurns: number,
   abortSignal: AbortSignal,
   onDelta: AgentDeltaListener | undefined,
+  signals: readonly AgentSuspendSignalRecord[],
 ): Promise<LlmResult> {
   const toolExtras =
     Object.keys(prepared.vercelTools).length > 0
       ? {
           tools: prepared.vercelTools,
-          stopWhen: await buildStopWhen(remainingTurns),
+          stopWhen: await buildStopWhen(remainingTurns, signals),
         }
       : {};
   const base = {
@@ -468,9 +751,41 @@ async function callOnce(
   return onDelta ? streamLlm({ ...base, onDelta }) : callLlm(base);
 }
 
-async function buildStopWhen(maxTurns: number): Promise<unknown> {
+async function buildStopWhen(
+  maxTurns: number,
+  signals: readonly AgentSuspendSignalRecord[],
+): Promise<unknown> {
   const { stepCountIs } = await import("ai");
-  return stepCountIs(maxTurns);
+  // The second condition is what stops the SDK loop mid-run when a tool
+  // suspends: the bridge records the signal and answers the call with a
+  // placeholder, and the loop must not spend another model call on a run
+  // that is about to park.
+  return [stepCountIs(maxTurns), () => signals.length > 0];
+}
+
+/**
+ * The user-side thread as of the last model call: the running message
+ * array when one exists (a validate retry or a resumed dispatch), or the
+ * initial prompt promoted to a user message, followed by the SDK's
+ * response messages. This is what a park persists.
+ *
+ * @internal
+ */
+function historyMessages(
+  initialUser: string,
+  currentUser: string | ThreadMessage[],
+  lastResult: LlmResult,
+): ThreadMessage[] {
+  const userMsgs: ThreadMessage[] =
+    typeof currentUser === "string"
+      ? [{ role: "user", content: initialUser }]
+      : currentUser;
+  // The SDK owns the full ModelMessage shape; ThreadMessage is the
+  // structural slice the park persists. One cast, at the SDK boundary.
+  return [
+    ...userMsgs,
+    ...((lastResult.responseMessages ?? []) as ThreadMessage[]),
+  ];
 }
 
 /**
@@ -486,15 +801,18 @@ async function buildStopWhen(maxTurns: number): Promise<unknown> {
  */
 function buildRetryPrompt(
   initialUser: string,
-  currentUser: string | unknown[],
+  currentUser: string | ThreadMessage[],
   lastResult: LlmResult,
   validatorMsg: string,
-): unknown[] {
-  const userMsgs: unknown[] =
+): ThreadMessage[] {
+  const userMsgs: ThreadMessage[] =
     typeof currentUser === "string"
       ? [{ role: "user", content: initialUser }]
       : currentUser;
-  const responseMessages = lastResult.responseMessages ?? [];
+  // Same SDK-boundary cast as historyMessages: ModelMessage narrowed to
+  // the structural slice this module threads through.
+  const responseMessages = (lastResult.responseMessages ??
+    []) as ThreadMessage[];
   return [
     ...userMsgs,
     ...responseMessages,

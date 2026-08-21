@@ -219,13 +219,13 @@
   {
     "name": "suspend",
     "category": "Flow Control",
-    "signature": ".suspend({ expect, ttl? })",
+    "signature": ".suspend({ schema?, ttl?, meta? })",
     "description": "Park the exchange durably and answer now; resume later at the next step."
   },
   {
     "name": "resume",
     "category": "Flow Control",
-    "signature": ".resume(map?)",
+    "signature": ".resume(map?, { authorize? })",
     "description": "Revive a parked exchange addressed by its signed resume token."
   },
   {

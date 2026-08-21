@@ -19,7 +19,7 @@ import type {
   SerializedOutcome,
   Suspension,
   SuspensionCasResult,
-  SuspensionExpect,
+  SuspensionSchema,
   SuspensionResumption,
   SuspensionStatus,
   SuspensionStore,
@@ -37,7 +37,7 @@ export const DEFAULT_SUSPENSION_DB_PATH = ".routecraft/suspensions.db";
  * Schema version this build writes. Bumped whenever
  * {@link MIGRATIONS} grows an entry.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * How long a writer waits for a competing write lock before giving up.
@@ -84,6 +84,14 @@ const MIGRATIONS: ReadonlyArray<string> = [
   `ALTER TABLE suspensions ADD COLUMN claimed_at INTEGER;
    DROP INDEX IF EXISTS suspensions_sweep;
    CREATE INDEX suspensions_sweep ON suspensions (status, expires_at, id);`,
+  // v3: the per-call credential binding, and the `meta` slot the resume
+  // route's authorize hook is handed. Both nullable: a record written
+  // before this migration carried neither, and reading one back as such is
+  // exactly right. `expect` becomes `schema` in the same step, so the
+  // column and the field it carries stop drifting apart.
+  `ALTER TABLE suspensions RENAME COLUMN "expect" TO "schema";
+   ALTER TABLE suspensions ADD COLUMN call_binding TEXT;
+   ALTER TABLE suspensions ADD COLUMN meta TEXT;`,
 ];
 
 /**
@@ -164,8 +172,9 @@ export class SqliteSuspensionStore implements SuspensionStore {
         .prepare(
           `INSERT INTO suspensions (
              id, route_id, position, continuation_hash, action_fingerprint,
-             exchange, expect, step_state, status, suspended_at, expires_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             exchange, "schema", call_binding, meta,
+             step_state, status, suspended_at, expires_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           record.id,
@@ -174,7 +183,11 @@ export class SqliteSuspensionStore implements SuspensionStore {
           record.continuationHash,
           record.actionFingerprint,
           JSON.stringify(record.exchange),
-          JSON.stringify(record.expect),
+          JSON.stringify(record.schema),
+          record.callBinding ?? null,
+          record.meta === undefined
+            ? null
+            : JSON.stringify(encodePersistable(record.meta, "meta")),
           record.stepState === undefined
             ? null
             : JSON.stringify(encodePersistable(record.stepState, "stepState")),
@@ -561,7 +574,9 @@ interface SuspensionRow {
   continuation_hash: string;
   action_fingerprint: string;
   exchange: string;
-  expect: string;
+  schema: string;
+  call_binding: string | null;
+  meta: string | null;
   step_state: string | null;
   status: string;
   suspended_at: number;
@@ -585,7 +600,9 @@ function toSuspension(row: SuspensionRow): Suspension {
     continuationHash: row.continuation_hash,
     actionFingerprint: row.action_fingerprint,
     exchange: JSON.parse(row.exchange) as SerializedExchange,
-    expect: JSON.parse(row.expect) as SuspensionExpect,
+    schema: JSON.parse(row.schema) as SuspensionSchema,
+    ...(row.call_binding !== null ? { callBinding: row.call_binding } : {}),
+    ...(row.meta !== null ? { meta: JSON.parse(row.meta) as unknown } : {}),
     ...(row.step_state !== null
       ? { stepState: JSON.parse(row.step_state) as unknown }
       : {}),

@@ -213,7 +213,7 @@ describe("the plugin start hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ expect: { "~standard": undefined } as never })
+          .suspend({ schema: { "~standard": undefined } as never })
           .to(noop()),
       ])
       .build());

@@ -3,6 +3,7 @@ export type {
   FnHandlerContext,
   FnOptions,
   FnRegistry,
+  FnSuspensionView,
   ReadonlyPrincipal,
   RegisteredFnId,
 } from "./types.ts";

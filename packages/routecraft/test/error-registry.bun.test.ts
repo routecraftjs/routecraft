@@ -58,6 +58,44 @@ describe("error-code registry", () => {
   });
 
   /**
+   * @case A published error row still says what the registry says
+   * @preconditions Core codes seeded; the docs error rows read from disk, every registered code already present
+   * @expectedResult Message, category and retryable match the registry for every listed code, so renaming a code's message without updating the published table fails here instead of leaving the docs describing an error the framework no longer raises
+   */
+  test("the docs error table agrees with the registry", async () => {
+    const rows = JSON.parse(
+      await readFile(
+        new URL(
+          "../../../apps/routecraft.dev/app/content/docs/_data/errors.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as Array<{
+      code: string;
+      category: string;
+      message: string;
+      retryable: boolean;
+    }>;
+    const byCode = new Map(rows.map((row) => [row.code, row]));
+
+    const drifted: string[] = [];
+    for (const [code, meta] of getRegisteredErrorCodes()) {
+      const row = byCode.get(code);
+      if (!row) continue;
+      if (
+        row.message !== meta.message ||
+        row.category !== meta.category ||
+        row.retryable !== meta.retryable
+      ) {
+        drifted.push(code);
+      }
+    }
+
+    expect(drifted.sort()).toEqual([]);
+  });
+
+  /**
    * @case registerErrorCodes rejects the reserved RC namespace
    * @preconditions Core has claimed RC for @routecraft/routecraft
    * @expectedResult RC1003 error mentioning the reservation

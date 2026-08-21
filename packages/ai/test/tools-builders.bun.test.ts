@@ -20,6 +20,11 @@ import {
 import { isDeferredFn } from "../src/agent/tools/types.ts";
 import { ADAPTER_FN_REGISTRY } from "../src/fn/store.ts";
 
+/** Suspension is not under test in this file; the required slot just refuses. */
+const refuseSuspend = (): never => {
+  throw new Error("suspension not under test");
+};
+
 describe("tool builders - directTool", () => {
   let t: TestContext | undefined;
 
@@ -267,6 +272,7 @@ describe("tool builders - directTool dispatch", () => {
           typeof fn.handler
         >[1]["logger"],
         abortSignal: new AbortController().signal,
+        suspend: refuseSuspend,
       },
     );
     expect(result).toMatchObject({ orderId: "abc", ok: true });
@@ -314,6 +320,7 @@ describe("tool builders - directTool dispatch", () => {
           typeof fn.handler
         >[1]["logger"],
         abortSignal: new AbortController().signal,
+        suspend: refuseSuspend,
         principal,
       },
     );
@@ -350,6 +357,7 @@ describe("tool builders - directTool dispatch", () => {
         typeof fn.handler
       >[1]["logger"],
       abortSignal: new AbortController().signal,
+      suspend: refuseSuspend,
     };
 
     await fn.handler(
@@ -411,6 +419,7 @@ describe("tool builders - directTool dispatch", () => {
         typeof fn.handler
       >[1]["logger"],
       abortSignal: new AbortController().signal,
+      suspend: refuseSuspend,
     };
 
     const authResult = await fn.handler(
@@ -484,6 +493,7 @@ describe("tool builders - built-in fn factories", () => {
           typeof ct.handler
         >[1]["logger"],
         abortSignal: new AbortController().signal,
+        suspend: refuseSuspend,
       },
     );
     const after = Date.now();

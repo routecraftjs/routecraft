@@ -336,6 +336,24 @@
     "retryable": false
   },
   {
+    "code": "RC5054",
+    "category": "Runtime",
+    "message": "Suspension cancelled by run abort",
+    "retryable": false
+  },
+  {
+    "code": "RC5055",
+    "category": "Runtime",
+    "message": "Resume credential not bound to this call",
+    "retryable": false
+  },
+  {
+    "code": "RC5056",
+    "category": "Runtime",
+    "message": "Resume refused by the route's authorize hook",
+    "retryable": false
+  },
+  {
     "code": "AI1001",
     "category": "Adapter",
     "message": "Agent block resolution failed",
@@ -357,6 +375,24 @@
     "code": "AI1004",
     "category": "Adapter",
     "message": "Skills source could not be resolved",
+    "retryable": false
+  },
+  {
+    "code": "AI1005",
+    "category": "Adapter",
+    "message": "Agent run cancelled",
+    "retryable": false
+  },
+  {
+    "code": "AI1006",
+    "category": "Adapter",
+    "message": "Agent suspension unavailable on this surface",
+    "retryable": false
+  },
+  {
+    "code": "AI1007",
+    "category": "Adapter",
+    "message": "Agent suspension state invalid at rehydration",
     "retryable": false
   },
   {

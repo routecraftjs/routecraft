@@ -33,10 +33,19 @@ function record(overrides: Partial<NewSuspension> = {}): NewSuspension {
       body: { amountCents: 75_000, memo: "quarterly" },
       headers: { "routecraft.id": "ex-1", "routecraft.route": "payout" },
     },
-    expect: { hash: "e".repeat(64), jsonSchema: { type: "object" } },
+    schema: { hash: "e".repeat(64), jsonSchema: { type: "object" } },
+    meta: { channel: "email", reviewers: ["alice"] },
+    callBinding: "call-1",
     suspendedAt: new Date("2026-08-10T09:00:00.000Z"),
     ...overrides,
   };
+}
+
+/** A self-referential value, which the plain-JSON rule must refuse. */
+function circular(): Record<string, unknown> {
+  const node: Record<string, unknown> = {};
+  node["self"] = node;
+  return node;
 }
 
 const terminal: SerializedOutcome = {
@@ -63,6 +72,18 @@ function contractSuite(
     });
 
     /**
+     * @case A meta the plain-JSON rule refuses is refused by every backend
+     * @preconditions An open store; meta carrying a value encodePersistable rejects
+     * @expectedResult RC5042 naming the meta path, so the rule lives at the same boundary on both backends rather than only in whichever caller happened to encode first
+     */
+    test("refuses a meta that breaks the plain-JSON rule", async () => {
+      store = await open();
+      await expect(
+        store.create(record({ meta: { cycle: circular() } })),
+      ).rejects.toMatchObject({ rc: "RC5042" });
+    });
+
+    /**
      * @case A stored suspension reads back field for field
      * @preconditions A fully populated record is written to a fresh store
      * @expectedResult get() returns every field, with Date fields still Dates
@@ -82,8 +103,10 @@ function contractSuite(
       expect(read?.continuationHash).toBe(written.continuationHash);
       expect(read?.actionFingerprint).toBe(written.actionFingerprint);
       expect(read?.exchange).toEqual(written.exchange);
-      expect(read?.expect).toEqual(written.expect);
+      expect(read?.schema).toEqual(written.schema);
       expect(read?.stepState).toEqual(written.stepState);
+      expect(read?.meta).toEqual(written.meta);
+      expect(read?.callBinding).toBe(written.callBinding);
       expect(read?.status).toBe("suspended");
       expect(read?.suspendedAt.getTime()).toBe(written.suspendedAt.getTime());
       expect(read?.expiresAt?.getTime()).toBe(written.expiresAt!.getTime());

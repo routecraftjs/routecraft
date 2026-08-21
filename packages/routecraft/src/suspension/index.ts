@@ -7,7 +7,7 @@ export type {
   SerializedOutcome,
   Suspension,
   SuspensionCasResult,
-  SuspensionExpect,
+  SuspensionSchema,
   SuspensionResumption,
   SuspensionStatus,
   SuspensionStore,
@@ -35,7 +35,17 @@ export type {
   SigningSecretSource,
 } from "./tokens.ts";
 
-export { actionFingerprint, continuationHash, describeExpect } from "./hash.ts";
+export {
+  actionFingerprint,
+  continuationTailHash,
+  describeSchema,
+} from "./hash.ts";
+
+export type {
+  ResumeAuthorizer,
+  ResumeAuthorizerInput,
+  SuspensionRecordView,
+} from "./authorize.ts";
 
 export {
   DATE_TAG,
@@ -56,8 +66,18 @@ export type {
   SuspensionTestSeams,
 } from "./config.ts";
 
-export { isSuspended } from "./suspended.ts";
+export {
+  SUSPENDED_JSON_SCHEMA,
+  isSuspended,
+  suspendedSchema,
+} from "./suspended.ts";
 export type { Suspended } from "./suspended.ts";
+
+export { markSuspendCapable, routeCanSuspend } from "./sites.ts";
+export type { SuspendSite } from "./sites.ts";
+
+export { SuspendSignal, isSuspendSignal } from "./signal.ts";
+export type { SuspendSignalRequest } from "./signal.ts";
 
 export { SuspensionHeaders } from "./exchange-state.ts";
 export type { SuspensionAffordance } from "./exchange-state.ts";

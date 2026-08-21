@@ -1,11 +1,12 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { BRAND, isBranded, setBrand } from "../brand.ts";
 
 /**
  * What execution one returns when a route parks.
  *
- * A durable suspend cannot hold a caller: the answer arrives in hours or
- * days and the process will be restarted first. So the run that reaches a
- * `.suspend()` terminates there and answers immediately with this value
+ * A durable suspend cannot hold a caller: the resume payload arrives in
+ * hours or days and the process will be restarted first. So the run that
+ * reaches a `.suspend()` terminates there and replies immediately with this value
  * instead of the route's declared output. The real output flows to the
  * route's destinations on execution two.
  *
@@ -24,13 +25,14 @@ export interface Suspended {
   /** Signed, single-use token that resumes it. */
   readonly token: string;
   /**
-   * JSON Schema rendering of what a valid answer looks like, when the
-   * `expect` schema exposes one (Zod, ArkType and the AI SDK bridge do
-   * through the non-standard `~standard.jsonSchema` extension). Absent
-   * otherwise; validation always runs against the live schema at resume, so
-   * nothing depends on this being present.
+   * JSON Schema rendering of what a valid resume payload looks like, when the
+   * suspending step declared a schema and it exposes one (Zod, ArkType and
+   * the AI SDK bridge do through the non-standard `~standard.jsonSchema`
+   * extension). Absent otherwise, and absent whenever the site declared no
+   * schema at all; validation always runs against the live schema at
+   * resume, so nothing depends on this being present.
    */
-  readonly expect?: unknown;
+  readonly schema?: unknown;
   /** When the suspension expires, ISO-8601. Absent when `.suspend()` declared no `ttl`. */
   readonly expiresAt?: string;
 }
@@ -62,3 +64,94 @@ export function createSuspended(value: Omit<Suspended, "status">): Suspended {
 export function isSuspended(value: unknown): value is Suspended {
   return isBranded(value, BRAND.Suspended);
 }
+
+/**
+ * JSON Schema for the {@link Suspended} acknowledgment, draft 2020-12.
+ *
+ * The shape a transport publishes when it advertises that a tool or route
+ * may park: the MCP server derives `oneOf: [Output, Suspended]` for a
+ * suspendable tool's `outputSchema` from this rendering. Closed for
+ * additional properties so the advertised contract is exactly the value
+ * {@link createSuspended} mints.
+ */
+export const SUSPENDED_JSON_SCHEMA = {
+  type: "object",
+  description:
+    "The run parked at a durable suspension. The resume payload is delivered out of band with the resume token, and the real result is produced when the run continues.",
+  properties: {
+    status: { const: "suspended" },
+    suspensionId: { type: "string" },
+    token: { type: "string" },
+    schema: {
+      description:
+        "JSON Schema of what a valid resume payload looks like, when the suspending step declared a schema that renders one.",
+    },
+    expiresAt: { type: "string", format: "date-time" },
+  },
+  required: ["status", "suspensionId", "token"],
+  additionalProperties: false,
+} as const;
+
+/**
+ * Standard Schema for the {@link Suspended} acknowledgment.
+ *
+ * Exists so surfaces that reason in schema arms (the MCP server's
+ * advertised-output arms are the shipped consumer) can carry the
+ * acknowledgment as an ordinary `StandardSchemaV1` next to a route's own
+ * `.output()` schema. Validation accepts the framework's own acknowledgment
+ * by brand first, so a genuine `Suspended` value always passes whatever a
+ * structural check would say, and falls back to the structural check for
+ * values that crossed a process boundary and lost the brand.
+ */
+export const suspendedSchema: StandardSchemaV1<unknown, Suspended> = {
+  "~standard": {
+    version: 1,
+    vendor: "routecraft",
+    validate(value) {
+      if (isSuspended(value)) return { value };
+      // Mirror SUSPENDED_JSON_SCHEMA exactly (types of the optional fields
+      // included, undeclared string keys rejected) so the runtime check and
+      // the advertised contract cannot say different things. The brand rides
+      // a symbol key, which JSON never carries and Object.keys never lists.
+      if (
+        typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        (value as { status?: unknown }).status === "suspended" &&
+        typeof (value as { suspensionId?: unknown }).suspensionId ===
+          "string" &&
+        typeof (value as { token?: unknown }).token === "string" &&
+        Object.entries(value).every(([key, field]) => {
+          switch (key) {
+            case "status":
+            case "suspensionId":
+            case "token":
+              return true;
+            case "schema":
+              return true;
+            case "expiresAt":
+              return typeof field === "string";
+            default:
+              return false;
+          }
+        })
+      ) {
+        return { value: value as Suspended };
+      }
+      return {
+        issues: [
+          {
+            message:
+              'Expected the framework Suspended acknowledgment: { status: "suspended", suspensionId, token, ... } with no undeclared properties.',
+          },
+        ],
+      };
+    },
+    // Non-standard `jsonSchema` extension, the same one Zod and ArkType
+    // expose and the JSON Schema conversion sites look up defensively.
+    jsonSchema: {
+      input: () => SUSPENDED_JSON_SCHEMA,
+      output: () => SUSPENDED_JSON_SCHEMA,
+    },
+  } as StandardSchemaV1<unknown, Suspended>["~standard"],
+};

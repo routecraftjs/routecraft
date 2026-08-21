@@ -27,7 +27,7 @@ export const DEFAULT_SUSPENSION_RETENTION = "90d";
  *
  * Three days. Long enough to survive a weekend, so an approver who is away
  * on Friday still has a live link on Monday, and short enough that an
- * unanswered approval does not sit in the store forever. Configurable per
+ * unresumed park does not sit in the store forever. Configurable per
  * context, and overridable per suspend.
  */
 export const DEFAULT_SUSPENSION_TTL = "72h";
@@ -63,12 +63,12 @@ const PURGE_CADENCE_MS = 60 * 60 * 1000;
  * Drives expiry for one context.
  *
  * Expiry has to be pushed rather than pulled. A `ttl` exists so a route can
- * react when nobody answers, and by definition nobody is going to present a
+ * react when nobody resumes it, and by definition nobody is going to present a
  * token for a suspension that timed out, so without something firing on a
  * schedule the "escalate after 72 hours" flow never runs at all.
  *
  * The sweeper never decides an outcome by itself: it competes for the same
- * compare-and-swap a late answer competes for, so a suspension resumed at
+ * compare-and-swap a late resume competes for, so a suspension resumed at
  * the instant it expires has exactly one winner, and only that winner
  * notifies.
  *

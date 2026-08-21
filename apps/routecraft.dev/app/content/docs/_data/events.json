@@ -1,17 +1,34 @@
 [
   {
     "pattern": "context:*",
-    "events": ["starting", "started", "stopping", "stopped"],
+    "events": [
+      "starting",
+      "started",
+      "stopping",
+      "stopped"
+    ],
     "anchor": "context-events"
   },
   {
     "pattern": "route:*",
-    "events": ["registered", "starting", "started", "stopping", "stopped"],
+    "events": [
+      "registered",
+      "starting",
+      "started",
+      "stopping",
+      "stopped"
+    ],
     "anchor": "route-events"
   },
   {
     "pattern": "route:{routeId}:exchange:*",
-    "events": ["started", "completed", "failed", "dropped", "restored"],
+    "events": [
+      "started",
+      "completed",
+      "failed",
+      "dropped",
+      "restored"
+    ],
     "anchor": "exchange-events"
   },
   {
@@ -32,24 +49,39 @@
   },
   {
     "pattern": "plugin:{pluginId}:*",
-    "events": ["registered", "starting", "started", "stopping", "stopped"],
+    "events": [
+      "registered",
+      "starting",
+      "started",
+      "stopping",
+      "stopped"
+    ],
     "anchor": "plugin-events"
   },
   {
     "pattern": "auth:*",
-    "events": ["success", "rejected"],
+    "events": [
+      "success",
+      "rejected"
+    ],
     "anchor": "authentication-events"
   },
   {
     "pattern": "plugin:ops:*",
-    "events": ["health:changed"],
+    "events": [
+      "health:changed"
+    ],
     "anchor": "ops-plugin-events",
     "note": "The ops surface mounts on a named server, so its listener lifecycle rides on server:* rather than on the plugin."
   },
   {
     "pattern": "plugin:mcp:*",
-    "events": ["server", "session", "tool"],
+    "events": [
+      "server",
+      "session",
+      "tool"
+    ],
     "anchor": "mcp-plugin-events",
-    "note": "server (listening, tools:exposed), session (created, closed), tool (called, completed, failed)."
+    "note": "server (listening, tools:exposed), session (created, closed), tool (called, completed, suspended, failed)."
   }
 ]

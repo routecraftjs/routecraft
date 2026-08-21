@@ -1,7 +1,8 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { BRAND, isBranded, setBrand } from "../brand.ts";
 import { rcError } from "../error.ts";
 import { OperationType } from "../exchange.ts";
-import { NESTED_STEPS } from "../dsl-symbol.ts";
+import { NESTED_STEPS, SUSPEND_HOST } from "../dsl-symbol.ts";
 import type { Adapter, Step } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
 
@@ -23,7 +24,8 @@ export interface SuspendSite {
    * is a real position that a flat index cannot name. Two processes running
    * the same route source derive the same numbers, which is all the address
    * has to guarantee. The record's `position` field carries it, and
-   * `position + 1` onward is {@link SuspendSite.continuation}.
+   * `position + 1` onward is {@link SuspendSite.continuation}, except for a
+   * re-entrant site, whose continuation starts at `position` itself.
    */
   readonly position: number;
   /**
@@ -34,8 +36,94 @@ export interface SuspendSite {
    * followed by the steps after the choice, which is the same sequence the
    * executor would have run had the exchange never parked (a matched branch
    * rejoins the main flow).
+   *
+   * For a re-entrant site the continuation additionally INCLUDES the
+   * suspending step itself at its head, because the step must re-run to
+   * finish the work it parked in the middle of. That head is therefore also
+   * covered by the continuation hash: editing a suspend-capable step's own
+   * definition (an inline agent's options, say) invalidates its parked
+   * exchanges, which is correct because that definition is what resumes.
    */
   readonly continuation: ReadonlyArray<Step<Adapter>>;
+  /**
+   * Resume re-enters the suspending step itself rather than the step after
+   * it. Set on sites assigned to suspend-capable `.to()` / `.enrich()`
+   * steps; absent on static `.suspend()` sites.
+   *
+   * Two consequences at revival, both deliberate: the payload is NOT
+   * validated against a live schema (the schema the step raised at suspend
+   * time lives in its own code and cannot be read back off the route, so
+   * `RC5049` never fires for a re-entrant site and the step is the
+   * validator), and the stored schema descriptor is compared against
+   * itself, so a changed schema cannot be detected. Both are the same
+   * residue class as "the hash covers step definitions, never the behaviour
+   * of what the tail calls".
+   */
+  readonly reentrant?: boolean;
+}
+
+/**
+ * Mark an adapter as able to raise a durable suspension from inside its own
+ * execution (by throwing a `SuspendSignal` from `fetch` / `send`). The
+ * suspend-site walk assigns `.to()` / `.enrich()` steps carrying a marked
+ * adapter a re-entrant {@link SuspendSite}.
+ *
+ * Core owns the brand; a consumer package (the agent tier is the shipped
+ * case) marks its adapter with this helper and never mints its own symbol.
+ */
+export function markSuspendCapable(adapter: Adapter): void {
+  setBrand(adapter, BRAND.SuspendCapable);
+}
+
+/**
+ * Whether an adapter was marked with {@link markSuspendCapable}.
+ *
+ * @internal
+ */
+export function isSuspendCapable(adapter: Adapter): boolean {
+  return isBranded(adapter, BRAND.SuspendCapable);
+}
+
+/**
+ * A `.to()` / `.enrich()` step that can host a re-entrant suspend site.
+ * The walk stores its verdict on the hosting instance, because that
+ * instance's `execute` is where the suspend signal is converted (before any
+ * step-scope wrapper can observe the throw and, say, retry the step).
+ *
+ * @internal
+ */
+export interface SuspendCapableStep extends Step<Adapter> {
+  /** Assigned by {@link resolveSuspendSites} when the step sits on the primary flow. */
+  suspendSite?: SuspendSite;
+  /**
+   * Why no site was assigned, when the step sits somewhere a durable park
+   * cannot be revived from (inside a `.split()` fan-out, or a
+   * `.multicast()` path / `.dispatch()` target). Suspendability of a
+   * capable step is dynamic, so the refusal cannot fail the build the way a
+   * static `.suspend()` does; it fails the first actual suspension instead,
+   * with this message, as `RC5051`.
+   */
+  suspendRefusal?: string;
+  /** Identity through wrappers: the instance the walk stores the site on. */
+  [SUSPEND_HOST](): SuspendCapableStep | undefined;
+}
+
+/**
+ * Resolve the suspend-capable host of a step, looking through step-scope
+ * wrappers (which forward {@link SUSPEND_HOST} like they forward
+ * {@link NESTED_STEPS}). Returns undefined for steps that cannot host a
+ * re-entrant site, which is every step other than `.to()` / `.enrich()`
+ * (and a wrapper around one of those).
+ *
+ * @internal
+ */
+export function suspendHostOf(
+  step: Step<Adapter>,
+): SuspendCapableStep | undefined {
+  const resolve = (step as Partial<SuspendCapableStep>)[SUSPEND_HOST];
+  return typeof resolve === "function"
+    ? resolve.call(step as SuspendCapableStep)
+    : undefined;
 }
 
 /**
@@ -52,12 +140,34 @@ export interface SuspendSite {
  * @internal
  */
 export interface SuspendRequest {
-  /** Live schema the eventual answer is validated against. */
-  readonly expect: StandardSchemaV1;
+  /**
+   * Live schema the eventual resume payload is validated against, when the site
+   * declared one. Absent parks with no ingress validation, which is the
+   * click-yes case: the route's own continuation is then the only reader of
+   * whatever arrives.
+   */
+  readonly schema?: StandardSchemaV1;
   /** Resolved TTL in milliseconds, when one was declared. */
   readonly expiresInMs?: number;
+  /**
+   * Whatever the suspending step attached at park. Persisted verbatim and
+   * handed to the resume route's `authorize` hook; never interpreted here.
+   */
+  readonly meta?: unknown;
+  /**
+   * Identity of the call this park belongs to, when the suspending step
+   * mints one credential per call. Persisted as the record's `callBinding`
+   * and carried as the token's `sub` claim.
+   */
+  readonly callBinding?: string;
   /** Where this suspend sits, and what runs on resume. */
   readonly site: SuspendSite;
+  /**
+   * Closure state owned by the suspending step, persisted in the record's
+   * `stepState` slot and handed back to a re-entrant step at revival. The
+   * store never interprets it; the plain-JSON rule (`RC5042`) applies.
+   */
+  readonly stepState?: unknown;
 }
 
 /**
@@ -70,11 +180,11 @@ export interface SuspendRequest {
 export interface SuspendableStep extends Step<Adapter> {
   readonly operation: OperationType.SUSPEND;
   /**
-   * The live `expect` schema. Read back off the step at resume time to
-   * validate the candidate answer, because a Standard Schema cannot be
-   * persisted with the record.
+   * The live resume-payload schema, when the site declared one. Read back
+   * off the step at resume time to validate the submitted payload, because a
+   * Standard Schema cannot be persisted with the record.
    */
-  readonly expect: StandardSchemaV1;
+  readonly schema?: StandardSchemaV1;
   /** Assigned by {@link resolveSuspendSites}. Absent means the step is not reachable from a built route. */
   site?: SuspendSite;
 }
@@ -101,25 +211,66 @@ interface NestingStep extends Step<Adapter> {
 }
 
 /**
- * Resolve every `.suspend()` site in a route, refusing the positions where
- * a durable park cannot be revived.
+ * What {@link resolveSuspendSites} resolves for one route: the static
+ * `.suspend()` steps, and the suspend-capable `.to()` / `.enrich()` steps
+ * that were assigned a re-entrant site. The two lists are kept apart
+ * because they answer different questions: static sites are what the
+ * startup runtime check (`RC5052`) and the route-scope cache refusal key
+ * on, while re-entrant sites only say a step MAY park at runtime.
+ *
+ * @internal
+ */
+export interface ResolvedSuspendSites {
+  suspendSteps: SuspendableStep[];
+  reentrantSuspendSteps: SuspendCapableStep[];
+}
+
+/**
+ * Whether a built route can raise a durable suspension: statically (a
+ * declared `.suspend()`) or at runtime (a suspend-capable step that MAY
+ * park). The predicate transports key on to advertise a `Suspended`
+ * acknowledgment arm, owned here next to the fields it reads so a new way
+ * for a route to park updates every consumer in one edit.
+ */
+export function routeCanSuspend(definition: RouteDefinition): boolean {
+  return (
+    (definition.suspendSteps?.length ?? 0) > 0 ||
+    (definition.reentrantSuspendSteps?.length ?? 0) > 0
+  );
+}
+
+/**
+ * Resolve every suspend site in a route, refusing the positions where a
+ * durable park cannot be revived.
  *
  * Runs at build time so an incoherent route fails on the deploy that
  * introduced it rather than on the first large payout. Assigns each
  * suspending step its {@link SuspendSite} as a side effect, because the
  * step is what the executor holds when the outcome comes back.
  *
+ * A static `.suspend()` in an unrevivable position fails the build; a
+ * suspend-capable step there gets a stored refusal instead, because whether
+ * it ever suspends is dynamic, and refusing the build would reject every
+ * route that fans an agent out over a split whether or not any tool parks.
+ * The refusal carries the same explanation and fires as `RC5051` on the
+ * first actual suspension.
+ *
  * @param route - A finalised route definition
- * @returns Every suspending step in the route, in pre-order, each carrying
- *   the site it was assigned
+ * @returns The static suspend steps and the re-entrant hosts, in pre-order,
+ *   each carrying the site (or refusal) it was assigned
  * @throws RC5051 when a `.suspend()` sits somewhere it cannot be revived
  *   from: inside a `.split()` fan-out (balanced or not), or inside a
  *   `.multicast()` path or `.dispatch()` target.
  *
  * @internal
  */
-export function resolveSuspendSites(route: RouteDefinition): SuspendableStep[] {
-  const found: SuspendableStep[] = [];
+export function resolveSuspendSites(
+  route: RouteDefinition,
+): ResolvedSuspendSites {
+  const found: ResolvedSuspendSites = {
+    suspendSteps: [],
+    reentrantSuspendSteps: [],
+  };
   const counter = { next: 0 };
   walk(route, route.steps, [], found, counter, {
     splitDepth: 0,
@@ -135,7 +286,7 @@ export function resolveSuspendSites(route: RouteDefinition): SuspendableStep[] {
  * suspending route does: it verifies tokens against the signer and reads
  * the store. Without this a resume-only deployment (the common shape, since
  * the ingress is usually its own capability) starts clean and then refuses
- * every answer at request time, which is the failure the startup check
+ * every resume at request time, which is the failure the startup check
  * exists to move forward.
  *
  * @internal
@@ -168,7 +319,7 @@ function walk(
   route: RouteDefinition,
   steps: ReadonlyArray<Step<Adapter>>,
   tail: ReadonlyArray<Step<Adapter>>,
-  found: SuspendableStep[],
+  found: ResolvedSuspendSites,
   counter: { next: number },
   scope: { splitDepth: number; sealed: boolean },
 ): void {
@@ -185,21 +336,42 @@ function walk(
 
     if (step.operation === OperationType.SUSPEND) {
       if (splitDepth > 0) {
-        throw refuse(
-          route.id,
-          "inside a .split() fan-out, between the split and its .aggregate(). Reviving one parked child would mean tracking every outstanding sibling across restarts, which is a distributed coordination problem in disguise. Move the suspend out of the fan-out, or split the work into per-item child capabilities: each is then its own exchange and suspends independently",
-        );
+        throw refuse(route.id, "split");
       }
       if (scope.sealed) {
-        throw refuse(
-          route.id,
-          "inside a .multicast() path or .dispatch() target. Those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin. Move the suspend onto the main flow, or onto a .choice() branch of it",
-        );
+        throw refuse(route.id, "sealed");
       }
       const suspend = step as SuspendableStep;
       suspend.site = { position, continuation: after };
-      found.push(suspend);
+      found.suspendSteps.push(suspend);
       continue;
+    }
+
+    const host = suspendHostOf(step);
+    if (host && isSuspendCapable(step.adapter)) {
+      // The same positions a static `.suspend()` is refused from, with the
+      // same reasons, but recorded rather than thrown: whether a capable
+      // step ever suspends is dynamic, so the refusal fires as RC5051 on
+      // the first actual suspension instead of failing every route that
+      // merely places an agent inside a fan-out or a side flow.
+      // A rebuilt walk starts every host clean so a stale field from an
+      // earlier resolution can never outrank the fresh one.
+      delete host.suspendRefusal;
+      delete host.suspendSite;
+      if (splitDepth > 0) {
+        host.suspendRefusal = unrevivablePosition(route.id, "split", "raised");
+      } else if (scope.sealed) {
+        host.suspendRefusal = unrevivablePosition(route.id, "sealed", "raised");
+      } else {
+        // The step itself heads the continuation: a re-entrant resume runs
+        // the step again to finish the work it parked in the middle of.
+        host.suspendSite = {
+          position,
+          continuation: [step, ...after],
+          reentrant: true,
+        };
+        found.reentrantSuspendSteps.push(host);
+      }
     }
 
     const nested = nestedStepsOf(step);
@@ -266,8 +438,35 @@ const NESTING_OPERATIONS: ReadonlySet<OperationType> = new Set([
 ]);
 
 /** @internal */
-function refuse(routeId: string, where: string): Error {
+function refuse(routeId: string, position: "split" | "sealed"): Error {
   return rcError("RC5051", undefined, {
-    message: `Route "${routeId}" declares a .suspend() ${where}.`,
+    message: unrevivablePosition(routeId, position, "declares"),
   });
+}
+
+/**
+ * One fact, two raisers: the positions a durable suspension cannot be
+ * revived from, phrased for whichever site reports it. The build-time throw
+ * (a static `.suspend()`) and the recorded runtime refusal (a
+ * suspend-capable step, RC5051 on its first actual suspension) must never
+ * drift into telling users different stories about the same constraint, so
+ * both render from here.
+ *
+ * @internal
+ */
+function unrevivablePosition(
+  routeId: string,
+  position: "split" | "sealed",
+  form: "declares" | "raised",
+): string {
+  const subject =
+    form === "declares"
+      ? "declares a .suspend()"
+      : "raised a durable suspension";
+  const mover = form === "declares" ? "the suspend" : "the suspending step";
+  const body =
+    position === "split"
+      ? `inside a .split() fan-out, between the split and its .aggregate(). Reviving one parked child would mean tracking every outstanding sibling across restarts, which is a distributed coordination problem in disguise. Move ${mover} out of the fan-out, or split the work into per-item child capabilities: each is then its own exchange and suspends independently.`
+      : `inside a .multicast() path or .dispatch() target. Those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin. Move ${mover} onto the main flow, or onto a .choice() branch of it.`;
+  return `Route "${routeId}" ${subject} ${body}`;
 }

@@ -1,11 +1,14 @@
 import {
   getExchangeContext,
   getExchangeRoute,
+  markSuspendCapable,
+  peekResumeStepState,
   rcError,
   type CraftContext,
   type Enricher,
   type Exchange,
   type Principal,
+  type StepSignalContext,
 } from "@routecraft/routecraft";
 import { BLOCK_RESERVED_PREFIX, resolveBlocks } from "../block/resolve.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
@@ -15,7 +18,10 @@ import {
   buildUserPrompt,
   dispatchIdentityFrom,
   type AgentDispatchIdentity,
+  type AgentSessionResume,
+  type AgentSessionSuspension,
 } from "./session.ts";
+import { rehydrateSession } from "./suspension-state.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
@@ -86,9 +92,17 @@ export type AgentBinding =
 export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
   readonly adapterId = "routecraft.adapter.agent";
 
-  constructor(public readonly binding: AgentBinding) {}
+  constructor(public readonly binding: AgentBinding) {
+    // A tool handler may park the run (ctx.suspend / SuspendError), so the
+    // suspend-site walk assigns this adapter's hosting step a re-entrant
+    // site at build time. Routes that never suspend pay nothing for it.
+    markSuspendCapable(this);
+  }
 
-  async fetch(exchange: Exchange<unknown>): Promise<AgentResult> {
+  async fetch(
+    exchange: Exchange<unknown>,
+    stepCtx?: StepSignalContext,
+  ): Promise<AgentResult> {
     const context = getExchangeContext(exchange);
     const baseOptions = this.resolveOptions(context);
     const merged = mergeWithDefaults(baseOptions, context);
@@ -116,6 +130,35 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
       exchange,
       route?.definition.id,
     );
+
+    // Durable suspension is available exactly when the exchange is
+    // route-bound: without a dispatch identity there is no site to park
+    // against, so no wiring is handed out and ctx.suspend refuses (AI1006).
+    const agentIdentity = agentName ?? dispatchIdentity?.routeId;
+    const suspension: AgentSessionSuspension | undefined =
+      dispatchIdentity && agentIdentity !== undefined
+        ? {
+            id: exchange.suspension.id,
+            // Lazy: minting reads the context's signer and throws RC5052
+            // without a suspension runtime; a handler that never builds a
+            // resume link should not pay for or fail on it.
+            mintToken: (callBinding: string) =>
+              exchange.suspension.tokenFor(callBinding),
+            agentId: agentIdentity,
+          }
+        : undefined;
+
+    // A resumed exchange re-enters this step carrying the parked loop
+    // state. Read without consuming: the executor clears the slot when
+    // this step settles, so a retried attempt (a provider 429 here, or a
+    // setup failure below) still resumes instead of silently re-running
+    // the whole loop from the original prompt.
+    const resumeRaw = peekResumeStepState(exchange);
+    const resume: AgentSessionResume | undefined =
+      resumeRaw !== undefined
+        ? rehydrateSession(resumeRaw, agentIdentity, exchange.suspension.result)
+        : undefined;
+
     const userTools = resolveAgentTools(
       merged,
       context,
@@ -166,14 +209,23 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
       context,
       exchange,
       dispatchIdentity,
+      ...(suspension !== undefined && { suspension }),
+      ...(resume !== undefined && { resume }),
     });
 
-    // Thread the route's abort signal through so the agent dispatch
-    // (LLM call + in-flight tool handlers) is cancelled when the
-    // route or context shuts down. Falls back to a never-firing
-    // signal when the exchange has no route binding (rare; mostly
-    // synthetic exchanges in tests).
-    const abortSignal = route?.signal ?? new AbortController().signal;
+    // Thread cancellation through so the agent dispatch (LLM call plus
+    // in-flight tool handlers) stops when either owner says so: the
+    // route's signal (stop, context shutdown) or the step's signal (a
+    // route-scope .timeout() abandoning this run). Falls back to a
+    // never-firing signal when the exchange has no route binding (rare;
+    // mostly synthetic exchanges in tests).
+    const signals = [route?.signal, stepCtx?.signal].filter(
+      (s): s is AbortSignal => s !== undefined,
+    );
+    const abortSignal =
+      signals.length > 1
+        ? AbortSignal.any(signals)
+        : (signals[0] ?? new AbortController().signal);
 
     // Streaming is selected by the presence of `onDelta` on the
     // merged options or as a per-call override at the by-name call

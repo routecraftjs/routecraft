@@ -97,6 +97,9 @@ export interface ErrorCodeRegistry {
   RC5051: RCMeta;
   RC5052: RCMeta;
   RC5053: RCMeta;
+  RC5054: RCMeta;
+  RC5055: RCMeta;
+  RC5056: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -462,7 +465,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Adapter",
     message: "Principal restored from a suspension",
     suggestion:
-      "authorize() rejected a principal that came back from durable storage with a resumed exchange. It is a recorded shape with no live credential behind it: nothing re-checked the signature, the expiry, or revocation. Re-verify the identity after resume with .authenticate() from a checked credential, or put the authorization on the resume ingress route, where the answering principal is verified live. Distinct from RC5023 (self-asserted) because the fix differs: re-verify, do not mint.",
+      "authorize() rejected a principal that came back from durable storage with a resumed exchange. It is a recorded shape with no live credential behind it: nothing re-checked the signature, the expiry, or revocation. Re-verify the identity after resume with .authenticate() from a checked credential, or put the authorization on the resume ingress route, where the resuming principal is verified live. Distinct from RC5023 (self-asserted) because the fix differs: re-verify, do not mint.",
     docs: `${DOCS_BASE}#rc-5043`,
     retryable: false,
   },
@@ -494,7 +497,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Suspension expired",
     suggestion:
-      "The answer arrived after the suspension's `ttl` elapsed, so the parked exchange is no longer resumable. This is catchable: the suspended route's own `.error()` handler receives this error and can notify the approver and re-ask. Raise `ttl` on `.suspend()` if the window is genuinely too short for the people answering.",
+      "The resume arrived after the suspension's `ttl` elapsed, so the parked exchange is no longer resumable. This is catchable: the suspended route's own `.error()` handler receives this error and can notify and re-ask. Raise `ttl` on `.suspend()` if the window is genuinely too short for the people it waits on.",
     docs: `${DOCS_BASE}#rc-5047`,
     retryable: false,
   },
@@ -510,7 +513,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Suspension result rejected",
     suggestion:
-      "The candidate result handed to `.resume()` failed the `expect` schema declared on the suspending `.suspend()`. The suspension is left resumable, so a corrected answer still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the answer, while validation happens at revival because only the suspension knows the schema. Unlike an expiry or a changed continuation, this is raised in the RESUME INGRESS route only: a malformed answer is a per-request input error, not a change the suspended route has to re-ask about. Handle it with an `.error()` on the ingress route if the answerer deserves a reply.",
+      "The payload handed to `.resume()` failed the `schema` declared on the suspending `.suspend()`. The suspension is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the suspension knows the schema. Unlike an expiry or a changed continuation, this is raised in the RESUME INGRESS route only: a malformed payload is a per-request input error, not a change the suspended route has to re-ask about. Handle it with an `.error()` on the ingress route if the caller deserves a reply.",
     docs: `${DOCS_BASE}#rc-5049`,
     retryable: false,
   },
@@ -544,6 +547,30 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "Check the `ops` config. Common causes: an indicator bound to a `route` id no route declares (the message lists the known ids), two indicators sharing a name (names are the keys of the health report, so they must be unique), a value in `ops.indicators` that `defineIndicator()` did not produce, or an invalid `health.details` value.",
     docs: `${DOCS_BASE}#rc-5053`,
+    retryable: false,
+  },
+  RC5054: {
+    category: "Runtime",
+    message: "Suspension cancelled by run abort",
+    suggestion:
+      "The run raised a durable suspension while it was being cancelled (a route stop or an elapsed .timeout()). If the abort won the race the exchange was never parked; if the park won, the just-created suspension was immediately denied so its resume link is dead, and a presented token reads RC5050. Either way the caller sees this error instead of a resumable acknowledgment, which keeps the two stories consistent: a run reported as cancelled must not be resumable later. This is about the cancellation race only; a parked exchange whose process merely stops SURVIVES the stop, which is the store's entire purpose.",
+    docs: `${DOCS_BASE}#rc-5054`,
+    retryable: false,
+  },
+  RC5055: {
+    category: "Runtime",
+    message: "Resume credential not bound to this call",
+    suggestion:
+      "The token verifies and names a real suspension, but it was minted for a different call than the one the record is parked on. A batch of parallel tool calls mints one credential per call against a single record, and only the call that actually parked may be resumed; a losing sibling's credential is refused here. Re-ask on the credential minted for the winning call, and do not route two recipients to one park. The refusal is non-destructive: the record is left exactly as it was found, still resumable by the rightful credential.",
+    docs: `${DOCS_BASE}#rc-5055`,
+    retryable: false,
+  },
+  RC5056: {
+    category: "Runtime",
+    message: "Resume refused by the route's authorize hook",
+    suggestion:
+      "The `.resume({ authorize })` hook on the ingress route refused this principal. Who may resume a parked run is the application's policy, not the framework's: the hook receives the live principal, the parked principal snapshot, the raw submitted payload, and the record's context (including whatever `meta` the suspend site attached), and decides. A hook that returns false, throws, or does not settle before the route's own `.timeout()` produces this one code with the same message, deliberately: a hook whose failures can be told apart from outside is an oracle for what it knows. The cause is in the boundary log, never on the wire, and a thrown cause is never returned. The refusal is non-destructive, so the record stays resumable by whoever does qualify.",
+    docs: `${DOCS_BASE}#rc-5056`,
     retryable: false,
   },
   RC9901: {

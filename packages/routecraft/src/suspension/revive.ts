@@ -7,14 +7,27 @@ import {
   DefaultExchange,
   HeadersKeys,
   setExchangeRoute,
+  setResumeStepState,
 } from "../exchange.ts";
 import type { Route } from "../route.ts";
 import type { Adapter, Step } from "../types.ts";
-import { continuationHash, describeExpect } from "./hash.ts";
+import { continuationTailHash, describeSchema } from "./hash.ts";
+import {
+  type ResumeAuthorizer,
+  checkCallBinding,
+  parkedPrincipal,
+  recordView,
+  runAuthorizer,
+} from "./authorize.ts";
 import { SuspensionHeaders } from "./exchange-state.ts";
 import { SUSPENSION_RUNTIME } from "./runtime-key.ts";
-import { deserializeExchange, encodePersistable } from "./serialize.ts";
+import {
+  decodePersistable,
+  deserializeExchange,
+  encodePersistable,
+} from "./serialize.ts";
 import type { SuspendSite } from "./sites.ts";
+import type { Principal } from "../auth/types.ts";
 import type {
   PrincipalRef,
   SerializedOutcome,
@@ -25,7 +38,7 @@ import type {
 
 /**
  * What `.resume()`'s mapping function produces: which suspension to revive,
- * and the candidate answer to revive it with.
+ * and the payload to revive it with.
  *
  * The split is the boundary between the two halves of a resume. The mapping
  * function owns SHAPE (find the token in a mail reply, lift an approval out
@@ -36,23 +49,43 @@ import type {
 export interface ResumeRequest {
   /** The signed token minted when the exchange parked. */
   token: string;
-  /** The candidate answer, validated against the suspending step's `expect`. */
+  /** The submitted payload, validated against the suspending step's `schema`. */
   result: unknown;
   /**
-   * Who answered. Defaults to the ingress exchange's own principal, which
+   * Who resumed it. Defaults to the ingress exchange's own principal, which
    * is the value worth recording: it was verified live on the route that
-   * accepted the answer, unlike anything read back out of the store. Set it
-   * explicitly only when the answerer is not the caller (an ops tool
-   * resuming on someone's behalf).
+   * accepted the submission, unlike anything read back out of the store.
+   * Set it explicitly only when the resuming principal is not the caller
+   * (an ops tool resuming on someone's behalf).
    */
   resumedBy?: PrincipalRef;
 }
 
 /**
+ * What the resume DOOR contributes, as opposed to what its mapper produced.
+ *
+ * Kept separate from {@link ResumeRequest} deliberately. The mapper is user
+ * code shaping a transport payload, and a payload is exactly what an
+ * attacker controls; letting it name the resuming principal or supply the
+ * hook would let the untrusted half of an ingress choose what the trusted
+ * half checks.
+ *
+ * @internal
+ */
+export interface ResumeDoor {
+  /** The door's own authorization policy, when it declares one. */
+  readonly authorize?: ResumeAuthorizer;
+  /** The principal this ingress route verified live, if any. */
+  readonly principal?: Principal;
+  /** The ingress step's abort signal, which is what bounds an async hook. */
+  readonly signal?: AbortSignal;
+}
+
+/**
  * What `.resume()` puts in the ingress route's body once revival settles.
  *
- * The ingress route continues after this, which is what lets it answer the
- * approver's own channel ("thanks, the payout is on its way"). It therefore
+ * The ingress route continues after this, which is what lets it reply on
+ * the caller's own channel ("thanks, the payout is on its way"). It therefore
  * reports how execution two ended rather than just that the token was
  * accepted.
  */
@@ -73,34 +106,46 @@ export interface ResumeAcknowledgment {
 /**
  * Revive a parked exchange and run its continuation to completion.
  *
- * The order of checks is the security contract, and each one refuses before
- * the continuation can run:
+ * The order of checks is the security contract, and it is ordered rather
+ * than merely "pre-claim" because the window before the claim is NOT inert:
+ * the deadline arm and the continuation arm each take a compare-and-swap
+ * that settles the record and drives the suspended route's error channel,
+ * which in practice sends the approver a message. A credential that has no
+ * business here must be refused before it can reach either, or the wrong
+ * holder can burn the rightful principal's claim and drive an outbound
+ * notification with it.
  *
- * 1. The token verifies (`RC5041`), so only this deployment could have
- *    minted it.
- * 2. The suspension exists (`RC5046`).
- * 3. It is still resumable: a duplicate gets the cached terminal outcome
- *    rather than a second execution, an expired one `RC5047`, a denied one
- *    `RC5050`.
- * 4. Its route is still registered and still leads to the same
- *    continuation (`RC5048`), so an approval cannot authorize steps that
- *    were edited under it.
- * 5. The answer satisfies the suspending step's `expect` (`RC5049`, in
- *    the ingress route only).
- * 6. The compare-and-swap out of `suspended` is won here and not by a
- *    concurrent resume or the expiry sweeper.
+ * 1. The token verifies (`RC5041`) and the suspension exists (`RC5046`).
+ * 2. The credential was minted for THIS call (`RC5055`), read from the
+ *    record alone.
+ * 3. The route's own `authorize` hook accepts the principal (`RC5056`), if
+ *    it declared one. This is where an application's policy runs; the
+ *    framework has none of its own.
+ * 4. Only now the lifecycle: a duplicate gets the cached terminal outcome
+ *    rather than a second execution, an expired record `RC5047`, a denied
+ *    one `RC5050`. Steps 2 and 3 sit above this deliberately, so a refused
+ *    caller learns nothing about the record's state.
+ * 5. Its route is still registered and still leads to the same continuation
+ *    (`RC5048`), so an approval cannot authorize steps that were edited
+ *    under it. The hash is COMPARED non-destructively; only a mismatch
+ *    reached by a caller steps 2 and 3 already accepted may settle it.
+ * 6. The payload satisfies the suspending step's `schema` (`RC5049`, in
+ *    the ingress route only), and the compare-and-swap out of `suspended`
+ *    is won here and not by a concurrent resume or the expiry sweeper.
  *
  * Every failure throws in the ingress route. A failure that leaves the
  * approver STRANDED (an expiry, a changed continuation, a denied
  * suspension) additionally re-enters the suspended route's error channel,
- * because only that route can notify and re-ask. A rejected answer
+ * because only that route can notify and re-ask. A rejected payload
  * (`RC5049`) deliberately does not: it is a per-request input error rather
  * than a change in the world, the suspension stays resumable, and routing
  * it through the suspended route would let any token holder drive that
- * route's re-ask path with junk.
+ * route's re-ask path with junk. The two authorization refusals are the
+ * same: they leave the record exactly as they found it.
  *
  * @param context - The context reviving the exchange (the ingress route's)
- * @param request - Token plus candidate answer
+ * @param request - Token plus submitted payload, as the mapper produced them
+ * @param door - What the ingress route itself declares and verified
  * @returns The acknowledgment for the ingress route's body
  *
  * @internal
@@ -108,6 +153,7 @@ export interface ResumeAcknowledgment {
 export async function reviveSuspension(
   context: CraftContext,
   request: ResumeRequest,
+  door: ResumeDoor = {},
 ): Promise<ResumeAcknowledgment> {
   const runtime = context.getStore(SUSPENSION_RUNTIME);
   if (!runtime) {
@@ -117,12 +163,36 @@ export async function reviveSuspension(
     });
   }
 
-  const { id } = runtime.signer.verify(request.token);
+  const { id, sub } = runtime.signer.verify(request.token);
   const suspension = await runtime.store.get(id);
   if (!suspension) {
     throw rcError("RC5046", undefined, {
       message: `No suspension is stored under id "${id}".`,
     });
+  }
+
+  // Record and credential only: no route lookup, no transition, no
+  // disclosure. Placed above the settled return deliberately, so a holder
+  // whose credential does not belong here cannot use the response to learn
+  // the record's lifecycle state.
+  checkCallBinding(suspension, sub);
+
+  // The application's own policy, and the last thing that runs before the
+  // record's lifecycle becomes observable. It reads the record and the two
+  // principals; it cannot transition anything, and a refusal leaves the
+  // record exactly as it was found.
+  if (door.authorize) {
+    await runAuthorizer(
+      door.authorize,
+      {
+        principal: door.principal,
+        parked: parkedPrincipal(suspension),
+        payload: request.result,
+        record: recordView(suspension),
+      },
+      context.logger,
+      door.signal,
+    );
   }
 
   if (suspension.status !== "suspended") {
@@ -136,9 +206,11 @@ export async function reviveSuspension(
     });
   }
 
-  // Checked here as well as by the sweeper: an answer can arrive between
-  // the deadline and the sweep that marks it, and resuming into a window
-  // the route already declared closed is exactly what `ttl` rules out.
+  // Checked here as well as by the sweeper: a resume can arrive between the
+  // deadline and the sweep that marks it, and resuming into a window the
+  // route already declared closed is exactly what `ttl` rules out. Reached
+  // after the hook has settled on purpose, so a hook that overran the
+  // deadline reports RC5047 rather than reviving into a closed window.
   //
   // The transition is what makes the re-ask exactly-once. Without the
   // compare-and-swap, every replay of one dead token would emit the event
@@ -159,7 +231,7 @@ export async function reviveSuspension(
     );
     if (!cas.won) {
       // The winner is not necessarily the sweeper. A concurrent resume can
-      // win `markResumed` right on the deadline, and that answer WAS
+      // win `markResumed` right on the deadline, and that resume WAS
       // accepted: reporting an expiry to this caller would be a false
       // negative about work that is running. Whoever won says what
       // happened.
@@ -180,26 +252,48 @@ export async function reviveSuspension(
     );
   }
 
-  // `describeExpect(site.expect)`, never `suspension.expect`: the stored
-  // descriptor is the one that was folded into `suspension.continuationHash`
-  // at park time, so comparing it against itself is inert and a widened
-  // `expect` would resume into a contract its approver never saw. The
-  // suspending step's own definition is excluded from the hashed tail by
-  // design, which makes this descriptor the ONLY representation of that step
-  // in the digest.
-  const current = continuationHash(
-    [site.step, ...site.site.continuation],
-    0,
-    describeExpect(site.expect),
+  // For a static site: the descriptor of the LIVE schema, never the stored
+  // one. The stored descriptor is what was folded into
+  // `suspension.continuationHash` at park time, so comparing it against
+  // itself is inert and a widened schema would resume into a contract its
+  // approver never saw. The suspending step's own definition is excluded
+  // from the hashed tail by design, which makes this descriptor the ONLY
+  // representation of that step in the digest.
+  //
+  // For a re-entrant site the stored descriptor is all there is: the live
+  // schema was raised inside the step's own code and cannot be read back
+  // off the route, so the schema arm IS inert there. The step itself heads
+  // the hashed tail instead, so its definition is covered; the schema is
+  // the same residue class as the behaviour of what the tail calls.
+  //
+  // `meta` is deliberately NOT in the digest. It lives only on the record,
+  // so there is no live copy for it to drift from: a parker that snapshots
+  // its policy into `meta` gets policy-travels-with-the-park by
+  // construction rather than by a tamper check.
+  //
+  // The branch keys on RE-ENTRANCY, not on whether a live schema was found.
+  // A static site always describes what it declares TODAY, absence included:
+  // keying on `site.schema` would make a removed schema fall through to the
+  // stored descriptor, compare it against itself, and accept the parked
+  // payload unvalidated with no re-ask, which is the exact edit the absent
+  // sentinel exists to catch.
+  const current = continuationTailHash(
+    site.site.continuation,
+    site.site.reentrant ? suspension.schema : describeSchema(site.schema),
   );
   if (current !== suspension.continuationHash) {
+    // Reached only by a caller the credential binding and the door's hook
+    // both accepted. `refuseContinuation` denies the record and drives the
+    // approver notification, so a refused holder must never get here: they
+    // would burn the rightful principal's claim and send the message
+    // themselves.
     return await refuseContinuation(
       context,
       runtime.store,
       route,
       suspension,
       "continuation changed",
-      `Route "${suspension.routeId}" changed after position ${suspension.position} while this exchange was parked, so the stored answer no longer authorizes what would run.`,
+      `Route "${suspension.routeId}" changed after position ${suspension.position} while this exchange was parked, so the stored payload no longer authorizes what would run.`,
     );
   }
 
@@ -207,19 +301,31 @@ export async function reviveSuspension(
   // Schema is an object with a validate function and cannot be persisted.
   // Reaching here means the hash check above already confirmed that live
   // schema is the one the approval was taken against.
-  const result = await validateAgainst(site.expect, request.result);
-  if (!result.ok) {
-    // Ingress only, deliberately: unlike an expiry or a changed
-    // continuation, a malformed answer is not a change in the world the
-    // suspended route has to react to. It is a per-request input error, and
-    // re-entering the suspended route's error channel for it would hand any
-    // token holder a lever to drive that route's re-ask path (approver
-    // notifications included) with junk. The suspension is left resumable,
-    // so the answerer simply corrects the payload; shaping a reply to a bad
-    // answer is the ingress route's own `.error()` handler's job.
-    throw rcError("RC5049", result.message, {
-      message: `The answer for suspension "${id}" does not satisfy the expect schema: ${result.message}`,
-    });
+  //
+  // A re-entrant site has no live schema to read back (it was raised inside
+  // the step's own code), so the check is skipped THERE AND ONLY THERE: the
+  // raw payload is handed to the re-entering step as its suspended call's
+  // result, and the step is the validator. A token holder can therefore
+  // resume a re-entrant suspension with any JSON; the consuming step (the
+  // agent tier's model loop is the shipped case) must treat it as untrusted
+  // input, which a tool result already is.
+  let payload: unknown = request.result;
+  if (site.schema) {
+    const result = await validateAgainst(site.schema, request.result);
+    if (!result.ok) {
+      // Ingress only, deliberately: unlike an expiry or a changed
+      // continuation, a malformed payload is not a change in the world the
+      // suspended route has to react to. It is a per-request input error, and
+      // re-entering the suspended route's error channel for it would hand any
+      // token holder a lever to drive that route's re-ask path (approver
+      // notifications included) with junk. The suspension is left resumable,
+      // so the caller simply corrects the payload; shaping a reply to a bad
+      // payload is the ingress route's own `.error()` handler's job.
+      throw rcError("RC5049", result.message, {
+        message: `The payload for suspension "${id}" does not satisfy its declared schema: ${result.message}`,
+      });
+    }
+    payload = result.value;
   }
 
   const resumedAt = new Date();
@@ -240,8 +346,8 @@ export async function reviveSuspension(
   }
 
   // The deadline is re-checked AFTER winning the transition. The check
-  // above ran before validating the answer, and validation is a user
-  // schema: it can await. Without this, an answer that arrived in time but
+  // above ran before validating the payload, and validation is a user
+  // schema: it can await. Without this, a payload that arrived in time but
   // validated slowly would run the continuation past the window its route
   // declared, which is the one thing `ttl` promises it will not do.
   if (
@@ -249,7 +355,7 @@ export async function reviveSuspension(
     suspension.expiresAt.getTime() <= Date.now()
   ) {
     const expiry = rcError("RC5047", undefined, {
-      message: `Suspension "${id}" expired at ${suspension.expiresAt.toISOString()} while its answer was being validated.`,
+      message: `Suspension "${id}" expired at ${suspension.expiresAt.toISOString()} while its payload was being validated.`,
     });
     // Winning `markResumed` means the sweeper cannot also report this, so
     // the notification is ours to send exactly once.
@@ -273,16 +379,23 @@ export async function reviveSuspension(
   // between the transition and `recordTerminal` (a stored exchange the
   // deserializer refuses, a `route:exchange:resumed` subscriber that fails)
   // would otherwise leave the suspension `resumed` with no terminal
-  // forever, and every later answer would be told the first resume has not
+  // forever, and every later resume would be told the first resume has not
   // recorded an outcome yet. Recording the failure keeps a replay
   // idempotent, which is the contract a claimed suspension owes.
   let outcome: SerializedOutcome;
   try {
     const exchange = rehydrate(context, route, suspension, {
-      result: result.value,
+      result: payload,
       resumedAt,
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
     });
+    // The step-owned closure state goes back to the step that parked it,
+    // through internals rather than headers: it is runtime context for one
+    // re-entrant execution on this process, never exchange state, and must
+    // not be re-serialized into a second park.
+    if (site.site.reentrant && suspension.stepState !== undefined) {
+      setResumeStepState(exchange, decodePersistable(suspension.stepState));
+    }
 
     context.emit("route:exchange:resumed", {
       routeId: suspension.routeId,
@@ -328,10 +441,10 @@ export async function reviveSuspension(
     await runtime.store.recordTerminal(id, outcome);
   } catch (err) {
     // The work is DONE: destinations fired and the outcome below is true.
-    // Throwing here would tell the answerer the work failed after it
+    // Throwing here would tell the caller the work failed after it
     // succeeded, and the boot scan would later count the record as a
     // half-run continuation. A missing cached outcome only costs a
-    // duplicate resume its cached answer.
+    // duplicate resume its cached reply.
     route.logger.error(
       { suspensionId: id, err },
       "Could not cache the terminal outcome of a completed revival. The work finished; a duplicate resume will be told the outcome is unrecorded.",
@@ -360,7 +473,7 @@ export async function reviveSuspension(
  * `denied` is the honest state: the suspension can no longer be honoured,
  * and the route has been told to re-ask rather than to wait. The cost is
  * that rolling the deploy back no longer rescues this exchange, which is
- * consistent with the design's answer to a changed continuation (re-ask
+ * consistent with how the design treats a changed continuation (re-ask
  * with a fresh suspension) rather than a new limitation.
  *
  * @internal
@@ -381,14 +494,24 @@ async function refuseContinuation(
   if (!cas.won) {
     // Whoever won the transition says what happened, as on the expiry and
     // duplicate paths. A replay that lost to the denial has to read back the
-    // stored `deniedReason` rather than this request's RC5048, and an answer
+    // stored `deniedReason` rather than this request's RC5048, and a resume
     // that won `markResumed` on the way in was accepted: reporting a changed
     // continuation for it would describe work that is running as refused.
     if (cas.suspension) return settled(cas.suspension);
     throw error;
   }
   await reask(context, route, suspension, error);
-  await store.markDenied(suspension.id, reason);
+  const finalized = await store.markDenied(suspension.id, reason);
+  if (!finalized.won) {
+    // The claim was released before the denial landed, which puts the record
+    // back to suspended with a hash that can never match again. Every replay
+    // of a still-valid token now re-wins this path and re-drives the re-ask,
+    // which is the outbound amplifier the latch exists to remove.
+    context.logger.warn(
+      { suspensionId: suspension.id, routeId: suspension.routeId, reason },
+      "A continuation refusal was released before its denial finalized, so the record is resumable again and a replay will re-drive the re-ask",
+    );
+  }
   throw error;
 }
 
@@ -420,9 +543,9 @@ function correlationIdOf(suspension: Suspension): string {
 }
 
 /**
- * Answer a resume that arrived after the suspension already settled.
+ * Reply to a resume that arrived after the suspension already settled.
  *
- * A duplicate answer is the normal case here (an approver double-clicks, a
+ * A duplicate resume is the normal case here (an approver double-clicks, a
  * webhook is redelivered), and it must not re-run the continuation: the
  * cached terminal outcome is exactly what the first resume produced. The
  * other settled states are terminal failures the caller has to see.
@@ -469,7 +592,7 @@ function settled(suspension: Suspension): ResumeAcknowledgment {
   throw suspension.status === "expired" ||
     (suspension.status === "expiring" && expiryClaim)
     ? rcError("RC5047", undefined, {
-        message: `Suspension "${suspension.id}" expired before an answer arrived.`,
+        message: `Suspension "${suspension.id}" expired before a resume arrived.`,
       })
     : rcError("RC5050", undefined, {
         message: `Suspension "${suspension.id}" was denied${suspension.deniedReason ? `: ${suspension.deniedReason}` : ""}.`,
@@ -482,15 +605,15 @@ export type ExpiringSuspension = Suspension & { expiresAt: Date };
 /**
  * Retire an overdue suspension and tell its route, exactly once.
  *
- * Shared by the two things that can discover an expiry: a late answer
+ * Shared by the two things that can discover an expiry: a late resume
  * arriving at `.resume()`, and the sweeper. Both must reach the same
  * outcome, and only one of them may notify, which is what the
  * compare-and-swap decides. The loser gets the post-attempt record back
- * and reports what the winner did rather than its own view, so an answer
+ * and reports what the winner did rather than its own view, so a resume
  * that won `markResumed` on the deadline is reported as resumed, not
  * expired.
  *
- * Returns rather than throws: the sweeper is not answering anyone, so an
+ * Returns rather than throws: the sweeper has no caller to reply to, so an
  * expiry is not exceptional to it. The caller decides whether the error is
  * a return value or a throw.
  *
@@ -541,11 +664,11 @@ export async function expireSuspension(
  * hand the error back so the ingress route sees it too.
  *
  * Both halves matter. The ingress caller gets a typed error because it
- * asked a question and deserves an answer. The suspended route gets the
- * same error through its own `.error()` handler because it is the only
- * place that can do something useful about it: notify the approver, escalate,
- * or re-ask with a fresh suspension. Without that, a late answer strands the
- * approver at a dead link.
+ * made a request and deserves a reply. The suspended route gets the same
+ * error through its own `.error()` handler because it is the only place
+ * that can do something useful about it: notify, escalate, or re-ask with a
+ * fresh suspension. Without that, a late resume strands its sender at a
+ * dead link.
  *
  * The rehydrated exchange is what the handler receives, so it sees the
  * payload the approval was about. Its principal comes back marked restored
@@ -583,13 +706,13 @@ async function reask(
 }
 
 /**
- * Rebuild the parked exchange on this process, with the answer in place.
+ * Rebuild the parked exchange on this process, with the payload in place.
  *
  * The resume state goes on headers rather than being handed to the steps
  * some other way, because it has to survive a SECOND suspend of the same
  * exchange, and headers are the exchange's state (see
  * `.standards/exchange-state-model.md`). It is stored LIVE (a `Date` in the
- * answer stays a `Date`); the serialization rules apply to it at the next
+ * payload stays a `Date`); the serialization rules apply to it at the next
  * park, the same as to every other header.
  *
  * @internal
@@ -639,7 +762,7 @@ async function runContinuation(
   if (result.suspended) {
     // The continuation reached another `.suspend()`. Recording a body here
     // would cache the SECOND suspension's acknowledgment, token included,
-    // and hand it back to whoever answered the first one: in a two-stage
+    // and hand it back to whoever resumed the first one: in a two-stage
     // approval that is approver A receiving approver B's capability.
     return { status: "suspended", at };
   }
@@ -680,17 +803,33 @@ async function runContinuation(
 /**
  * Find the suspending step and its site by the address on the record.
  *
+ * A static `.suspend()` site can be read back off the route, so its live
+ * schema comes back here when it declared one, gating payload validation
+ * (`RC5049`). A re-entrant site carries none, because the schema was raised
+ * inside the step's own code and cannot be read back, so its payload skips
+ * validation and its hash comparison uses the stored descriptor. The step
+ * itself heads the hashed tail there instead.
+ *
  * @internal
  */
 function findSite(
   route: Route,
   suspension: Suspension,
 ):
-  | { step: Step<Adapter>; site: SuspendSite; expect: StandardSchemaV1 }
+  | { step: Step<Adapter>; site: SuspendSite; schema?: StandardSchemaV1 }
   | undefined {
   for (const step of route.definition.suspendSteps ?? []) {
     if (step.site?.position === suspension.position) {
-      return { step, site: step.site, expect: step.expect };
+      return {
+        step,
+        site: step.site,
+        ...(step.schema !== undefined ? { schema: step.schema } : {}),
+      };
+    }
+  }
+  for (const host of route.definition.reentrantSuspendSteps ?? []) {
+    if (host.suspendSite?.position === suspension.position) {
+      return { step: host, site: host.suspendSite };
     }
   }
   return undefined;
