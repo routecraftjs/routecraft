@@ -1,5 +1,240 @@
 # @routecraft/ai
 
+## 0.7.0
+
+### Minor Changes
+
+- [#577](https://github.com/routecraftjs/routecraft/pull/577) [`65803ee`](https://github.com/routecraftjs/routecraft/commit/65803ee4640343de70bfa1dfdf918931e6544105) Thanks [@ex0b1t](https://github.com/ex0b1t)! - `agents()` owns the `agents/` folder walk ([#324](https://github.com/routecraftjs/routecraft/issues/324)).
+
+  The loader now matches [Claude Code's subagent convention](https://code.claude.com/docs/en/sub-agents), so an existing `.claude/agents/` tree loads unmodified. The layout rules live here rather than in the CLI, so a programmatic caller and the project runtime walk the tree the same way.
+
+  **Recursive, and identity comes from frontmatter.** A `.md` file at any depth is one agent, identified by its frontmatter `name`. The filename and the folders above it are grouping and carry no identity, which is the rule that lets `review/security-reviewer.md` declare `name: security` and still resolve as `agent("security")`.
+
+  **Breaking (0.x, so `minor`): the filename no longer has to match the frontmatter `name`.** Trees that relied on the old strict check still load; nothing that worked before stops working. What changes is that a mismatch is no longer an error.
+
+  **Bundles and the reserved folder.** A directory holding `AGENT.md` is exactly one agent and is not descended into, so it can hold assets scoped to that agent. This is the one place the relaxed filename rule does not apply: the frontmatter `name` must match the bundle directory name, mirroring the check `skills()` already applies to its nested form. A directory named `skills` is never scanned for agents at any depth, so a bundle's own skills folder cannot fail the boot on its first file.
+
+  **Duplicate names throw**, naming both files. Silent shadowing is the failure that surfaces months later as "why is this agent behaving like the other one".
+
+  **`skills:` frontmatter is accepted again**, with different semantics from the key removed in 0.6: it declares where an agent's skills come from (local paths, `npm:` package refs) rather than naming blocks. The loader validates the list and surfaces it verbatim; resolving a ref needs the house and bundle folders, which a direct `agents()` call is not given, so it leaves the declaration for the project runtime to consume and records the fact at debug level.
+
+  `readMarkdownDir` grows `recursive` and `reservedDirectories`, and reports the bundle directory on documents found through a sentinel. Two shared-walk changes reach `skills()` as well: `node_modules` and dot-directories are skipped at every level, and a symlink to a file is followed while a symlink to a directory is not, which is what keeps the walk loop-free. `skills()` also now builds its record on a null-prototype object, so a skill named `__proto__` registers as a real key instead of vanishing.
+
+- [#586](https://github.com/routecraftjs/routecraft/pull/586) [`a9b355c`](https://github.com/routecraftjs/routecraft/commit/a9b355c66ebf7572e46705626bf2909664b7da50) Thanks [@ex0b1t](https://github.com/ex0b1t)! - `craft start`, the convention-based project runtime ([#131](https://github.com/routecraftjs/routecraft/issues/131)), and drop-in compatibility for Claude Code agent files ([#340](https://github.com/routecraftjs/routecraft/issues/340)).
+
+  **`craft start [dir]`** boots a whole project from its folder layout instead of a hand-written barrel: `craft.config.ts`, then `plugins/`, then any folder an ecosystem package has claimed, then `capabilities/`. Both the root-level and `src/`-nested layouts work, and a folder that is absent is skipped. A directory holding `route.ts` is one capability and is not descended into, so colocated tests, fixtures and private helpers are never imported. A `plugins/` module that default-exports a factory is an error naming the file, because a factory needs arguments the runtime cannot invent.
+
+  **`registerProjectDiscoverer`** lets a package claim a convention folder and turn it into a config fragment, which is how `agents/` and `skills/` get their meaning without the CLI ever depending on `@routecraft/ai`. A discoverer receives a context object (the folder, the content root, the project root, and the configuration accumulated so far) and declares its ordering as `after: ["skills"]` rather than a magic number. Cycles are an error; a dependency on a folder nobody registered is satisfied. A claimed folder present with no discoverer registered fails loudly, naming the erased type-import case, since that is the one the author will be staring at.
+
+  Skills compose house folder, then frontmatter `skills:` refs in declared order, then the bundle's own folder, most specific winning and every source named in the startup log. Refs are local paths or `npm:` package refs resolved against installed packages only. Precedence is code wins, convention fills the gaps, applied per field: an agent declared in `craft.config.ts` keeps every field it set and discovery contributes only the skill set it left unset.
+
+  `--once` shuts down after the first exchange reaches a terminal outcome, and pairs with `--timeout <ms>` so a project that produces nothing reports instead of hanging.
+
+  **Claude Code agent files** load without edits: unknown frontmatter is ignored with a warning, `tools` and `disallowedTools` accept Claude's comma-separated string, `model` accepts the `opus` / `sonnet` / `haiku` aliases and `inherit`, and a reference to a Claude built-in this runtime does not provide is dropped with a warning rather than failing the load. `disallowedTools` without `tools` is rejected at load: a per-agent list replaces the context default rather than narrowing it, so a deny list alone cannot be honoured and silently inheriting the denied tools would be the worst reading of the file.
+
+  New error code `AI1004` for a `skills:` ref that does not resolve.
+
+- [#630](https://github.com/routecraftjs/routecraft/pull/630) [`2432c0e`](https://github.com/routecraftjs/routecraft/commit/2432c0e5bccf1bdb73399439f2229beea910ee22) Thanks [@ex0b1t](https://github.com/ex0b1t)! - Durable agents: `ctx.suspend()` parks the tool loop through the core suspension store, the loop survives restarts and resumes mid-conversation, MCP advertises and carries the acknowledgment, and a cancelled run fails honestly ([#268](https://github.com/routecraftjs/routecraft/issues/268), [#269](https://github.com/routecraftjs/routecraft/issues/269), [#552](https://github.com/routecraftjs/routecraft/issues/552), [#581](https://github.com/routecraftjs/routecraft/issues/581)).
+
+  **`ctx.suspend({ schema?, ttl?, meta? })` on `FnHandlerContext`.** A handler that cannot answer now returns the sentinel; the runtime flushes the batch's in-flight siblings (their real results persist), stops the loop, and parks the exchange with `stepState = { agentId, messages, suspendedToolCallId, turnsUsed, usage? }`. Execution one replies with the core `Suspended` value; there is no agent-specific result type, which is what makes nested escalation work. `ctx.suspensionId` and `ctx.suspension` (`{ id, token }`) are populated before the handler runs so an approval request can carry a working resume link. `SuspendError` stays honoured as the throw-form escape hatch and now carries `schema` / `ttl` / `meta`; its JSDoc names the footgun (a handler's own `try/catch` swallows a thrown suspension, which the sentinel cannot reproduce). Either form parks with no declared contract when `schema` is omitted.
+
+  **Rehydration.** A resume re-enters the agent step with the payload swapped into the suspended call's tool result; the system prompt, blocks, and tools are re-resolved live (only resolved strings ever persist, and `lifetime: "context"` blocks stay in the running context). The `maxTurns` budget and the accumulated token spend survive the park, so a cancelled resumed run reports the whole run's cost; a run resuming with the budget exhausted takes the ordinary max-turns path. Two suspend signals in one batch produce exactly one park: the first in the model's own emission order wins and the loser becomes a retryable tool error the resumed model sees.
+
+  **Refusals.** `ctx.suspend()` outside an agent dispatch on a route-bound exchange refuses with the new `AI1006` at the call, writing nothing. Rehydration state the agent cannot re-enter (malformed `stepState`, a route rebound to a different agent, a thread missing the suspended call) fails with the new `AI1007`. An unconfigured context fails the park with `RC5052` naming the one config line.
+
+  **MCP carries Suspended ([#581](https://github.com/routecraftjs/routecraft/issues/581)).** A tool whose route can park (a static `.suspend()`, or an agent step, whose tools MAY park) and declares `.output()` advertises `outputSchema` as the derived `oneOf: [Output, Suspended]`; the author declares only the output arm. The acknowledgment rides `structuredContent` on an ordinary `isError: false` result, and the park emits the new `plugin:mcp:tool:suspended` `{ tool, suspensionId }` instead of `completed`: a parked run reported as finished is a false receipt. `McpTool.outputSchema`'s root type loosens to admit the `oneOf` root.
+
+  **Cooperative cancellation ([#552](https://github.com/routecraftjs/routecraft/issues/552)).** The dispatch signal now merges the route's signal with the step's, so a route-scope `.timeout()` reaches the model call instead of letting an abandoned run finish the turn and discard it; the signal is checked between turns and reaches `Direct(...)` tool dispatch, which refuses to start after an abort and unwinds promptly mid-flight (the downstream route finishes under its own lifecycle). A cancelled run fails with the new `AI1005`, whose `cause` is the exported `AgentCancellationCause` carrying typed `turnsUsed` and `usage` fields (cache tokens included) instead of returning a partial `AgentResult` that reads like success. Parent-cancels-sub-agents is specced (skipped test) and lands with [#226](https://github.com/routecraftjs/routecraft/issues/226). The `AI1xxx` range's charter widens to "agent blocks, configuration, and runtime".
+
+  **Breaking.** `FnHandlerContext.checkpointId` is renamed `suspensionId` (the v0 rename [#417](https://github.com/routecraftjs/routecraft/issues/417) recorded; it was a stub nothing populated). `FnHandlerContext` gains a required `suspend` member, so hand-built handler contexts must provide one; `makeFnHandlerContext` and `testFn` both do, and `@routecraft/testing`'s `TestFnHandlerContext` now includes a structural `suspend` that returns the sentinel shape for assertions without parking anything.
+
+- [#573](https://github.com/routecraftjs/routecraft/pull/573) [`8f01cf8`](https://github.com/routecraftjs/routecraft/commit/8f01cf8802e17217eb045116ed248fc22a3d09e5) Thanks [@ex0b1t](https://github.com/ex0b1t)! - `forward()` now carries the caller's identity and trace ([#567](https://github.com/routecraftjs/routecraft/issues/567)).
+
+  `Route.buildForward()` built the forwarded exchange with no headers, so a forwarded call arrived anonymous and separately traced. A target declaring `.authorize()` refused it with `RC5012`; a target without one ran with no authority at all. The forwarded call also got a fresh correlation id, breaking the audit chain at the forward boundary.
+
+  This affected every caller of `forward()`: route-scope and step-scope `.error()` handlers, `circuitBreaker` fallbacks, and `BlockClient.forward` in `@routecraft/ai`, which is the documented way to back an agent block with a route. A memory or knowledge block resolved that way was either refused by its target or served identically to every caller regardless of who asked.
+
+  A `direct()` destination never had the bug because it hands the target its live exchange, headers and all. Forward builds a fresh envelope, so it has to pass the caller's headers explicitly. It now does, which brings the two in-process paths to parity.
+
+  Headers travel by reference rather than as a copy. Both authenticity brands (`markAuthentic`, `markRestored`) are identity-keyed `WeakSet` membership, so any copy silently drops them: a copied restored principal would fail `authorize()` with `RC5023` ("self-asserted") instead of the correct `RC5043` ("restored, not verified live"), and re-branding one to compensate would launder an unverified identity into a trusted one. Propagation is unconditional and cannot escalate: it is the same frozen authority the calling route was already running under.
+
+  `Route.getForward()` now takes the calling exchange as a required argument. It is `@internal`, and required rather than optional so a new call site cannot silently reintroduce the anonymous forward.
+
+  **Engine-owned headers are re-established at every route ingress.** `buildExchange` is the single ingress constructor, so it now mints a fresh `routecraft.id` rather than letting one be inherited. An inherited exchange id collides in every store keyed by it: telemetry spans (`${exchangeId}:${contextId}`), the `exchanges` and `exchange_snapshots` tables, and suspension ids (`${exchangeId}~${sequence}`). The correlation id, not the exchange id, is what links a hop. This corrects the pre-existing `direct()` behaviour too, where the target route previously ran under the caller's exchange id.
+
+  **Split hierarchy no longer crosses a route boundary.** `buildExchange` now drops `routecraft.split_hierarchy` at route ingress. A split group can only join within the executor run that created it, so a hierarchy arriving from another route was unjoinable by construction, and actively harmful: `.aggregate()` looks the trailing group id up in the context-wide split-parent store, so it would find the _caller's_ parent exchange and delete that entry on completion, corrupting an aggregation still in flight on the calling route. This also closes the same latent hazard on the pre-existing `direct()` path.
+
+  Two consequences worth knowing. A target route with a strict `.input({ headers })` schema now sees the caller's headers and may reject a forward that previously passed. And forwarding a principal whose `expiresAt` has passed now surfaces the expiry error rather than `RC5012`, which is the correct failure but a different one.
+
+- [#576](https://github.com/routecraftjs/routecraft/pull/576) [`fbf9bfc`](https://github.com/routecraftjs/routecraft/commit/fbf9bfc56507eb492ce4ebf5aaac3ac5715b8c02) Thanks [@ex0b1t](https://github.com/ex0b1t)! - **Behaviour change.** An MCP tool whose route drops the exchange now returns an error result instead of the caller's own request ([#214](https://github.com/routecraftjs/routecraft/issues/214)).
+
+  A dropped exchange (a `.filter()` rejecting, a `.choice()` matching no branch, an error handler returning `recovery.drop()`) resolves with the body it came in with. The MCP server was publishing that as the tool's result, `structuredContent` included, so a client received its own arguments back and could not tell them from an answer the tool had computed. `CraftClient.sendDirect` and the route-scope `forward` have always raised `RC5031` for exactly this case; MCP was the one request/reply surface still echoing.
+
+  Such a call now comes back as `isError: true` with a message saying the tool declined the request, under the new error code `AI2002`, and never carries the request body back. This applies to every MCP tool, whether or not its route declares `.output()`, because an echoed request is not a result under any schema.
+
+  A decline is not counted as a failure. It emits the new `plugin:mcp:tool:declined` event and logs at warn, leaving `plugin:mcp:tool:failed` and error-level logs to mean what they did before. A tool whose route filters declines as a matter of course, and an error-rate alert should not fire on ordinary traffic.
+
+  If a route reaches a drop on a path where the caller should receive a value, give it a branch that produces one (an empty list, an explicit not-found shape) or recover with a body in `.error()`. A drop that is genuinely the right answer now says so honestly instead of fabricating a result.
+
+  Core exports `isDropped(exchange)` so request/reply source adapters outside core can tell "the route declined" apart from "the route produced this", which is not otherwise reachable: the flag lives on the exchange's internals.
+
+- [#576](https://github.com/routecraftjs/routecraft/pull/576) [`fbf9bfc`](https://github.com/routecraftjs/routecraft/commit/fbf9bfc56507eb492ce4ebf5aaac3ac5715b8c02) Thanks [@ex0b1t](https://github.com/ex0b1t)! - Enforce the `outputSchema` an MCP tool advertises ([#214](https://github.com/routecraftjs/routecraft/issues/214)).
+
+  A route exposed with `.from(mcp())` that declares `.output({ body })` has that schema advertised as the tool's `outputSchema` in `tools/list`, and spec-compliant clients parse the result's `structuredContent` against it. The MCP server now checks the body it is about to publish and refuses one the schema rejects: the call returns `isError: true` carrying the failing fields (new error code `AI2001`) instead of a result that contradicts what the server promised.
+
+  The route pipeline already validated the exchanges it completes, and keeps reporting those violations as `RC5002`. What this adds is a check at the surface that made the promise, for results that reached it without passing through that validation: a tool registered directly in `MCP_LOCAL_TOOL_REGISTRY` today, and a suspension once [#550](https://github.com/routecraftjs/routecraft/issues/550) lands.
+
+  A body the route already validated is deliberately not re-checked. Output validation replaces the body with the schema's output value, so re-running the schema would reject what it had just produced: a route declaring `.output({ at: z.string().transform((s) => new Date(s)) })` would fail every call with "expected string, received Date". Core records which schema accepted the body and exposes it as `wasOutputValidated(exchange, schema)`, beside `isDropped`, compared by identity so an exchange validated against one contract does not count as validated against another. Any request/reply adapter enforcing the same schema at its own boundary can avoid the same trap.
+
+  Tools whose route declares no `.output()` advertise no schema and are unchanged.
+
+  The advertised contract now has one owner: `advertisedOutputArms(entry)` is what `tools/list` publishes and what enforcement accepts, so the two cannot drift.
+
+  A run that parks at a `.suspend()` answers with the framework's `Suspended` acknowledgment rather than the route's declared output, and the pipeline skips output validation for it. Enforcement accepts it (via `isSuspended`), so a suspending MCP tool answers with its acknowledgment instead of a validation error. Advertising that second arm as `oneOf: [Output, Suspended]` in `tools/list` is still open: it needs a schema for the acknowledgment and a signal that a route can park, neither of which core exposes yet. Until then a strict client that validates `structuredContent` against the advertised schema will reject a suspension response, exactly as it did before this change.
+
+  Core also exports `validateAgainst(schema, value)`, the Standard Schema helper the pipeline validates with, typed to the schema's output and returning the raw `issues` alongside the formatted message, for adapter authors who need a validation failure as data to hand back over the wire rather than as a thrown error.
+
+- [#631](https://github.com/routecraftjs/routecraft/pull/631) [`443b160`](https://github.com/routecraftjs/routecraft/commit/443b160380cabbea7d880fb3899c8265e5a43bb5) Thanks [@ex0b1t](https://github.com/ex0b1t)! - Unify mount auth across http, mcp and ops, and make the listener a mount property ([#628](https://github.com/routecraftjs/routecraft/issues/628)).
+
+  One vocabulary on every mount:
+
+  - `auth` unset inherits the server validator as a wall when one exists.
+  - `auth: <config>` is the mount's own wall, replacing the server's validator.
+  - `auth: false` removes the wall and keeps the inherited validator reachable, so a route's `.authorize()` still pulls identity through it. On mcp this replaces "credentials are never inspected": a valid token now attaches a principal to tool calls and an invalid one is treated as absent.
+
+  The registry resolves the rule once into per-mount facts (`HttpMountAuth` on the mount context: `configured` / `own` / `optedOut` / `walled`); `serverAuthConfigured` is removed from `WebIngress` and `HttpMountContext`.
+
+  The ops surface gains `auth`, feeding its `health.details` gate through the mount's effective validator without ever walling the probes. The gate now fails closed with no validator in scope: an explicit `when-authenticated` refuses the boot, and the unwritten default withholds details with a startup warning instead of serving them to every caller.
+
+  `server` becomes a mount property on http: each entry under `mounts` names its own listener (default `"default"`), the plugin's top-level `server` remains only as the single-mount shorthand and is refused alongside `mounts`, and the built-ins describe only routes on their own listener.
+
+  ```ts
+  defineConfig({
+    servers: { default: { port: 8080 }, internal: { port: 9090 } },
+    ops: { auth: { kind: "apiKey", name: "x-ops-key", keys: [opsKey] } },
+    mcp: { auth: jwks({ issuer }) },
+    http: {
+      mounts: {
+        api: { path: "/api", auth: { kind: "apiKey", keys: [apiKey] } },
+        webhooks: { path: "/webhooks", auth: false },
+        admin: { path: "/admin", server: "internal" },
+      },
+    },
+  });
+  ```
+
+- [#620](https://github.com/routecraftjs/routecraft/pull/620) [`a18bee7`](https://github.com/routecraftjs/routecraft/commit/a18bee75b821c63bd53041d0e353b59bc476ad29) Thanks [@ex0b1t](https://github.com/ex0b1t)! - Add named HTTP servers and bind-time mount claims so HTTP routes, MCP, health endpoints, and custom plugins can share one listener on distinct paths while retaining isolated-server topology.
+
+  This removes the listener-owned `http.port`, `http.host`, `mcp.port`, and `mcp.host` options. Define the listener once and select it by name:
+
+  ```ts
+  // Before
+  defineConfig({
+    http: { host: "0.0.0.0", port: 8080 },
+    plugins: [mcpPlugin({ transport: "http", host: "0.0.0.0", port: 8081 })],
+  });
+
+  // After: shared listener, distinct paths
+  defineConfig({
+    servers: { public: { host: "0.0.0.0", port: 8080 } },
+    http: { server: "public" },
+    plugins: [mcpPlugin({ transport: "http", server: "public", path: "/mcp" })],
+  });
+  ```
+
+  Use a separate server name to give any surface a dedicated port. Further
+  user-visible changes:
+
+  - Listener lifecycle events move from `plugin:http:server:listening` /
+    `plugin:http:server:closed` to `server:listening`, `server:failed`, and
+    `server:closed`, each carrying the server name.
+  - Bearer `auth:rejected` reasons are now the bounded underscore vocabulary
+    shared with MCP (`invalid_token`, `unsupported_scheme`, `infrastructure`,
+    `expired`, `insufficient_scope` where applicable), rather than the previous
+    HTTP free-text literals.
+  - A bearer verification that fails on the server side (JWKS unreachable,
+    network error) now answers `500` on the HTTP surface instead of
+    `401 invalid token`, so clients keep their cached token during an IdP blip.
+  - `mcpPlugin({ transport: "http" })` now requires an explicit HTTPS
+    `resource.url` unless `NODE_ENV` is exactly `development` or `test`
+    (an unset `NODE_ENV` counts as production and fails closed). Previously an
+    omitted `resource.url` silently advertised the bound address.
+  - Servers optionally take a server-level `auth` validator inherited by every
+    mounted surface (opt out per mount with `auth: false`) and a
+    `shutdownGraceMs` bound on graceful drain.
+  - The http plugin gains named path-scoped mounts, and the mount now decides
+    authentication. `http: { mounts: { api: { path: "/api" }, default: { path:
+"/", auth: false } } }` walls `/api` (inheriting the server validator) while
+    the catch-all stays public; routes pick a surface with `http({ mount:
+"api", path: "/orders" })` (paths are relative to the mount prefix). The
+    per-route `http({ auth: "required" | "optional" | "skip" })` option is
+    REMOVED: a public route is public because of where it lives, a route that
+    needs identity on a public mount declares `.authorize()` (which forces
+    verification through the server validator), and there is no route-level way
+    to weaken a mount's wall. The former `"optional"` personalisation mode has
+    no equivalent.
+  - The bearer middleware now enforces principal expiry itself (floored,
+    inclusive, fail-closed on non-finite values), so a custom validator that
+    returns an already-elapsed `expiresAt` is rejected with `expired` on HTTP
+    routes too, not only on MCP.
+  - `plugin:mcp:server:listening` is removed. Subscribe to `server:listening`
+    on the MCP transport's named server instead; the MCP path is config
+    (`mcpPlugin({ path })`).
+  - `auth:rejected` / `auth:success` carry a consistent `source` per surface:
+    `http` for the default HTTP mount, `http:<name>` for named mounts, `mcp`
+    for the MCP transport, on every rejection path including missing
+    credentials and webhook signatures.
+  - The HTTP bearer missing-credential reason is now `missing_header` (event
+    and 401 body), matching MCP and the documented bounded vocabulary;
+    api-key keeps `missing api key`.
+  - Mount paths are validated as static canonical pathname prefixes: no `?`,
+    `#`, `:param` segments, empty segments, backslashes, or percent-encoding,
+    and the path must survive URL parsing unchanged (no `.` or `..` segments,
+    no spaces or characters the parser rewrites). `mcpPlugin({ path })` is held
+    to the same contract and additionally rejects `"/"` (previously a root
+    path was silently remapped to `/mcp`); the shared validator is exported as
+    `normalizeStaticPathPrefix`.
+  - `mcpPlugin`'s HTTP transport no longer waits for its named server to bind
+    during the plugin `start()` hook, so plugin registration order relative to
+    the servers plugin cannot deadlock startup. A missing or undeclared server
+    still fails fast at apply time.
+  - Listeners reap idle connections after 255s, and mounts that hold quiet
+    long-lived streams (the MCP transport; custom mounts via
+    `longLived: true`) exempt their requests per request, so silent streams
+    are never cut while parked sockets still get reaped.
+
+- [#630](https://github.com/routecraftjs/routecraft/pull/630) [`2432c0e`](https://github.com/routecraftjs/routecraft/commit/2432c0e5bccf1bdb73399439f2229beea910ee22) Thanks [@ex0b1t](https://github.com/ex0b1t)! - Suspension: securing resume is now possible, and still yours to define ([#632](https://github.com/routecraftjs/routecraft/issues/632)).
+
+  **The framework ships a policy point, not a policy language.** How approvals work is the application's design: Routecraft has no notion of an approver, a role, a four-eyes rule, or an escalation, and shipping one would get it wrong for somebody. What it now guarantees is the part you cannot build from outside.
+
+  **`.resume({ authorize })`.** One hook on the resuming route, receiving `{ principal, parked, payload, record }`: the live principal (whatever the route's `.authenticate()` resolved), the parked principal restored from storage, the submission exactly as it arrived, and the record's context view (`id`, `meta`, `routeId`, `suspendedAt`, `expiresAt`). Never the parked body: the hook runs before the principal is authorized, so a body-reading hook would put the parked payload in front of exactly the party the check exists to reject. `payload` is RAW, because `schema` validation runs only once the hook has passed: a submission the hook refuses never reaches the validator and never spends the link. Return false or throw to refuse.
+
+  **`.suspend({ meta })`, identical on both surfaces.** Plain JSON under the exchange's own rules (`RC5042`), persisted verbatim, never interpreted, never surfaced on the acknowledgment, and handed to the hook at revive. `ctx.suspend()` takes exactly what `.suspend()` takes, so an agent-raised park and a route-raised one are one mechanism with one resuming path. Because `meta` lives only on the record, a parker that snapshots its policy there gets policy-travels-with-the-park by construction rather than by a tamper check.
+
+  **The refusal contract.** Every refusal happens before the store's compare-and-swap, so saying no never spends the rightful principal's single-use link, and before the record's lifecycle is disclosed, so a refused caller cannot learn whether the park is still open. `false`, a throw, and a hook that never settles are one `RC5056` with one message, distinguished only in the boundary log, because a hook whose failures can be told apart from outside is an oracle for what it knows; a thrown cause never reaches the wire. An async hook is bounded by the route's own lifecycle rather than a framework knob (the route's stop signal, widened by an enclosing `.timeout()`), and the suspension's deadline is re-checked once it resolves so an overrun reports `RC5047`.
+
+  **With no hook the door is bearer**, exactly as before. Resume is securable, not secured; the docs say so in the reference rather than warning about it at startup.
+
+  **Per-call resume credentials** (`RC5055`). A parallel agent tool batch produces one park while each handler mints its own credential through `ex.suspension.tokenFor(call)`. A recipient sent a link by a handler that then lost the park is refused instead of resuming the winner's park, record-only and before anything else. `tokenFor` refuses a missing binding at the mint site rather than silently handing back an unbound credential.
+
+  **The pre-claim window is ordered, and the ordering is the security property.** The deadline arm and the continuation arm each settle a record and drive the suspended route's error channel, so the credential binding and the hook run above both, and above the settled-state disclosure. The hash is compared non-destructively for the same reason. Previously either transition was reachable by a party the checks exist to reject, who could deny the record, burn the rightful principal's claim, and drive an approver notification with it.
+
+  **Docs.** A "Securing resume" section on the resume reference carries six patterns as real running code, each proven on its accept and refuse path in `packages/routecraft/test/securing-resume.bun.test.ts`: four eyes, scope gate, channel segmentation, policy travels with the park, same-user continuation, and threshold by scope over a narrowed payload.
+
+  **Breaking.** `.suspend({ expect })` is now `.suspend({ schema })` and the option is OPTIONAL: a site that declares none parks with no contract, validates nothing at the ingress, and types `ex.suspension.result` as `unknown`. The rename carries through `ctx.suspend()`, `SuspendError`, `testFn`'s structural suspend, the `Suspended` acknowledgment's wire field (both the advertised JSON Schema and the structural validator), the stored record, and `describeExpect` to `describeSchema`. The sqlite store migrates itself. `SuspensionExpect` is now `SuspensionSchema` and carries an `absent` sentinel distinct from the degraded fallback, so a site edited between "declared but unrenderable" and "no schema at all" moves the digest instead of quietly accepting anything.
+
+  **Breaking.** `Suspended` no longer carries `question` or `reason`, and neither suspend surface accepts them. The acknowledgment is `{ status, suspensionId, token, schema?, expiresAt? }`: it crosses the wire to whoever called the route, so it carries the CONTRACT and nothing else, while everything policy-shaped lives on the record where only the hook and an operator can read it. `SuspendError`, `ctx.suspend()`, `SuspendSignal`, both stores, and the advertised MCP schema drop the fields together. Put what you were carrying there into `meta`, or send it through the notification step that already runs before the park.
+
+### Patch Changes
+
+- [#637](https://github.com/routecraftjs/routecraft/pull/637) [`5a9758c`](https://github.com/routecraftjs/routecraft/commit/5a9758cadb2c0539f167d6fbee6f3f963f84fee8) Thanks [@ex0b1t](https://github.com/ex0b1t)! - Retention counts from settlement, not from the park ([#634](https://github.com/routecraftjs/routecraft/issues/634)).
+
+  `purgeSettled` used to measure the retention window from `suspendedAt` because the store carried no settlement timestamp, so a record that parked for 89 days and resolved on day 89 was purged one day after settling. Records now carry `settledAt`, stamped on every terminal transition (resumed, expired, denied), and retention measures from it: a settled record gets the full configured window from the moment it settled, however long it was parked before that.
+
+  **The SQLite store migrates itself to schema v4.** Resumed rows backfill exactly from `resumed_at`. Expired and denied rows carry no trustworthy settlement evidence (a due time is not a settlement time, and a long outage can put the two far apart), so they are stamped with the migration moment and keep one full retention window from the upgrade: they may live longer than they would have under the old clock, and are never purged earlier than the new contract promises.
+
+  `parseDuration(value, field)` is now exported from `@routecraft/routecraft`, so code that computes a ttl can validate it under exactly the rules the suspend surfaces apply. `ctx.suspend({ ttl })` (and its `testFn` twin) now validate the ttl at the call site with `RC5003`, matching `.suspend()`, instead of surfacing a malformed duration after the handler has unwound.
+
 ## 0.6.0
 
 ### Minor Changes
