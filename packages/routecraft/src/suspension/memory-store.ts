@@ -33,6 +33,19 @@ import type {
 export class MemorySuspensionStore implements SuspensionStore {
   readonly #records = new Map<string, Suspension>();
 
+  /**
+   * The live record map, bypassing the transitions and the clone-on-read
+   * boundary. A test seam: the purge contract must hold for states the
+   * public transitions cannot produce (a terminal record with no
+   * `settledAt`), and proving that on this backend requires injecting one.
+   * Sqlite's equivalent seam is raw SQL against the database file.
+   *
+   * @internal
+   */
+  static unsafeRecords(store: MemorySuspensionStore): Map<string, Suspension> {
+    return store.#records;
+  }
+
   async create(record: NewSuspension): Promise<void> {
     if (this.#records.has(record.id)) {
       throw rcError("RC5044", undefined, {

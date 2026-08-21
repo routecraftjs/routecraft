@@ -785,9 +785,8 @@ describe("SqliteSuspensionStore durability", () => {
    * @preconditions A resumed record whose settled_at was nulled by hand,
    *   which no public transition can produce
    * @expectedResult purgeSettled leaves it in place, however generous the
-   *   cutoff. Refusing to delete a record you cannot date is the contract
-   *   both backends share: sqlite's NULL comparison and the memory store's
-   *   explicit skip must not diverge into a fallback on the old clock
+   *   cutoff: SQL NULL never compares below it. The memory backend's half
+   *   of this contract has its own case below, through its own seam
    */
   test("purgeSettled skips a settled row with no settled_at", async () => {
     const path = join(scratch, "undated.db");
@@ -938,4 +937,28 @@ describe("SuspensionStore compare-and-swap under real concurrency", () => {
     expect(read?.status).toBe("resumed");
     expect(read?.resumedBy?.subject).toBe(winners[0]?.subject);
   }, 30_000);
+});
+
+describe("MemorySuspensionStore injected states", () => {
+  /**
+   * @case The memory backend honours the same undated-record contract
+   * @preconditions A resumed record whose settledAt was deleted through the
+   *   store's test seam, a state no public transition can produce
+   * @expectedResult purgeSettled leaves it in place, matching sqlite's NULL
+   *   comparison in the durability block's twin case. Refusing to delete a
+   *   record you cannot date is the contract both backends share, and this
+   *   case is what keeps the memory store's skip from silently regressing
+   *   into a fallback on the clock #634 removed
+   */
+  test("memory purgeSettled skips a record with no settledAt", async () => {
+    const store = new MemorySuspensionStore();
+    await store.create(record({ id: "undated" }));
+    await store.markResumed("undated", { at: new Date("2026-08-11") });
+    const live = MemorySuspensionStore.unsafeRecords(store).get("undated")!;
+    delete (live as { settledAt?: Date }).settledAt;
+
+    expect(await store.purgeSettled(new Date("2999-01-01"))).toBe(0);
+    expect((await store.get("undated"))?.status).toBe("resumed");
+    await store.close();
+  });
 });
