@@ -388,6 +388,16 @@ export class CraftContext {
   /** The in-flight start, so concurrent `start()` calls join one boot. */
   private startInFlight: Promise<void> | undefined;
 
+  /**
+   * The plugin lifecycle hook currently awaiting, so a `stop()` that lands
+   * mid-boot can let it finish before teardown runs.
+   *
+   * Scoped to `apply()` and `start()` alone, never `run()`: for an
+   * indefinite route `run()` resolves only once the context stops, so
+   * waiting on it would deadlock the shutdown this ordering exists to serve.
+   */
+  private pluginHookInFlight: Promise<void> | undefined;
+
   /** Latched by `stop()`. A stopped context refuses to start again. */
   private hasStopped = false;
 
@@ -515,6 +525,10 @@ export class CraftContext {
     if (this.pluginsInitialized) return;
     this.pluginsInitialized = true;
     for (const [pluginIndex, plugin] of this.plugins.entries()) {
+      // Same guard as startPlugins(), for the same reason: once teardown has
+      // walked the applied set, a plugin applied after it acquires resources
+      // nothing will ever release.
+      if (this.hasStopped) return;
       try {
         if (
           !plugin ||
@@ -543,12 +557,10 @@ export class CraftContext {
           pluginIndex,
         });
 
-        await (plugin as CraftPlugin).apply(this);
-        this.appliedPlugins.add(pluginIndex);
-
-        this.emit("plugin:applied", {
-          pluginId,
-          pluginIndex,
+        await this.runLifecycleHook(async () => {
+          await (plugin as CraftPlugin).apply(this);
+          this.appliedPlugins.add(pluginIndex);
+          this.emit("plugin:applied", { pluginId, pluginIndex });
         });
       } catch (err) {
         this.logger.error(
@@ -748,12 +760,15 @@ export class CraftContext {
       // hook launched after that begins work nothing will ever stop.
       if (this.hasStopped) return;
       if (typeof plugin.start !== "function") continue;
+      const startHook = plugin.start.bind(plugin);
       const pluginId = this.getPluginId(plugin, pluginIndex);
       try {
         this.emit("plugin:starting", { pluginId, pluginIndex });
-        await plugin.start(this);
-        this.startedPlugins.add(pluginIndex);
-        this.emit("plugin:started", { pluginId, pluginIndex });
+        await this.runLifecycleHook(async () => {
+          await startHook(this);
+          this.startedPlugins.add(pluginIndex);
+          this.emit("plugin:started", { pluginId, pluginIndex });
+        });
       } catch (err) {
         this.logger.error(
           { pluginIndex, pluginId, err },
@@ -763,6 +778,47 @@ export class CraftContext {
         throw err;
       }
     }
+  }
+
+  /**
+   * Run one plugin lifecycle hook, publishing it as the in-flight hook for
+   * as long as it runs.
+   *
+   * The published promise covers the hook and the bookkeeping that records
+   * it, so a shutdown waiting on it sees a plugin either fully applied or
+   * fully absent, never half-recorded.
+   *
+   * @param hook The hook call together with the state it updates on success
+   */
+  private async runLifecycleHook(hook: () => Promise<void>): Promise<void> {
+    const inFlight = hook();
+    this.pluginHookInFlight = inFlight;
+    try {
+      await inFlight;
+    } finally {
+      if (this.pluginHookInFlight === inFlight) {
+        this.pluginHookInFlight = undefined;
+      }
+    }
+  }
+
+  /**
+   * Wait for a plugin lifecycle hook still in flight before teardown runs.
+   *
+   * Waiting rather than interrupting, and unbounded, for the reason plugin
+   * teardown is unbounded: a hook cut off partway keeps whatever it acquired
+   * after its last await point, and no teardown can release what the plugin
+   * had not yet handed over. Interrupting instead would oblige every plugin
+   * author to write `start()` so it tolerates teardown-before-completion, a
+   * contract paid for by every correct plugin to contain a defective one.
+   * A hook that never settles is that defective plugin, not a shutdown
+   * policy question.
+   *
+   * The hook's own rejection belongs to whoever invoked it, which is why
+   * only its settling is observed here.
+   */
+  private async settlePluginHook(): Promise<void> {
+    await this.pluginHookInFlight?.catch(() => undefined);
   }
 
   /**
@@ -1404,6 +1460,11 @@ export class CraftContext {
         );
       }
     }
+
+    // A stop() racing boot lets the hook already awaiting finish first, so
+    // a plugin is never torn down while its own apply() or start() is still
+    // acquiring. Outside that race this settles immediately.
+    await this.settlePluginHook();
 
     // Plugin teardown (plugins with teardown in reverse order, then
     // registerTeardown callbacks). Unbounded on purpose: teardown releases

@@ -1,0 +1,180 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { testContext, type TestContext } from "@routecraft/testing";
+import { craft, direct, noop, type CraftPlugin } from "../src/index.ts";
+import { CraftContext } from "../src/context.ts";
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Wait for a recorded phase, bounded.
+ *
+ * An unbounded poll turns a lifecycle regression into a hung suite instead
+ * of a failure, which is the same blindness a fixed sleep causes from the
+ * other side.
+ */
+const waitFor = async (reached: () => boolean, what: string): Promise<void> => {
+  const deadline = Date.now() + 5_000;
+  while (!reached()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await sleep(5);
+  }
+};
+
+/**
+ * A `stop()` that arrives while a plugin lifecycle hook is still awaiting.
+ *
+ * Teardown keys off the applied set, so the plugin is torn down. The defect
+ * is the order: the hook resolved after its own `teardown()` had run, so
+ * anything it acquired past its last await point was acquired after the
+ * release meant to cover it and nothing ever released it. For a process that
+ * exits the OS reclaims; for an embedder or a test building successive
+ * contexts in one process, the interval or socket simply lives on.
+ *
+ * Shutdown therefore waits for the hook rather than interrupting it, and
+ * waits unbounded, on a promise covering the lifecycle hooks alone. It never
+ * covers `run()`, which for an indefinite route resolves only once the
+ * context stops: waiting on that would deadlock the shutdown this ordering
+ * exists to serve.
+ */
+describe("a stop racing a plugin lifecycle hook", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * How long a gated hook stays in flight.
+   *
+   * This is the hook's own duration, not a synchronisation guess: the test
+   * waits for the hook to be entered before stopping, so the race is
+   * established deterministically and the assertions never depend on when
+   * this elapses. It only has to outlast the moment teardown would otherwise
+   * begin, which for a context with no routes to drain is immediate.
+   */
+  const HOOK_MS = 200;
+
+  /**
+   * @case stop() lands while a plugin's start() is still awaiting
+   * @preconditions A directly constructed context whose plugin start() is still running when stop() arrives
+   * @expectedResult The observed order is enter, resolve, teardown. Teardown running second would release a plugin that is still acquiring, which is the leak this ticket exists for
+   */
+  test("waits for an in-flight start() before tearing that plugin down", async () => {
+    const order: string[] = [];
+
+    // Built by hand and without routes: stage one then has nothing to drain,
+    // so a shutdown that did not wait would reach teardown immediately and
+    // the ordering assertion below would catch it with the whole hook
+    // duration to spare.
+    const ctx = new CraftContext({
+      plugins: [
+        {
+          name: "slow-start",
+          apply() {},
+          async start() {
+            order.push("start:enter");
+            await sleep(HOOK_MS);
+            order.push("start:resolve");
+          },
+          teardown() {
+            order.push("teardown");
+          },
+        },
+      ],
+    });
+
+    const started = ctx.start();
+    started.catch(() => {});
+    await waitFor(
+      () => order.includes("start:enter"),
+      "the start hook to be entered",
+    );
+
+    await ctx.stop();
+    await started;
+
+    expect(order).toEqual(["start:enter", "start:resolve", "teardown"]);
+  });
+
+  /**
+   * @case stop() lands while a plugin's apply() is still awaiting
+   * @preconditions A directly constructed context, two plugins, the first still in apply() when stop() arrives
+   * @expectedResult The first resolves before its teardown, and the second never applies. A plugin applied after teardown has walked the applied set acquires what nothing will release
+   */
+  test("waits for an in-flight apply() and applies no plugin after it", async () => {
+    const order: string[] = [];
+
+    // ContextBuilder.build() awaits initPlugins(), so a gated apply() would
+    // hold the builder itself and the test would never reach its stop().
+    const ctx = new CraftContext({
+      plugins: [
+        {
+          name: "slow-apply",
+          async apply() {
+            order.push("apply:enter");
+            await sleep(HOOK_MS);
+            order.push("apply:resolve");
+          },
+          teardown() {
+            order.push("teardown");
+          },
+        },
+        {
+          name: "later",
+          apply() {
+            order.push("later:apply");
+          },
+        },
+      ],
+    });
+
+    const started = ctx.start();
+    started.catch(() => {});
+    await waitFor(
+      () => order.includes("apply:enter"),
+      "the apply hook to be entered",
+    );
+
+    await ctx.stop();
+    await started.catch(() => undefined);
+
+    expect(order).toEqual(["apply:enter", "apply:resolve", "teardown"]);
+  });
+
+  /**
+   * @case stop() on a started context with indefinite routes and no hook in flight
+   * @preconditions A healthy plugin whose start() has already resolved, and a route whose source runs until the context stops
+   * @expectedResult stop() resolves and teardown runs. The wait is scoped to lifecycle hooks, so it cannot be held open by the route work that only ends at shutdown
+   */
+  test("adds no wait when no hook is in flight", async () => {
+    const order: string[] = [];
+
+    const plugin: CraftPlugin = {
+      name: "prompt-start",
+      apply() {},
+      start() {
+        order.push("start");
+      },
+      teardown() {
+        order.push("teardown");
+      },
+    };
+
+    t = await testContext()
+      .with({ plugins: [plugin] })
+      .routes(craft().id("worker").from(direct()).to(noop()))
+      .build();
+    await t.startAndWaitReady();
+
+    const wedged = Symbol("wedged");
+    const outcome = await Promise.race([
+      t.ctx.stop(),
+      sleep(5_000).then(() => wedged),
+    ]);
+
+    expect(outcome).not.toBe(wedged);
+    expect(order).toEqual(["start", "teardown"]);
+  });
+});
