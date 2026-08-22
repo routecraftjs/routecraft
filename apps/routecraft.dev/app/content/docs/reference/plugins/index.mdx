@@ -92,6 +92,8 @@ Hooks run in registration order and each is awaited before the next plugin's, at
 
 A failure during `build()` unwinds the same way, so a plugin that opened a resource before a later plugin refused does not leak it: `build()` returns no context, so nothing else could ever release it. Only plugins whose `apply()` returned are torn down, and the original error surfaces unchanged even if a teardown throws on the way out.
 
+A `stop()` that lands mid-boot waits for the hook that is still running before it tears that plugin down, so the order a plugin observes is always its hook entered, its hook settled, then `teardown`. Anything a hook acquires after its last `await` is therefore covered by the release that follows it. The wait is unbounded and covers `apply` and `start` alone, never the route work that only ends at shutdown, and no further hook runs once teardown has begun.
+
 `teardown` receives a second argument describing how far the context got, so a plugin never has to infer it:
 
 | Field | Means |
