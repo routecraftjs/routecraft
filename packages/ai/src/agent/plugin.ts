@@ -2,7 +2,6 @@ import {
   rcError,
   type CraftContext,
   type CraftPlugin,
-  type EventName,
 } from "@routecraft/routecraft";
 import { validateAgentOptions, validateBlocks } from "./agent.ts";
 import {
@@ -270,7 +269,7 @@ function emitRegistrations(
 
   ctx.once("context:started", () => {
     for (const [id, entry] of agentEntries) {
-      ctx.emit("agent:registered" as EventName, {
+      ctx.emit("agent:registered", {
         agentId: id,
         description: entry.description,
         ...(typeof entry.model === "string" && { model: entry.model }),
@@ -281,7 +280,7 @@ function emitRegistrations(
       // Deferred fns (e.g. directTool) carry no eager description/tags;
       // they resolve at dispatch and surface via tool-invocation events.
       const eager = isDeferredFn(entry) ? undefined : entry;
-      ctx.emit("agent:tool:registered" as EventName, {
+      ctx.emit("agent:tool:registered", {
         toolName: id,
         ...(eager && { description: eager.description }),
         ...(eager &&
