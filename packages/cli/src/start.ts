@@ -180,13 +180,22 @@ export async function startCommand(
         );
       }
       logger.info(`Exchange ${outcome}; shutting down (--once).`);
-      await context.stop();
+      const shutdown = await context.stop();
       // Attach the start rejection so a route failure during shutdown is
       // reported rather than surfacing as an unhandled rejection.
       await started.catch(() => undefined);
       if (outcome === "failed") {
         return fail(
           "The first exchange failed. See the logged error for the cause.",
+        );
+      }
+      // A forced stop abandoned in-flight work, which is not a clean run
+      // whatever the first exchange did. `--once` never reaches
+      // `shutdownHandler`, so without this the same binary would report the
+      // same event two different ways.
+      if (shutdown.forced) {
+        return fail(
+          `Shutdown was forced after ${String(shutdown.pending.length)} route(s) failed to drain in time${shutdown.pending.length > 0 ? `: ${shutdown.pending.join(", ")}` : ""}. In-flight work was abandoned; raise shutdown.timeoutMs if the work needs longer.`,
         );
       }
       return reportStartup(startupErrors.read());

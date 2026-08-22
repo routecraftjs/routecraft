@@ -522,7 +522,9 @@ export class ConcurrencyWrapperStep<
       exchange,
       route,
       {
-        ...(route ? { signal: route.signal } : {}),
+        // Intake: an exchange still queued for a slot has not started, so
+        // releasing it when shutdown begins reports a clean rejection.
+        ...(route ? { signal: route.intakeSignal } : {}),
         ...concurrencyEmitHooks(context, scoped, shouldEmit),
       },
       () => this.inner.execute(exchange, ctx),

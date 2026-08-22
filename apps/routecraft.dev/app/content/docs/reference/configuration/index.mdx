@@ -41,6 +41,7 @@ export const craftConfig = defineConfig({
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
 | `suspension` | `SuspensionConfig` | Only when a route can reach `.suspend()` or `.resume()` | -- | Where parked exchanges are stored and how resume tokens are signed. A context with a suspendable route and no `suspension` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#suspension)) |
+| `shutdown` | `{ timeoutMs?: number }` | No | `{ timeoutMs: 30000 }` | How long a graceful shutdown may drain before it is forced ([details](#shutdown)) |
 | `plugins` | `CraftPlugin[]` | No | -- | Custom plugins to initialize before routes are registered |
 
 ### Ecosystem keys (added by `@routecraft/ai`)
@@ -222,6 +223,57 @@ An explicit config value wins over the environment.
 **If you park exchanges, pin your line endings and build settings across deploys.** A parked exchange records a hash of the steps that have not run yet, so that a change to what an approval authorises invalidates it rather than resuming into different behaviour. That hash reads step identity from function source text **verbatim**, with no normalisation, because any normalisation that made two different sources hash alike would also be a way to miss a real change. The consequence is that the hash is sensitive to more than your source tree: a formatting pass, a checkout with different line endings, and a build that changes emitted text (a different minifier, new bundler settings, a TypeScript target bump) each move it for steps whose behaviour did not change. Every one of those outcomes is safe rather than silent, since affected exchanges re-enter their route's error channel and can be re-asked; none of them can resume an approval into different behaviour, which is the trade being made. For a repository whose routes park approvals for days, commit a `.gitattributes` with `* text eol=lf` (or the equivalent pin for your platform) so checkouts agree on line endings, and keep build settings stable between releases. Running TypeScript directly (the default under Bun, with no bundler in the path) removes the build half of this entirely.
 
 **The signing secret is required, at least 32 bytes, and never generated for you.** A context whose routes can reach a durable suspend fails at startup with [`RC5040`](/docs/reference/errors#rc-5040) when no secret is configured. The secret is deliberately not stored alongside the suspensions: a store compromise must not also yield forgeable resume tokens. `testContext()`, `NODE_ENV=development` and `NODE_ENV=test` mint an ephemeral in-memory key so tests and local iteration need no setup; that key is regenerated on every start, so tokens minted before a restart stop verifying, and the framework warns when it is in use.
+
+### shutdown
+
+Shutdown runs in two stages. Stage one closes intake: sources stop
+producing and no new exchange is admitted, while work already in the
+pipeline runs to its natural end. Stage two is forced, and abandons that
+work.
+
+`shutdown.timeoutMs` is how long stage one may drain before stage two
+fires. It defaults to 30 seconds.
+
+```ts
+export const craftConfig = defineConfig({
+  shutdown: { timeoutMs: 20_000 },
+})
+```
+
+**Set it below your platform's kill timer.** Kubernetes
+`terminationGracePeriodSeconds` and its equivalents send SIGKILL once they
+elapse, and a SIGKILL takes the decision away: nothing drains, nothing is
+released, and the forced stage never runs. A `timeoutMs` under that timer
+keeps the outcome the process's own.
+
+The bound applies to every shutdown, not just a signal: `craft start
+--once`, a test, and an embedder calling `context.stop()` are all bounded
+the same way, because shutdown behaviour is a property of the app rather
+than of one invocation.
+
+#### What a forced shutdown accepts losing
+
+When the deadline hits, one warn line names the routes still working and
+how much each had in flight. It is the only forensic record the forced
+stage leaves, so it names route ids rather than a total. Then:
+
+- **In-flight exchanges are abandoned mid-step** and emit no terminal
+  event. A subscriber counting `route:exchange:completed` against
+  `route:exchange:started` will see the difference.
+- **The suspension sweeper's in-flight sweep is abandoned.** Records it had
+  claimed are not lost: the claim is a lease, and the next process to run
+  the sweep picks them up once it expires.
+- **Nothing is settled or denied on the way down.** A parked suspension
+  survives a forced shutdown exactly as it survives a graceful one. Only a
+  cancelled run denies its own park, and shutdown is not that.
+
+A clean shutdown inside the bound exits 0. A forced one exits 1, so
+exit-code-sensitive tooling can tell them apart; `craft start --once`
+reports a forced shutdown as a failure for the same reason.
+
+Plugin teardown itself is not bounded by this key. Teardown releases
+resources, and cutting it short would trade a bounded shutdown for a leaked
+one.
 
 ## Logging configuration
 

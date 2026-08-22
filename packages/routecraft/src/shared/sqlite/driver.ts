@@ -1,3 +1,4 @@
+/// <reference types="bun-types" />
 import { loadOptionalPeer } from "../../adapters/shared/optional-peer.ts";
 import type { SqliteDatabaseConstructor } from "./types.ts";
 

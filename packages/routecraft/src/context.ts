@@ -166,6 +166,9 @@ const ROUTE_READINESS_TIMEOUT_MS = 30_000;
  */
 type RouteBootOutcome = "started" | "failed" | "waiting";
 
+/** Rejection marker for the shutdown deadline, so it cannot be confused with a drain failure. */
+const SHUTDOWN_DEADLINE = Symbol("routecraft.shutdown.deadline");
+
 /**
  * Config keys handled directly by the CraftContext constructor, as opposed
  * to keys claimed by registered config appliers. Used to detect config keys
@@ -179,6 +182,7 @@ const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "on",
   "once",
   "plugins",
+  "shutdown",
 ]);
 
 /**
@@ -218,6 +222,53 @@ export interface CraftConfig {
   >;
   /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
   plugins?: CraftPlugin[];
+  /** How long a graceful shutdown may drain before it is forced. */
+  shutdown?: ShutdownConfig;
+}
+
+/**
+ * Bounds on {@link CraftContext.stop}.
+ *
+ * Shutdown behaviour is a property of the app, not of one invocation, which
+ * is why this is config rather than a CLI flag: the same bound applies to a
+ * signal, to `craft start --once`, and to an embedder calling `stop()`.
+ */
+export interface ShutdownConfig {
+  /**
+   * How long stage one may drain in-flight exchanges before stage two is
+   * forced. Defaults to {@link DEFAULT_SHUTDOWN_TIMEOUT_MS}.
+   *
+   * Set it BELOW the platform's own kill timer (Kubernetes
+   * `terminationGracePeriodSeconds` and friends) so the process's policy
+   * decides the outcome rather than the platform's: past that timer the
+   * platform sends SIGKILL and whatever stage two was meant to do is lost.
+   */
+  timeoutMs?: number;
+}
+
+/**
+ * How long a graceful shutdown drains before it is forced. Thirty seconds
+ * because it sits under the common platform defaults (Kubernetes ships 30s
+ * itself, and operators who raise it raise this with it) while being long
+ * enough that ordinary in-flight work finishes inside it.
+ */
+export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
+
+/**
+ * What a completed {@link CraftContext.stop} reports.
+ *
+ * Returned rather than announced as an event: an event is observability,
+ * and this is an answer the caller acts on. `shutdownHandler` maps it to an
+ * exit code, and `craft start --once` reports a forced stop as a failure.
+ */
+export interface ShutdownOutcome {
+  /**
+   * Stage one did not finish inside the deadline, so in-flight execution was
+   * abandoned. The process should exit non-zero.
+   */
+  forced: boolean;
+  /** Route ids that still had work in flight when the deadline hit. */
+  pending: string[];
 }
 
 /**
@@ -296,11 +347,14 @@ export class CraftContext {
   /** Latched once `start()` has fully completed, for {@link TeardownInfo.partial}. */
   private startCompleted = false;
 
+  /** How long stage one of shutdown may drain; see {@link ShutdownConfig}. */
+  private readonly shutdownTimeoutMs: number;
+
   /** Teardown callbacks registered by plugins; run during stop() before context:stopped */
   private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
 
   /** Cached shutdown promise so concurrent stop() callers all await the same teardown */
-  private shutdownPromise: Promise<void> | null = null;
+  private shutdownPromise: Promise<ShutdownOutcome> | null = null;
 
   /** Backing deferred for {@link CraftContext.whenStarted}. */
   private startedDeferred: PromiseWithResolvers<void> | undefined;
@@ -319,6 +373,8 @@ export class CraftContext {
   constructor(config?: CraftConfig) {
     setBrand(this, BRAND.CraftContext);
     if (config?.name !== undefined) this.name = config.name;
+    this.shutdownTimeoutMs =
+      config?.shutdown?.timeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
     this.logger = logger.child(childBindings(this));
     this.events = new EventBus(this.contextId, this.logger);
     if (config) {
@@ -1110,15 +1166,21 @@ export class CraftContext {
     }
 
     return running
-      .then((results) => {
-        // Skip if shutdown was already triggered (e.g. via signal handler)
-        if (this.shutdownPromise) return this.shutdownPromise;
+      .then(async (results) => {
+        // Skip if shutdown was already triggered (e.g. via signal handler).
+        // The outcome is dropped here: `start()` resolves when the context is
+        // done running, and whoever called `stop()` is holding the outcome.
+        if (this.shutdownPromise) {
+          await this.shutdownPromise;
+          return;
+        }
 
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
         if (allFulfilled && !this.plugins.some((plugin) => plugin.keepsAlive)) {
           this.logger.debug({}, "All routes have completed. Stopping context.");
-          return this.stop();
+          await this.stop();
+          return;
         } else {
           this.logger.info(
             {},
@@ -1174,7 +1236,7 @@ export class CraftContext {
    * });
    * ```
    */
-  async stop(): Promise<void> {
+  async stop(): Promise<ShutdownOutcome> {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.hasStopped = true;
     // Settles readiness for a context stopped before it ever became ready,
@@ -1266,30 +1328,52 @@ export class CraftContext {
     await this.teardownPlugins(true);
   }
 
-  private async performShutdown(): Promise<void> {
+  private async performShutdown(): Promise<ShutdownOutcome> {
     this.logger.info({}, "Stopping Routecraft context");
     this.emit("context:stopping", { reason: undefined });
 
-    // 1. Abort all route controllers (stops sources)
+    // STAGE ONE. Close intake: sources stop producing, no new exchange is
+    // admitted. Deliberately not the execution signal, so an exchange
+    // already in the pipeline (an agent mid-tool-call, a suspension
+    // continuation) runs to its natural end. That distinction is the whole
+    // difference between the first Ctrl-C and the second.
     for (const route of this.routes) {
       this.logger.info({ route: route.definition.id }, "Stopping route");
       const controller = this.controllers.get(route.definition.id);
       controller?.abort("context.stop()");
     }
 
-    // 2. Drain all routes (wait for in-flight handlers + their tasks)
+    // Drain, bounded. Past the deadline the work is abandoned rather than
+    // waited out: an unbounded stage one hands the outcome to the platform's
+    // kill timer, which is what this bound exists to take back.
+    const drain = Promise.all(this.routes.map((r) => r.drain()));
     let drainError: unknown;
+    let forced = false;
+    let pending: string[] = [];
     try {
-      await Promise.all(this.routes.map((r) => r.drain()));
+      await this.raceShutdownDeadline(drain);
     } catch (err) {
-      drainError = err;
-      this.logger.warn(
-        { err },
-        "Route drain failed during stop(); continuing teardown.",
-      );
+      if (err === SHUTDOWN_DEADLINE) {
+        forced = true;
+        pending = this.forceStageTwo();
+        // The drain promise is abandoned, not awaited: work that hears the
+        // execution abort unwinds on its own, and work that does not is what
+        // "forced" means. Its rejection is still claimed so an abandoned
+        // route failure does not surface as an unhandled rejection.
+        void drain.catch(() => undefined);
+      } else {
+        drainError = err;
+        this.logger.warn(
+          { err },
+          "Route drain failed during stop(); continuing teardown.",
+        );
+      }
     }
 
-    // 3. Run plugin teardown (plugins with teardown in reverse order, then registerTeardown callbacks)
+    // Plugin teardown (plugins with teardown in reverse order, then
+    // registerTeardown callbacks). Unbounded on purpose: teardown releases
+    // resources, and a plugin that wedges there is a different defect from
+    // the one this deadline addresses.
     await this.teardownPlugins(!this.startCompleted);
 
     this.logger.info({}, "Routecraft context stopped");
@@ -1298,5 +1382,59 @@ export class CraftContext {
     if (drainError) {
       throw drainError;
     }
+    return { forced, pending };
+  }
+
+  /**
+   * Resolve when `drain` settles, or reject with {@link SHUTDOWN_DEADLINE}
+   * once the configured bound elapses.
+   */
+  private raceShutdownDeadline(drain: Promise<unknown>): Promise<unknown> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(SHUTDOWN_DEADLINE),
+        this.shutdownTimeoutMs,
+      );
+      timer.unref?.();
+    });
+    return Promise.race([drain, deadline]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
+  /**
+   * Abandon in-flight execution on every route, and report what was still
+   * running.
+   *
+   * The log line names route ids and their pending counts rather than a
+   * total, because it is the only forensic record a forced shutdown leaves:
+   * an operator reading it afterwards needs to know WHICH capability was
+   * still working, not merely that something was.
+   *
+   * What this accepts losing: in-flight exchanges are abandoned mid-step and
+   * emit no terminal event, and the suspension sweeper's in-flight sweep is
+   * abandoned, leaving records it had claimed to heal via their lease. What
+   * it does NOT do is settle or deny anything on the way down, so a parked
+   * suspension survives a forced shutdown exactly as it survives a graceful
+   * one.
+   */
+  private forceStageTwo(): string[] {
+    const pending = this.routes
+      .filter((route) => route.inFlightCount > 0)
+      .map((route) => ({
+        route: route.definition.id,
+        inFlight: route.inFlightCount,
+      }));
+    this.logger.warn(
+      { timeoutMs: this.shutdownTimeoutMs, pending },
+      pending.length > 0
+        ? `Graceful shutdown did not drain within ${String(this.shutdownTimeoutMs)}ms; abandoning in-flight work and forcing shutdown. Parked suspensions are left untouched.`
+        : `Graceful shutdown did not complete within ${String(this.shutdownTimeoutMs)}ms; forcing shutdown.`,
+    );
+    for (const route of this.routes) {
+      route.abortExecution("shutdown.timeoutMs elapsed");
+    }
+    return pending.map((entry) => entry.route);
   }
 }

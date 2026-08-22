@@ -12,10 +12,14 @@ import {
  * Step-scope `.delay()` wrapper. Waits a fixed time, then runs the
  * wrapped step. Pass-through: the exchange is unchanged by the wait.
  *
- * The wait is tied to the route's abort signal: when the route shuts
- * down mid-wait, the remaining wait is skipped and the wrapped step
- * still runs, so no exchange is silently dropped by a shutdown. The
+ * The wait is tied to the route's INTAKE signal: when shutdown begins
+ * mid-wait, the remaining wait is skipped and the wrapped step still
+ * runs, so no exchange is silently dropped by a shutdown. The
  * `route:delay:stopped` event carries `cancelled: true` in that case.
+ * Intake rather than execution because releasing early does not change
+ * what the exchange does, only when: sitting out the timer would make a
+ * graceful drain wait for a delay that buys nothing once no new work is
+ * arriving.
  *
  * Step scope only: there is no route-scope form. A route-scope delay
  * would be equivalent to a delay before the first step, so the
@@ -59,7 +63,7 @@ export class DelayWrapperStep<
     const start = Date.now();
     let cancelled = false;
     try {
-      await cancellableSleep(this.#delayMs, route?.signal);
+      await cancellableSleep(this.#delayMs, route?.intakeSignal);
     } catch (err) {
       if (!(err instanceof SleepAbortedError)) throw err;
       // Route shutdown: skip the remaining wait but still run the

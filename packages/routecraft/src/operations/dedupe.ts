@@ -224,8 +224,9 @@ class DedupeState {
         this.#reserved.clear();
         this.#pending.clear();
       };
-      if (route.signal.aborted) cleanup();
-      else route.signal.addEventListener("abort", cleanup, { once: true });
+      if (route.intakeSignal.aborted) cleanup();
+      else
+        route.intakeSignal.addEventListener("abort", cleanup, { once: true });
     }
   }
 }
