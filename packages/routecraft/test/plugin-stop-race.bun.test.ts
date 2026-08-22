@@ -214,10 +214,10 @@ describe("a stop racing a plugin lifecycle hook", () => {
 
   /**
    * @case A plugin:applying subscriber stops the context synchronously
-   * @preconditions The same handler shape one phase earlier, on the apply walk
-   * @expectedResult The plugin never applies, so it is not torn down either: teardown releases what apply opened, and this apply never ran
+   * @preconditions The same handler shape one phase earlier, on the apply walk, with a route registered
+   * @expectedResult The plugin never applies, so it is not torn down either, and the boot goes no further: a route started here would announce progress for a context that is already gone, and refuse with RC3001 against its aborted controller anyway
    */
-  test("applies no plugin when an event handler stops the context", async () => {
+  test("applies no plugin and starts no route when an event handler stops the context", async () => {
     const order: string[] = [];
     let stopping: Promise<unknown> | undefined;
 
@@ -233,6 +233,12 @@ describe("a stop racing a plugin lifecycle hook", () => {
           },
         },
       ],
+    });
+    ctx.registerRoutes(
+      ...craft().id("worker").from(direct()).to(noop()).build(),
+    );
+    ctx.on("route:starting", () => {
+      order.push("route:starting");
     });
     ctx.on("plugin:applying", () => {
       order.push("stop");

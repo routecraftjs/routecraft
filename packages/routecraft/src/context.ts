@@ -1187,6 +1187,20 @@ export class CraftContext {
       started.reject(err);
       throw err;
     }
+
+    // A stop() that landed while the plugins were applying has already torn
+    // them down. Starting routes now announces boot progress for a context
+    // that is gone: route:starting fires after context:stopped, every route
+    // refuses with RC3001 against its aborted controller, and the boot
+    // summary reports a failed boot for what was a clean shutdown. Waiting
+    // for that shutdown before returning also keeps start() from resolving
+    // while teardown is still running.
+    if (this.hasStopped) {
+      // The shutdown's own failure belongs to whoever called stop().
+      await this.shutdownPromise?.catch(() => undefined);
+      return;
+    }
+
     this.logger.info(
       { routeCount: this.routes.length },
       "Starting Routecraft context",
