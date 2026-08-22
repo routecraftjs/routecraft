@@ -522,7 +522,11 @@ export class ConcurrencyWrapperStep<
       exchange,
       route,
       {
-        ...(route ? { signal: route.signal } : {}),
+        // Intake: a queued exchange is released as soon as shutdown begins
+        // and admitted with a no-op release (see `#joinWaitLine`), so the
+        // drain runs it instead of leaving it parked behind a slot that will
+        // never free.
+        ...(route ? { signal: route.intakeSignal } : {}),
         ...concurrencyEmitHooks(context, scoped, shouldEmit),
       },
       () => this.inner.execute(exchange, ctx),

@@ -22,7 +22,7 @@ let fxpPromise: Promise<typeof import("fast-xml-parser")> | null = null;
  */
 export function getFastXmlParser(): Promise<typeof import("fast-xml-parser")> {
   fxpPromise ??= loadOptionalPeer(() => import("fast-xml-parser"), {
-    adapterName: "xml",
+    consumer: "xml adapter",
     packageName: "fast-xml-parser",
   });
   return fxpPromise;

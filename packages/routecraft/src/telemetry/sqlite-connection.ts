@@ -1,6 +1,10 @@
-/// <reference types="bun-types" />
 import { mkdirSync } from "node:fs";
 import { dirname, resolve, isAbsolute } from "node:path";
+import {
+  type SqliteDriverLoaders,
+  resolveSqliteDriver,
+} from "../shared/sqlite/driver.ts";
+import type { SqliteDatabase } from "../shared/sqlite/types.ts";
 import { ALL_DDL } from "./schema.ts";
 import type { TelemetryLogger } from "./types.ts";
 
@@ -32,6 +36,12 @@ export interface SqliteConnectionOptions {
 }
 
 /**
+ * Names this subsystem in the absent-peer error, so a Node deployment
+ * missing `better-sqlite3` reads which feature asked for it.
+ */
+const SQLITE_CONSUMER = "telemetry (sqlite)";
+
+/**
  * Default prune interval in milliseconds (60 seconds).
  */
 const PRUNE_INTERVAL_MS = 60_000;
@@ -45,31 +55,22 @@ const PRUNE_INTERVAL_MS = 60_000;
  *
  * Used by both {@link SqliteSpanProcessor} and {@link SqliteEventWriter}.
  *
- * Backed by `bun:sqlite`, so the SQLite sink only works under Bun. Under
- * Node, {@link open} returns `null` and the calling plugin disables the
- * SQLite path with a warn log. Node embedders should configure an OTLP
- * exporter via `telemetry({ tracerProvider })` instead.
+ * Backed by whichever synchronous driver the runtime provides:
+ * `bun:sqlite` under Bun, `better-sqlite3` as an optional peer under Node.
+ * When neither resolves, {@link open} returns `null` and the calling plugin
+ * disables the SQLite path with a warn log, leaving an OTLP exporter
+ * configured via `telemetry({ tracerProvider })` as the way to keep
+ * telemetry flowing.
  */
 export class SqliteConnection {
-  readonly db: BunSqliteDatabase;
+  readonly db: TelemetryDatabase;
   readonly logger: TelemetryLogger | undefined;
   private pruneTimer: ReturnType<typeof setInterval> | undefined;
 
-  private constructor(db: BunSqliteDatabase, logger?: TelemetryLogger) {
+  private constructor(db: TelemetryDatabase, logger?: TelemetryLogger) {
     this.db = db;
     this.logger = logger;
   }
-
-  /**
-   * Loader for the `bun:sqlite` driver. Exposed as a static so tests can
-   * substitute an alternate implementation (e.g. better-sqlite3 under
-   * vitest's Node pool, before the full bun:test migration).
-   * @internal
-   */
-  static loadDriver: () => Promise<BunSqliteDatabaseConstructor> = async () => {
-    const mod = await import("bun:sqlite");
-    return mod.Database as unknown as BunSqliteDatabaseConstructor;
-  };
 
   /**
    * Open (or create) the telemetry database.
@@ -78,11 +79,16 @@ export class SqliteConnection {
    * prunes on startup and schedules periodic pruning automatically.
    * The timer is stopped when {@link close} is called.
    *
-   * @returns A connection, or `null` if the runtime is not Bun.
+   * @param options - Database path and retention limits.
+   * @param logger - Optional telemetry logger for the failure paths.
+   * @param loaders - Driver loader injection point for tests.
+   * @returns A connection, or `null` when no driver resolved or the
+   *   database could not be opened.
    */
   static async open(
     options?: SqliteConnectionOptions,
     logger?: TelemetryLogger,
+    loaders?: SqliteDriverLoaders,
   ): Promise<SqliteConnection | null> {
     const dbPathRaw = options?.dbPath ?? DEFAULT_DB_PATH;
     const dbPath = isAbsolute(dbPathRaw)
@@ -90,17 +96,20 @@ export class SqliteConnection {
       : resolve(process.cwd(), dbPathRaw);
     const walMode = options?.walMode !== false;
 
-    let Database: BunSqliteDatabaseConstructor;
+    let Database: TelemetryDatabaseConstructor;
     try {
-      Database = await SqliteConnection.loadDriver();
+      const driver = await resolveSqliteDriver(SQLITE_CONSUMER, loaders);
+      Database = driver.Database as TelemetryDatabaseConstructor;
     } catch (err) {
-      // Under Node, `bun:sqlite` resolves to ERR_MODULE_NOT_FOUND -- expected,
-      // disable silently. Under Bun, a throw from the dynamic import indicates
-      // a real bug (broken Bun install, removed module, etc.) and we must NOT
-      // silently swallow it; surface via the logger.
-      if (typeof process.versions["bun"] === "string") {
-        logger?.warn({ err }, "Failed to load bun:sqlite driver");
-      }
+      // Loud on both arms. Under Node the cause is a missing
+      // `better-sqlite3` (RC5017 carries the install hint); under Bun a
+      // throw means a broken install. Either way the user configured
+      // `telemetry.sqlite` and is not getting it, which is not something to
+      // swallow.
+      logger?.warn(
+        { err },
+        "No SQLite driver available; the telemetry SQLite sink is disabled. Configure an OTLP exporter, or install the driver named in the error.",
+      );
       return null;
     }
 
@@ -188,27 +197,18 @@ export class SqliteConnection {
   }
 }
 
-// Minimal type definitions for `bun:sqlite` to avoid pulling `bun-types`
-// into the public type surface. These mirror the subset of the API used
-// by `SqliteConnection` and downstream telemetry consumers.
-
-type BunSqliteDatabase = {
-  exec(sql: string): void;
-  prepare(sql: string): BunSqliteStatement;
-  query(sql: string): BunSqliteStatement;
+/**
+ * The shared minimal surface plus the one member telemetry needs on top:
+ * batched event inserts run inside a transaction. Both drivers expose it
+ * with this shape.
+ */
+interface TelemetryDatabase extends SqliteDatabase {
   transaction<T>(fn: (...args: T[]) => void): (...args: T[]) => void;
-  close(): void;
-};
+}
 
-type BunSqliteStatement = {
-  run(...params: unknown[]): unknown;
-  all(...params: unknown[]): unknown[];
-  get(...params: unknown[]): unknown;
-};
-
-type BunSqliteDatabaseConstructor = new (
+type TelemetryDatabaseConstructor = new (
   filename: string,
   options?: { readonly?: boolean; create?: boolean },
-) => BunSqliteDatabase;
+) => TelemetryDatabase;
 
-export type { BunSqliteDatabase, BunSqliteStatement };
+export type { TelemetryDatabase };

@@ -59,7 +59,7 @@ async function getHuggingFacePipeline(modelName: string): Promise<PipelineFn> {
   const mod = (await loadOptionalPeer(
     () => import("@huggingface/transformers"),
     {
-      adapterName: "Hugging Face embedding",
+      consumer: "Hugging Face embedding",
       packageName: "@huggingface/transformers",
     },
   )) as {

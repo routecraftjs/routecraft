@@ -271,7 +271,15 @@ describe("agent durable suspension (ctx.suspend)", () => {
     });
 
     t = await testContext()
-      .with({ suspension: {}, plugins: plugins({ ask: askFn, hang }) })
+      .with({
+        suspension: {},
+        // The hang tool never finishes, so it is the FORCED stage that
+        // cancels the resumed run: graceful stage one drains rather than
+        // cancels. A short deadline keeps the test honest about which stage
+        // does the cancelling.
+        shutdown: { timeoutMs: 300 },
+        plugins: plugins({ ask: askFn, hang }),
+      })
       .routes([
         craft()
           .id("assistant")
@@ -293,7 +301,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
         ?.totalTokens,
     ).toBe(10);
 
-    // The resumed turn hangs in a tool; stopping the context cancels it.
+    // The resumed turn hangs in a tool; the forced stage of shutdown cancels it.
     llm.script.push({ toolCalls: [{ toolName: "hang", input: {} }] });
     const ack = t.client
       .sendDirect("answers", {

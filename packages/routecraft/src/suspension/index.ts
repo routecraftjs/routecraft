@@ -21,7 +21,7 @@ export {
 export type {
   SqliteDriverName,
   ResolvedSqliteDriver,
-} from "./sqlite-driver.ts";
+} from "../shared/sqlite/driver.ts";
 
 export {
   ResumeTokenSigner,

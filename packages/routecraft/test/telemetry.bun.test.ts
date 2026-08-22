@@ -13,6 +13,8 @@ import {
   SqliteConnection,
 } from "@routecraft/routecraft";
 import { SqliteEventWriter } from "../src/telemetry/sqlite-event-writer.ts";
+import type { SqliteDriverLoaders } from "../src/shared/sqlite/driver.ts";
+import type { SqliteDatabaseConstructor } from "../src/shared/sqlite/types.ts";
 import type { TelemetryEvent } from "../src/telemetry/types.ts";
 
 /**
@@ -417,7 +419,7 @@ describe("TelemetryPlugin", () => {
 
   /**
    * @case SqliteConnection.open returns a usable connection when the driver loader resolves
-   * @preconditions Fresh temp directory; default loadDriver resolves to bun:sqlite (native under Bun, no substitution needed)
+   * @preconditions Fresh temp directory; the shared resolver picks bun:sqlite natively under Bun, with no substitution needed
    * @expectedResult Connection is non-null and the db file is created on disk
    */
   test("SqliteConnection.open succeeds with a resolvable driver", async () => {
@@ -428,21 +430,44 @@ describe("TelemetryPlugin", () => {
   });
 
   /**
-   * @case SqliteConnection.open returns null when the runtime is not Bun
-   * @preconditions Driver loader is overridden to throw, simulating Node where bun:sqlite cannot resolve
-   * @expectedResult open() resolves to null so the calling plugin can skip the SQLite path with a warn log
+   * @case SqliteConnection.open degrades to null, loudly, when no driver resolves
+   * @preconditions Injected loaders whose arms both throw, standing in for a Node runtime without better-sqlite3
+   * @expectedResult open() resolves to null and warns, so the calling plugin skips the SQLite path instead of failing the context
    */
-  test("SqliteConnection.open returns null when bun:sqlite is unavailable", async () => {
-    const original = SqliteConnection.loadDriver;
-    SqliteConnection.loadDriver = async () => {
-      throw new Error("bun:sqlite is only available under Bun");
+  test("SqliteConnection.open returns null when no driver resolves", async () => {
+    const warnings: string[] = [];
+    const conn = await SqliteConnection.open(
+      { dbPath },
+      { warn: (_bindings, message) => warnings.push(message) },
+      {
+        bun: () => Promise.reject(new Error("no bun:sqlite here")),
+        node: () => Promise.reject(new Error("no better-sqlite3 here")),
+      },
+    );
+    expect(conn).toBeNull();
+    expect(warnings.join(" ")).toContain("No SQLite driver available");
+  });
+
+  /**
+   * @case Injected loaders replace the mutable static seam the resolver removed
+   * @preconditions Loaders whose bun() arm is instrumented; the test runs under Bun, so that arm is the one the resolver takes
+   * @expectedResult The injected arm is called exactly once and open() returns a working connection built from it
+   */
+  test("SqliteConnection.open uses the injected loaders", async () => {
+    let bunArmCalls = 0;
+    const loaders: SqliteDriverLoaders = {
+      bun: () => {
+        bunArmCalls += 1;
+        return Promise.resolve(
+          Database as unknown as SqliteDatabaseConstructor,
+        );
+      },
+      node: () => Promise.reject(new Error("unused under Bun")),
     };
-    try {
-      const conn = await SqliteConnection.open({ dbPath });
-      expect(conn).toBeNull();
-    } finally {
-      SqliteConnection.loadDriver = original;
-    }
+    const conn = await SqliteConnection.open({ dbPath }, undefined, loaders);
+    expect(bunArmCalls).toBe(1);
+    expect(conn).not.toBeNull();
+    conn!.close();
   });
 });
 

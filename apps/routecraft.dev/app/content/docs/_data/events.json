@@ -1,12 +1,7 @@
 [
   {
     "pattern": "context:*",
-    "events": [
-      "starting",
-      "started",
-      "stopping",
-      "stopped"
-    ],
+    "events": ["starting", "started", "stopping", "stopped", "error"],
     "anchor": "context-events"
   },
   {
@@ -16,7 +11,10 @@
       "starting",
       "started",
       "stopping",
-      "stopped"
+      "stopped",
+      "source:failed",
+      "error",
+      "error:caught"
     ],
     "anchor": "route-events"
   },
@@ -27,7 +25,10 @@
       "completed",
       "failed",
       "dropped",
-      "restored"
+      "restored",
+      "suspended",
+      "resumed",
+      "expired"
     ],
     "anchor": "exchange-events"
   },
@@ -49,39 +50,46 @@
   },
   {
     "pattern": "plugin:{pluginId}:*",
-    "events": [
-      "registered",
-      "starting",
-      "started",
-      "stopping",
-      "stopped"
-    ],
-    "anchor": "plugin-events"
+    "events": ["applying", "applied", "starting", "started", "stopping", "stopped"],
+    "anchor": "plugin-events",
+    "note": "applying / applied bracket apply(); starting / started bracket the optional start() hook, so a plugin without one emits the applying pair only."
   },
   {
     "pattern": "auth:*",
-    "events": [
-      "success",
-      "rejected"
-    ],
+    "events": ["success", "rejected"],
     "anchor": "authentication-events"
   },
   {
+    "pattern": "server:*",
+    "events": ["listening", "failed", "closed"],
+    "anchor": "server-events",
+    "note": "Emitted by the named-servers listener. Every mount on a shared socket (http, mcp, ops) reports its listener lifecycle here rather than on its own plugin."
+  },
+  {
+    "pattern": "agent:*",
+    "events": ["registered", "tool:registered"],
+    "anchor": "agent-registration-events"
+  },
+  {
+    "pattern": "plugin:http:*",
+    "events": ["request:completed"],
+    "anchor": "http-plugin-events"
+  },
+  {
     "pattern": "plugin:ops:*",
-    "events": [
-      "health:changed"
-    ],
-    "anchor": "ops-plugin-events",
-    "note": "The ops surface mounts on a named server, so its listener lifecycle rides on server:* rather than on the plugin."
+    "events": ["health:changed"],
+    "anchor": "ops-plugin-events"
   },
   {
     "pattern": "plugin:mcp:*",
     "events": [
-      "server",
-      "session",
-      "tool"
+      "server:tools:exposed",
+      "tool:called",
+      "tool:completed",
+      "tool:suspended",
+      "tool:failed",
+      "tool:declined"
     ],
-    "anchor": "mcp-plugin-events",
-    "note": "server (listening, tools:exposed), session (created, closed), tool (called, completed, suspended, failed)."
+    "anchor": "mcp-plugin-events"
   }
 ]

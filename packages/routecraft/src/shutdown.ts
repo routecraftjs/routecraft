@@ -3,11 +3,19 @@ import type { CraftContext } from "./context.ts";
 /**
  * Register SIGINT/SIGTERM handlers for graceful two-stage shutdown.
  *
- * **First signal** (Ctrl+C): stops accepting new requests, drains in-flight
- * routes, runs plugin teardown, then exits cleanly.
+ * **First signal** (Ctrl+C): closes intake so sources stop producing, lets
+ * in-flight exchanges run to their natural end, runs plugin teardown, then
+ * exits 0. In-flight work is NOT cancelled here; that is the difference
+ * between the two signals.
  *
  * **Second signal** (Ctrl+C again): forces an immediate exit for when
  * graceful shutdown is stuck or taking too long.
+ *
+ * Stage one is bounded by `shutdown: { timeoutMs }` even without a second
+ * signal, which is what an orchestrator needs: it sends one SIGTERM and then
+ * SIGKILLs, so there is no second Ctrl-C coming. On that deadline in-flight
+ * execution is abandoned and the process exits 1, so exit-code-sensitive
+ * tooling can tell a forced shutdown from a clean one.
  *
  * @param context - A built `CraftContext` to shut down on signal
  *
@@ -37,9 +45,12 @@ export function shutdownHandler(context: CraftContext): () => void {
     );
 
     try {
-      await context.stop();
+      const outcome = await context.stop();
       context.logger.info("Cleanup complete");
-      process.exit(0);
+      // Non-zero on a forced stop: work was abandoned, and a caller that
+      // reads exit codes must not be told that went cleanly. The reason is
+      // in the log line the forced stage writes.
+      process.exit(outcome.forced ? 1 : 0);
     } catch (err) {
       context.logger.warn({ err }, "Error during graceful shutdown; exiting");
       process.exit(1);

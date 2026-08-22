@@ -58,8 +58,12 @@ export {
   type MergedOptions,
   type StoreRegistry,
   RUNNER_ARGV,
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
   type CraftConfig,
   type CraftPlugin,
+  type ShutdownConfig,
+  type ShutdownOutcome,
+  type TeardownInfo,
 } from "./context.ts";
 export { type Capability, registerCapability } from "./capabilities.ts";
 export { defineConfig } from "./define-config.ts";
@@ -560,6 +564,15 @@ export type {
   TelemetrySqliteOptions,
   TelemetryEvent,
 } from "./telemetry/index.ts";
+
+// The minimal sqlite surface every storage subsystem shares. Published
+// because the CLI's telemetry reader sits on the same shape, and a store
+// backend written outside this repo needs it to type its driver.
+export type {
+  SqliteDatabase,
+  SqliteDatabaseConstructor,
+  SqliteStatement,
+} from "./shared/sqlite/types.ts";
 
 // The suspension engine (hashing, serialization, token minting, runtime
 // resolution) stays behind `./suspension/index.ts`, which is where the

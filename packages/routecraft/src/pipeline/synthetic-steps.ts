@@ -526,7 +526,9 @@ export function buildThrottleCheckStep(
       };
 
       await controller.acquire(exchange, route, {
-        ...(route ? { signal: route.signal } : {}),
+        // Intake: a pacing gap is idle time, and cutting it short at the
+        // start of shutdown still runs the exchange.
+        ...(route ? { signal: route.intakeSignal } : {}),
         ...throttleEmitHooks(context, scoped, true),
       });
 

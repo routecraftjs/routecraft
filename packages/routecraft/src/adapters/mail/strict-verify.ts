@@ -39,7 +39,7 @@ export async function verifyStrict(
   if (!authenticatePromise) {
     authenticatePromise = (async () => {
       const mod = (await loadOptionalPeer(() => import("mailauth"), {
-        adapterName: "mail (verify: 'strict')",
+        consumer: "mail adapter (verify: 'strict')",
         packageName: "mailauth",
       })) as unknown as {
         authenticate: (

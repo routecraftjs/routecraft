@@ -299,7 +299,7 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
     // abort-flushed (the abort listener fired, or was never installed
     // because the signal was already aborted when the hooks were wired):
     // flush its hold immediately so shutdown does not wait out the timer.
-    if (route?.signal.aborted) {
+    if (route?.intakeSignal.aborted) {
       this.#release(state, key, "flush");
     }
 
@@ -324,10 +324,14 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
     // and flushing here would hit an empty map (the hold is created after
     // this call). Post-abort arrivals are flushed per-arrival in execute()
     // instead, which covers both this first arrival and later ones.
-    if (!route.signal.aborted) {
-      route.signal.addEventListener("abort", () => this.#flushAll(state), {
-        once: true,
-      });
+    if (!route.intakeSignal.aborted) {
+      route.intakeSignal.addEventListener(
+        "abort",
+        () => this.#flushAll(state),
+        {
+          once: true,
+        },
+      );
     }
   }
 

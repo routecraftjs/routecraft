@@ -15,7 +15,7 @@ import { getBodyText } from "../shared/body-text.ts";
 let cheerioPromise: Promise<typeof import("cheerio")> | null = null;
 function getCheerio(): Promise<typeof import("cheerio")> {
   cheerioPromise ??= loadOptionalPeer(() => import("cheerio"), {
-    adapterName: "html",
+    consumer: "html adapter",
     packageName: "cheerio",
   });
   return cheerioPromise;

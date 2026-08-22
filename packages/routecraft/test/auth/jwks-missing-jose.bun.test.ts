@@ -23,7 +23,7 @@ describe("jwks() without jose installed", () => {
       Promise.reject(
         rcError("RC5017", undefined, {
           message:
-            'jwks adapter requires the optional peer dependency "jose". Install it: bun add jose (or npm install jose).',
+            'jwks verification requires the optional peer dependency "jose". Install it: bun add jose (or npm install jose).',
         }),
       );
 

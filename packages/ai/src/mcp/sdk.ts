@@ -20,50 +20,50 @@ import type { McpClientAuthOptions } from "./types.ts";
 
 /** The v2 server package: `createMcpHandler`, `Server`, bearer auth, OAuth metadata. */
 export function loadMcpServerSdk(
-  adapterName: string,
+  consumer: string,
 ): Promise<typeof import("@modelcontextprotocol/server")> {
   return loadOptionalPeer(() => import("@modelcontextprotocol/server"), {
-    adapterName,
+    consumer,
     packageName: "@modelcontextprotocol/server",
   });
 }
 
 /** The v2 server stdio entry: `serveStdio`. */
 export function loadMcpServerStdioSdk(
-  adapterName: string,
+  consumer: string,
 ): Promise<typeof import("@modelcontextprotocol/server/stdio")> {
   return loadOptionalPeer(() => import("@modelcontextprotocol/server/stdio"), {
-    adapterName,
+    consumer,
     packageName: "@modelcontextprotocol/server",
   });
 }
 
 /** The v2 Node adapter: `toNodeHandler` bridges a web-standard handler to `node:http`. */
 export function loadMcpNodeSdk(
-  adapterName: string,
+  consumer: string,
 ): Promise<typeof import("@modelcontextprotocol/node")> {
   return loadOptionalPeer(() => import("@modelcontextprotocol/node"), {
-    adapterName,
+    consumer,
     packageName: "@modelcontextprotocol/node",
   });
 }
 
 /** The v2 client package: `Client`, `StreamableHTTPClientTransport`. */
 export function loadMcpClientSdk(
-  adapterName: string,
+  consumer: string,
 ): Promise<typeof import("@modelcontextprotocol/client")> {
   return loadOptionalPeer(() => import("@modelcontextprotocol/client"), {
-    adapterName,
+    consumer,
     packageName: "@modelcontextprotocol/client",
   });
 }
 
 /** The v2 client stdio entry: `StdioClientTransport`. */
 export function loadMcpClientStdioSdk(
-  adapterName: string,
+  consumer: string,
 ): Promise<typeof import("@modelcontextprotocol/client/stdio")> {
   return loadOptionalPeer(() => import("@modelcontextprotocol/client/stdio"), {
-    adapterName,
+    consumer,
     packageName: "@modelcontextprotocol/client",
   });
 }

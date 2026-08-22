@@ -187,8 +187,12 @@ const cleanup = shutdownHandler(context);
 await context.start();
 ```
 
-**First signal** (Ctrl+C): stops accepting new requests, drains in-flight routes, runs plugin teardown, then exits cleanly.
+**First signal** (Ctrl+C): closes intake so sources stop producing, lets in-flight exchanges run to their natural end, runs plugin teardown, then exits 0. Work already running is **not** cancelled here: an agent mid-tool-call finishes its call.
 
 **Second signal** (Ctrl+C again): forces an immediate exit for when graceful shutdown is stuck or taking too long.
+
+Stage one is also bounded by [`shutdown.timeoutMs`](/docs/reference/configuration#shutdown), which matters under an orchestrator: it sends one SIGTERM and then SIGKILLs, so no second Ctrl+C is coming. On that deadline in-flight execution is abandoned and the process exits 1, so a forced shutdown is distinguishable from a clean one.
+
+`context.stop()` resolves with `{ forced, pending }` if you drive shutdown yourself: `forced` says the deadline was reached, and `pending` names the routes that still had work in flight.
 
 The function returns a cleanup callback that removes the signal handlers, useful in tests or when you manage the lifecycle yourself.

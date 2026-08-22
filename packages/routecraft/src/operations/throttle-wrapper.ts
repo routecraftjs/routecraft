@@ -336,7 +336,7 @@ export class ThrottleLimiter {
  * @internal
  */
 export interface ThrottleHooks {
-  /** Route abort signal; cancels the pacing wait on shutdown. */
+  /** Route intake signal; cuts the pacing wait short once shutdown begins. */
   signal?: AbortSignal;
   /** A token was not free; the exchange will wait `waitMs` before admission. */
   onDelayed(waitMs: number, key?: string): void;
@@ -530,7 +530,7 @@ export class ThrottleWrapperStep<
     };
 
     await this.#controller.acquire(exchange, route, {
-      ...(route ? { signal: route.signal } : {}),
+      ...(route ? { signal: route.intakeSignal } : {}),
       ...throttleEmitHooks(context, scoped, Boolean(shouldEmit)),
     });
 

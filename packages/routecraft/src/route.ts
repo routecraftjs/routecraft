@@ -376,8 +376,41 @@ export interface Route<T = unknown> {
   /** The route's configuration */
   readonly definition: RouteDefinition<T>;
 
-  /** Signal that indicates when the route has been aborted */
+  /**
+   * Fires when in-flight work on this route is being abandoned. NOT fired
+   * when the route merely stops accepting new work, which is what graceful
+   * shutdown's first stage does.
+   */
   readonly signal: AbortSignal;
+
+  /**
+   * Fires when the route stops accepting new work, which is the moment
+   * graceful shutdown begins. Work already in flight keeps running.
+   *
+   * A wrapper that is WAITING observes this: a `.delay()` wait, a
+   * `.throttle()` pacing gap, a bulkhead queue slot, a `.retry()` backoff.
+   * The wait is cut short once shutdown begins and the exchange still
+   * reaches a terminal outcome, where sitting the timer out burns the
+   * shutdown deadline and ends in an abandonment that reports nothing.
+   * {@link Route.signal} is for abandonment itself, never for shortening a
+   * wait.
+   */
+  readonly intakeSignal: AbortSignal;
+
+  /**
+   * Abandon in-flight execution on this route. The forced stage of shutdown
+   * and an explicit `stop()`; never the graceful drain.
+   * @internal
+   */
+  abortExecution(reason?: unknown): void;
+
+  /**
+   * How much work is still in flight. Read when a forced shutdown reports
+   * what it is abandoning, which is the only forensic record that stage
+   * leaves.
+   * @internal
+   */
+  readonly inFlightCount: number;
 
   /** Logger for this route (pino child logger) */
   logger: ReturnType<typeof logger.child>;
@@ -482,8 +515,26 @@ export interface Route<T = unknown> {
  * background task tracking (e.g. for tap).
  */
 export class DefaultRoute implements Route {
-  /** Controls aborting the route's operations */
+  /**
+   * Stops INTAKE: sources subscribe against this, and aborting it means
+   * "produce nothing further". It does NOT cancel work already in flight,
+   * which is what makes graceful shutdown's first stage a drain rather than
+   * a cancellation.
+   */
   private abortController: AbortController;
+
+  /**
+   * Abandons EXECUTION: surfaced as {@link DefaultRoute.signal} and threaded
+   * into steps, wrappers and agent dispatch. Aborted only when work is
+   * genuinely being given up on: a forced shutdown, an explicit `stop()`, or
+   * a route that failed to start.
+   *
+   * Separate from intake because one controller carrying both meanings made
+   * the documented two-stage shutdown a lie: the first signal, which
+   * promises to stop accepting work and drain, cancelled every in-flight
+   * exchange as well.
+   */
+  private executionController = new AbortController();
 
   /** Logger for this route (pino child logger) */
   public readonly logger: ReturnType<typeof logger.child>;
@@ -551,11 +602,39 @@ export class DefaultRoute implements Route {
     });
   }
 
+  /** @inheritDoc */
+  get intakeSignal(): AbortSignal {
+    return this.abortController.signal;
+  }
+
+  /** @inheritDoc */
+  get inFlightCount(): number {
+    return this.inFlight.size;
+  }
+
   /**
-   * Get the abort signal for this route.
+   * The EXECUTION signal: fires when in-flight work is being abandoned, not
+   * when the route merely stops accepting new work. Steps, resilience
+   * wrappers and agent dispatch observe this.
    */
   get signal(): AbortSignal {
-    return this.abortController.signal;
+    return this.executionController.signal;
+  }
+
+  /**
+   * Abandon in-flight execution on this route.
+   *
+   * Graceful shutdown never calls this: stage one aborts intake and waits.
+   * It is the forced stage, an explicit `stop()`, and a route that failed to
+   * start.
+   *
+   * @param reason - Recorded as the abort reason for anything observing it.
+   * @internal
+   */
+  abortExecution(reason?: unknown): void {
+    if (!this.executionController.signal.aborted) {
+      this.executionController.abort(reason);
+    }
   }
 
   /**
@@ -836,9 +915,12 @@ export class DefaultRoute implements Route {
       );
       await Promise.all(subscriptions);
     } catch (err) {
+      // A source that could not subscribe is a failure, not a completion, so
+      // in-flight work on this route is abandoned along with intake.
       if (!this.abortController.signal.aborted) {
         this.abortController.abort(err);
       }
+      this.abortExecution(err);
       throw err;
     }
 
@@ -852,6 +934,9 @@ export class DefaultRoute implements Route {
     // controller is aborted), so the guard makes this a no-op there. The
     // single-source path is left exactly as before: its source drives
     // completion.
+    //
+    // INTAKE only. Sources finishing means no more work arrives, not that
+    // exchanges already in the pipeline should be cancelled; those drain.
     if (total > 1 && !this.abortController.signal.aborted) {
       this.abortController.abort("All ingresses completed");
     }
@@ -935,7 +1020,10 @@ export class DefaultRoute implements Route {
     for (const channel of this.messageChannels) {
       channel.clear();
     }
+    // Both signals: stop() discards queued messages, so it is a giving-up on
+    // this route rather than the orderly drain graceful shutdown performs.
     this.abortController.abort("Route stop() called");
+    this.abortExecution("Route stop() called");
   }
 
   /**

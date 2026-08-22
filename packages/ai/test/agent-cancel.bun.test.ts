@@ -31,12 +31,32 @@ const Approval = z.object({ approved: z.boolean() });
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Incremented when `hangFn` is entered, so a test can wait for real in-flight work. */
+let hangEntries = 0;
+
+/**
+ * Wait until the hang tool is actually running. Sleeping a fixed interval
+ * instead would leave the test asserting on a shutdown that had nothing to
+ * drain whenever the runner was slow.
+ *
+ * Bounded, so a routing or startup regression that stops the tool being
+ * reached fails this test with a diagnostic rather than hanging the suite.
+ */
+const waitForHang = async (): Promise<void> => {
+  const deadline = Date.now() + 5_000;
+  while (hangEntries === 0 && Date.now() < deadline) await sleep(5);
+  if (hangEntries === 0) {
+    throw new Error("The hang tool was never entered within 5s");
+  }
+};
+
 /** A tool that holds until the run's abort signal fires, then rejects. */
 const hangFn = {
   description: "Waits for cancellation",
   input: z.object({}),
   handler: (_input: unknown, ctx: FnHandlerContext) =>
     new Promise((_resolve, reject) => {
+      hangEntries += 1;
       const abort = (): void => {
         const err = new Error("hang tool aborted");
         err.name = "AbortError";
@@ -52,6 +72,7 @@ describe("cooperative cancellation of agent runs", () => {
 
   beforeEach(() => {
     llm.reset();
+    hangEntries = 0;
   });
 
   afterEach(async () => {
@@ -60,16 +81,20 @@ describe("cooperative cancellation of agent runs", () => {
   });
 
   /**
-   * @case context.stop() during a long agent run has defined behaviour: a typed AI1005 failure, not a hang and not a fake success
-   * @preconditions The scripted model calls a tool that holds until the abort signal fires; the context is stopped mid-dispatch
-   * @expectedResult The dispatch fails with the agent-run-cancelled error, the emulated model call observed the abort, and the context stops cleanly
+   * @case A forced shutdown cancels an in-flight run with AI1005; graceful stage one does not
+   * @preconditions A tool that hangs until aborted, waited on rather than slept past, with shutdown.timeoutMs wide enough that the mid-drain assertion cannot race the forced stage
+   * @expectedResult The run is still alive while stage one drains, and is cancelled with AI1005 only once the forced stage fires. Before #610 the first signal cancelled it immediately, which is the contract violation this pins
    */
-  test("context.stop() cancels the run with AI1005", async () => {
+  test("a forced shutdown cancels the run with AI1005", async () => {
     const sink = spy();
     llm.script.push({ toolCalls: [{ toolName: "hang", input: {} }] });
 
     t = await testContext()
       .with({
+        // Generous relative to the mid-drain assertion below: a tight
+        // deadline would let the forced stage fire first on a loaded runner
+        // and the test would report a cancellation that stage one did not do.
+        shutdown: { timeoutMs: 2_000 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({ functions: { hang: hangFn } }),
@@ -89,15 +114,72 @@ describe("cooperative cancellation of agent runs", () => {
       .sendDirect("assistant", "go")
       .then(() => undefined)
       .catch((err: unknown) => err);
-    await sleep(30);
-    await t.stop();
-    const err = (await dispatch) as { rc?: string; message?: string };
+    await waitForHang();
 
+    const stopping = t.ctx.stop();
+    // Stage one closed intake but must NOT have touched the running agent:
+    // the whole point of the split is that a drain is not a cancellation.
+    await sleep(50);
+    expect(llm.sawAbort()).toBe(false);
+
+    const outcome = await stopping;
+    expect(outcome.forced).toBe(true);
+    expect(outcome.pending).toContain("assistant");
+
+    const err = (await dispatch) as { rc?: string; message?: string };
     expect(err).toBeDefined();
     expect(err.rc).toBe("AI1005");
     expect(err.message).toMatch(/cancelled after 0 turn/);
     expect(llm.sawAbort()).toBe(true);
     expect(sink.received).toHaveLength(0);
+    t = undefined;
+  });
+
+  /**
+   * @case Graceful shutdown lets an in-flight agent run finish, and exits clean
+   * @preconditions A tool that completes on its own shortly after shutdown begins, well inside the deadline
+   * @expectedResult The run completes, its result reaches the destination, and the outcome is not forced. This is the report that opened #610: a cron-woken agent mid-tool-call killed by one Ctrl-C
+   */
+  test("graceful shutdown drains an in-flight agent run", async () => {
+    const sink = spy();
+    const slowFn = {
+      description: "Finishes shortly, on its own",
+      input: z.object({}),
+      handler: async () => {
+        await sleep(120);
+        return { done: true };
+      },
+    };
+    llm.script.push({ toolCalls: [{ toolName: "slow", input: {} }] });
+    llm.script.push({ text: "finished" });
+
+    t = await testContext()
+      .with({
+        shutdown: { timeoutMs: 5_000 },
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+          agentPlugin({ functions: { slow: slowFn } }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("assistant")
+          .from(direct())
+          .to(agent({ model: MODEL, system: "x", tools: tools(["slow"]) }))
+          .to(sink),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const dispatch = t.client.sendDirect("assistant", "go");
+    await sleep(30);
+
+    const outcome = await t.ctx.stop();
+
+    await dispatch;
+    expect(outcome).toEqual({ forced: false, pending: [] });
+    expect(llm.sawAbort()).toBe(false);
+    expect(sink.received).toHaveLength(1);
     t = undefined;
   });
 
@@ -154,6 +236,9 @@ describe("cooperative cancellation of agent runs", () => {
 
     t = await testContext()
       .with({
+        // The run is cancelled by the FORCED stage now: graceful stage one
+        // drains rather than cancels, and this tool never finishes on its own.
+        shutdown: { timeoutMs: 300 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({ functions: { hang: hangFn } }),
@@ -181,7 +266,7 @@ describe("cooperative cancellation of agent runs", () => {
       .sendDirect("assistant", "go")
       .then(() => undefined)
       .catch((err: unknown) => err);
-    await sleep(30);
+    await waitForHang();
     await t.stop();
     const err = (await dispatch) as {
       rc?: string;
@@ -307,6 +392,67 @@ describe("cooperative cancellation of agent runs", () => {
 
     const record = await store.get(id);
     expect(record?.status).toBe("suspended");
+  });
+
+  /**
+   * @case Parked work survives a FORCED shutdown too, not only a graceful one
+   * @preconditions One agent run parks, a second run hangs so the deadline is reached, and shutdown.timeoutMs is short
+   * @expectedResult The forced stage abandons the hung run but leaves the parked record suspended: a forced stage two may abandon execution, and must still never settle or deny a park
+   */
+  test("a forced shutdown never denies parked work", async () => {
+    const store = new MemorySuspensionStore();
+    const sink = spy();
+    const ask = {
+      description: "Ask",
+      input: z.object({}),
+      handler: (_i: unknown, ctx: FnHandlerContext) =>
+        ctx.suspend({ schema: Approval }),
+    };
+    llm.script.push({ toolCalls: [{ toolName: "ask", input: {} }] });
+    llm.script.push({ toolCalls: [{ toolName: "hang", input: {} }] });
+
+    t = await testContext()
+      .with({
+        suspension: {
+          store,
+          secret: "cancel-test-secret-key-0123456789-abcdef",
+        },
+        shutdown: { timeoutMs: 300 },
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+          agentPlugin({ functions: { ask, hang: hangFn } }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("assistant")
+          .from(direct())
+          .to(
+            agent({
+              model: MODEL,
+              system: "x",
+              tools: tools(["ask", "hang"]),
+            }),
+          )
+          .to(sink),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const parked = await t.client.sendDirect("assistant", "go");
+    expect(isSuspended(parked)).toBe(true);
+    const id = (parked as { suspensionId: string }).suspensionId;
+
+    // A second run that never finishes, so the deadline is what ends the stop.
+    void t.client.sendDirect("assistant", "again").catch(() => undefined);
+    await waitForHang();
+
+    const outcome = await t.ctx.stop();
+    expect(outcome.forced).toBe(true);
+
+    const record = await store.get(id);
+    expect(record?.status).toBe("suspended");
+    t = undefined;
   });
 
   /**

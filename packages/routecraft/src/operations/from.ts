@@ -170,6 +170,10 @@ function isIterableSource(value: unknown): value is AsyncIterable<unknown> {
  * at debug and do not stop iteration (matching `simple()`'s batch
  * semantics), and exhaustion completes the source.
  *
+ * Every normalized form signals readiness on its own: the iterable path
+ * from inside its loop, a bare callable the moment the route invokes it.
+ * A `Source` adapter remains responsible for its own `ready()`.
+ *
  * @internal Used by the route builder.
  */
 export function toSource<T>(input: SourceLike<T>): Source<T> {
@@ -178,7 +182,25 @@ export function toSource<T>(input: SourceLike<T>): Source<T> {
       const generator = input as GeneratorSource<T>;
       return { subscribe: (sub) => drainIterable(sub, generator(sub)) };
     }
-    return { subscribe: input as CallableSource<T> };
+    const callable = input as CallableSource<T>;
+    // A bare callable IS the consumer loop: it is invoked once and polls
+    // until the signal aborts. Readiness therefore belongs at the moment
+    // the loop begins, not at its first message. Left to the emit-time
+    // fallback, the polling shape the `from()` docs teach (a quiet mail
+    // folder, an idle queue) signals readiness only when something finally
+    // arrives, so every boot pays the 30s route-readiness backstop.
+    return {
+      subscribe: (sub) => {
+        // Invoke FIRST, then mark ready: a callable that throws
+        // synchronously while wiring never became able to produce, and
+        // must not have announced itself as ready on the way out. An async
+        // callable has returned at its first await by this point, which is
+        // the loop running.
+        const running = callable(sub);
+        sub.ready();
+        return running;
+      },
+    };
   }
   if (isIterableSource(input)) {
     const iterable = input as AsyncIterable<T>;

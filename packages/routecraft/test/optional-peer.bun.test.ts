@@ -11,7 +11,7 @@ describe("loadOptionalPeer", () => {
   test("returns the module when the loader resolves", async () => {
     const fakeModule = { greet: () => "hi" };
     const mod = await loadOptionalPeer(async () => fakeModule, {
-      adapterName: "fake",
+      consumer: "fake adapter",
       packageName: "fake-pkg",
     });
     expect(mod).toBe(fakeModule);
@@ -32,7 +32,7 @@ describe("loadOptionalPeer", () => {
         async () => {
           throw cause;
         },
-        { adapterName: "fake", packageName: "fake-pkg" },
+        { consumer: "fake adapter", packageName: "fake-pkg" },
       ),
     ).rejects.toMatchObject({
       rc: "RC5017",
@@ -61,7 +61,7 @@ describe("loadOptionalPeer", () => {
         async () => {
           throw cause;
         },
-        { adapterName: "fake", packageName: "@scope/pkg" },
+        { consumer: "fake adapter", packageName: "@scope/pkg" },
       ),
     ).rejects.toMatchObject({ rc: "RC5017" });
   });
@@ -84,7 +84,7 @@ describe("loadOptionalPeer", () => {
         async () => {
           throw cause;
         },
-        { adapterName: "fake", packageName: "@scope/pkg" },
+        { consumer: "fake adapter", packageName: "@scope/pkg" },
       ),
     ).rejects.toBe(cause);
   });
@@ -105,7 +105,7 @@ describe("loadOptionalPeer", () => {
         async () => {
           throw cause;
         },
-        { adapterName: "fake", packageName: "fake-pkg" },
+        { consumer: "fake adapter", packageName: "fake-pkg" },
       );
     } catch (err) {
       thrown = err;
@@ -127,7 +127,7 @@ describe("loadOptionalPeer", () => {
         async () => {
           throw cause;
         },
-        { adapterName: "fake", packageName: "fake-pkg" },
+        { consumer: "fake adapter", packageName: "fake-pkg" },
       );
     } catch (err) {
       thrown = err;
@@ -154,7 +154,7 @@ describe("loadOptionalPeer", () => {
         async () => {
           throw cause;
         },
-        { adapterName: "fake", packageName: "fake-pkg" },
+        { consumer: "fake adapter", packageName: "fake-pkg" },
       );
     } catch (err) {
       thrown = err;

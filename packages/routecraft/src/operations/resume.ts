@@ -120,13 +120,14 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
     const signalCtx = toSignalContext(ctx) as {
       readonly signal?: AbortSignal;
     };
-    // The hook's bound is the route's stop signal as well as an enclosing
-    // .timeout(): ctx.signal is populated only by a route-scope timeout, so
+    // The hook's bound is the route's intake signal (shutdown has begun) as
+    // well as an enclosing .timeout(): ctx.signal is populated only by a
+    // route-scope timeout, so
     // racing the hook against that alone leaves a resume route without one
     // unable to interrupt a hook that never settles, and an unsettled hook
     // holds the step, which holds drain().
     const route = getExchangeRoute(exchange);
-    const bounds = [route?.signal, signalCtx.signal].filter(
+    const bounds = [route?.intakeSignal, signalCtx.signal].filter(
       (candidate): candidate is AbortSignal => candidate !== undefined,
     );
     const hookSignal = bounds.length > 1 ? AbortSignal.any(bounds) : bounds[0];

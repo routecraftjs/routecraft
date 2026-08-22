@@ -180,11 +180,12 @@ describe("Lifecycle Management", () => {
     t = await testContext().build();
     await t.ctx.start();
 
-    await t.ctx.stop();
-    // Second stop should be a no-op; assert it resolves without throwing.
-    // Avoid `.resolves.not.toThrow()` -- bun:test rejects when the resolved
-    // value is undefined (vitest accepts).
-    await expect(t.ctx.stop()).resolves.toBeUndefined();
+    const first = await t.ctx.stop();
+    // Second stop is a no-op that joins the first: same outcome object, so a
+    // caller mapping it to an exit code cannot get two different answers.
+    const second = await t.ctx.stop();
+    expect(first).toEqual({ forced: false, pending: [] });
+    expect(second).toBe(first);
   });
 
   /**

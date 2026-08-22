@@ -50,7 +50,7 @@ export class CronSourceAdapter
    */
   static loadDriver: () => Promise<typeof CronType> = () =>
     loadOptionalPeer(() => import("croner"), {
-      adapterName: "cron",
+      consumer: "cron adapter",
       packageName: "croner",
     }).then((m) => m.Cron);
 

@@ -6,9 +6,9 @@ by what has to already exist for that work to be correct.
 
 | Phase | Runs | The routes are | Use it for |
 |-------|------|----------------|------------|
-| `apply(ctx)` | While the context is being built, before any route starts | Registered, not running | Resolving config, opening resources, populating the context store |
+| `apply(ctx)` | While the context is being built, before any route starts | Not registered yet | Resolving config, opening resources, populating the context store |
 | `start(ctx)` | After every route has started | Running | Work that drives routes or depends on them being able to serve |
-| `teardown(ctx)` | During shutdown | Stopping or stopped | Releasing what `apply` opened and stopping what `start` began |
+| `teardown(ctx, info)` | During shutdown, or when a build or start failed partway | Stopping, stopped, or never started | Releasing what `apply` opened and stopping what `start` began |
 
 ---
 
@@ -17,6 +17,10 @@ by what has to already exist for that work to be correct.
 The dividing line between `apply` and `start` is whether the work needs a
 route to be able to run. Resolving a store handle does not; re-entering a
 route's error channel does.
+
+`ContextBuilder.build()` calls `initPlugins()` before `registerRoutes()`, so
+during `apply` the builder's routes do not exist yet. A plugin that reads the
+route list at `apply` time sees an empty one.
 
 The suspension plugin is the worked example. `apply` resolves the store
 and the token signer, so a missing signing secret fails while the context
@@ -64,22 +68,54 @@ or task to carry it.
   running.
 - The unwind is the ordinary shutdown path, so EVERY applied plugin is
   torn down in reverse order, not only those whose `start()` ran. A
-  `teardown()` must therefore tolerate its own `start()` never having run.
-  Without the unwind, a plugin that started an interval keeps the process
-  alive after a boot that failed.
+  `teardown()` therefore reads `info.started` rather than assuming its own
+  `start()` happened. Without the unwind, a plugin that started an interval
+  keeps the process alive after a boot that failed.
 - A teardown that throws during the unwind is logged and does not replace
   the start error. The operator needs the cause of the failed boot, not
   whatever the cleanup hit on the way out.
+
+### The build-failure unwind
+
+A failure inside `build()` has the same hole with none of the same escape
+hatches: `build()` returns no context when it throws, so whatever an
+earlier `apply()` acquired is unreachable and the caller never had a handle
+to release it with. Under a supervisor that retries boot, that leaks one
+resource per attempt; a held SQLite handle also keeps the file locked, so a
+transient failure becomes a permanent one whose error names lock contention
+instead of the real cause.
+
+So `build()` unwinds too, on a failure in `initPlugins()` OR in
+`registerRoutes()`, through the same reverse-order, failure-tolerant walk,
+and rethrows the original error unchanged. Only plugins whose `apply()`
+RETURNED are torn down: a build that failed at plugin 3 must not ask plugin
+4 to release what it never acquired.
+
+### What a teardown may assume
+
+`teardown` receives a second argument saying how far the context got, so a
+plugin never infers it from its own state:
+
+| Field | Means |
+|-------|-------|
+| `partial` | This is not a fully started context: it never started (a build that failed partway, or an embedder that built and stopped without calling `start()`) or a `start()` hook threw. Routes may not be registered and later plugins may never have applied. |
+| `started` | THIS plugin's own `start()` returned. Always false for a plugin with no `start()` hook, and false throughout a build-failure unwind. |
+
+A plugin that only closes what `apply()` opened can ignore both and is
+correct on every path. A plugin that stops what `start()` began reads
+`started` rather than guarding on its own bookkeeping, which is what keeps
+the distinction in the contract instead of in each plugin's defensive
+coding.
+
+`partial` is true for BOTH failure paths, not only the build one. A start
+failure leaves a context that never came up just as a build failure does,
+and one flag meaning two different things depending on which failure you
+hit is exactly the ambiguity the argument exists to remove.
 
 A plugin instance may serve more than one context in a process, so any
 per-run state a hook creates is keyed by the `ctx` it was given, never held
 in a closure slot. `suspensionPlugin` keys its sweeper in a `WeakMap` for
 exactly this reason.
-
-Unwinding plugins that were **applied but never started**, when the
-failure happens during the build, is out of scope here and tracked in
-[#565](https://github.com/routecraftjs/routecraft/issues/565). That issue
-extends this section rather than replacing it.
 
 ## 4. Readiness
 
@@ -92,9 +128,11 @@ the original error if a hook or the config refuses. A single route that
 fails to come up is not observable there, because `start()` keeps the
 remaining routes running by design; a probe that must know one specific
 route is serving watches `route:started` for it. The wait on route
-readiness is bounded (30 seconds): a source that never calls `ready()` and
-never emits delays the plugin phase by that bound rather than holding the
-context down forever.
+readiness is bounded (30 seconds): a `Source` adapter that never calls
+`ready()` and never emits delays the plugin phase by that bound rather than
+holding the context down forever. Everything `.from()` normalizes for you
+signals readiness on its own, so the bound is a guard against a
+misbehaving adapter rather than something a healthy boot approaches.
 
 A context is single-use. `start()` after `stop()` refuses with `RC1004`,
 because route controllers are built once and a restart would report ready

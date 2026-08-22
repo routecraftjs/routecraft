@@ -300,7 +300,10 @@ export class RetryWrapperStep<
       () => this.inner.execute(exchange, ctx),
       this.#options,
       {
-        ...(route ? { signal: route.signal } : {}),
+        // Intake: a backoff cut short at the start of shutdown surfaces the
+        // last error as a terminal outcome, where waiting it out ends in an
+        // abandonment that reports nothing.
+        ...(route ? { signal: route.intakeSignal } : {}),
         onStarted: () => {
           if (shouldEmit) {
             context.emit("route:retry:started", {

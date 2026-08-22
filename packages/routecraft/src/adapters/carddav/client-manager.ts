@@ -41,7 +41,7 @@ export class CarddavClientManager {
     connection: ResolvedCarddavConnection,
   ) => Promise<CarddavDriverClient> = async (connection) => {
     const tsdav = await loadOptionalPeer(() => import("tsdav"), {
-      adapterName: "carddav",
+      consumer: "carddav adapter",
       packageName: "tsdav",
     });
     const client = await tsdav.createDAVClient({

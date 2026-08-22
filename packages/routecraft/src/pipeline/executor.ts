@@ -1197,12 +1197,15 @@ function buildRetrySegmentStep(
         },
         options,
         {
-          // An abandoned run must stop sleeping between attempts, not just
-          // stop scheduling steps: a backoff outlives the deadline that
-          // abandoned it.
+          // Intake, not execution. A backoff cut short surfaces the last
+          // error as a proper terminal outcome; waiting it out burns the
+          // shutdown deadline on attempts that cannot finish and ends in an
+          // abandonment that emits no terminal event at all. An abandoned
+          // run must also stop sleeping between attempts, hence `abandon`:
+          // a backoff outlives the deadline that abandoned it.
           signal: abandon
-            ? AbortSignal.any([deps.route.signal, abandon])
-            : deps.route.signal,
+            ? AbortSignal.any([deps.route.intakeSignal, abandon])
+            : deps.route.intakeSignal,
           onStarted: () => {
             deps.context.emit("route:retry:started", {
               ...scoped,
@@ -1365,14 +1368,15 @@ function buildConcurrencySegmentStep(
         exchange,
         deps.route,
         {
-          // Cancel a queued slot wait on route shutdown OR when an outer
-          // segment abandons this attempt (e.g. a route-scope timeout firing
-          // while this exchange is still parked in the bulkhead queue);
-          // otherwise the abandoned attempt would keep holding a queue
-          // position and briefly take a slot it can no longer use.
+          // Intake: a queued segment step is released as soon as shutdown
+          // begins and admitted with a no-op release (see `#joinWaitLine`),
+          // so the drain runs it instead of leaving it parked behind a slot
+          // that will never free. Also cancelled when an outer segment
+          // abandons this attempt (e.g. a route-scope timeout firing while
+          // this exchange is still parked in the bulkhead queue).
           signal: abandon
-            ? AbortSignal.any([deps.route.signal, abandon])
-            : deps.route.signal,
+            ? AbortSignal.any([deps.route.intakeSignal, abandon])
+            : deps.route.intakeSignal,
           ...concurrencyEmitHooks(deps.context, scoped, true),
         },
         async () =>

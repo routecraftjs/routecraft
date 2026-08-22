@@ -9,7 +9,7 @@ import {
   type SqliteDatabase,
   type SqliteDriverLoaders,
   resolveSqliteDriver,
-} from "./sqlite-driver.ts";
+} from "../shared/sqlite/driver.ts";
 import type {
   ExpiredScanCursor,
   NewSuspension,
@@ -32,6 +32,12 @@ import type {
  * `ROUTECRAFT_SUSPENSION_STORE`.
  */
 export const DEFAULT_SUSPENSION_DB_PATH = ".routecraft/suspensions.db";
+
+/**
+ * Names this subsystem in the absent-peer error, so a Node deployment
+ * missing `better-sqlite3` reads which feature asked for it.
+ */
+const SQLITE_CONSUMER = "suspension store (sqlite)";
 
 /**
  * Schema version this build writes. Bumped whenever
@@ -116,7 +122,7 @@ const MIGRATIONS: ReadonlyArray<string> = [
  * `better-sqlite3` under Node. Both are synchronous, which is what makes
  * the compare-and-swap methods genuinely atomic here: a single `UPDATE
  * ... WHERE status = 'suspended'` either changes one row or none, and the
- * driver returns which. See `sqlite-driver.ts` for the runtime-split
+ * driver returns which. See `shared/sqlite/driver.ts` for the runtime-split
  * decision, the version matrix behind it, and the graduation condition for
  * `node:sqlite`.
  *
@@ -155,7 +161,7 @@ export class SqliteSuspensionStore implements SuspensionStore {
     path: string;
     loaders?: SqliteDriverLoaders;
   }): Promise<SqliteSuspensionStore> {
-    const driver = await resolveSqliteDriver(options.loaders);
+    const driver = await resolveSqliteDriver(SQLITE_CONSUMER, options.loaders);
     const path =
       options.path === ":memory:"
         ? options.path

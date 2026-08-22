@@ -113,8 +113,44 @@ export interface CraftPlugin {
    * cannot leave a half-running context behind.
    */
   start?(ctx: CraftContext): void | Promise<void>;
-  /** Called when the context stops, after routes have drained. Optional. */
-  teardown?(ctx: CraftContext): void | Promise<void>;
+  /**
+   * Called when the context stops, after routes have drained, and when a
+   * build or a start failed partway. Optional.
+   *
+   * The second argument says which of those happened, so a plugin never has
+   * to infer it from its own state. Ignore it and the hook behaves exactly
+   * as it did when teardown only ran on a fully started context; read it
+   * when releasing depends on how far the context got.
+   */
+  teardown?(ctx: CraftContext, info: TeardownInfo): void | Promise<void>;
+}
+
+/**
+ * What the context managed to do before this teardown, handed to every
+ * {@link CraftPlugin.teardown}.
+ *
+ * The distinction exists because teardown now runs on three different
+ * shapes of context: one that started and is stopping, one whose build
+ * failed with only some plugins applied, and one whose start failed with
+ * only some plugins started. A plugin that closes what `apply()` opened
+ * needs none of this; a plugin that stops what `start()` began must not be
+ * told to stop something it never began.
+ */
+export interface TeardownInfo {
+  /**
+   * This is not a fully started context. Either it never started (a build
+   * that failed partway, or an embedder that built and then stopped without
+   * ever calling `start()`) or a `start()` hook threw. Routes may not be
+   * registered and later plugins may never have applied, so state a plugin
+   * would expect a running context to hold may be missing.
+   */
+  partial: boolean;
+  /**
+   * THIS plugin's own `start()` hook ran to completion. Always false for a
+   * plugin with no `start()` hook, and false during a build-failure unwind,
+   * where nothing started.
+   */
+  started: boolean;
 }
 
 /**
@@ -123,6 +159,36 @@ export interface CraftPlugin {
  * never signals rather than a deadline anything healthy approaches.
  */
 const ROUTE_READINESS_TIMEOUT_MS = 30_000;
+
+/**
+ * What became of one route by the time the readiness gate settled.
+ * `waiting` means the backstop fired before the route signalled, which is
+ * a different operational problem from a route that failed outright.
+ */
+type RouteBootOutcome = "started" | "failed" | "waiting";
+
+/**
+ * Validate `shutdown.timeoutMs` at construction.
+ *
+ * Refused rather than clamped, and refused while the context is being built
+ * rather than when it stops: a `0` reads as "no bound" and behaves as "force
+ * immediately", and an operator discovering that during an outage is the worst
+ * possible moment to learn the polarity.
+ *
+ * @throws RC1003 when the value is not a positive, finite number of milliseconds.
+ */
+function resolveShutdownTimeout(timeoutMs: number | undefined): number {
+  if (timeoutMs === undefined) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw rcError("RC5058", undefined, {
+      message: `shutdown.timeoutMs must be a positive number of milliseconds. Received ${String(timeoutMs)}. Omit it to use the ${String(DEFAULT_SHUTDOWN_TIMEOUT_MS)}ms default.`,
+    });
+  }
+  return timeoutMs;
+}
+
+/** Rejection marker for the shutdown deadline, so it cannot be confused with a drain failure. */
+const SHUTDOWN_DEADLINE = Symbol("routecraft.shutdown.deadline");
 
 /**
  * Config keys handled directly by the CraftContext constructor, as opposed
@@ -137,6 +203,7 @@ const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "on",
   "once",
   "plugins",
+  "shutdown",
 ]);
 
 /**
@@ -176,6 +243,58 @@ export interface CraftConfig {
   >;
   /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
   plugins?: CraftPlugin[];
+  /** How long a graceful shutdown may drain before it is forced. */
+  shutdown?: ShutdownConfig;
+}
+
+/**
+ * Bounds on {@link CraftContext.stop}.
+ *
+ * Shutdown behaviour is a property of the app, not of one invocation, which
+ * is why this is config rather than a CLI flag: the same bound applies to a
+ * signal, to `craft start --once`, and to an embedder calling `stop()`.
+ */
+export interface ShutdownConfig {
+  /**
+   * How long stage one may drain in-flight exchanges before stage two is
+   * forced. Defaults to {@link DEFAULT_SHUTDOWN_TIMEOUT_MS}.
+   *
+   * Set it BELOW the platform's own kill timer (Kubernetes
+   * `terminationGracePeriodSeconds` and friends) so the process's policy
+   * decides the outcome rather than the platform's: past that timer the
+   * platform sends SIGKILL and whatever stage two was meant to do is lost.
+   */
+  timeoutMs?: number;
+}
+
+/**
+ * How long a graceful shutdown drains before it is forced. Thirty seconds
+ * because it sits under the common platform defaults (Kubernetes ships 30s
+ * itself, and operators who raise it raise this with it) while being long
+ * enough that ordinary in-flight work finishes inside it.
+ */
+export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
+
+/**
+ * What a completed {@link CraftContext.stop} reports.
+ *
+ * Returned because it is an answer the caller acts on: `shutdownHandler`
+ * maps it to an exit code, and `craft start --once` reports a forced stop as
+ * a failure. The same pair also rides on `context:stopped`, because counting
+ * forced shutdowns is observability and an exit code is not something an
+ * in-process subscriber can read.
+ */
+export interface ShutdownOutcome {
+  /**
+   * Stage one did not finish inside the deadline, so in-flight execution was
+   * abandoned. The process should exit non-zero.
+   */
+  forced: boolean;
+  /**
+   * Route ids that still had work in flight when the deadline hit. Empty on
+   * a clean stop, so the shape does not change between the two arms.
+   */
+  pending: string[];
 }
 
 /**
@@ -241,11 +360,27 @@ export class CraftContext {
   /** Guards initPlugins() so start() can call it idempotently */
   private pluginsInitialized = false;
 
+  /**
+   * Indices of plugins whose `apply()` returned. Teardown walks this rather
+   * than the whole plugin list: a build that failed at plugin 3 must not
+   * tear down plugin 4, which never ran.
+   */
+  private readonly appliedPlugins = new Set<number>();
+
+  /** Indices of plugins whose `start()` hook returned. */
+  private readonly startedPlugins = new Set<number>();
+
+  /** Latched once `start()` has fully completed, for {@link TeardownInfo.partial}. */
+  private startCompleted = false;
+
+  /** How long stage one of shutdown may drain; see {@link ShutdownConfig}. */
+  private readonly shutdownTimeoutMs: number;
+
   /** Teardown callbacks registered by plugins; run during stop() before context:stopped */
   private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
 
   /** Cached shutdown promise so concurrent stop() callers all await the same teardown */
-  private shutdownPromise: Promise<void> | null = null;
+  private shutdownPromise: Promise<ShutdownOutcome> | null = null;
 
   /** Backing deferred for {@link CraftContext.whenStarted}. */
   private startedDeferred: PromiseWithResolvers<void> | undefined;
@@ -264,6 +399,9 @@ export class CraftContext {
   constructor(config?: CraftConfig) {
     setBrand(this, BRAND.CraftContext);
     if (config?.name !== undefined) this.name = config.name;
+    this.shutdownTimeoutMs = resolveShutdownTimeout(
+      config?.shutdown?.timeoutMs,
+    );
     this.logger = logger.child(childBindings(this));
     this.events = new EventBus(this.contextId, this.logger);
     if (config) {
@@ -406,6 +544,7 @@ export class CraftContext {
         });
 
         await (plugin as CraftPlugin).apply(this);
+        this.appliedPlugins.add(pluginIndex);
 
         this.emit("plugin:applied", {
           pluginId,
@@ -485,18 +624,23 @@ export class CraftContext {
    * waits for is that no route is still coming up, not that all of them did.
    *
    * The wait is bounded because readiness is not something every source
-   * signals. A bare callable source gets no `ready()` for free (unlike the
-   * iterable path, which calls it), so the polling shape the `from()` docs
-   * teach reaches readiness only on its first emit, and a quiet queue would
-   * otherwise hold the whole context down forever.
+   * signals. Everything `.from()` normalizes signals it (the iterable path
+   * from its loop, a bare callable on invocation), but a hand-written
+   * `Source` adapter that never calls `ready()` and never emits would
+   * otherwise hold the whole context down forever. The bound is a guard
+   * against that, not a deadline anything healthy approaches.
    *
    * @internal
    */
   private awaitRoutesStarted(): {
     ready: Promise<void>;
-    settle: (routeId: string) => void;
+    settle: (routeId: string, outcome: RouteBootOutcome) => void;
+    outcomes: Map<string, RouteBootOutcome>;
   } {
     const pending = new Map<string, { resolve: () => void }>();
+    const outcomes = new Map<string, RouteBootOutcome>(
+      this.routes.map((route) => [route.definition.id, "waiting" as const]),
+    );
     const waits = this.routes.map(
       (route) =>
         new Promise<void>((resolve) => {
@@ -504,6 +648,7 @@ export class CraftContext {
         }),
     );
     const off = this.on("route:started", ({ details }) => {
+      outcomes.set(details.routeId, "started");
       pending.get(details.routeId)?.resolve();
     });
 
@@ -512,7 +657,7 @@ export class CraftContext {
       timer = setTimeout(() => {
         this.logger.warn(
           { timeoutMs: ROUTE_READINESS_TIMEOUT_MS },
-          "Some routes did not signal readiness in time; starting plugins anyway. A source that never calls ready() and never emits reaches readiness only when it produces its first message.",
+          "Some routes did not signal readiness in time; starting plugins anyway. A Source adapter that never calls ready() and never emits reaches readiness only when it produces its first message.",
         );
         resolve();
       }, ROUTE_READINESS_TIMEOUT_MS);
@@ -526,8 +671,57 @@ export class CraftContext {
           if (timer) clearTimeout(timer);
         },
       ),
-      settle: (routeId: string) => pending.get(routeId)?.resolve(),
+      // A route that failed or completed counts as settled, not started, so
+      // the gate stops waiting on it while the summary still reports what
+      // actually happened to it. A FAILURE is the final word: a source that
+      // signalled readiness and then rejected (an async callable that fails
+      // on its first await, which is what a bad credential or a refused
+      // connect looks like) did not come up, and the summary must not report
+      // it as started just because `route:started` had already fired.
+      settle: (routeId: string, outcome: RouteBootOutcome) => {
+        if (outcome === "failed" || outcomes.get(routeId) !== "started") {
+          outcomes.set(routeId, outcome);
+        }
+        pending.get(routeId)?.resolve();
+      },
+      outcomes,
     };
+  }
+
+  /**
+   * Log one line saying whether the boot came up, after the readiness gate
+   * settles.
+   *
+   * `whenStarted()` deliberately cannot report a single route failing to
+   * bind, because partial availability is the design: one route failing
+   * does not fail the context. That leaves an operator watching a boot with
+   * no single answer to "did everything come up", visible only to whoever
+   * subscribed to `route:started` at the right moment. This is that answer,
+   * and nothing more: no new events, no semantics change.
+   */
+  private logBootSummary(outcomes: Map<string, RouteBootOutcome>): void {
+    const by = (outcome: RouteBootOutcome): string[] =>
+      [...outcomes.entries()]
+        .filter(([, value]) => value === outcome)
+        .map(([routeId]) => routeId);
+
+    const started = by("started");
+    const failed = by("failed");
+    const waiting = by("waiting");
+    const total = outcomes.size;
+    const summary = {
+      started: started.length,
+      total,
+      ...(failed.length > 0 ? { failed } : {}),
+      ...(waiting.length > 0 ? { waiting } : {}),
+    };
+    // Fixed message, counts in bindings: `.standards/error-and-logging-policy.md`
+    // section 3, so the line stays countable in an aggregator.
+    if (failed.length > 0 || waiting.length > 0) {
+      this.logger.warn(summary, "Routes started");
+    } else {
+      this.logger.info(summary, "Routes started");
+    }
   }
 
   /**
@@ -543,8 +737,9 @@ export class CraftContext {
    * A throw propagates to `context.start()`, which shuts the context down
    * before rethrowing it unchanged. Unwinding a partially started context
    * is deliberately the existing shutdown path rather than a second
-   * mechanism, so a plugin's stop logic has one home. Build-time unwind of
-   * applied-but-not-started plugins is tracked separately in #565.
+   * mechanism, so a plugin's stop logic has one home; a failed build
+   * unwinds through the same walk via {@link CraftContext.unwindFailedBuild},
+   * so which phase failed does not change where cleanup lives.
    */
   private async startPlugins(): Promise<void> {
     for (const [pluginIndex, plugin] of this.plugins.entries()) {
@@ -557,6 +752,7 @@ export class CraftContext {
       try {
         this.emit("plugin:starting", { pluginId, pluginIndex });
         await plugin.start(this);
+        this.startedPlugins.add(pluginIndex);
         this.emit("plugin:started", { pluginId, pluginIndex });
       } catch (err) {
         this.logger.error(
@@ -947,6 +1143,7 @@ export class CraftContext {
           if (!this.shutdownPromise) {
             this.logger.info({ route: route.definition.id }, "Route completed");
           }
+          routes.settle(route.definition.id, "started");
           return { routeId: route.definition.id, success: true as const };
         } catch (error) {
           const msg = isRoutecraftError(error)
@@ -959,9 +1156,8 @@ export class CraftContext {
           // Abort just this failing route
           const controller = this.controllers.get(route.definition.id);
           controller?.abort();
+          routes.settle(route.definition.id, "failed");
           throw error;
-        } finally {
-          routes.settle(route.definition.id);
         }
       }),
     );
@@ -971,6 +1167,7 @@ export class CraftContext {
     // when a plugin refuses to start.
     try {
       await routes.ready;
+      this.logBootSummary(routes.outcomes);
       // Re-checked after the wait: a stop() arriving while routes were
       // still coming up has already torn the plugins down, and a start()
       // hook run now would begin work on a stopped context with nothing
@@ -999,19 +1196,26 @@ export class CraftContext {
         }),
       );
     } else {
+      this.startCompleted = true;
       started.resolve();
     }
 
     return running
-      .then((results) => {
-        // Skip if shutdown was already triggered (e.g. via signal handler)
-        if (this.shutdownPromise) return this.shutdownPromise;
+      .then(async (results) => {
+        // Skip if shutdown was already triggered (e.g. via signal handler).
+        // The outcome is dropped here: `start()` resolves when the context is
+        // done running, and whoever called `stop()` is holding the outcome.
+        if (this.shutdownPromise) {
+          await this.shutdownPromise;
+          return;
+        }
 
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
         if (allFulfilled && !this.plugins.some((plugin) => plugin.keepsAlive)) {
           this.logger.debug({}, "All routes have completed. Stopping context.");
-          return this.stop();
+          await this.stop();
+          return;
         } else {
           this.logger.info(
             {},
@@ -1067,7 +1271,7 @@ export class CraftContext {
    * });
    * ```
    */
-  async stop(): Promise<void> {
+  async stop(): Promise<ShutdownOutcome> {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.hasStopped = true;
     // Settles readiness for a context stopped before it ever became ready,
@@ -1082,55 +1286,48 @@ export class CraftContext {
     return this.shutdownPromise;
   }
 
-  private async performShutdown(): Promise<void> {
-    this.logger.info({}, "Stopping Routecraft context");
-    this.emit("context:stopping", { reason: undefined });
-
-    // 1. Abort all route controllers (stops sources)
-    for (const route of this.routes) {
-      this.logger.info({ route: route.definition.id }, "Stopping route");
-      const controller = this.controllers.get(route.definition.id);
-      controller?.abort("context.stop()");
-    }
-
-    // 2. Drain all routes (wait for in-flight handlers + their tasks)
-    let drainError: unknown;
-    try {
-      await Promise.all(this.routes.map((r) => r.drain()));
-    } catch (err) {
-      drainError = err;
-      this.logger.warn(
-        { err },
-        "Route drain failed during stop(); continuing teardown.",
-      );
-    }
-
-    // 3. Run plugin teardown (plugins with teardown in reverse order, then registerTeardown callbacks)
+  /**
+   * Tear down every plugin that applied, in reverse application order, then
+   * the registered teardown callbacks.
+   *
+   * One walk serves all three exits: an ordinary shutdown, a start that
+   * failed partway, and a build that failed partway. They differ only in
+   * what {@link TeardownInfo} reports, which is why they are not three
+   * mechanisms.
+   *
+   * Only APPLIED plugins are torn down. A build that failed at plugin 3
+   * leaves plugin 4 never having run, and calling its teardown would ask it
+   * to release something it never acquired.
+   *
+   * Failure-tolerant throughout: a throwing teardown is logged and the
+   * remaining teardowns still run, because the caller's original error is
+   * what the operator needs and one plugin's cleanup must not strand
+   * another's.
+   *
+   * @param partial - The context never finished starting.
+   */
+  private async teardownPlugins(partial: boolean): Promise<void> {
     for (let i = this.plugins.length - 1; i >= 0; i--) {
+      if (!this.appliedPlugins.has(i)) continue;
       const plugin = this.plugins[i] as CraftPlugin | undefined;
-      if (plugin?.teardown) {
-        const pluginId = this.getPluginId(plugin, i);
+      if (!plugin?.teardown) continue;
+      const pluginId = this.getPluginId(plugin, i);
 
-        // Emit stopping event
-        this.emit("plugin:stopping", {
-          pluginId,
-          pluginIndex: i,
-        });
+      this.emit("plugin:stopping", { pluginId, pluginIndex: i });
 
-        try {
-          await Promise.resolve(plugin.teardown(this));
-
-          // Emit stopped event
-          this.emit("plugin:stopped", {
-            pluginId,
-            pluginIndex: i,
-          });
-        } catch (err) {
-          this.logger.warn(
-            { err, pluginIndex: i },
-            "Plugin teardown threw; continuing with remaining teardowns.",
-          );
-        }
+      try {
+        await Promise.resolve(
+          plugin.teardown(this, {
+            partial,
+            started: this.startedPlugins.has(i),
+          }),
+        );
+        this.emit("plugin:stopped", { pluginId, pluginIndex: i });
+      } catch (err) {
+        this.logger.warn(
+          { err, pluginIndex: i },
+          "Plugin teardown threw; continuing with remaining teardowns.",
+        );
       }
     }
     // LIFO: unwind registered teardowns in the opposite order they were
@@ -1145,12 +1342,137 @@ export class CraftContext {
         );
       }
     }
+  }
+
+  /**
+   * Release everything a failed `build()` acquired, then let the caller
+   * rethrow the original error.
+   *
+   * `build()` never returns a context when it fails, so the caller has no
+   * handle to run teardown against: whatever an `apply()` opened (a database
+   * handle, a socket, an interval) is unreachable and stays open. Under a
+   * supervisor that retries boot, one handle leaks per attempt, and with
+   * SQLite the held handle also keeps the file locked, so a transient boot
+   * failure becomes a permanent one whose error names lock contention rather
+   * than the real cause.
+   *
+   * @internal Called by `ContextBuilder.build()` on the failure path.
+   */
+  async unwindFailedBuild(): Promise<void> {
+    this.hasStopped = true;
+    await this.teardownPlugins(true);
+  }
+
+  private async performShutdown(): Promise<ShutdownOutcome> {
+    this.logger.info({}, "Stopping Routecraft context");
+    this.emit("context:stopping", { reason: undefined });
+
+    // STAGE ONE. Close intake: sources stop producing, no new exchange is
+    // admitted. Deliberately not the execution signal, so an exchange
+    // already in the pipeline (an agent mid-tool-call, a suspension
+    // continuation) runs to its natural end. That distinction is the whole
+    // difference between the first Ctrl-C and the second.
+    for (const route of this.routes) {
+      this.logger.info({ route: route.definition.id }, "Stopping route");
+      const controller = this.controllers.get(route.definition.id);
+      controller?.abort("context.stop()");
+    }
+
+    // Drain, bounded. Past the deadline the work is abandoned rather than
+    // waited out: an unbounded stage one hands the outcome to the platform's
+    // kill timer, which is what this bound exists to take back.
+    const drain = Promise.all(this.routes.map((r) => r.drain()));
+    let drainError: unknown;
+    let forced = false;
+    let pending: string[] = [];
+    try {
+      await this.raceShutdownDeadline(drain);
+    } catch (err) {
+      if (err === SHUTDOWN_DEADLINE) {
+        forced = true;
+        pending = this.forceStageTwo();
+        // The drain promise is abandoned, not awaited: work that hears the
+        // execution abort unwinds on its own, and work that does not is what
+        // "forced" means. Its rejection is still claimed so an abandoned
+        // route failure does not surface as an unhandled rejection.
+        void drain.catch(() => undefined);
+      } else {
+        drainError = err;
+        this.logger.warn(
+          { err },
+          "Route drain failed during stop(); continuing teardown.",
+        );
+      }
+    }
+
+    // Plugin teardown (plugins with teardown in reverse order, then
+    // registerTeardown callbacks). Unbounded on purpose: teardown releases
+    // resources, and a plugin that wedges there is a different defect from
+    // the one this deadline addresses.
+    await this.teardownPlugins(!this.startCompleted);
 
     this.logger.info({}, "Routecraft context stopped");
-    this.emit("context:stopped", {});
+    this.emit("context:stopped", { forced, pending });
 
     if (drainError) {
       throw drainError;
     }
+    return { forced, pending };
+  }
+
+  /**
+   * Resolve when `drain` settles, or reject with {@link SHUTDOWN_DEADLINE}
+   * once the configured bound elapses.
+   */
+  private raceShutdownDeadline(drain: Promise<unknown>): Promise<unknown> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(SHUTDOWN_DEADLINE),
+        this.shutdownTimeoutMs,
+      );
+      timer.unref?.();
+    });
+    return Promise.race([drain, deadline]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
+  /**
+   * Abandon in-flight execution on every route, and report what was still
+   * running.
+   *
+   * The log line names route ids and their pending counts rather than a
+   * total, because it is the only forensic record a forced shutdown leaves:
+   * an operator reading it afterwards needs to know WHICH capability was
+   * still working, not merely that something was.
+   *
+   * What this accepts losing: in-flight exchanges are abandoned mid-step and
+   * emit no terminal event. What it does NOT do is settle or deny anything on
+   * the way down, so a parked suspension survives a forced shutdown exactly
+   * as it survives a graceful one.
+   *
+   * It does NOT reach the suspension sweeper. The sweeper stops cooperatively
+   * from `context:stopping`, which fires at the start of EVERY shutdown, and
+   * plugin teardown then awaits its in-flight sweep unbounded, outside this
+   * deadline. Records it had claimed heal via their lease either way.
+   */
+  private forceStageTwo(): string[] {
+    const pending = this.routes
+      .filter((route) => route.inFlightCount > 0)
+      .map((route) => ({
+        route: route.definition.id,
+        inFlight: route.inFlightCount,
+      }));
+    this.logger.warn(
+      { timeoutMs: this.shutdownTimeoutMs, pending },
+      pending.length > 0
+        ? "Graceful shutdown did not drain in time; abandoning in-flight work and forcing shutdown. Parked suspensions are left untouched."
+        : "Graceful shutdown did not complete in time; forcing shutdown.",
+    );
+    for (const route of this.routes) {
+      route.abortExecution("shutdown.timeoutMs elapsed");
+    }
+    return pending.map((entry) => entry.route);
   }
 }

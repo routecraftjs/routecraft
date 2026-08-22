@@ -27,7 +27,21 @@ All events share the same envelope:
 | `context:starting` | Before the context starts | `{}` |
 | `context:started` | After context initialization, BEFORE any route or plugin `start()` hook has run. For readiness, await `ctx.whenStarted()` | `{}` |
 | `context:stopping` | Before shutdown begins | `{ reason? }` |
-| `context:stopped` | After all capabilities have stopped | `{}` |
+| `context:stopped` | After all capabilities have stopped | `{ forced, pending }` |
+| `context:error` | Something failed at context level: a plugin's `apply()` or `start()` threw, a capability failed to start, the config was refused, or an exchange failed with no handler left to catch it | `{ error, route?, exchange? }` |
+
+`context:stopped` reports how the shutdown ended. `forced` is true when the
+drain did not finish inside
+[`shutdown.timeoutMs`](/docs/reference/configuration#shutdown) and in-flight
+execution was abandoned, and `pending` names the routes that still had work.
+A clean stop carries `forced: false` and an empty `pending`, so a subscriber
+reads the same shape either way and does not need the process exit code to
+count forced shutdowns.
+
+`context:error` is the catch-all an operator alarms on. It fires for boot
+failures (where no exchange exists yet) and alongside `route:error` for an
+exchange that failed unrecoverably, so a subscriber that only wants the
+per-capability view watches `route:error` instead.
 
 ## Route events
 
@@ -39,10 +53,19 @@ All events share the same envelope:
 | `route:starting` | Just before a capability starts | `{ route }` |
 | `route:started` | Capability is running | `{ route }` |
 | `route:stopping` | Capability is stopping | `{ route, reason?, exchange? }` |
-| `route:stopped` | Capability has stopped | `{ route, exchange? }` |
+| `route:stopped` | Capability has stopped ACCEPTING work. In-flight exchanges may still be draining: shutdown fires this when intake closes, not when the drain completes | `{ route, exchange? }` |
 | `route:source:failed` | A source gave up producing (e.g. a connection-backed source exhausted its reconnect attempts) and the route is about to stop | `{ routeId, route, adapter?, error }` |
+| `route:error` | An exchange failed unrecoverably on this capability: no route-scope `.error()` handler, or the handler itself rethrew | `{ routeId, error, route?, exchange? }` |
+| `route:error:caught` | A route-scope `.error()` handler recovered the exchange, so the pipeline continues | `{ routeId, error, route?, exchange? }` |
 
 `route:source:failed` is the signal to alarm on for a dead channel: unlike `route:stopping`, it never fires for an orderly shutdown. `adapter` is the `adapterId` of the failed source when the adapter declares one (e.g. `routecraft.adapter.mail`).
+
+`route:error` and `route:error:caught` are the two outcomes of the same
+moment, and exactly one of them fires per failure. `route:error` always
+fires with `context:error` and `route:exchange:failed`; `route:error:caught`
+fires with `route:error-handler:recovered`. Use the pair for an error rate
+per capability, and the [error handler operations](#error-handler-operations)
+below when you need which handler ran and how it recovered.
 
 ## Exchange events
 
@@ -62,6 +85,8 @@ Fired per exchange, scoped to the capability that owns it. `routeId` is the capa
 The `exchangeId` field is the exchange's own ID, not the correlation ID. Use `correlationId` to group related exchanges (e.g. a parent and its split children share the same correlation ID).
 
 **Lifecycle guarantee:** every `exchange:started` is eventually followed by exactly one of `completed`, `failed`, `dropped`, or `suspended`.
+
+The one exception is a [forced shutdown](/docs/reference/configuration#shutdown): when `shutdown.timeoutMs` elapses, in-flight exchanges are abandoned mid-step and emit no terminal event at all. A consumer reconciling starts against terminals should treat a forced shutdown as an expected gap rather than a defect; the warn line the forced stage writes names the routes that were still working.
 
 A parked exchange runs more than once, and the events say so. Execution one is `started` then `suspended`. When the answer arrives, `resumed` fires, followed by execution two's own `started` and its `completed` / `failed` / `dropped` / `suspended`, the last when the continuation reaches a second `.suspend()`. A revival failure that the suspended route re-asks on (an expiry, a continuation that changed under the parked exchange) is its own `started` plus terminal pair on that route. Every run carries the same `exchangeId` and `correlationId`, which is what lets a consumer stitch them together; `suspensionId` identifies the park itself.
 
@@ -286,12 +311,7 @@ ctx.on('route:agent:finished', ({ details }) => {
 });
 ```
 
-When the context starts, `agentPlugin` announces the agents and fns it registered so dashboards and the TUI can list them before they run:
-
-| Event | When it fires | Details |
-| --- | --- | --- |
-| `agent:registered` | On `context:started`, once per registered agent | `{ agentId, description, model?, source: 'registered' }` |
-| `agent:tool:registered` | On `context:started`, once per registered fn | `{ toolName, description?, tags?, source: 'registered' }` |
+The registry itself is announced separately; see [agent registration events](#agent-registration-events).
 
 ### Source-parse operations
 
@@ -396,6 +416,30 @@ Listener lifecycle for the MCP HTTP transport is reported by the generic [server
 `declined` is deliberately not `failed`. A tool whose route filters (a guard branch, a "only answer for X" predicate) declines as a matter of course, and counting those as errors would make an error-rate alert fire on ordinary traffic. The caller still receives `isError: true`, because MCP has no other channel to say "no result"; see [AI2002](/docs/reference/errors#ai-2002). It fires for local routes only and carries no provenance fields: a proxied call has no exchange of ours to drop, and a remote error result is reported as `failed`.
 
 For tools proxied from registered clients via [`mcpPlugin({ proxy })`](/docs/reference/plugins/mcpplugin#proxying-client-tools), the same three events fire with `proxied: true`, the registered client id as `serverId`, and the tool's name on the remote server as `remoteTool` (`tool` is the exposed, possibly renamed, name). A proxied call whose remote result carries `isError: true` fires `plugin:mcp:tool:failed`.
+
+## Agent registration events
+
+Emitted by [`agentPlugin`](/docs/reference/plugins/agentplugin) on
+`context:started`, once per registered agent and fn, so a dashboard, the TUI
+or a catalogue can list what this context can do before anything runs. They
+describe the registry, not a run: a dispatch reports itself through the
+[agent operations](#agent-operations) above.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `agent:registered` | On `context:started`, once per registered agent | `{ agentId, description, model?, source: "registered" }` |
+| `agent:tool:registered` | On `context:started`, once per registered fn | `{ toolName, description?, tags?, source: "registered" }` |
+
+`description` is always present on `agent:registered`: `agentPlugin` refuses
+to register an agent without a non-empty one, because a registered agent is
+offered to other agents as a tool and a tool with no description cannot be
+chosen. It is optional on `agent:tool:registered` because a deferred fn
+(`directTool`, resolved at dispatch rather than eagerly) registers with its
+name only. Its description and tags are resolved onto the tool at dispatch
+and are not carried on any event: `route:agent:tool:invoked` and its
+siblings identify a call by `toolName` and `toolCallId`, so a consumer that
+needs the metadata reads the resolved tool rather than waiting for an
+invocation to carry it.
 
 ## HTTP plugin events
 

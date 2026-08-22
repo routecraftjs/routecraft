@@ -19,7 +19,7 @@ import {
 } from "../src/index.ts";
 // Engine machinery, reached through the intra-package barrel.
 import { createSuspensionRuntime } from "../src/suspension/index.ts";
-import type { SqliteDriverLoaders } from "../src/suspension/sqlite-driver.ts";
+import type { SqliteDriverLoaders } from "../src/shared/sqlite/driver.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "rc-suspension-runtime-"));
 
@@ -42,7 +42,7 @@ const absentPeerLoaders: SqliteDriverLoaders = {
     Promise.reject(
       rcError("RC5017", undefined, {
         message:
-          'suspension store (sqlite) adapter requires the optional peer dependency "better-sqlite3".',
+          'suspension store (sqlite) requires the optional peer dependency "better-sqlite3".',
       }),
     ),
 };

@@ -216,6 +216,12 @@
     "retryable": false
   },
   {
+    "code": "RC5058",
+    "category": "Definition",
+    "message": "Invalid shutdown configuration",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",

@@ -306,7 +306,7 @@ export async function buildMimeMessage(
 ): Promise<Buffer> {
   const MailComposer = (
     await loadOptionalPeer(() => import("nodemailer/lib/mail-composer"), {
-      adapterName: "mail",
+      consumer: "mail adapter",
       packageName: "nodemailer",
     })
   ).default;
@@ -368,7 +368,7 @@ export async function createImapClient(
 ): Promise<InstanceType<typeof import("imapflow").ImapFlow>> {
   const config = buildImapConfig(options);
   const { ImapFlow } = await loadOptionalPeer(() => import("imapflow"), {
-    adapterName: "mail",
+    consumer: "mail adapter",
     packageName: "imapflow",
   });
   return new ImapFlow(config);
@@ -395,7 +395,7 @@ export async function createSmtpTransport(
   }
 
   const nodemailer = await loadOptionalPeer(() => import("nodemailer"), {
-    adapterName: "mail",
+    consumer: "mail adapter",
     packageName: "nodemailer",
   });
   return nodemailer.createTransport({
@@ -758,7 +758,7 @@ export async function fetchMessages(
   // in retryable RC5001, which would bury the RC5017 install hint and spin
   // reconnect loops on a missing optional peer.
   const { simpleParser } = await loadOptionalPeer(() => import("mailparser"), {
-    adapterName: "mail",
+    consumer: "mail adapter",
     packageName: "mailparser",
   });
 

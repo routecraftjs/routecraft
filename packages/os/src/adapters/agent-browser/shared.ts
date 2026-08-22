@@ -17,7 +17,10 @@ let cached: AgentBrowserLib | null = null;
 
 async function loadAgentBrowser(): Promise<AgentBrowserLib> {
   if (cached) return cached;
-  const peer = { adapterName: "agentBrowser", packageName: "agent-browser" };
+  const peer = {
+    consumer: "agentBrowser adapter",
+    packageName: "agent-browser",
+  };
   const [{ BrowserManager }, { executeCommand }] = await Promise.all([
     loadOptionalPeer(() => import("agent-browser/dist/browser.js"), peer),
     loadOptionalPeer(() => import("agent-browser/dist/actions.js"), peer),
