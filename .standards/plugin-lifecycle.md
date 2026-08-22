@@ -6,7 +6,7 @@ by what has to already exist for that work to be correct.
 
 | Phase | Runs | The routes are | Use it for |
 |-------|------|----------------|------------|
-| `apply(ctx)` | While the context is being built, before any route starts | Registered, not running | Resolving config, opening resources, populating the context store |
+| `apply(ctx)` | While the context is being built, before any route starts | Not registered yet | Resolving config, opening resources, populating the context store |
 | `start(ctx)` | After every route has started | Running | Work that drives routes or depends on them being able to serve |
 | `teardown(ctx, info)` | During shutdown, or when a build or start failed partway | Stopping, stopped, or never started | Releasing what `apply` opened and stopping what `start` began |
 
@@ -17,6 +17,10 @@ by what has to already exist for that work to be correct.
 The dividing line between `apply` and `start` is whether the work needs a
 route to be able to run. Resolving a store handle does not; re-entering a
 route's error channel does.
+
+`ContextBuilder.build()` calls `initPlugins()` before `registerRoutes()`, so
+during `apply` the builder's routes do not exist yet. A plugin that reads the
+route list at `apply` time sees an empty one.
 
 The suspension plugin is the worked example. `apply` resolves the store
 and the token signer, so a missing signing secret fails while the context

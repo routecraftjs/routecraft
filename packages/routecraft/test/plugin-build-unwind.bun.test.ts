@@ -6,10 +6,14 @@ import {
   craft,
   direct,
   noop,
-  SqliteSuspensionStore,
+  suspensionPlugin,
   type CraftPlugin,
+  type SuspensionConfig,
   type TeardownInfo,
 } from "../src/index.ts";
+import type { SuspensionTestSeams } from "../src/suspension/config.ts";
+import type { SqliteDriverLoaders } from "../src/shared/sqlite/driver.ts";
+import type { SqliteDatabaseConstructor } from "../src/shared/sqlite/types.ts";
 import { CraftContext } from "../src/context.ts";
 import { ContextBuilder } from "../src/builder.ts";
 
@@ -139,22 +143,44 @@ describe("unwinding a failed build", () => {
 
   /**
    * @case The suspension plugin's SQLite handle is released when a later plugin fails the build
-   * @preconditions A real file-backed suspension store opened by suspensionPlugin's apply(), then a later plugin throwing
-   * @expectedResult The store is closed, which is observable because a fresh store opens the same file and reads it
+   * @preconditions A real file-backed suspension store whose driver is injected so the opened handle can be observed, then a later plugin throwing from apply()
+   * @expectedResult close() ran on the handle the store opened. Reopening the file would prove nothing: bun:sqlite happily opens a second connection while the first is still held, so only the close itself is evidence
    */
   test("releases the suspension store's sqlite handle", async () => {
     const dir = mkdtempSync(join(tmpdir(), "rc-unwind-"));
     dirs.push(dir);
     const path = join(dir, "suspensions.db");
 
+    const closed: string[] = [];
+    const loaders: SqliteDriverLoaders = {
+      bun: async () => {
+        const { Database } = await import("bun:sqlite");
+        // `new` on a function returning an object yields that object, so the
+        // store gets a real driver whose close() is observable.
+        const tracking = function (filename: string): unknown {
+          const db = new Database(filename);
+          const close = db.close.bind(db);
+          db.close = (): void => {
+            closed.push(filename);
+            close();
+          };
+          return db;
+        };
+        return tracking as unknown as SqliteDatabaseConstructor;
+      },
+      node: () => Promise.reject(new Error("unused under Bun")),
+    };
+    const suspension: SuspensionConfig & SuspensionTestSeams = {
+      store: { path },
+      secret: "unwind-test-secret-key-0123456789-abcdef",
+      loaders,
+    };
+
     await expect(
       new ContextBuilder()
         .with({
-          suspension: {
-            store: { path },
-            secret: "unwind-test-secret-key-0123456789-abcdef",
-          },
           plugins: [
+            suspensionPlugin(suspension),
             {
               name: "late-refusal",
               apply() {
@@ -167,11 +193,7 @@ describe("unwinding a failed build", () => {
         .build(),
     ).rejects.toThrow("late plugin refuses");
 
-    // A second store over the same file proves the first handle is gone: an
-    // unclosed bun:sqlite handle keeps the file locked against this.
-    const reopened = await SqliteSuspensionStore.open({ path });
-    await expect(reopened.pending()).resolves.toBeDefined();
-    await reopened.close();
+    expect(closed).toEqual([path]);
   });
 
   /**

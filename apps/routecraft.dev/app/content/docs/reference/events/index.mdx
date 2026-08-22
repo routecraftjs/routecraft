@@ -78,6 +78,8 @@ The `exchangeId` field is the exchange's own ID, not the correlation ID. Use `co
 
 **Lifecycle guarantee:** every `exchange:started` is eventually followed by exactly one of `completed`, `failed`, `dropped`, or `suspended`.
 
+The one exception is a [forced shutdown](/docs/reference/configuration#shutdown): when `shutdown.timeoutMs` elapses, in-flight exchanges are abandoned mid-step and emit no terminal event at all. A consumer reconciling starts against terminals should treat a forced shutdown as an expected gap rather than a defect; the warn line the forced stage writes names the routes that were still working.
+
 A parked exchange runs more than once, and the events say so. Execution one is `started` then `suspended`. When the answer arrives, `resumed` fires, followed by execution two's own `started` and its `completed` / `failed` / `dropped` / `suspended`, the last when the continuation reaches a second `.suspend()`. A revival failure that the suspended route re-asks on (an expiry, a continuation that changed under the parked exchange) is its own `started` plus terminal pair on that route. Every run carries the same `exchangeId` and `correlationId`, which is what lets a consumer stitch them together; `suspensionId` identifies the park itself.
 
 ## Operation events
@@ -301,12 +303,7 @@ ctx.on('route:agent:finished', ({ details }) => {
 });
 ```
 
-When the context starts, `agentPlugin` announces the agents and fns it registered so dashboards and the TUI can list them before they run:
-
-| Event | When it fires | Details |
-| --- | --- | --- |
-| `agent:registered` | On `context:started`, once per registered agent | `{ agentId, description, model?, source: 'registered' }` |
-| `agent:tool:registered` | On `context:started`, once per registered fn | `{ toolName, description?, tags?, source: 'registered' }` |
+The registry itself is announced separately; see [agent registration events](#agent-registration-events).
 
 ### Source-parse operations
 
@@ -414,20 +411,24 @@ For tools proxied from registered clients via [`mcpPlugin({ proxy })`](/docs/ref
 
 ## Agent registration events
 
-Emitted once per context by [`agentPlugin`](/docs/reference/plugins/agentplugin),
-after `context:started`, so a console or a catalogue can list what this
-context can do without reaching into plugin internals. They describe the
-registry, not a run: a dispatch reports itself through the
+Emitted by [`agentPlugin`](/docs/reference/plugins/agentplugin) on
+`context:started`, once per registered agent and fn, so a dashboard, the TUI
+or a catalogue can list what this context can do before anything runs. They
+describe the registry, not a run: a dispatch reports itself through the
 [agent operations](#agent-operations) above.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `agent:registered` | A named agent was registered with the context | `{ agentId, description?, model?, source }` |
-| `agent:tool:registered` | A named fn was registered as an agent tool | `{ toolName, description?, tags?, source }` |
+| `agent:registered` | On `context:started`, once per registered agent | `{ agentId, description, model?, source: "registered" }` |
+| `agent:tool:registered` | On `context:started`, once per registered fn | `{ toolName, description?, tags?, source: "registered" }` |
 
-A deferred fn (`directTool`, resolved at dispatch rather than eagerly)
-registers with its name only: it has no description or tags to publish until
-a call resolves it, and those surface on the tool-invocation events instead.
+`description` is always present on `agent:registered`: `agentPlugin` refuses
+to register an agent without a non-empty one, because a registered agent is
+offered to other agents as a tool and a tool with no description cannot be
+chosen. It is optional on `agent:tool:registered` because a deferred fn
+(`directTool`, resolved at dispatch rather than eagerly) registers with its
+name only, and its description and tags surface on the tool-invocation
+events instead.
 
 ## HTTP plugin events
 

@@ -301,7 +301,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
         ?.totalTokens,
     ).toBe(10);
 
-    // The resumed turn hangs in a tool; stopping the context cancels it.
+    // The resumed turn hangs in a tool; the forced stage of shutdown cancels it.
     llm.script.push({ toolCalls: [{ toolName: "hang", input: {} }] });
     const ack = t.client
       .sendDirect("answers", {

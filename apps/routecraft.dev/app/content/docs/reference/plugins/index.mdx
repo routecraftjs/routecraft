@@ -48,7 +48,7 @@ A plugin has one required hook, `apply(ctx)`, and two optional ones, `start(ctx)
 
 | Hook | Runs | The routes are | Use it for |
 |------|------|----------------|------------|
-| `apply(ctx)` | While the context is being built | Registered, not running | Resolving config, opening resources, populating the context store |
+| `apply(ctx)` | While the context is being built | Not registered yet | Resolving config, opening resources, populating the context store |
 | `start(ctx)` | After every route has started | Running | Work that drives routes or needs them able to serve |
 | `teardown(ctx, info)` | During shutdown, or when a build or start failed partway | Stopping, stopped, or never started | Releasing what `apply` opened, stopping what `start` began |
 
@@ -81,6 +81,8 @@ export function heartbeatPlugin(everyMs = 60_000): CraftPlugin {
   }
 }
 ```
+
+`ContextBuilder.build()` applies plugins BEFORE it registers routes, so `apply` must not assume a route exists. Anything that reads or drives routes belongs in `start`, which runs once they are up.
 
 Most plugins need only the required hook: a plugin that supplies typed, validated defaults to the context store is a config helper, and `apply` alone covers it.
 

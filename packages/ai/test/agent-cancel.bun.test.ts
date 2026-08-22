@@ -31,12 +31,25 @@ const Approval = z.object({ approved: z.boolean() });
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Incremented when `hangFn` is entered, so a test can wait for real in-flight work. */
+let hangEntries = 0;
+
+/**
+ * Wait until the hang tool is actually running. Sleeping a fixed interval
+ * instead would leave the test asserting on a shutdown that had nothing to
+ * drain whenever the runner was slow.
+ */
+const waitForHang = async (): Promise<void> => {
+  while (hangEntries === 0) await sleep(5);
+};
+
 /** A tool that holds until the run's abort signal fires, then rejects. */
 const hangFn = {
   description: "Waits for cancellation",
   input: z.object({}),
   handler: (_input: unknown, ctx: FnHandlerContext) =>
     new Promise((_resolve, reject) => {
+      hangEntries += 1;
       const abort = (): void => {
         const err = new Error("hang tool aborted");
         err.name = "AbortError";
@@ -52,6 +65,7 @@ describe("cooperative cancellation of agent runs", () => {
 
   beforeEach(() => {
     llm.reset();
+    hangEntries = 0;
   });
 
   afterEach(async () => {
@@ -61,7 +75,7 @@ describe("cooperative cancellation of agent runs", () => {
 
   /**
    * @case A forced shutdown cancels an in-flight run with AI1005; graceful stage one does not
-   * @preconditions A tool that hangs until aborted, and shutdown.timeoutMs set low so stage one's deadline arrives quickly
+   * @preconditions A tool that hangs until aborted, waited on rather than slept past, with shutdown.timeoutMs wide enough that the mid-drain assertion cannot race the forced stage
    * @expectedResult The run is still alive while stage one drains, and is cancelled with AI1005 only once the forced stage fires. Before #610 the first signal cancelled it immediately, which is the contract violation this pins
    */
   test("a forced shutdown cancels the run with AI1005", async () => {
@@ -70,7 +84,10 @@ describe("cooperative cancellation of agent runs", () => {
 
     t = await testContext()
       .with({
-        shutdown: { timeoutMs: 300 },
+        // Generous relative to the mid-drain assertion below: a tight
+        // deadline would let the forced stage fire first on a loaded runner
+        // and the test would report a cancellation that stage one did not do.
+        shutdown: { timeoutMs: 2_000 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({ functions: { hang: hangFn } }),
@@ -90,12 +107,12 @@ describe("cooperative cancellation of agent runs", () => {
       .sendDirect("assistant", "go")
       .then(() => undefined)
       .catch((err: unknown) => err);
-    await sleep(30);
+    await waitForHang();
 
     const stopping = t.ctx.stop();
     // Stage one closed intake but must NOT have touched the running agent:
     // the whole point of the split is that a drain is not a cancellation.
-    await sleep(100);
+    await sleep(50);
     expect(llm.sawAbort()).toBe(false);
 
     const outcome = await stopping;
@@ -242,7 +259,7 @@ describe("cooperative cancellation of agent runs", () => {
       .sendDirect("assistant", "go")
       .then(() => undefined)
       .catch((err: unknown) => err);
-    await sleep(30);
+    await waitForHang();
     await t.stop();
     const err = (await dispatch) as {
       rc?: string;
@@ -421,7 +438,7 @@ describe("cooperative cancellation of agent runs", () => {
 
     // A second run that never finishes, so the deadline is what ends the stop.
     void t.client.sendDirect("assistant", "again").catch(() => undefined);
-    await sleep(30);
+    await waitForHang();
 
     const outcome = await t.ctx.stop();
     expect(outcome.forced).toBe(true);
