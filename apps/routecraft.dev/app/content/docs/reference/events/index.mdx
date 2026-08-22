@@ -427,8 +427,11 @@ to register an agent without a non-empty one, because a registered agent is
 offered to other agents as a tool and a tool with no description cannot be
 chosen. It is optional on `agent:tool:registered` because a deferred fn
 (`directTool`, resolved at dispatch rather than eagerly) registers with its
-name only, and its description and tags surface on the tool-invocation
-events instead.
+name only. Its description and tags are resolved onto the tool at dispatch
+and are not carried on any event: `route:agent:tool:invoked` and its
+siblings identify a call by `toolName` and `toolCallId`, so a consumer that
+needs the metadata reads the resolved tool rather than waiting for an
+invocation to carry it.
 
 ## HTTP plugin events
 

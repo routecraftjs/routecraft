@@ -38,9 +38,16 @@ let hangEntries = 0;
  * Wait until the hang tool is actually running. Sleeping a fixed interval
  * instead would leave the test asserting on a shutdown that had nothing to
  * drain whenever the runner was slow.
+ *
+ * Bounded, so a routing or startup regression that stops the tool being
+ * reached fails this test with a diagnostic rather than hanging the suite.
  */
 const waitForHang = async (): Promise<void> => {
-  while (hangEntries === 0) await sleep(5);
+  const deadline = Date.now() + 5_000;
+  while (hangEntries === 0 && Date.now() < deadline) await sleep(5);
+  if (hangEntries === 0) {
+    throw new Error("The hang tool was never entered within 5s");
+  }
 };
 
 /** A tool that holds until the run's abort signal fires, then rejects. */
