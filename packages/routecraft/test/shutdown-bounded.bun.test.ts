@@ -7,6 +7,19 @@ const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * A signal the pipeline fires when a step is entered.
+ *
+ * Shutdown tests have to stop the context while an exchange is genuinely
+ * mid-step. Sleeping between dispatch and `stop()` only guesses at that: on a
+ * loaded runner the step may not have been entered yet, and the test then
+ * measures a clean shutdown while claiming to measure a forced one.
+ */
+const entered = (): { signal: Promise<void>; enter: () => void } => {
+  const deferred = Promise.withResolvers<void>();
+  return { signal: deferred.promise, enter: () => deferred.resolve() };
+};
+
+/**
  * The two stages of shutdown, and the deadline between them.
  *
  * Stage one closes intake and drains: sources stop producing, and an
@@ -33,6 +46,7 @@ describe("bounded graceful shutdown", () => {
    */
   test("drains in-flight work rather than cancelling it", async () => {
     const sink = spy();
+    const inStep = entered();
     let completed = false;
 
     t = await testContext()
@@ -42,6 +56,7 @@ describe("bounded graceful shutdown", () => {
           .id("slow")
           .from(direct())
           .transform(async (body: unknown) => {
+            inStep.enter();
             await sleep(150);
             completed = true;
             return body;
@@ -52,7 +67,7 @@ describe("bounded graceful shutdown", () => {
     await t.startAndWaitReady();
 
     const dispatch = t.client.sendDirect("slow", "payload");
-    await sleep(20);
+    await inStep.signal;
 
     const outcome = await t.ctx.stop();
     await dispatch;
@@ -69,6 +84,7 @@ describe("bounded graceful shutdown", () => {
    * @expectedResult stop() resolves forced, pending names the route, and the route's execution signal has fired
    */
   test("forces stage two at the deadline and names the pending route", async () => {
+    const inStep = entered();
     let sawExecutionAbort = false;
 
     t = await testContext()
@@ -77,12 +93,12 @@ describe("bounded graceful shutdown", () => {
         craft()
           .id("wedged")
           .from(direct())
-          .transform(
-            () =>
-              new Promise(() => {
-                // Never settles: this is the hung route the deadline exists for.
-              }),
-          )
+          .transform(() => {
+            inStep.enter();
+            return new Promise(() => {
+              // Never settles: this is the hung route the deadline exists for.
+            });
+          })
           .to(noop()),
       )
       .build();
@@ -94,7 +110,7 @@ describe("bounded graceful shutdown", () => {
     });
 
     void t.client.sendDirect("wedged", "payload").catch(() => undefined);
-    await sleep(20);
+    await inStep.signal;
 
     const started = Date.now();
     const outcome = await t.ctx.stop();
@@ -240,6 +256,7 @@ describe("bounded graceful shutdown", () => {
    */
   test("context:stopped reports a forced outcome", async () => {
     const seen: Array<{ forced: boolean; pending: string[] }> = [];
+    const inStep = entered();
 
     t = await testContext()
       .with({ shutdown: { timeoutMs: 250 } })
@@ -247,12 +264,12 @@ describe("bounded graceful shutdown", () => {
         craft()
           .id("wedged")
           .from(direct())
-          .transform(
-            () =>
-              new Promise(() => {
-                // Never settles: this is the hung route the deadline exists for.
-              }),
-          )
+          .transform(() => {
+            inStep.enter();
+            return new Promise(() => {
+              // Never settles: this is the hung route the deadline exists for.
+            });
+          })
           .to(noop()),
       )
       .build();
@@ -262,7 +279,7 @@ describe("bounded graceful shutdown", () => {
     await t.startAndWaitReady();
 
     void t.client.sendDirect("wedged", "payload").catch(() => undefined);
-    await sleep(20);
+    await inStep.signal;
 
     const outcome = await t.ctx.stop();
 
