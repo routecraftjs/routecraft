@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { craft, direct, noop, simple } from "../src/index.ts";
+import { CraftContext } from "../src/context.ts";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 
 const sleep = (ms: number): Promise<void> =>
@@ -128,6 +129,58 @@ describe("bounded graceful shutdown", () => {
     expect(route?.intakeSignal.aborted).toBe(true);
     expect(route?.signal.aborted).toBe(false);
     expect(outcome.forced).toBe(false);
+    t = undefined;
+  });
+
+  /**
+   * @case shutdown.timeoutMs is refused at construction when it cannot bound anything
+   * @preconditions Contexts configured with 0, a negative, NaN and Infinity
+   * @expectedResult Each refuses with RC5058 while the context is being built. Refused rather than clamped: `0` reads as "no bound" and a clamp would make it mean "force immediately", which is its opposite
+   */
+  test("refuses a shutdown timeout that cannot bound anything", () => {
+    for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new CraftContext({ shutdown: { timeoutMs } })).toThrow(
+        /shutdown\.timeoutMs must be a positive number/,
+      );
+    }
+    expect(
+      () => new CraftContext({ shutdown: { timeoutMs: 1 } }),
+    ).not.toThrow();
+    expect(() => new CraftContext({})).not.toThrow();
+  });
+
+  /**
+   * @case A route whose source signalled readiness and then failed is reported as failed, not started
+   * @preconditions An async callable source that reaches its first await and then rejects, which is what a refused connection or a bad credential looks like
+   * @expectedResult The boot summary counts it as failed and names it, rather than trusting the route:started that had already fired
+   */
+  test("a source that signals ready then fails is summarised as failed", async () => {
+    const lines: Array<{ started: number; failed?: string[] }> = [];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("fails-after-ready")
+          .from(async () => {
+            await Promise.resolve();
+            throw new Error("connect refused");
+          })
+          .to(noop()),
+      )
+      .build();
+    const original = t.ctx.logger.warn.bind(t.ctx.logger);
+    t.ctx.logger.warn = ((bindings: unknown, message?: string) => {
+      if (message === "Routes started") {
+        lines.push(bindings as { started: number; failed?: string[] });
+      }
+      return original(bindings as never, message as never);
+    }) as typeof t.ctx.logger.warn;
+
+    await t.ctx.start().catch(() => undefined);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.started).toBe(0);
+    expect(lines[0]?.failed).toEqual(["fails-after-ready"]);
     t = undefined;
   });
 

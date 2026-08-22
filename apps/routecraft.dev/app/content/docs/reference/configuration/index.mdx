@@ -260,9 +260,13 @@ stage leaves, so it names route ids rather than a total. Then:
 - **In-flight exchanges are abandoned mid-step** and emit no terminal
   event. A subscriber counting `route:exchange:completed` against
   `route:exchange:started` will see the difference.
-- **The suspension sweeper's in-flight sweep is abandoned.** Records it had
-  claimed are not lost: the claim is a lease, and the next process to run
-  the sweep picks them up once it expires.
+- **A sweep the suspension sweeper had already begun does not finish its
+  round.** This is not specific to the forced stage: the sweeper stops
+  cooperatively as soon as shutdown begins, gracefully or not. Records it had
+  claimed are not lost either way, because the claim is a lease and the next
+  process to run the sweep picks them up once it expires. Note that plugin
+  teardown waits for that in-flight sweep rather than abandoning it, which is
+  part of why teardown sits outside the bound.
 - **Nothing is settled or denied on the way down.** A parked suspension
   survives a forced shutdown exactly as it survives a graceful one. Only a
   cancelled run denies its own park, and shutdown is not that.
@@ -274,6 +278,15 @@ reports a forced shutdown as a failure for the same reason.
 Plugin teardown itself is not bounded by this key. Teardown releases
 resources, and cutting it short would trade a bounded shutdown for a leaked
 one.
+
+**So `timeoutMs` is not the whole shutdown budget.** Teardown runs after the
+deadline, and a plugin that drains on its own clock adds to the total: a
+named server drains up to its
+[`shutdownGraceMs`](/docs/reference/plugins/serversplugin), which also
+defaults to 30 seconds. A context with an HTTP mount and both defaults can
+therefore take up to 60 seconds to exit. When you size `timeoutMs` against a
+platform kill timer, budget for the teardown that follows it, not for
+`timeoutMs` alone.
 
 ## Logging configuration
 

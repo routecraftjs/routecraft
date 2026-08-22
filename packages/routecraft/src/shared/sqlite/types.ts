@@ -31,5 +31,5 @@ export interface SqliteDatabase {
  */
 export type SqliteDatabaseConstructor = new (
   filename: string,
-  options?: { readonly?: boolean; create?: boolean },
+  options?: { readonly?: boolean },
 ) => SqliteDatabase;

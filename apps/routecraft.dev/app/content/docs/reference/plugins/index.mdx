@@ -96,7 +96,7 @@ A failure during `build()` unwinds the same way, so a plugin that opened a resou
 
 | Field | Means |
 |-------|-------|
-| `partial` | The context never finished starting: a build failed partway, or a `start()` hook threw. Routes may not be registered and later plugins may never have applied. |
+| `partial` | This is not a fully started context: it never started (a build that failed partway, or an embedder that built and stopped without calling `start()`) or a `start()` hook threw. Routes may not be registered and later plugins may never have applied. |
 | `started` | This plugin's own `start()` returned. Always `false` for a plugin with no `start()` hook, and during a build-failure unwind. |
 
 Ignore both and the hook behaves as it always did, which is correct for any plugin that only closes what `apply()` opened. A plugin that stops what `start()` began reads `started` instead of guarding on its own bookkeeping.

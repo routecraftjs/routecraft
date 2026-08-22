@@ -138,10 +138,11 @@ export interface CraftPlugin {
  */
 export interface TeardownInfo {
   /**
-   * The context never finished starting. Either the build failed partway
-   * (routes are not registered, later plugins never applied) or a `start()`
-   * hook threw. State a plugin would normally expect a running context to
-   * hold may be missing.
+   * This is not a fully started context. Either it never started (a build
+   * that failed partway, or an embedder that built and then stopped without
+   * ever calling `start()`) or a `start()` hook threw. Routes may not be
+   * registered and later plugins may never have applied, so state a plugin
+   * would expect a running context to hold may be missing.
    */
   partial: boolean;
   /**
@@ -165,6 +166,26 @@ const ROUTE_READINESS_TIMEOUT_MS = 30_000;
  * a different operational problem from a route that failed outright.
  */
 type RouteBootOutcome = "started" | "failed" | "waiting";
+
+/**
+ * Validate `shutdown.timeoutMs` at construction.
+ *
+ * Refused rather than clamped, and refused while the context is being built
+ * rather than when it stops: a `0` reads as "no bound" and behaves as "force
+ * immediately", and an operator discovering that during an outage is the worst
+ * possible moment to learn the polarity.
+ *
+ * @throws RC1003 when the value is not a positive, finite number of milliseconds.
+ */
+function resolveShutdownTimeout(timeoutMs: number | undefined): number {
+  if (timeoutMs === undefined) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw rcError("RC5058", undefined, {
+      message: `shutdown.timeoutMs must be a positive number of milliseconds. Received ${String(timeoutMs)}. Omit it to use the ${String(DEFAULT_SHUTDOWN_TIMEOUT_MS)}ms default.`,
+    });
+  }
+  return timeoutMs;
+}
 
 /** Rejection marker for the shutdown deadline, so it cannot be confused with a drain failure. */
 const SHUTDOWN_DEADLINE = Symbol("routecraft.shutdown.deadline");
@@ -373,8 +394,9 @@ export class CraftContext {
   constructor(config?: CraftConfig) {
     setBrand(this, BRAND.CraftContext);
     if (config?.name !== undefined) this.name = config.name;
-    this.shutdownTimeoutMs =
-      config?.shutdown?.timeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
+    this.shutdownTimeoutMs = resolveShutdownTimeout(
+      config?.shutdown?.timeoutMs,
+    );
     this.logger = logger.child(childBindings(this));
     this.events = new EventBus(this.contextId, this.logger);
     if (config) {
@@ -646,9 +668,15 @@ export class CraftContext {
       ),
       // A route that failed or completed counts as settled, not started, so
       // the gate stops waiting on it while the summary still reports what
-      // actually happened to it.
+      // actually happened to it. A FAILURE is the final word: a source that
+      // signalled readiness and then rejected (an async callable that fails
+      // on its first await, which is what a bad credential or a refused
+      // connect looks like) did not come up, and the summary must not report
+      // it as started just because `route:started` had already fired.
       settle: (routeId: string, outcome: RouteBootOutcome) => {
-        if (outcomes.get(routeId) !== "started") outcomes.set(routeId, outcome);
+        if (outcome === "failed" || outcomes.get(routeId) !== "started") {
+          outcomes.set(routeId, outcome);
+        }
         pending.get(routeId)?.resolve();
       },
       outcomes,
@@ -682,11 +710,12 @@ export class CraftContext {
       ...(failed.length > 0 ? { failed } : {}),
       ...(waiting.length > 0 ? { waiting } : {}),
     };
-    const line = `Routes started: ${started.length} of ${total}`;
+    // Fixed message, counts in bindings: `.standards/error-and-logging-policy.md`
+    // section 3, so the line stays countable in an aggregator.
     if (failed.length > 0 || waiting.length > 0) {
-      this.logger.warn(summary, line);
+      this.logger.warn(summary, "Routes started");
     } else {
-      this.logger.info(summary, line);
+      this.logger.info(summary, "Routes started");
     }
   }
 
@@ -703,8 +732,9 @@ export class CraftContext {
    * A throw propagates to `context.start()`, which shuts the context down
    * before rethrowing it unchanged. Unwinding a partially started context
    * is deliberately the existing shutdown path rather than a second
-   * mechanism, so a plugin's stop logic has one home. Build-time unwind of
-   * applied-but-not-started plugins is tracked separately in #565.
+   * mechanism, so a plugin's stop logic has one home; a failed build
+   * unwinds through the same walk via {@link CraftContext.unwindFailedBuild},
+   * so which phase failed does not change where cleanup lives.
    */
   private async startPlugins(): Promise<void> {
     for (const [pluginIndex, plugin] of this.plugins.entries()) {
@@ -1413,11 +1443,14 @@ export class CraftContext {
    * still working, not merely that something was.
    *
    * What this accepts losing: in-flight exchanges are abandoned mid-step and
-   * emit no terminal event, and the suspension sweeper's in-flight sweep is
-   * abandoned, leaving records it had claimed to heal via their lease. What
-   * it does NOT do is settle or deny anything on the way down, so a parked
-   * suspension survives a forced shutdown exactly as it survives a graceful
-   * one.
+   * emit no terminal event. What it does NOT do is settle or deny anything on
+   * the way down, so a parked suspension survives a forced shutdown exactly
+   * as it survives a graceful one.
+   *
+   * It does NOT reach the suspension sweeper. The sweeper stops cooperatively
+   * from `context:stopping`, which fires at the start of EVERY shutdown, and
+   * plugin teardown then awaits its in-flight sweep unbounded, outside this
+   * deadline. Records it had claimed heal via their lease either way.
    */
   private forceStageTwo(): string[] {
     const pending = this.routes
@@ -1429,8 +1462,8 @@ export class CraftContext {
     this.logger.warn(
       { timeoutMs: this.shutdownTimeoutMs, pending },
       pending.length > 0
-        ? `Graceful shutdown did not drain within ${String(this.shutdownTimeoutMs)}ms; abandoning in-flight work and forcing shutdown. Parked suspensions are left untouched.`
-        : `Graceful shutdown did not complete within ${String(this.shutdownTimeoutMs)}ms; forcing shutdown.`,
+        ? "Graceful shutdown did not drain in time; abandoning in-flight work and forcing shutdown. Parked suspensions are left untouched."
+        : "Graceful shutdown did not complete in time; forcing shutdown.",
     );
     for (const route of this.routes) {
       route.abortExecution("shutdown.timeoutMs elapsed");

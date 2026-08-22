@@ -20,13 +20,24 @@ still working and how much each had in flight, in-flight execution is
 abandoned, and the process exits non-zero: `craft start --once` reports a
 forced shutdown as a failure for the same reason. What a forced stage accepts
 losing is stated in the configuration reference: exchanges abandoned mid-step
-with no terminal event, and the suspension sweeper's in-flight sweep
-abandoned with its claimed records healing via their lease. Nothing is
-settled or denied on the way down, so a parked suspension survives a forced
-shutdown exactly as it survives a graceful one.
+with no terminal event. Nothing is settled or denied on the way down, so a
+parked suspension survives a forced shutdown exactly as it survives a
+graceful one.
 
 **API CHANGE: `context.stop()` resolves with `{ forced, pending }`** instead
 of `void`. Existing `await context.stop()` call sites are unaffected.
+
+**API CHANGE: `Route.signal` now fires only when in-flight work is abandoned.**
+It previously fired at the start of shutdown, and that meaning moved to the new
+`Route.intakeSignal`. Code outside this repository that read `route.signal` to
+notice a shutdown keeps compiling and silently stops reacting to a graceful
+one: read `route.intakeSignal` instead. `Route` also gains `intakeSignal`,
+`abortExecution()` and `inFlightCount`, so an out-of-repo implementation of the
+interface must add them.
+
+**`shutdown.timeoutMs` is validated at construction** and refuses a
+non-positive or non-finite value with `RC5058`, rather than clamping: `0` reads
+as "no bound" and would behave as "force immediately".
 
 **`route:started` fires earlier for callable sources (behaviour change).** A
 bare `from(async (sub) => ...)` source signalled readiness only on its first
@@ -58,8 +69,11 @@ original error unchanged.
 those that failed and those still waiting when the backstop fired. Info when
 all started, warn otherwise.
 
-**One SQLite driver resolver and one minimal typing** now serve suspension,
-telemetry and the CLI's telemetry reader. Telemetry resolves through it, so a
+**One SQLite driver resolver and one minimal typing** replace three drifted
+copies. The typing now serves suspension, telemetry and the CLI's telemetry
+reader; the resolver serves suspension and telemetry, while the CLI keeps its
+own Bun-only load because `runtime-gate.ts` refuses to start under Node.
+Telemetry resolves through the resolver, so a
 Node deployment with `better-sqlite3` installed gets the SQLite sink it
 configured instead of silently getting nothing, and its mutable
 `static loadDriver` test seam is replaced by an injectable argument.

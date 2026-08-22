@@ -101,6 +101,7 @@ export interface ErrorCodeRegistry {
   RC5055: RCMeta;
   RC5056: RCMeta;
   RC5057: RCMeta;
+  RC5058: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -580,6 +581,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The framework-owned `routecraft.suspension.sequence` header carries a value the park counter cannot use, so no suspension id was derived. Headers are a writable bag, and this one is refused rather than reset because a reset counter re-derives an id an earlier park already used, and resume tokens sign the id: an old unspent link would then act on the new park. If the message says the value is malformed, find the step that overwrote or mangled the framework header (spreading headers through an external system is the usual culprit) and stop it. If it says the counter is exhausted, this exchange has parked more times than a counter can count; that is not reachable by suspending in a loop within a ttl, so treat it as the same corruption with a plausible-looking value.",
     docs: `${DOCS_BASE}#rc-5057`,
+    retryable: false,
+  },
+  RC5058: {
+    category: "Definition",
+    message: "Invalid shutdown configuration",
+    suggestion:
+      '`shutdown.timeoutMs` must be a positive, finite number of milliseconds. It is refused rather than clamped because the two plausible readings of `0` are opposites: it looks like "no bound" and would behave as "force immediately", abandoning in-flight work the moment a stop begins. Omit the key to take the 30 second default, and set it below your platform\'s kill timer so the process\'s own policy decides the outcome.',
+    docs: `${DOCS_BASE}#rc-5058`,
     retryable: false,
   },
   RC9901: {

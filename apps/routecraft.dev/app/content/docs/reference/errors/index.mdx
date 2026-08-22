@@ -447,7 +447,7 @@ A `skills:` ref in agent frontmatter did not resolve to a directory on disk:
 Agent run cancelled
 
 **Why it happens**  
-The dispatch's abort signal fired (a route stop, an elapsed `.timeout()`, or context shutdown) and the agent loop stopped cooperatively: between turns at the cheap checkpoint, or mid-turn when the signal reached the model call or a tool handler. The error's `cause` is an `AgentCancellationCause` with typed `turnsUsed` and `usage` fields (cache tokens included when the provider reports them), so cost accounting and traces read the spend structurally instead of parsing a message; a partial result never masquerades as a finished `AgentResult`.
+The dispatch's abort signal fired (a route stop, an elapsed `.timeout()`, or a [forced shutdown](/docs/reference/configuration#shutdown); a graceful shutdown drains the run instead of cancelling it) and the agent loop stopped cooperatively: between turns at the cheap checkpoint, or mid-turn when the signal reached the model call or a tool handler. The error's `cause` is an `AgentCancellationCause` with typed `turnsUsed` and `usage` fields (cache tokens included when the provider reports them), so cost accounting and traces read the spend structurally instead of parsing a message; a partial result never masquerades as a finished `AgentResult`.
 
 **Suggestion**  
 Cancellation is terminal: re-dispatch the work as a new exchange if it should run again. A run that parked at a suspension BEFORE the abort survives independently; a run whose park raced the abort is refused or denied with [RC5054](#rc-5054), so no stale resume link is left behind.
@@ -809,6 +809,17 @@ It is a refusal rather than a reset on purpose. The suspension id derives from t
 
 **Suggestion**  
 Find what overwrote the header. The usual culprit is code that rebuilds a headers object by hand or passes headers through an external system that coerces values to strings. If the message reports exhaustion rather than a malformed value, treat it the same way: the bound is not reachable by suspending in a loop, so a plausible-looking huge value is still corruption.
+
+## RC5058
+Invalid shutdown configuration
+
+**Why it happens**  
+`shutdown.timeoutMs` was set to something that is not a positive, finite number of milliseconds: `0`, a negative, `NaN`, or `Infinity`. It is refused while the context is being built rather than when the context stops, because a shutdown is the worst possible moment to discover the value was never usable.
+
+The refusal is deliberate rather than a clamp. The two plausible readings of `0` are opposites: it looks like "no bound", and a clamp would make it behave as "force immediately", abandoning in-flight work the instant a stop begins.
+
+**Suggestion**  
+Omit the key to take the [30 second default](/docs/reference/configuration#shutdown), or set a positive number of milliseconds below your platform's kill timer.
 
 ## RC9901
 Unknown error

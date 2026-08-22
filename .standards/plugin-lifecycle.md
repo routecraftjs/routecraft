@@ -98,7 +98,7 @@ plugin never infers it from its own state:
 
 | Field | Means |
 |-------|-------|
-| `partial` | The context never finished starting. A build failed partway (routes may not be registered, later plugins never applied) or a `start()` hook threw. |
+| `partial` | This is not a fully started context: it never started (a build that failed partway, or an embedder that built and stopped without calling `start()`) or a `start()` hook threw. Routes may not be registered and later plugins may never have applied. |
 | `started` | THIS plugin's own `start()` returned. Always false for a plugin with no `start()` hook, and false throughout a build-failure unwind. |
 
 A plugin that only closes what `apply()` opened can ignore both and is

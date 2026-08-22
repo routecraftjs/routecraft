@@ -58,8 +58,11 @@ export {
   type MergedOptions,
   type StoreRegistry,
   RUNNER_ARGV,
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
   type CraftConfig,
   type CraftPlugin,
+  type ShutdownConfig,
+  type ShutdownOutcome,
   type TeardownInfo,
 } from "./context.ts";
 export { type Capability, registerCapability } from "./capabilities.ts";

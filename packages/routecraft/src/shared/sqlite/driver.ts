@@ -58,7 +58,9 @@ export interface ResolvedSqliteDriver {
  *
  * @param consumer - Names the subsystem asking, so an absent peer names
  *   what wanted it ("suspension store (sqlite)", "telemetry (sqlite)")
- *   rather than reporting a generic sqlite failure.
+ *   rather than reporting a generic sqlite failure. Used ONLY to build the
+ *   default loaders: a caller that supplies its own `loaders` owns the
+ *   naming inside them, and this argument then has no effect.
  * @param loaders - Injection point for tests, which need to simulate a
  *   runtime that lacks a driver without leaving the runtime they run on.
  * @returns The resolved driver for this runtime.
@@ -108,7 +110,7 @@ export function defaultLoaders(consumer: string): SqliteDriverLoaders {
     },
     async node() {
       const mod = await loadOptionalPeer(() => import("better-sqlite3"), {
-        consumer: consumer,
+        consumer,
         packageName: "better-sqlite3",
       });
       const ctor = (mod as { default?: unknown }).default ?? mod;

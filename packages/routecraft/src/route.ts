@@ -387,13 +387,13 @@ export interface Route<T = unknown> {
    * Fires when the route stops accepting new work, which is the moment
    * graceful shutdown begins. Work already in flight keeps running.
    *
-   * A wrapper that is merely IDLING (a `.delay()` wait, a `.throttle()`
-   * pacing gap) observes this so the drain does not sit out a timer for no
-   * gain: releasing early runs the wrapped step anyway, so the exchange's
-   * outcome is identical and only its timing changes. Anything whose early
-   * release would change an outcome, such as a `.retry()` backoff that would
-   * surface the last error instead of retrying, observes {@link Route.signal}
-   * instead.
+   * A wrapper that is WAITING observes this: a `.delay()` wait, a
+   * `.throttle()` pacing gap, a bulkhead queue slot, a `.retry()` backoff.
+   * The wait is cut short once shutdown begins and the exchange still
+   * reaches a terminal outcome, where sitting the timer out burns the
+   * shutdown deadline and ends in an abandonment that reports nothing.
+   * {@link Route.signal} is for abandonment itself, never for shortening a
+   * wait.
    */
   readonly intakeSignal: AbortSignal;
 

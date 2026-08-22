@@ -87,7 +87,7 @@ The resumed loop therefore runs as the principal that PARKED it, never as the re
 
 ## Cancellation
 
-A cancelled run is terminal and honest about its spend: the abort signal (route stop, context shutdown, or a route-scope `.timeout()`) is observed between turns, inside the model call, and inside tool dispatch, and the run fails with [`AI1005`](/docs/reference/errors#ai-1005) carrying turns completed and tokens spent. Cancellation racing the park itself refuses or denies the suspension with [`RC5054`](/docs/reference/errors#rc-5054), so a run whose caller was told it failed never leaves a live resume link.
+A cancelled run is terminal and honest about its spend: the abort signal (route stop, a [forced shutdown](/docs/reference/configuration#shutdown), or a route-scope `.timeout()`) is observed between turns, inside the model call, and inside tool dispatch, and the run fails with [`AI1005`](/docs/reference/errors#ai-1005) carrying turns completed and tokens spent. Cancellation racing the park itself refuses or denies the suspension with [`RC5054`](/docs/reference/errors#rc-5054), so a run whose caller was told it failed never leaves a live resume link.
 
 `context.stop()` is not cancellation of parked work: a suspended agent survives the stop and the restart, which is the point.
 
