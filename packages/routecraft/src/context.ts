@@ -113,8 +113,43 @@ export interface CraftPlugin {
    * cannot leave a half-running context behind.
    */
   start?(ctx: CraftContext): void | Promise<void>;
-  /** Called when the context stops, after routes have drained. Optional. */
-  teardown?(ctx: CraftContext): void | Promise<void>;
+  /**
+   * Called when the context stops, after routes have drained, and when a
+   * build or a start failed partway. Optional.
+   *
+   * The second argument says which of those happened, so a plugin never has
+   * to infer it from its own state. Ignore it and the hook behaves exactly
+   * as it did when teardown only ran on a fully started context; read it
+   * when releasing depends on how far the context got.
+   */
+  teardown?(ctx: CraftContext, info: TeardownInfo): void | Promise<void>;
+}
+
+/**
+ * What the context managed to do before this teardown, handed to every
+ * {@link CraftPlugin.teardown}.
+ *
+ * The distinction exists because teardown now runs on three different
+ * shapes of context: one that started and is stopping, one whose build
+ * failed with only some plugins applied, and one whose start failed with
+ * only some plugins started. A plugin that closes what `apply()` opened
+ * needs none of this; a plugin that stops what `start()` began must not be
+ * told to stop something it never began.
+ */
+export interface TeardownInfo {
+  /**
+   * The context never finished starting. Either the build failed partway
+   * (routes are not registered, later plugins never applied) or a `start()`
+   * hook threw. State a plugin would normally expect a running context to
+   * hold may be missing.
+   */
+  partial: boolean;
+  /**
+   * THIS plugin's own `start()` hook ran to completion. Always false for a
+   * plugin with no `start()` hook, and false during a build-failure unwind,
+   * where nothing started.
+   */
+  started: boolean;
 }
 
 /**
@@ -247,6 +282,19 @@ export class CraftContext {
 
   /** Guards initPlugins() so start() can call it idempotently */
   private pluginsInitialized = false;
+
+  /**
+   * Indices of plugins whose `apply()` returned. Teardown walks this rather
+   * than the whole plugin list: a build that failed at plugin 3 must not
+   * tear down plugin 4, which never ran.
+   */
+  private readonly appliedPlugins = new Set<number>();
+
+  /** Indices of plugins whose `start()` hook returned. */
+  private readonly startedPlugins = new Set<number>();
+
+  /** Latched once `start()` has fully completed, for {@link TeardownInfo.partial}. */
+  private startCompleted = false;
 
   /** Teardown callbacks registered by plugins; run during stop() before context:stopped */
   private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
@@ -413,6 +461,7 @@ export class CraftContext {
         });
 
         await (plugin as CraftPlugin).apply(this);
+        this.appliedPlugins.add(pluginIndex);
 
         this.emit("plugin:applied", {
           pluginId,
@@ -612,6 +661,7 @@ export class CraftContext {
       try {
         this.emit("plugin:starting", { pluginId, pluginIndex });
         await plugin.start(this);
+        this.startedPlugins.add(pluginIndex);
         this.emit("plugin:started", { pluginId, pluginIndex });
       } catch (err) {
         this.logger.error(
@@ -1055,6 +1105,7 @@ export class CraftContext {
         }),
       );
     } else {
+      this.startCompleted = true;
       started.resolve();
     }
 
@@ -1138,6 +1189,83 @@ export class CraftContext {
     return this.shutdownPromise;
   }
 
+  /**
+   * Tear down every plugin that applied, in reverse application order, then
+   * the registered teardown callbacks.
+   *
+   * One walk serves all three exits: an ordinary shutdown, a start that
+   * failed partway, and a build that failed partway. They differ only in
+   * what {@link TeardownInfo} reports, which is why they are not three
+   * mechanisms.
+   *
+   * Only APPLIED plugins are torn down. A build that failed at plugin 3
+   * leaves plugin 4 never having run, and calling its teardown would ask it
+   * to release something it never acquired.
+   *
+   * Failure-tolerant throughout: a throwing teardown is logged and the
+   * remaining teardowns still run, because the caller's original error is
+   * what the operator needs and one plugin's cleanup must not strand
+   * another's.
+   *
+   * @param partial - The context never finished starting.
+   */
+  private async teardownPlugins(partial: boolean): Promise<void> {
+    for (let i = this.plugins.length - 1; i >= 0; i--) {
+      if (!this.appliedPlugins.has(i)) continue;
+      const plugin = this.plugins[i] as CraftPlugin | undefined;
+      if (!plugin?.teardown) continue;
+      const pluginId = this.getPluginId(plugin, i);
+
+      this.emit("plugin:stopping", { pluginId, pluginIndex: i });
+
+      try {
+        await Promise.resolve(
+          plugin.teardown(this, {
+            partial,
+            started: this.startedPlugins.has(i),
+          }),
+        );
+        this.emit("plugin:stopped", { pluginId, pluginIndex: i });
+      } catch (err) {
+        this.logger.warn(
+          { err, pluginIndex: i },
+          "Plugin teardown threw; continuing with remaining teardowns.",
+        );
+      }
+    }
+    // LIFO: unwind registered teardowns in the opposite order they were
+    // acquired, mirroring the reverse plugin teardown above.
+    for (let i = this.teardownCallbacks.length - 1; i >= 0; i--) {
+      try {
+        await Promise.resolve(this.teardownCallbacks[i]());
+      } catch (err) {
+        this.logger.warn(
+          { err },
+          "Plugin teardown threw; continuing with remaining teardowns.",
+        );
+      }
+    }
+  }
+
+  /**
+   * Release everything a failed `build()` acquired, then let the caller
+   * rethrow the original error.
+   *
+   * `build()` never returns a context when it fails, so the caller has no
+   * handle to run teardown against: whatever an `apply()` opened (a database
+   * handle, a socket, an interval) is unreachable and stays open. Under a
+   * supervisor that retries boot, one handle leaks per attempt, and with
+   * SQLite the held handle also keeps the file locked, so a transient boot
+   * failure becomes a permanent one whose error names lock contention rather
+   * than the real cause.
+   *
+   * @internal Called by `ContextBuilder.build()` on the failure path.
+   */
+  async unwindFailedBuild(): Promise<void> {
+    this.hasStopped = true;
+    await this.teardownPlugins(true);
+  }
+
   private async performShutdown(): Promise<void> {
     this.logger.info({}, "Stopping Routecraft context");
     this.emit("context:stopping", { reason: undefined });
@@ -1162,45 +1290,7 @@ export class CraftContext {
     }
 
     // 3. Run plugin teardown (plugins with teardown in reverse order, then registerTeardown callbacks)
-    for (let i = this.plugins.length - 1; i >= 0; i--) {
-      const plugin = this.plugins[i] as CraftPlugin | undefined;
-      if (plugin?.teardown) {
-        const pluginId = this.getPluginId(plugin, i);
-
-        // Emit stopping event
-        this.emit("plugin:stopping", {
-          pluginId,
-          pluginIndex: i,
-        });
-
-        try {
-          await Promise.resolve(plugin.teardown(this));
-
-          // Emit stopped event
-          this.emit("plugin:stopped", {
-            pluginId,
-            pluginIndex: i,
-          });
-        } catch (err) {
-          this.logger.warn(
-            { err, pluginIndex: i },
-            "Plugin teardown threw; continuing with remaining teardowns.",
-          );
-        }
-      }
-    }
-    // LIFO: unwind registered teardowns in the opposite order they were
-    // acquired, mirroring the reverse plugin teardown above.
-    for (let i = this.teardownCallbacks.length - 1; i >= 0; i--) {
-      try {
-        await Promise.resolve(this.teardownCallbacks[i]());
-      } catch (err) {
-        this.logger.warn(
-          { err },
-          "Plugin teardown threw; continuing with remaining teardowns.",
-        );
-      }
-    }
+    await this.teardownPlugins(!this.startCompleted);
 
     this.logger.info({}, "Routecraft context stopped");
     this.emit("context:stopped", {});

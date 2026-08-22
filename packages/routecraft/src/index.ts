@@ -60,6 +60,7 @@ export {
   RUNNER_ARGV,
   type CraftConfig,
   type CraftPlugin,
+  type TeardownInfo,
 } from "./context.ts";
 export { type Capability, registerCapability } from "./capabilities.ts";
 export { defineConfig } from "./define-config.ts";

@@ -345,11 +345,17 @@ export class ContextBuilder {
       }
     }
 
-    // Run plugins before routes are registered (context runs config.plugins)
-    await ctx.initPlugins();
-
-    // Register all routes from builder
-    ctx.registerRoutes(...this.definitions);
+    // Run plugins before routes are registered (context runs config.plugins),
+    // then register the routes. A failure in EITHER leaves plugins applied
+    // that nobody can reach, because build() returns no context to tear down:
+    // unwind them here and rethrow the original error unchanged.
+    try {
+      await ctx.initPlugins();
+      ctx.registerRoutes(...this.definitions);
+    } catch (err) {
+      await ctx.unwindFailedBuild();
+      throw err;
+    }
 
     return { context: ctx, client: new CraftClient(ctx) };
   }
