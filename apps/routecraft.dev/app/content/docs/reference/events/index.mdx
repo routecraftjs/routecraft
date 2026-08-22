@@ -27,8 +27,16 @@ All events share the same envelope:
 | `context:starting` | Before the context starts | `{}` |
 | `context:started` | After context initialization, BEFORE any route or plugin `start()` hook has run. For readiness, await `ctx.whenStarted()` | `{}` |
 | `context:stopping` | Before shutdown begins | `{ reason? }` |
-| `context:stopped` | After all capabilities have stopped | `{}` |
+| `context:stopped` | After all capabilities have stopped | `{ forced, pending }` |
 | `context:error` | Something failed at context level: a plugin's `apply()` or `start()` threw, a capability failed to start, the config was refused, or an exchange failed with no handler left to catch it | `{ error, route?, exchange? }` |
+
+`context:stopped` reports how the shutdown ended. `forced` is true when the
+drain did not finish inside
+[`shutdown.timeoutMs`](/docs/reference/configuration#shutdown) and in-flight
+execution was abandoned, and `pending` names the routes that still had work.
+A clean stop carries `forced: false` and an empty `pending`, so a subscriber
+reads the same shape either way and does not need the process exit code to
+count forced shutdowns.
 
 `context:error` is the catch-all an operator alarms on. It fires for boot
 failures (where no exchange exists yet) and alongside `route:error` for an

@@ -278,9 +278,11 @@ export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 /**
  * What a completed {@link CraftContext.stop} reports.
  *
- * Returned rather than announced as an event: an event is observability,
- * and this is an answer the caller acts on. `shutdownHandler` maps it to an
- * exit code, and `craft start --once` reports a forced stop as a failure.
+ * Returned because it is an answer the caller acts on: `shutdownHandler`
+ * maps it to an exit code, and `craft start --once` reports a forced stop as
+ * a failure. The same pair also rides on `context:stopped`, because counting
+ * forced shutdowns is observability and an exit code is not something an
+ * in-process subscriber can read.
  */
 export interface ShutdownOutcome {
   /**
@@ -288,7 +290,10 @@ export interface ShutdownOutcome {
    * abandoned. The process should exit non-zero.
    */
   forced: boolean;
-  /** Route ids that still had work in flight when the deadline hit. */
+  /**
+   * Route ids that still had work in flight when the deadline hit. Empty on
+   * a clean stop, so the shape does not change between the two arms.
+   */
   pending: string[];
 }
 
@@ -1407,7 +1412,7 @@ export class CraftContext {
     await this.teardownPlugins(!this.startCompleted);
 
     this.logger.info({}, "Routecraft context stopped");
-    this.emit("context:stopped", {});
+    this.emit("context:stopped", { forced, pending });
 
     if (drainError) {
       throw drainError;

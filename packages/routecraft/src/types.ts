@@ -465,7 +465,14 @@ export interface EventDetailsMap {
   "context:starting": Record<string, never>;
   "context:started": Record<string, never>;
   "context:stopping": { reason?: unknown };
-  "context:stopped": Record<string, never>;
+  /**
+   * Shutdown finished. `forced` is true when stage one did not drain inside
+   * `shutdown.timeoutMs` and in-flight execution was abandoned, with
+   * `pending` naming the routes that still had work. A clean stop carries
+   * `forced: false` and an empty `pending`, so the shape is stable and a
+   * subscriber can count forced shutdowns without reading exit codes.
+   */
+  "context:stopped": { forced: boolean; pending: string[] };
   "context:error": {
     error: unknown;
     route?: Route;

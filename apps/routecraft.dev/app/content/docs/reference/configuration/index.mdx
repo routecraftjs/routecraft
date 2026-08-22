@@ -273,7 +273,11 @@ stage leaves, so it names route ids rather than a total. Then:
 
 A clean shutdown inside the bound exits 0. A forced one exits 1, so
 exit-code-sensitive tooling can tell them apart; `craft start --once`
-reports a forced shutdown as a failure for the same reason.
+reports a forced shutdown as a failure for the same reason. In-process the
+same answer arrives twice: `context.stop()` resolves with
+`{ forced, pending }`, and
+[`context:stopped`](/docs/reference/events#context-events) carries the same
+pair for a subscriber that never sees the return value.
 
 Plugin teardown itself is not bounded by this key. Teardown releases
 resources, and cutting it short would trade a bounded shutdown for a leaked

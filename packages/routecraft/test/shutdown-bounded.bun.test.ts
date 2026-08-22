@@ -210,4 +210,64 @@ describe("bounded graceful shutdown", () => {
     expect(sink.received).toHaveLength(1);
     t = undefined;
   });
+  /**
+   * @case A clean shutdown announces its outcome on context:stopped
+   * @preconditions A running route with nothing in flight, so the drain finishes well inside the deadline
+   * @expectedResult The event fires once carrying forced false and an empty pending, the same shape the forced arm carries
+   */
+  test("context:stopped reports a clean outcome", async () => {
+    const seen: Array<{ forced: boolean; pending: string[] }> = [];
+
+    t = await testContext()
+      .routes(craft().id("quiet").from(direct()).to(noop()))
+      .build();
+    t.ctx.on("context:stopped", (payload) => {
+      seen.push(payload.details);
+    });
+    await t.startAndWaitReady();
+
+    const outcome = await t.ctx.stop();
+
+    expect(seen).toEqual([{ forced: false, pending: [] }]);
+    expect(seen[0]).toEqual(outcome);
+    t = undefined;
+  });
+
+  /**
+   * @case A forced shutdown is visible to a subscriber, not only to the caller holding the return value
+   * @preconditions A step that never settles, and a short shutdown.timeoutMs
+   * @expectedResult context:stopped carries forced true and names the abandoned route, matching what stop() resolves with
+   */
+  test("context:stopped reports a forced outcome", async () => {
+    const seen: Array<{ forced: boolean; pending: string[] }> = [];
+
+    t = await testContext()
+      .with({ shutdown: { timeoutMs: 250 } })
+      .routes(
+        craft()
+          .id("wedged")
+          .from(direct())
+          .transform(
+            () =>
+              new Promise(() => {
+                // Never settles: this is the hung route the deadline exists for.
+              }),
+          )
+          .to(noop()),
+      )
+      .build();
+    t.ctx.on("context:stopped", (payload) => {
+      seen.push(payload.details);
+    });
+    await t.startAndWaitReady();
+
+    void t.client.sendDirect("wedged", "payload").catch(() => undefined);
+    await sleep(20);
+
+    const outcome = await t.ctx.stop();
+
+    expect(seen).toEqual([{ forced: true, pending: ["wedged"] }]);
+    expect(seen[0]).toEqual(outcome);
+    t = undefined;
+  });
 });

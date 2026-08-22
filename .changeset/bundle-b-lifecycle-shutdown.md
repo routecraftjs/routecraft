@@ -27,6 +27,12 @@ graceful one.
 **API CHANGE: `context.stop()` resolves with `{ forced, pending }`** instead
 of `void`. Existing `await context.stop()` call sites are unaffected.
 
+**API CHANGE: `context:stopped` carries `{ forced, pending }`** instead of an
+empty payload, so a forced shutdown is visible to a subscriber rather than
+only to whoever holds the return value or reads the exit code. The shape does
+not vary: a clean stop carries `forced: false` and an empty `pending`. A
+handler typed against the old empty payload keeps compiling.
+
 **API CHANGE: `Route.signal` now fires only when in-flight work is abandoned.**
 It previously fired at the start of shutdown, and that meaning moved to the new
 `Route.intakeSignal`. Code outside this repository that read `route.signal` to
