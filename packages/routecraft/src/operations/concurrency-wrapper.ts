@@ -522,8 +522,10 @@ export class ConcurrencyWrapperStep<
       exchange,
       route,
       {
-        // Intake: an exchange still queued for a slot has not started, so
-        // releasing it when shutdown begins reports a clean rejection.
+        // Intake: a queued exchange is released as soon as shutdown begins
+        // and admitted with a no-op release (see `#joinWaitLine`), so the
+        // drain runs it instead of leaving it parked behind a slot that will
+        // never free.
         ...(route ? { signal: route.intakeSignal } : {}),
         ...concurrencyEmitHooks(context, scoped, shouldEmit),
       },

@@ -1368,13 +1368,12 @@ function buildConcurrencySegmentStep(
         exchange,
         deps.route,
         {
-          // Intake, for the same reason as the retry backoff above: an
-          // exchange still queued for a slot has not started, so releasing it
-          // when shutdown begins reports a clean rejection rather than
-          // holding a slot it can no longer use until the deadline abandons
-          // it. Also cancelled when an outer segment abandons this attempt
-          // (e.g. a route-scope timeout firing while this exchange is still
-          // parked in the bulkhead queue).
+          // Intake: a queued segment step is released as soon as shutdown
+          // begins and admitted with a no-op release (see `#joinWaitLine`),
+          // so the drain runs it instead of leaving it parked behind a slot
+          // that will never free. Also cancelled when an outer segment
+          // abandons this attempt (e.g. a route-scope timeout firing while
+          // this exchange is still parked in the bulkhead queue).
           signal: abandon
             ? AbortSignal.any([deps.route.intakeSignal, abandon])
             : deps.route.intakeSignal,
