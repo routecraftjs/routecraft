@@ -76,7 +76,7 @@ or task to carry it.
   whatever the cleanup hit on the way out.
 - A `stop()` that arrives while a lifecycle hook is still awaiting WAITS
   for that hook before teardown runs, so the order a plugin observes is
-  always `apply`/`start` entered, resolved, then `teardown`. The wait covers
+  always `apply`/`start` entered, settled, then `teardown`. The wait covers
   the lifecycle hooks alone and never `run()`, which for an indefinite route
   resolves only at shutdown. It is unbounded for the same reason teardown
   is: a hook cut short keeps whatever it acquired past its last await point,

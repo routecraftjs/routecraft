@@ -177,4 +177,71 @@ describe("a stop racing a plugin lifecycle hook", () => {
     expect(outcome).not.toBe(wedged);
     expect(order).toEqual(["start", "teardown"]);
   });
+
+  /**
+   * @case A plugin:starting subscriber stops the context synchronously
+   * @preconditions A handler on the lifecycle event that calls stop() before the hook is invoked
+   * @expectedResult The hook never runs and the shutdown completes. Event handlers dispatch synchronously, so a stop can land between the walk's guard and the hook, and a hook started into a shutdown that now waits for it could hold that shutdown open forever
+   */
+  test("starts no hook when an event handler stops the context", async () => {
+    const order: string[] = [];
+    let stopping: Promise<unknown> | undefined;
+
+    const ctx = new CraftContext({
+      plugins: [
+        {
+          name: "stopped-at-the-event",
+          apply() {},
+          start() {
+            order.push("start:enter");
+          },
+          teardown() {
+            order.push("teardown");
+          },
+        },
+      ],
+    });
+    ctx.on("plugin:starting", () => {
+      order.push("stop");
+      stopping = ctx.stop();
+    });
+
+    await ctx.start().catch(() => undefined);
+    await stopping;
+
+    expect(order).toEqual(["stop", "teardown"]);
+  });
+
+  /**
+   * @case A plugin:applying subscriber stops the context synchronously
+   * @preconditions The same handler shape one phase earlier, on the apply walk
+   * @expectedResult The plugin never applies, so it is not torn down either: teardown releases what apply opened, and this apply never ran
+   */
+  test("applies no plugin when an event handler stops the context", async () => {
+    const order: string[] = [];
+    let stopping: Promise<unknown> | undefined;
+
+    const ctx = new CraftContext({
+      plugins: [
+        {
+          name: "stopped-at-the-event",
+          apply() {
+            order.push("apply:enter");
+          },
+          teardown() {
+            order.push("teardown");
+          },
+        },
+      ],
+    });
+    ctx.on("plugin:applying", () => {
+      order.push("stop");
+      stopping = ctx.stop();
+    });
+
+    await ctx.start().catch(() => undefined);
+    await stopping;
+
+    expect(order).toEqual(["stop"]);
+  });
 });

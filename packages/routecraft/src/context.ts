@@ -557,6 +557,12 @@ export class CraftContext {
           pluginIndex,
         });
 
+        // Re-checked after the emit, not only at the loop head: handlers run
+        // synchronously, so a subscriber calling stop() lands between the two
+        // and the hook would otherwise start into a shutdown already waiting
+        // for it.
+        if (this.hasStopped) return;
+
         await this.runLifecycleHook(async () => {
           await (plugin as CraftPlugin).apply(this);
           this.appliedPlugins.add(pluginIndex);
@@ -764,6 +770,10 @@ export class CraftContext {
       const pluginId = this.getPluginId(plugin, pluginIndex);
       try {
         this.emit("plugin:starting", { pluginId, pluginIndex });
+        // See initPlugins(): a synchronous subscriber can stop the context
+        // between the loop guard and this call.
+        if (this.hasStopped) return;
+
         await this.runLifecycleHook(async () => {
           await startHook(this);
           this.startedPlugins.add(pluginIndex);
