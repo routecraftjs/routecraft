@@ -24,3 +24,12 @@ teardown-before-completion.
 Both lifecycle walks also re-check for a stop before each plugin, so a stop
 mid-boot no longer applies or starts plugins that teardown has already
 walked past.
+
+**One constraint comes with the wait, documented rather than enforced.** A
+lifecycle hook must not `await` its own `ctx.stop()`: it would wait for a
+shutdown that is waiting for the hook. Both intents keep a working spelling,
+and they differ by a keyword. Use `throw` to abort the boot with a reason,
+which unwinds through the teardown walk and surfaces the error, or call
+`ctx.stop()` without awaiting it to stand the context down without failing
+the boot. Nothing detects the awaited form, so it hangs at boot on the first
+run; the unawaited form is pinned by a test.

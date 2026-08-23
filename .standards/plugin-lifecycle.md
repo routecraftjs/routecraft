@@ -87,6 +87,34 @@ or task to carry it.
   per plugin, so a `stop()` mid-boot stops the walk rather than applying or
   starting plugins nothing will release.
 
+### A hook must not await its own `stop()`
+
+A lifecycle hook may shut the context down. What it must not do is **await**
+that shutdown from inside the hook: the hook then waits for a shutdown that
+is waiting for the hook, and neither ever settles. The wait above is what
+makes this circular, and nothing detects it, so the failure is a silent hang
+at boot rather than an error.
+
+Both intents already have a working spelling, and they mean different things:
+
+| Intent | Spelling | What happens |
+|--------|----------|--------------|
+| Abort the boot with a reason | `throw` | `build()` and `start()` unwind through the teardown walk and the error reaches the operator unchanged |
+| Request shutdown without failing the boot | call `ctx.stop()` and do not await it | the hook settles, the wait sees it settle, and teardown follows in its proper order |
+
+```ts
+async start(ctx) {
+  if (!healthy) throw rcError("RC9901", undefined, { message: "..." });
+  // or, to stand the context down without failing the boot:
+  void ctx.stop();
+}
+```
+
+The constraint is one keyword wide and it is documented rather than enforced.
+Detecting it would need the shutdown to know which async context asked for
+it, which costs more machinery in the lifecycle path than the rule it would
+replace, for a misuse that fails deterministically on the first boot.
+
 ### The build-failure unwind
 
 A failure inside `build()` has the same hole with none of the same escape

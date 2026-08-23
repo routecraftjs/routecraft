@@ -250,4 +250,39 @@ describe("a stop racing a plugin lifecycle hook", () => {
 
     expect(order).toEqual(["stop"]);
   });
+
+  /**
+   * @case A hook requests shutdown without awaiting it, then finishes its own work
+   * @preconditions A start() hook that calls ctx.stop() unawaited and then keeps working past an await
+   * @expectedResult The hook settles before its teardown, and the shutdown completes. This is the sanctioned spelling for a hook that wants the context down without failing the boot, so it is a guarantee rather than an accident: awaiting the same call would have the hook wait for a shutdown that is waiting for the hook
+   */
+  test("shuts down cleanly when a hook requests it without awaiting", async () => {
+    const order: string[] = [];
+    let stopping: Promise<unknown> | undefined;
+
+    const ctx: CraftContext = new CraftContext({
+      plugins: [
+        {
+          name: "requests-shutdown",
+          apply() {},
+          async start() {
+            order.push("start:enter");
+            stopping = ctx.stop();
+            // Work after the request, so the assertion measures the ordering
+            // rather than a hook that happened to finish first.
+            await sleep(HOOK_MS);
+            order.push("start:resolve");
+          },
+          teardown() {
+            order.push("teardown");
+          },
+        },
+      ],
+    });
+
+    await ctx.start();
+    await stopping;
+
+    expect(order).toEqual(["start:enter", "start:resolve", "teardown"]);
+  });
 });
