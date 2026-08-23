@@ -280,9 +280,12 @@ describe("a stop racing a plugin lifecycle hook", () => {
       ],
     });
 
+    // Asserted before awaiting the outcome: run() awaits the shutdown before
+    // resolving, so start() returning already means the context is down, and
+    // checking here pins that rather than only the recorded order.
     await ctx.start();
-    await stopping;
-
     expect(order).toEqual(["start:enter", "start:resolve", "teardown"]);
+
+    await stopping;
   });
 });
