@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { getAdapterArgs } from "../adapters/shared/factory-tag.ts";
 import type { Adapter, Step } from "../types.ts";
+import {
+  renderJsonSchemaArm,
+  standardExtensionOf,
+} from "../shared/standard-schema.ts";
 import type { SerializedExchange, SuspensionSchema } from "./types.ts";
 
 /**
@@ -125,8 +129,8 @@ export function continuationTailHash(
  * that extension simply yields no rendering; nothing else changes.
  *
  * The extension's arms may be the rendered schema OR a function that
- * produces it on demand (Zod 4 ships the lazy form), so {@link render}
- * resolves either. Storing the unresolved function instead would be
+ * produces it on demand (Zod 4 ships the lazy form), so
+ * {@link renderJsonSchemaArm} resolves either. Storing the unresolved function instead would be
  * quietly destructive twice over: it cannot be persisted, and it hashes to
  * the same digest for EVERY schema, which silently disables the
  * changed-schema half of the compatibility check.
@@ -146,17 +150,11 @@ export function describeSchema(schema?: StandardSchemaV1): SuspensionSchema {
   if (!schema) {
     return { hash: sha256(canonical({ absent: true })), absent: true };
   }
-  const standard = (
-    schema as {
-      "~standard"?: {
-        vendor?: string;
-        version?: number;
-        jsonSchema?: { input?: unknown; output?: unknown };
-      };
-    }
-  )["~standard"];
+  const standard = standardExtensionOf(schema);
   const arms = [standard?.jsonSchema?.output, standard?.jsonSchema?.input];
-  const jsonSchema = render(arms[0]) ?? render(arms[1]);
+  const jsonSchema =
+    renderJsonSchemaArm(arms[0], JSON_SCHEMA_TARGET) ??
+    renderJsonSchemaArm(arms[1], JSON_SCHEMA_TARGET);
   // Without a rendering there is nothing schema-specific to hash, so the
   // descriptor falls back to vendor and version. That fallback is identical
   // for every schema the vendor produces, which means the changed-`expect`
@@ -195,43 +193,6 @@ export function describeSchema(schema?: StandardSchemaV1): SuspensionSchema {
  * `continuationHash`: letting it vary would change every stored digest.
  */
 const JSON_SCHEMA_TARGET = "draft-2020-12";
-
-/**
- * Resolve one arm of the `~standard.jsonSchema` extension.
- *
- * The arm is either the rendered schema or a producer for it. A producer is
- * vendor code, so a throwing one yields no rendering rather than failing the
- * suspend: the rendering is descriptive, and the live schema is what
- * validation actually runs against.
- *
- * A producer is called with the spec's options first and then, if that
- * throws, with none. The second attempt covers an implementation predating
- * the options argument; the first covers one that requires it. Both matter
- * because an arm that yields nothing does not merely lose the rendering: the
- * descriptor falls back to vendor and version, which is identical for every
- * schema that vendor produces, so the changed-schema half of the
- * compatibility check goes silently dead.
- *
- * @internal
- */
-function render(arm: unknown): unknown {
-  if (arm === undefined || arm === null) return undefined;
-  if (typeof arm !== "function") return arm;
-  const producer = arm as (options?: { target: string }) => unknown;
-  for (const call of [
-    () => producer({ target: JSON_SCHEMA_TARGET }),
-    () => producer(),
-  ]) {
-    try {
-      const produced = call();
-      if (produced !== null && produced !== undefined) return produced;
-    } catch {
-      // Try the next calling convention; an arm that yields nothing at all
-      // is reported by the caller rather than here.
-    }
-  }
-  return undefined;
-}
 
 /**
  * Bind an approval to the operation it authorized.

@@ -821,6 +821,28 @@ The refusal is deliberate rather than a clamp. The two plausible readings of `0`
 **Suggestion**  
 Omit the key to take the [30-second default](/docs/reference/configuration#shutdown), or set a positive number of milliseconds below your platform's kill timer.
 
+## RC5059
+Management API request refused
+
+**Why it happens**  
+A paging argument on a management collection (`GET /ops/routes`) was refused rather than interpreted. Either the `limit` was not a positive integer within the server-side maximum, or the cursor could not be used: it was not a `nextCursor` this API minted, or it was replayed under a filter different from the one that produced it.
+
+Both are refusals rather than best-effort readings. A `limit` silently clamped to the maximum leaves a caller unable to tell a truncated page from a complete answer, and it will read page one forever believing it has everything. A cursor honoured under a changed filter would hand back a page of a different result set with nothing on the wire to signal it.
+
+**Suggestion**  
+Send a `limit` that is a positive integer within the documented maximum. Pass `nextCursor` back unchanged, and keep the filter parameters identical across a paged listing: changing a filter starts a new listing rather than resuming an old one under new terms.
+
+## RC5060
+Route is not dispatchable
+
+**Why it happens**  
+`POST /ops/routes/{id}/exchanges` targeted a route that exists but has no door for an exchange to arrive through. Only a `direct()` ingress makes a route id dispatchable; a route sourced from `cron()`, `mail()` or `http()` runs from its own trigger, and there is nothing for a dispatch to hand a message to.
+
+This is distinct from a 404, which means no route by that id is registered at all. The two need different answers, so they are told apart rather than collapsed.
+
+**Suggestion**  
+Add `.from(direct())` to the route if it should be callable, or dispatch to one that already is. `GET /ops/routes?dispatchable=true` lists exactly the routes that will accept the call, and `dispatchable` is on every route representation.
+
 ## RC9901
 Unknown error
 

@@ -90,6 +90,12 @@ export function apiKey(
         "apiKey() accepts either `keys` or `verify`, not both. Pick the static allowlist (`keys`) or the dynamic verifier (`verify`).",
     });
   }
+  if (opts.scopes !== undefined && opts.verify) {
+    throw rcError("RC5003", undefined, {
+      message:
+        "apiKey() `scopes` applies to the static `keys` allowlist only. A `verify` function returns the principal itself, so put the scopes on what it returns rather than here, where they would be silently ignored.",
+    });
+  }
   if (opts.name !== undefined) {
     if (opts.name.trim() === "") {
       throw rcError("RC5003", undefined, {
@@ -193,7 +199,10 @@ function defaultApiKeyName(where: "header" | "query"): string {
   return where === "header" ? "x-api-key" : "api_key";
 }
 
-function syntheticApiKeyPrincipal(key: string): Principal {
+function syntheticApiKeyPrincipal(
+  key: string,
+  scopes: readonly string[] | undefined,
+): Principal {
   // SHA-256, truncated to 16 hex chars. Stable across processes, collision-safe
   // at any realistic key count, and reveals nothing about the source string
   // regardless of its length. The earlier substring approach leaked short keys
@@ -204,6 +213,9 @@ function syntheticApiKeyPrincipal(key: string): Principal {
     kind: "custom",
     scheme: "apiKey",
     subject: `apiKey:${digest}`,
+    ...(scopes !== undefined && scopes.length > 0
+      ? { scopes: [...scopes] }
+      : {}),
   };
 }
 
@@ -273,7 +285,7 @@ export function createAuthMiddleware(
         }
         return {
           kind: "admit",
-          principal: markAuthentic(syntheticApiKeyPrincipal(raw)),
+          principal: markAuthentic(syntheticApiKeyPrincipal(raw, auth.scopes)),
           credential: raw,
         };
       }

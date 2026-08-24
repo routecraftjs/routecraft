@@ -222,6 +222,18 @@
     "retryable": false
   },
   {
+    "code": "RC5059",
+    "category": "Runtime",
+    "message": "Management API request refused",
+    "retryable": false
+  },
+  {
+    "code": "RC5060",
+    "category": "Runtime",
+    "message": "Route is not dispatchable",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",

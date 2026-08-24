@@ -21,19 +21,22 @@ import {
   unbindIndicator,
   unboundIndicators,
 } from "./indicator";
+import { createManagementApi } from "./management";
+import { createManagementHandler } from "./mount";
 import { createHealthHandler } from "./report";
 import { HealthState } from "./state";
 import { OPS_HEALTH_STATE } from "./store";
-import type { Indicator, OpsPluginOptions } from "./types";
+import { enforcesWall } from "./tier";
+import type { Indicator, OpsPluginOptions, OpsTiers } from "./types";
 
 /**
  * Everything the mount answers. Claimed exhaustively so the server's
  * bind-time validation catches a collision with another surface rather than
  * letting dispatch order decide who owns `/health`.
  *
- * `/ops` is the action namespace (taking a route offline, resetting a
- * breaker). It is claimed now and answers 404 until those ship, so the paths
- * cannot be squatted by another mount in the meantime.
+ * `/ops` carries the management API. The prefix is claimed whole even when
+ * every tier is disabled, so a disabled tier answers this mount's 404
+ * rather than falling through to whatever else a shared listener carries.
  */
 const CLAIMS: readonly PathClaim[] = [
   { kind: "prefix", path: "/health" },
@@ -85,6 +88,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
   const detailsExposure = options.health?.details ?? "when-authenticated";
   const detailsExplicit = options.health?.details !== undefined;
   const mountAuthOption = options.auth;
+  const tiers: OpsTiers = options.tiers ?? {};
   const indicators: readonly Indicator[] = options.indicators ?? [];
 
   const runtimes = new WeakMap<CraftContext, Runtime>();
@@ -109,6 +113,18 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       ) {
         throw rcError("RC5053", undefined, {
           message: `ops.health.details is "when-authenticated" but no validator is in scope: the ops mount declares no auth and servers.${serverName} has none. Set ops.auth (or servers.${serverName}.auth) to gate details, "always" to serve them to every caller, or "never" to withhold them.`,
+        });
+      }
+
+      // A tier naming a scope has nothing to check it against without a
+      // validator, and the two ways to resolve that are opposites: admit
+      // everyone, or refuse everyone. Neither is what the operator wrote,
+      // so the boot fails instead, matching how the details gate treats
+      // explicit intent with nothing to gate on.
+      for (const [name, value] of Object.entries(tiers)) {
+        if (typeof value !== "string" || mountAuth.configured) continue;
+        throw rcError("RC5053", undefined, {
+          message: `ops.tiers.${name} requires the scope "${value}" but no validator is in scope: the ops mount ${mountAuthOption === false ? "opted out of auth with `auth: false`" : "declares no auth"} and servers.${serverName} has none. Set ops.auth (or servers.${serverName}.auth) so a credential can be verified, or set the tier to true to expose it without one.`,
         });
       }
 
@@ -229,17 +245,33 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         }),
       );
 
-      const handler = createHealthHandler({
+      const health = createHealthHandler({
         state,
         details: detailsExposure,
         uptime: () => process.uptime(),
       });
+      const management = createManagementHandler({
+        api: createManagementApi(ctx),
+        tiers,
+      });
+
+      // One mount, two surfaces with opposite postures. Management is
+      // offered the request first and answers `undefined` for anything
+      // outside `/ops`, so neither surface has to know the other's routing
+      // table and `/health` keeps answering exactly as it did.
+      const handler = async (
+        req: Request,
+        mountContext: Parameters<typeof health>[1],
+      ): Promise<Response> =>
+        (await management(req, mountContext)) ?? health(req, mountContext);
 
       runtime.unmount = ingress.mountHttp({
         id: "ops",
-        // The health surface never walls; the flag keeps the registry's
-        // inherited-authentication log from claiming a gate it never runs.
-        enforcesWall: false,
+        // The health paths never wall, so the flag answers for the mount as
+        // a whole only when a management tier actually gates on a scope.
+        // Without that, the registry's inherited-authentication log would
+        // claim a gate this mount never runs.
+        enforcesWall: enforcesWall(tiers),
         ...(mountAuthOption !== undefined ? { auth: mountAuthOption } : {}),
         claims: () => CLAIMS,
         handler,
@@ -321,13 +353,18 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
 }
 
 function validate(options: OpsPluginOptions): void {
-  // The type no longer admits `false` (TypeScript users get the refusal at
-  // the keystroke); this guard is for JS callers and untyped config files.
-  if ((options as { auth?: unknown }).auth === false) {
-    throw rcError("RC5053", undefined, {
-      message:
-        'ops.auth: false is a no-op: the health surface never walls. Remove it, or if you meant to serve details to every caller, set health.details: "always".',
-    });
+  for (const [name, value] of Object.entries(options.tiers ?? {})) {
+    if (typeof value === "boolean" || value === undefined) continue;
+    if (typeof value !== "string") {
+      throw rcError("RC5053", undefined, {
+        message: `ops.tiers.${name} must be false, true, or a scope string; received ${JSON.stringify(value)}.`,
+      });
+    }
+    if (value.trim() === "") {
+      throw rcError("RC5053", undefined, {
+        message: `ops.tiers.${name} is an empty scope string, which no principal can carry and so refuses every caller. Use false to disable the tier, true to expose it without a credential, or a real scope name.`,
+      });
+    }
   }
   const exposure = options.health?.details;
   if (

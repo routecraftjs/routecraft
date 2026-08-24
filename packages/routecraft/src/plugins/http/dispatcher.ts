@@ -1,11 +1,11 @@
-import { jsonResponse } from "./response.ts";
+import { jsonResponse, missingCredentialResponse } from "./response.ts";
 import { logger as defaultLogger } from "../../logger";
 import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
 import { isRoutecraftError } from "../../brand";
 import { isSuspended } from "../../suspension/suspended";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
-import { missingCredentialReason, type AuthResult } from "./auth";
+import type { AuthResult } from "./auth";
 import type { HttpRouteEntry, HttpRouteRegistry } from "./registry";
 import {
   isSignatureRejection,
@@ -406,33 +406,6 @@ function emitCompleted(
 
 function ms(started: number): number {
   return Math.round(performance.now() - started);
-}
-
-/**
- * Build the canonical 401 for an `auth: "required"` route hit without a
- * credential. The auth middleware itself returns `kind: "absent"` so the
- * dispatcher can decide whether to issue a Response (required) or pass
- * through (optional); centralising the shape here keeps the dispatcher the
- * single source of truth for "missing credential" wire format. The reason
- * string is shared with the `auth:rejected` event emitted by the plugin so
- * the body and the event can never drift -- see `missingCredentialReason`.
- */
-function missingCredentialResponse(scheme: string): Response {
-  const headers: Record<string, string> = {
-    "content-type": "application/json; charset=utf-8",
-  };
-  // WWW-Authenticate per RFC 7235 only when the scheme is bearer. Sending
-  // `Bearer` on an api-key route mis-signals the protocol.
-  if (scheme === "bearer") {
-    headers["www-authenticate"] = 'Bearer realm="routecraft"';
-  }
-  return new Response(
-    JSON.stringify({
-      error: "unauthorized",
-      reason: missingCredentialReason(scheme),
-    }),
-    { status: 401, headers },
-  );
 }
 
 /**

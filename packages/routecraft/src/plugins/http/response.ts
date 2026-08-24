@@ -1,3 +1,5 @@
+import { missingCredentialReason } from "./auth.ts";
+
 /**
  * The JSON response every routecraft-owned HTTP surface answers with.
  *
@@ -17,4 +19,27 @@ export function jsonResponse(
       ...(init.headers ?? {}),
     },
   });
+}
+
+/**
+ * The 401 every routecraft-owned surface answers when a credential is
+ * required and none was presented.
+ *
+ * Shared alongside {@link jsonResponse} for the same reason: the http
+ * dispatcher and the ops management tiers both refuse a credential-free
+ * caller, and two copies of this shape would drift the moment one of them
+ * gained a header. The reason string comes from `missingCredentialReason`
+ * so the body and the `auth:rejected` event it pairs with cannot disagree.
+ */
+export function missingCredentialResponse(scheme: string): Response {
+  const headers: Record<string, string> = {};
+  // WWW-Authenticate per RFC 7235 only when the scheme is bearer. Sending
+  // `Bearer` on an api-key route mis-signals the protocol.
+  if (scheme === "bearer") {
+    headers["www-authenticate"] = 'Bearer realm="routecraft"';
+  }
+  return jsonResponse(
+    { error: "unauthorized", reason: missingCredentialReason(scheme) },
+    { status: 401, headers },
+  );
 }

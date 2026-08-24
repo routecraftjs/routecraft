@@ -102,6 +102,8 @@ export interface ErrorCodeRegistry {
   RC5056: RCMeta;
   RC5057: RCMeta;
   RC5058: RCMeta;
+  RC5059: RCMeta;
+  RC5060: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -589,6 +591,22 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       '`shutdown.timeoutMs` must be a positive, finite number of milliseconds. It is refused rather than clamped because the two plausible readings of `0` are opposites: it looks like "no bound" and would behave as "force immediately", abandoning in-flight work the moment a stop begins. Omit the key to take the 30-second default, and set it below your platform\'s kill timer so the process\'s own policy decides the outcome.',
     docs: `${DOCS_BASE}#rc-5058`,
+    retryable: false,
+  },
+  RC5059: {
+    category: "Runtime",
+    message: "Management API request refused",
+    suggestion:
+      "The management API refused a paging argument rather than interpreting it. A `limit` must be a positive integer within the server-side maximum: it is refused rather than clamped because a caller that asked for 10000 and silently received a bounded page cannot tell a truncated answer from a complete one. A cursor must be the `nextCursor` from the previous page, passed back unchanged, and it is valid only for the filter that produced it: a cursor pages one result set, so changing a filter starts a new listing rather than resuming an old one under new terms.",
+    docs: `${DOCS_BASE}#rc-5059`,
+    retryable: false,
+  },
+  RC5060: {
+    category: "Runtime",
+    message: "Route is not dispatchable",
+    suggestion:
+      "`POST /ops/routes/{id}/exchanges` creates an exchange on a route, and only a `direct()` ingress makes a route id into a door that can accept one. A cron-, mail- or http-sourced route runs from its own trigger and has no such door, so a dispatch against it is refused here rather than failing somewhere less legible. Add `.from(direct())` to the route if it should be callable, or dispatch to one that already is; `GET /ops/routes?dispatchable=true` lists exactly the routes that will accept this call.",
+    docs: `${DOCS_BASE}#rc-5060`,
     retryable: false,
   },
   RC9901: {

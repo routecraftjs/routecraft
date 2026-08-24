@@ -7,6 +7,7 @@
  */
 
 import type { HttpAuth } from "../../adapters/http/types";
+import type { Suspended } from "../../suspension/suspended";
 
 /**
  * The four-member health vocabulary.
@@ -199,14 +200,30 @@ export interface OpsPluginOptions {
    * unset. It is not a wall. The health surface answers every probe without
    * a credential whatever this says, because an orchestrator's probe carries
    * none and a health endpoint that answers it 401 is a health endpoint that
-   * restarts the pod. `false` is refused as a no-op: there is no wall here
-   * to remove; `health.details: "always"` is the way to serve details to
-   * every caller. The `/ops` action namespace will define its own admission
-   * rule when actions ship.
+   * restarts the pod. `health.details: "always"` is the way to serve
+   * details to every caller.
+   *
+   * The management tiers under `/ops` identify their caller through this
+   * same validator, and each tier's own {@link OpsTier} value decides what
+   * that identity must carry. `false` follows the server plugin's meaning
+   * unchanged: no validator is effective for this mount, so the details
+   * gate closes and a scope-gated tier has nothing to check against, which
+   * fails the boot rather than admitting everyone.
    */
-  auth?: HttpAuth;
+  auth?: HttpAuth | false;
   /** Health endpoint configuration. */
   health?: OpsHealthOptions;
+  /**
+   * The management API's exposure, one field per tier. Every tier is
+   * disabled unless named here, so an app that configures nothing serves
+   * health and answers 404 on every `/ops` path.
+   *
+   * See {@link OpsTier} for what each value means. A scope string needs a
+   * validator in scope to check it against, so one written with no `auth`
+   * on this mount and none on its server fails the boot rather than
+   * admitting everyone.
+   */
+  tiers?: OpsTiers;
   /** Indicators to register. See `defineIndicator`. */
   indicators?: readonly Indicator[];
 }
@@ -277,3 +294,120 @@ export interface Indicator {
   /** Park the indicator: reports `inactive` and never pages until it reports again. */
   inactive(): void;
 }
+
+/**
+ * One management tier's admission rule.
+ *
+ * - `false` (and unset): the tier is disabled and its paths answer 404.
+ * - `true`: the tier is open and needs no credential of its own.
+ * - a scope string: the caller's principal must carry that scope.
+ *
+ * The mount's `auth` (its own, or the named server's, per the server
+ * plugin's inheritance) decides WHO the caller is; this value decides what
+ * that identity must carry. The two are deliberately separate: the same
+ * validator serves every tier, and only the requirement differs.
+ *
+ * Disabled answers 404 rather than 403 so an unconfigured instance
+ * discloses nothing about what it could expose, and so the rule is the one
+ * an ingress proxy would enforce in front of it.
+ */
+export type OpsTier = boolean | string;
+
+/**
+ * The management tiers, individually exposed. Unset is `false`, so an app
+ * that configures nothing answers 404 on every management path.
+ *
+ * `operations` (taking a route offline, resetting a breaker) is named in
+ * the design and deliberately not delivered yet; it slots in here without
+ * reshaping anything.
+ */
+export interface OpsTiers {
+  /** `GET /ops/routes` and `GET /ops/routes/{id}`. */
+  introspection?: OpsTier;
+  /** `POST /ops/routes/{id}/exchanges`. */
+  dispatch?: OpsTier;
+}
+
+/** Documented default scope name for the introspection tier. */
+export const OPS_SCOPE_INTROSPECTION = "ops:introspection";
+/** Documented default scope name for the dispatch tier. */
+export const OPS_SCOPE_DISPATCH = "ops:dispatch";
+
+/**
+ * A collection response. Never a bare array, from the first release: a
+ * present `nextCursor` means there is more, and a correct client follows
+ * it even against a collection that does not produce one today.
+ */
+export interface OpsPage<T> {
+  items: T[];
+  /** Opaque keyset cursor. Absent on the last page. */
+  nextCursor?: string;
+}
+
+/**
+ * JSON Schema renderings of a route's declared schemas, when the schema
+ * library exposes the non-standard `~standard.jsonSchema` extension. A
+ * library without it yields nothing here; the live schema is what
+ * validation runs against either way, so nothing depends on these.
+ */
+export interface OpsRouteSchemas {
+  body?: unknown;
+  headers?: unknown;
+}
+
+/**
+ * A route as the management API presents it.
+ *
+ * `dispatchable` is observed rather than inferred: a `direct()` ingress
+ * registers the route in the capability registry when it subscribes, and
+ * that registration is the door `POST .../exchanges` goes through. A cron-,
+ * mail- or http-sourced route has no such door and says so here rather than
+ * failing at dispatch time.
+ */
+export interface OpsRouteSummary {
+  id: string;
+  dispatchable: boolean;
+  /** Source kinds, in declaration order (`direct`, `cron`, `mail`, ...). */
+  sources: string[];
+  /** The route declares a route-entry `.authorize()`. */
+  requiresPrincipal: boolean;
+  title?: string;
+  description?: string;
+  tags?: string[];
+}
+
+/** One route in full. Adds the schema renderings to the summary. */
+export interface OpsRouteDetail extends OpsRouteSummary {
+  input?: OpsRouteSchemas;
+  output?: OpsRouteSchemas;
+}
+
+/** Documented filters on `GET /ops/routes`. */
+export interface OpsRouteFilter {
+  /** Only routes that do (or do not) have a dispatch door. */
+  dispatchable?: boolean;
+  /** Exact route id match, not a prefix. */
+  id?: string;
+  /** Routes carrying a source of this kind. */
+  source?: string;
+}
+
+/** A page request against the route collection. */
+export interface OpsRouteQuery extends OpsRouteFilter {
+  limit?: number;
+  after?: string;
+}
+
+/**
+ * What a dispatch produced.
+ *
+ * A park is an outcome, not an error: a route that reaches a durable
+ * `.suspend()` replies with the acknowledgment every other surface returns,
+ * and the operator at the terminal is often exactly who the park waits for.
+ * A drop is separate from a failure because they need different answers: a
+ * drop means a filter said no, a failure means something broke.
+ */
+export type OpsDispatchOutcome =
+  | { outcome: "completed"; body: unknown }
+  | { outcome: "suspended"; suspension: Suspended }
+  | { outcome: "dropped"; message: string };
