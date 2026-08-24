@@ -277,7 +277,7 @@ format: pretty
 
 Precedence, highest first: a **flag**, then an **environment variable** (`CRAFT_URL`, `CRAFT_TOKEN`, `CRAFT_FORMAT`), then the **project-local file**, then the **global file**, then the built-in default. When a connection fails, the error names both the address it used and which of those supplied it, so a wrong pinned address is diagnosable from the message alone.
 
-<Callout type="warn" title="The project-local file can hold a token">
+<Callout type="warning" title="The project-local file can hold a token">
 
 Keep `.routecraft/` out of version control. The repository's own `.gitignore` already covers it, and [create-routecraft](https://github.com/routecraftjs/routecraft/issues/588) puts it in the scaffold; check it if you added the directory by hand.
 

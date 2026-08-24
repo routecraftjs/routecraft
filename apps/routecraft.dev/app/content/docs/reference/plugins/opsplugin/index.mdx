@@ -180,7 +180,7 @@ The mount's `auth` decides **who** the caller is (its own validator, else the na
 
 A disabled tier answers **404, not 403**. An unconfigured instance should disclose neither its route inventory nor that a management surface exists at all, and 404 is what a proxy in front of it would answer anyway. A tier naming a scope with no validator in scope fails the boot rather than guessing: admitting everyone and refusing everyone are opposites, and neither is what was written.
 
-<Callout type="warn" title="`true` is an open door">
+<Callout type="warning" title="`true` is an open door">
 
 A tier set to `true` needs no credential, and the ops surface mounts on the `default` server unless told otherwise, which on a typical app is the public listener. `dispatch: true` on a publicly bound server lets anyone who can reach the port run any dispatchable route. Use it on a listener the public cannot reach, or give the tier a scope.
 
