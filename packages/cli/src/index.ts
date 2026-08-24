@@ -196,6 +196,181 @@ program
   );
 
 /**
+ * Print a command's result and exit with its code.
+ *
+ * Deferred exit so pino/sonic-boom can finish initialising, the same
+ * reason `run` and `start` defer theirs.
+ */
+function settle(result: {
+  code: number;
+  output?: string;
+  error?: string;
+}): void {
+  if (result.output !== undefined) {
+    // eslint-disable-next-line no-console
+    console.log(result.output);
+  }
+  if (result.error !== undefined) {
+    // eslint-disable-next-line no-console
+    console.error(result.error);
+  }
+  setImmediate(() => process.exit(result.code));
+}
+
+/**
+ * Read route input piped on stdin, or undefined when none was.
+ *
+ * Gated on stdin actually being a redirect (a pipe or a file) rather than
+ * on it not being a TTY. The two are not the same: a process launched by
+ * CI, a supervisor, or another program routinely inherits a socket on fd 0
+ * that is neither a terminal nor ever going to close, and reading it waits
+ * for an EOF that never comes. `craft exec` would hang with no output,
+ * which is the worst way to fail.
+ */
+async function readStdin(): Promise<string | undefined> {
+  const { fstatSync } = await import("node:fs");
+  try {
+    const stat = fstatSync(0);
+    if (!stat.isFIFO() && !stat.isFile()) return undefined;
+  } catch {
+    return undefined;
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.from(chunk as Buffer));
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  return text.length === 0 ? undefined : text;
+}
+
+/**
+ * The 'exec' command dispatches to a route on a running instance.
+ *
+ * Craft's own flags come before the route name and the route's input comes
+ * after it, the same split `craft run` uses, so a route field can never
+ * collide with a CLI flag.
+ *
+ * Example:
+ * craft exec greet --name World
+ * craft exec --url http://10.0.0.5:8080 --token "$TOKEN" greet --name World
+ */
+program
+  .command("exec")
+  .description("Dispatch to a route on a running instance and print the result")
+  .argument("[route]", "Route id to dispatch to; omit for the endpoint list")
+  .argument("[args...]", "Route input as --field=value pairs")
+  .option("--url <url>", "Ops server base URL of the target instance")
+  .option("--token <token>", "Bearer credential for the management door")
+  .option("--format <format>", "pretty (default), json, or raw")
+  .passThroughOptions()
+  .allowUnknownOption()
+  .action(
+    async (
+      route: string | undefined,
+      args: string[],
+      options: { url?: string; token?: string; format?: string },
+    ) => {
+      applyGlobalLogOptions();
+      const { execCommand } = await import("./exec.js");
+      const stdin = route === undefined ? undefined : await readStdin();
+      settle(
+        await execCommand(route, args, {
+          ...options,
+          ...(stdin === undefined ? {} : { stdin }),
+        }),
+      );
+    },
+  );
+
+/**
+ * The 'ops' command family reads a running instance's own state.
+ *
+ * Grouped by operator task rather than by URL prefix: `craft ops health`
+ * reads `/health/**` while `craft ops routes` reads `/ops/routes`, because
+ * the two surfaces have deliberately different auth postures and the
+ * command family answers a different question from the path layout.
+ *
+ * Example:
+ * craft ops health
+ * craft ops routes --dispatchable
+ */
+const ops = program
+  .command("ops")
+  .description(
+    "Inspect a running instance: health, readiness, routes, indicators",
+  );
+
+function opsOption<T extends import("commander").Command>(command: T): T {
+  return command
+    .option("--url <url>", "Ops server base URL of the target instance")
+    .option("--token <token>", "Bearer credential for the management door")
+    .option("--format <format>", "pretty (default), json, or raw") as T;
+}
+
+opsOption(
+  ops
+    .command("health")
+    .description("Operational health: every component, whatever its domain"),
+).action(async (options: Record<string, string>) => {
+  applyGlobalLogOptions();
+  const { healthCommand } = await import("./ops.js");
+  settle(await healthCommand(options));
+});
+
+opsOption(
+  ops
+    .command("ready")
+    .description("Readiness: whether this replica should receive traffic"),
+).action(async (options: Record<string, string>) => {
+  applyGlobalLogOptions();
+  const { readyCommand } = await import("./ops.js");
+  settle(await readyCommand(options));
+});
+
+opsOption(
+  ops
+    .command("routes")
+    .description("List routes, or describe one")
+    .argument("[id]", "Route id; omit to list")
+    .option("--dispatchable", "Only routes that can be dispatched to")
+    .option("--source <kind>", "Only routes carrying a source of this kind"),
+).action(
+  async (
+    id: string | undefined,
+    options: {
+      dispatchable?: boolean;
+      source?: string;
+      url?: string;
+      token?: string;
+      format?: string;
+    },
+  ) => {
+    applyGlobalLogOptions();
+    const { routesCommand, routeCommand } = await import("./ops.js");
+    settle(
+      id === undefined
+        ? await routesCommand(options)
+        : await routeCommand(id, options),
+    );
+  },
+);
+
+opsOption(
+  ops
+    .command("indicators")
+    .description("List indicators, or read one")
+    .argument("[name]", "Indicator name; omit to list"),
+).action(async (name: string | undefined, options: Record<string, string>) => {
+  applyGlobalLogOptions();
+  const { indicatorsCommand, indicatorCommand } = await import("./ops.js");
+  settle(
+    name === undefined
+      ? await indicatorsCommand(options)
+      : await indicatorCommand(name, options),
+  );
+});
+
+/**
  * The 'tui' command launches the Terminal UI for monitoring Routecraft execution.
  *
  * Example:

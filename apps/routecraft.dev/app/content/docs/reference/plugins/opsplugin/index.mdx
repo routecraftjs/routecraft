@@ -83,8 +83,10 @@ Routes are always `deployment`. Indicators declare their own domain, and default
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `server` | `string` | `'default'` | Named server to mount the health paths on. |
-| `auth` | `HttpAuth` | inherits `servers.<name>.auth` | Validator for the details gate. Not a wall: the surface answers every probe without a credential whatever this says. |
+| `auth` | `HttpAuth \| false` | inherits `servers.<name>.auth` | Validator for the details gate and for the management tiers. Never a wall over `/health`: those paths answer every probe without a credential whatever this says. |
 | `health.details` | `'always' \| 'when-authenticated' \| 'never'` | `'when-authenticated'` | Exposure of per-component `details`. |
+| `tiers.introspection` | `false \| true \| string` | `false` | Admission to `GET /ops/routes` and `GET /ops/routes/{id}`. See [Management API](#management-api). |
+| `tiers.dispatch` | `false \| true \| string` | `false` | Admission to `POST /ops/routes/{id}/exchanges`. |
 | `indicators` | `Indicator[]` | `[]` | Indicators to register. See [`defineIndicator`](#define-indicator). |
 
 The mount claims the `/health` and `/ops` prefixes on its server, so a collision with another surface fails at start rather than being decided by dispatch order.
@@ -139,6 +141,124 @@ During boot the listener has not bound yet, so probes get connection refused, wh
 ### `GET /health/routes/<id>` and `GET /health/indicators/<name>`
 
 One component with its own status code: 503 when it is `down`, 200 otherwise, 404 for an unknown name.
+
+## Management API
+
+Three resources on the same mount, under `/ops`, for driving a running instance: list its routes, describe one, and dispatch work to one. [`craft exec`](/docs/reference/cli#exec) and [`craft ops`](/docs/reference/cli#ops) are clients of exactly this API, and so is anything you point at it with `curl`.
+
+| Method and path | Tier | What |
+| --- | --- | --- |
+| `GET /ops/routes` | `introspection` | List routes, filtered and paginated |
+| `GET /ops/routes/{id}` | `introspection` | Describe one route |
+| `POST /ops/routes/{id}/exchanges` | `dispatch` | Dispatch work and return the outcome |
+
+Dispatching creates an exchange, so the exchange is a sub-resource of the route it runs on rather than a verb of its own.
+
+### Exposure tiers
+
+**Every tier is disabled unless you name it**, so an app that configures nothing serves health and answers 404 on every `/ops` path. Each tier takes one of three values:
+
+| Value | Meaning |
+| --- | --- |
+| `false`, or unset | Disabled. Its paths answer 404 |
+| `true` | Open. No credential is required for this tier |
+| `'some:scope'` | The caller's principal must carry that scope |
+
+```ts
+ops: {
+  auth: jwt({ secret: process.env.OPS_SECRET!, issuer, audience }),
+  tiers: {
+    introspection: 'ops:introspection',
+    dispatch: 'ops:dispatch',
+  },
+}
+```
+
+`ops:introspection` and `ops:dispatch` are the documented defaults; the value is any string you like, and `ops:operations` is reserved for the operations tier when it ships. **Dispatch is always its own scope** and never rides along with introspection: a dashboard token that reads the route inventory must not also be able to run work.
+
+The mount's `auth` decides **who** the caller is (its own validator, else the named server's, per [mount auth inheritance](/docs/reference/plugins/serversplugin)); the tier value decides **what that identity must carry**. Because tiers are path-and-method rules, an operator can enforce the same split at a proxy that the framework enforces internally.
+
+A disabled tier answers **404, not 403**. An unconfigured instance should disclose neither its route inventory nor that a management surface exists at all, and 404 is what a proxy in front of it would answer anyway. A tier naming a scope with no validator in scope fails the boot rather than guessing: admitting everyone and refusing everyone are opposites, and neither is what was written.
+
+<Callout type="warn" title="`true` is an open door">
+
+A tier set to `true` needs no credential, and the ops surface mounts on the `default` server unless told otherwise, which on a typical app is the public listener. `dispatch: true` on a publicly bound server lets anyone who can reach the port run any dispatchable route. Use it on a listener the public cannot reach, or give the tier a scope.
+
+</Callout>
+
+### Listing routes
+
+```bash
+curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/routes'
+```
+
+```json
+{
+  "items": [
+    {
+      "id": "greet",
+      "dispatchable": true,
+      "sources": ["direct"],
+      "requiresPrincipal": false,
+      "title": "Greeter",
+      "description": "Says hello to whoever asks"
+    },
+    { "id": "nightly", "dispatchable": false, "sources": ["cron"], "requiresPrincipal": false }
+  ],
+  "nextCursor": "eyJhZnRlciI6Im5pZ2h0bHkiLCJmaWx0ZXIiOiJbbnVsbCxudWxsLG51bGxdIn0"
+}
+```
+
+**Not every route is dispatchable.** A `direct()` ingress makes the route id into a door; a cron-, mail- or http-sourced route runs from its own trigger and has none. That is a fact about the route, so it rides on the representation rather than splitting the collection in two, and a dispatch against a route without a door is refused distinguishably with [`RC5060`](/docs/reference/errors#rc-5060).
+
+Query parameters narrow the one collection:
+
+| Parameter | Description |
+| --- | --- |
+| `dispatchable` | `true` or `false`. Only routes that do, or do not, have a dispatch door |
+| `id` | Exact route id. Not a prefix |
+| `source` | Routes carrying a source of this kind (`direct`, `cron`, `mail`, ...) |
+| `limit` | Page size. A positive integer, at most 200. Defaults to 50 |
+| `after` | The `nextCursor` from the previous page |
+
+### Paging
+
+**Every collection response is an object carrying `items` and an optional `nextCursor`, never a bare array.** The contract, from the first release: if `nextCursor` is present there is more, and a correct client follows it. A client written against "this endpoint never paginates" is a client that silently reads page one forever the day it does.
+
+The cursors are keyset, matching the suspension store's existing idiom rather than inventing a second one. That is not consistency for its own sake: the collections this API will grow are live and mutating while an operator reads them, and offset paging over a mutating set silently skips rows and repeats others, which surfaces as missing data rather than as an error.
+
+A cursor is valid **only for the filter that produced it**. Replaying one under a different filter would return a page of a different result set with nothing on the wire to signal it, so it is refused with [`RC5059`](/docs/reference/errors#rc-5059). A malformed `limit` is refused for the same reason rather than clamped: a caller silently handed a bounded page cannot tell a truncated answer from a complete one.
+
+### Dispatching
+
+```bash
+curl -X POST -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"name":"world"}' \
+  'http://127.0.0.1:8080/ops/routes/greet/exchanges'
+```
+
+```json
+{ "outcome": "completed", "body": "hello world" }
+```
+
+Three outcomes, told apart because they need different answers:
+
+| `outcome` | Status | Meaning |
+| --- | --- | --- |
+| `completed` | 200 | The route ran and produced `body` |
+| `suspended` | 202 | The route parked; `suspension` carries the acknowledgment |
+| `dropped` | 200 | A filter rejected the exchange, so there is no result body |
+
+A route that fails answers 500 carrying the framework's error `code`, which is what lets a client tell an `.authorize()` refusal from a broken step.
+
+**No bypass, and no synthetic operator principal.** A dispatch runs the full [pre-from chain](/docs/advanced/filter-chain), and the principal is the one the mount's validator minted from the presented credential. A downstream `.authorize()` cannot distinguish an operator dispatch from any other authenticated caller, which is the point: the management door is built from the framework's own primitives rather than beside them.
+
+A park is an outcome and not an error. The response is the standard [`Suspended`](/docs/advanced/durable-agents) acknowledgment every other surface returns, carrying the suspension id, the single-use resume token and the expiry. There is no resume verb here: who may resume a parked run is the application's policy, expressed with `.resume({ authorize })`, and a management resume door would be the framework building the bypass it deliberately refused to build.
+
+### Not built here
+
+The API is shaped to accept these without a second grammar or a rename, and ships none of them: the **operations tier** (taking a route offline, resetting a breaker), **reads over exchanges** for the console, and **`GET /ops/config`**.
 
 ## defineIndicator
 
@@ -232,13 +352,15 @@ Pushing through a handle no context has registered is inert on all three methods
 
 ## Securing it
 
-`/health` is read-only and may admit unauthenticated callers, which is what lets a probe reach it without a credential. The `/ops` action namespace is the opposite and fails closed, but ships nothing yet.
+`/health` is read-only and may admit unauthenticated callers, which is what lets a probe reach it without a credential. The `/ops` [management API](#management-api) is the opposite and fails closed: every tier is disabled until it is named.
 
 `health.details` gates the per-component `details` maps. It withholds diagnostics and nothing else: it does **not** hide topology, because component names are the keys of the always-served status maps and the per-component paths answer 404 for an unknown id in every mode. An app that must not disclose its route inventory puts the ops listener somewhere the public cannot reach.
 
 `when-authenticated` resolves the caller's credential through the mount's effective validator: `ops.auth` when set, else the server's (`servers.<name>.auth`). An anonymous probe still gets 200 with every status, and an operator holding an admitted credential additionally gets the `details` maps. With no validator in scope the gate fails closed: written explicitly it refuses the boot, because the operator asked for a gate and there is nothing to gate with, and as the unwritten default it collapses to `never` with a startup warning naming the ways out. Set `details: 'never'` to withhold regardless, or `details: 'always'` to serve details to every caller.
 
-`ops.auth` is not a wall. The ingress never authenticates on its own, and this handler calls `authenticate()` only to decide whether to serve `details`, so the surface stays reachable without a credential, which is the only way an orchestrator can use it. `auth: false` is refused as a no-op: there is no wall here to remove. The `/ops` action namespace will define its own admission rule when actions ship.
+`ops.auth` is not a wall over `/health`. The ingress never authenticates on its own, and the health handler calls `authenticate()` only to decide whether to serve `details`, so those paths stay reachable without a credential, which is the only way an orchestrator can use them.
+
+It is also the validator the [management tiers](#management-api) identify their caller with. The two uses do not conflict, because a tier's own value decides what that identity must carry while health asks only whether there is one. `auth: false` carries the [server plugin's](/docs/reference/plugins/serversplugin) meaning unchanged: no validator is effective for this mount, so the details gate closes and a scope-gated tier has nothing to check against, which fails the boot rather than admitting everyone.
 
 ```ts
 // One listener, no server-wide validator: the gate is the ops mount's own.
@@ -261,8 +383,9 @@ Docker on `/health/live`, orchestrator readiness on `/health/ready`, uptime moni
 
 - No surface at all: omit `ops`. The http plugin's own `/health` and `/ready` built-ins are unaffected and behave as before.
 - Withhold diagnostics: `health.details: 'never'`. Statuses are still served.
+- No management API: omit `tiers`, or set a tier to `false`. That is the default, so `ops: {}` already serves health alone and answers 404 on every `/ops` path.
 
-There is no per-endpoint kill switch: a mount that answers 404 on every path it claims is worse than not mounting, so an app that does not want the surface omits the key.
+There is no per-endpoint kill switch for the health paths: a mount that answers 404 on every path it claims is worse than not mounting, so an app that does not want that surface omits the key. The management tiers are the exception, and they are off by default rather than on.
 
 ## Coexisting with the http built-ins
 
@@ -277,4 +400,5 @@ Point probes at the ops paths. The http built-ins cannot go red, including durin
 - [serversPlugin](/docs/reference/plugins/serversplugin) for the listener this mounts on
 - [Events reference](/docs/reference/events#ops-plugin-events) for `plugin:ops:health:changed`
 - [httpPlugin](/docs/reference/plugins/httpplugin) for the application's own HTTP surface
-- [`RC5053`](/docs/reference/errors#rc-5053)
+- [`RC5053`](/docs/reference/errors#rc-5053), [`RC5059`](/docs/reference/errors#rc-5059), [`RC5060`](/docs/reference/errors#rc-5060)
+- [CLI reference](/docs/reference/cli#exec) for `craft exec` and the `craft ops` family

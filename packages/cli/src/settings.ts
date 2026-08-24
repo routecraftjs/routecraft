@@ -1,0 +1,238 @@
+/**
+ * The CLI's personal settings file.
+ *
+ * This is the person's file, not the app's. `craft.config.ts` decides what
+ * exists in an instance and what it exposes; this decides how one operator
+ * likes to talk to it: which address, which credential, which output
+ * format. The distinction matters because the two have different owners and
+ * different lifetimes, and a setting that drifts across it ends up either
+ * committed with a token in it or lost on another machine.
+ *
+ * Two locations, both YAML, both optional:
+ *
+ * - project-local: `.routecraft/settings.yaml` under the working directory
+ * - global: `.routecraft/settings.yaml` under the user's home
+ *
+ * Project-local wins over global, an environment variable wins over both,
+ * and a flag wins over everything. `.routecraft/` is already gitignored,
+ * which is what keeps a pasted token out of a commit; the scaffolder half
+ * of that lives in #588.
+ *
+ * Every resolved value remembers where it came from, because the one
+ * question a failed connection has to answer is "which address did it
+ * actually use, and who told it that".
+ */
+
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { parse } from "yaml";
+
+/** Where a resolved value came from, in precedence order. */
+export type SettingSource =
+  "flag" | "environment" | "project file" | "global file" | "default";
+
+/** A resolved value and the reason it holds. */
+export interface Resolved<T> {
+  value: T;
+  source: SettingSource;
+  /** The file a `project file` or `global file` value was read from. */
+  path?: string;
+}
+
+/** Output rendering, shared by every command in the family. */
+export type OutputFormat = "pretty" | "json" | "raw";
+
+/** What the settings file may carry. Every key is optional. */
+export interface CraftSettings {
+  /** Base URL of the instance's ops server. */
+  url?: string;
+  /** Bearer token presented to the management door and to health. */
+  token?: string;
+  /** Default output format. */
+  format?: OutputFormat;
+}
+
+/** Flags that override the file, per command invocation. */
+export interface SettingsOverrides {
+  url?: string;
+  token?: string;
+  format?: string;
+  /**
+   * Directory the project-local settings file is looked for under.
+   * Defaults to the working directory; pinned by tests so a developer's
+   * own settings file cannot supply a credential to a case whose whole
+   * point is that none was presented.
+   */
+  cwd?: string;
+  /** Environment to read. Defaults to the process environment. */
+  env?: NodeJS.ProcessEnv;
+}
+
+/** Everything a command needs, each value carrying its provenance. */
+export interface ResolvedSettings {
+  url: Resolved<string>;
+  token: Resolved<string> | undefined;
+  format: Resolved<OutputFormat>;
+}
+
+/**
+ * Address used when nothing names one.
+ *
+ * The ops surface mounts on the `default` server unless configured
+ * elsewhere, and `8080` is that server's conventional port throughout the
+ * documentation. Loopback rather than a hostname, because a bare `craft
+ * ops health` means "the instance I am running here".
+ */
+export const DEFAULT_URL = "http://127.0.0.1:8080";
+
+/** File name looked for in both locations. */
+const SETTINGS_FILE = join(".routecraft", "settings.yaml");
+
+const FORMATS: readonly OutputFormat[] = ["pretty", "json", "raw"];
+
+/** Environment variables read between the flags and the files. */
+const ENV_URL = "CRAFT_URL";
+const ENV_TOKEN = "CRAFT_TOKEN";
+const ENV_FORMAT = "CRAFT_FORMAT";
+
+/** A settings file that exists but cannot be used. */
+export class SettingsError extends Error {}
+
+/**
+ * Read one settings file, or `undefined` when it is not there.
+ *
+ * A missing file is the normal case and says nothing. A file that exists
+ * and cannot be parsed is an error rather than a silent fallback: an
+ * operator who wrote a settings file and got default behaviour would
+ * reasonably conclude the setting does not work.
+ */
+function readSettingsFile(path: string): CraftSettings | undefined {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = parse(text);
+  } catch (error: unknown) {
+    throw new SettingsError(
+      `${path} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (parsed === null || parsed === undefined) return {};
+  if (typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new SettingsError(
+      `${path} must contain a mapping of settings (for example \`url: http://127.0.0.1:8080\`).`,
+    );
+  }
+  return parsed as CraftSettings;
+}
+
+function assertFormat(value: string, where: string): OutputFormat {
+  if ((FORMATS as readonly string[]).includes(value)) {
+    return value as OutputFormat;
+  }
+  throw new SettingsError(
+    `${where} must be one of ${FORMATS.join(", ")}; received "${value}".`,
+  );
+}
+
+/**
+ * Resolve the effective settings for one invocation.
+ *
+ * @param overrides - Flags given on the command line
+ * @param cwd - Working directory the project-local file is looked for under
+ * @param env - Environment to read, injectable for tests
+ */
+export function resolveSettings(
+  overrides: SettingsOverrides = {},
+  cwd: string = overrides.cwd ?? process.cwd(),
+  env: NodeJS.ProcessEnv = overrides.env ?? process.env,
+): ResolvedSettings {
+  const projectPath = resolve(cwd, SETTINGS_FILE);
+  const globalPath = join(homedir(), SETTINGS_FILE);
+  const project = readSettingsFile(projectPath);
+  // A project file that IS the global file (running in the home directory)
+  // must not be reported as two independent sources agreeing.
+  const global =
+    projectPath === globalPath ? undefined : readSettingsFile(globalPath);
+
+  const pick = <K extends keyof CraftSettings>(
+    key: K,
+    fromFlag: string | undefined,
+    fromEnv: string | undefined,
+  ): Resolved<NonNullable<CraftSettings[K]>> | undefined => {
+    if (fromFlag !== undefined) {
+      return {
+        value: fromFlag as NonNullable<CraftSettings[K]>,
+        source: "flag",
+      };
+    }
+    if (fromEnv !== undefined) {
+      return {
+        value: fromEnv as NonNullable<CraftSettings[K]>,
+        source: "environment",
+      };
+    }
+    if (project?.[key] !== undefined) {
+      return {
+        value: project[key] as NonNullable<CraftSettings[K]>,
+        source: "project file",
+        path: projectPath,
+      };
+    }
+    if (global?.[key] !== undefined) {
+      return {
+        value: global[key] as NonNullable<CraftSettings[K]>,
+        source: "global file",
+        path: globalPath,
+      };
+    }
+    return undefined;
+  };
+
+  const url = pick("url", overrides.url, env[ENV_URL]) ?? {
+    value: DEFAULT_URL,
+    source: "default" as const,
+  };
+  if (typeof url.value !== "string" || url.value.trim() === "") {
+    throw new SettingsError(
+      `The instance URL from the ${url.source} is empty. Give a full base URL, for example http://127.0.0.1:8080.`,
+    );
+  }
+
+  const token = pick("token", overrides.token, env[ENV_TOKEN]);
+  if (token !== undefined && typeof token.value !== "string") {
+    throw new SettingsError(
+      `The token from the ${token.source} must be a string.`,
+    );
+  }
+
+  const formatRaw = pick("format", overrides.format, env[ENV_FORMAT]);
+  const format: Resolved<OutputFormat> =
+    formatRaw === undefined
+      ? { value: "pretty", source: "default" }
+      : {
+          ...formatRaw,
+          value: assertFormat(
+            String(formatRaw.value),
+            `The output format from the ${formatRaw.source}`,
+          ),
+        };
+
+  return { url, token, format };
+}
+
+/**
+ * Describe where a value came from, for an error a reader has to act on.
+ * A wrong pinned address should be diagnosable from the message alone,
+ * without the reader guessing which of four places supplied it.
+ */
+export function describeSource(resolved: Resolved<unknown>): string {
+  return resolved.path === undefined
+    ? resolved.source
+    : `${resolved.source} ${resolved.path}`;
+}
