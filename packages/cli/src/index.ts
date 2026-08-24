@@ -288,7 +288,12 @@ program
     ) => {
       applyGlobalLogOptions();
       const { execCommand } = await import("./exec.js");
-      const stdin = route === undefined ? undefined : await readStdin();
+      // Args and stdin are mutually exclusive, so a command that already
+      // carries args must not read stdin at all: in `tail -f x | while read
+      // l; do craft exec r --line=\"$l\"; done` the inherited pipe never
+      // closes, and reading it would hang and swallow the loop's own input.
+      const stdin =
+        route === undefined || args.length > 0 ? undefined : await readStdin();
       settle(
         await execCommand(route, args, {
           ...options,

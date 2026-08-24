@@ -43,3 +43,14 @@ export function missingCredentialResponse(scheme: string): Response {
     { status: 401, headers },
   );
 }
+
+/**
+ * The empty-body 405 every routecraft-owned surface answers.
+ *
+ * Shared for the same reason as the shapes above: the ops mount, the health
+ * report and the http built-ins all refuse a wrong method identically, and
+ * separate copies drift the first time one gains a header.
+ */
+export function methodNotAllowed(allow: string): Response {
+  return new Response(null, { status: 405, headers: { Allow: allow } });
+}

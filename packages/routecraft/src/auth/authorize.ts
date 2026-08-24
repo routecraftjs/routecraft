@@ -381,8 +381,7 @@ export function authorize(
     }
 
     if (scopes && scopes.length > 0) {
-      const granted = new Set(principal.scopes ?? []);
-      const missing = scopes.filter((s) => !granted.has(s));
+      const missing = missingScopes(principal, scopes);
       if (missing.length > 0) {
         // RC5038, not RC5015: a missing scope is the one recoverable
         // failure (RFC 9470 / RFC 6750 insufficient_scope shape). The
@@ -416,4 +415,20 @@ export function authorize(
 
     return exchange.body;
   };
+}
+
+/**
+ * Scopes in `required` the principal does not carry.
+ *
+ * The one scope comparison in the framework. `authorize()` and the ops
+ * management tiers both gate on it, and the property an operator is promised,
+ * that there is a single scope model rather than two, is only true while they
+ * share this function rather than a comment saying they agree.
+ */
+export function missingScopes(
+  principal: Principal,
+  required: readonly string[],
+): string[] {
+  const granted = new Set(principal.scopes ?? []);
+  return required.filter((scope) => !granted.has(scope));
 }

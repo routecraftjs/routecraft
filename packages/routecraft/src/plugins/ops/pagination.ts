@@ -16,16 +16,17 @@
  */
 
 import { rcError } from "../../error";
+import { compareCodeUnits } from "../../shared/compare";
 import type { OpsRouteFilter } from "./types";
 
 /** Page size when the caller names none. */
-export const DEFAULT_PAGE_SIZE = 50;
+const DEFAULT_PAGE_SIZE = 50;
 
 /**
  * Largest page a caller may ask for. A bound rather than a preference: an
  * unbounded `limit` turns one request into an out-of-memory event.
  */
-export const MAX_PAGE_SIZE = 200;
+const MAX_PAGE_SIZE = 200;
 
 /** A decoded cursor: where to resume, and the filter it was minted under. */
 interface DecodedCursor {
@@ -40,7 +41,7 @@ interface DecodedCursor {
  * string, so the same filter written two ways produces one fingerprint and
  * a cursor survives a client that reorders its parameters.
  */
-export function fingerprintFilter(filter: OpsRouteFilter): string {
+function fingerprintFilter(filter: OpsRouteFilter): string {
   return JSON.stringify([
     filter.dispatchable ?? null,
     filter.id ?? null,
@@ -56,7 +57,7 @@ export function fingerprintFilter(filter: OpsRouteFilter): string {
  * cannot tell a bounded page from a complete answer, and will read page one
  * forever believing it has everything.
  */
-export function assertPageLimit(limit: number | undefined): void {
+function assertPageLimit(limit: number | undefined): void {
   if (limit === undefined) return;
   if (!Number.isInteger(limit) || limit <= 0) {
     throw rcError("RC5059", undefined, {
@@ -129,7 +130,7 @@ export function decodeCursor(cursor: string, filter: OpsRouteFilter): string {
  * Take one page from an id-ordered list.
  *
  * The list must already be sorted by `id` on the same strict total order
- * the cursor assumes; `compareRouteIds` is that order.
+ * the cursor assumes; `compareCodeUnits` is that order.
  */
 export function takePage<T extends { id: string }>(
   sorted: readonly T[],
@@ -142,7 +143,7 @@ export function takePage<T extends { id: string }>(
   const start =
     after === undefined
       ? 0
-      : sorted.findIndex((item) => compareRouteIds(item.id, after) > 0);
+      : sorted.findIndex((item) => compareCodeUnits(item.id, after) > 0);
   // A cursor whose row has since disappeared is not an error: the next row
   // in order is exactly where the caller should resume, and findIndex
   // returning -1 means every remaining row sorts at or before it.
@@ -153,13 +154,4 @@ export function takePage<T extends { id: string }>(
   return more
     ? { items, nextCursor: encodeCursor(last.id, filter) }
     : { items };
-}
-
-/**
- * Code-unit comparison, deliberately not `localeCompare`: the cursor needs
- * a stable strict order, and locale collation can change between runtimes.
- * The same reasoning as the suspension store's `compareIds`.
- */
-export function compareRouteIds(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
 }

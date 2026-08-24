@@ -13,8 +13,13 @@
  * decision about who may act lives in `tier.ts`.
  */
 
-import { isRoutecraftError } from "../../brand";
-import { jsonResponse, missingCredentialResponse } from "../http/response";
+import { isRoutecraftError, rcCodeOf } from "../../brand";
+import { missingCredentialReason } from "../http/auth";
+import {
+  jsonResponse,
+  methodNotAllowed,
+  missingCredentialResponse,
+} from "../http/response";
 import type { HttpMountContext } from "../server/types";
 import type { ManagementApi } from "./management";
 import { admitToTier, type TierVerdict } from "./tier";
@@ -24,6 +29,20 @@ export interface ManagementHandlerOptions {
   api: ManagementApi;
   /** Resolved tier values. Unset tiers are disabled. */
   tiers: OpsTiers;
+  /**
+   * Report a refusal this mount made itself.
+   *
+   * The ingress emits `auth:success` and `auth:rejected` around the validator,
+   * which covers a credential that failed verification. It cannot cover the
+   * two refusals decided here: a credential-free caller on a scope-gated tier
+   * (the validator answers `absent`, which is neither), and a caller the
+   * validator admitted whose principal lacks the scope. Without this, an
+   * operator counting rejections to spot probing of the management surface
+   * sees nothing for either, and sees `auth:success` for someone who was then
+   * refused. The http plugin wires the same parity hook for its own `absent`
+   * case.
+   */
+  onRefused?: (refusal: { reason: string; scheme: string }) => void;
 }
 
 /** `GET /ops/routes` and `GET /ops/routes/{id}`. */
@@ -57,17 +76,25 @@ const notFound = (): Response =>
  * RFC 6750 `insufficient_scope` shape, which is what tells a client the
  * identity was fine and the credential was not.
  */
-function refuse(verdict: Exclude<TierVerdict, { kind: "admit" }>): Response {
+function refuse(
+  verdict: Exclude<TierVerdict, { kind: "admit" }>,
+  onRefused: ManagementHandlerOptions["onRefused"],
+): Response {
+  // A disabled tier is not an auth decision: it answers 404 to everyone, so
+  // reporting it as a rejection would count configuration as probing.
   if (verdict.kind === "disabled") return notFound();
+  // The ingress already emitted for a verified-and-rejected credential.
   if (verdict.kind === "rejected") return verdict.response;
   if (verdict.kind === "unauthenticated") {
+    onRefused?.({
+      reason: missingCredentialReason(verdict.scheme),
+      scheme: verdict.scheme,
+    });
     return missingCredentialResponse(verdict.scheme);
   }
-  // The RFC 6750 challenge is bearer-specific, so it is sent only to a bearer
-  // caller. The same rule `missingCredentialResponse` applies one layer down:
-  // announcing `Bearer` to an api-key client mis-signals the protocol and
-  // points it at a ceremony it cannot perform. The body still names the scope
-  // either way, which is the part every caller can act on.
+  onRefused?.({ reason: "insufficient_scope", scheme: verdict.scheme });
+  // Bearer-only challenge: announcing `Bearer` to an api-key client points it
+  // at a ceremony it cannot perform (same rule as missingCredentialResponse).
   const headers =
     verdict.scheme === "bearer"
       ? {
@@ -110,7 +137,7 @@ function readLimit(raw: string | null): number | undefined | "invalid" {
 export function createManagementHandler(
   options: ManagementHandlerOptions,
 ): (req: Request, context: HttpMountContext) => Promise<Response | undefined> {
-  const { api, tiers } = options;
+  const { api, tiers, onRefused } = options;
 
   return async function handle(
     req: Request,
@@ -118,7 +145,7 @@ export function createManagementHandler(
   ): Promise<Response | undefined> {
     const url = new URL(req.url);
     const { pathname } = url;
-    if (pathname !== ROUTES_COLLECTION && !pathname.startsWith("/ops/")) {
+    if (!pathname.startsWith("/ops/")) {
       return undefined;
     }
 
@@ -127,12 +154,9 @@ export function createManagementHandler(
 
     if (pathname === ROUTES_COLLECTION || detailMatch) {
       const verdict = await admitToTier(tiers.introspection, context);
-      if (verdict.kind !== "admit") return refuse(verdict);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused);
       if (req.method !== "GET" && req.method !== "HEAD") {
-        return new Response(null, {
-          status: 405,
-          headers: { Allow: "GET, HEAD" },
-        });
+        return methodNotAllowed("GET, HEAD");
       }
       return pathname === ROUTES_COLLECTION
         ? listRoutes(api, url)
@@ -141,12 +165,9 @@ export function createManagementHandler(
 
     if (exchangesMatch) {
       const verdict = await admitToTier(tiers.dispatch, context);
-      if (verdict.kind !== "admit") return refuse(verdict);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused);
       if (req.method !== "POST") {
-        return new Response(null, {
-          status: 405,
-          headers: { Allow: "POST" },
-        });
+        return methodNotAllowed("POST");
       }
       return dispatchExchange(api, exchangesMatch[1]!, req, verdict.principal);
     }
@@ -181,7 +202,7 @@ function listRoutes(api: ManagementApi, url: URL): Response {
   } catch (error: unknown) {
     // A malformed limit or cursor is the caller's, and its message names
     // the way out; anything else is ours and must not be echoed.
-    if (isRoutecraftError(error) && rcOf(error) === "RC5059") {
+    if (rcCodeOf(error) === "RC5059") {
       return badRequest((error as Error).message);
     }
     throw error;
@@ -228,7 +249,7 @@ async function dispatchExchange(
     return jsonResponse(outcome, { status: 200 });
   } catch (error: unknown) {
     if (!isRoutecraftError(error)) throw error;
-    const code = rcOf(error);
+    const code = rcCodeOf(error);
     if (code === "RC5004") return notFound();
     if (code === "RC5060") {
       return jsonResponse(
@@ -240,21 +261,18 @@ async function dispatchExchange(
         { status: 409 },
       );
     }
-    // The route itself failed. The message is the framework's own and
-    // carries no credential, and the code is what lets a client tell an
-    // authorize refusal from a broken step.
-    return jsonResponse(
-      { error: "dispatch failed", code, message: (error as Error).message },
-      { status: 500 },
-    );
+    // The code crosses the wire and the message does not. A route failure is
+    // whatever its steps threw, and `rcError` messages routinely interpolate
+    // the cause: adapter failures carry hostnames, file paths and upstream
+    // response text. On an open dispatch tier that is reconnaissance for
+    // anyone who can reach the port, and it would contradict the same
+    // surface's rule that no response body carries an error message. The code
+    // is enough to tell an authorize refusal from a broken step; the message
+    // is in the logs, where the error policy already routes it.
+    return jsonResponse({ error: "dispatch failed", code }, { status: 500 });
   }
 }
 
 function badRequest(message: string): Response {
   return jsonResponse({ error: "bad request", message }, { status: 400 });
-}
-
-/** Read an error's RC code without widening the caught type. */
-function rcOf(error: unknown): string | undefined {
-  return (error as { rc?: string }).rc;
 }

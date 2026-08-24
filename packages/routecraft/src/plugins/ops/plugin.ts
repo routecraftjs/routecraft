@@ -116,16 +116,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         });
       }
 
-      // A tier naming a scope has nothing to check it against without a
-      // validator, and the two ways to resolve that are opposites: admit
-      // everyone, or refuse everyone. Neither is what the operator wrote,
-      // so the boot fails instead, matching how the details gate treats
-      // explicit intent with nothing to gate on.
-      // Gated on `walled` rather than `configured`: a tier scope check refuses
-      // the request, which makes it a wall, and `auth: false` says this mount
-      // declares none. The inherited validator stays reachable for pulls (the
-      // details gate, a route's `.authorize()`), which is exactly the
-      // distinction the two facts exist to draw.
+      // Gated on `walled`, not `configured`: a tier scope check refuses the
+      // request, so it is a wall, and `auth: false` says this mount declares
+      // none while keeping the inherited validator reachable for pulls.
       for (const [name, value] of Object.entries(tiers)) {
         if (typeof value !== "string" || mountAuth.walled) continue;
         throw rcError("RC5053", undefined, {
@@ -258,6 +251,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       const management = createManagementHandler({
         api: createManagementApi(ctx),
         tiers,
+        onRefused: ({ reason, scheme }) => {
+          ctx.emit("auth:rejected", { reason, scheme, source: "ops" });
+        },
       });
 
       // One mount, two surfaces with opposite postures. Management is

@@ -13,11 +13,15 @@ import { testContext, signHs256, type TestContext } from "@routecraft/testing";
 import {
   craft,
   cron,
+  defineIndicator,
   direct,
   jwt,
   noop,
   opsPlugin,
 } from "@routecraft/routecraft";
+
+/** A dependency the test can push into `down`, forcing the aggregate to 503. */
+const downIndicator = defineIndicator({ name: "probe" });
 
 const { execCommand, bodyFromArgs, EXEC_EXIT } = await import("../src/exec");
 const { routesCommand, routeCommand, healthCommand } =
@@ -317,6 +321,41 @@ describe("craft ops", () => {
     expect(authenticated.code).toBe(EXEC_EXIT.ok);
     expect(authenticated.output).toMatch(/Authenticated view/);
     expect(authenticated.output).toMatch(/Greeter/);
+  });
+
+  /**
+   * @case A health report is rendered even when the instance is down
+   * @preconditions An instance whose aggregate reports down, so /health answers 503 with a full report body
+   * @expectedResult Exit 0 and the report rendered. 503 is the answer these commands exist to fetch, and treating it as a transport failure would blank the output at the one moment an operator needs it
+   */
+  test("renders the health report when the instance answers 503", async () => {
+    context = await testContext()
+      .with({
+        servers: { default: { port: 0, host: "127.0.0.1" } },
+        plugins: [
+          opsPlugin({
+            health: { details: "always" },
+            indicators: [downIndicator],
+          }),
+        ],
+      })
+      .routes([craft().id("worker").from(direct()).to(noop())])
+      .build();
+    let port: number | undefined;
+    context.ctx.on("server:listening", ({ details }) => {
+      port = details.port;
+    });
+    await context.startAndWaitReady();
+    if (port === undefined) throw new Error("no server reported a port");
+    downIndicator.down();
+
+    const result = await healthCommand({
+      url: `http://127.0.0.1:${String(port)}`,
+      format: "raw",
+      ...isolated(),
+    });
+    expect(result.code).toBe(EXEC_EXIT.ok);
+    expect(result.output).toBe("down");
   });
 
   /**

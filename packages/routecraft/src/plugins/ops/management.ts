@@ -15,7 +15,7 @@ import type { CraftContext } from "../../context";
 import { rcError } from "../../error";
 import { HeadersKeys } from "../../exchange";
 import type { ExchangeHeaders } from "../../exchange";
-import { isRoutecraftError } from "../../brand";
+import { rcCodeOf } from "../../brand";
 import type { Principal } from "../../auth/types";
 import type { Capability } from "../../capabilities";
 import type { RouteDefinition } from "../../route";
@@ -26,7 +26,8 @@ import {
   renderJsonSchemaArm,
   standardExtensionOf,
 } from "../../shared/standard-schema";
-import { compareRouteIds, decodeCursor, takePage } from "./pagination";
+import { decodeCursor, takePage } from "./pagination";
+import { compareCodeUnits } from "../../shared/compare";
 import type {
   OpsDispatchOutcome,
   OpsPage,
@@ -86,7 +87,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
     return ctx
       .getRoutes()
       .map((route) => summarise(route.definition, capabilities))
-      .sort((left, right) => compareRouteIds(left.id, right.id));
+      .sort((left, right) => compareCodeUnits(left.id, right.id));
   };
 
   return {
@@ -160,7 +161,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
         // A drop is a terminal outcome, not a fault: a filter said no and
         // there is no response body. Reporting it as a failure would tell
         // an operator to go looking for a broken step.
-        if (isRoutecraftError(error) && codeOf(error) === "RC5031") {
+        if (rcCodeOf(error) === "RC5031") {
           return {
             outcome: "dropped",
             message: (error as Error).message,
@@ -170,11 +171,6 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
       }
     },
   };
-}
-
-/** Read an error's RC code without widening the caught type to `any`. */
-function codeOf(error: unknown): string | undefined {
-  return (error as { rc?: string }).rc;
 }
 
 /** Source kinds a route declares, in declaration order. */
@@ -248,9 +244,7 @@ function renderSchemas(
 
 function renderSchema(schema: unknown, direction: "input" | "output"): unknown {
   if (schema === undefined || schema === null) return undefined;
-  const standard = standardExtensionOf(
-    schema as Parameters<typeof standardExtensionOf>[0],
-  );
+  const standard = standardExtensionOf(schema);
   const arms =
     direction === "input"
       ? [standard?.jsonSchema?.input, standard?.jsonSchema?.output]

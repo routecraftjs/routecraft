@@ -199,7 +199,7 @@ echo '{"name":"world","tags":["a","b"]}' | craft exec greet
 craft exec --url http://10.0.0.5:8080 --token "$CRAFT_TOKEN" greet --name=world
 ```
 
-Flags become a flat body: a bare `--flag` is `true`, a repeated key becomes an array, and every other value stays the string the shell passed. Nothing is coerced to a number, because a route that wants one declares it with `.input()` and a CLI guessing types produces bugs that only appear for values which happen to look numeric.
+Flags become a flat body: a value may be joined with `=` or follow as its own argument (`--name world`), a `--flag` with no value after it is `true`, a repeated key becomes an array, and every other value stays the string the shell passed. Nothing is coerced to a number, because a route that wants one declares it with `.input()` and a CLI guessing types produces bugs that only appear for values which happen to look numeric.
 
 **A dispatch runs the app's own guardrails.** `craft exec` reaches a route only through the door that route declares, so the full [pre-from chain](/docs/advanced/filter-chain) runs: `.authorize()`, `.input()` and `.throttle()` all apply, per message, exactly as they would for any other caller. This is a property to rely on rather than an accident of the plumbing. It also means the CLI is just another client: there is no bypass and no synthetic operator identity, and `.authorize()` sees the principal the mount's validator minted from the credential you presented.
 
@@ -215,7 +215,7 @@ Exit codes, which are the API for anything scripting this:
 | 1 | The route failed, or dropped the exchange. The output says which |
 | 2 | Usage error, including a route that has no dispatch door |
 | 3 | No instance could be reached at the effective address |
-| 4 | The door refused: no credential, a rejected one, or a missing scope |
+| 4 | The door refused or answered 404: no credential, a rejected one, a missing scope, a disabled tier, or no such route. The instance deliberately does not distinguish the last two, and the message names every reading |
 
 ### ops
 
@@ -279,7 +279,7 @@ Precedence, highest first: a **flag**, then an **environment variable** (`CRAFT_
 
 <Callout type="warning" title="The project-local file can hold a token">
 
-Keep `.routecraft/` out of version control. The repository's own `.gitignore` already covers it, and [create-routecraft](https://github.com/routecraftjs/routecraft/issues/588) puts it in the scaffold; check it if you added the directory by hand.
+Keep `.routecraft/` out of version control. Projects scaffolded with `create-routecraft` ignore it already; if your project predates that, or you created the directory by hand, add `.routecraft/` to your `.gitignore` yourself before putting a token in it.
 
 </Callout>
 

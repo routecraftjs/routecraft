@@ -17,8 +17,6 @@
  * moving. Each caller pins its own constant and passes it.
  */
 
-import type { StandardSchemaV1 } from "@standard-schema/spec";
-
 /** The `~standard` bag, as far as anything here reads it. */
 export interface StandardExtension {
   vendor?: string;
@@ -28,8 +26,9 @@ export interface StandardExtension {
 
 /** Read a schema's `~standard` bag, or `undefined` when it carries none. */
 export function standardExtensionOf(
-  schema: StandardSchemaV1,
+  schema: unknown,
 ): StandardExtension | undefined {
+  if (schema === null || typeof schema !== "object") return undefined;
   return (schema as { "~standard"?: StandardExtension })["~standard"];
 }
 

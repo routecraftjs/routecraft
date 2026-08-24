@@ -21,9 +21,11 @@ import type {
   OpsDispatchOutcome,
   OpsPage,
   OpsRouteDetail,
+  OpsRouteFilter,
   OpsRouteSummary,
 } from "@routecraft/routecraft";
 import { describeSource, type ResolvedSettings } from "./settings.js";
+import { messageOf } from "./util.js";
 
 /**
  * How long one request may take before the client gives up.
@@ -76,7 +78,7 @@ export interface OpsClient {
   ready(): Promise<HealthReport>;
   routeHealth(id: string): Promise<HealthComponent>;
   indicatorHealth(name: string): Promise<HealthComponent>;
-  listRoutes(query?: Record<string, string>): Promise<OpsRouteSummary[]>;
+  listRoutes(filter?: OpsRouteFilter): Promise<OpsRouteSummary[]>;
   describeRoute(id: string): Promise<OpsRouteDetail>;
   dispatch(id: string, body: unknown): Promise<OpsDispatchOutcome>;
 }
@@ -95,7 +97,16 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
 
   async function call<T>(
     path: string,
-    init: { method?: string; body?: unknown } = {},
+    init: {
+      method?: string;
+      body?: unknown;
+      /**
+       * Statuses whose body is an answer rather than an error. The health
+       * surface replies 503 with a full report when a component is down, and
+       * that is precisely the report an operator is asking for.
+       */
+      answeredBy?: readonly number[];
+    } = {},
   ): Promise<T> {
     const headers: Record<string, string> = {};
     if (token !== undefined) headers["authorization"] = `Bearer ${token}`;
@@ -112,18 +123,33 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       });
     } catch (error: unknown) {
-      throw new OpsClientError(
-        "unreachable",
-        `Could not reach a running instance at ${addressBlame()}: ${
-          error instanceof Error ? error.message : String(error)
-        }\nStart one with 'craft start', or point at another instance with --url.`,
-      );
+      throw classifyTransportFailure(error, addressBlame());
     }
 
-    const text = await response.text();
+    // Inside its own guard: an abort part-way through the body is the same
+    // class of failure as one during the request, and leaving it outside
+    // turned a timeout into an unhandled rejection with a stack trace.
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (error: unknown) {
+      throw classifyTransportFailure(error, addressBlame());
+    }
     const parsed: unknown = text.length === 0 ? undefined : safeParse(text);
 
-    if (response.ok) return parsed as T;
+    if (response.ok || (init.answeredBy?.includes(response.status) ?? false)) {
+      // A 200 from something that is not this API (a wrong port, a proxy's
+      // error page) would otherwise be cast to the caller's type and crash
+      // in the renderer rather than here, where the address can be named.
+      if (parsed === null || typeof parsed !== "object") {
+        throw new OpsClientError(
+          "error",
+          `The instance at ${addressBlame()} answered ${String(response.status)} with a body this client does not recognise. Check that the address is a routecraft ops server.`,
+          response.status,
+        );
+      }
+      return parsed as T;
+    }
 
     const wire = (parsed ?? {}) as WireError;
     if (response.status === 401 || response.status === 403) {
@@ -173,15 +199,26 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
     }.`;
   }
 
+  // The health surface answers 503 with a complete report when something is
+  // down. Treating that as a failure would blank the output at the one moment
+  // the command exists for.
+  const DOWN_IS_AN_ANSWER = { answeredBy: [503] } as const;
+
   return {
     authenticated: token !== undefined,
 
-    health: () => call<HealthReport>("/health"),
-    ready: () => call<HealthReport>("/health/ready"),
+    health: () => call<HealthReport>("/health", DOWN_IS_AN_ANSWER),
+    ready: () => call<HealthReport>("/health/ready", DOWN_IS_AN_ANSWER),
     routeHealth: (id: string) =>
-      call<HealthComponent>(`/health/routes/${encodeURIComponent(id)}`),
+      call<HealthComponent>(
+        `/health/routes/${encodeURIComponent(id)}`,
+        DOWN_IS_AN_ANSWER,
+      ),
     indicatorHealth: (name: string) =>
-      call<HealthComponent>(`/health/indicators/${encodeURIComponent(name)}`),
+      call<HealthComponent>(
+        `/health/indicators/${encodeURIComponent(name)}`,
+        DOWN_IS_AN_ANSWER,
+      ),
 
     /**
      * Walk the whole collection rather than showing page one and stopping.
@@ -191,9 +228,16 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
      * a complete one. The cursor is replayed under the same filter it was
      * minted with, which is the only way the server will honour it.
      */
-    async listRoutes(
-      query: Record<string, string> = {},
-    ): Promise<OpsRouteSummary[]> {
+    async listRoutes(filter: OpsRouteFilter = {}): Promise<OpsRouteSummary[]> {
+      // Serialised here, the one place that knows the wire, so no caller has
+      // to spell a filter name as a string the compiler does not own.
+      const query: Record<string, string> = {
+        ...(filter.dispatchable !== undefined
+          ? { dispatchable: String(filter.dispatchable) }
+          : {}),
+        ...(filter.id !== undefined ? { id: filter.id } : {}),
+        ...(filter.source !== undefined ? { source: filter.source } : {}),
+      };
       const items: OpsRouteSummary[] = [];
       const seen = new Set<string>();
       let cursor: string | undefined;
@@ -237,4 +281,31 @@ function safeParse(text: string): unknown {
   } catch {
     return { message: text };
   }
+}
+
+/**
+ * Tell a request that never got an answer from one the instance refused to
+ * answer in time.
+ *
+ * They need opposite reactions. "Could not reach it, start one" invites a
+ * retry, which for a dispatch means running a possibly non-idempotent route a
+ * second time while the first is still going.
+ */
+function classifyTransportFailure(
+  error: unknown,
+  address: string,
+): OpsClientError {
+  const aborted =
+    error instanceof Error &&
+    (error.name === "TimeoutError" || error.name === "AbortError");
+  if (aborted) {
+    return new OpsClientError(
+      "error",
+      `The instance at ${address} accepted the request but did not answer within ${String(REQUEST_TIMEOUT_MS / 1000)}s. Any work it started is still running there, so do not simply re-run this.`,
+    );
+  }
+  return new OpsClientError(
+    "unreachable",
+    `Could not reach a running instance at ${address}: ${messageOf(error)}\nStart one with 'craft start', or point at another instance with --url.`,
+  );
 }

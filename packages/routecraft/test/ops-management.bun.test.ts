@@ -323,6 +323,60 @@ describe("the ops management API", () => {
   });
 
   /**
+   * @case A tier refusal is counted as an auth rejection
+   * @preconditions A scope-gated tier, called once with no credential and once with a credential that authenticates but lacks the scope
+   * @expectedResult Both emit auth:rejected with a bounded reason and source "ops". The ingress emits around the validator, which cannot see either of these decisions, so without this an operator counting rejections to spot probing of the management surface sees nothing
+   */
+  test("emits auth:rejected for both tier refusals", async () => {
+    const rejections: Array<{ reason: string; scheme: string }> = [];
+    const port = await start({
+      auth: keyAuth(),
+      tiers: { introspection: "ops:introspection" },
+    });
+    t?.ctx.on("auth:rejected", ({ details }) => {
+      rejections.push(details as { reason: string; scheme: string });
+    });
+
+    await call(port, "/ops/routes");
+    await call(port, "/ops/routes", { key: "nobody" });
+
+    expect(rejections.map((r) => r.reason)).toEqual([
+      "missing api key",
+      "insufficient_scope",
+    ]);
+  });
+
+  /**
+   * @case A dispatch failure returns its code and never the route's message
+   * @preconditions An open dispatch tier and a route whose step throws with an identifiable message
+   * @expectedResult 500 carrying the RC code with no message field. A route failure is whatever its steps threw, and those messages interpolate causes: hostnames, paths and upstream text would otherwise reach any caller who can make a route fail
+   */
+  test("returns a dispatch failure's code without its message", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("breaks")
+          .from(direct())
+          .transform(() => {
+            throw new Error("connect ECONNREFUSED db.internal:5432");
+          })
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<Record<string, unknown>>(
+      port,
+      "/ops/routes/breaks/exchanges",
+      { method: "POST", body: {} },
+    );
+
+    expect(status).toBe(500);
+    expect(body["code"]).toBeDefined();
+    expect(JSON.stringify(body)).not.toMatch(/db\.internal/);
+    expect(body["message"]).toBeUndefined();
+  });
+
+  /**
    * @case Dispatchability is observed, and reported per route
    * @preconditions One direct()-sourced route and one cron()-sourced route
    * @expectedResult The direct route reports dispatchable true and the cron route false, each carrying its source kind. A cron route has no door for an exchange to arrive through, and saying so on the representation is what lets one collection serve both clients

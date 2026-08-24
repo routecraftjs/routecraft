@@ -9,6 +9,7 @@
  * operator can also enforce at a proxy.
  */
 
+import { missingScopes } from "../../auth/authorize";
 import type { Principal } from "../../auth/types";
 import type { HttpMountContext } from "../server/types";
 import type { OpsTier, OpsTiers } from "./types";
@@ -68,8 +69,7 @@ export async function admitToTier(
   if (result.kind === "reject")
     return { kind: "rejected", response: result.response };
 
-  const granted = new Set(result.principal.scopes ?? []);
-  if (!granted.has(tier)) {
+  if (missingScopes(result.principal, [tier]).length > 0) {
     // The scheme rides along because the refusal carries a challenge, and a
     // challenge naming the wrong scheme tells an api-key client to go and
     // get a bearer token it has no way to obtain.

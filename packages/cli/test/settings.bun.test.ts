@@ -69,7 +69,7 @@ describe("CLI settings resolution", () => {
    */
   test("falls back to the documented default", () => {
     const root = scratch("");
-    const settings = resolveSettings({ home }, root, {});
+    const settings = resolveSettings({ home, cwd: root, env: {} });
     expect(settings.url.value).toBe(DEFAULT_URL);
     expect(settings.url.source).toBe("default");
     expect(settings.format.value).toBe("pretty");
@@ -83,7 +83,7 @@ describe("CLI settings resolution", () => {
    */
   test("reads the project-local file and records its path", () => {
     const root = scratch("url: http://10.0.0.5:9090\nformat: json\n");
-    const settings = resolveSettings({ home }, root, {});
+    const settings = resolveSettings({ home, cwd: root, env: {} });
     expect(settings.url.value).toBe("http://10.0.0.5:9090");
     expect(settings.url.source).toBe("project file");
     expect(settings.url.path).toContain(".routecraft");
@@ -98,14 +98,19 @@ describe("CLI settings resolution", () => {
   test("resolves flag over environment over file", () => {
     const root = scratch("url: http://from-file:8080\nformat: json\n");
 
-    const fromEnv = resolveSettings({}, root, {
-      CRAFT_URL: "http://from-env:8080",
+    const fromEnv = resolveSettings({
+      home,
+      cwd: root,
+      env: { CRAFT_URL: "http://from-env:8080" },
     });
     expect(fromEnv.url.value).toBe("http://from-env:8080");
     expect(fromEnv.url.source).toBe("environment");
 
-    const fromFlag = resolveSettings({ url: "http://from-flag:8080" }, root, {
-      CRAFT_URL: "http://from-env:8080",
+    const fromFlag = resolveSettings({
+      url: "http://from-flag:8080",
+      home,
+      cwd: root,
+      env: { CRAFT_URL: "http://from-env:8080" },
     });
     expect(fromFlag.url.value).toBe("http://from-flag:8080");
     expect(fromFlag.url.source).toBe("flag");
@@ -118,9 +123,12 @@ describe("CLI settings resolution", () => {
    */
   test("resolves the token with the same precedence", () => {
     const root = scratch("token: from-file\n");
-    expect(resolveSettings({ home }, root, {}).token?.value).toBe("from-file");
+    expect(resolveSettings({ home, cwd: root, env: {} }).token?.value).toBe(
+      "from-file",
+    );
     expect(
-      resolveSettings({ token: "from-flag", home }, root, {}).token?.value,
+      resolveSettings({ token: "from-flag", home, cwd: root, env: {} }).token
+        ?.value,
     ).toBe("from-flag");
   });
 
@@ -131,7 +139,9 @@ describe("CLI settings resolution", () => {
    */
   test("refuses a settings file that is not valid YAML", () => {
     const root = scratch("url: [unclosed\n");
-    expect(() => resolveSettings({ home }, root, {})).toThrow(SettingsError);
+    expect(() => resolveSettings({ home, cwd: root, env: {} })).toThrow(
+      SettingsError,
+    );
   });
 
   /**
@@ -141,7 +151,7 @@ describe("CLI settings resolution", () => {
    */
   test("refuses a settings file that is not a mapping", () => {
     const root = scratch("- url: http://nope\n");
-    expect(() => resolveSettings({ home }, root, {})).toThrow(
+    expect(() => resolveSettings({ home, cwd: root, env: {} })).toThrow(
       /mapping of settings/,
     );
   });
@@ -153,7 +163,7 @@ describe("CLI settings resolution", () => {
    */
   test("refuses an unknown output format", () => {
     const root = scratch("format: yaml\n");
-    expect(() => resolveSettings({ home }, root, {})).toThrow(
+    expect(() => resolveSettings({ home, cwd: root, env: {} })).toThrow(
       /pretty, json, raw/,
     );
   });
@@ -167,7 +177,7 @@ describe("CLI settings resolution", () => {
     const root = mkdtempSync(join(tmpdir(), "craft-settings-unreadable-"));
     roots.push(root);
     mkdirSync(join(root, ".routecraft", "settings.yaml"), { recursive: true });
-    expect(() => resolveSettings({ home }, root, {})).toThrow(
+    expect(() => resolveSettings({ home, cwd: root, env: {} })).toThrow(
       /could not be read/,
     );
   });
@@ -180,7 +190,7 @@ describe("CLI settings resolution", () => {
   test("treats a missing settings file as no settings", () => {
     const root = mkdtempSync(join(tmpdir(), "craft-settings-none-"));
     roots.push(root);
-    const settings = resolveSettings({ home }, root, {});
+    const settings = resolveSettings({ home, cwd: root, env: {} });
     expect(settings.url.value).toBe(DEFAULT_URL);
   });
 });

@@ -172,8 +172,10 @@ export const craftConfig = defineConfig({
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `server` | `string` | `'default'` | Named server to mount `/health` and `/ops` on. Give the surface its own entry in `servers` to put it on a dedicated port. |
-| `auth` | `HttpAuth` | inherits `servers.<name>.auth` | Validator for the details gate. Not a wall: probes always answer without a credential. |
+| `auth` | `HttpAuth \| false` | inherits `servers.<name>.auth` | Validator for the details gate, and the one that identifies callers for the management tiers. Never a wall over `/health`: probes always answer without a credential. `false` opts the mount out, so a scope-gated tier then fails the boot. |
 | `health` | `{ details?: 'always' \| 'when-authenticated' \| 'never' }` | `{ details: 'when-authenticated' }` | How much per-component detail to expose. Statuses are always served; with no validator in scope the default withholds details (explicit `when-authenticated` with none refuses the boot). |
+| `tiers.introspection` | `false \| true \| string` | `false` | Admission to `GET /ops/routes` and `GET /ops/routes/{id}`. See the [management API](/docs/reference/plugins/opsplugin#management-api). |
+| `tiers.dispatch` | `false \| true \| string` | `false` | Admission to `POST /ops/routes/{id}/exchanges`. Always its own scope. |
 | `indicators` | `Indicator[]` | `[]` | Indicators to register, declared with [`defineIndicator`](/docs/reference/plugins/opsplugin#define-indicator). |
 
 Route lifecycle, circuit-breaker position, and the serving state are derived from events the framework already emits, so `ops: {}` alone gives a truthful surface. Indicators cover the dependencies the framework cannot see.

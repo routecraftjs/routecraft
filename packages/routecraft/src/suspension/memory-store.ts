@@ -1,4 +1,5 @@
 import { rcError } from "../error.ts";
+import { compareCodeUnits } from "../shared/compare.ts";
 import { encodePersistable } from "./serialize.ts";
 import type {
   ExpiredScanCursor,
@@ -196,12 +197,12 @@ export class MemorySuspensionStore implements SuspensionStore {
           (after === undefined ||
             record.expiresAt.getTime() > after.expiresAt.getTime() ||
             (record.expiresAt.getTime() === after.expiresAt.getTime() &&
-              compareIds(record.id, after.id) > 0)),
+              compareCodeUnits(record.id, after.id) > 0)),
       )
       .sort(
         (a, b) =>
           (a.expiresAt?.getTime() ?? 0) - (b.expiresAt?.getTime() ?? 0) ||
-          compareIds(a.id, b.id),
+          compareCodeUnits(a.id, b.id),
       );
     return found.slice(0, limit).map(clone);
   }
@@ -328,16 +329,6 @@ export function assertScanCursor(after: ExpiredScanCursor | undefined): void {
         "findExpired() cursor must carry a valid expiresAt Date and a non-empty id.",
     });
   }
-}
-
-/**
- * Code-unit comparison, deliberately not `localeCompare`: the cursor needs
- * a stable strict order, and locale collation can change between runtimes.
- *
- * @internal
- */
-function compareIds(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /**

@@ -11,7 +11,6 @@
  * differ.
  */
 
-import type { HealthComponent, OpsRouteDetail } from "@routecraft/routecraft";
 import {
   createOpsClient,
   OpsClientError,
@@ -25,10 +24,11 @@ import {
   renderRoutes,
   type ViewNote,
 } from "./format.js";
-import { EXEC_EXIT, type ExecResult } from "./exec.js";
+import { EXEC_EXIT, failureCode, type ExecResult } from "./exec.js";
 import {
   resolveSettings,
   SettingsError,
+  type OutputFormat,
   type SettingsOverrides,
 } from "./settings.js";
 
@@ -38,20 +38,12 @@ export interface OpsRoutesOptions extends SettingsOverrides {
   source?: string;
 }
 
-function failureCode(error: OpsClientError): number {
-  if (error.kind === "unreachable") return EXEC_EXIT.unreachable;
-  if (error.kind === "refused" || error.kind === "absent") {
-    return EXEC_EXIT.refused;
-  }
-  return EXEC_EXIT.failed;
-}
-
 /** Set up a client, or report why the settings could not be resolved. */
 function prepare(overrides: SettingsOverrides):
   | {
       ok: true;
       client: OpsClient;
-      format: ReturnType<typeof resolveSettings>["format"]["value"];
+      format: OutputFormat;
       view: ViewNote;
     }
   | { ok: false; result: ExecResult } {
@@ -81,7 +73,7 @@ async function read(
   overrides: SettingsOverrides,
   run: (
     client: OpsClient,
-    format: ReturnType<typeof resolveSettings>["format"]["value"],
+    format: OutputFormat,
     view: ViewNote,
   ) => Promise<string>,
 ): Promise<ExecResult> {
@@ -128,12 +120,15 @@ export function routesCommand(
   options: OpsRoutesOptions = {},
 ): Promise<ExecResult> {
   return read(options, async (client, format) => {
-    const query: Record<string, string> = {};
-    if (options.dispatchable !== undefined) {
-      query["dispatchable"] = String(options.dispatchable);
-    }
-    if (options.source !== undefined) query["source"] = options.source;
-    return renderRoutes(await client.listRoutes(query), format);
+    return renderRoutes(
+      await client.listRoutes({
+        ...(options.dispatchable !== undefined
+          ? { dispatchable: options.dispatchable }
+          : {}),
+        ...(options.source !== undefined ? { source: options.source } : {}),
+      }),
+      format,
+    );
   });
 }
 
@@ -163,12 +158,7 @@ export function routeCommand(
         `No route "${id}" was readable on this instance. Either no route by that id is registered, or the introspection tier is disabled and health has nothing for it either.`,
       );
     }
-    return renderRouteDetail(
-      definition as OpsRouteDetail | undefined,
-      health as HealthComponent | undefined,
-      format,
-      view,
-    );
+    return renderRouteDetail(definition, health, format, view);
   });
 }
 

@@ -28,6 +28,8 @@ import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 
+import { messageOf } from "./util.js";
+
 /** Where a resolved value came from, in precedence order. */
 export type SettingSource =
   "flag" | "environment" | "project file" | "global file" | "default";
@@ -126,16 +128,14 @@ function readSettingsFile(path: string): CraftSettings | undefined {
     const code = (error as NodeJS.ErrnoException | undefined)?.code;
     if (code === "ENOENT" || code === "ENOTDIR") return undefined;
     throw new SettingsError(
-      `${path} exists but could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      `${path} exists but could not be read: ${messageOf(error)}`,
     );
   }
   let parsed: unknown;
   try {
     parsed = parse(text);
   } catch (error: unknown) {
-    throw new SettingsError(
-      `${path} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new SettingsError(`${path} is not valid YAML: ${messageOf(error)}`);
   }
   if (parsed === null || parsed === undefined) return {};
   if (typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -164,9 +164,9 @@ function assertFormat(value: string, where: string): OutputFormat {
  */
 export function resolveSettings(
   overrides: SettingsOverrides = {},
-  cwd: string = overrides.cwd ?? process.cwd(),
-  env: NodeJS.ProcessEnv = overrides.env ?? process.env,
 ): ResolvedSettings {
+  const cwd = overrides.cwd ?? process.cwd();
+  const env = overrides.env ?? process.env;
   const projectPath = resolve(cwd, SETTINGS_FILE);
   const globalPath = join(overrides.home ?? homedir(), SETTINGS_FILE);
   const project = readSettingsFile(projectPath);

@@ -179,9 +179,6 @@ export function renderIndicators(
   const lines = entries.map(
     ([name, component]) => `${name}  ${componentLine(component)}`,
   );
-  // Named as the aggregate's map rather than a collection of its own,
-  // because there is no indicator collection endpoint and implying one
-  // would send a reader looking for a resource that does not exist.
   lines.push(
     "",
     "Read from the indicators map on the health report; there is no separate indicator collection.",

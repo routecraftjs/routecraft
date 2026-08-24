@@ -14,13 +14,15 @@ import {
   OpsClientError,
   type OpsClient,
 } from "./ops-client.js";
-import { renderDispatch, renderRoutes, asJson } from "./format.js";
+import { renderDispatch, renderRoutes } from "./format.js";
 import {
   describeSource,
   resolveSettings,
   SettingsError,
+  type OutputFormat,
   type SettingsOverrides,
 } from "./settings.js";
+import { messageOf } from "./util.js";
 
 /**
  * Exit codes, which are the API for anything scripting this.
@@ -121,7 +123,7 @@ export function bodyFromArgs(args: readonly string[]): {
  */
 async function introspect(
   client: OpsClient,
-  format: Parameters<typeof renderRoutes>[1],
+  format: OutputFormat,
 ): Promise<ExecResult> {
   const staticHelp = [
     "Usage: craft exec [options] <route> [--field=value ...]",
@@ -135,7 +137,7 @@ async function introspect(
   ].join("\n");
 
   try {
-    const routes = await client.listRoutes({ dispatchable: "true" });
+    const routes = await client.listRoutes({ dispatchable: true });
     return {
       code: EXEC_EXIT.ok,
       output: `${staticHelp}\n\nDispatchable routes on this instance:\n\n${renderRoutes(routes, format)}`,
@@ -157,7 +159,7 @@ function introspectionBlame(error: OpsClientError): string {
   return error.message;
 }
 
-function failureCode(error: OpsClientError): number {
+export function failureCode(error: OpsClientError): number {
   if (error.kind === "unreachable") return EXEC_EXIT.unreachable;
   if (error.kind === "refused" || error.kind === "absent") {
     return EXEC_EXIT.refused;
@@ -212,9 +214,7 @@ export async function execCommand(
     } catch (error: unknown) {
       return {
         code: EXEC_EXIT.usage,
-        error: `Input on stdin must be JSON: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        error: `Input on stdin must be JSON: ${messageOf(error)}`,
       };
     }
   } else {
@@ -270,11 +270,4 @@ function dispatchBlame(
     "",
     "`craft ops routes` lists what this instance exposes, if introspection is enabled.",
   ].join("\n");
-}
-
-/** Serialise an unexpected client failure for the error stream. */
-export function unexpected(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : asJson(error as Record<string, unknown>);
 }
