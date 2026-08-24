@@ -283,6 +283,8 @@ Keep `.routecraft/` out of version control. Projects scaffolded with `create-rou
 
 </Callout>
 
+The two halves can come from different places. A project-local file names the server, while the token usually comes from a higher-precedence source (`CRAFT_TOKEN`, or your home-directory file), so a settings file committed to a repository chooses which server receives a credential you never put in that repository. That is the intended team workflow, where the repository pins the instance and each person holds their own token. It is also the reason to treat a repository you run `craft` in the way you treat one you run `npm install` in.
+
 A settings file that exists but cannot be parsed is an error rather than a silent fallback to defaults, because an operator who wrote a settings file and got default behaviour would reasonably conclude the setting does not work.
 
 `craft login` does not exist yet. Until it does, the token is a signed bearer you paste in here, pass with `--token`, or export as `CRAFT_TOKEN`; when it ships, it writes to this same file.
