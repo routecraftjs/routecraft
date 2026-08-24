@@ -135,7 +135,7 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
     } catch (error: unknown) {
       throw classifyTransportFailure(error, addressBlame());
     }
-    const parsed: unknown = text.length === 0 ? undefined : safeParse(text);
+    const parsed: unknown = text.length === 0 ? undefined : parseJson(text);
 
     if (response.ok || (init.answeredBy?.includes(response.status) ?? false)) {
       // A 200 from something that is not this API (a wrong port, a proxy's
@@ -151,7 +151,12 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
       return parsed as T;
     }
 
-    const wire = (parsed ?? {}) as WireError;
+    // A body that is not JSON still carries the reason on the error path: a
+    // proxy's plain-text refusal names the thing that refused.
+    const wire: WireError =
+      parsed === null || typeof parsed !== "object"
+        ? textAsWireError(text)
+        : (parsed as WireError);
     if (response.status === 401 || response.status === 403) {
       throw new OpsClientError(
         "refused",
@@ -275,11 +280,20 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
   };
 }
 
-function safeParse(text: string): unknown {
+/**
+ * Parse a response body, or `undefined` when it is not JSON.
+ *
+ * Wrapping unparseable text in an object would let it through the
+ * success guard, which only checks that the body is an object: a proxy
+ * answering 200 with an HTML error page would then be handed to the caller
+ * as a page whose `items` is missing, and the crash would land in the
+ * renderer rather than here, where the address can be named.
+ */
+function parseJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
-    return { message: text };
+    return undefined;
   }
 }
 
@@ -308,4 +322,10 @@ function classifyTransportFailure(
     "unreachable",
     `Could not reach a running instance at ${address}: ${messageOf(error)}\nStart one with 'craft start', or point at another instance with --url.`,
   );
+}
+
+/** A non-JSON error body, carried as the reason so it still reaches the reader. */
+function textAsWireError(text: string): WireError {
+  const message = text.trim();
+  return message.length > 0 ? { message } : {};
 }

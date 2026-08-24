@@ -612,7 +612,7 @@ describe("the ops plugin", () => {
   });
 
   /**
-   * @case ops.auth: false is accepted rather than refused as a no-op
+   * @case ops.auth: false boots, and health still answers
    * @preconditions auth: false on a server that does carry a validator, health.details: "always"
    * @expectedResult The boot succeeds and health still answers. `false` carries the server plugin's meaning rather than throwing, which is what lets one vocabulary describe every mount
    */

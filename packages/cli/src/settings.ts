@@ -215,7 +215,23 @@ export function resolveSettings(
   };
   if (typeof url.value !== "string" || url.value.trim() === "") {
     throw new SettingsError(
-      `The instance URL from the ${url.source} is empty. Give a full base URL, for example http://127.0.0.1:8080.`,
+      `The instance URL from the ${describeSource(url)} is empty. Give a full base URL, for example http://127.0.0.1:8080.`,
+    );
+  }
+  // A typo'd address is invalid configuration, not an instance that is down.
+  // Reaching `fetch()` with it would report "could not reach a running
+  // instance", sending the reader to look at a server that is fine.
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url.value);
+  } catch {
+    throw new SettingsError(
+      `The instance URL from the ${describeSource(url)} is not a URL: "${url.value}". Give a full base URL, for example http://127.0.0.1:8080.`,
+    );
+  }
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    throw new SettingsError(
+      `The instance URL from the ${describeSource(url)} uses "${parsedUrl.protocol}"; the ops server is reached over http or https.`,
     );
   }
 

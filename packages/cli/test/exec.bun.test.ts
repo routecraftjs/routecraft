@@ -7,6 +7,7 @@ import {
   test,
 } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testContext, signHs256, type TestContext } from "@routecraft/testing";
@@ -356,6 +357,41 @@ describe("craft ops", () => {
     });
     expect(result.code).toBe(EXEC_EXIT.ok);
     expect(result.output).toBe("down");
+  });
+
+  /**
+   * @case A 200 that is not this API names the address instead of crashing
+   * @preconditions A plain HTTP server on the configured address answering 200 with an HTML page, the shape a proxy or a wrong port produces
+   * @expectedResult A failure naming the address, not a TypeError from spreading a missing `items`. The address is the thing the reader has to change, and it is only known here
+   */
+  test("refuses a 200 whose body is not this API", async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<html><body>Bad Gateway</body></html>");
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("the stub server reported no port");
+    }
+    try {
+      const result = await routesCommand({
+        url: `http://127.0.0.1:${String(address.port)}`,
+        format: "raw",
+        ...isolated(),
+      });
+      expect(result.code).not.toBe(EXEC_EXIT.ok);
+      expect(result.error).toContain("127.0.0.1");
+      expect(result.error).toContain("does not recognise");
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => {
+          resolve();
+        });
+      });
+    }
   });
 
   /**

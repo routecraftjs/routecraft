@@ -183,6 +183,30 @@ describe("CLI settings resolution", () => {
   });
 
   /**
+   * @case A URL that is not a URL is refused as configuration, not as a down instance
+   * @preconditions A settings file whose url is not parseable
+   * @expectedResult SettingsError naming the source. Letting it reach `fetch` would report the instance as unreachable, sending the reader to look at a server that is fine
+   */
+  test("refuses a url that cannot be parsed", () => {
+    const root = scratch("url: not-a-url\n");
+    expect(() => resolveSettings({ home, cwd: root, env: {} })).toThrow(
+      /is not a URL/,
+    );
+  });
+
+  /**
+   * @case A URL on a scheme the client does not speak is refused
+   * @preconditions A settings file pointing at a file: URL
+   * @expectedResult SettingsError naming the scheme, since the ops server is reached over http or https and nothing else
+   */
+  test("refuses a url whose scheme is not http or https", () => {
+    const root = scratch("url: file:///etc/passwd\n");
+    expect(() => resolveSettings({ home, cwd: root, env: {} })).toThrow(
+      /http or https/,
+    );
+  });
+
+  /**
    * @case A missing settings file is the normal case and says nothing
    * @preconditions A working directory with no .routecraft directory at all
    * @expectedResult Defaults, with no error: not having a personal settings file is how most invocations run
