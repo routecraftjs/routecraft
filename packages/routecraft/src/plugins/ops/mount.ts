@@ -63,18 +63,24 @@ function refuse(verdict: Exclude<TierVerdict, { kind: "admit" }>): Response {
   if (verdict.kind === "unauthenticated") {
     return missingCredentialResponse(verdict.scheme);
   }
+  // The RFC 6750 challenge is bearer-specific, so it is sent only to a bearer
+  // caller. The same rule `missingCredentialResponse` applies one layer down:
+  // announcing `Bearer` to an api-key client mis-signals the protocol and
+  // points it at a ceremony it cannot perform. The body still names the scope
+  // either way, which is the part every caller can act on.
+  const headers =
+    verdict.scheme === "bearer"
+      ? {
+          "www-authenticate": `Bearer realm="routecraft", error="insufficient_scope", scope="${verdict.missing}"`,
+        }
+      : undefined;
   return jsonResponse(
     {
       error: "forbidden",
       reason: "insufficient_scope",
       scope: verdict.missing,
     },
-    {
-      status: 403,
-      headers: {
-        "www-authenticate": `Bearer realm="routecraft", error="insufficient_scope", scope="${verdict.missing}"`,
-      },
-    },
+    { status: 403, ...(headers !== undefined ? { headers } : {}) },
   );
 }
 

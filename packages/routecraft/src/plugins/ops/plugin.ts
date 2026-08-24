@@ -121,8 +121,13 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       // everyone, or refuse everyone. Neither is what the operator wrote,
       // so the boot fails instead, matching how the details gate treats
       // explicit intent with nothing to gate on.
+      // Gated on `walled` rather than `configured`: a tier scope check refuses
+      // the request, which makes it a wall, and `auth: false` says this mount
+      // declares none. The inherited validator stays reachable for pulls (the
+      // details gate, a route's `.authorize()`), which is exactly the
+      // distinction the two facts exist to draw.
       for (const [name, value] of Object.entries(tiers)) {
-        if (typeof value !== "string" || mountAuth.configured) continue;
+        if (typeof value !== "string" || mountAuth.walled) continue;
         throw rcError("RC5053", undefined, {
           message: `ops.tiers.${name} requires the scope "${value}" but no validator is in scope: the ops mount ${mountAuthOption === false ? "opted out of auth with `auth: false`" : "declares no auth"} and servers.${serverName} has none. Set ops.auth (or servers.${serverName}.auth) so a credential can be verified, or set the tier to true to expose it without one.`,
         });

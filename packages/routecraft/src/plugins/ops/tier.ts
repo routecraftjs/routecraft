@@ -25,7 +25,7 @@ export type TierVerdict =
   | { kind: "admit"; principal?: Principal }
   | { kind: "unauthenticated"; scheme: string }
   | { kind: "rejected"; response: Response }
-  | { kind: "insufficient"; missing: string };
+  | { kind: "insufficient"; missing: string; scheme: string };
 
 /**
  * Decide whether this request may act on a tier.
@@ -60,7 +60,7 @@ export async function admitToTier(
     // Unreachable: a scope-gated tier with no validator in scope fails the
     // boot. Kept as an explicit refusal so a future gap fails closed rather
     // than admitting every caller to a tier that asked for a scope.
-    return { kind: "unauthenticated", scheme: "Bearer" };
+    return { kind: "unauthenticated", scheme: "bearer" };
   }
   if (result.kind === "absent") {
     return { kind: "unauthenticated", scheme: result.scheme };
@@ -69,7 +69,16 @@ export async function admitToTier(
     return { kind: "rejected", response: result.response };
 
   const granted = new Set(result.principal.scopes ?? []);
-  if (!granted.has(tier)) return { kind: "insufficient", missing: tier };
+  if (!granted.has(tier)) {
+    // The scheme rides along because the refusal carries a challenge, and a
+    // challenge naming the wrong scheme tells an api-key client to go and
+    // get a bearer token it has no way to obtain.
+    return {
+      kind: "insufficient",
+      missing: tier,
+      scheme: result.principal.scheme,
+    };
+  }
   return { kind: "admit", principal: result.principal };
 }
 

@@ -205,10 +205,14 @@ export interface OpsPluginOptions {
    *
    * The management tiers under `/ops` identify their caller through this
    * same validator, and each tier's own {@link OpsTier} value decides what
-   * that identity must carry. `false` follows the server plugin's meaning
-   * unchanged: no validator is effective for this mount, so the details
-   * gate closes and a scope-gated tier has nothing to check against, which
-   * fails the boot rather than admitting everyone.
+   * that identity must carry.
+   *
+   * `false` follows the server plugin's meaning unchanged: the mount
+   * declares no wall, while the inherited validator stays reachable for
+   * anything that pulls identity rather than demanding it. So the details
+   * gate still admits an authenticated caller, and a scope-gated tier,
+   * which does demand it, is refused at boot as a contradiction rather than
+   * quietly enforced through a validator the mount opted out of.
    */
   auth?: HttpAuth | false;
   /** Health endpoint configuration. */
@@ -219,9 +223,9 @@ export interface OpsPluginOptions {
    * health and answers 404 on every `/ops` path.
    *
    * See {@link OpsTier} for what each value means. A scope string needs a
-   * validator in scope to check it against, so one written with no `auth`
-   * on this mount and none on its server fails the boot rather than
-   * admitting everyone.
+   * wall to enforce it, so one written where this mount declares none
+   * (no `auth` here and none on its server, or an explicit `auth: false`)
+   * fails the boot rather than admitting everyone.
    */
   tiers?: OpsTiers;
   /** Indicators to register. See `defineIndicator`. */
@@ -328,9 +332,14 @@ export interface OpsTiers {
   dispatch?: OpsTier;
 }
 
-/** Documented default scope name for the introspection tier. */
+/**
+ * The scope name this project documents for the introspection tier.
+ *
+ * A convention, not a default: every tier defaults to `false`, and the value
+ * an operator writes is any string their tokens carry.
+ */
 export const OPS_SCOPE_INTROSPECTION = "ops:introspection";
-/** Documented default scope name for the dispatch tier. */
+/** The scope name this project documents for the dispatch tier. */
 export const OPS_SCOPE_DISPATCH = "ops:dispatch";
 
 /**

@@ -67,6 +67,13 @@ export interface SettingsOverrides {
   cwd?: string;
   /** Environment to read. Defaults to the process environment. */
   env?: NodeJS.ProcessEnv;
+  /**
+   * Directory the global settings file is looked for under. Defaults to the
+   * user's home. Pinned by tests for the same reason as `cwd`: a developer's
+   * own `~/.routecraft/settings.yaml` would otherwise decide what a case
+   * about defaults resolves to.
+   */
+  home?: string;
 }
 
 /** Everything a command needs, each value carrying its provenance. */
@@ -111,8 +118,16 @@ function readSettingsFile(path: string): CraftSettings | undefined {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
-  } catch {
-    return undefined;
+  } catch (error: unknown) {
+    // Only "it is not there" means no settings. A file that exists and cannot
+    // be read (no permission, or the path is a directory) is the same class of
+    // problem as one that cannot be parsed: the operator wrote settings and
+    // would otherwise get default behaviour with nothing said.
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+    throw new SettingsError(
+      `${path} exists but could not be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   let parsed: unknown;
   try {
@@ -153,7 +168,7 @@ export function resolveSettings(
   env: NodeJS.ProcessEnv = overrides.env ?? process.env,
 ): ResolvedSettings {
   const projectPath = resolve(cwd, SETTINGS_FILE);
-  const globalPath = join(homedir(), SETTINGS_FILE);
+  const globalPath = join(overrides.home ?? homedir(), SETTINGS_FILE);
   const project = readSettingsFile(projectPath);
   // A project file that IS the global file (running in the home directory)
   // must not be reported as two independent sources agreeing.

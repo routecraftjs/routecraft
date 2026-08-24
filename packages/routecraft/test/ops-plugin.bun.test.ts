@@ -612,11 +612,11 @@ describe("the ops plugin", () => {
   });
 
   /**
-   * @case ops.auth: false is accepted and means no effective validator
+   * @case ops.auth: false is accepted rather than refused as a no-op
    * @preconditions auth: false on a server that does carry a validator, health.details: "always"
-   * @expectedResult The boot succeeds and health still answers. `false` carries the server plugin's meaning unchanged (opt out of the inherited validator) rather than being refused as a no-op, which is what lets one vocabulary describe every mount
+   * @expectedResult The boot succeeds and health still answers. `false` carries the server plugin's meaning rather than throwing, which is what lets one vocabulary describe every mount
    */
-  test("accepts ops.auth false as an opt-out from the inherited validator", async () => {
+  test("accepts ops.auth false instead of refusing it", async () => {
     const port = await start(
       { auth: false, health: { details: "always" } },
       undefined,
@@ -624,6 +624,36 @@ describe("the ops plugin", () => {
     );
     const { status } = await get(port, "/health");
     expect(status).toBe(200);
+  });
+
+  /**
+   * @case ops.auth: false really does opt out of the inherited validator
+   * @preconditions auth: false plus a scope-gated tier, on a server that DOES carry a validator
+   * @expectedResult RC5053 at apply, naming the opt-out as the reason. Serving health 200 proves nothing here, because health answers 200 with or without a validator; only a scope-gated tier can tell whether the inherited one is still effective
+   */
+  test("treats ops.auth false as no validator for a scope-gated tier", async () => {
+    const builder = testContext()
+      .with({
+        servers: {
+          default: {
+            port: 0,
+            host: "127.0.0.1",
+            auth: jwt({
+              secret: JWT_SECRET,
+              issuer: JWT_ISSUER,
+              audience: JWT_AUDIENCE,
+            }),
+          },
+        },
+        plugins: [
+          opsPlugin({
+            auth: false,
+            tiers: { introspection: "ops:introspection" },
+          }),
+        ],
+      })
+      .routes([craft().id("worker").from(direct()).to(noop())]);
+    await expect(builder.build()).rejects.toThrow(/auth: false/);
   });
 
   /**

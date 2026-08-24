@@ -25,6 +25,17 @@ import type {
 } from "@routecraft/routecraft";
 import { describeSource, type ResolvedSettings } from "./settings.js";
 
+/**
+ * How long one request may take before the client gives up.
+ *
+ * A connection the instance accepts and then never answers is otherwise
+ * indistinguishable from work in progress, and a CLI that hangs with no
+ * output is the worst way for a read to fail. The abort lands in the same
+ * catch as a refused connection, so it is reported as unreachable with the
+ * address named.
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 /** Why a call did not produce an answer. Each needs a different remedy. */
 export type OpsFailureKind =
   /** The instance could not be reached at all. */
@@ -97,6 +108,7 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
       response = await fetch(`${base}${path}`, {
         method: init.method ?? "GET",
         headers,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       });
     } catch (error: unknown) {
@@ -183,6 +195,7 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
       query: Record<string, string> = {},
     ): Promise<OpsRouteSummary[]> {
       const items: OpsRouteSummary[] = [];
+      const seen = new Set<string>();
       let cursor: string | undefined;
       do {
         const params = new URLSearchParams(query);
@@ -193,6 +206,16 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
         );
         items.push(...page.items);
         cursor = page.nextCursor;
+        // The loop trusts the instance to advance, and this client talks to
+        // instances it did not build: a repeated cursor would page forever and
+        // grow `items` without bound. Refusing beats hanging, and beats
+        // silently returning a listing with the same rows in it many times.
+        if (cursor !== undefined && !seen.add(cursor)) {
+          throw new OpsClientError(
+            "error",
+            "The instance repeated a pagination cursor, so the route listing cannot be completed. This is a fault in the instance rather than in the request.",
+          );
+        }
       } while (cursor !== undefined);
       return items;
     },

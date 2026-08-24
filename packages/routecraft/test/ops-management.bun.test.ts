@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { signHs256, testContext, type TestContext } from "@routecraft/testing";
 import {
   MemorySuspensionStore,
   apiKey,
   craft,
+  jwt,
   cron,
   direct,
   noop,
@@ -28,6 +29,15 @@ import {
  */
 
 const SUSPENSION_SECRET = "ops-management-suspension-secret-0123456789";
+
+/**
+ * Bearer credentials for the one case that needs a bearer scheme rather than
+ * an api key. The issuer and audience are the test helper's own defaults, so
+ * a token it mints verifies against this validator without restating them.
+ */
+const JWT_SECRET = "ops-management-jwt-secret-please-change-me";
+const JWT_ISSUER = "https://idp.test";
+const JWT_AUDIENCE = "https://api.test";
 
 /** Whatever the test harness accepts as a route list. */
 type Routes = Parameters<ReturnType<typeof testContext>["routes"]>[0];
@@ -269,6 +279,47 @@ describe("the ops management API", () => {
     });
     const { status } = await call(port, "/ops/routes", { key: "static-key" });
     expect(status).toBe(200);
+  });
+
+  /**
+   * @case An insufficient-scope refusal challenges only a bearer caller
+   * @preconditions One instance behind an apiKey validator and one behind jwt, both with a scope-gated tier, each called with a credential that authenticates but lacks the scope
+   * @expectedResult Both answer 403 naming the scope in the body; only the bearer caller receives a WWW-Authenticate challenge. The RFC 6750 challenge is bearer-specific, and announcing it to an api-key client points it at a ceremony it cannot perform
+   */
+  test("challenges only a bearer caller on an insufficient scope", async () => {
+    const withApiKey = await start({
+      auth: keyAuth(),
+      tiers: { introspection: "ops:introspection" },
+    });
+    const apiKeyCall = await call<{ scope: string }>(
+      withApiKey,
+      "/ops/routes",
+      { key: "nobody" },
+    );
+    expect(apiKeyCall.status).toBe(403);
+    expect(apiKeyCall.body.scope).toBe("ops:introspection");
+    expect(apiKeyCall.headers.get("www-authenticate")).toBeNull();
+    await t?.stop();
+    t = undefined;
+
+    const withBearer = await start({
+      auth: jwt({
+        secret: JWT_SECRET,
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      }),
+      tiers: { introspection: "ops:introspection" },
+    });
+    const res = await fetch(
+      `http://127.0.0.1:${String(withBearer)}/ops/routes`,
+      {
+        headers: {
+          authorization: `Bearer ${signHs256({ secret: JWT_SECRET })}`,
+        },
+      },
+    );
+    expect(res.status).toBe(403);
+    expect(res.headers.get("www-authenticate")).toMatch(/insufficient_scope/);
   });
 
   /**

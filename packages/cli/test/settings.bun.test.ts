@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,8 +29,26 @@ function project(contents: string): string {
   return root;
 }
 
+/**
+ * An empty home, pinned into every resolution below.
+ *
+ * `resolveSettings` reads two files, and pinning only `cwd` isolates one of
+ * them. A developer keeping their own `~/.routecraft/settings.yaml` would
+ * otherwise decide what the cases about defaults resolve to, which is the
+ * same machine-dependent failure the project file was isolated against.
+ */
+let home: string;
+
 describe("CLI settings resolution", () => {
   const roots: string[] = [];
+
+  beforeAll(() => {
+    home = mkdtempSync(join(tmpdir(), "craft-settings-home-"));
+  });
+
+  afterAll(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
 
   afterEach(() => {
     for (const root of roots.splice(0)) {
@@ -44,7 +69,7 @@ describe("CLI settings resolution", () => {
    */
   test("falls back to the documented default", () => {
     const root = scratch("");
-    const settings = resolveSettings({}, root, {});
+    const settings = resolveSettings({ home }, root, {});
     expect(settings.url.value).toBe(DEFAULT_URL);
     expect(settings.url.source).toBe("default");
     expect(settings.format.value).toBe("pretty");
@@ -58,7 +83,7 @@ describe("CLI settings resolution", () => {
    */
   test("reads the project-local file and records its path", () => {
     const root = scratch("url: http://10.0.0.5:9090\nformat: json\n");
-    const settings = resolveSettings({}, root, {});
+    const settings = resolveSettings({ home }, root, {});
     expect(settings.url.value).toBe("http://10.0.0.5:9090");
     expect(settings.url.source).toBe("project file");
     expect(settings.url.path).toContain(".routecraft");
@@ -93,10 +118,10 @@ describe("CLI settings resolution", () => {
    */
   test("resolves the token with the same precedence", () => {
     const root = scratch("token: from-file\n");
-    expect(resolveSettings({}, root, {}).token?.value).toBe("from-file");
-    expect(resolveSettings({ token: "from-flag" }, root, {}).token?.value).toBe(
-      "from-flag",
-    );
+    expect(resolveSettings({ home }, root, {}).token?.value).toBe("from-file");
+    expect(
+      resolveSettings({ token: "from-flag", home }, root, {}).token?.value,
+    ).toBe("from-flag");
   });
 
   /**
@@ -106,7 +131,7 @@ describe("CLI settings resolution", () => {
    */
   test("refuses a settings file that is not valid YAML", () => {
     const root = scratch("url: [unclosed\n");
-    expect(() => resolveSettings({}, root, {})).toThrow(SettingsError);
+    expect(() => resolveSettings({ home }, root, {})).toThrow(SettingsError);
   });
 
   /**
@@ -116,7 +141,9 @@ describe("CLI settings resolution", () => {
    */
   test("refuses a settings file that is not a mapping", () => {
     const root = scratch("- url: http://nope\n");
-    expect(() => resolveSettings({}, root, {})).toThrow(/mapping of settings/);
+    expect(() => resolveSettings({ home }, root, {})).toThrow(
+      /mapping of settings/,
+    );
   });
 
   /**
@@ -126,7 +153,23 @@ describe("CLI settings resolution", () => {
    */
   test("refuses an unknown output format", () => {
     const root = scratch("format: yaml\n");
-    expect(() => resolveSettings({}, root, {})).toThrow(/pretty, json, raw/);
+    expect(() => resolveSettings({ home }, root, {})).toThrow(
+      /pretty, json, raw/,
+    );
+  });
+
+  /**
+   * @case A settings file that exists but cannot be read is an error
+   * @preconditions .routecraft/settings.yaml created as a directory, so reading it fails with EISDIR rather than ENOENT
+   * @expectedResult SettingsError naming the path. Only "it is not there" means no settings; anything else would hand back defaults to an operator who did configure something
+   */
+  test("refuses a settings file that exists but cannot be read", () => {
+    const root = mkdtempSync(join(tmpdir(), "craft-settings-unreadable-"));
+    roots.push(root);
+    mkdirSync(join(root, ".routecraft", "settings.yaml"), { recursive: true });
+    expect(() => resolveSettings({ home }, root, {})).toThrow(
+      /could not be read/,
+    );
   });
 
   /**
@@ -137,7 +180,7 @@ describe("CLI settings resolution", () => {
   test("treats a missing settings file as no settings", () => {
     const root = mkdtempSync(join(tmpdir(), "craft-settings-none-"));
     roots.push(root);
-    const settings = resolveSettings({}, root, {});
+    const settings = resolveSettings({ home }, root, {});
     expect(settings.url.value).toBe(DEFAULT_URL);
   });
 });

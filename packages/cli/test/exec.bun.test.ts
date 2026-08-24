@@ -285,6 +285,7 @@ describe("craft ops", () => {
       port = details.port;
     });
     await context.startAndWaitReady();
+    if (port === undefined) throw new Error("no server reported a port");
 
     const result = await routesCommand({
       url: `http://127.0.0.1:${String(port)}`,

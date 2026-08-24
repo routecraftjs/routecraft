@@ -84,8 +84,9 @@ export interface ApiKeyAuthOptions {
    * is not the tool. Without it a static key mints a principal carrying no
    * scopes at all, which any scope check refuses.
    *
-   * Ignored with `verify`, where the returned principal already says what
-   * it carries.
+   * Refused alongside `verify` with `RC5003` rather than ignored: a verifier
+   * returns the principal itself, so the scopes belong on what it returns and
+   * a second place to declare them could only disagree with it.
    */
   scopes?: readonly string[];
   /**

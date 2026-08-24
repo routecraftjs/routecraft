@@ -198,23 +198,39 @@ program
 /**
  * Print a command's result and exit with its code.
  *
- * Deferred exit so pino/sonic-boom can finish initialising, the same
- * reason `run` and `start` defer theirs.
+ * The write is awaited rather than fired and forgotten. `process.stdout` is
+ * asynchronous when it is a pipe, and `process.exit` discards whatever is
+ * still queued, so `craft exec --format json | jq` would lose the tail of a
+ * large result. Exiting from the write callback is what makes the payload
+ * whole; the exit itself stays deferred so pino/sonic-boom can finish
+ * initialising, the same reason `run` and `start` defer theirs.
  */
 function settle(result: {
   code: number;
   output?: string;
   error?: string;
 }): void {
-  if (result.output !== undefined) {
-    // eslint-disable-next-line no-console
-    console.log(result.output);
+  const writes: Array<[NodeJS.WriteStream, string]> = [];
+  if (result.output !== undefined) writes.push([process.stdout, result.output]);
+  if (result.error !== undefined) writes.push([process.stderr, result.error]);
+
+  const finish = (): void => {
+    setImmediate(() => process.exit(result.code));
+  };
+  if (writes.length === 0) {
+    finish();
+    return;
   }
-  if (result.error !== undefined) {
-    // eslint-disable-next-line no-console
-    console.error(result.error);
+  // Set early so a stream that never drains still exits with the right code
+  // rather than reporting success on the way out.
+  process.exitCode = result.code;
+  let pending = writes.length;
+  for (const [stream, text] of writes) {
+    stream.write(`${text}\n`, () => {
+      pending -= 1;
+      if (pending === 0) finish();
+    });
   }
-  setImmediate(() => process.exit(result.code));
 }
 
 /**

@@ -144,7 +144,7 @@ One component with its own status code: 503 when it is `down`, 200 otherwise, 40
 
 ## Management API
 
-Three resources on the same mount, under `/ops`, for driving a running instance: list its routes, describe one, and dispatch work to one. [`craft exec`](/docs/reference/cli#exec) and [`craft ops`](/docs/reference/cli#ops) are clients of exactly this API, and so is anything you point at it with `curl`.
+Three resources on the same mount, under `/ops`, for driving a running instance: list its routes, describe one, and dispatch work to one. [`craft exec`](/docs/reference/cli#exec) and the route commands in [`craft ops`](/docs/reference/cli#ops) are clients of exactly this API, and so is anything you point at it with `curl`. The rest of that family (`health`, `ready`, `indicators`) reads the `/health` resources above instead, which is the group-by-task split the CLI reference explains.
 
 | Method and path | Tier | What |
 | --- | --- | --- |
@@ -174,11 +174,13 @@ ops: {
 }
 ```
 
-`ops:introspection` and `ops:dispatch` are the documented defaults; the value is any string you like, and `ops:operations` is reserved for the operations tier when it ships. **Dispatch is always its own scope** and never rides along with introspection: a dashboard token that reads the route inventory must not also be able to run work.
+`ops:introspection` and `ops:dispatch` are the names this project documents, not defaults: every tier defaults to `false`, and the value is any string your tokens carry. `ops:operations` is reserved for the operations tier when it ships. **Dispatch is always its own scope** and never rides along with introspection: a dashboard token that reads the route inventory must not also be able to run work.
 
 The mount's `auth` decides **who** the caller is (its own validator, else the named server's, per [mount auth inheritance](/docs/reference/plugins/serversplugin)); the tier value decides **what that identity must carry**. Because tiers are path-and-method rules, an operator can enforce the same split at a proxy that the framework enforces internally.
 
-A disabled tier answers **404, not 403**. An unconfigured instance should disclose neither its route inventory nor that a management surface exists at all, and 404 is what a proxy in front of it would answer anyway. A tier naming a scope with no validator in scope fails the boot rather than guessing: admitting everyone and refusing everyone are opposites, and neither is what was written.
+A disabled tier answers **404, not 403**. An unconfigured instance should disclose neither its route inventory nor that a management surface exists at all, and 404 is what a proxy in front of it would answer anyway. A tier naming a scope where the mount declares no wall fails the boot rather than guessing: admitting everyone and refusing everyone are opposites, and neither is what was written.
+
+The refusal on a missing scope is `403` with `insufficient_scope`, and it carries an RFC 6750 `WWW-Authenticate` challenge only for a bearer caller. An api-key client is told which scope it lacks in the body, without being pointed at a bearer ceremony it cannot perform.
 
 <Callout type="warning" title="`true` is an open door">
 
@@ -360,7 +362,9 @@ Pushing through a handle no context has registered is inert on all three methods
 
 `ops.auth` is not a wall over `/health`. The ingress never authenticates on its own, and the health handler calls `authenticate()` only to decide whether to serve `details`, so those paths stay reachable without a credential, which is the only way an orchestrator can use them.
 
-It is also the validator the [management tiers](#management-api) identify their caller with. The two uses do not conflict, because a tier's own value decides what that identity must carry while health asks only whether there is one. `auth: false` carries the [server plugin's](/docs/reference/plugins/serversplugin) meaning unchanged: no validator is effective for this mount, so the details gate closes and a scope-gated tier has nothing to check against, which fails the boot rather than admitting everyone.
+It is also the validator the [management tiers](#management-api) identify their caller with. The two uses do not conflict, because a tier's own value decides what that identity must carry while health asks only whether there is one.
+
+`auth: false` carries the [server plugin's](/docs/reference/plugins/serversplugin) meaning unchanged: this mount declares no wall, while the inherited validator stays reachable for anything that pulls identity rather than demanding it. So the details gate still admits an authenticated caller, and a scope-gated tier, which does demand one, is refused at boot as a contradiction rather than quietly enforced through a validator the mount opted out of.
 
 ```ts
 // One listener, no server-wide validator: the gate is the ops mount's own.
