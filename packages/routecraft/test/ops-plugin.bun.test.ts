@@ -612,17 +612,74 @@ describe("the ops plugin", () => {
   });
 
   /**
-   * @case ops.auth: false is refused as a no-op
-   * @preconditions The plugin constructed with auth: false
-   * @expectedResult RC5053 naming the actual lever. The health surface never walls, so there is no wall for false to remove; an operator writing it means health.details: "always"
+   * @case ops.auth: false boots, and health still answers
+   * @preconditions auth: false on a server that does carry a validator, health.details: "always"
+   * @expectedResult The boot succeeds and health still answers. `false` carries the server plugin's meaning rather than throwing, which is what lets one vocabulary describe every mount
    */
-  test("refuses ops.auth false", () => {
-    // The type no longer admits `false`; the cast simulates a JS caller.
-    const options = {
-      auth: false,
-      health: { details: "always" },
-    } as unknown as OpsPluginOptions;
-    expect(() => opsPlugin(options)).toThrow(/no-op/);
+  test("accepts ops.auth false instead of refusing it", async () => {
+    const port = await start(
+      { auth: false, health: { details: "always" } },
+      undefined,
+      true,
+    );
+    const { status } = await get(port, "/health");
+    expect(status).toBe(200);
+  });
+
+  /**
+   * @case ops.auth: false really does opt out of the inherited validator
+   * @preconditions auth: false plus a scope-gated tier, on a server that DOES carry a validator
+   * @expectedResult RC5053 at apply, naming the opt-out as the reason. Serving health 200 proves nothing here, because health answers 200 with or without a validator; only a scope-gated tier can tell whether the inherited one is still effective
+   */
+  test("treats ops.auth false as no validator for a scope-gated tier", async () => {
+    const builder = testContext()
+      .with({
+        servers: {
+          default: {
+            port: 0,
+            host: "127.0.0.1",
+            auth: jwt({
+              secret: JWT_SECRET,
+              issuer: JWT_ISSUER,
+              audience: JWT_AUDIENCE,
+            }),
+          },
+        },
+        plugins: [
+          opsPlugin({
+            auth: false,
+            tiers: { introspection: "ops:introspection" },
+          }),
+        ],
+      })
+      .routes([craft().id("worker").from(direct()).to(noop())]);
+    await expect(builder.build()).rejects.toThrow(/auth: false/);
+  });
+
+  /**
+   * @case A scope-gated tier with no validator in scope fails the boot
+   * @preconditions ops.tiers.introspection set to a scope string, no ops.auth and no server validator
+   * @expectedResult RC5053 at apply. A scope with nothing to verify it against can only be resolved by admitting everyone or refusing everyone, and neither is what the operator wrote
+   */
+  test("refuses a scope-gated tier with no validator in scope", async () => {
+    const builder = testContext()
+      .with({
+        servers: { default: { port: 0, host: "127.0.0.1" } },
+        plugins: [opsPlugin({ tiers: { introspection: "ops:introspection" } })],
+      })
+      .routes([craft().id("worker").from(direct()).to(noop())]);
+    await expect(builder.build()).rejects.toThrow(/no validator is in scope/);
+  });
+
+  /**
+   * @case An empty scope string is refused rather than enforced
+   * @preconditions ops.tiers.dispatch set to ""
+   * @expectedResult RC5053 at construction. No principal can carry an empty scope, so enforcing it would refuse every caller while reading like a configured tier
+   */
+  test("refuses an empty tier scope string", () => {
+    expect(() => opsPlugin({ tiers: { dispatch: "" } })).toThrow(
+      /empty scope string/,
+    );
   });
 
   /**

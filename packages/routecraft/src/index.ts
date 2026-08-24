@@ -134,9 +134,22 @@ export type {
   IndicatorDefinition,
   LivenessReport,
   OpsConfig,
+  OpsDispatchOutcome,
   OpsHealthOptions,
+  OpsPage,
   OpsPluginOptions,
+  OpsRouteDetail,
+  OpsRouteFilter,
+  OpsRouteQuery,
+  OpsRouteSchemas,
+  OpsRouteSummary,
+  OpsTier,
+  OpsTiers,
   RouteLifecycle,
+} from "./plugins/ops/types.ts";
+export {
+  OPS_SCOPE_DISPATCH,
+  OPS_SCOPE_INTROSPECTION,
 } from "./plugins/ops/types.ts";
 /** @deprecated Use `CraftConfig.direct` instead. Will be removed in next major version. */
 export { type DirectConfig } from "./adapters/direct/types.ts";

@@ -76,6 +76,20 @@ export interface ApiKeyAuthOptions {
   /** Static allowlist of accepted keys. Mutually exclusive with `verify`. */
   keys?: readonly string[];
   /**
+   * Scopes granted to a caller admitted by the static `keys` allowlist.
+   *
+   * Every listed key carries the same scopes, because a flat allowlist has
+   * no place to hang per-key authority; when different callers need
+   * different scopes, `verify` returns a principal per key and this field
+   * is not the tool. Without it a static key mints a principal carrying no
+   * scopes at all, which any scope check refuses.
+   *
+   * Refused alongside `verify` with `RC5003` rather than ignored: a verifier
+   * returns the principal itself, so the scopes belong on what it returns and
+   * a second place to declare them could only disagree with it.
+   */
+  scopes?: readonly string[];
+  /**
    * Custom verifier. Receives the raw key and returns a {@link Principal}
    * (admit) or `null` (reject). Throwing is also a rejection.
    */

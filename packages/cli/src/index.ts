@@ -196,6 +196,202 @@ program
   );
 
 /**
+ * Print a command's result and exit with its code.
+ *
+ * The write is awaited rather than fired and forgotten. `process.stdout` is
+ * asynchronous when it is a pipe, and `process.exit` discards whatever is
+ * still queued, so `craft exec --format json | jq` would lose the tail of a
+ * large result. Exiting from the write callback is what makes the payload
+ * whole; the exit itself stays deferred so pino/sonic-boom can finish
+ * initialising, the same reason `run` and `start` defer theirs.
+ */
+function settle(result: {
+  code: number;
+  output?: string;
+  error?: string;
+}): void {
+  const writes: Array<[NodeJS.WriteStream, string]> = [];
+  if (result.output !== undefined) writes.push([process.stdout, result.output]);
+  if (result.error !== undefined) writes.push([process.stderr, result.error]);
+
+  const finish = (): void => {
+    setImmediate(() => process.exit(result.code));
+  };
+  if (writes.length === 0) {
+    finish();
+    return;
+  }
+  // Set early so a stream that never drains still exits with the right code
+  // rather than reporting success on the way out.
+  process.exitCode = result.code;
+  let pending = writes.length;
+  for (const [stream, text] of writes) {
+    stream.write(`${text}\n`, () => {
+      pending -= 1;
+      if (pending === 0) finish();
+    });
+  }
+}
+
+/**
+ * Read route input piped on stdin, or undefined when none was.
+ *
+ * Gated on stdin actually being a redirect (a pipe or a file) rather than
+ * on it not being a TTY. The two are not the same: a process launched by
+ * CI, a supervisor, or another program routinely inherits a socket on fd 0
+ * that is neither a terminal nor ever going to close, and reading it waits
+ * for an EOF that never comes. `craft exec` would hang with no output,
+ * which is the worst way to fail.
+ */
+async function readStdin(): Promise<string | undefined> {
+  const { fstatSync } = await import("node:fs");
+  try {
+    const stat = fstatSync(0);
+    if (!stat.isFIFO() && !stat.isFile()) return undefined;
+  } catch {
+    return undefined;
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.from(chunk as Buffer));
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  return text.length === 0 ? undefined : text;
+}
+
+/**
+ * The 'exec' command dispatches to a route on a running instance.
+ *
+ * Craft's own flags come before the route name and the route's input comes
+ * after it, the same split `craft run` uses, so a route field can never
+ * collide with a CLI flag.
+ *
+ * Example:
+ * craft exec greet --name World
+ * craft exec --url http://10.0.0.5:8080 --token "$TOKEN" greet --name World
+ */
+program
+  .command("exec")
+  .description("Dispatch to a route on a running instance and print the result")
+  .argument("[route]", "Route id to dispatch to; omit for the endpoint list")
+  .argument("[args...]", "Route input as --field=value pairs")
+  .option("--url <url>", "Ops server base URL of the target instance")
+  .option("--token <token>", "Bearer credential for the management door")
+  .option("--format <format>", "pretty (default), json, or raw")
+  .passThroughOptions()
+  .allowUnknownOption()
+  .action(
+    async (
+      route: string | undefined,
+      args: string[],
+      options: { url?: string; token?: string; format?: string },
+    ) => {
+      applyGlobalLogOptions();
+      const { execCommand } = await import("./exec.js");
+      // Args and stdin are mutually exclusive, so a command that already
+      // carries args must not read stdin at all: in `tail -f x | while read
+      // l; do craft exec r --line=\"$l\"; done` the inherited pipe never
+      // closes, and reading it would hang and swallow the loop's own input.
+      const stdin =
+        route === undefined || args.length > 0 ? undefined : await readStdin();
+      settle(
+        await execCommand(route, args, {
+          ...options,
+          ...(stdin === undefined ? {} : { stdin }),
+        }),
+      );
+    },
+  );
+
+/**
+ * The 'ops' command family reads a running instance's own state.
+ *
+ * Grouped by operator task rather than by URL prefix: `craft ops health`
+ * reads `/health/**` while `craft ops routes` reads `/ops/routes`, because
+ * the two surfaces have deliberately different auth postures and the
+ * command family answers a different question from the path layout.
+ *
+ * Example:
+ * craft ops health
+ * craft ops routes --dispatchable
+ */
+const ops = program
+  .command("ops")
+  .description(
+    "Inspect a running instance: health, readiness, routes, indicators",
+  );
+
+function opsOption<T extends import("commander").Command>(command: T): T {
+  return command
+    .option("--url <url>", "Ops server base URL of the target instance")
+    .option("--token <token>", "Bearer credential for the management door")
+    .option("--format <format>", "pretty (default), json, or raw") as T;
+}
+
+opsOption(
+  ops
+    .command("health")
+    .description("Operational health: every component, whatever its domain"),
+).action(async (options: Record<string, string>) => {
+  applyGlobalLogOptions();
+  const { healthCommand } = await import("./ops.js");
+  settle(await healthCommand(options));
+});
+
+opsOption(
+  ops
+    .command("ready")
+    .description("Readiness: whether this replica should receive traffic"),
+).action(async (options: Record<string, string>) => {
+  applyGlobalLogOptions();
+  const { readyCommand } = await import("./ops.js");
+  settle(await readyCommand(options));
+});
+
+opsOption(
+  ops
+    .command("routes")
+    .description("List routes, or describe one")
+    .argument("[id]", "Route id; omit to list")
+    .option("--dispatchable", "Only routes that can be dispatched to")
+    .option("--source <kind>", "Only routes carrying a source of this kind"),
+).action(
+  async (
+    id: string | undefined,
+    options: {
+      dispatchable?: boolean;
+      source?: string;
+      url?: string;
+      token?: string;
+      format?: string;
+    },
+  ) => {
+    applyGlobalLogOptions();
+    const { routesCommand, routeCommand } = await import("./ops.js");
+    settle(
+      id === undefined
+        ? await routesCommand(options)
+        : await routeCommand(id, options),
+    );
+  },
+);
+
+opsOption(
+  ops
+    .command("indicators")
+    .description("List indicators, or read one")
+    .argument("[name]", "Indicator name; omit to list"),
+).action(async (name: string | undefined, options: Record<string, string>) => {
+  applyGlobalLogOptions();
+  const { indicatorsCommand, indicatorCommand } = await import("./ops.js");
+  settle(
+    name === undefined
+      ? await indicatorsCommand(options)
+      : await indicatorCommand(name, options),
+  );
+});
+
+/**
  * The 'tui' command launches the Terminal UI for monitoring Routecraft execution.
  *
  * Example:

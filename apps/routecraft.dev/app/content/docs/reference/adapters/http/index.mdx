@@ -224,6 +224,7 @@ Workspace containers are excluded from auto-detection. If the nearest `package.j
 - `jwt({...})` / `jwks({...})` -- bearer token with validator (same shape MCP uses).
 - `apiKey({ keys: [...] })` -- static allowlist. Reads from a header (default `x-api-key`) or, with `in: "query"`, a query parameter (default `api_key`).
 - `apiKey({ verify: (key) => Principal | null })` -- custom verifier that resolves to a per-user principal.
+- `apiKey({ keys: [...], scopes: [...] })` -- scopes granted to every caller the static allowlist admits, so a scope check (an [ops management tier](/docs/reference/plugins/opsplugin#exposure-tiers), or a route's `.authorize({ scopes })`) can pass without an identity provider. Every listed key carries the same scopes; a flat allowlist has nowhere to hang per-key authority. Refused alongside `verify` with `RC5003`, because a verifier's returned principal already declares what it carries.
 
 Verification runs at most once per incoming request, and only when the mount posture demands it (see [Mounts and authentication](#mounts-and-authentication) below). When admitted, the resolved `Principal` lands on the exchange (`routecraft.auth.principal`), and per-route guards via the existing `.authorize({ roles, scopes, predicate })` builder take it from there.
 

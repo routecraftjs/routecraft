@@ -135,6 +135,18 @@ export function isRoutecraftError(obj: unknown): boolean {
 }
 
 /**
+ * A RoutecraftError's RC code, or `undefined` for anything else.
+ *
+ * Lives beside the guard because every caller of one wants the other, and the
+ * knowledge that the code sits on `.rc` was previously re-encoded as an
+ * unchecked cast at each site. A cast fails silently when the field moves; one
+ * reader fails loudly.
+ */
+export function rcCodeOf(error: unknown): string | undefined {
+  return isRoutecraftError(error) ? (error as { rc?: string }).rc : undefined;
+}
+
+/**
  * Returns true if the value is an Exchange instance.
  */
 export function isExchange(obj: unknown): boolean {

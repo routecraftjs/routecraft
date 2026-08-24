@@ -188,6 +188,22 @@ not taken. The user-facing noun for the unit of work remains "capability".
 A single-file capability (`capabilities/<id>.ts`) is acceptable shorthand for a trivial,
 internal-free capability (the repo's own `examples/src` deliberately uses the flat form).
 
+## Management surface (`routes` on the wire)
+
+The ops management API and the CLI family reading it address **routes**: `GET /ops/routes`,
+`GET /ops/routes/{id}`, `POST /ops/routes/{id}/exchanges`, and `craft ops routes`.
+
+Decision record: this is the second deliberate, scoped exception to keeping `route` out of
+user-facing copy. The resource lists the route registry, and that registry holds routes which
+are not capabilities: a `cron()`- or `mail()`-sourced route appears in the collection with
+`dispatchable: false`, so calling it a capability would be false. `capability` remains the
+authoring-time noun for the unit of work a person builds and dispatches to; `routes` is the
+operational noun for what the registry actually holds. The distinction is real rather than
+incidental, which is what separates this from vocabulary drift.
+
+The exception is scoped to those operational surfaces. Authoring docs, the scaffolder, and
+everything under `capabilities/` keep saying "capability".
+
 ## Changelog entries
 
 The changelog (`apps/routecraft.dev/app/content/changelog/index.mdx`) is for a user scanning to decide

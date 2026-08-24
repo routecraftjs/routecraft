@@ -35,7 +35,7 @@ craft --log-level info --log-file craft.log run ./capabilities/orders.ts
 
 <Callout type="note" title="More commands coming">
 
-`dev`, `build`, and `exec` are planned for future releases.
+`dev` and `build` are planned for future releases.
 
 </Callout>
 
@@ -171,6 +171,123 @@ server ingress (`http`, `direct`, `mcp`) never finishes starting by design, whic
 ```bash
 craft start ./apps/eywa --once
 ```
+
+### exec
+
+Dispatch to a route on a **running** instance through its [management API](/docs/reference/plugins/opsplugin#management-api), and print what came back.
+
+```bash
+craft exec [options] <route> [--field=value ...]
+```
+
+`craft exec` works against `craft start`, not `craft run`, and hard-fails when it cannot connect: there is no cold boot. Craft's own flags come **before** the route name and the route's input comes after it, the same split `run` uses, so a route field can never collide with a CLI flag.
+
+Options:
+
+| Option | Description |
+| --- | --- |
+| `<route>` | Route id to dispatch to. Omit to list the instance's dispatchable endpoints |
+| `--url <url>` | Ops server base URL. Defaults to the [settings file](#settings-file), else `http://127.0.0.1:8080` |
+| `--token <token>` | Bearer credential presented at the management door |
+| `--format <format>` | `pretty` (default), `json`, or `raw` |
+
+Route input is passed as `--field=value` pairs, or as JSON on stdin for anything richer. The two are mutually exclusive: passing both is refused rather than silently resolved.
+
+```bash
+craft exec greet --name=world
+echo '{"name":"world","tags":["a","b"]}' | craft exec greet
+craft exec --url http://10.0.0.5:8080 --token "$CRAFT_TOKEN" greet --name=world
+```
+
+Flags become a flat body: a value may be joined with `=` or follow as its own argument (`--name world`), a `--flag` with no value after it is `true`, a repeated key becomes an array, and every other value stays the string the shell passed. Nothing is coerced to a number, because a route that wants one declares it with `.input()` and a CLI guessing types produces bugs that only appear for values which happen to look numeric.
+
+**A dispatch runs the app's own guardrails.** `craft exec` reaches a route only through the door that route declares, so the full [pre-from chain](/docs/advanced/filter-chain) runs: `.authorize()`, `.input()` and `.throttle()` all apply, per message, exactly as they would for any other caller. This is a property to rely on rather than an accident of the plumbing. It also means the CLI is just another client: there is no bypass and no synthetic operator identity, and `.authorize()` sees the principal the mount's validator minted from the credential you presented.
+
+**Only some routes are dispatchable.** A `direct()` ingress makes a route id into a door; a route sourced from `cron()`, `mail()` or `http()` runs from its own trigger and has none. `craft exec` with no route named lists exactly the routes that will accept a dispatch.
+
+**A parked exchange is a success.** A route that reaches a durable `.suspend()` replies with the standard [`Suspended`](/docs/advanced/durable-agents) acknowledgment instead of its output, and `craft exec` renders it as an outcome at exit `0`, with the suspension id, the resume token and the expiry. It is not an error, and the operator at the terminal is often exactly who the park is waiting for.
+
+Exit codes, which are the API for anything scripting this:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | The route completed, or parked |
+| 1 | The route failed, or dropped the exchange. The output says which |
+| 2 | Usage error, including a route that has no dispatch door |
+| 3 | No instance could be reached at the effective address |
+| 4 | The door refused or answered 404: no credential, a rejected one, a missing scope, a disabled tier, or no such route. The instance deliberately does not distinguish the last two, and the message names every reading |
+
+### ops
+
+Inspect a running instance: health, readiness, routes, indicators.
+
+```bash
+craft ops health
+craft ops ready
+craft ops routes [id] [--dispatchable] [--source <kind>]
+craft ops indicators [name]
+```
+
+Every subcommand takes the same `--url`, `--token` and `--format` options as `exec`, resolved the same way.
+
+| Command | What it answers |
+| --- | --- |
+| `craft ops health` | Operational health: every component, whatever its failure domain. What an uptime monitor pages on |
+| `craft ops ready` | Readiness: whether this replica should receive traffic. A different question, for a different consumer |
+| `craft ops routes` | The route inventory, following the cursor across every page |
+| `craft ops routes <id>` | One route: its definition and its health component, together |
+| `craft ops indicators` | The indicator map from the health report |
+| `craft ops indicators <name>` | One indicator's component |
+
+`ready` is its own command rather than a flag on `health` because it answers a different question. The report itself carries a `view` field precisely so the two are never confused: acting on the operational aggregate would route traffic on a deployment-wide signal, which helps only when the peers are in a better position, and they are not.
+
+<Callout type="note" title="The CLI groups by operator task, not by URL prefix">
+
+`craft ops health` reads `/health/**`, which is deliberately **not** under `/ops`. Health never walls, so an orchestrator probe works with no credential; `/ops` always answers by tier. Separate prefixes make "expose health, never expose ops" a coarse rule that is hard to get wrong at an ingress, while the command family groups by the question an operator is asking. The two answer different things and are allowed to differ; this is not an inconsistency to fix in either direction.
+
+</Callout>
+
+**Present a credential whenever you have one, including for health.** Health does not wall, and it returns *more* when authenticated: per-component `details` are gated by [`ops.health.details`](/docs/reference/plugins/opsplugin), which defaults to `when-authenticated`. So `craft ops` presents whatever credential the settings provide on both surfaces and degrades when there is none. That is a correctness matter rather than a nicety: without a credential a route component says `degraded` and nothing else, while with one it says `degraded` because a breaker is open. The output names which view you are reading, so a thin answer never passes for the whole picture.
+
+## Settings file
+
+`craft exec` and `craft ops` read one personal settings file. It is **your** file, not the app's: `craft.config.ts` decides what exists in an instance and what it exposes, while this decides how you like to talk to it.
+
+Two locations, both YAML and both optional:
+
+| Location | Path |
+| --- | --- |
+| Project-local | `.routecraft/settings.yaml` under the working directory |
+| Global | `.routecraft/settings.yaml` under your home directory |
+
+Every option it accepts:
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `url` | string | Base URL of the instance's ops server. Defaults to `http://127.0.0.1:8080` |
+| `token` | string | Bearer credential presented at the management door, and to health |
+| `format` | `pretty` \| `json` \| `raw` | Default output format. Defaults to `pretty` |
+
+```yaml
+# .routecraft/settings.yaml
+url: http://127.0.0.1:9090
+token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+format: pretty
+```
+
+Precedence, highest first: a **flag**, then an **environment variable** (`CRAFT_URL`, `CRAFT_TOKEN`, `CRAFT_FORMAT`), then the **project-local file**, then the **global file**, then the built-in default. When a connection fails, the error names both the address it used and which of those supplied it, so a wrong pinned address is diagnosable from the message alone.
+
+<Callout type="warning" title="The project-local file can hold a token">
+
+Keep `.routecraft/` out of version control. Projects scaffolded with `create-routecraft` ignore it already; if your project predates that, or you created the directory by hand, add `.routecraft/` to your `.gitignore` yourself before putting a token in it.
+
+</Callout>
+
+The two halves can come from different places. A project-local file names the server, while the token usually comes from a higher-precedence source (`CRAFT_TOKEN`, or your home-directory file), so a settings file committed to a repository chooses which server receives a credential you never put in that repository. That is the intended team workflow, where the repository pins the instance and each person holds their own token. It is also the reason to treat a repository you run `craft` in the way you treat one you run `npm install` in.
+
+A settings file that exists but cannot be parsed is an error rather than a silent fallback to defaults, because an operator who wrote a settings file and got default behaviour would reasonably conclude the setting does not work.
+
+`craft login` does not exist yet. Until it does, the token is a signed bearer you paste in here, pass with `--token`, or export as `CRAFT_TOKEN`; when it ships, it writes to this same file.
 
 ## Shutdown helpers
 
