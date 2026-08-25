@@ -844,6 +844,21 @@ This is distinct from a 404, which means no route by that id is registered at al
 **Suggestion**  
 Add `.from(direct())` to the route if it should be callable, or dispatch to one that already is. `GET /ops/routes?dispatchable=true` lists exactly the routes that will accept the call, and `dispatchable` is on every route representation.
 
+## RC5061
+HTTP client response body exceeds maxBodySize
+
+**Why it happens**  
+An `http({ url })` call received a response larger than the route allows. The cap is `maxBodySize`, 10 MB by default, and it is the same name and the same number as the [http plugin's inbound cap](/docs/reference/plugins/httpplugin): one concept means one thing on both sides of the framework.
+
+The message names both numbers and how the size became known. A `Content-Length` above the cap is refused before a single byte is read; a response that declares no length (a chunked transfer) is abandoned mid-stream the moment the running count crosses the ceiling, so the number reported is what had arrived by then rather than what the endpoint intended to send. Because the cap is enforced while the body streams, an oversized response bounds what the process spends, not merely what the route receives.
+
+The body is never truncated to fit. Half a JSON document parses as though it were whole, and a route acting on it would be quietly wrong rather than loudly failed.
+
+The cap applies to error responses too, so a 500 answering with a gigabyte is refused on the same terms. The size error names the status, so the underlying HTTP failure stays legible in the message.
+
+**Suggestion**  
+Raise the ceiling on the call when the endpoint legitimately returns more than 10 MB: `http({ url, maxBodySize: 50_000_000 })`. Otherwise ask the endpoint for less, with a narrower query, a page, or a range request.
+
 ## RC9901
 Unknown error
 

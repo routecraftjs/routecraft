@@ -428,7 +428,86 @@ Make HTTP requests. Returns an `Enricher` (a pull-in) whose `fetch` produces an 
 | `headers` | `Record<string,string> \| (exchange) => Record<string,string>` | `{}` | No | Request headers |
 | `query` | `Record<string,string\|number\|boolean> \| (exchange) => Query` | `{}` | No | Query parameters appended to URL |
 | `body` | `unknown \| (exchange) => unknown` | -- | No | Request body (JSON serialized when not string/binary) |
-| `throwOnHttpError` | `boolean` | `true` | No | Throw when response is non-2xx |
+| `throwOnHttpError` | `boolean` | `true` | No | Throw when response is non-2xx. A 3xx under `redirect: 'manual'` is exempt: it is the outcome the route asked for. |
 | `timeoutMs` | `number` | -- | No | Request timeout in milliseconds |
+| `maxBodySize` | `number` | `10485760` (10 MB) | No | Maximum response body in bytes; `Infinity` for no limit. Larger responses fail the exchange with [`RC5061`](/docs/reference/errors#rc-5061). See [Response size limit](#response-size-limit). |
+| `redirect` | `'follow' \| 'manual' \| 'error'` | `'follow'` | No | What to do with a 3xx. See [Redirect policy](#redirect-policy). |
 
 **Returns:** `HttpResult` object with `status`, `headers`, `body`, and `url`.
+
+### Response size limit
+
+`maxBodySize` caps the response body at 10 MB by default. It is the same name and the same number as the [http plugin's inbound cap](/docs/reference/plugins/httpplugin), because it is the same concept on the other side of the framework.
+
+```ts
+.enrich(http({ url: (ex) => ex.body.url, maxBodySize: 2_000_000 }))
+```
+
+The cap is enforced twice, at the two moments the size can be known:
+
+1. A declared `Content-Length` above the cap is refused as soon as the response comes back, before the body is read.
+2. Otherwise the body streams and the running byte count is checked as it arrives. The response is abandoned the moment the count crosses the ceiling.
+
+The second is what makes the option bound memory rather than merely bound what the route receives. A chunked response declares no length at all, so without it an endpoint could stream any amount into the process before anything noticed.
+
+Exceeding the cap fails the exchange with `RC5061`, naming the option, the limit, and the size that was declared or counted. The body is never truncated to fit: half a JSON document parses as though it were whole, and a route acting on it would be quietly wrong instead of loudly failed.
+
+The cap applies to error responses too, so a `500` answering with a gigabyte is refused on the same terms. The size error names the status so the underlying HTTP failure stays legible.
+
+To opt out entirely, say so by name:
+
+```ts
+.enrich(http({ url, maxBodySize: Infinity }))
+```
+
+Zero and negative values are refused at the `http({...})` call site rather than read as "no limit". The two readings of `0` are opposites, so an options object built programmatically cannot arrive at unbounded by accident.
+
+<Callout type="warning">
+  The 10 MB default applies to routes that never set the option. A route already moving larger payloads through `http()` needs `maxBodySize` raised to keep working.
+</Callout>
+
+### Redirect policy
+
+`redirect` mirrors the platform's `RequestInit.redirect` and adds nothing to it. The default is `'follow'`, exactly as before the option existed.
+
+| Value | Behaviour |
+| --- | --- |
+| `'follow'` | The runtime follows the chain; the result describes the final response. |
+| `'manual'` | The 3xx itself comes back, with `Location` readable in `headers`. |
+| `'error'` | The request fails rather than following. The rejection is the runtime's own, and its message differs between Node and Bun, so do not match on it. |
+
+`'manual'` exists because a route that validated a URL has that validation bypassed the moment the adapter follows a redirect the route never saw. With `'manual'` the route gets the 3xx back and re-runs its own rule on each hop:
+
+```ts
+import { craft, direct, http, isRedirect, when, log } from '@routecraft/routecraft'
+import { z } from 'zod'
+
+// Yours to write: the rule a URL has to pass before this route will fetch it.
+const AllowedUrl = z.string().url().refine((u) => new URL(u).host === 'example.com')
+
+// Yours to write: re-run that same rule on the Location target, then call again.
+const revalidateAndFollow = (path) =>
+  path
+    .transform((body) => ({ url: AllowedUrl.parse(body.headers.location) }))
+    .enrich(http({ url: (ex) => ex.body.url, redirect: 'manual' }))
+
+craft()
+  .id('fetch-page')
+  .input({ body: z.object({ url: AllowedUrl }) })
+  .from(direct('fetch-page'))
+  .enrich(http({ url: (ex) => ex.body.url, redirect: 'manual' }))
+  .choice(when(isRedirect, revalidateAndFollow))
+  .to(log())
+```
+
+Validating once is not enough, and that is the point worth taking from this option.
+
+`isRedirect` ships with the framework, and `HTTP_REDIRECT_STATUSES` is the set behind it. Use them rather than writing `status >= 300 && status < 400`: that includes `304 Not Modified`, which is a cache answer rather than a hop, names no `Location`, and is not what the adapter treats as a redirect either. Deciding what to do on each hop, the `revalidateAndFollow` above, is the route's own business and the framework ships nothing for it.
+
+The option reports what happened and hands control back. It carries no allowlist, no address classification, and no cross-host rules: deciding whether a URL is acceptable belongs in the route, where a reader can see the rule and change it.
+
+Under `'manual'`, a 3xx does not trip `throwOnHttpError`, because it is what the route asked for. Every other non-2xx still does, `304` included, so opting out of following a redirect is not opting out of noticing a `404`.
+
+**Credentials across a hop.** Under `'follow'`, headers you set on the call are sent to the first origin, and both Node 22+ and Bun drop `authorization` and `cookie` when the chain crosses to a different origin. That stripping is the runtime's, not this framework's, so it is worth knowing rather than relying on: with `'manual'` the route sees the hop before anything is re-sent, and decides for itself what the next call carries.
+
+Both runtimes return the real 3xx here rather than the opaque filtered response the Fetch spec describes for browsers, so `status` and `Location` are readable on Node 22+ and on Bun alike. That is a contract this repo pins with a [cross-runtime test](https://github.com/routecraftjs/routecraft/blob/main/packages/routecraft/test/cross-runtime/http-client-redirect.cross.test.ts) rather than an assumption.

@@ -1,7 +1,24 @@
 import type { Enricher } from "../../operations/enrich.ts";
 import type { Exchange } from "../../exchange";
+import { rcError } from "../../error";
+import {
+  declaredLengthOver,
+  resolveMaxBodySize,
+} from "../../plugins/http/max-body-size";
 import type { StepSignalContext } from "../../types.ts";
-import type { HttpClientOptions, HttpResult, QueryParams } from "./types";
+import { isRedirect } from "./redirect";
+import type {
+  HttpClientOptions,
+  HttpRedirectMode,
+  HttpResult,
+  QueryParams,
+} from "./types";
+
+const REDIRECT_MODES: ReadonlySet<string> = new Set<HttpRedirectMode>([
+  "follow",
+  "manual",
+  "error",
+]);
 
 /**
  * HttpEnricherAdapter performs HTTP requests and returns the result: a pure
@@ -9,6 +26,14 @@ import type { HttpClientOptions, HttpResult, QueryParams } from "./types";
  * - With `.enrich()`: the result replaces the body (or feeds the aggregator)
  * - With `.to()`: fetch-only fallback, the result replaces the body
  * - With `.tap()`: fire-and-forget, the result is discarded
+ *
+ * Two options bound what a remote endpoint can do to a route that calls it.
+ * `maxBodySize` caps the response body, enforced against a declared
+ * `Content-Length` before any byte is read and again against the running
+ * count while the body streams, so the ceiling bounds what the process
+ * spends rather than only what the route receives. `redirect` mirrors the
+ * platform's three modes and takes no position on where a redirect leads:
+ * with `"manual"` the 3xx comes back intact and the route decides.
  */
 export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
   T,
@@ -16,7 +41,17 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
 > {
   readonly adapterId = "routecraft.adapter.http";
 
-  constructor(private readonly options: HttpClientOptions<T>) {}
+  private readonly maxBodySize: number;
+  private readonly redirect: HttpRedirectMode;
+
+  constructor(private readonly options: HttpClientOptions<T>) {
+    this.maxBodySize = resolveMaxBodySize(
+      options.maxBodySize,
+      "http() client",
+      { allowUnbounded: true },
+    );
+    this.redirect = normalizeRedirect(options.redirect);
+  }
 
   fetch = async (
     exchange: Exchange<T>,
@@ -97,20 +132,23 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
         method,
         headers,
         body,
+        redirect: this.redirect,
         signal,
       } as RequestInit)) as Response;
-
-      if (throwOnHttpError && !res.ok) {
-        const text = await res.text();
-        throw new Error(`HTTP ${res.status}: ${text}`);
-      }
 
       const headersRecord: Record<string, string> = {};
       res.headers.forEach((value, key) => {
         headersRecord[key] = value;
       });
 
-      const bodyText = await res.text();
+      const bodyText = await this.readBody(res, headersRecord, finalUrl);
+
+      const isRequestedRedirect =
+        this.redirect === "manual" && isRedirect({ status: res.status });
+
+      if (throwOnHttpError && !res.ok && !isRequestedRedirect) {
+        throw new Error(`HTTP ${res.status}: ${bodyText}`);
+      }
 
       // Auto-parse JSON based on Content-Type
       let parsedBody: string | unknown = bodyText;
@@ -133,6 +171,103 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     } finally {
       if (timeout) clearTimeout(timeout);
     }
+  }
+
+  /**
+   * Read the response body as text without letting it exceed
+   * `maxBodySize`.
+   *
+   * A declared `Content-Length` over the cap is refused first, without
+   * reading a byte of the body: the cheapest refusal available. It is not
+   * sufficient alone, because a chunked response declares nothing, so the
+   * streaming arm counts what actually arrives and abandons the response the
+   * moment the count crosses the ceiling. That second arm is what makes the
+   * option bound what the process spends rather than only what the route
+   * sees. Chunks are decoded as they arrive and never held together, so the
+   * peak is the decoded text plus one chunk rather than several copies of
+   * the body.
+   *
+   * Both refusing arms cancel the body first. An unconsumed response body
+   * holds its connection checked out and keeps the runtime buffering
+   * whatever the server sends, which is the exact cost the refusal exists to
+   * avoid, and it leaks a socket per attempt on a route that polls.
+   *
+   * A response with no readable stream (a 204, a `HEAD`, or a test double
+   * standing in for one) falls back to buffering, where the cap can only be
+   * checked after the fact. Nothing is lost: a body that never streamed was
+   * already in memory before this method was called.
+   *
+   * @throws RoutecraftError RC5061 when the declared or actual size exceeds
+   * the cap.
+   */
+  private async readBody(
+    res: Response,
+    headersRecord: Record<string, string>,
+    requestUrl: string,
+  ): Promise<string> {
+    const max = this.maxBodySize;
+
+    const declared = declaredLengthOver(headersRecord["content-length"], max);
+    if (declared !== undefined) {
+      await res.body?.cancel().catch(() => {});
+      throw this.tooLarge(res, requestUrl, declared, "declared");
+    }
+
+    const stream = res.body;
+    if (!stream) {
+      const text = await res.text();
+      const size = new TextEncoder().encode(text).byteLength;
+      if (size > max) {
+        throw this.tooLarge(res, requestUrl, size, "read");
+      }
+      return text;
+    }
+
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > max) {
+          throw this.tooLarge(res, requestUrl, total, "read");
+        }
+        // `stream: true` keeps a multi-byte character split across a chunk
+        // boundary intact.
+        text += decoder.decode(value, { stream: true });
+      }
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+    return text + decoder.decode();
+  }
+
+  /**
+   * Build the `RC5061` refusal.
+   *
+   * Names the request URL, the status, the limit, and the size that was
+   * either declared or counted, because the two arms know different things:
+   * a declaration is what the server claimed, a count is what had arrived
+   * before the read was abandoned and says nothing about what was still
+   * coming. The status is in the message so an oversized error response
+   * stays diagnosable as the HTTP failure it also is.
+   */
+  private tooLarge(
+    res: Response,
+    requestUrl: string,
+    size: number,
+    kind: "declared" | "read",
+  ): Error {
+    const seen =
+      kind === "declared"
+        ? `declares a body of ${size} bytes`
+        : `had sent at least ${size} bytes when the read was abandoned`;
+    return rcError("RC5061", undefined, {
+      message: `http() client: ${requestUrl} (HTTP ${res.status}) ${seen}, over the maxBodySize of ${this.maxBodySize} bytes. Raise maxBodySize on this http({...}) call if the response is legitimately this large.`,
+    });
   }
 
   private resolve<V>(
@@ -172,4 +307,22 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
       return undefined;
     }
   }
+}
+
+/**
+ * @throws RoutecraftError RC5003 when the mode is not one the platform
+ * defines. Passing an unknown string to `fetch` is silently ignored by
+ * some runtimes, which would leave a route believing it had opted out of
+ * following redirects while the adapter kept following them.
+ */
+function normalizeRedirect(
+  value: HttpRedirectMode | undefined,
+): HttpRedirectMode {
+  if (value === undefined) return "follow";
+  if (!REDIRECT_MODES.has(value)) {
+    throw rcError("RC5003", undefined, {
+      message: `http() client: invalid redirect ${String(value)}. Allowed: ${[...REDIRECT_MODES].map((m) => `"${m}"`).join(", ")}.`,
+    });
+  }
+  return value;
 }

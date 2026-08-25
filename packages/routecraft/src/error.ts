@@ -104,6 +104,7 @@ export interface ErrorCodeRegistry {
   RC5058: RCMeta;
   RC5059: RCMeta;
   RC5060: RCMeta;
+  RC5061: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -607,6 +608,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "`POST /ops/routes/{id}/exchanges` creates an exchange on a route, and only a `direct()` ingress makes a route id into a door that can accept one. A cron-, mail- or http-sourced route runs from its own trigger and has no such door, so a dispatch against it is refused here rather than failing somewhere less legible. Add `.from(direct())` to the route if it should be callable, or dispatch to one that already is; `GET /ops/routes?dispatchable=true` lists exactly the routes that will accept this call.",
     docs: `${DOCS_BASE}#rc-5060`,
+    retryable: false,
+  },
+  RC5061: {
+    category: "Adapter",
+    message: "HTTP client response body exceeds maxBodySize",
+    suggestion:
+      "The response to an `http({ url })` call is larger than the route allows, so it was refused rather than read. The cap defaults to 10 MB, matching the http plugin's inbound `maxBodySize`; raise it with `http({ url, maxBodySize })` when the endpoint genuinely returns more, or ask the endpoint for less (a narrower query, a page, a range request). The body is never truncated to fit: half a JSON document parses as though it were whole, and a route acting on it would be wrong rather than failed. A declared `Content-Length` over the cap is refused before any byte is read; a body that declares nothing is abandoned mid-stream the moment the count crosses the ceiling, so the message names whichever number was seen.",
+    docs: `${DOCS_BASE}#rc-5061`,
     retryable: false,
   },
   RC9901: {

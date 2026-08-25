@@ -460,6 +460,10 @@ export { direct } from "./adapters/direct/index.ts";
 export { timer } from "./adapters/timer/index.ts";
 export { cron } from "./adapters/cron/index.ts";
 export { http } from "./adapters/http/index.ts";
+export {
+  isRedirect,
+  HTTP_REDIRECT_STATUSES,
+} from "./adapters/http/redirect.ts";
 export { file } from "./adapters/file/index.ts";
 export { directory } from "./adapters/directory/index.ts";
 export { html } from "./adapters/html/index.ts";
@@ -477,6 +481,7 @@ export {
   type HttpClientOptions,
   type HttpResult,
   type HttpMethod,
+  type HttpRedirectMode,
   type QueryParams,
   type HttpServerOptions,
   type HttpPluginOptions,

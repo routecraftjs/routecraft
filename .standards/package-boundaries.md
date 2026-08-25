@@ -142,6 +142,39 @@ Note on determinism: MCP is a thin protocol over HTTP and is usable from any rou
 
 **Open decision:** the `mcp()` client is a transport over a protocol, not an AI feature. By the section 2 rule (standards live in core), the MCP client transport arguably belongs in **core**, so a plain non-AI route can use `mcp()` without importing the AI module, leaving only the AI-specific pieces in `@routecraft/ai`. Recorded here as undecided; resolve before v1.
 
+### 6.1 Build the harness out of the framework, not into it
+
+The agent tools above are where this pressure shows up first, because every one of them looks like it wants to be an adapter. Ranked worst to best:
+
+1. **A primitive built into the framework.** Nobody can replace it, and nobody can learn from it. The capability exists only as far as we shipped it.
+2. **A bespoke adapter with a wall of configuration options.** This is the tempting one, because it looks like the framework. It is worse than it looks: it takes every decision away from the author and turns guardrails into invisible machinery. An author who cannot see a rule cannot tell whether it is the rule they wanted.
+3. **Composing what already ships.** The guardrails sit in the route, in the author's hands, in the same file as the thing they guard.
+
+A new adapter earns its place when it carries an invariant nothing else can carry, or reaches a system nothing else reaches. Convenience over existing primitives is neither.
+
+**The test before any framework addition:** can an author reading the route see the guardrail and change it?
+
+Worked example: `WebFetch`. A bespoke `webFetch()` adapter would take `allowedDomains`, `maxRedirects`, `rateLimit`, `cacheTtl`, `timeout` and `apiKey`, and every one of those is a decision the route should have made. Built out of what ships, the same capability is a route whose guardrails are all visible:
+
+```ts
+craft()
+  .id('web-fetch')
+  .input({ body: z.object({ url: AllowedUrl }) })   // the allowlist, in one schema
+  .throttle({ rate: 10, per: 'minute' })
+  .cache({ ttl: 3_600_000 })
+  .timeout(30_000)
+  .from(direct('web-fetch'))
+  .enrich(http({ url: (ex) => ex.body.url, redirect: 'manual' }))
+  .choice(when(isRedirect, revalidateAndFollow))    // the rule re-runs per hop
+  .enrich(llm('summariser', { user: (ex) => ex.body.body }))
+```
+
+`isRedirect` is shipped, because the adapter already owns that rule and a route re-deriving it would get `304` wrong. `revalidateAndFollow` is the author's, because what to do on a hop is the decision this section says must stay in the route.
+
+Change the allowlist by editing a schema. Change the rate limit by editing a number. Neither requires a framework release, and a reviewer can see both.
+
+The two things this route needs that composition genuinely cannot supply, `http()`'s `maxBodySize` and `redirect`, went into the http client as ordinary options rather than into a new adapter, because they are properties of making an HTTP request and nothing else can carry them. Note what `redirect` deliberately is not: it reports what happened and hands control back, and takes no position on whether a URL is acceptable. The moment an option starts deciding that, it has become the wall of configuration this section rules out.
+
 ## 7. Dependency policy for core
 
 Zero third-party runtime dependencies in core is the **ambition, not a hard rule**. Exceptions are allowed when the library is popular, well maintained, and makes the effort significantly easier than inlining. Adding a hard dependency to core is a reviewed decision.
