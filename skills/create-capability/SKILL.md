@@ -87,7 +87,11 @@ craft()
 ```
 
 ```ts
-// RIGHT: the same behavior, visible in the chain.
+// RIGHT: the flow, visible in the chain. The rewrite also surfaces decisions
+// the processor made silently: cancelled orders are now dropped explicitly
+// rather than completing as no-ops, and the sales notification is
+// deliberately fire-and-forget. Imperative steps hide such choices;
+// operations force them into the open, which is part of the point.
 craft()
   .id("sync-orders")
   .from(http("/orders"))
