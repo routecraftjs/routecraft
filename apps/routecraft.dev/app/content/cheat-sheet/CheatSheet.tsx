@@ -449,8 +449,9 @@ craft()
             <CheatNote>
               Register functions and direct-route tools once via{' '}
               <code>
-                agentPlugin({'{'} functions: {'{'} CurrentTime: currentTime(),
-                greetUser: directTool({"'"}greet-user{"'"}) {'}'} {'}'})
+                agentPlugin({'{'} functions: {'{'} CurrentTime: {'{'}{' '}
+                description, input, handler {'}'}, greetUser: directTool(
+                {"'"}greet-user{"'"}) {'}'} {'}'})
               </code>
               .
             </CheatNote>

@@ -260,7 +260,7 @@ import { z } from 'zod'
 
 agentPlugin({
   functions: {
-    currentTime: {
+    CurrentTime: {
       description: 'Current UTC timestamp in ISO 8601',
       input: z.object({}),
       handler: async () => new Date().toISOString(),
@@ -320,19 +320,17 @@ const out = await testFn(greet, { name: 'alice' })
 Tags, the `tools([...])` selector, the builder helpers, and the context-level `defaultOptions` bag compose to give an agent a typed, whitelisted set of capabilities.
 
 ```ts
-import {
-  agentPlugin,
-  agent,
-  currentTime,
-  directTool,
-  randomUuid,
-  tools,
-} from '@routecraft/ai'
+import { agentPlugin, agent, directTool, tools } from '@routecraft/ai'
+import { z } from 'zod'
 
 agentPlugin({
   functions: {
-    CurrentTime: currentTime(),                     // built-in (read-only, idempotent)
-    RandomUuid: randomUuid(),                        // built-in (read-only)
+    CurrentTime: {                                  // an inline fn, written in full
+      description: 'Current date and time in ISO 8601.',
+      input: z.object({}),
+      handler: () => new Date().toISOString(),
+      tags: ['read-only', 'idempotent'],
+    },
     sendSlack: { description, input, handler, tags: ['destructive', 'messaging'] },
     fetchOrder: directTool('fetch-order'),          // wraps a direct route as a fn
   },
@@ -452,7 +450,8 @@ Resolution rules:
 | Builder | Use |
 |---|---|
 | `directTool(routeId, overrides?)` | Adapt a registered direct route as a fn. Pulls description, input schema, and tags from the route's discovery bundle by default; `overrides` accepts `description` and `input` to replace either of those (tags pass through unchanged). |
-| `currentTime()` / `randomUuid()` | Built-in fn factories (read-only / idempotent). Assign each a tool name in your `functions:` config, the same way as `directTool`. |
+
+`directTool` is the only fn builder the framework ships. A tool that just wraps a line of JavaScript, such as a clock or a UUID generator, is written inline in `functions:` as shown above: the declaration costs the same as naming a factory, and it stays yours to change.
 
 MCP tools are NOT exposed via a builder. Use the `MCP(server:tool)` / `MCP(server)` grammar (or the raw `mcp__server__tool` form) inside `tools([...])` instead; the registry populated by `defineConfig.mcp` is the source of truth.
 
@@ -708,7 +707,7 @@ For compile-time autocomplete of fn ids in the agent `tools: [...]` field (follo
 // src/types/routecraft.d.ts
 declare module '@routecraft/ai' {
   interface FnRegistry {
-    currentTime: true
+    CurrentTime: true
     sendSlackMessage: true
   }
 }

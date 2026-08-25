@@ -384,8 +384,9 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
 
 /**
  * Standard Schema implementation of an empty input object for loader
- * tools. Mirrors the shape used by `currentTime` / `randomUuid` so the
- * AI SDK bridge's JSON-schema lookup works uniformly.
+ * tools. Exposes the non-standard `~standard.jsonSchema` extension
+ * alongside `validate` so the AI SDK bridge's JSON-schema lookup works
+ * uniformly with library schemas such as Zod and Valibot.
  *
  * @internal
  */

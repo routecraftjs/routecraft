@@ -5,12 +5,11 @@ import { z } from "zod";
 import {
   agent,
   agentPlugin,
-  currentTime,
-  randomUuid,
   llmPlugin,
   tools,
   type AgentDelta,
 } from "../src/index.ts";
+import { currentTimeFn, randomUuidFn } from "./helpers/fn-fixtures.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 // Mock the LLM dispatcher so the test stays hermetic. The mock
@@ -97,7 +96,7 @@ describe("agent context-bus events", () => {
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({
-            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+            functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
           }),
         ],
       })
@@ -486,7 +485,7 @@ describe("agent context-bus events", () => {
       .with({
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
-          agentPlugin({ functions: { CurrentTime: currentTime() } }),
+          agentPlugin({ functions: { CurrentTime: currentTimeFn } }),
         ],
       })
       .routes(
@@ -542,7 +541,7 @@ describe("agent context-bus events", () => {
                 system: "Be concise.",
               },
             },
-            functions: { CurrentTime: currentTime() },
+            functions: { CurrentTime: currentTimeFn },
           }),
         ],
       })

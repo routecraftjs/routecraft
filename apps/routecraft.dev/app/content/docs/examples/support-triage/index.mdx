@@ -82,7 +82,7 @@ export default craft()
 ```
 
 `Direct(<id>)` references a registered capability as a tool; the agent sees its
-`.description()` and `.input()` schema and calls it with validated arguments. `CurrentTime` and
+`.description()` and `.input()` schema and calls it with validated arguments. A bare fn id and
 `MCP(server:tool)` are also valid allowlist entries, and the object form
 `{ name, guard, description }` adds a per-tool [guard](/docs/advanced/securing-capabilities) or
 a per-agent description override. A guard receives the tool input and a context carrying the

@@ -167,9 +167,7 @@ export type {
 // the `MCP(server:tool)` / `mcp__server__tool` grammar inside
 // `tools(...)`.
 export {
-  currentTime,
   directTool,
-  randomUuid,
   tools,
   type AgentToolDescriptor,
   type AgentToolPolicy,
