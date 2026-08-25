@@ -30,7 +30,10 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { McpServer } from "../src/mcp/server.ts";
-import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
+import {
+  MCP_LOCAL_TOOL_REGISTRY,
+  MCP_PLUGIN_REGISTERED,
+} from "../src/mcp/types.ts";
 import { mcp } from "../src/index.ts";
 
 const MCP_STORE_KEY =
@@ -180,9 +183,8 @@ describe("MCP structured output (#574)", () => {
     );
 
     const { tools } = await connected.listTools();
-    // The era wraps a oneOf root on the advertisement side too. Pinning both
-    // halves here is the point: they disagreed before, which is what made
-    // every park fail.
+    // The era wraps a oneOf root on the advertisement side too; pin both so a
+    // drift between them cannot pass.
     expect(tools[0]!.outputSchema).toMatchObject({
       type: "object",
       required: ["result"],
@@ -224,6 +226,55 @@ describe("MCP structured output (#574)", () => {
       arguments: { q: "x" },
     });
     expect(result.structuredContent).toBeUndefined();
+  });
+
+  /**
+   * @case The advertisement travels with the value instead of being looked up again
+   * @preconditions mcp()-fronted suspendable route (oneOf root, so the wrap depends entirely on the schema); handleToolCall driven directly, then the route's entry deleted from the live registry as an unsubscribe would
+   * @expectedResult The result carries the advertised schema it was produced under, and still carries it after the entry is gone, so a route that unsubscribes while parked cannot have its acknowledgment published against a schema the server can no longer find
+   */
+  test("the result carries the schema it was produced under", async () => {
+    t = await testContext()
+      .store(MCP_STORE_KEY, true)
+      .with(suspending())
+      .routes([
+        craft()
+          .id("approve-payout")
+          .description("Parks for approval before paying out")
+          .output({ body: z.object({ paid: z.boolean() }) })
+          .from<{ amount: number }>(mcp())
+          .suspend({ schema: z.object({ approved: z.boolean() }) })
+          .transform(() => ({ paid: true })) as AnyRouteBuilder,
+      ])
+      .build();
+    await t.startAndWaitReady();
+    server = new McpServer(t.ctx);
+
+    const testable = server as unknown as {
+      handleToolCall(
+        tool: string,
+        args: Record<string, unknown>,
+        principal: undefined,
+      ): Promise<{ advertisedOutputSchema?: Record<string, unknown> }>;
+    };
+    const result = await testable.handleToolCall(
+      "approve-payout",
+      { amount: 1 },
+      undefined,
+    );
+
+    // Plain reads rather than toMatchObject: bun:test rewrites matched fields
+    // on the actual object, which would make the second assertion vacuous.
+    const carried = result.advertisedOutputSchema;
+    expect(Array.isArray(carried?.["oneOf"])).toBe(true);
+
+    const registry = t.ctx.getStore(
+      MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
+    ) as Map<string, unknown> | undefined;
+    registry?.delete("approve-payout");
+
+    expect(result.advertisedOutputSchema).toBe(carried);
+    expect(Array.isArray(result.advertisedOutputSchema?.["oneOf"])).toBe(true);
   });
 
   /**
