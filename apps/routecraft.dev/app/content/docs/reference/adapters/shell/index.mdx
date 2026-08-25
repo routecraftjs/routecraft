@@ -1,0 +1,139 @@
+---
+title: shell
+---
+
+<Lead>
+[← All adapters](/docs/reference/adapters)
+</Lead>
+
+```ts
+import { shell, untrusted } from '@routecraft/os'
+```
+
+Run a command and produce its output, isolated by default. The adapter is an enricher: use it with `.enrich()` to merge the result, `.to()` to replace the body with it, or `.tap()` to discard it. Output is always captured, because a command's output is usually why you ran it. Requires `execa` and `shescape` as peer dependencies.
+
+```ts
+import { shell, untrusted } from '@routecraft/os'
+
+craft()
+  .id('clone-repo')
+  .from(direct('clone'))
+  .enrich(shell('git', (ex) => ['clone', untrusted(ex.body.url), '/work'], {
+    network: true,
+    timeout: 60_000,
+  }))
+  .to(log())
+```
+
+## It never invokes a shell
+
+Despite the name, `shell()` does not run a shell. It spawns the named program directly with an argument vector, so no `bash`, `zsh` or `sh -c` ever interprets a command line. An argument can therefore never become a command, however hostile its content: `; rm -rf /` arrives at the program as that literal text.
+
+This is the security boundary, and it is stronger than escaping. If you want shell interpretation, ask for it visibly:
+
+```ts
+shell('bash', ['-c', script])
+```
+
+Now a shell is in the loop and `script` is yours to trust.
+
+## Mark what came from outside
+
+Direct spawning stops an argument becoming a command. It does not stop an argument posing as an *option* to the program you invoked. A `url` of `--upload-pack=evil` handed to `git clone` is still just an argument, and `git` honours it.
+
+Wrap values that came from outside your code in `untrusted()`:
+
+```ts
+shell('git', (ex) => ['clone', untrusted(ex.body.url), '/work'])
+```
+
+Marked values get flag-injection protection; every argument gets control-character hygiene either way. Protection is per value rather than blanket because it works by refusing leading dashes, and applying that to a whole argument list would destroy your own flags: `--oneline` would become `oneline`.
+
+The `require-untrusted-shell-args` [lint rule](/docs/reference/linting) catches an exchange-derived value you forgot to mark.
+
+## Isolation tiers
+
+Each tier is named for the mechanism that provides it, so its name is its promise.
+
+| Tier | What it is | Availability |
+| --- | --- | --- |
+| `unshare` | Linux kernel namespaces. The default. | Linux |
+| `none` | A plain subprocess. No isolation promised, none provided. | Everywhere |
+
+```ts
+shell('ls', ['-la'], { isolation: 'none' })
+```
+
+### What `unshare` guarantees
+
+- **Processes**: a PID namespace with `/proc` remounted inside it. Host processes are invisible to the command and cannot be signalled by it.
+- **Network**: a network namespace with no interfaces unless the call sets `network: true`, so egress is denied by default.
+- **Identity**: a user namespace. The command never holds your host privileges. Pass `mapRootUser: true` if the work genuinely needs root inside.
+- **Mounts**: a mount namespace, so anything the command mounts is contained.
+
+### What `unshare` does not guarantee
+
+**The command can still read every file you can read**, including `~/.ssh`, `.env` files, and the rest of your home directory.
+
+This is stated plainly because the word "isolation" invites the opposite assumption. A mount namespace isolates mount *propagation*, not filesystem *visibility*: `/` inside the namespace is still the host's `/`. Read containment needs a `pivot_root` into a prepared root filesystem, which `unshare` alone cannot sequence.
+
+If a command must not read your secrets, either run it on a host whose files it may all read, or wait for a tier that contains them.
+
+Note how this interacts with `network: true`. Granting egress to a command that can read your files is what turns readable-but-local into exfiltratable. That combination deserves a deliberate decision, particularly for agent workloads.
+
+### A tier that cannot be established fails
+
+`shell()` never falls back to a weaker tier. If the requested isolation cannot be established, the call fails with [`OS1001`](/docs/reference/errors) naming the cause and the ways out: grant the privilege, or write `isolation: "none"` deliberately. The realistic case is `unshare` inside a container whose seccomp profile blocks namespace creation, or a distro restricting unprivileged user namespaces.
+
+## The environment is granted, not inherited
+
+A command gets a documented baseline of `PATH`, `HOME`, `LANG` and `TZ`, and nothing else. Everything further is declared at the call site:
+
+```ts
+shell('deploy', ['--now'], {
+  env: { REGION: 'eu-west-1' },       // explicit values
+  passEnv: ['DEPLOY_TOKEN'],          // forwarded from the parent by name
+})
+```
+
+No credential-bearing variable reaches a command that did not ask for it. A name in `passEnv` that is unset in the parent is simply absent rather than an error.
+
+## Options
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `isolation` | `unshare` | Which tier to run under |
+| `network` | `false` | Allow network egress |
+| `mapRootUser` | `false` | Map to root inside the user namespace instead of to yourself |
+| `cwd` | the host process's | Working directory, static or resolved from the exchange |
+| `env` | `{}` | Environment variables by value |
+| `passEnv` | `[]` | Parent variables to forward by name |
+| `timeout` | none | Milliseconds before the command and its children are killed |
+| `failOnNonZero` | `true` | Throw [`OS1002`](/docs/reference/errors) when the command exits non-zero |
+| `maxOutputBytes` | 8 MiB | Cap on captured output, per stream |
+
+Per-call options beat the `ROUTECRAFT_SHELL_ISOLATION` environment override, which beats `shellPlugin()` defaults. The environment sits above plugin config so an operator can harden a loosely configured deployment, and below the call site so an explicit demand is never quietly changed.
+
+## The result
+
+```ts
+{ stdout: string, stderr: string, exitCode: number, signal?: string, truncated: boolean }
+```
+
+A non-zero exit throws by default. For commands whose exit code is data rather than failure, read it off the result instead:
+
+```ts
+.enrich(shell('grep', ['-q', 'TODO', 'src'], { failOnNonZero: false }))
+```
+
+Output over `maxOutputBytes` keeps the head and the tail with a marker between them and sets `truncated`. On a long build log the tail is usually the part that explains the failure, so neither end is thrown away.
+
+## Context defaults
+
+```ts
+import { shellPlugin } from '@routecraft/os'
+
+plugins: [shellPlugin({ timeout: 30_000 })]
+```
+
+`shellPlugin()` carries no `network` or `mapRootUser` default. Both widen what a command may do, and a context-level default that widens is the kind of grant nobody reads: whether a given command may reach the network is a property of that command, so it is stated where the command is written.

@@ -59,7 +59,7 @@ See [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md) for what must be satisfied be
 | `@routecraft/cli` | `packages/cli` | CLI (`craft`) to run routes and contexts |
 | `@routecraft/testing` | `packages/testing` | Test utilities (spy logger, testContext, pseudo, fixtures) |
 | `@routecraft/eslint-plugin-routecraft` | `packages/eslint-plugin-routecraft` | ESLint plugin |
-| `@routecraft/os` | `packages/os` | System-native host adapters (browser automation via `agentBrowser()`) |
+| `@routecraft/os` | `packages/os` | System-native host adapters (isolated subprocess execution via `shell()`, browser automation via `agentBrowser()`) |
 | `@routecraft/prettier-plugin-routecraft` | `packages/prettier-plugin-routecraft` | Prettier plugin (compact DSL formatting) |
 | `create-routecraft` | `packages/create-routecraft` | Project scaffolder |
 

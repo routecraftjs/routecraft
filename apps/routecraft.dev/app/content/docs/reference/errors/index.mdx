@@ -6,7 +6,7 @@ title: Errors
 Short, actionable error codes used across Routecraft.
 </Lead>
 
-Core codes use the `RC` namespace. Ecosystem packages own their codes under registered namespaces: `@routecraft/ai` uses `AI` (e.g. `AI1001`). See `registerErrorCodes` for adding a namespace.
+Core codes use the `RC` namespace. Ecosystem packages own their codes under registered namespaces: `@routecraft/ai` uses `AI` (e.g. `AI1001`) and `@routecraft/os` uses `OS` (e.g. `OS1001`). See `registerErrorCodes` for adding a namespace.
 
 Each error includes a code, message, a brief suggestion, and underlying error. A code is its owner's namespace followed by four digits: core codes follow `RCcnnn` where `c` is category and `nnn` is the number, and ecosystem packages use their registered namespace (`AI1001`). Adapters throw them with specific message and suggestion overrides via `rcError(rc, cause, { message, suggestion })`. When the framework logs an error, structured meta (`rc`, `message`, `suggestion`, `causeMessage`, `causeStack`) is included so you can search and alert in your log aggregator.
 
@@ -20,6 +20,8 @@ Within a namespace, the leading digit reserves a range for one subsystem, so two
 | `AI1xxx` | `@routecraft/ai` | Agent blocks, configuration, and runtime (run cancellation, suspension surface) |
 | `AI2xxx` | `@routecraft/ai` | MCP boundary: tool results returned to a client |
 | `AI3xxx` | `@routecraft/ai` | Built-in agent tools |
+| `OS1xxx` | `@routecraft/os` | Subprocess execution and isolation tiers |
+| `OS2xxx` | `@routecraft/os` | The agent-exposure boundary: command-pattern matching |
 
 The `Retry` column shows whether the [`retry`](/docs/reference/operations/retry) wrapper will retry this error by default. Codes marked `No` typically represent permanent failures (bad input, configuration errors) that won't succeed on retry.
 
@@ -851,3 +853,47 @@ Unexpected failure without a specific code.
 
 **Suggestion**  
 Check logs and enable debug level.
+
+## OS1001
+Isolation tier unavailable
+
+**Why it happens**  
+`shell()` runs isolated by default and never silently downgrades to a weaker tier, because a route that believes it is contained and is not is worse than one that fails. The tier could not be established. The usual causes are a non-Linux host (the `unshare` tier is Linux-only), a kernel with unprivileged user namespaces restricted (`kernel.unprivileged_userns_clone=0`, or `apparmor_restrict_unprivileged_userns=1`), a container whose seccomp profile blocks namespace creation, or util-linux `unshare` not being installed.
+
+**Suggestion**  
+- Grant the privilege: allow unprivileged user namespaces, or relax the container's seccomp profile.
+- Or write `isolation: "none"` at the call site to run without isolation deliberately and visibly.
+
+There is no third option by design. `shell()` will not choose a weaker tier on your behalf.
+
+## OS1002
+Command exited non-zero
+
+**Why it happens**  
+The command ran and reported failure. This is the default because a route whose `git push` failed should not continue as though it had. The same code covers a command that could not be started at all, which is usually a program that is not installed or not on the `PATH` the call granted.
+
+**Suggestion**  
+- Read `stderr` and `exitCode` from the error's cause to see what the command said.
+- For commands whose exit code is data rather than failure (`grep` with no match, `diff` with differences), pass `failOnNonZero: false` and read `exitCode` off the result.
+- If the program could not be started, check that it is installed and reachable through the environment the call declares. `shell()` grants only the documented baseline plus what the call asks for.
+
+## OS1003
+Command timed out
+
+**Why it happens**  
+The command exceeded the `timeout` given to `shell()` and was killed, along with anything it had spawned.
+
+**Suggestion**  
+- Raise the timeout if the work is genuinely long, or narrow what the command does.
+- A command that times out inside an isolation tier but not outside it is usually waiting on something the tier denies. Network egress is denied unless the call sets `network: true`.
+
+## OS2001
+Command refused by the allowlist
+
+**Why it happens**  
+An agent asked to run a command that no granted pattern matches. This is the agent-exposure boundary, not the security boundary: isolation and argument hygiene apply to permitted commands too.
+
+**Suggestion**  
+- Grant the command with a pattern in the agent's tool list, or have the agent retry with a permitted form.
+- A command containing shell operators needs every subcommand permitted: `git status && rm -rf /` is refused even when `Bash(git status:*)` is granted.
+- Destructive and exec-wrapper forms are never auto-approved by a prefix rule. Grant the exact command line if one is genuinely intended.
