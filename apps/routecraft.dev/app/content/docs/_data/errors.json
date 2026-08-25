@@ -440,7 +440,7 @@
   {
     "code": "OS1002",
     "category": "Adapter",
-    "message": "Command exited non-zero",
+    "message": "Command execution failed",
     "retryable": false
   },
   {

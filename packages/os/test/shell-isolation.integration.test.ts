@@ -113,25 +113,28 @@ describe("the unshare tier's guarantees", () => {
   });
 
   /**
-   * @case Mounting inside the tier does not reach the host
-   * @preconditions A tmpfs mounted over a directory inside the namespace
-   * @expectedResult The mount is visible to the command and absent from the host afterwards
+   * @case A mount made inside the tier is invisible to the host
+   * @preconditions The tier remounts /proc for its own PID namespace; both views are listed
+   * @expectedResult The isolated view carries a /proc mount the host view does not
    */
   test("mounts do not propagate to the host", async () => {
-    const mounted = await run(
-      "findmnt",
-      ["--noheadings", "--target", "/proc"],
-      {
-        mapRootUser: true,
-      },
-    );
-    expect(mounted.exitCode).toBe(0);
+    const procMounts = (text: string): number =>
+      text.split("\n").filter((line) => line.includes(" /proc ")).length;
+
+    const isolated = await run("cat", ["/proc/self/mountinfo"], {
+      mapRootUser: true,
+    });
+    expect(isolated.exitCode).toBe(0);
 
     const host = await unisolated("cat", ["/proc/self/mountinfo"]);
-    // The tier remounts /proc for its own PID namespace. That remount must
-    // not be observable on the host, which is what a private mount
-    // namespace is for.
     expect(host.exitCode).toBe(0);
+
+    // Asserting the difference, not just that both commands ran. Reading
+    // the host's output and never inspecting it would be the vacuous green
+    // this file exists to refuse.
+    expect(procMounts(isolated.stdout)).toBeGreaterThan(
+      procMounts(host.stdout),
+    );
   });
 
   /**

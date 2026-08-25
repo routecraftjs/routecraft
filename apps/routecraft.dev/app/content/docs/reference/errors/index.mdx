@@ -867,7 +867,7 @@ Isolation tier unavailable
 There is no third option by design. `shell()` will not choose a weaker tier on your behalf.
 
 ## OS1002
-Command exited non-zero
+Command execution failed
 
 **Why it happens**  
 The command ran and reported failure. This is the default because a route whose `git push` failed should not continue as though it had. The same code covers a command that could not be started at all, which is usually a program that is not installed or not on the `PATH` the call granted.

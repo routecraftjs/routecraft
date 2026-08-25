@@ -40,6 +40,9 @@ ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
     `shell("git", (ex) => { return ["clone", untrusted(ex.body.url)]; });`,
     // Not the shell adapter.
     `notShell("git", (ex) => ["clone", ex.body.url]);`,
+    // The real marker, imported from the package that exports it.
+    `import { shell, untrusted } from "@routecraft/os";
+     shell("git", (ex) => ["clone", untrusted(ex.body.url)]);`,
   ],
   invalid: [
     {
@@ -69,6 +72,25 @@ ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
     {
       // Both branches of a conditional resolver are checked.
       code: `shell("git", (ex) => ex.body.deep ? ["clone", ex.body.url] : ["fetch"]);`,
+      errors: [{ messageId: "unmarked" }],
+    },
+    {
+      // An early return inside an if is the ordinary way a resolver
+      // branches, and was invisible to the rule.
+      code: `shell("git", (ex) => { if (ex.body.useFetch) { return ["fetch", ex.body.url]; } return ["clone"]; });`,
+      errors: [{ messageId: "unmarked" }],
+    },
+    {
+      // A spread expands into arguments, so what it spreads can pose as
+      // an option just as an element written out can.
+      code: `shell("git", (ex) => ["clone", ...ex.body.args]);`,
+      errors: [{ messageId: "unmarked" }],
+    },
+    {
+      // A locally defined untrusted() carries no protection, so the name
+      // alone must not exempt the argument.
+      code: `function untrusted(v) { return v; }
+             shell("git", (ex) => ["clone", untrusted(ex.body.url)]);`,
       errors: [{ messageId: "unmarked" }],
     },
   ],

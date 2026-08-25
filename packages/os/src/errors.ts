@@ -45,9 +45,9 @@ registerErrorCodes(
     },
     OS1002: {
       category: "Adapter",
-      message: "Command exited non-zero",
+      message: "Command execution failed",
       suggestion:
-        "The command ran and reported failure. Its `stderr` and `exitCode` are on the error's cause so the route can log what the command actually said. For commands whose exit code is data rather than failure (`grep` with no match, `diff` with differences), pass `failOnNonZero: false` and read `exitCode` off the result instead.",
+        "The command failed to run, or ran and reported failure. Its `stderr` and `exitCode` are on the error's cause so the route can log what the command actually said. For commands whose exit code is data rather than failure (`grep` with no match, `diff` with differences), pass `failOnNonZero: false` and read `exitCode` off the result instead.",
       docs: `${DOCS_BASE}#os-1002`,
       retryable: false,
     },

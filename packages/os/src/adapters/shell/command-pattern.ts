@@ -364,13 +364,30 @@ function carveOutReason(words: readonly string[]): string | undefined {
   const flags = DESTRUCTIVE_FLAGS[head];
   if (flags) {
     const found = words.find((word) =>
-      flags.some((flag) => word === flag || word.startsWith(`${flag}=`)),
+      flags.some((flag) => matchesFlag(word, flag)),
     );
     if (found !== undefined) {
       return `"${head} ${found}" modifies or executes rather than reads, so a prefix grant for "${head}" does not cover it`;
     }
   }
   return undefined;
+}
+
+/**
+ * Does this word use the given flag, in any of the spellings a program
+ * accepts it in?
+ *
+ * Exact (`-c`), attached with an equals (`--exec=x`), and, for a
+ * single-character short flag, attached directly (`-ccore.pager=id`). The
+ * last is the one that matters: getopt reads `-cVALUE` and `-c VALUE`
+ * identically, so a carve-out that only recognised the spaced form refused
+ * `git -c core.pager=id` while admitting `git -ccore.pager=id`, which runs
+ * exactly the same thing.
+ */
+function matchesFlag(word: string, flag: string): boolean {
+  if (word === flag || word.startsWith(`${flag}=`)) return true;
+  const isShort = flag.length === 2 && flag.startsWith("-") && flag[1] !== "-";
+  return isShort && word.length > flag.length && word.startsWith(flag);
 }
 
 /**

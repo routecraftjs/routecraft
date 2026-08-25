@@ -242,6 +242,13 @@ describe("command pattern matching", () => {
     expect(allow(["make:*"], "make -f /tmp/evil.mk")).toBe(false);
     expect(allow(["node:*"], "node -e 'x'")).toBe(false);
 
+    // getopt reads `-cVALUE` and `-c VALUE` identically, so a carve-out
+    // that only saw the spaced form admitted the same execution.
+    expect(allow(["git:*"], "git -ccore.pager=id status")).toBe(false);
+    expect(allow(["python3:*"], "python3 -cimport os")).toBe(false);
+    expect(allow(["perl:*"], "perl -eprint 1")).toBe(false);
+    expect(allow(["node:*"], "node -econsole.log(1)")).toBe(false);
+
     // Ordinary use of the same programs still works, which is the trade
     // that keeps the carve-outs usable.
     expect(allow(["git:*"], "git log --oneline")).toBe(true);

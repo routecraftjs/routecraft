@@ -78,39 +78,107 @@ function readsFrom(node: unknown, param: string): boolean {
   }
 }
 
-/** Is this an `untrusted(...)` call? */
-function isUntrustedCall(node: unknown): boolean {
-  return isCallExpression(node) && isIdentifier(node.callee)
-    ? node.callee.name === "untrusted"
-    : false;
+/**
+ * Is this a call to the shell adapter's `untrusted()`?
+ *
+ * The name alone is not enough. A local `function untrusted(v) { return v }`
+ * would otherwise silence the rule on an argument that carries no
+ * protection at all, which is worse than no rule: the author is told they
+ * are covered. The identifier is resolved in scope and accepted only when
+ * it is an unshadowed import from the package that exports it.
+ */
+function isUntrustedCall(node: unknown, scope: Scope): boolean {
+  if (!isCallExpression(node) || !isIdentifier(node.callee)) return false;
+  if (node.callee.name !== "untrusted") return false;
+  const variable = findVariable(scope, "untrusted");
+  // Unresolved means no binding is visible here: either the import is
+  // missing (the code would not run) or the linter cannot see it. Accept
+  // it rather than reporting a false positive on correct code.
+  if (!variable) return true;
+  return variable.defs.some(
+    (def) =>
+      def.type === "ImportBinding" &&
+      typeof def.parent?.source?.value === "string" &&
+      UNTRUSTED_MODULES.has(def.parent.source.value),
+  );
 }
 
-/** Every array literal reachable as a return value of the resolver. */
-function collectReturnedArrays(body: unknown, found: unknown[]): void {
-  if (!isObject(body)) return;
-  switch (typeOf(body)) {
+/** Packages whose `untrusted` export is the real marker. */
+const UNTRUSTED_MODULES = new Set(["@routecraft/os"]);
+
+/** The subset of ESLint's scope objects this rule reads. */
+interface Scope {
+  variables: { name: string; defs: VariableDef[] }[];
+  upper: Scope | null;
+}
+
+interface VariableDef {
+  type: string;
+  parent?: { source?: { value?: unknown } };
+}
+
+/** Walk outwards for the binding a bare identifier resolves to. */
+function findVariable(
+  scope: Scope | null,
+  name: string,
+): { defs: VariableDef[] } | undefined {
+  for (let current = scope; current; current = current.upper) {
+    const found = current.variables.find((v) => v.name === name);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * Every array literal reachable as a return value of the resolver.
+ *
+ * Walks nested statements rather than only a block's direct children: an
+ * early `if (...) return [...]` is the ordinary way a resolver branches,
+ * and treating it as unreachable made the rule silent on exactly the form
+ * most likely to carry a conditional argument.
+ */
+function collectReturnedArrays(node: unknown, found: unknown[]): void {
+  if (!isObject(node)) return;
+  switch (typeOf(node)) {
     case "ArrayExpression":
-      found.push(body);
+      found.push(node);
       return;
-    case "BlockStatement":
-      if (!Array.isArray(body["body"])) return;
-      for (const statement of body["body"]) {
-        if (
-          isObject(statement) &&
-          statement["type"] === "ReturnStatement" &&
-          statement["argument"]
-        ) {
-          collectReturnedArrays(statement["argument"], found);
-        }
-      }
+    case "ReturnStatement":
+      collectReturnedArrays(node["argument"], found);
       return;
     case "ConditionalExpression":
-      collectReturnedArrays(body["consequent"], found);
-      collectReturnedArrays(body["alternate"], found);
+      collectReturnedArrays(node["consequent"], found);
+      collectReturnedArrays(node["alternate"], found);
+      return;
+    case "LogicalExpression":
+      collectReturnedArrays(node["left"], found);
+      collectReturnedArrays(node["right"], found);
       return;
     default:
+      // Any other statement may still contain a return further down (an
+      // if, a loop, a try, a switch case), so descend through its own
+      // child nodes rather than enumerating every statement type.
+      for (const key of STATEMENT_CHILD_KEYS) {
+        const child = node[key];
+        if (Array.isArray(child)) {
+          for (const item of child) collectReturnedArrays(item, found);
+        } else if (isObject(child)) {
+          collectReturnedArrays(child, found);
+        }
+      }
   }
 }
+
+/** Child slots a statement can hold another statement in. */
+const STATEMENT_CHILD_KEYS = [
+  "body",
+  "consequent",
+  "alternate",
+  "block",
+  "handler",
+  "finalizer",
+  "cases",
+] as const;
 
 const rule: Rule.RuleModule = {
   meta: {
@@ -148,15 +216,21 @@ const rule: Rule.RuleModule = {
         const param: unknown = resolver["params"][0];
         if (!isIdentifier(param)) return;
 
+        const scope = context.sourceCode.getScope(node) as unknown as Scope;
         const arrays: unknown[] = [];
         collectReturnedArrays(resolver["body"], arrays);
 
         for (const array of arrays) {
           if (!isObject(array) || !Array.isArray(array["elements"])) continue;
-          for (const element of array["elements"]) {
-            if (!isObject(element)) continue;
-            if (element["type"] === "SpreadElement") continue;
-            if (isUntrustedCall(element)) continue;
+          for (const raw of array["elements"]) {
+            if (!isObject(raw)) continue;
+            // A spread expands into arguments, so what it spreads is as
+            // able to pose as an option as any element written out.
+            const element =
+              raw["type"] === "SpreadElement" && isObject(raw["argument"])
+                ? raw["argument"]
+                : raw;
+            if (isUntrustedCall(element, scope)) continue;
             if (!readsFrom(element, param.name)) continue;
             context.report({
               node: element as never,
