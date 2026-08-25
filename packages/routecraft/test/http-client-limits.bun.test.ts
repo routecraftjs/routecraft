@@ -314,11 +314,11 @@ describe("http() client maxBodySize", () => {
   });
 
   /**
-   * @case A non-positive maxBodySize is refused at the http({...}) call site
-   * @preconditions maxBodySize of 0 and of -1 passed to the client factory
-   * @expectedResult RC5003 at construction, rather than a client that silently rejects every response it receives
+   * @case A maxBodySize that is not a positive integer is refused at the http({...}) call site
+   * @preconditions maxBodySize of 0, of -1 and of 1.5 passed to the client factory
+   * @expectedResult RC5003 at construction, rather than a client that silently rejects every response it receives. Fractional values are refused alongside the non-positive ones because a byte count is a whole number, and rounding one on the author's behalf would mean the cap enforced is not the cap written
    */
-  test("refuses a non-positive maxBodySize at construction", () => {
+  test("refuses a maxBodySize that is not a positive integer at construction", () => {
     for (const value of [0, -1, 1.5]) {
       expect(() => http({ url: `${base}/at`, maxBodySize: value })).toThrow();
       expect(rcOf(() => http({ url: `${base}/at`, maxBodySize: value }))).toBe(

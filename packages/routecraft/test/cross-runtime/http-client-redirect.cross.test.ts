@@ -105,6 +105,11 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
+/**
+ * Drive the client through the public factory, with no route in the way.
+ * Both options are properties of the adapter's own request and read, so the
+ * runtime contract is asserted directly against them.
+ */
 async function callClient(
   options: HttpClientOptions<unknown>,
 ): Promise<HttpResult> {

@@ -241,6 +241,16 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     return text + decoder.decode();
   }
 
+  /**
+   * Build the `RC5061` refusal.
+   *
+   * Names the request URL, the status, the limit, and the size that was
+   * either declared or counted, because the two arms know different things:
+   * a declaration is what the server claimed, a count is what had arrived
+   * before the read was abandoned and says nothing about what was still
+   * coming. The status is in the message so an oversized error response
+   * stays diagnosable as the HTTP failure it also is.
+   */
   private tooLarge(
     res: Response,
     requestUrl: string,

@@ -480,8 +480,12 @@ Zero and negative values are refused at the `http({...})` call site rather than 
 
 ```ts
 import { craft, direct, http, isRedirect, when, log } from '@routecraft/routecraft'
+import { z } from 'zod'
 
-// Yours to write: re-run the same rule on the Location target, then call again.
+// Yours to write: the rule a URL has to pass before this route will fetch it.
+const AllowedUrl = z.string().url().refine((u) => new URL(u).host === 'example.com')
+
+// Yours to write: re-run that same rule on the Location target, then call again.
 const revalidateAndFollow = (path) =>
   path
     .transform((body) => ({ url: AllowedUrl.parse(body.headers.location) }))
