@@ -28,7 +28,7 @@ Confirm answers to these questions before writing. Ask the user only the ones th
 
 1. **What triggers the capability?** A direct call from another capability? An MCP tool invocation? A webhook (HTTP source)? A timer or cron? A mail inbox? A simple in-memory payload (typical for tests)?
 2. **What is the body shape on input and output?** Bodies are typed end to end; commit to a Zod or other Standard Schema for `input` and `output` if the user knows what they want
-3. **What does the pipeline do?** Linear (one transform, one destination)? Fan-out then fan-in (`split` then `aggregate`)? Branch (`choice`)? Conditional drop (`filter`)? Schema check (`validate`)?
+3. **What does the pipeline do?** Linear (one transform, one destination)? Fan-out then fan-in (`split` then `aggregate`)? Branch (`choice`)? Conditional drop (`filter`)? Schema check (`validate`)? Name each behavior as an operation now; whatever you name here must appear in the chain, not inside a `.process()` body (see the rule in Step 3)
 4. **Does it need batching?** If the source emits many small messages and the work batches naturally, set `.batch({...})` before `.from(...)`
 5. **Does it need resilience?** If failures should retry, time out, or fall back, plan to use the route- or step-scope wrappers (`.error(...)` is built in; others are coming)
 
@@ -65,6 +65,44 @@ export default craft()
   // operations
   .to(/* destination */);
 ```
+
+### The chain is the logic; `.process()` is the last resort
+
+The route chain is read by people who will never read the step internals: reviewers, operators, non-technical stakeholders, and anyone checking a route an AI wrote. Checking the DSL is cheap; checking imperative logic is not. So every behavior that has an operation must appear *as that operation in the chain*, where it can be seen. The anti-pattern this rule exists to kill:
+
+```ts
+// WRONG: a script wearing a route costume. The chain says nothing;
+// all branching, mapping, and even the send hide inside one processor.
+craft()
+  .id("sync-orders")
+  .from(http("/orders"))
+  .process(async (ex) => {
+    if (ex.body.status === "cancelled") return ex;
+    const enriched = await fetchCustomer(ex.body);
+    if (enriched.vip) await notifySales(enriched);
+    await postToErp(enriched);
+    return ex;
+  })
+  .to(noop());
+```
+
+```ts
+// RIGHT: the same behavior, visible in the chain.
+craft()
+  .id("sync-orders")
+  .from(http("/orders"))
+  .filter((ex) => ex.body.status !== "cancelled")
+  .enrich(customerLookup())
+  .choice(when((ex) => ex.body.vip, (b) => b.tap(salesNotifier())))
+  .to(erp());
+```
+
+Concrete rules:
+
+- Branching is `.choice()`, conditional drop is `.filter()`, reshaping is `.transform()`, pulling data in is `.enrich(...)`, side effects are `.tap(...)`, sending is `.to(...)`, fan-out/fan-in is `.split()`/`.aggregate()`, schema checks are `.validate()`/`.input()`. An `if` inside a step body that selects *behavior* is a `.choice()` or `.filter()` that escaped the chain.
+- **`.to(noop())` is a red flag.** If the route ends in `noop()` while a step above performs the real send, the destination is hiding; move it into `.to(...)` (or `.tap(...)` if it is fire-and-forget). `noop()` is legitimate only when the route genuinely produces no outbound effect (its value is the reply body or the enrichment itself).
+- `.process()` is for the rare step no operation expresses (a multi-field stateful interaction with the exchange). Reaching for it because it is familiar imperative code is the failure mode; if a chain of two operations can say the same thing, write the two operations.
+- Before finishing, reread the chain alone and ask: can a reader who opens only `route.ts` say what this capability does, to what, under which conditions, and where results go? If any of those answers lives inside a step body, the chain is not done.
 
 Authoring rules to keep in mind:
 
