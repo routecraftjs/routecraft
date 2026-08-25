@@ -10,13 +10,7 @@ import {
 } from "../../mcp/types.ts";
 import type { McpToolRegistry } from "../../mcp/tool-registry.ts";
 import { directTool } from "./builders.ts";
-import { isDeferredFn, type FnEntry } from "./types.ts";
-import {
-  collectSpecifiers,
-  compileSpecifier,
-  combineGuards,
-  parseSpecifierRef,
-} from "./specifier.ts";
+import { isDeferredFn, resolveFnOptions, type FnEntry } from "./types.ts";
 import {
   describeToolNameViolation,
   isSplittableNameHead,
@@ -138,12 +132,6 @@ export interface ToolsCatalog {
     readonly name: string;
     readonly description?: string;
     readonly tags?: readonly Tag[];
-    /**
-     * True when the tool accepts a use-site specifier, so a builder (or
-     * the agent-file loader) can tell a grant that could have been
-     * narrowed from one that could not.
-     */
-    readonly narrowable?: boolean;
   }>;
   /**
    * Discoverable direct routes (see `CraftContext.capabilities()`).
@@ -317,18 +305,6 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
     resolve(ctx) {
       const items =
         typeof arg === "function" ? runBuilder(arg, buildCatalog(ctx)) : arg;
-      // Specifiers are unioned across the whole selection before any
-      // resolution, so two entries naming the same tool produce one tool
-      // whose guard honours both.
-      const specifiers = collectSpecifiers(
-        items.map((item) =>
-          typeof item === "string"
-            ? item
-            : typeof (item as { name?: unknown })?.name === "string"
-              ? (item as { name: string }).name
-              : "",
-        ),
-      );
       const out = new Map<string, ResolvedTool>();
       for (const item of items) {
         if (typeof item === "string") {
@@ -340,7 +316,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             }
             continue;
           }
-          record(out, resolveRef(ctx, item, undefined, specifiers));
+          record(out, resolveByName(ctx, item, undefined));
           continue;
         }
         if (item === null || typeof item !== "object" || !("name" in item)) {
@@ -376,7 +352,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             message: `tools(): { name: "${item.name}", description } must be a non-empty string when present.`,
           });
         }
-        const base = resolveRef(ctx, item.name, item.guard, specifiers);
+        const base = resolveByName(ctx, item.name, item.guard);
         // Per-binding description override. The registry entry is
         // never mutated, so other agents binding the same fn still
         // see the canonical description.
@@ -389,6 +365,29 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
       return [...out.values()];
     },
   };
+}
+
+/**
+ * A registry entry's declared fields, or `undefined` when a deferred
+ * entry cannot resolve.
+ *
+ * The catalogue enumerates every registered tool, including ones the
+ * caller will never grant, so a single unresolvable entry must not throw
+ * the whole snapshot. Resolution failure is reported by absence here and
+ * raised properly by `resolveByName` when someone actually grants it.
+ *
+ * @internal
+ */
+function describeEntry(
+  ctx: CraftContext,
+  name: string,
+  entry: FnEntry,
+): FnOptions | undefined {
+  try {
+    return resolveFnOptions(ctx, name, entry);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -407,26 +406,30 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
     Map<string, FnEntry> | undefined;
   if (fnRegistry) {
     for (const [name, entry] of fnRegistry) {
-      if (isDeferredFn(entry)) {
-        // Deferred wrappers don't carry their own description/tags in
-        // the registry; users who want to filter on those should walk
-        // catalog.routes for the underlying route, then reference it
-        // as `Direct(<routeId>)` in the returned items list.
+      // Resolve before reading. A deferred entry read raw carries no
+      // description or tags, and a builder filtering on either would
+      // silently drop every route-backed tool while reporting nothing.
+      const declared = describeEntry(ctx, name, entry);
+      if (!declared) {
+        // The entry is registered but cannot resolve, so its own fields
+        // are genuinely unknown. Listed by name rather than omitted or
+        // thrown from here: a broken registration should fail where it
+        // is granted, naming that tool, not break every builder-based
+        // selection in the context.
         fns.push(Object.freeze({ name }));
-      } else {
-        const tags =
-          entry.tags && entry.tags.length > 0
-            ? Object.freeze([...entry.tags])
-            : undefined;
-        fns.push(
-          Object.freeze({
-            name,
-            description: entry.description,
-            ...(tags !== undefined ? { tags } : {}),
-            ...(entry.specifier ? { narrowable: true } : {}),
-          }),
-        );
+        continue;
       }
+      const tags =
+        declared.tags && declared.tags.length > 0
+          ? Object.freeze([...declared.tags])
+          : undefined;
+      fns.push(
+        Object.freeze({
+          name,
+          description: declared.description,
+          ...(tags !== undefined ? { tags } : {}),
+        }),
+      );
     }
   }
 
@@ -511,32 +514,6 @@ function fnRegistryHas(ctx: CraftContext, name: string): boolean {
   return fnRegistry?.has(name) ?? false;
 }
 
-/**
- * Resolve a specifier reference to a tool with its guard attached.
- *
- * A name that is not registered falls through to the ordinary resolution
- * path so the reader gets the familiar unknown-tool error naming what IS
- * available, rather than a specifier-flavoured variant of it.
- *
- * @internal
- */
-function resolveSpecifierRef(
-  ctx: CraftContext,
-  name: string,
-  bodies: readonly string[],
-  guard: ToolGuard | undefined,
-): ResolvedTool {
-  const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
-    Map<string, FnEntry> | undefined;
-  const entry = fnRegistry?.get(name);
-  if (entry === undefined) return resolveByName(ctx, name, guard);
-  return resolveByName(
-    ctx,
-    name,
-    combineGuards(guard, compileSpecifier(entry, name, bodies)),
-  );
-}
-
 function resolveByName(
   ctx: CraftContext,
   name: string,
@@ -584,37 +561,30 @@ function resolveByName(
 }
 
 /**
- * Resolve one tool reference, attaching its unioned specifier guard when
- * it carries a specifier. One path for both the string and object item
- * forms, which otherwise drift into granting different things.
+ * Run two guards as one. Both must pass, because each was written to
+ * withhold something and a combination that let either one through would
+ * grant more than either author intended.
  *
  * @internal
  */
-function resolveRef(
-  ctx: CraftContext,
-  ref: string,
-  guard: ToolGuard | undefined,
-  specifiers: Map<string, string[]>,
-): ResolvedTool {
-  const spec = parseSpecifierRef(ref);
-  if (!spec) return resolveByName(ctx, ref, guard);
-  return resolveSpecifierRef(
-    ctx,
-    spec.name,
-    specifiers.get(spec.name) ?? [spec.body],
-    guard,
-  );
+function combineGuards(
+  first: ToolGuard | undefined,
+  second: ToolGuard,
+): ToolGuard {
+  if (!first) return second;
+  return async (input, ctx) => {
+    await first(input, ctx);
+    await second(input, ctx);
+  };
 }
 
 /**
  * Add a resolved tool, composing rather than replacing when the name is
  * already present.
  *
- * Every specifier reference resolves to its tool's bare name, so repeated
- * entries for one tool collide here. Overwriting silently dropped whatever
- * the earlier entry carried, including an explicit guard: the union that
- * makes repeated entries the documented idiom would then quietly widen the
- * grant depending on which line came last.
+ * Repeated entries for one tool collide here. Overwriting silently dropped
+ * whatever the earlier entry carried, including an explicit guard, which
+ * would quietly widen the grant depending on which line came last.
  *
  * @internal
  */
@@ -641,7 +611,7 @@ function resolveFnEntry(
   guard: ToolGuard | undefined,
 ): ResolvedTool {
   if (isDeferredFn(entry)) {
-    const fn = entry.resolve(ctx, name);
+    const fn = resolveFnOptions(ctx, name, entry);
     // Derived from `entry.kind`, never asserted. `isDeferredFn` is a
     // brand check only, so hardcoding "direct" here would silently
     // classify a future deferred kind (a sub-agent tool is the named

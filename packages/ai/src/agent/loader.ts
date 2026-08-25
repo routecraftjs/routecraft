@@ -9,7 +9,6 @@ import {
 } from "../block/markdown.ts";
 import { tools } from "./tools/index.ts";
 import type { ToolSelection } from "./tools/selection.ts";
-import { toolNameOf } from "./tools/specifier.ts";
 import type { LlmModelId } from "../llm/types.ts";
 import type { AgentRegisteredOptions } from "./types.ts";
 
@@ -205,14 +204,16 @@ function optionalToolRefs(
 }
 
 /**
- * Whether a `disallowedTools` entry removes a granted reference. A bare
- * name denies every scoped grant of that tool, because a deny naming the
- * tool means the tool; a scoped deny removes only the exact grant.
+ * Whether a `disallowedTools` entry removes a granted reference.
+ *
+ * A tool is named by exactly one reference, so a denial matches the
+ * grant it names and nothing else. `Direct(a)` denies that route and
+ * leaves `Direct(b)` alone.
  *
  * @internal
  */
 function isDeniedBy(granted: string, denial: string): boolean {
-  return granted === denial || toolNameOf(granted) === denial;
+  return granted.trim() === denial.trim();
 }
 
 /**
@@ -237,14 +238,7 @@ function toolSelection(
   disallowed: readonly string[],
   source: string,
 ): ToolSelection {
-  const denied = new Set(disallowed);
-  // ONLY a bare denial names the tool. Mapping every denial through
-  // toolNameOf made a scoped `Bash(rm:*)` deny collapse to `Bash` and
-  // silently remove every other Bash grant in the file, which is the
-  // opposite of what isDeniedBy documents.
-  const deniedNames = new Set(
-    disallowed.filter((entry) => toolNameOf(entry) === entry.trim()),
-  );
+  const denied = new Set(disallowed.map((entry) => entry.trim()));
   // A deny that names something the agent never had is a typo, and the
   // tool it meant to remove stays granted. Same reason a deny with no
   // allow throws: a field whose whole purpose is removing capability
@@ -259,18 +253,10 @@ function toolSelection(
   const warned = new Set<string>();
   return tools((catalog) => {
     const registered = new Set(catalog.fns.map((fn) => fn.name));
-    const narrowable = new Set(
-      catalog.fns.filter((fn) => fn.narrowable).map((fn) => fn.name),
-    );
     const kept: string[] = [];
     for (const ref of refs) {
-      // A scoped entry is the same tool as its bare name, so every check
-      // here runs against the name rather than the whole reference.
-      // Matching the reference verbatim is what made a real agent file
-      // carrying `Bash(git status:*)` fail to load: the name never
-      // reached the built-in check and fell through to unknown-tool.
-      const name = toolNameOf(ref);
-      if (denied.has(ref) || deniedNames.has(name)) continue;
+      const name = ref.trim();
+      if (denied.has(name)) continue;
       if (!registered.has(name) && CLAUDE_BUILTIN_TOOLS.has(name)) {
         if (!warned.has(name)) {
           warned.add(name);
@@ -279,12 +265,6 @@ function toolSelection(
           );
         }
         continue;
-      }
-      if (name === ref && narrowable.has(name) && !warned.has(`wide:${name}`)) {
-        warned.add(`wide:${name}`);
-        logger.warn(
-          `Markdown file "${source}": tool "${name}" is granted without a specifier, so this agent may use it without limit. Narrow it by writing what it may do in parentheses, for example "${name}(git status:*)".`,
-        );
       }
       kept.push(ref);
     }

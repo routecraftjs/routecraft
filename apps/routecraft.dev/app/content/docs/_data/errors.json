@@ -448,11 +448,5 @@
     "category": "Adapter",
     "message": "Command timed out",
     "retryable": true
-  },
-  {
-    "code": "OS2001",
-    "category": "Adapter",
-    "message": "Command refused by the allowlist",
-    "retryable": false
   }
 ]

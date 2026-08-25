@@ -147,4 +147,24 @@ describe("the unshare tier's guarantees", () => {
     const result = await shell("echo", [hostile]).fetch(exchange);
     expect(result.stdout.trim()).toBe(hostile);
   });
+
+  /**
+   * @case A failure under denied egress says the run had no network
+   * @preconditions A command that fails because it cannot reach the network, run isolated with egress denied and failOnNonZero left on
+   * @expectedResult The OS1002 message names the denial and the network: true remedy, which is the hint the first failing git clone needs
+   */
+  test("a failure under denied egress names the remedy", async () => {
+    let thrown: unknown;
+    try {
+      await shell("getent", ["ahosts", "example.com"], {
+        isolation: "unshare",
+      }).fetch(exchange);
+    } catch (e: unknown) {
+      thrown = e;
+    }
+    expect(thrown).toBeDefined();
+    const message = String((thrown as Error).message);
+    expect(message).toContain("without network access");
+    expect(message).toContain("network: true");
+  });
 });

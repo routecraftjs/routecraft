@@ -407,6 +407,17 @@ describe("running a command", () => {
   });
 
   /**
+   * @case A failure under a tier that denied egress says so
+   * @preconditions A command failing with a non-zero exit under the none tier, where nothing was denied
+   * @expectedResult No egress note, because naming a denial that did not happen sends the reader after a cause that is not there
+   */
+  test("no egress note when the tier denied nothing", async () => {
+    await expect(
+      shell("false", [], { isolation: "none" }).fetch(exchange),
+    ).rejects.toThrow(/^(?!.*without network access).*$/s);
+  });
+
+  /**
    * @case A command whose exit code is data reports it instead of failing
    * @preconditions The same failing command with failOnNonZero false
    * @expectedResult The exit code is returned on the result

@@ -21,7 +21,6 @@ Within a namespace, the leading digit reserves a range for one subsystem, so two
 | `AI2xxx` | `@routecraft/ai` | MCP boundary: tool results returned to a client |
 | `AI3xxx` | `@routecraft/ai` | Built-in agent tools |
 | `OS1xxx` | `@routecraft/os` | Subprocess execution and isolation tiers |
-| `OS2xxx` | `@routecraft/os` | The agent-exposure boundary: command-pattern matching |
 
 The `Retry` column shows whether the [`retry`](/docs/reference/operations/retry) wrapper will retry this error by default. Codes marked `No` typically represent permanent failures (bad input, configuration errors) that won't succeed on retry.
 
@@ -887,15 +886,3 @@ The command exceeded the `timeout` given to `shell()` and was killed, along with
 - Raise the timeout if the work is genuinely long, or narrow what the command does.
 - A command that times out inside an isolation tier but not outside it is usually waiting on something the tier denies. Network egress is denied unless the call sets `network: true`.
 
-## OS2001
-Command refused by the allowlist
-
-**Why it happens**  
-An agent asked to run a command that no granted pattern matches. This is the agent-exposure boundary, not the security boundary: isolation and argument hygiene apply to permitted commands too.
-
-The matcher this code comes from ships in `@routecraft/os`; the agent-facing tool that wires it to `shell()` is assembled in the project scaffolder's harness template, so this code is reachable once a project registers that tool.
-
-**Suggestion**  
-- Grant the command with a pattern in the agent's tool list, or have the agent retry with a permitted form.
-- A command containing shell operators needs every subcommand permitted: `git status && rm -rf /` is refused even when `Bash(git status:*)` is granted.
-- Destructive and exec-wrapper forms are never auto-approved by a prefix rule. Grant the exact command line if one is genuinely intended.

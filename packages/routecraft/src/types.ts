@@ -999,7 +999,7 @@ export interface EventDetailsMap {
   "route:agent:tool:refused": ExchangeScoped & {
     toolCallId: string;
     toolName: string;
-    /** Error code when the guard threw a Routecraft error, e.g. `OS2001`. */
+    /** Error code when the guard threw a Routecraft error, e.g. `RC5002`. */
     rc?: string;
   };
   "route:agent:tool:invoked": ExchangeScoped & {

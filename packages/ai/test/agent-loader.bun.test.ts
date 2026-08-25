@@ -779,68 +779,18 @@ describe("agents() markdown loader", () => {
     const result = await agents(dir);
     expect(Object.keys(result)).toEqual(["triage"]);
   });
-  /**
-   * A tool that accepts a use-site specifier. The compiled guard refuses
-   * anything not named by the granted patterns, which is what the loader
-   * tests assert reaches the resolved tool.
-   */
+  /** An ordinary registered tool, granted by name and nothing else. */
   const bashFn = {
     ...echoFn,
     description: "Runs a command",
-    specifier: {
-      kind: "command-pattern" as const,
-      compile: (patterns: readonly string[]) => (input: unknown) => {
-        const command = (input as { command?: string })?.command ?? "";
-        if (!patterns.some((p) => command.startsWith(p.replace(/:\*$/, "")))) {
-          throw new Error(`not permitted: ${command}`);
-        }
-      },
-    },
   };
 
   /**
-   * @case A scoped entry for an unprovided built-in is skipped, not fatal
-   * @preconditions tools carries Bash(git status:*) and no Bash fn is registered
-   * @expectedResult The entry is skipped with the built-in warning rather than throwing unknown-tool
+   * @case A bare grant of a registered tool resolves
+   * @preconditions tools names Bash and a Bash fn is registered
+   * @expectedResult The tool resolves under its own name, with no narrowing warning
    */
-  test("a scoped built-in entry is skipped by name", async () => {
-    const dir = makeDir({
-      "x.md":
-        "---\nname: x\ndescription: d\ntools:\n  - echo\n  - Bash(git status:*)\n---\nsystem",
-    });
-    const result = await agents(dir);
-    expect(await resolveToolNames(result["x"], { echo: echoFn })).toEqual([
-      "echo",
-    ]);
-    expect(
-      warn.mock.calls.some((c: unknown[]) =>
-        String(c[0]).includes('tool "Bash"'),
-      ),
-    ).toBe(true);
-  });
-
-  /**
-   * @case A scoped entry resolves once the tool is registered
-   * @preconditions tools carries Bash(git status:*) and a Bash fn declaring a specifier
-   * @expectedResult The tool resolves under its bare name and carries the compiled guard
-   */
-  test("a scoped entry resolves to the tool with its guard", async () => {
-    const dir = makeDir({
-      "x.md":
-        "---\nname: x\ndescription: d\ntools:\n  - Bash(git status:*)\n---\nsystem",
-    });
-    const result = await agents(dir);
-    expect(await resolveToolNames(result["x"], { Bash: bashFn })).toEqual([
-      "Bash",
-    ]);
-  });
-
-  /**
-   * @case An unrestricted grant of a narrowable tool is reported
-   * @preconditions tools carries a bare Bash and a registered Bash declaring a specifier
-   * @expectedResult The tool resolves and a warning names the missing narrowing
-   */
-  test("granting a narrowable tool unrestricted warns once", async () => {
+  test("a bare grant resolves to the registered tool", async () => {
     const dir = makeDir({
       "x.md": "---\nname: x\ndescription: d\ntools:\n  - Bash\n---\nsystem",
     });
@@ -850,20 +800,36 @@ describe("agents() markdown loader", () => {
     ]);
     expect(
       warn.mock.calls.some((c: unknown[]) =>
-        String(c[0]).includes("granted without a specifier"),
+        String(c[0]).includes("without a specifier"),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   /**
-   * @case Denying a tool by name removes its scoped grants too
-   * @preconditions tools grants Bash(git status:*); disallowedTools names Bash
-   * @expectedResult The scoped grant is removed and no spurious mismatch warning is logged
+   * @case The removed specifier grammar fails loudly rather than widening a grant
+   * @preconditions tools carries Bash(git status:*), the form the framework no longer parses
+   * @expectedResult Resolution throws unknown-tool naming what is available, rather than granting an unrestricted Bash
    */
-  test("a bare denial removes a scoped grant", async () => {
+  test("a scoped reference is no longer a grant", async () => {
     const dir = makeDir({
       "x.md":
-        "---\nname: x\ndescription: d\ntools:\n  - echo\n  - Bash(git status:*)\ndisallowedTools:\n  - Bash\n---\nsystem",
+        "---\nname: x\ndescription: d\ntools:\n  - Bash(git status:*)\n---\nsystem",
+    });
+    const result = await agents(dir);
+    await expect(
+      resolveToolNames(result["x"], { Bash: bashFn }),
+    ).rejects.toThrow(/unknown tool "Bash\(git status:\*\)"/);
+  });
+
+  /**
+   * @case A denial removes the grant it names and nothing else
+   * @preconditions tools grants Direct(a) and Direct(b); disallowedTools names Direct(a)
+   * @expectedResult Direct(b) survives, so a deny cannot collapse onto a shared constructor
+   */
+  test("a denial removes only the reference it names", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\ntools:\n  - echo\n  - Bash\ndisallowedTools:\n  - Bash\n---\nsystem",
     });
     const result = await agents(dir);
     expect(
@@ -874,22 +840,6 @@ describe("agents() markdown loader", () => {
         String(c[0]).includes("removes nothing"),
       ),
     ).toBe(false);
-  });
-
-  /**
-   * @case A scoped denial removes only the grant it names
-   * @preconditions tools grants two scoped Bash entries; disallowedTools names one of them
-   * @expectedResult The other scoped grant survives, rather than the whole tool being revoked
-   */
-  test("a scoped denial leaves sibling grants intact", async () => {
-    const dir = makeDir({
-      "x.md":
-        "---\nname: x\ndescription: d\ntools:\n  - Bash(git status:*)\n  - Bash(rm:*)\ndisallowedTools:\n  - Bash(rm:*)\n---\nsystem",
-    });
-    const result = await agents(dir);
-    expect(await resolveToolNames(result["x"], { Bash: bashFn })).toEqual([
-      "Bash",
-    ]);
   });
 
   /**

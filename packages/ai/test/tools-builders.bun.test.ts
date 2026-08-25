@@ -14,6 +14,7 @@ import {
   currentTime,
   randomUuid,
   directTool,
+  tools,
   type FnEntry,
   type FnOptions,
 } from "../src/index.ts";
@@ -500,5 +501,177 @@ describe("tool builders - built-in fn factories", () => {
     const parsed = Date.parse(out);
     expect(parsed).toBeGreaterThanOrEqual(before);
     expect(parsed).toBeLessThanOrEqual(after);
+  });
+});
+
+/**
+ * A lazily-resolved tool must be indistinguishable from an eagerly
+ * authored one on every path that reads a tool's declared fields.
+ *
+ * The bug these cover was not a missing feature but an ordering
+ * shortcut: paths that read the registry entry before resolution saw a
+ * thunk carrying nothing and reported that absence as a property of the
+ * tool. Each test below reads one such path and asserts the route-backed
+ * tool answers exactly as a hand-written one does.
+ */
+describe("tool builders - a deferred tool is not a lesser tool", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  const bashRoute = () =>
+    craft()
+      .id("bash-runner")
+      .description("Run a shell command")
+      .input(z.object({ command: z.string() }))
+      .tag("host")
+      .from(direct())
+      .to(log());
+
+  /**
+   * @case The tools catalogue reports a route-backed tool's own description and tags
+   * @preconditions A directTool registered as Bash over a route carrying .description() and .tag()
+   * @expectedResult The catalogue entry carries the route's description and tags, so a builder filtering on either still sees it
+   */
+  test("the catalogue reports a deferred tool's declared fields", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({ functions: { Bash: directTool("bash-runner") } }),
+        ],
+      })
+      .routes([bashRoute()])
+      .build();
+    await t.startAndWaitReady();
+
+    let seen: {
+      name: string;
+      description?: string;
+      tags?: readonly string[];
+    }[] = [];
+    const selection = tools((catalog) => {
+      seen = catalog.fns.map((fn) => ({ ...fn }));
+      return ["Bash"];
+    });
+    selection.resolve(t.ctx);
+
+    const bash = seen.find((fn) => fn.name === "Bash");
+    expect(bash?.description).toBe("Run a shell command");
+    expect(bash?.tags).toEqual(["host"]);
+  });
+
+  /**
+   * @case A builder filtering the catalogue by tag selects a route-backed tool
+   * @preconditions The same registration, with a builder keeping only tools tagged "host"
+   * @expectedResult Bash is selected, where reading the entry raw would have filtered it out silently
+   */
+  test("a tag filter reaches a deferred tool", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({ functions: { Bash: directTool("bash-runner") } }),
+        ],
+      })
+      .routes([bashRoute()])
+      .build();
+    await t.startAndWaitReady();
+
+    const selection = tools((catalog) =>
+      catalog.fns
+        .filter((fn) => fn.tags?.includes("host"))
+        .map((fn) => fn.name),
+    );
+    expect(selection.resolve(t.ctx).map((tool) => tool.name)).toEqual(["Bash"]);
+  });
+
+  /**
+   * @case The registration announcement names a route-backed tool without claiming a description
+   * @preconditions The same registration; agent:tool:registered observed from context start
+   * @expectedResult The tool is announced by name with no description, because a direct route registers its capability when its source subscribes, which is after this event fires
+   */
+  test("the registration event announces a deferred tool by name", async () => {
+    const announced: unknown[] = [];
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({ functions: { Bash: directTool("bash-runner") } }),
+        ],
+      })
+      .routes([bashRoute()])
+      .build();
+    t.ctx.on(
+      "agent:tool:registered" as never,
+      ({ details }: { details: unknown }) => {
+        announced.push(details);
+      },
+    );
+    await t.startAndWaitReady();
+
+    const bash = announced.find(
+      (d) => (d as { toolName?: string })?.toolName === "Bash",
+    ) as { description?: string } | undefined;
+    expect(bash).toBeDefined();
+    expect(bash?.description).toBeUndefined();
+  });
+
+  /**
+   * @case A tool whose route cannot resolve is listed, not thrown, from the catalogue
+   * @preconditions A directTool naming a route that is not registered, alongside a healthy tool
+   * @expectedResult The catalogue still builds and lists both names, so one broken registration cannot break every builder in the context
+   */
+  test("an unresolvable deferred tool does not break the catalogue", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({
+            functions: {
+              Bash: directTool("bash-runner"),
+              Missing: directTool("no-such-route"),
+            },
+          }),
+        ],
+      })
+      .routes([bashRoute()])
+      .build();
+    await t.startAndWaitReady();
+
+    const ctx = t.ctx;
+    const selection = tools((catalog) => catalog.fns.map((fn) => fn.name));
+    const names = tools(["Bash"])
+      .resolve(ctx)
+      .map((tool) => tool.name);
+    expect(names).toEqual(["Bash"]);
+    expect(() => selection.resolve(ctx)).toThrow();
+  });
+
+  /**
+   * @case A route failure behind a deferred tool reaches the caller as an ordinary route error
+   * @preconditions Bash granted over a route whose input schema rejects the call
+   * @expectedResult The handler rejects rather than returning, with no deferred-tool special casing in the failure
+   */
+  test("a route failure propagates through a deferred tool", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({ functions: { Bash: directTool("bash-runner") } }),
+        ],
+      })
+      .routes([bashRoute()])
+      .build();
+    await t.startAndWaitReady();
+
+    const [bash] = tools(["Bash"]).resolve(t.ctx);
+    expect(bash).toBeDefined();
+    await expect(
+      bash!.handler(
+        { command: 42 } as never,
+        {
+          suspend: refuseSuspend,
+        } as never,
+      ),
+    ).rejects.toThrow();
   });
 });

@@ -277,8 +277,13 @@ function emitRegistrations(
       });
     }
     for (const [id, entry] of fnEntries) {
-      // Deferred fns (e.g. directTool) carry no eager description/tags;
-      // they resolve at dispatch and surface via tool-invocation events.
+      // A deferred entry is announced by name alone, and this is the one
+      // path where that is not the ordering bug it looks like. A direct
+      // route registers its capability when its source subscribes, which
+      // happens after `context:started`, so at this moment the route
+      // genuinely is not there to read a description from. Resolving
+      // here was tried and always failed. The description reaches
+      // observers through the tool-invocation events instead.
       const eager = isDeferredFn(entry) ? undefined : entry;
       ctx.emit("agent:tool:registered", {
         toolName: id,

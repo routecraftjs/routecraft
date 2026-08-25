@@ -12,21 +12,18 @@ import { registerErrorCodes, type RCMeta } from "@routecraft/routecraft";
  * it outright, so host capabilities carrying their own failure modes claim
  * their own namespace rather than extending core's registry.
  *
- * Numbering: OS1xxx = subprocess execution and isolation, OS2xxx = the
- * agent-exposure boundary (command-pattern matching). Ranges are claimed in
- * the range-allocation table on the error reference page before use, so two
- * lanes landing in parallel cannot mint the same code.
+ * Numbering: OS1xxx = subprocess execution and isolation. Ranges are
+ * claimed in the range-allocation table on the error reference page before
+ * use, so two lanes landing in parallel cannot mint the same code.
  */
 declare module "@routecraft/routecraft" {
   interface ErrorCodeRegistry {
     /** The requested isolation tier is not available on this host */
     OS1001: RCMeta;
-    /** A command exited non-zero */
+    /** A command failed to run, or ran and reported failure */
     OS1002: RCMeta;
     /** A command exceeded its timeout and was killed */
     OS1003: RCMeta;
-    /** A command was refused by the agent-facing allowlist */
-    OS2001: RCMeta;
   }
 }
 
@@ -58,14 +55,6 @@ registerErrorCodes(
         "The command exceeded the `timeout` given to `shell()` and was killed, along with anything it had spawned. Raise the timeout if the work is genuinely long, or narrow what the command does. A command that reliably times out inside an isolation tier but not outside it is usually waiting on something the tier denies: network egress is denied unless the call sets `network: true`.",
       docs: `${DOCS_BASE}#os-1003`,
       retryable: true,
-    },
-    OS2001: {
-      category: "Adapter",
-      message: "Command refused by the allowlist",
-      suggestion:
-        "An agent asked to run a command that no granted pattern matches. This is the agent-exposure boundary, not the security boundary: isolation and argument hygiene apply to permitted commands too. Grant the command with a pattern in the agent's tool list, or have the agent retry with a permitted form. A command containing shell operators must have every subcommand permitted, and destructive forms are never auto-approved by a prefix rule.",
-      docs: `${DOCS_BASE}#os-2001`,
-      retryable: false,
     },
   },
   "@routecraft/os",

@@ -15,7 +15,12 @@ import {
   exitCodeForSignal,
   sanitiseArgs,
 } from "./shared.ts";
-import type { ShellArgs, ShellOptions, ShellResult } from "./types.ts";
+import type {
+  IsolationName,
+  ShellArgs,
+  ShellOptions,
+  ShellResult,
+} from "./types.ts";
 
 /** Cap on captured output, per stream, when nothing configures one. */
 const DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -137,7 +142,8 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
       throw rcError("OS1002", ranAndFailedCause(result, out.text), {
         message:
           `"${this.command}" exited with code ${result.exitCode}. ` +
-          `Pass failOnNonZero: false if this command's exit code is data rather than failure.`,
+          `Pass failOnNonZero: false if this command's exit code is data rather than failure.` +
+          deniedEgressNote(tier.name, this.options.network),
       });
     }
 
@@ -160,6 +166,27 @@ function isSpawnFailure(outcome: {
 
 function toCause(outcome: unknown): Error | undefined {
   return outcome instanceof Error ? outcome : undefined;
+}
+
+/**
+ * A sentence naming denied egress, for a failure that ran without it.
+ *
+ * A command needing the network fails fast with a non-zero exit rather
+ * than timing out, so it lands on the `OS1002` path where the timeout
+ * hint never appears. That the run had no egress is a fact of the run,
+ * not a guess at the cause, which is why it is stated whenever it holds
+ * rather than only when the output looks network-shaped.
+ *
+ * Empty for a tier that grants egress anyway: `isolation: "none"` denies
+ * nothing, and saying otherwise would send a reader hunting a cause that
+ * is not there.
+ */
+function deniedEgressNote(tier: IsolationName, network: boolean | undefined) {
+  if (tier === "none" || network === true) return "";
+  return (
+    ` The command ran without network access, which is the default under the ${tier} tier;` +
+    ` set network: true if it needed the network.`
+  );
 }
 
 /**

@@ -27,11 +27,3 @@ export {
   type ShellResult,
   type UntrustedArg,
 } from "./adapters/shell/index.ts";
-
-export {
-  commandMatcher,
-  commandPatternGuard,
-  parseCommandPatterns,
-  type CommandDecision,
-  type CommandMatcher,
-} from "./adapters/shell/command-pattern.ts";
