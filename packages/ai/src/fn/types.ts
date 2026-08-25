@@ -152,6 +152,41 @@ export type ToolGuard = (
 ) => void | Promise<void>;
 
 /**
+ * The kinds of constraint a use-site specifier can express.
+ *
+ * A specifier narrows one tool at the point it is granted, rather than
+ * naming a different tool: `Bash(git status:*)` is the `Bash` tool with a
+ * command surface attached. The kind says how the text after the tool name
+ * should be read, and every tool that accepts one declares its own.
+ */
+export type FnSpecifierKind = "command-pattern";
+
+/**
+ * How a tool compiles its own use-site specifiers into a call-time guard.
+ *
+ * The dispatch is deliberately thin: this package parses `Tool(spec)`,
+ * unions the specifiers written for the same tool, and hands them to the
+ * tool that declared it. It never interprets a specifier itself, because
+ * what a specifier means is a property of the tool. That is what lets a
+ * command surface and a host surface share one grammar without either
+ * matcher knowing the other exists.
+ *
+ * `compile` runs at selection time, so a malformed specifier fails when
+ * the agent is loaded rather than on the first tool call.
+ */
+export interface FnSpecifier {
+  /** How to read the text inside the parentheses. */
+  readonly kind: FnSpecifierKind;
+  /**
+   * Build the guard enforcing these specifiers.
+   *
+   * @param specifiers - Every specifier written for this tool, unioned
+   * @throws RC5003 when a specifier is malformed
+   */
+  readonly compile: (specifiers: readonly string[]) => ToolGuard;
+}
+
+/**
  * Shape of a fn registered via `agentPlugin({ functions: { id: {...} } })`.
  *
  * The fn id is the record key in the plugin config; this shape only
@@ -197,6 +232,14 @@ export interface FnOptions<TIn = unknown, TOut = unknown> {
    * match by exact value.
    */
   tags?: Tag[];
+
+  /**
+   * Declares that this tool accepts a use-site specifier, and how to
+   * compile one. A tool without this field reached as `Name(spec)` is a
+   * hard error rather than a tool with the specifier ignored: silently
+   * dropping a specifier would widen the grant the author wrote.
+   */
+  specifier?: FnSpecifier;
 }
 
 /**

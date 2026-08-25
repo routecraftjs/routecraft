@@ -204,6 +204,31 @@ function optionalToolRefs(
 }
 
 /**
+ * The tool a reference names, with any use-site specifier stripped.
+ *
+ * `Bash(git status:*)` and `Bash` are the same tool granted with and
+ * without a constraint, so identity questions (is it registered, is it a
+ * built-in, was it denied) are asked of the name.
+ *
+ * @internal
+ */
+function toolNameOf(ref: string): string {
+  const open = ref.indexOf("(");
+  return open === -1 ? ref : ref.slice(0, open).trim();
+}
+
+/**
+ * Whether a `disallowedTools` entry removes a granted reference. A bare
+ * name denies every scoped grant of that tool, because a deny naming the
+ * tool means the tool; a scoped deny removes only the exact grant.
+ *
+ * @internal
+ */
+function isDeniedBy(granted: string, denial: string): boolean {
+  return granted === denial || toolNameOf(granted) === denial;
+}
+
+/**
  * Build the agent's tool selection from its frontmatter references.
  *
  * Two Claude-compatibility rules live here rather than in `tools()`,
@@ -226,12 +251,13 @@ function toolSelection(
   source: string,
 ): ToolSelection {
   const denied = new Set(disallowed);
+  const deniedNames = new Set(disallowed.map(toolNameOf));
   // A deny that names something the agent never had is a typo, and the
   // tool it meant to remove stays granted. Same reason a deny with no
   // allow throws: a field whose whole purpose is removing capability
   // must not fail quietly.
   for (const ref of denied) {
-    if (!refs.includes(ref)) {
+    if (!refs.some((granted) => isDeniedBy(granted, ref))) {
       logger.warn(
         `Markdown file "${source}": "disallowedTools" names "${ref}", which is not in "tools", so the entry removes nothing. Check the spelling.`,
       );
@@ -240,17 +266,32 @@ function toolSelection(
   const warned = new Set<string>();
   return tools((catalog) => {
     const registered = new Set(catalog.fns.map((fn) => fn.name));
+    const narrowable = new Set(
+      catalog.fns.filter((fn) => fn.narrowable).map((fn) => fn.name),
+    );
     const kept: string[] = [];
     for (const ref of refs) {
-      if (denied.has(ref)) continue;
-      if (!registered.has(ref) && CLAUDE_BUILTIN_TOOLS.has(ref)) {
-        if (!warned.has(ref)) {
-          warned.add(ref);
+      // A scoped entry is the same tool as its bare name, so every check
+      // here runs against the name rather than the whole reference.
+      // Matching the reference verbatim is what made a real agent file
+      // carrying `Bash(git status:*)` fail to load: the name never
+      // reached the built-in check and fell through to unknown-tool.
+      const name = toolNameOf(ref);
+      if (denied.has(ref) || deniedNames.has(name)) continue;
+      if (!registered.has(name) && CLAUDE_BUILTIN_TOOLS.has(name)) {
+        if (!warned.has(name)) {
+          warned.add(name);
           logger.warn(
-            `Markdown file "${source}": tool "${ref}" is a Claude Code built-in this runtime does not provide; skipping it for this agent.`,
+            `Markdown file "${source}": tool "${name}" is a Claude Code built-in this runtime does not provide; skipping it for this agent.`,
           );
         }
         continue;
+      }
+      if (name === ref && narrowable.has(name) && !warned.has(`wide:${name}`)) {
+        warned.add(`wide:${name}`);
+        logger.warn(
+          `Markdown file "${source}": tool "${name}" is granted without a specifier, so this agent may use it without limit. Narrow it by writing what it may do in parentheses, for example "${name}(git status:*)".`,
+        );
       }
       kept.push(ref);
     }
@@ -357,7 +398,7 @@ function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
     // no allow cannot be honoured, and an agent that inherits the very
     // tools its file denies is the worst possible reading of the file.
     throw rcError("RC5003", undefined, {
-      message: `Markdown file "${source}": "disallowedTools" is set but "tools" is not, and a deny list alone cannot be honoured: a per-agent tool list replaces the context default outright rather than narrowing it, so this agent would inherit the very tools it denies. List the tools this agent may use in "tools", or drop "disallowedTools". Honouring a deny list against inherited defaults is tracked in routecraftjs/routecraft#583.`,
+      message: `Markdown file "${source}": "disallowedTools" is set but "tools" is not, and a deny list alone cannot be honoured: a per-agent tool list replaces the context default outright rather than narrowing it, so this agent would inherit the very tools it denies. List the tools this agent may use in "tools", or drop "disallowedTools". Honouring a deny list against inherited defaults was considered and declined: Routecraft's tool model is whitelist-only, and a deny list would silently grow every time the context's default toolset did. See routecraftjs/routecraft#583.`,
     });
   }
   // Frontmatter carries only the boolean form; the function-renderer

@@ -12,6 +12,12 @@ import type { McpToolRegistry } from "../../mcp/tool-registry.ts";
 import { directTool } from "./builders.ts";
 import { isDeferredFn, type FnEntry } from "./types.ts";
 import {
+  collectSpecifiers,
+  compileSpecifier,
+  combineGuards,
+  parseSpecifierRef,
+} from "./specifier.ts";
+import {
   describeToolNameViolation,
   isSplittableNameHead,
   TOOL_NAME_PATTERN_SOURCE,
@@ -132,6 +138,12 @@ export interface ToolsCatalog {
     readonly name: string;
     readonly description?: string;
     readonly tags?: readonly Tag[];
+    /**
+     * True when the tool accepts a use-site specifier, so a builder (or
+     * the agent-file loader) can tell a grant that could have been
+     * narrowed from one that could not.
+     */
+    readonly narrowable?: boolean;
   }>;
   /**
    * Discoverable direct routes (see `CraftContext.capabilities()`).
@@ -305,6 +317,18 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
     resolve(ctx) {
       const items =
         typeof arg === "function" ? runBuilder(arg, buildCatalog(ctx)) : arg;
+      // Specifiers are unioned across the whole selection before any
+      // resolution, so two entries naming the same tool produce one tool
+      // whose guard honours both.
+      const specifiers = collectSpecifiers(
+        items.map((item) =>
+          typeof item === "string"
+            ? item
+            : typeof (item as { name?: unknown })?.name === "string"
+              ? (item as { name: string }).name
+              : "",
+        ),
+      );
       const out = new Map<string, ResolvedTool>();
       for (const item of items) {
         if (typeof item === "string") {
@@ -316,7 +340,15 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             }
             continue;
           }
-          const tool = resolveByName(ctx, item, undefined);
+          const spec = parseSpecifierRef(item);
+          const tool = spec
+            ? resolveSpecifierRef(
+                ctx,
+                spec.name,
+                specifiers.get(spec.name) ?? [spec.body],
+                undefined,
+              )
+            : resolveByName(ctx, item, undefined);
           out.set(tool.name, tool);
           continue;
         }
@@ -353,7 +385,15 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             message: `tools(): { name: "${item.name}", description } must be a non-empty string when present.`,
           });
         }
-        const base = resolveByName(ctx, item.name, item.guard);
+        const itemSpec = parseSpecifierRef(item.name);
+        const base = itemSpec
+          ? resolveSpecifierRef(
+              ctx,
+              itemSpec.name,
+              specifiers.get(itemSpec.name) ?? [itemSpec.body],
+              item.guard,
+            )
+          : resolveByName(ctx, item.name, item.guard);
         // Per-binding description override. The registry entry is
         // never mutated, so other agents binding the same fn still
         // see the canonical description.
@@ -400,6 +440,7 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
             name,
             description: entry.description,
             ...(tags !== undefined ? { tags } : {}),
+            ...(entry.specifier ? { narrowable: true } : {}),
           }),
         );
       }
@@ -485,6 +526,32 @@ function fnRegistryHas(ctx: CraftContext, name: string): boolean {
   const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
     Map<string, FnEntry> | undefined;
   return fnRegistry?.has(name) ?? false;
+}
+
+/**
+ * Resolve a specifier reference to a tool with its guard attached.
+ *
+ * A name that is not registered falls through to the ordinary resolution
+ * path so the reader gets the familiar unknown-tool error naming what IS
+ * available, rather than a specifier-flavoured variant of it.
+ *
+ * @internal
+ */
+function resolveSpecifierRef(
+  ctx: CraftContext,
+  name: string,
+  bodies: readonly string[],
+  guard: ToolGuard | undefined,
+): ResolvedTool {
+  const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
+    Map<string, FnEntry> | undefined;
+  const entry = fnRegistry?.get(name);
+  if (entry === undefined) return resolveByName(ctx, name, guard);
+  return resolveByName(
+    ctx,
+    name,
+    combineGuards(guard, compileSpecifier(entry, name, bodies)),
+  );
 }
 
 function resolveByName(
