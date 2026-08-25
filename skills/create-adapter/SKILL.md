@@ -19,7 +19,7 @@ Use this skill when the user asks to:
 - Replace bespoke `process()` calls with a reusable adapter
 - Add a transformer that turns one body shape into another
 
-If the user only needs a one-shot data transformation inside a single capability, use `.transform()` or `.process()` directly instead. If the work is reusable across capabilities, it belongs in an adapter.
+If the user only needs a one-shot data transformation inside a single capability, use `.transform()` with a named function instead (not `.process()`; the create-capability skill records why `.process()` is a last resort). If the work is reusable across capabilities, it belongs in an adapter.
 
 ## Step 1: clarify
 
