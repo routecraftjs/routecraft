@@ -35,7 +35,11 @@ export interface ShellOptions<T = unknown> {
   /**
    * Allow network egress. Denied by default: the route grants what the
    * command may reach, the same way it grants environment variables.
-   * Ignored by the `none` tier, which promises nothing and blocks nothing.
+   *
+   * A tier that cannot deny egress refuses the call rather than ignoring
+   * the option, so `isolation: "none"` requires `network: true` beside it.
+   * Accepting egress is then something the call says out loud, instead of
+   * something a default claimed and did not deliver.
    */
   network?: boolean;
   /**
