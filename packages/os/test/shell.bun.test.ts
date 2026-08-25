@@ -388,6 +388,25 @@ describe("running a command", () => {
   });
 
   /**
+   * @case OS1002 carries the fields its own suggestion tells a route to read
+   * @preconditions A command that writes to stderr and exits non-zero
+   * @expectedResult The thrown error's cause carries stderr and exitCode, not just the message text
+   */
+  test("a non-zero exit puts stderr and exitCode on the cause", async () => {
+    let thrown: unknown;
+    try {
+      await shell("sh", ["-c", "echo boom >&2; exit 3"], {
+        isolation: "none",
+      }).fetch(exchange);
+    } catch (e: unknown) {
+      thrown = e;
+    }
+    const error = thrown as { cause?: { stderr?: string; exitCode?: number } };
+    expect(error.cause?.stderr?.trim()).toBe("boom");
+    expect(error.cause?.exitCode).toBe(3);
+  });
+
+  /**
    * @case A command whose exit code is data reports it instead of failing
    * @preconditions The same failing command with failOnNonZero false
    * @expectedResult The exit code is returned on the result

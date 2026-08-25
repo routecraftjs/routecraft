@@ -47,7 +47,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "Command execution failed",
       suggestion:
-        "The command failed to run, or ran and reported failure. Its `stderr` and `exitCode` are on the error's cause so the route can log what the command actually said. For commands whose exit code is data rather than failure (`grep` with no match, `diff` with differences), pass `failOnNonZero: false` and read `exitCode` off the result instead.",
+        "The command failed to run, or ran and reported failure. Where it ran, its `stderr` and `exitCode` are on the error's cause so the route can log what the command actually said; a command that never started has neither, and the cause is whatever the spawn itself raised. For commands whose exit code is data rather than failure (`grep` with no match, `diff` with differences), pass `failOnNonZero: false` and read `exitCode` off the result instead.",
       docs: `${DOCS_BASE}#os-1002`,
       retryable: false,
     },

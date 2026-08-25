@@ -22,8 +22,8 @@ const ruleTester = new RuleTester({
 
 /**
  * @case require-untrusted-shell-args: exchange-derived shell() arguments must be wrapped in untrusted()
- * @preconditions shell() calls whose argument resolver does and does not read from the exchange parameter, plus literal and non-shell forms
- * @expectedResult A value read from the exchange parameter and passed unwrapped is reported; wrapped values, author literals, and resolvers that ignore the exchange pass
+ * @preconditions shell() calls whose argument resolver does and does not read from the exchange parameter, plus literal and non-shell forms, markers that are shadowed or aliased rather than the real export, and returns belonging to a nested helper rather than the resolver
+ * @expectedResult A value read from the exchange parameter and passed unwrapped is reported, including where the marker around it is not the real one; wrapped values, author literals, resolvers that ignore the exchange, and a nested helper's own returns pass
  */
 ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
   valid: [
@@ -43,6 +43,10 @@ ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
     // The real marker, imported from the package that exports it.
     `import { shell, untrusted } from "@routecraft/os";
      shell("git", (ex) => ["clone", untrusted(ex.body.url)]);`,
+    // A nested helper's returns are its own. Reporting them attributed an
+    // argv the resolver never returned to the resolver.
+    `import { shell } from "@routecraft/os";
+     shell("git", (ex) => { function helper() { return [ex.body.url]; } return ["status"]; });`,
   ],
   invalid: [
     {
@@ -90,6 +94,21 @@ ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
       // A locally defined untrusted() carries no protection, so the name
       // alone must not exempt the argument.
       code: `function untrusted(v) { return v; }
+             shell("git", (ex) => ["clone", untrusted(ex.body.url)]);`,
+      errors: [{ messageId: "unmarked" }],
+    },
+    {
+      // A binding declared inside the resolver shadows the import at the
+      // use site, so resolving from outside the resolver found a marker
+      // that no longer applies there.
+      code: `import { shell, untrusted } from "@routecraft/os";
+             shell("git", (ex) => { const untrusted = (v) => v; return ["clone", untrusted(ex.body.url)]; });`,
+      errors: [{ messageId: "unmarked" }],
+    },
+    {
+      // The right module is not enough: another export aliased to the
+      // marker's name carries none of its protection.
+      code: `import { shell, shellPlugin as untrusted } from "@routecraft/os";
              shell("git", (ex) => ["clone", untrusted(ex.body.url)]);`,
       errors: [{ messageId: "unmarked" }],
     },

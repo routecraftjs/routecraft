@@ -84,8 +84,15 @@ function readsFrom(node: unknown, param: string): boolean {
  * The name alone is not enough. A local `function untrusted(v) { return v }`
  * would otherwise silence the rule on an argument that carries no
  * protection at all, which is worse than no rule: the author is told they
- * are covered. The identifier is resolved in scope and accepted only when
- * it is an unshadowed import from the package that exports it.
+ * are covered. The identifier is resolved from the use site's own scope and
+ * accepted only when it is an import of the marker itself.
+ *
+ * Two spellings defeat a laxer version of this check, and both are tested.
+ * A binding declared inside the resolver shadows the import at the use site
+ * while an outward-only walk still finds the import, and an alias
+ * (`import { somethingElse as untrusted }`) satisfies a module-only test
+ * while carrying no protection. The scope is therefore the element's own,
+ * and the imported name is checked, not just the module it came from.
  */
 function isUntrustedCall(node: unknown, scope: Scope): boolean {
   if (!isCallExpression(node) || !isIdentifier(node.callee)) return false;
@@ -99,9 +106,16 @@ function isUntrustedCall(node: unknown, scope: Scope): boolean {
     (def) =>
       def.type === "ImportBinding" &&
       typeof def.parent?.source?.value === "string" &&
-      UNTRUSTED_MODULES.has(def.parent.source.value),
+      UNTRUSTED_MODULES.has(def.parent.source.value) &&
+      // A default or namespace import is never the marker: the package has
+      // no default export, so only a named import of `untrusted` counts.
+      def.node?.type === "ImportSpecifier" &&
+      def.node.imported?.name === UNTRUSTED_EXPORT,
   );
 }
+
+/** The export name that actually carries flag-injection protection. */
+const UNTRUSTED_EXPORT = "untrusted";
 
 /** Packages whose `untrusted` export is the real marker. */
 const UNTRUSTED_MODULES = new Set(["@routecraft/os"]);
@@ -114,6 +128,7 @@ interface Scope {
 
 interface VariableDef {
   type: string;
+  node?: { type?: string; imported?: { name?: unknown } };
   parent?: { source?: { value?: unknown } };
 }
 
@@ -136,12 +151,21 @@ function findVariable(
  * early `if (...) return [...]` is the ordinary way a resolver branches,
  * and treating it as unreachable made the rule silent on exactly the form
  * most likely to carry a conditional argument.
+ *
+ * The walk stops at a nested function, whose returns belong to it and not
+ * to the resolver. Descending into one reported a helper's argv as though
+ * the resolver had returned it, which is a false positive on code that is
+ * correct.
  */
 function collectReturnedArrays(node: unknown, found: unknown[]): void {
   if (!isObject(node)) return;
   switch (typeOf(node)) {
     case "ArrayExpression":
       found.push(node);
+      return;
+    case "FunctionDeclaration":
+    case "FunctionExpression":
+    case "ArrowFunctionExpression":
       return;
     case "ReturnStatement":
       collectReturnedArrays(node["argument"], found);
@@ -216,7 +240,12 @@ const rule: Rule.RuleModule = {
         const param: unknown = resolver["params"][0];
         if (!isIdentifier(param)) return;
 
-        const scope = context.sourceCode.getScope(node) as unknown as Scope;
+        // The resolver's own scope, not the call site's. A binding declared
+        // inside the resolver shadows the import there, and resolving from
+        // outside would find the import the shadow has already displaced.
+        const scope = context.sourceCode.getScope(
+          resolver as never,
+        ) as unknown as Scope;
         const arrays: unknown[] = [];
         collectReturnedArrays(resolver["body"], arrays);
 

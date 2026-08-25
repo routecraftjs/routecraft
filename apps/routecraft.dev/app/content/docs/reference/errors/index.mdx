@@ -873,7 +873,7 @@ Command execution failed
 The command ran and reported failure. This is the default because a route whose `git push` failed should not continue as though it had. The same code covers a command that could not be started at all, which is usually a program that is not installed or not on the `PATH` the call granted.
 
 **Suggestion**  
-- Read `stderr` and `exitCode` from the error's cause to see what the command said.
+- Where the command ran, read `stderr` and `exitCode` from the error's cause to see what it said. A command that never started has neither, and the cause is whatever the spawn itself raised.
 - For commands whose exit code is data rather than failure (`grep` with no match, `diff` with differences), pass `failOnNonZero: false` and read `exitCode` off the result.
 - If the program could not be started, check that it is installed and reachable through the environment the call declares. `shell()` grants only the documented baseline plus what the call asks for.
 

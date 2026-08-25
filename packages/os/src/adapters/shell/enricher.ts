@@ -114,7 +114,7 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
     };
 
     if (outcome.timedOut) {
-      throw rcError("OS1003", new Error(err.text.trim() || out.text.trim()), {
+      throw rcError("OS1003", ranAndFailedCause(result, out.text), {
         message:
           `"${this.command}" exceeded its ${String(timeout)}ms timeout and was killed.` +
           (this.options.network === true
@@ -134,7 +134,7 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
     }
 
     if (result.exitCode !== 0 && (this.options.failOnNonZero ?? true)) {
-      throw rcError("OS1002", new Error(err.text.trim() || out.text.trim()), {
+      throw rcError("OS1002", ranAndFailedCause(result, out.text), {
         message:
           `"${this.command}" exited with code ${result.exitCode}. ` +
           `Pass failOnNonZero: false if this command's exit code is data rather than failure.`,
@@ -160,4 +160,20 @@ function isSpawnFailure(outcome: {
 
 function toCause(outcome: unknown): Error | undefined {
   return outcome instanceof Error ? outcome : undefined;
+}
+
+/**
+ * The cause for a command that ran, carrying what it said and how it ended.
+ *
+ * `OS1002` tells a route it can read `stderr` and `exitCode` off the cause.
+ * A bare `Error` carrying only the text does not honour that, so the fields
+ * are attached here rather than left to the message.
+ */
+function ranAndFailedCause(result: ShellResult, stdout: string): Error {
+  const cause = new Error(result.stderr.trim() || stdout.trim());
+  return Object.assign(cause, {
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    ...(result.signal ? { signal: result.signal } : {}),
+  });
 }
