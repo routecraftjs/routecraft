@@ -22,7 +22,7 @@ const ruleTester = new RuleTester({
 
 /**
  * @case require-untrusted-shell-args: exchange-derived shell() arguments must be wrapped in untrusted()
- * @preconditions shell() calls whose argument resolver does and does not read from the exchange parameter, plus literal and non-shell forms, markers that are shadowed or aliased rather than the real export, returns belonging to a nested helper rather than the resolver, and comma expressions whose yielded operand is and is not exchange-derived
+ * @preconditions shell() calls whose argument resolver does and does not read from the exchange parameter, plus literal and non-shell forms, markers that are shadowed or aliased rather than the real export, returns belonging to a nested helper rather than the resolver, comma expressions whose yielded operand is and is not exchange-derived, and locals bound to an exchange value directly, by destructuring, or from another local
  * @expectedResult A value read from the exchange parameter and passed unwrapped is reported, including where the marker around it is not the real one; wrapped values, author literals, resolvers that ignore the exchange, and a nested helper's own returns pass
  */
 ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
@@ -51,6 +51,16 @@ ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
     // however many exchange reads precede it.
     `import { shell } from "@routecraft/os";
      shell("git", (ex) => ["push", (ex.body.log, "origin")]);`,
+    // A local the resolver built itself carries nothing from outside.
+    `import { shell } from "@routecraft/os";
+     shell("git", (ex) => { const flag = "--oneline"; return ["log", flag]; });`,
+    // Marking the local is the fix the rule asks for, so it must satisfy it.
+    `import { shell, untrusted } from "@routecraft/os";
+     shell("git", (ex) => { const url = ex.body.url; return ["clone", untrusted(url)]; });`,
+    // A nested helper's own locals are its own, and must not taint the
+    // resolver's names.
+    `import { shell } from "@routecraft/os";
+     shell("git", (ex) => { function helper() { const u = ex.body.url; return u; } return ["status"]; });`,
   ],
   invalid: [
     {
@@ -121,6 +131,26 @@ ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
       // that operand is the exchange value reaching argv unmarked.
       code: `import { shell } from "@routecraft/os";
              shell("git", (ex) => ["clone", (audit(ex), ex.body.url)]);`,
+      errors: [{ messageId: "unmarked" }],
+    },
+    {
+      // Naming the value before using it is how most people write this,
+      // and seeing only the inline form left the rule blind to it.
+      code: `import { shell } from "@routecraft/os";
+             shell("git", (ex) => { const url = ex.body.url; return ["clone", url]; });`,
+      errors: [{ messageId: "unmarked" }],
+    },
+    {
+      // Destructuring binds an exchange value as plainly as an assignment.
+      code: `import { shell } from "@routecraft/os";
+             shell("git", (ex) => { const { url } = ex.body; return ["clone", url]; });`,
+      errors: [{ messageId: "unmarked" }],
+    },
+    {
+      // A local derived from a tainted local is still attacker-influenced,
+      // so one pass over the declarations is not enough.
+      code: `import { shell } from "@routecraft/os";
+             shell("git", (ex) => { const raw = ex.body.url; const url = raw.trim(); return ["clone", url]; });`,
       errors: [{ messageId: "unmarked" }],
     },
   ],

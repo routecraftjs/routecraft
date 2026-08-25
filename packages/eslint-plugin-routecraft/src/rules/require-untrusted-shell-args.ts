@@ -22,46 +22,65 @@ import {
  *
  * ## What it does not see
  *
- * Coverage is syntactic and local to the resolver. A value read into a
- * local first (`const url = ex.body.url`), returned from a helper, or
- * assembled in an array built elsewhere and passed by reference is NOT
- * flagged: tracking those needs data flow this rule does not attempt. The
- * rule is a safety net over an opt-in marker, never the enforcement
- * itself, and the runtime applies flag protection only to what the author
- * actually marked.
+ * Coverage is syntactic and local to the resolver. Locals declared inside
+ * it are tracked, including through destructuring and one local derived
+ * from another, because naming a value before using it is how most people
+ * write this. What is still NOT flagged is a value returned from a helper,
+ * one closed over from outside the resolver, or an array assembled
+ * elsewhere and passed by reference: those need data flow across scopes
+ * that this rule does not attempt. The rule is a safety net over an opt-in
+ * marker, never the enforcement itself, and the runtime applies flag
+ * protection only to what the author actually marked.
  *
  * Nodes are narrowed structurally rather than through `@types/estree`,
  * matching the deliberate dependency choice recorded in `shared/ast.ts`.
  */
 
-/** Does this expression read from `param`, directly or through members? */
-function readsFrom(node: unknown, param: string): boolean {
+/**
+ * Does this expression read from `param`, directly or through members?
+ *
+ * `tainted` carries the resolver's own locals that already hold an
+ * exchange value. Without them the rule saw only the spelling nobody
+ * writes: `const url = ex.body.url` is the natural way to name a value
+ * before using it, and treating that local as clean made the rule blind
+ * to the commonest shape of the very thing it exists to catch.
+ */
+function readsFrom(
+  node: unknown,
+  param: string,
+  tainted: ReadonlySet<string>,
+): boolean {
   if (!isObject(node)) return false;
   switch (typeOf(node)) {
     case "Identifier":
-      return isIdentifier(node) && node.name === param;
+      return (
+        isIdentifier(node) && (node.name === param || tainted.has(node.name))
+      );
     case "MemberExpression":
-      return readsFrom(node["object"], param);
+      return readsFrom(node["object"], param, tainted);
     case "ChainExpression":
     case "TSNonNullExpression":
     case "TSAsExpression":
     case "AwaitExpression":
-      return readsFrom(node["expression"] ?? node["argument"], param);
+      return readsFrom(node["expression"] ?? node["argument"], param, tainted);
     case "TemplateLiteral":
       return (
         Array.isArray(node["expressions"]) &&
-        node["expressions"].some((e) => readsFrom(e, param))
+        node["expressions"].some((e) => readsFrom(e, param, tainted))
       );
     case "BinaryExpression":
     case "LogicalExpression":
       // `ex.body.url ?? ""` and `ex.body.url || "origin"` are the ordinary
       // way an author supplies a fallback, so they must not read as safe.
-      return readsFrom(node["left"], param) || readsFrom(node["right"], param);
+      return (
+        readsFrom(node["left"], param, tainted) ||
+        readsFrom(node["right"], param, tainted)
+      );
     case "ConditionalExpression":
       return (
-        readsFrom(node["test"], param) ||
-        readsFrom(node["consequent"], param) ||
-        readsFrom(node["alternate"], param)
+        readsFrom(node["test"], param, tainted) ||
+        readsFrom(node["consequent"], param, tainted) ||
+        readsFrom(node["alternate"], param, tainted)
       );
     case "SequenceExpression": {
       // A comma expression evaluates to its last operand, and only that
@@ -70,7 +89,7 @@ function readsFrom(node: unknown, param: string): boolean {
       const expressions = node["expressions"];
       return (
         Array.isArray(expressions) &&
-        readsFrom(expressions[expressions.length - 1], param)
+        readsFrom(expressions[expressions.length - 1], param, tainted)
       );
     }
     case "CallExpression":
@@ -79,9 +98,9 @@ function readsFrom(node: unknown, param: string): boolean {
       // and an argument carries it for a wrapper (`String(ex.body.id)`).
       // A method's result is as attacker-influenced as its receiver.
       return (
-        readsFrom(node["callee"], param) ||
+        readsFrom(node["callee"], param, tainted) ||
         (Array.isArray(node["arguments"]) &&
-          node["arguments"].some((a) => readsFrom(a, param)))
+          node["arguments"].some((a) => readsFrom(a, param, tainted)))
       );
     default:
       return false;
@@ -153,6 +172,124 @@ function findVariable(
   }
   return undefined;
 }
+
+/**
+ * Names bound to an exchange-derived value inside the resolver.
+ *
+ * `const url = ex.body.url` names a value before using it, which is how
+ * most people write this, and a rule that only sees the inline form
+ * catches the spelling nobody uses. One pass is not enough because a
+ * local can be derived from an earlier local, so this iterates until the
+ * set stops growing; the number of declarations bounds the loop.
+ *
+ * Tainting is deliberately generous. A local reassigned to something safe
+ * later still counts, because over-reporting costs an author one wrapper
+ * on a value that did not need it, and under-reporting costs a silent
+ * hole in the check that exists to catch exactly this.
+ *
+ * The walk stops at nested functions for the same reason the return walk
+ * does: their locals are theirs.
+ */
+function collectTaintedLocals(
+  body: unknown,
+  param: string,
+): ReadonlySet<string> {
+  const declarations: { names: string[]; init: unknown }[] = [];
+  gatherDeclarations(body, declarations);
+
+  const tainted = new Set<string>();
+  for (let pass = 0; pass < declarations.length; pass++) {
+    let grew = false;
+    for (const declaration of declarations) {
+      if (declaration.names.every((name) => tainted.has(name))) continue;
+      if (!readsFrom(declaration.init, param, tainted)) continue;
+      for (const name of declaration.names) tainted.add(name);
+      grew = true;
+    }
+    if (!grew) break;
+  }
+  return tainted;
+}
+
+/** Every variable declarator in the resolver's own body. */
+function gatherDeclarations(
+  node: unknown,
+  found: { names: string[]; init: unknown }[],
+): void {
+  if (!isObject(node)) return;
+  switch (typeOf(node)) {
+    case "FunctionDeclaration":
+    case "FunctionExpression":
+    case "ArrowFunctionExpression":
+      return;
+    case "VariableDeclarator": {
+      const names: string[] = [];
+      gatherBoundNames(node["id"], names);
+      if (names.length > 0) found.push({ names, init: node["init"] });
+      return;
+    }
+    default:
+      for (const key of DECLARATION_CHILD_KEYS) {
+        const child = node[key];
+        if (Array.isArray(child)) {
+          for (const item of child) gatherDeclarations(item, found);
+        } else if (isObject(child)) {
+          gatherDeclarations(child, found);
+        }
+      }
+  }
+}
+
+/**
+ * Every name a binding target introduces.
+ *
+ * Destructuring is the other spelling of the same thing: `const { url } =
+ * ex.body` binds an exchange value just as plainly as an assignment does,
+ * so every name a pattern introduces is tainted together with it.
+ */
+function gatherBoundNames(node: unknown, names: string[]): void {
+  if (!isObject(node)) return;
+  switch (typeOf(node)) {
+    case "Identifier":
+      if (isIdentifier(node)) names.push(node.name);
+      return;
+    case "ObjectPattern":
+      if (Array.isArray(node["properties"])) {
+        for (const property of node["properties"]) {
+          if (!isObject(property)) continue;
+          gatherBoundNames(property["value"] ?? property["argument"], names);
+        }
+      }
+      return;
+    case "ArrayPattern":
+      if (Array.isArray(node["elements"])) {
+        for (const element of node["elements"])
+          gatherBoundNames(element, names);
+      }
+      return;
+    case "AssignmentPattern":
+      gatherBoundNames(node["left"], names);
+      return;
+    case "RestElement":
+      gatherBoundNames(node["argument"], names);
+      return;
+    default:
+      return;
+  }
+}
+
+/** Child slots a statement can hold a declaration in. */
+const DECLARATION_CHILD_KEYS = [
+  "body",
+  "consequent",
+  "alternate",
+  "block",
+  "handler",
+  "finalizer",
+  "cases",
+  "declarations",
+  "init",
+] as const;
 
 /**
  * Every array literal reachable as a return value of the resolver.
@@ -256,6 +393,7 @@ const rule: Rule.RuleModule = {
         const scope = context.sourceCode.getScope(
           resolver as never,
         ) as unknown as Scope;
+        const tainted = collectTaintedLocals(resolver["body"], param.name);
         const arrays: unknown[] = [];
         collectReturnedArrays(resolver["body"], arrays);
 
@@ -270,7 +408,7 @@ const rule: Rule.RuleModule = {
                 ? raw["argument"]
                 : raw;
             if (isUntrustedCall(element, scope)) continue;
-            if (!readsFrom(element, param.name)) continue;
+            if (!readsFrom(element, param.name, tainted)) continue;
             context.report({
               node: element as never,
               messageId: "unmarked",
