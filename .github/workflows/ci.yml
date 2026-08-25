@@ -375,6 +375,53 @@ jobs:
       - name: Smoke test Node embedding (pack + npm install + node runner.ts)
         run: node .github/scripts/smoke-test-embedding.mjs
 
+  # The isolation tier is a security guarantee, and this is the only place
+  # it is exercised against a real kernel. It runs as its own job so a
+  # failure reads as "isolation broke" rather than being buried in a job
+  # named for something else.
+  isolation-smoke:
+    needs: [changes, validate, test]
+    if: needs.changes.outputs.packages == 'true'
+    runs-on: ubuntu-latest
+    name: isolation-smoke
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: "package.json"
+
+      - name: Restore the bun package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Fail here rather than let the suite report green on a runner that
+      # cannot create namespaces: a skipped isolation test is a guarantee
+      # nobody checked.
+      - name: Check the runner can create namespaces
+        run: |
+          if ! unshare --user --map-current-user --mount --pid --fork --mount-proc --net -- true; then
+            echo "::error::This runner cannot create the namespaces the unshare tier needs."
+            echo "::error::None of the tier's guarantees can be proven here, so the suite is failed rather than skipped."
+            exit 1
+          fi
+
+      - name: Run the isolation smoke
+        run: bun run test:isolation
+
   adapter-cross-runtime:
     needs: [changes, validate, test, build]
     if: needs.changes.outputs.packages == 'true'
