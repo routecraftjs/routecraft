@@ -63,6 +63,16 @@ function readsFrom(node: unknown, param: string): boolean {
         readsFrom(node["consequent"], param) ||
         readsFrom(node["alternate"], param)
       );
+    case "SequenceExpression": {
+      // A comma expression evaluates to its last operand, and only that
+      // operand reaches argv. Testing every operand would report
+      // `(ex.body.log, "origin")`, which passes a literal.
+      const expressions = node["expressions"];
+      return (
+        Array.isArray(expressions) &&
+        readsFrom(expressions[expressions.length - 1], param)
+      );
+    }
     case "CallExpression":
       // Both halves matter. The callee chain carries the exchange for a
       // method call (`ex.body.url.trim()`, the most likely shape of all),

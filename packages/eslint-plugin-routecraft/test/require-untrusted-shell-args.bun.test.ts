@@ -22,7 +22,7 @@ const ruleTester = new RuleTester({
 
 /**
  * @case require-untrusted-shell-args: exchange-derived shell() arguments must be wrapped in untrusted()
- * @preconditions shell() calls whose argument resolver does and does not read from the exchange parameter, plus literal and non-shell forms, markers that are shadowed or aliased rather than the real export, and returns belonging to a nested helper rather than the resolver
+ * @preconditions shell() calls whose argument resolver does and does not read from the exchange parameter, plus literal and non-shell forms, markers that are shadowed or aliased rather than the real export, returns belonging to a nested helper rather than the resolver, and comma expressions whose yielded operand is and is not exchange-derived
  * @expectedResult A value read from the exchange parameter and passed unwrapped is reported, including where the marker around it is not the real one; wrapped values, author literals, resolvers that ignore the exchange, and a nested helper's own returns pass
  */
 ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
@@ -47,6 +47,10 @@ ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
     // argv the resolver never returned to the resolver.
     `import { shell } from "@routecraft/os";
      shell("git", (ex) => { function helper() { return [ex.body.url]; } return ["status"]; });`,
+    // A comma expression yields its last operand, so this passes a literal
+    // however many exchange reads precede it.
+    `import { shell } from "@routecraft/os";
+     shell("git", (ex) => ["push", (ex.body.log, "origin")]);`,
   ],
   invalid: [
     {
@@ -110,6 +114,13 @@ ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
       // marker's name carries none of its protection.
       code: `import { shell, shellPlugin as untrusted } from "@routecraft/os";
              shell("git", (ex) => ["clone", untrusted(ex.body.url)]);`,
+      errors: [{ messageId: "unmarked" }],
+    },
+    {
+      // The value a comma expression yields is its last operand, and here
+      // that operand is the exchange value reaching argv unmarked.
+      code: `import { shell } from "@routecraft/os";
+             shell("git", (ex) => ["clone", (audit(ex), ex.body.url)]);`,
       errors: [{ messageId: "unmarked" }],
     },
   ],
