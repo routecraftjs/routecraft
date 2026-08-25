@@ -41,7 +41,14 @@ export const unshareTier: IsolationTier = {
   name: "unshare",
 
   ensureAvailable(): Promise<void> {
-    probe ??= runProbe();
+    // Only a success is cached. A probe can fail for reasons that are not
+    // properties of the kernel (fork pressure, a transient EAGAIN, the
+    // probe's own timeout), and caching those would tell every later call
+    // that the host restricts user namespaces when it does not.
+    probe ??= runProbe().catch((cause: unknown) => {
+      probe = undefined;
+      throw cause;
+    });
     return probe;
   },
 

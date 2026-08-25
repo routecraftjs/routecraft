@@ -9,6 +9,7 @@ import {
 } from "../block/markdown.ts";
 import { tools } from "./tools/index.ts";
 import type { ToolSelection } from "./tools/selection.ts";
+import { toolNameOf } from "./tools/specifier.ts";
 import type { LlmModelId } from "../llm/types.ts";
 import type { AgentRegisteredOptions } from "./types.ts";
 
@@ -204,20 +205,6 @@ function optionalToolRefs(
 }
 
 /**
- * The tool a reference names, with any use-site specifier stripped.
- *
- * `Bash(git status:*)` and `Bash` are the same tool granted with and
- * without a constraint, so identity questions (is it registered, is it a
- * built-in, was it denied) are asked of the name.
- *
- * @internal
- */
-function toolNameOf(ref: string): string {
-  const open = ref.indexOf("(");
-  return open === -1 ? ref : ref.slice(0, open).trim();
-}
-
-/**
  * Whether a `disallowedTools` entry removes a granted reference. A bare
  * name denies every scoped grant of that tool, because a deny naming the
  * tool means the tool; a scoped deny removes only the exact grant.
@@ -251,7 +238,13 @@ function toolSelection(
   source: string,
 ): ToolSelection {
   const denied = new Set(disallowed);
-  const deniedNames = new Set(disallowed.map(toolNameOf));
+  // ONLY a bare denial names the tool. Mapping every denial through
+  // toolNameOf made a scoped `Bash(rm:*)` deny collapse to `Bash` and
+  // silently remove every other Bash grant in the file, which is the
+  // opposite of what isDeniedBy documents.
+  const deniedNames = new Set(
+    disallowed.filter((entry) => toolNameOf(entry) === entry.trim()),
+  );
   // A deny that names something the agent never had is a typo, and the
   // tool it meant to remove stays granted. Same reason a deny with no
   // allow throws: a field whose whole purpose is removing capability

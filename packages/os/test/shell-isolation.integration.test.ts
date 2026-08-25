@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll } from "vitest";
+import { describe, test, expect, beforeAll } from "bun:test";
 import type { Exchange } from "@routecraft/routecraft";
 import { shell } from "@routecraft/os";
 
@@ -51,10 +51,12 @@ describe("the unshare tier's guarantees", () => {
    */
   test("network egress is denied unless granted", async () => {
     const control = await unisolated("getent", ["ahosts", "example.com"]);
-    expect(
-      control.exitCode,
-      "the runner itself cannot resolve example.com, so egress denial cannot be proven here",
-    ).toBe(0);
+    if (control.exitCode !== 0) {
+      throw new Error(
+        "The runner itself cannot resolve example.com, so denying egress proves nothing here. " +
+          "Failing rather than passing: this assertion is only meaningful against a runner that HAS egress.",
+      );
+    }
 
     const isolated = await run("getent", ["ahosts", "example.com"]);
     expect(isolated.exitCode).not.toBe(0);
@@ -74,10 +76,12 @@ describe("the unshare tier's guarantees", () => {
   test("host processes are invisible", async () => {
     const control = await unisolated("ps", ["-e"]);
     const hostProcesses = control.stdout.trim().split("\n").length;
-    expect(
-      hostProcesses,
-      "the runner reports almost no processes, so hiding them proves nothing",
-    ).toBeGreaterThan(3);
+    if (hostProcesses <= 3) {
+      throw new Error(
+        `The runner reports only ${hostProcesses} processes, so hiding them proves nothing. ` +
+          "Failing rather than passing: this assertion is only meaningful where there are host processes to hide.",
+      );
+    }
 
     const isolated = await run("ps", ["-e"]);
     const seen = isolated.stdout.trim().split("\n");

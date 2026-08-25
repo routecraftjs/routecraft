@@ -18,9 +18,11 @@ export type ShellArgs<T> =
 
 /**
  * Options shared by every `shell()` call. Per-call values here beat the
- * `ROUTECRAFT_SHELL_*` environment overrides, which beat `shellPlugin()`
- * context defaults: an operator can harden a loosely configured deployment
- * without being able to quietly weaken what a route explicitly demanded.
+ * `ROUTECRAFT_SHELL_ISOLATION` operator override, which beats
+ * `shellPlugin()` context defaults: an operator can harden a loosely
+ * configured deployment without being able to quietly weaken what a route
+ * explicitly demanded. Isolation is the only option an operator can
+ * override from the environment.
  */
 export interface ShellOptions<T = unknown> {
   /**

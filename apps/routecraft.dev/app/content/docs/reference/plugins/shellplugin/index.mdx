@@ -1,0 +1,44 @@
+---
+title: shellPlugin
+---
+
+<Lead>
+[← All plugins](/docs/reference/plugins)
+</Lead>
+
+```ts
+import { shellPlugin } from '@routecraft/os'
+```
+
+Context-wide defaults for [`shell()`](/docs/reference/adapters/shell). Deployment policy belongs here, so a project sets its posture once instead of repeating it at every call.
+
+```ts
+import { defineConfig } from '@routecraft/routecraft'
+import { shellPlugin } from '@routecraft/os'
+
+export const craftConfig = defineConfig({
+  plugins: [shellPlugin({ timeout: 30_000, maxOutputBytes: 1_048_576 })],
+})
+```
+
+## Options
+
+| Field | Type | Default | Required | Description |
+| --- | --- | --- | --- | --- |
+| `isolation` | `"none" \| "unshare"` | `unshare` | No | Isolation tier for calls that do not choose one |
+| `timeout` | `number` | none | No | Milliseconds before a command and its children are killed |
+| `maxOutputBytes` | `number` | `8388608` (8 MiB) | No | Cap on captured output, per stream |
+
+## Precedence
+
+Three layers, narrowest first:
+
+1. **Per-call options** on `shell()` itself.
+2. **The `ROUTECRAFT_SHELL_ISOLATION` environment variable**, the operator override.
+3. **`shellPlugin()` defaults**, the lowest layer.
+
+The environment sits above plugin config so an operator can harden a loosely configured deployment, and below the call site so a route that explicitly demanded a tier is never quietly given a weaker one. Isolation is the only option overridable from the environment; a value it does not recognise is refused rather than ignored, because an operator who set the variable meant to change something.
+
+## What it deliberately does not carry
+
+There is no `network` or `mapRootUser` default. Both widen what a command may do, and a context-level default that widens is the kind of grant nobody re-reads. Whether a given command may reach the network is a property of that command, so it is stated where the command is written.

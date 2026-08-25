@@ -171,6 +171,28 @@ describe("use-site specifiers", () => {
   });
 
   /**
+   * @case A guard on one entry survives a second entry for the same tool
+   * @preconditions An object entry carrying a guard, followed by a bare scoped entry for the same tool
+   * @expectedResult The guard still runs, rather than being overwritten by whichever entry came last
+   */
+  test("a later entry does not drop an earlier entry's guard", async () => {
+    const resolved = await resolve([
+      {
+        name: "Bash(git status:*)",
+        guard: () => {
+          throw new Error("explicit guard refused");
+        },
+      },
+      "Bash(ls:*)",
+    ]);
+    expect(resolved).toHaveLength(1);
+    await expect(
+      (async () =>
+        resolved[0]!.guard!({ command: "git status" }, handlerCtx))(),
+    ).rejects.toThrow(/explicit guard refused/);
+  });
+
+  /**
    * @case Reserved constructors keep their own meaning
    * @preconditions References using the Direct and MCP grammar
    * @expectedResult They are not read as specifiers, so they fail as unknown identities instead

@@ -1,5 +1,10 @@
 import type { Rule } from "eslint";
-import { isCallExpression, isIdentifier, isObject } from "./shared/ast.ts";
+import {
+  isCallExpression,
+  isIdentifier,
+  isObject,
+  typeOf,
+} from "./shared/ast.ts";
 
 /**
  * Flag exchange-derived values passed to `shell()` without `untrusted()`.
@@ -15,16 +20,19 @@ import { isCallExpression, isIdentifier, isObject } from "./shared/ast.ts";
  * forgets to mark a value gets no protection and no error. The pattern is
  * mechanically recognisable, so the linter can say so.
  *
+ * ## What it does not see
+ *
+ * Coverage is syntactic and local to the resolver. A value read into a
+ * local first (`const url = ex.body.url`), returned from a helper, or
+ * assembled in an array built elsewhere and passed by reference is NOT
+ * flagged: tracking those needs data flow this rule does not attempt. The
+ * rule is a safety net over an opt-in marker, never the enforcement
+ * itself, and the runtime applies flag protection only to what the author
+ * actually marked.
+ *
  * Nodes are narrowed structurally rather than through `@types/estree`,
  * matching the deliberate dependency choice recorded in `shared/ast.ts`.
  */
-
-/** Read a node's `type` discriminant without asserting a node shape. */
-function typeOf(node: unknown): string | undefined {
-  return isObject(node) && typeof node["type"] === "string"
-    ? node["type"]
-    : undefined;
-}
 
 /** Does this expression read from `param`, directly or through members? */
 function readsFrom(node: unknown, param: string): boolean {
@@ -45,13 +53,25 @@ function readsFrom(node: unknown, param: string): boolean {
         node["expressions"].some((e) => readsFrom(e, param))
       );
     case "BinaryExpression":
+    case "LogicalExpression":
+      // `ex.body.url ?? ""` and `ex.body.url || "origin"` are the ordinary
+      // way an author supplies a fallback, so they must not read as safe.
       return readsFrom(node["left"], param) || readsFrom(node["right"], param);
-    case "CallExpression":
-      // A call's arguments may carry the exchange (`String(ex.body.id)`),
-      // and the result is just as attacker-influenced as the input was.
+    case "ConditionalExpression":
       return (
-        Array.isArray(node["arguments"]) &&
-        node["arguments"].some((a) => readsFrom(a, param))
+        readsFrom(node["test"], param) ||
+        readsFrom(node["consequent"], param) ||
+        readsFrom(node["alternate"], param)
+      );
+    case "CallExpression":
+      // Both halves matter. The callee chain carries the exchange for a
+      // method call (`ex.body.url.trim()`, the most likely shape of all),
+      // and an argument carries it for a wrapper (`String(ex.body.id)`).
+      // A method's result is as attacker-influenced as its receiver.
+      return (
+        readsFrom(node["callee"], param) ||
+        (Array.isArray(node["arguments"]) &&
+          node["arguments"].some((a) => readsFrom(a, param)))
       );
     default:
       return false;

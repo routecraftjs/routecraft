@@ -162,7 +162,7 @@ Three kinds of module. The 8-to-12 bound governs only the first group.
 |---|---|---|
 | `@routecraft/routecraft` | core: framework + standards | keep; add graphql; consider absorbing the MCP client (section 6) |
 | `@routecraft/ai` | llm, agent, mcp, embeddings, providers, agent tools | keep |
-| `@routecraft/os` | system-native: shell, sandbox, browser, ... | keep; absorbs `@routecraft/browser` |
+| `@routecraft/os` | system-native: shell (isolated), browser, ... | keep; absorbs `@routecraft/browser` |
 | `@routecraft/browser` | browser automation | merge into `@routecraft/os`, deprecate the name |
 | `@routecraft/google` | Google ecosystem | on first adapter (#370) |
 | `@routecraft/aws` | proprietary AWS services | deferred (S3 stays core) |
@@ -249,4 +249,4 @@ Provider entries via the Vercel AI SDK seam (#385), not packages. Have: openai, 
 - [CI/CD](./ci-cd.md) -- adding a package, dependency shapes, optional peers
 - [Adapter Architecture](./adapter-architecture.md) -- how to build the adapter once its home is decided
 - [Naming Policy](./naming-policy.md) -- what to call it
-- [Security](./security.md) -- protocol-level auth in core, and the sandbox-by-default contract for `@routecraft/os`
+- [Security](./security.md) -- protocol-level auth in core, and the isolated-by-default contract for `@routecraft/os`

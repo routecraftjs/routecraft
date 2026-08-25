@@ -4,13 +4,14 @@ System-native host capabilities for Routecraft: drive the host machine from rout
 
 ## Available now
 
+- `shell()` -- run a command, isolated by default. It never invokes a shell: the program is spawned directly with an argument vector, so an argument can never become a command. The `unshare` tier denies network egress, hides host processes, and withholds the caller's privileges; it does not contain filesystem reads, which its documentation says in as many words. The environment is granted rather than inherited.
 - `agentBrowser()` -- browser automation via [agent-browser](https://github.com/nichochar/agent-browser). Migrated here from the former `@routecraft/browser` package.
 
 ## Planned
 
-- `shell()` -- run shell commands, sandboxed by default, sharing only the environment variables the route node declares it needs.
-- `sandbox()` -- sandboxed execution as a first-class concept.
 - Host primitives such as clipboard, notifications, filesystem-watch, and process management.
+
+A separate `sandbox()` factory is deferred: isolation ships as an option on `shell()`, because "run a command, isolated" is one concept and a second factory selecting the same behaviour would be a `mode:` option under another name.
 
 See [`.standards/package-boundaries.md`](https://github.com/routecraftjs/routecraft/blob/main/.standards/package-boundaries.md) for why these live together and the secure-by-default contract.
 

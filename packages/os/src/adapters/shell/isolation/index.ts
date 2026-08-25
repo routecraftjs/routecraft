@@ -40,7 +40,10 @@ export function resolveIsolation(
   fromPlugin: IsolationName | undefined,
 ): IsolationTier {
   const name = perCall ?? readIsolationEnv() ?? fromPlugin ?? DEFAULT_ISOLATION;
-  const tier = TIERS[name];
+  // Own-property lookup: `TIERS` inherits from Object.prototype, so a name
+  // like "constructor" would otherwise resolve to a truthy non-tier and
+  // fail later as a TypeError with no mention of the setting that caused it.
+  const tier = Object.hasOwn(TIERS, name) ? TIERS[name] : undefined;
   if (!tier) {
     throw rcError("RC5003", undefined, {
       message:
@@ -60,7 +63,7 @@ export function resolveIsolation(
 function readIsolationEnv(): IsolationName | undefined {
   const raw = process.env[ISOLATION_ENV_VAR]?.trim();
   if (raw === undefined || raw === "") return undefined;
-  if (!(raw in TIERS)) {
+  if (!Object.hasOwn(TIERS, raw)) {
     throw rcError("RC5003", undefined, {
       message:
         `${ISOLATION_ENV_VAR} is set to "${raw}", which is not an isolation tier this build provides. ` +

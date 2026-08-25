@@ -159,7 +159,7 @@ export type ToolGuard = (
  * command surface attached. The kind says how the text after the tool name
  * should be read, and every tool that accepts one declares its own.
  */
-export type FnSpecifierKind = "command-pattern";
+export type FnSpecifierKind = "command-pattern" | (string & {});
 
 /**
  * How a tool compiles its own use-site specifiers into a call-time guard.
@@ -175,7 +175,13 @@ export type FnSpecifierKind = "command-pattern";
  * the agent is loaded rather than on the first tool call.
  */
 export interface FnSpecifier {
-  /** How to read the text inside the parentheses. */
+  /**
+   * How to read the text inside the parentheses. Descriptive today: the
+   * dispatch calls `compile` without inspecting it, and it exists so a
+   * declaration says what kind of surface it constrains. The union stays
+   * open so a tool outside this repository can declare a kind without a
+   * change here, which is the whole point of the seam.
+   */
   readonly kind: FnSpecifierKind;
   /**
    * Build the guard enforcing these specifiers.

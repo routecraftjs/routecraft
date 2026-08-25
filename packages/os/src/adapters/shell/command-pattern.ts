@@ -14,6 +14,19 @@ import { rcError } from "@routecraft/routecraft";
  * is a fact about shell command lines, and because a matcher this
  * security-relevant is never template code.
  *
+ * ## The limit of a prefix grant
+ *
+ * A `:*` grant permits every flag of the program it names, except the
+ * carve-outs below. That is deliberate (Claude's own semantics allow
+ * flags, and `Bash(git status:*)` would be useless if `--short` were
+ * refused), but it means a grant is only as narrow as the program is.
+ *
+ * Many ordinary programs can be made to run something else through a
+ * flag: `tar --to-command`, `git -c core.pager=`, `python -c`, `perl -e`,
+ * `make -f`. The carve-outs catch the cases we know, and a reader granting
+ * a program not on that list should assume the grant includes its flags.
+ * Isolation, not this matcher, is what bounds the damage.
+ *
  * ## Why matching is not a prefix test
  *
  * A naive `command.startsWith(pattern)` allowlist is defeated by the first
@@ -70,16 +83,47 @@ const OPERATORS = ["|&", "&&", "||", ";;", ";", "|", "&", "\n"] as const;
  * command rather than by the grant, which turns a permitted `echo` into
  * an arbitrary file write. Both are refused outright.
  */
-const SUBSTITUTIONS: readonly {
-  readonly token: string;
-  readonly what: string;
-}[] = [
-  { token: "$(", what: "command substitution" },
-  { token: "`", what: "command substitution" },
-  { token: "<(", what: "process substitution" },
-  { token: ">(", what: "process substitution" },
-  { token: "${", what: "parameter expansion" },
-];
+const PROCESS_SUBSTITUTIONS = ["<(", ">("] as const;
+
+/**
+ * Identify a substitution or expansion beginning at `index`.
+ *
+ * Applied both outside quotes and inside double-quoted runs, because a
+ * shell expands all of these inside double quotes too. Single quotes are
+ * the only construct that genuinely makes them literal, and that is why
+ * this is not called for a single-quoted run.
+ */
+function substitutionAt(text: string, index: number): string | undefined {
+  const char = text[index];
+  if (char === "`") return "command substitution";
+  if (char !== "$") return undefined;
+  const next = text[index + 1];
+  if (next === "(") return "command substitution";
+  if (next === "{") return "parameter expansion";
+  // A bare `$` is literal (`echo 5$`), but `$` followed by a name, a digit
+  // or one of the special parameters expands.
+  if (next !== undefined && /[A-Za-z0-9_?!#*@$-]/.test(next)) {
+    return "parameter expansion";
+  }
+  return undefined;
+}
+
+/**
+ * Find the first live substitution inside a double-quoted run, honouring
+ * backslash escapes so `"\$(id)"` reads as the literal text a shell would
+ * produce rather than as a substitution.
+ */
+function substitutionInDoubleQuotes(raw: string): string | undefined {
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === "\\") {
+      i++;
+      continue;
+    }
+    const found = substitutionAt(raw, i);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
 
 /** Redirection operators, refused for the reason given above. */
 const REDIRECTIONS = [">>", "<<", ">", "<"] as const;
@@ -146,6 +190,21 @@ const EXEC_WRAPPERS = new Set([
  */
 const DESTRUCTIVE_FLAGS: Record<string, readonly string[]> = {
   find: ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls", "-fprint"],
+  // Flags that hand another command to a program a grant might reasonably
+  // name for reading. This list is not, and cannot be, exhaustive: see the
+  // limit of a prefix grant in this module's header.
+  tar: ["--to-command", "--use-compress-program", "-I"],
+  git: ["-c", "--exec-path", "--upload-pack", "--receive-pack"],
+  python: ["-c", "-m"],
+  python3: ["-c", "-m"],
+  perl: ["-e", "-E"],
+  ruby: ["-e"],
+  node: ["-e", "--eval", "--require", "-r"],
+  make: ["-f", "--file", "--makefile"],
+  ssh: ["-o", "-F"],
+  rsync: ["-e", "--rsh"],
+  awk: ["-f"],
+  sed: ["-f", "--file"],
 };
 
 /**
@@ -379,12 +438,20 @@ function tokenize(command: string): { tokens: Token[] } | { error: string } {
   for (let i = 0; i < command.length; i++) {
     const char = command[i]!;
 
-    for (const { token, what } of SUBSTITUTIONS) {
-      if (command.startsWith(token, i)) {
-        return {
-          error: `the command uses ${what} ("${token}"), which runs or resolves something the pattern cannot see`,
-        };
-      }
+    const processSubstitution = PROCESS_SUBSTITUTIONS.find((token) =>
+      command.startsWith(token, i),
+    );
+    if (processSubstitution !== undefined) {
+      return {
+        error: `the command uses process substitution ("${processSubstitution}"), which runs something the pattern cannot see`,
+      };
+    }
+
+    const substitution = substitutionAt(command, i);
+    if (substitution !== undefined) {
+      return {
+        error: `the command uses ${substitution} ("${char}"), which runs or resolves something the pattern cannot see`,
+      };
     }
 
     if (char === "\\") {
@@ -404,6 +471,19 @@ function tokenize(command: string): { tokens: Token[] } | { error: string } {
         return {
           error: `the command has an unterminated ${char === "'" ? "single" : "double"} quote`,
         };
+      }
+      // A shell expands inside double quotes, so the same refusal has to
+      // reach in there. Skipping it was a full bypass of this matcher:
+      // `echo "$(cat ~/.ssh/id_rsa)"` matched a grant for `echo`.
+      if (char === '"') {
+        const inside = substitutionInDoubleQuotes(
+          command.slice(i + 1, closed.end),
+        );
+        if (inside !== undefined) {
+          return {
+            error: `the command uses ${inside} inside double quotes, which runs or resolves something the pattern cannot see`,
+          };
+        }
       }
       word += closed.value;
       hasWord = true;

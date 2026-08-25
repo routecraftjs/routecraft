@@ -42,11 +42,10 @@ export interface SpecifierRef {
  * @internal
  */
 export function parseSpecifierRef(ref: string): SpecifierRef | undefined {
-  const match = /^([A-Za-z_][A-Za-z0-9_-]*)\((.*)\)$/s.exec(ref.trim());
-  if (!match) return undefined;
-  const name = match[1]!;
+  const split = splitToolRef(ref);
+  if (!split) return undefined;
+  const { name, body } = split;
   if (RESERVED.has(name)) return undefined;
-  const body = match[2]!.trim();
   if (body === "") {
     throw rcError("RC5003", undefined, {
       message:
@@ -55,6 +54,43 @@ export function parseSpecifierRef(ref: string): SpecifierRef | undefined {
     });
   }
   return { name, body };
+}
+
+/**
+ * Split a `Name(body)` reference into its parts. Grammar only: it applies
+ * no policy, throws for nothing, and knows nothing about which names are
+ * reserved.
+ *
+ * The one place the shape of a tool reference is decided. Two readings of
+ * it that must agree and do not is how a deny stops denying, or how a
+ * reference the loader waves through is read differently downstream.
+ *
+ * @internal
+ */
+export function splitToolRef(
+  ref: string,
+): { name: string; body: string } | undefined {
+  const match = /^([A-Za-z_][A-Za-z0-9_-]*)\((.*)\)$/s.exec(ref.trim());
+  return match ? { name: match[1]!, body: match[2]!.trim() } : undefined;
+}
+
+/**
+ * The tool a reference names, with any use-site specifier stripped.
+ *
+ * `Bash(git status:*)` and `Bash` are the same tool granted with and
+ * without a constraint, so identity questions (is it registered, is it a
+ * built-in, was it denied) are asked of the name.
+ *
+ * A reserved constructor is returned whole: `Direct(orders.cancel)` names
+ * one route rather than a tool called `Direct`, so collapsing it would let
+ * a deny for one route remove every other.
+ *
+ * @internal
+ */
+export function toolNameOf(ref: string): string {
+  const split = splitToolRef(ref);
+  if (!split || RESERVED.has(split.name)) return ref.trim();
+  return split.name;
 }
 
 /**

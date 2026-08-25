@@ -893,6 +893,8 @@ Command refused by the allowlist
 **Why it happens**  
 An agent asked to run a command that no granted pattern matches. This is the agent-exposure boundary, not the security boundary: isolation and argument hygiene apply to permitted commands too.
 
+The matcher this code comes from ships in `@routecraft/os`; the agent-facing tool that wires it to `shell()` is assembled in the project scaffolder's harness template, so this code is reachable once a project registers that tool.
+
 **Suggestion**  
 - Grant the command with a pattern in the agent's tool list, or have the agent retry with a permitted form.
 - A command containing shell operators needs every subcommand permitted: `git status && rm -rf /` is refused even when `Bash(git status:*)` is granted.

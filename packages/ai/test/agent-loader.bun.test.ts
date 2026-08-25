@@ -877,6 +877,22 @@ describe("agents() markdown loader", () => {
   });
 
   /**
+   * @case A scoped denial removes only the grant it names
+   * @preconditions tools grants two scoped Bash entries; disallowedTools names one of them
+   * @expectedResult The other scoped grant survives, rather than the whole tool being revoked
+   */
+  test("a scoped denial leaves sibling grants intact", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\ntools:\n  - Bash(git status:*)\n  - Bash(rm:*)\ndisallowedTools:\n  - Bash(rm:*)\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(await resolveToolNames(result["x"], { Bash: bashFn })).toEqual([
+      "Bash",
+    ]);
+  });
+
+  /**
    * @case The deny-only error explains the whitelist decision rather than citing an open ticket
    * @preconditions An agent file carrying disallowedTools without tools
    * @expectedResult Loading throws, and the message says the deny-against-defaults idea was declined

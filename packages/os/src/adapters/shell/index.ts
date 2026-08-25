@@ -1,4 +1,4 @@
-import type { Enricher } from "@routecraft/routecraft";
+import { factoryArgs, tagAdapter, type Enricher } from "@routecraft/routecraft";
 import { ShellEnricherAdapter } from "./enricher.ts";
 import type { ShellArgs, ShellOptions, ShellResult } from "./types.ts";
 
@@ -57,7 +57,11 @@ export function shell<T = unknown>(
   args?: ShellArgs<T>,
   options?: ShellOptions<T>,
 ): Enricher<T, ShellResult> {
-  return new ShellEnricherAdapter<T>(command, args, options ?? {});
+  return tagAdapter(
+    new ShellEnricherAdapter<T>(command, args, options ?? {}),
+    shell,
+    factoryArgs(command, args, options),
+  );
 }
 
 export { untrusted, type ShellArg, type UntrustedArg } from "./untrusted.ts";

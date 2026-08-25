@@ -148,6 +148,16 @@ describe("isolation resolution", () => {
   });
 
   /**
+   * @case An inherited object key is not mistaken for a tier
+   * @preconditions The env names a property every object inherits
+   * @expectedResult Refused by name, rather than resolving to a non-tier that fails later
+   */
+  test("a prototype key is not a tier", () => {
+    process.env["ROUTECRAFT_SHELL_ISOLATION"] = "constructor";
+    expect(() => resolveIsolation(undefined, undefined)).toThrow(/constructor/);
+  });
+
+  /**
    * @case An unrecognised override is refused rather than ignored
    * @preconditions The env names a tier this build does not provide
    * @expectedResult Throws, so a typo cannot silently leave the default in place
@@ -283,6 +293,30 @@ describe("bounded output", () => {
     const out = new BoundedOutput(100);
     out.push(Buffer.from("hello"));
     expect(out.result()).toEqual({ text: "hello", truncated: false });
+  });
+
+  /**
+   * @case Output past the head budget but within the cap is still returned whole
+   * @preconditions More bytes than half the cap, fewer than the cap
+   * @expectedResult Every byte comes back, and the result is not marked truncated
+   */
+  test("output between the head budget and the cap is not lost", () => {
+    const out = new BoundedOutput(100);
+    out.push(Buffer.from("A".repeat(80)));
+    const result = out.result();
+    expect(result.text.length).toBe(80);
+    expect(result.truncated).toBe(false);
+  });
+
+  /**
+   * @case A non-positive cap is refused when the collector is built
+   * @preconditions A negative or zero maxOutputBytes
+   * @expectedResult Throws at construction, never from inside a stream handler where it would hang the route
+   */
+  test("a non-positive cap is refused at construction", () => {
+    expect(() => new BoundedOutput(-4)).toThrow(/positive number of bytes/);
+    expect(() => new BoundedOutput(0)).toThrow(/positive number of bytes/);
+    expect(() => new BoundedOutput(Number.NaN)).toThrow();
   });
 
   /**

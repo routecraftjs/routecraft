@@ -5,7 +5,7 @@ import type { IsolationName } from "./types.ts";
  * Context-wide defaults for `shell()`.
  *
  * The lowest layer of the three: a call site beats the
- * `ROUTECRAFT_SHELL_*` operator overrides, which beat these. Deployment
+ * `ROUTECRAFT_SHELL_ISOLATION` operator override, which beats these. Deployment
  * policy belongs here, so a project can set its posture once instead of
  * repeating it at every call.
  */

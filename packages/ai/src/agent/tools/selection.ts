@@ -340,16 +340,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             }
             continue;
           }
-          const spec = parseSpecifierRef(item);
-          const tool = spec
-            ? resolveSpecifierRef(
-                ctx,
-                spec.name,
-                specifiers.get(spec.name) ?? [spec.body],
-                undefined,
-              )
-            : resolveByName(ctx, item, undefined);
-          out.set(tool.name, tool);
+          record(out, resolveRef(ctx, item, undefined, specifiers));
           continue;
         }
         if (item === null || typeof item !== "object" || !("name" in item)) {
@@ -385,15 +376,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             message: `tools(): { name: "${item.name}", description } must be a non-empty string when present.`,
           });
         }
-        const itemSpec = parseSpecifierRef(item.name);
-        const base = itemSpec
-          ? resolveSpecifierRef(
-              ctx,
-              itemSpec.name,
-              specifiers.get(itemSpec.name) ?? [itemSpec.body],
-              item.guard,
-            )
-          : resolveByName(ctx, item.name, item.guard);
+        const base = resolveRef(ctx, item.name, item.guard, specifiers);
         // Per-binding description override. The registry entry is
         // never mutated, so other agents binding the same fn still
         // see the canonical description.
@@ -401,7 +384,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
           item.description !== undefined
             ? { ...base, description: item.description }
             : base;
-        out.set(tool.name, tool);
+        record(out, tool);
       }
       return [...out.values()];
     },
@@ -597,6 +580,57 @@ function resolveByName(
       (known.length > 0
         ? `Available: ${known.join(", ")}.`
         : `No fns or direct routes are registered in this context.`),
+  });
+}
+
+/**
+ * Resolve one tool reference, attaching its unioned specifier guard when
+ * it carries a specifier. One path for both the string and object item
+ * forms, which otherwise drift into granting different things.
+ *
+ * @internal
+ */
+function resolveRef(
+  ctx: CraftContext,
+  ref: string,
+  guard: ToolGuard | undefined,
+  specifiers: Map<string, string[]>,
+): ResolvedTool {
+  const spec = parseSpecifierRef(ref);
+  if (!spec) return resolveByName(ctx, ref, guard);
+  return resolveSpecifierRef(
+    ctx,
+    spec.name,
+    specifiers.get(spec.name) ?? [spec.body],
+    guard,
+  );
+}
+
+/**
+ * Add a resolved tool, composing rather than replacing when the name is
+ * already present.
+ *
+ * Every specifier reference resolves to its tool's bare name, so repeated
+ * entries for one tool collide here. Overwriting silently dropped whatever
+ * the earlier entry carried, including an explicit guard: the union that
+ * makes repeated entries the documented idiom would then quietly widen the
+ * grant depending on which line came last.
+ *
+ * @internal
+ */
+function record(out: Map<string, ResolvedTool>, tool: ResolvedTool): void {
+  const existing = out.get(tool.name);
+  if (!existing) {
+    out.set(tool.name, tool);
+    return;
+  }
+  const guard =
+    existing.guard && tool.guard
+      ? combineGuards(existing.guard, tool.guard)
+      : (existing.guard ?? tool.guard);
+  out.set(tool.name, {
+    ...existing,
+    ...(guard ? { guard } : {}),
   });
 }
 

@@ -97,6 +97,14 @@ export class BoundedOutput {
   private dropped = 0;
 
   constructor(limit: number) {
+    // Validated here rather than in push(): push() runs inside a stream
+    // handler, where a throw leaves the awaited subprocess unsettled and
+    // hangs the route instead of failing it.
+    if (!Number.isFinite(limit) || limit < 1) {
+      throw rcError("RC5003", undefined, {
+        message: `shell(): maxOutputBytes must be a positive number of bytes, got ${String(limit)}.`,
+      });
+    }
     this.headLimit = Math.ceil(limit / 2);
     this.tailLimit = limit - this.headLimit;
   }
@@ -121,7 +129,7 @@ export class BoundedOutput {
 
     this.tail.push(rest);
     this.tailBytes += rest.length;
-    while (this.tailBytes > this.tailLimit) {
+    while (this.tailBytes > this.tailLimit && this.tail.length > 0) {
       const oldest = this.tail[0]!;
       const excess = this.tailBytes - this.tailLimit;
       if (oldest.length <= excess) {
@@ -142,18 +150,15 @@ export class BoundedOutput {
    * makes clear that the text is not contiguous anyway.
    */
   result(): { text: string; truncated: boolean } {
-    if (this.dropped === 0) {
-      return {
-        text: Buffer.concat(this.head).toString("utf8"),
-        truncated: false,
-      };
-    }
-    const marker = `\n... ${this.dropped} bytes truncated ...\n`;
+    const head = Buffer.concat(this.head).toString("utf8");
+    const tail = Buffer.concat(this.tail).toString("utf8");
+    // The tail holds real output as soon as the head fills, which happens
+    // at half the cap. Returning the head alone whenever nothing was
+    // dropped silently discarded everything between half the cap and the
+    // cap, while reporting the result as complete.
+    if (this.dropped === 0) return { text: head + tail, truncated: false };
     return {
-      text:
-        Buffer.concat(this.head).toString("utf8") +
-        marker +
-        Buffer.concat(this.tail).toString("utf8"),
+      text: `${head}\n... ${this.dropped} bytes truncated ...\n${tail}`,
       truncated: true,
     };
   }
