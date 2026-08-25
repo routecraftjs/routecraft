@@ -14,15 +14,19 @@ Rule catalog for `@routecraft/eslint-plugin-routecraft`.
 | `batch-before-from` | warn | `.batch()` must appear before `.from()` -- using it after has no effect on the current route | No |
 | `single-to-per-route` | warn | Each `craft()` chain should have at most one `.to()`; extra outputs belong in `.tap()` | No |
 | `restrict-principal-minting` | error | Principal minting (`.authenticate()`, `authenticate()`, `markAuthentic()`) is restricted to explicitly sanctioned sites (scoped disable comment or per-file override) | No |
-| `require-untrusted-shell-args` | error | An exchange-derived value in `shell()` arguments must be wrapped in `untrusted()`, so it cannot pose as an option to the invoked program | No |
+| `require-untrusted-shell-args` | warn | An exchange-derived value in `shell()` arguments must be wrapped in `untrusted()`, so it cannot pose as an option to the invoked program | No |
 | `capability-boundaries` | off (opt-in) | From outside a capability folder, import only its public-surface `route.ts`, never its internals | No |
 
 ## Presets
 
 | Preset | Description |
 |--------|-------------|
-| `routecraftPlugin.configs.recommended` | Convention rules at their default levels, plus the security rules `restrict-principal-minting` and `require-untrusted-shell-args` as errors |
-| `routecraftPlugin.configs.all` | Convention rules as errors (`single-to-per-route` stays a warning), plus `restrict-principal-minting` and `require-untrusted-shell-args` as errors |
+| `routecraftPlugin.configs.recommended` | Convention rules at their default levels, plus `restrict-principal-minting` as an error and `require-untrusted-shell-args` as a warning |
+| `routecraftPlugin.configs.all` | Convention rules as errors (`single-to-per-route` stays a warning), plus `restrict-principal-minting` as an error and `require-untrusted-shell-args` as a warning |
+
+`require-untrusted-shell-args` warns rather than errors while its analysis is young: a
+misfiring warning is a nuisance in an editor, where a misfiring error fails a build. Raise it
+to `error` in your own config once you trust it on your codebase.
 
 `capability-boundaries` is **not** in either preset. It encodes a specific repository layout
 (`capabilities/<domain>/<capability>/route.ts`), so it is opt-in only and must be enabled

@@ -312,7 +312,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
           // whose id happens to start with `mcp__` stays reachable.
           if (isMcpRefName(item) && !fnRegistryHas(ctx, item)) {
             for (const tool of resolveMcpRefs(ctx, item, undefined)) {
-              out.set(tool.name, tool);
+              record(out, tool);
             }
             continue;
           }
@@ -339,7 +339,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             });
           }
           for (const tool of resolveMcpRefs(ctx, item.name, item.guard)) {
-            out.set(tool.name, tool);
+            record(out, tool);
           }
           continue;
         }

@@ -24,7 +24,7 @@ export const configs = {
       "@routecraft/routecraft/batch-before-from": "error",
       "@routecraft/routecraft/single-to-per-route": "warn",
       "@routecraft/routecraft/restrict-principal-minting": "error",
-      "@routecraft/routecraft/require-untrusted-shell-args": "error",
+      "@routecraft/routecraft/require-untrusted-shell-args": "warn",
     },
   },
   recommended: {
@@ -36,10 +36,12 @@ export const configs = {
       // per-site sanctioned act (disable comment with justification or a
       // per-file config override), never something that lands silently.
       "@routecraft/routecraft/restrict-principal-minting": "error",
-      // Same posture as principal minting: an unmarked exchange value in a
-      // command's arguments is a flag-injection hole, and marking it is a
-      // one-word fix at the call site.
-      "@routecraft/routecraft/require-untrusted-shell-args": "error",
+      // An unmarked exchange value in a command's arguments is a
+      // flag-injection hole, and marking it is a one-word fix at the call
+      // site. It warns rather than errors because the analysis behind it is
+      // young: a misfiring warning is a nuisance in an editor, where a
+      // misfiring error fails a build that was not ours to break.
+      "@routecraft/routecraft/require-untrusted-shell-args": "warn",
     },
   },
 };

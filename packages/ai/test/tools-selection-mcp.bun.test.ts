@@ -198,6 +198,57 @@ describe("tools() resolver - MCP refs", () => {
   });
 
   /**
+   * @case Two guarded references to one MCP tool compose their guards instead of replacing
+   * @preconditions Server with tools a and b; a wildcard ref carrying a broad guard, then a narrow ref to a carrying its own
+   * @expectedResult Tool a runs both guards; tool b, named only by the wildcard, still runs the broad one
+   */
+  test("two guarded references to one MCP tool run both guards", async () => {
+    t = await buildCtxWithMcp([
+      {
+        source: "Nuclino",
+        transport: "http",
+        tools: [{ name: "a" }, { name: "b" }],
+      },
+    ]);
+    const broad = mock(async () => undefined);
+    const narrow = mock(async () => undefined);
+    const resolved = tools([
+      { name: "mcp__Nuclino__*", guard: broad },
+      { name: "mcp__Nuclino__a", guard: narrow },
+    ]).resolve(t.ctx);
+
+    const a = resolved.find((r) => r.name === "mcp__Nuclino__a")!;
+    await a.guard!({}, {} as FnHandlerContext);
+    expect(broad).toHaveBeenCalledTimes(1);
+    expect(narrow).toHaveBeenCalledTimes(1);
+
+    const b = resolved.find((r) => r.name === "mcp__Nuclino__b")!;
+    await b.guard!({}, {} as FnHandlerContext);
+    expect(broad).toHaveBeenCalledTimes(2);
+    expect(narrow).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * @case A later unguarded reference does not strip the guard an earlier one attached
+   * @preconditions Server with tool a; a guarded ref to it followed by the same tool named as a bare string
+   * @expectedResult The resolved tool still carries the guard, and it runs
+   */
+  test("an unguarded MCP reference does not strip an earlier guard", async () => {
+    t = await buildCtxWithMcp([
+      { source: "Nuclino", transport: "http", tools: [{ name: "a" }] },
+    ]);
+    const guard = mock(async () => undefined);
+    const resolved = tools([
+      { name: "mcp__Nuclino__a", guard },
+      "mcp__Nuclino__a",
+    ]).resolve(t.ctx);
+
+    expect(resolved).toHaveLength(1);
+    await resolved[0]!.guard!({}, {} as FnHandlerContext);
+    expect(guard).toHaveBeenCalledTimes(1);
+  });
+
+  /**
    * @case MCP(server:tool) sugar resolves identically to the raw mcp__server__tool form
    * @preconditions Registry has Nuclino:list_teams
    * @expectedResult One ResolvedTool named mcp__Nuclino__list_teams whose handler dispatches through dispatchMcpCall
