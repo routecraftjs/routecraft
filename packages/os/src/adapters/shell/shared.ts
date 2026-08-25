@@ -1,4 +1,6 @@
+import { mkdtempSync } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
+import { join } from "node:path";
 import { rcError } from "@routecraft/routecraft";
 import { loadShescape } from "./peers.ts";
 import { isUntrusted, type ShellArg } from "./untrusted.ts";
@@ -38,10 +40,10 @@ export const ENV_BASELINE: Readonly<Record<string, string>> = {
     process.platform === "win32"
       ? "C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem"
       : "/usr/local/bin:/usr/bin:/bin",
-  // A real, writable directory that holds none of the caller's dotfiles.
-  // Tools that want somewhere to scribble still work; tools that go
-  // looking for the caller's credentials find an empty room.
-  HOME: tmpdir(),
+  // Filled per process by `commandHome()`. A literal path cannot be used
+  // here: see that function for why the obvious one is worse than what it
+  // replaced.
+  HOME: "",
   // Fixed so output does not change shape with the operator's locale,
   // and UTF-8 so captured bytes decode the way the adapter assumes.
   LANG: "C.UTF-8",
@@ -65,13 +67,42 @@ export function buildEnv(
   passEnv: readonly string[] | undefined,
   env: Record<string, string> | undefined,
 ): Record<string, string> {
-  const result: Record<string, string> = { ...ENV_BASELINE };
+  const result: Record<string, string> = {
+    ...ENV_BASELINE,
+    HOME: commandHome(),
+  };
   for (const name of passEnv ?? []) {
     const value = process.env[name];
     if (value !== undefined) result[name] = value;
   }
   return { ...result, ...(env ?? {}) };
 }
+
+/**
+ * A private directory to hand commands as `HOME`.
+ *
+ * The obvious choice, the system temp directory itself, is worse than the
+ * inherited home it replaced. `/tmp` is world-writable (mode 1777), so on
+ * a multi-user host any local account can plant `.gitconfig`, `.npmrc`,
+ * `.curlrc` or `.netrc` there and every command this adapter runs would
+ * read them. Inheriting the caller's home let a command READ the caller's
+ * secrets; a shared writable home lets a stranger CHANGE what the command
+ * does, which is the worse of the two.
+ *
+ * `mkdtemp` creates the directory owned by this process with mode 0700,
+ * so nothing outside it can plant anything. One per process rather than
+ * one per call: commands in a single process already share its trust
+ * domain, and a directory per command would put filesystem work in front
+ * of every spawn for no boundary that is not already there.
+ *
+ * @internal
+ */
+function commandHome(): string {
+  home ??= mkdtempSync(join(tmpdir(), "routecraft-shell-"));
+  return home;
+}
+
+let home: string | undefined;
 
 /**
  * Apply argument hygiene, returning plain strings ready to spawn.

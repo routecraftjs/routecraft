@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { statSync } from "node:fs";
 import type { Exchange } from "@routecraft/routecraft";
 import { shell, untrusted } from "@routecraft/os";
 import { noneTier } from "../src/adapters/shell/isolation/none.ts";
@@ -269,6 +270,19 @@ describe("environment scoping", () => {
     expect(env["PATH"]).not.toBe(process.env["PATH"]);
     expect(env["LANG"]).toBe("C.UTF-8");
     expect(env["TZ"]).toBe("UTC");
+  });
+
+  /**
+   * @case The granted HOME is private to this process, not a shared directory
+   * @preconditions The baseline HOME, inspected on disk
+   * @expectedResult It is not the system temp directory itself and is not group or world writable, so another local account cannot plant a .gitconfig or .npmrc that every command would read
+   */
+  test("the granted HOME cannot be written by anyone else", () => {
+    const home = buildEnv(undefined, undefined)["HOME"]!;
+    expect(home).not.toBe(tmpdir());
+    expect(home.startsWith(tmpdir())).toBe(true);
+    const mode = statSync(home).mode & 0o777;
+    expect(mode & 0o077).toBe(0);
   });
 
   /**

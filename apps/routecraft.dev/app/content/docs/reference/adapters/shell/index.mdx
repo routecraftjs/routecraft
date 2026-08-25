@@ -103,12 +103,12 @@ Note how this interacts with `network: true`. Granting egress to a command that 
 
 ## The environment is granted, not inherited
 
-A command gets a documented baseline of `PATH`, `HOME`, `LANG` and `TZ`, and nothing else. The **values are fixed, not inherited**, which is the point of the grant: an inherited `HOME` would point at your real home, so every command would find `~/.aws/credentials` and `~/.ssh/config` without anything granting them, and an inherited `PATH` would let a single writable entry on it choose which program runs.
+A command gets a documented baseline of `PATH`, `HOME`, `LANG` and `TZ`, and nothing else. The **values are fixed, not inherited**, which is the point of the grant: an inherited `HOME` would point at your real home, so every command would find `~/.aws/credentials` and `~/.ssh/config` without anything granting them, and an inherited `PATH` would let a single writable entry on it choose which program runs. `HOME` is a directory this process creates and owns rather than the shared temp directory, because a world-writable home is worse than an inherited one: it lets any local account plant a `.gitconfig` or `.npmrc` that every command would read.
 
 | Variable | Value |
 | --- | --- |
 | `PATH` | `/usr/local/bin:/usr/bin:/bin` (system locations only) |
-| `HOME` | the system temp directory, which holds none of your dotfiles |
+| `HOME` | a private directory created for this process, mode `0700`, holding none of your dotfiles |
 | `LANG` | `C.UTF-8` |
 | `TZ` | `UTC` |
 
