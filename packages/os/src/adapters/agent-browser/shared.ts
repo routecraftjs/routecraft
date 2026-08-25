@@ -1,6 +1,7 @@
 import { loadOptionalPeer } from "@routecraft/routecraft";
-import type { Exchange } from "@routecraft/routecraft";
-import type { AgentBrowserCommand, Resolvable } from "./types.ts";
+import type { AgentBrowserCommand } from "./types.ts";
+
+export { resolve } from "../../shared/resolvable.ts";
 
 // agent-browser types resolved lazily so the peer dep stays optional.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,16 +39,6 @@ export function sanitizeSessionId(id: string): string {
 }
 
 type ResolvedCommandOptions = Record<string, unknown>;
-
-export function resolve<T, V>(
-  val: Resolvable<T, V> | undefined,
-  exchange: Exchange<T>,
-): V | undefined {
-  if (val === undefined) return undefined;
-  if (typeof val === "function")
-    return (val as (e: Exchange<T>) => V)(exchange);
-  return val as V;
-}
 
 function requireOpt(
   opts: ResolvedCommandOptions,

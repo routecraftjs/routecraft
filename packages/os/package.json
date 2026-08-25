@@ -1,7 +1,7 @@
 {
   "name": "@routecraft/os",
   "version": "0.6.0",
-  "description": "System-native host adapters for Routecraft: browser automation, with sandboxed shell execution and other host capabilities to follow",
+  "description": "System-native host adapters for Routecraft: isolated shell execution and browser automation",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -26,14 +26,24 @@
     "@routecraft/routecraft": "workspace:*",
     "@routecraft/testing": "workspace:*",
     "agent-browser": "^0.17.1",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "execa": "^9.6.0",
+    "shescape": "^3.0.2"
   },
   "peerDependencies": {
     "@routecraft/routecraft": ">=0.6.0 <1.0.0",
-    "agent-browser": "^0.17.1"
+    "agent-browser": "^0.17.1",
+    "execa": "^9.6.0",
+    "shescape": "^3.0.2"
   },
   "peerDependenciesMeta": {
     "agent-browser": {
+      "optional": true
+    },
+    "execa": {
+      "optional": true
+    },
+    "shescape": {
       "optional": true
     }
   },
