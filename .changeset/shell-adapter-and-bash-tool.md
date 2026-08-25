@@ -1,4 +1,5 @@
 ---
+"@routecraft/routecraft": minor
 "@routecraft/os": minor
 "@routecraft/ai": minor
 "@routecraft/eslint-plugin-routecraft": minor
@@ -23,3 +24,5 @@ A tier that cannot be established fails with `OS1001` naming the cause and the w
 **A generic specifier seam in `@routecraft/ai`.** `FnOptions` gains an optional declaration of how a tool compiles its own use-site specifiers into a guard, and `tools()` parses `Tool(spec)` once for every tool that declares one, unioning repeated entries. A specifier attached to a tool that accepts none is a hard error rather than a silently ignored constraint, because ignoring it would widen the grant.
 
 **Agent-file loader fixes.** A scoped entry such as `Bash(git status:*)` is now recognised by its tool name, so a real `.claude/agents/*.md` file carrying one loads instead of failing with unknown-tool. Granting a narrowable tool without a specifier warns once, so an unrestricted grant is never invisible. `disallowedTools` naming a tool removes its scoped grants too.
+
+**Guard refusals are countable.** A call-time guard rejection now emits `route:agent:tool:refused`, carrying the tool and the error code and nothing else. It is separate from `route:agent:tool:denied`, which fires when a policy withholds a tool at selection time so the model never sees it: counting them together would mix "this agent may not have that tool" with "this agent asked for something its grant does not cover", and the second is what tells an operator an agent is probing the edges of its allowlist. An allowlist nobody can count refusals against provides no audit. The refused input is deliberately absent even under snapshot capture, because a refused command line is the input least worth trusting and can carry a token someone passed as an argument.

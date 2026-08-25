@@ -1,7 +1,13 @@
 [
   {
     "pattern": "context:*",
-    "events": ["starting", "started", "stopping", "stopped", "error"],
+    "events": [
+      "starting",
+      "started",
+      "stopping",
+      "stopped",
+      "error"
+    ],
     "anchor": "context-events"
   },
   {
@@ -50,34 +56,55 @@
   },
   {
     "pattern": "plugin:{pluginId}:*",
-    "events": ["applying", "applied", "starting", "started", "stopping", "stopped"],
+    "events": [
+      "applying",
+      "applied",
+      "starting",
+      "started",
+      "stopping",
+      "stopped"
+    ],
     "anchor": "plugin-events",
     "note": "applying / applied bracket apply(); starting / started bracket the optional start() hook, so a plugin without one emits the applying pair only."
   },
   {
     "pattern": "auth:*",
-    "events": ["success", "rejected"],
+    "events": [
+      "success",
+      "rejected"
+    ],
     "anchor": "authentication-events"
   },
   {
     "pattern": "server:*",
-    "events": ["listening", "failed", "closed"],
+    "events": [
+      "listening",
+      "failed",
+      "closed"
+    ],
     "anchor": "server-events",
     "note": "Emitted by the named-servers listener. Every mount on a shared socket (http, mcp, ops) reports its listener lifecycle here rather than on its own plugin."
   },
   {
     "pattern": "agent:*",
-    "events": ["registered", "tool:registered"],
+    "events": [
+      "registered",
+      "tool:registered"
+    ],
     "anchor": "agent-registration-events"
   },
   {
     "pattern": "plugin:http:*",
-    "events": ["request:completed"],
+    "events": [
+      "request:completed"
+    ],
     "anchor": "http-plugin-events"
   },
   {
     "pattern": "plugin:ops:*",
-    "events": ["health:changed"],
+    "events": [
+      "health:changed"
+    ],
     "anchor": "ops-plugin-events"
   },
   {

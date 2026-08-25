@@ -394,6 +394,7 @@ export {
   isRouteBuilder,
   isRouteDefinition,
   isRoutecraftError,
+  rcCodeOf,
   isExchange,
 } from "./brand.ts";
 
