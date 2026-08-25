@@ -24,6 +24,8 @@ declare module "@routecraft/routecraft" {
     OS1002: RCMeta;
     /** A command exceeded its timeout and was killed */
     OS1003: RCMeta;
+    /** The chosen isolation tier cannot honour an option the call set */
+    OS1004: RCMeta;
   }
 }
 
@@ -55,6 +57,14 @@ registerErrorCodes(
         "The command exceeded the `timeout` given to `shell()` and was killed, along with anything it had spawned. Raise the timeout if the work is genuinely long, or narrow what the command does. A command that reliably times out inside an isolation tier but not outside it is usually waiting on something the tier denies: network egress is denied unless the call sets `network: true`.",
       docs: `${DOCS_BASE}#os-1003`,
       retryable: true,
+    },
+    OS1004: {
+      category: "Adapter",
+      message: "Isolation cannot satisfy the request",
+      suggestion:
+        'The tier was established, but an option the call set asks for something it cannot do, and a tier refuses such an option rather than ignoring it. The usual case is `isolation: "none"` with egress left denied: that tier contains nothing, so it cannot withhold the network, and silently granting it would leave a route believing in containment it never had. Say what you mean at the call site: `network: true` beside `isolation: "none"` accepts egress out loud, and a tier that can deny it is the alternative.',
+      docs: `${DOCS_BASE}#os-1004`,
+      retryable: false,
     },
   },
   "@routecraft/os",

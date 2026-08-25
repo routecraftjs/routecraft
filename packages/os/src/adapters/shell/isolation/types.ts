@@ -36,6 +36,24 @@ export interface IsolationTier {
    * worse than one that fails.
    */
   ensureAvailable(): Promise<void>;
+  /**
+   * Why this tier cannot honour the request, or `undefined` when it can.
+   *
+   * A tier refuses an option it cannot satisfy; it never ignores one. The
+   * option that matters most here is the one easiest to drop silently:
+   * `network` defaults to denied, and a tier that cannot deny egress was
+   * handing back full network access while the default said otherwise.
+   * Denied egress is also the strongest promise this adapter makes, since
+   * the `unshare` tier deliberately does not contain filesystem reads, so
+   * no-network is what stands between reading a credential and sending it
+   * somewhere.
+   *
+   * The reason is a sentence for the caller, naming what the tier cannot
+   * do and how to ask for it out loud. Required rather than optional, so
+   * a new tier has to decide what it cannot deliver rather than inherit
+   * silence by leaving a method off.
+   */
+  refuse(request: IsolationRequest): string | undefined;
   /** Wrap the target invocation in whatever the tier needs to contain it. */
   wrap(target: Invocation, request: IsolationRequest): Invocation;
 }

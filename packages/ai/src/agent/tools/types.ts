@@ -1,5 +1,6 @@
 import type { CraftContext } from "@routecraft/routecraft";
 import type { FnOptions } from "../../fn/types.ts";
+import { ADAPTER_FN_RESOLVED } from "../../fn/store.ts";
 
 /**
  * Discriminator value for {@link DeferredFn}. Plain symbol so a
@@ -74,17 +75,6 @@ export function isDeferredFn(value: unknown): value is DeferredFn {
 export type FnEntry = FnOptions | DeferredFn;
 
 /**
- * Resolved `FnOptions` per context, so one dispatch resolves a deferred
- * entry once however many paths read it.
- *
- * Only successes are cached. A resolution that failed because a route
- * was not registered yet must be free to succeed later; caching the
- * failure would make a transient ordering problem permanent for the
- * life of the context.
- */
-const RESOLVED = new WeakMap<CraftContext, Map<string, FnOptions>>();
-
-/**
  * The declared shape of a registered tool, whichever way it was authored.
  *
  * A deferred entry is a thunk until the registries it depends on are
@@ -108,11 +98,16 @@ export function resolveFnOptions(
   entry: FnEntry,
 ): FnOptions {
   if (!isDeferredFn(entry)) return entry;
-  const cached = RESOLVED.get(ctx)?.get(fnId);
+  const memo = ctx.getStore(ADAPTER_FN_RESOLVED);
+  const cached = memo?.get(fnId);
   if (cached) return cached;
   const resolved = entry.resolve(ctx, fnId);
-  const perContext = RESOLVED.get(ctx) ?? new Map<string, FnOptions>();
-  perContext.set(fnId, resolved);
-  RESOLVED.set(ctx, perContext);
+  // Only successes are memoised. A resolution that failed because a route
+  // was not registered yet must be free to succeed later; caching the
+  // failure would make a transient ordering problem permanent for the
+  // life of the context.
+  const store = memo ?? new Map<string, FnOptions>();
+  store.set(fnId, resolved);
+  if (!memo) ctx.setStore(ADAPTER_FN_RESOLVED, store);
   return resolved;
 }

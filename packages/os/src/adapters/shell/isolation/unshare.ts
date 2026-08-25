@@ -16,6 +16,11 @@ import type { Invocation, IsolationRequest, IsolationTier } from "./types.ts";
  *   host privileges.
  * - **Mounts**: a mount namespace, so anything the command mounts is
  *   contained and does not propagate to the host.
+ * - **IPC**: an IPC namespace. Host SysV objects (shared memory, message
+ *   queues, semaphores) are invisible, so a command cannot read or
+ *   corrupt state another process left in them.
+ * - **Hostname**: a UTS namespace. The command sees and can change a
+ *   hostname and domainname of its own without touching the host's.
  *
  * ## What this tier does NOT guarantee
  *
@@ -52,6 +57,14 @@ export const unshareTier: IsolationTier = {
     return probe;
   },
 
+  refuse(): undefined {
+    // Every option this adapter can express maps onto a namespace this
+    // tier takes: egress onto `--net`, identity onto the user namespace's
+    // mapping. Nothing to refuse. A future option this tier cannot
+    // deliver belongs here rather than being quietly dropped in `wrap`.
+    return undefined;
+  },
+
   wrap(target: Invocation, request: IsolationRequest): Invocation {
     return {
       file: UNSHARE,
@@ -85,8 +98,15 @@ let probe: Promise<void> | undefined;
  * itself would have to become PID 1, which it cannot, so the target would
  * keep the host's PID view. `--mount-proc` remounts `/proc` inside the new
  * namespace, which is what makes host processes actually invisible rather
- * than merely unmapped. `--kill-child` ties the target's lifetime to the
- * wrapper, so a timeout kill reaps the command instead of orphaning it.
+ * than merely unmapped.
+ *
+ * `--kill-child` is kept but carries no promise here, because no probe
+ * was found where it changes the outcome: on a normal exit the PID
+ * namespace already reaps everything inside it when its init leaves, and
+ * with the wrapper killed a survivor persisted with the flag and without
+ * it alike. It is retained as belt-and-braces rather than removed on one
+ * round of measurement, and it is deliberately absent from the tier's
+ * documented guarantees until something demonstrates it.
  */
 function namespaceFlags(request: IsolationRequest): string[] {
   const flags = [
@@ -97,7 +117,19 @@ function namespaceFlags(request: IsolationRequest): string[] {
     "--fork",
     "--mount-proc",
     "--kill-child",
+    "--ipc",
+    "--uts",
+    // Taken as hardening, deliberately absent from the promises above.
+    // It does create a cgroup namespace, but what that hides is the
+    // host's cgroup path, and a process already at the root cgroup has
+    // no path to hide. On such a host, which includes the CI runner,
+    // a two-sided test of it would pass while proving nothing, and a
+    // guarantee nobody can check is what this suite exists to refuse.
+    // It sets no controller, so it is not a resource limit of any kind.
+    "--cgroup",
   ];
+  // `--propagation private` is deliberately absent: util-linux already
+  // applies it under `--mount`, so passing it would restate a default.
   if (!request.network) flags.push("--net");
   return flags;
 }

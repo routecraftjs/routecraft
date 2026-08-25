@@ -61,8 +61,22 @@ Each tier is named for the mechanism that provides it, so its name is its promis
 | `none` | A plain subprocess. No isolation promised, none provided. | Everywhere |
 
 ```ts
-shell('ls', ['-la'], { isolation: 'none' })
+shell('ls', ['-la'], { isolation: 'none', network: true })
 ```
+
+### A tier refuses what it cannot satisfy
+
+`network` defaults to denied, and the `none` tier contains nothing, so it cannot deny anything. Rather than ignore the option and hand back full egress under a default that says otherwise, the call is refused with [`OS1004`](/docs/reference/errors):
+
+```ts
+// Refused: the tier cannot deny egress, and the call left egress denied.
+shell('curl', ['https://example.com'], { isolation: 'none' })
+
+// Accepted: egress is granted out loud, so nothing is assumed.
+shell('curl', ['https://example.com'], { isolation: 'none', network: true })
+```
+
+Running uncontained costs two visible words rather than one silent default. The same holds for `mapRootUser` on a tier with no user namespace. This matters more than its size suggests: denied egress is the strongest guarantee this adapter makes, because the tier deliberately does not contain filesystem reads, so no-network is what stands between a command reading a credential and sending it somewhere.
 
 ### What `unshare` guarantees
 
@@ -70,6 +84,8 @@ shell('ls', ['-la'], { isolation: 'none' })
 - **Network**: a network namespace with no interfaces unless the call sets `network: true`, so egress is denied by default.
 - **Identity**: a user namespace. The command never holds your host privileges. Pass `mapRootUser: true` if the work genuinely needs root inside.
 - **Mounts**: a mount namespace, so anything the command mounts is contained.
+- **IPC**: an IPC namespace. Host SysV shared memory, message queues and semaphores are invisible.
+- **Hostname**: a UTS namespace. The command can set a hostname of its own without touching yours.
 
 ### What `unshare` does not guarantee
 
@@ -87,7 +103,16 @@ Note how this interacts with `network: true`. Granting egress to a command that 
 
 ## The environment is granted, not inherited
 
-A command gets a documented baseline of `PATH`, `HOME`, `LANG` and `TZ`, and nothing else. Everything further is declared at the call site:
+A command gets a documented baseline of `PATH`, `HOME`, `LANG` and `TZ`, and nothing else. The **values are fixed, not inherited**, which is the point of the grant: an inherited `HOME` would point at your real home, so every command would find `~/.aws/credentials` and `~/.ssh/config` without anything granting them, and an inherited `PATH` would let a single writable entry on it choose which program runs.
+
+| Variable | Value |
+| --- | --- |
+| `PATH` | `/usr/local/bin:/usr/bin:/bin` (system locations only) |
+| `HOME` | the system temp directory, which holds none of your dotfiles |
+| `LANG` | `C.UTF-8` |
+| `TZ` | `UTC` |
+
+Everything further is declared at the call site, and `passEnv` is also how a command that genuinely needs your own `HOME` or `PATH` asks for it:
 
 ```ts
 shell('deploy', ['--now'], {

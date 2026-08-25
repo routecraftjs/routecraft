@@ -448,5 +448,11 @@
     "category": "Adapter",
     "message": "Command timed out",
     "retryable": true
+  },
+  {
+    "code": "OS1004",
+    "category": "Adapter",
+    "message": "Isolation cannot satisfy the request",
+    "retryable": false
   }
 ]

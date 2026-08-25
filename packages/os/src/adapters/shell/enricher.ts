@@ -63,16 +63,28 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
     const tier = resolveIsolation(this.options.isolation, defaults.isolation);
     await tier.ensureAvailable();
 
+    const request = {
+      network: this.options.network ?? false,
+      mapRootUser: this.options.mapRootUser ?? false,
+    };
+    // Checked before the command is built, because the answer is a
+    // property of the call rather than of anything it produces. A tier
+    // that cannot honour an option refuses it here; silently dropping it
+    // is how a caller ends up believing in containment it never had.
+    const refusal = tier.refuse(request);
+    if (refusal !== undefined) {
+      throw rcError("OS1004", undefined, {
+        message: `shell(): ${refusal}`,
+      });
+    }
+
     const rawArgs =
       typeof this.args === "function" ? this.args(exchange) : (this.args ?? []);
     const target = {
       file: this.command,
       args: await sanitiseArgs(rawArgs),
     };
-    const invocation = tier.wrap(target, {
-      network: this.options.network ?? false,
-      mapRootUser: this.options.mapRootUser ?? false,
-    });
+    const invocation = tier.wrap(target, request);
 
     const limit =
       this.options.maxOutputBytes ??
@@ -177,12 +189,12 @@ function toCause(outcome: unknown): Error | undefined {
  * not a guess at the cause, which is why it is stated whenever it holds
  * rather than only when the output looks network-shaped.
  *
- * Empty for a tier that grants egress anyway: `isolation: "none"` denies
- * nothing, and saying otherwise would send a reader hunting a cause that
- * is not there.
+ * Empty when the call granted egress. A tier that cannot deny it refuses
+ * the call outright now, so reaching here at all means the tier denies
+ * egress and the only question is whether this call asked for it back.
  */
 function deniedEgressNote(tier: IsolationName, network: boolean | undefined) {
-  if (tier === "none" || network === true) return "";
+  if (network === true) return "";
   return (
     ` The command ran without network access, which is the default under the ${tier} tier;` +
     ` set network: true if it needed the network.`

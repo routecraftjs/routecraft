@@ -886,3 +886,16 @@ The command exceeded the `timeout` given to `shell()` and was killed, along with
 - Raise the timeout if the work is genuinely long, or narrow what the command does.
 - A command that times out inside an isolation tier but not outside it is usually waiting on something the tier denies. Network egress is denied unless the call sets `network: true`.
 
+
+## OS1004
+Isolation cannot satisfy the request
+
+**Why it happens**  
+The tier was established, but an option the call set asks for something it cannot do. A tier refuses such an option rather than ignoring it, because a route that believes it is contained and is not is worse than one that fails.
+
+The usual case is `isolation: "none"` with egress left denied. `network` defaults to denied and that tier contains nothing, so it cannot withhold the network; granting it silently would leave the call believing in a containment it never had.
+
+**Suggestion**  
+- Say what you mean at the call site: `network: true` beside `isolation: "none"` accepts egress out loud.
+- Or choose a tier that can deny it, which on Linux is `unshare`.
+- The same applies to `mapRootUser` on a tier with no user namespace: drop it, or pick a tier that has one.

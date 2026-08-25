@@ -1,29 +1,63 @@
-import { constants as osConstants } from "node:os";
+import { constants as osConstants, tmpdir } from "node:os";
 import { rcError } from "@routecraft/routecraft";
 import { loadShescape } from "./peers.ts";
 import { isUntrusted, type ShellArg } from "./untrusted.ts";
 
 /**
- * Environment variables every command gets unless the call overrides them.
+ * The environment every command gets unless the call adds to it.
  *
  * The scoping rule is that a command may reach only what the route grants
  * it, but a literally empty environment fails in ways that read as bugs
  * rather than as policy: without `PATH` nothing resolves, and without
  * `HOME` tools that keep per-user state (`git`, `ssh`) misbehave in
- * confusing rather than obvious ways. These four are the smallest set that
- * makes an ordinary command work, and none of them carries a credential.
+ * confusing rather than obvious ways. These four are the smallest set
+ * that makes an ordinary command work.
+ *
+ * The values are fixed here rather than read from the parent, which is
+ * the whole point. Granting the NAMES while inheriting the VALUES reopens
+ * what the grant model exists to close, and does so on a tier that
+ * deliberately does not contain filesystem reads:
+ *
+ * - An inherited `HOME` points at the caller's real home, so every
+ *   command finds `~/.aws/credentials`, `~/.ssh/config`, `~/.netrc` and
+ *   `~/.gitconfig` without anything having granted them.
+ * - An inherited `PATH` is the caller's, so a single writable entry on it
+ *   chooses which program actually runs.
+ *
+ * A command that genuinely needs the caller's own value asks by name:
+ * `passEnv: ["HOME"]` is one visible line at the call site.
  *
  * @internal
  */
-export const ENV_BASELINE = ["PATH", "HOME", "LANG", "TZ"] as const;
+export const ENV_BASELINE: Readonly<Record<string, string>> = {
+  // Conventional system locations only, and none of them user-writable on
+  // an ordinary host. Windows has no equivalent literal, so it gets the
+  // conventional system set rather than a POSIX path that would resolve
+  // nothing at all.
+  PATH:
+    process.platform === "win32"
+      ? "C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem"
+      : "/usr/local/bin:/usr/bin:/bin",
+  // A real, writable directory that holds none of the caller's dotfiles.
+  // Tools that want somewhere to scribble still work; tools that go
+  // looking for the caller's credentials find an empty room.
+  HOME: tmpdir(),
+  // Fixed so output does not change shape with the operator's locale,
+  // and UTF-8 so captured bytes decode the way the adapter assumes.
+  LANG: "C.UTF-8",
+  TZ: "UTC",
+};
 
 /**
- * Build the environment a command runs with: the baseline, plus the
+ * Build the environment a command runs with: the fixed baseline, plus the
  * parent variables the call forwards by name, plus its explicit values.
  *
  * Nothing else is forwarded. A name listed in `passEnv` but unset in the
  * parent is simply absent rather than an error, so a route does not have
  * to know which of its optional variables an operator configured.
+ *
+ * `passEnv` and `env` both outrank the baseline, so forwarding `HOME`
+ * deliberately is how a call gets the caller's own.
  *
  * @internal
  */
@@ -31,8 +65,8 @@ export function buildEnv(
   passEnv: readonly string[] | undefined,
   env: Record<string, string> | undefined,
 ): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const name of [...ENV_BASELINE, ...(passEnv ?? [])]) {
+  const result: Record<string, string> = { ...ENV_BASELINE };
+  for (const name of passEnv ?? []) {
     const value = process.env[name];
     if (value !== undefined) result[name] = value;
   }
