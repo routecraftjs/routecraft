@@ -234,6 +234,12 @@
     "retryable": false
   },
   {
+    "code": "RC5061",
+    "category": "Adapter",
+    "message": "HTTP client response body exceeds maxBodySize",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",

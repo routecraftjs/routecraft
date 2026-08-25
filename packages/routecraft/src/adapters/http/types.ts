@@ -28,6 +28,21 @@ export type QueryParams = Record<string, string | number | boolean>;
 // convention for two-sided adapters.
 // --------------------------------------------------------------------------
 
+/**
+ * What the client does when the server answers with a 3xx. Mirrors the
+ * platform `RequestInit.redirect` values, and nothing more: the option
+ * reports what happened and hands control back to the route.
+ *
+ * - `"follow"` (the default): the runtime follows the chain and the result
+ *   describes the final response.
+ * - `"manual"`: the 3xx itself is returned, `Location` readable in
+ *   {@link HttpResult.headers}, so a route that validated the URL it asked
+ *   for can re-run that rule on the next hop instead of having the adapter
+ *   walk somewhere the route never approved.
+ * - `"error"`: the request fails rather than following.
+ */
+export type HttpRedirectMode = "follow" | "manual" | "error";
+
 export interface HttpClientOptions<T = unknown> {
   method?: HttpMethod;
   url: string | ((exchange: Exchange<T>) => string);
@@ -38,6 +53,25 @@ export interface HttpClientOptions<T = unknown> {
   body?: unknown | ((exchange: Exchange<T>) => unknown);
   timeoutMs?: number;
   throwOnHttpError?: boolean;
+  /**
+   * Maximum response body size in bytes. Defaults to 10 MB, the same name
+   * and the same number as the http plugin's inbound cap, so one concept
+   * means one thing on both sides of the framework.
+   *
+   * A declared `Content-Length` above the cap is refused before a byte is
+   * read; otherwise the body streams and is abandoned the moment the count
+   * crosses the ceiling, which bounds what an oversized response can cost
+   * the process rather than only what it hands the route. Exceeding it
+   * fails the exchange with `RC5061`: a truncated body would hand the
+   * route half a document and let it parse as though it were whole.
+   */
+  maxBodySize?: number;
+  /**
+   * What to do with a 3xx response. Defaults to `"follow"`, the platform
+   * default and the behaviour of every existing route. See
+   * {@link HttpRedirectMode}.
+   */
+  redirect?: HttpRedirectMode;
 }
 
 export type HttpResult<T = string | unknown> = {

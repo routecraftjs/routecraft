@@ -477,6 +477,7 @@ export {
   type HttpClientOptions,
   type HttpResult,
   type HttpMethod,
+  type HttpRedirectMode,
   type QueryParams,
   type HttpServerOptions,
   type HttpPluginOptions,

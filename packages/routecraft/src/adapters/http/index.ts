@@ -47,7 +47,7 @@ export function http(options: HttpServerOptions): Source<HttpRequestBody>;
  * keyword enforces the category: `.from(http({ url }))` fails to compile
  * because the client has no `subscribe`.
  *
- * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeoutMs, throwOnHttpError
+ * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeoutMs, throwOnHttpError, maxBodySize, redirect
  * @returns An Enricher whose fetch returns { status, headers, body, url }
  *
  * @example
@@ -75,6 +75,7 @@ export { HttpEnricherAdapter } from "./enricher";
 export { HttpSourceAdapter } from "./source";
 export type {
   HttpMethod,
+  HttpRedirectMode,
   QueryParams,
   HttpClientOptions,
   HttpResult,
