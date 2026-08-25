@@ -19,7 +19,7 @@ import { validateFnOptions } from "../fn/fn.ts";
 import { ADAPTER_FN_REGISTRY } from "../fn/store.ts";
 import { parseProviderModel } from "../llm/shared.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
-import { isDeferredFn, type FnEntry } from "./tools/types.ts";
+import { isDeferredFn, resolveFnOptions, type FnEntry } from "./tools/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
 import {
   describeToolNameViolation,
@@ -237,10 +237,53 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
           ctx.setStore(ADAPTER_AGENT_TOOL_POLICIES, [toolPolicy]);
         }
       }
+    },
 
+    /**
+     * Resolve every deferred tool, then announce what this install
+     * registered.
+     *
+     * Both belong in `start()` rather than in an event handler. A direct
+     * route registers its capability when its source subscribes, and core
+     * emits `context:started` BEFORE routes start (see its own note on
+     * `CraftContext.start`), so a deferred entry genuinely cannot resolve
+     * at that moment. `start()` runs after `routes.ready`, which is the
+     * first point where every registry a `directTool` depends on is live.
+     *
+     * It is also the only one of the two with failure semantics: a throw
+     * here fails `context.start()` and unwinds cleanly, where a throw
+     * inside a `once()` handler has no such contract.
+     */
+    start(ctx: CraftContext) {
+      resolveDeferredTools(ctx, functions);
       emitRegistrations(ctx, agents, functions);
     },
   };
+}
+
+/**
+ * Resolve every deferred tool while the boot can still fail cleanly.
+ *
+ * A tool naming a route that does not exist, or one carrying no
+ * `.description()` or `.input()`, is a configuration error. Left to
+ * dispatch it surfaces as a tool failure mid-conversation, at whatever
+ * hour the agent first reaches for it. Resolved here it fails the
+ * startup that introduced it.
+ *
+ * The result is memoized per context, so dispatch reuses this resolution
+ * rather than repeating it.
+ *
+ * @throws RC5003 when a deferred entry cannot resolve
+ *
+ * @internal
+ */
+function resolveDeferredTools(
+  ctx: CraftContext,
+  functions: Record<string, FnEntry>,
+): void {
+  for (const [id, entry] of Object.entries(functions)) {
+    if (isDeferredFn(entry)) resolveFnOptions(ctx, id, entry);
+  }
 }
 
 /**
@@ -250,11 +293,11 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
  * only exist at dispatch inside a route and surface via their
  * `route:agent:started` event instead.
  *
- * The events fire on `context:started` rather than inside `apply()` so
- * the telemetry plugin has already subscribed regardless of plugin
- * install order (mirroring how `route:*:registered` fires after plugins
- * are applied). When the context is never started there is nothing
- * running to observe, so emitting nothing is correct.
+ * The events fire from `start()` rather than inside `apply()` so the
+ * telemetry plugin has already subscribed regardless of plugin install
+ * order (mirroring how `route:*:registered` fires after plugins are
+ * applied). When the context is never started there is nothing running
+ * to observe, so emitting nothing is correct.
  *
  * @internal
  */
@@ -267,34 +310,27 @@ function emitRegistrations(
   const fnEntries = Object.entries(functions);
   if (agentEntries.length === 0 && fnEntries.length === 0) return;
 
-  ctx.once("context:started", () => {
-    for (const [id, entry] of agentEntries) {
-      ctx.emit("agent:registered", {
-        agentId: id,
-        description: entry.description,
-        ...(typeof entry.model === "string" && { model: entry.model }),
-        source: "registered",
-      });
-    }
-    for (const [id, entry] of fnEntries) {
-      // A deferred entry is announced by name alone, and this is the one
-      // path where that is not the ordering bug it looks like. A direct
-      // route registers its capability when its source subscribes, which
-      // happens after `context:started`, so at this moment the route
-      // genuinely is not there to read a description from. Resolving
-      // here was tried and always failed. The description reaches
-      // observers through the tool-invocation events instead.
-      const eager = isDeferredFn(entry) ? undefined : entry;
-      ctx.emit("agent:tool:registered", {
-        toolName: id,
-        ...(eager && { description: eager.description }),
-        ...(eager &&
-          Array.isArray(eager.tags) &&
-          eager.tags.length > 0 && { tags: eager.tags }),
-        source: "registered",
-      });
-    }
-  });
+  for (const [id, entry] of agentEntries) {
+    ctx.emit("agent:registered", {
+      agentId: id,
+      description: entry.description,
+      ...(typeof entry.model === "string" && { model: entry.model }),
+      source: "registered",
+    });
+  }
+  for (const [id, entry] of fnEntries) {
+    // Resolved, so a route-backed tool announces the same shape a
+    // hand-written one does. Every deferred entry resolved during
+    // start(), so this reads the memoized result and cannot fail here.
+    const declared = resolveFnOptions(ctx, id, entry);
+    ctx.emit("agent:tool:registered", {
+      toolName: id,
+      description: declared.description,
+      ...(Array.isArray(declared.tags) &&
+        declared.tags.length > 0 && { tags: declared.tags }),
+      source: "registered",
+    });
+  }
 }
 
 /**

@@ -142,9 +142,9 @@ describe("tool builders - directTool", () => {
   });
 
   /**
-   * @case directTool throws RC5003 at resolution when the route id is unknown
+   * @case An unknown route id fails the boot rather than the first dispatch
    * @preconditions directTool("does-not-exist") with no matching route
-   * @expectedResult resolve() throws RC5003 listing known route ids
+   * @expectedResult startup rejects with RC5003 naming the missing id and listing the ids that do exist
    */
   test("directTool resolution throws on unknown route id", async () => {
     t = await testContext()
@@ -159,13 +159,13 @@ describe("tool builders - directTool", () => {
         craft().id("real-route").description("...").from(direct()).to(log()),
       ])
       .build();
-    await t.startAndWaitReady();
 
-    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("broken");
-    if (!entry || !isDeferredFn(entry)) throw new Error("expected deferred");
+    // ctx.start() rather than startAndWaitReady(): the helper awaits route
+    // readiness, and a plugin's start() hook runs after that, so the boot
+    // failure lands on the start promise the helper deliberately shields.
     let caught: unknown;
     try {
-      entry.resolve(t.ctx, "broken");
+      await t.ctx.start();
     } catch (err) {
       caught = err;
     }
@@ -176,9 +176,9 @@ describe("tool builders - directTool", () => {
   });
 
   /**
-   * @case directTool resolution throws RC5003 when the underlying route has no description
+   * @case A route with no description fails the boot
    * @preconditions Route lacks .description(); no description override on directTool
-   * @expectedResult resolve() throws RC5003 mentioning the route id
+   * @expectedResult startup rejects with a message naming the missing description
    */
   test("directTool resolution throws when route has no description", async () => {
     t = await testContext()
@@ -193,17 +193,13 @@ describe("tool builders - directTool", () => {
         craft().id("no-desc").input(z.object({})).from(direct()).to(log()),
       ])
       .build();
-    await t.startAndWaitReady();
-
-    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("needsDesc");
-    if (!entry || !isDeferredFn(entry)) throw new Error("expected deferred");
-    expect(() => entry.resolve(t!.ctx, "needsDesc")).toThrow(/description/i);
+    await expect(t.ctx.start()).rejects.toThrow(/description/i);
   });
 
   /**
-   * @case directTool resolution throws RC5003 when the route has no input schema
+   * @case A route with no input schema fails the boot
    * @preconditions Route has .description() but no .input(); no schema override
-   * @expectedResult resolve() throws RC5003 mentioning input
+   * @expectedResult startup rejects with a message naming the missing input schema
    */
   test("directTool resolution throws when route has no input schema", async () => {
     t = await testContext()
@@ -222,11 +218,7 @@ describe("tool builders - directTool", () => {
           .to(log()),
       ])
       .build();
-    await t.startAndWaitReady();
-
-    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("needsSchema");
-    if (!entry || !isDeferredFn(entry)) throw new Error("expected deferred");
-    expect(() => entry.resolve(t!.ctx, "needsSchema")).toThrow(/input/i);
+    await expect(t.ctx.start()).rejects.toThrow(/input/i);
   });
 });
 
@@ -588,11 +580,11 @@ describe("tool builders - a deferred tool is not a lesser tool", () => {
   });
 
   /**
-   * @case The registration announcement names a route-backed tool without claiming a description
-   * @preconditions The same registration; agent:tool:registered observed from context start
-   * @expectedResult The tool is announced by name with no description, because a direct route registers its capability when its source subscribes, which is after this event fires
+   * @case The registration announcement carries a route-backed tool's own description
+   * @preconditions The same registration; agent:tool:registered observed across a full start
+   * @expectedResult The announced tool carries the route's description, the same shape an eagerly authored tool announces
    */
-  test("the registration event announces a deferred tool by name", async () => {
+  test("the registration event announces a deferred tool's description", async () => {
     const announced: unknown[] = [];
     t = await testContext()
       .with({
@@ -612,39 +604,28 @@ describe("tool builders - a deferred tool is not a lesser tool", () => {
 
     const bash = announced.find(
       (d) => (d as { toolName?: string })?.toolName === "Bash",
-    ) as { description?: string } | undefined;
+    ) as { description?: string; tags?: readonly string[] } | undefined;
     expect(bash).toBeDefined();
-    expect(bash?.description).toBeUndefined();
+    expect(bash?.description).toBe("Run a shell command");
+    expect(bash?.tags).toEqual(["host"]);
   });
 
   /**
-   * @case A tool whose route cannot resolve is listed, not thrown, from the catalogue
-   * @preconditions A directTool naming a route that is not registered, alongside a healthy tool
-   * @expectedResult The catalogue still builds and lists both names, so one broken registration cannot break every builder in the context
+   * @case A tool naming a route that does not exist fails the boot
+   * @preconditions directTool("no-such-route") registered, with no such route
+   * @expectedResult context.start() rejects naming the unknown route id, rather than deferring the failure to the agent's first tool call
    */
-  test("an unresolvable deferred tool does not break the catalogue", async () => {
-    t = await testContext()
+  test("an unresolvable tool fails startup, not the first dispatch", async () => {
+    const built = await testContext()
       .with({
         plugins: [
-          agentPlugin({
-            functions: {
-              Bash: directTool("bash-runner"),
-              Missing: directTool("no-such-route"),
-            },
-          }),
+          agentPlugin({ functions: { Missing: directTool("no-such-route") } }),
         ],
       })
       .routes([bashRoute()])
       .build();
-    await t.startAndWaitReady();
-
-    const ctx = t.ctx;
-    const selection = tools((catalog) => catalog.fns.map((fn) => fn.name));
-    const names = tools(["Bash"])
-      .resolve(ctx)
-      .map((tool) => tool.name);
-    expect(names).toEqual(["Bash"]);
-    expect(() => selection.resolve(ctx)).toThrow();
+    await expect(built.ctx.start()).rejects.toThrow(/no-such-route/);
+    await built.stop();
   });
 
   /**

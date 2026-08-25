@@ -368,29 +368,6 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
 }
 
 /**
- * A registry entry's declared fields, or `undefined` when a deferred
- * entry cannot resolve.
- *
- * The catalogue enumerates every registered tool, including ones the
- * caller will never grant, so a single unresolvable entry must not throw
- * the whole snapshot. Resolution failure is reported by absence here and
- * raised properly by `resolveByName` when someone actually grants it.
- *
- * @internal
- */
-function describeEntry(
-  ctx: CraftContext,
-  name: string,
-  entry: FnEntry,
-): FnOptions | undefined {
-  try {
-    return resolveFnOptions(ctx, name, entry);
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Build a {@link ToolsCatalog} snapshot from the live context's
  * registries. Each entry and its `tags` array are frozen so the
  * interface's `readonly` modifiers match runtime behaviour: a builder
@@ -409,16 +386,10 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
       // Resolve before reading. A deferred entry read raw carries no
       // description or tags, and a builder filtering on either would
       // silently drop every route-backed tool while reporting nothing.
-      const declared = describeEntry(ctx, name, entry);
-      if (!declared) {
-        // The entry is registered but cannot resolve, so its own fields
-        // are genuinely unknown. Listed by name rather than omitted or
-        // thrown from here: a broken registration should fail where it
-        // is granted, naming that tool, not break every builder-based
-        // selection in the context.
-        fns.push(Object.freeze({ name }));
-        continue;
-      }
+      // Every deferred entry resolved during the plugin's start(), so
+      // this reads the memoized result; one that could not resolve
+      // failed the boot rather than reaching here.
+      const declared = resolveFnOptions(ctx, name, entry);
       const tags =
         declared.tags && declared.tags.length > 0
           ? Object.freeze([...declared.tags])
