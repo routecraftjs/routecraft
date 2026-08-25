@@ -95,10 +95,18 @@ function normalizeToolArgs(args: unknown): Record<string, unknown> {
   return isPlainObject(args) ? args : {};
 }
 
-/** Wire shape returned by `tools/call` handlers (local and proxied). */
+/**
+ * Wire shape returned by `tools/call` handlers (local and proxied), before
+ * the era projection in {@link McpServer.createServerInstance} runs.
+ *
+ * `structuredContent` is any JSON value here, not an object: a route
+ * declaring `.output({ body: z.string() })` publishes its string, and the
+ * SDK's `projectCallToolResult` is what decides whether the negotiated era
+ * needs it wrapped as `{ result: <value> }`.
+ */
 type McpToolCallResult = {
   content: Array<{ type: string; [key: string]: unknown }>;
-  structuredContent?: Record<string, unknown>;
+  structuredContent?: unknown;
   isError?: boolean;
 };
 
@@ -231,6 +239,20 @@ export class McpServer {
 
   /** Memoized proxy resolution; recomputed only when the registry changes. */
   private proxyResolved: Map<string, McpProxiedTool> = new Map();
+
+  /**
+   * Memoized `tools/list` output schema per registry entry, keyed by the
+   * entry object the registry hands out.
+   *
+   * Both wire sides read the same value: `tools/list` advertises it, and the
+   * `tools/call` projection decides the `{ result: ... }` envelope from it.
+   * Deriving it twice would let the advertisement and the envelope disagree
+   * for a schema whose conversion is not referentially stable.
+   */
+  private readonly outputSchemaJson = new WeakMap<
+    McpLocalToolEntry,
+    Record<string, unknown> | undefined
+  >();
   /**
    * Validator-mode token verifier, optionally wrapped with `userinfo`
    * enrichment. Built eagerly during mount preparation so a misconfigured
@@ -843,16 +865,26 @@ export class McpServer {
       return { tools: tools as unknown as ListToolsResult["tools"] };
     });
 
+    // The era projection lives here rather than in `handleToolCall` so the
+    // handler stays era-blind, which is what the SDK asks of low-level
+    // `setRequestHandler('tools/call')` authors: one instance knows its
+    // negotiated revision, and `projectCallToolResult` is the only place the
+    // SEP-2106 `{result:...}` envelope is decided.
     server.setRequestHandler("tools/call", async (request) => {
       const result = await this.handleToolCall(
         request.params.name,
         request.params.arguments ?? {},
         principal,
       );
-      return {
-        ...result,
-        content: result.content as unknown as CallToolResult["content"],
-      };
+      return server.projectCallToolResult(
+        {
+          ...result,
+          content: result.content as unknown as CallToolResult["content"],
+          structuredContent:
+            result.structuredContent as CallToolResult["structuredContent"],
+        },
+        this.advertisedOutputSchemaFor(request.params.name),
+      );
     });
 
     return server;
@@ -1211,22 +1243,9 @@ export class McpServer {
     if (entry.title !== undefined) {
       tool.title = entry.title;
     }
-    const outputArms = advertisedOutputArms(entry);
-    if (outputArms.length === 1) {
-      tool.outputSchema = this.schemaToJsonSchema(outputArms[0]) as NonNullable<
-        McpTool["outputSchema"]
-      >;
-    } else if (outputArms.length > 1) {
-      // A suspendable tool's contract is the union: a parked run answers
-      // with the Suspended acknowledgment instead of the declared output,
-      // and advertising only the first arm would publish a schema this
-      // server provably violates on every park. `oneOf` per the epic's
-      // published shape; the arms are disjoint by construction (`status:
-      // "suspended"` is const in the acknowledgment arm and reserved in no
-      // user schema the framework mints).
-      tool.outputSchema = {
-        oneOf: outputArms.map((arm) => this.schemaToJsonSchema(arm)),
-      } as NonNullable<McpTool["outputSchema"]>;
+    const outputSchema = this.advertisedOutputSchema(entry);
+    if (outputSchema !== undefined) {
+      tool.outputSchema = outputSchema as NonNullable<McpTool["outputSchema"]>;
     }
     if (entry.annotations !== undefined) {
       tool.annotations = entry.annotations;
@@ -1236,6 +1255,57 @@ export class McpServer {
       tool.icons = icons;
     }
     return tool;
+  }
+
+  /**
+   * The JSON Schema this server advertises as a local tool's `outputSchema`,
+   * or undefined when the route declares no `.output({ body })`.
+   *
+   * This is the natural (unprojected) schema. The SDK's wire codec owns both
+   * era projections of it: `encodeResult('tools/list')` wraps a non-object
+   * root down to `{type:'object', properties:{result:<natural>}}` on the 2025
+   * era, and `projectCallToolResult` wraps the matching value the same way.
+   * Handing either side a pre-wrapped schema would wrap it twice.
+   */
+  private advertisedOutputSchema(
+    entry: McpLocalToolEntry,
+  ): Record<string, unknown> | undefined {
+    if (this.outputSchemaJson.has(entry)) {
+      return this.outputSchemaJson.get(entry);
+    }
+    const arms = advertisedOutputArms(entry);
+    const schema =
+      arms.length === 0
+        ? undefined
+        : arms.length === 1
+          ? this.schemaToJsonSchema(arms[0])
+          : // A suspendable tool's contract is the union: a parked run answers
+            // with the Suspended acknowledgment instead of the declared
+            // output, and advertising only the first arm would publish a
+            // schema this server provably violates on every park. `oneOf` per
+            // the epic's published shape; the arms are disjoint by
+            // construction (`status: "suspended"` is const in the
+            // acknowledgment arm and reserved in no user schema the framework
+            // mints).
+            { oneOf: arms.map((arm) => this.schemaToJsonSchema(arm)) };
+    this.outputSchemaJson.set(entry, schema);
+    return schema;
+  }
+
+  /**
+   * The advertised `outputSchema` for a tool name, across both the local and
+   * proxied paths, for the `tools/call` era projection.
+   *
+   * A proxied entry's schema is the remote's own advertisement as our client
+   * received it, which is what this server re-advertises verbatim, so the
+   * projection stays consistent with what the caller was promised.
+   */
+  private advertisedOutputSchemaFor(
+    toolName: string,
+  ): Record<string, unknown> | undefined {
+    const entry = this.lookupLocalEntry(toolName);
+    if (entry) return this.advertisedOutputSchema(entry);
+    return this.resolveProxied().get(toolName)?.entry.outputSchema;
   }
 
   /**
@@ -1410,23 +1480,15 @@ export class McpServer {
       // A tool that advertises an outputSchema (the route declares .output())
       // MUST return structuredContent per the MCP spec; spec-compliant clients
       // reject the response otherwise. The text block stays alongside it for
-      // non-structured clients, as the spec recommends. Only a plain object
-      // body qualifies: the spec requires outputSchema (and therefore the
-      // structured result) to be an object, so a primitive or array body from
-      // a mismatched .output() declaration falls back to text-only.
-      const result: {
-        content: Array<{ type: "text"; text: string }>;
-        structuredContent?: Record<string, unknown>;
-      } = {
+      // non-structured clients, as the spec recommends. The body's runtime
+      // shape does not enter into it: a declared string or array is published
+      // as-is here, and the era projection at the wire seam wraps it to match
+      // the projection the same era applied to the advertisement.
+      const result: McpToolCallResult = {
         content: [{ type: "text", text: resultText }],
       };
-      if (
-        advertisedOutputArms(entry).length > 0 &&
-        typeof publishedBody === "object" &&
-        publishedBody !== null &&
-        !Array.isArray(publishedBody)
-      ) {
-        result.structuredContent = publishedBody as Record<string, unknown>;
+      if (this.advertisedOutputSchema(entry) !== undefined) {
+        result.structuredContent = publishedBody;
       }
       return result;
     } catch (error) {
