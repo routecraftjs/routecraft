@@ -86,6 +86,8 @@ Two checks stand behind that promise. The route's own output validation runs fir
 
 A tool whose route declares no `.output()` advertises no schema, so nothing is checked and its result passes through as-is.
 
+**Non-object outputs.** `.output({ body })` accepts any Standard Schema, including one whose JSON Schema root is not an object (`z.string()`, `z.array(...)`). MCP's 2025 protocol revision requires `structuredContent` to be an object, so on that revision the advertised schema and the published result both arrive inside the [SEP-2106](https://modelcontextprotocol.io/specification/2026-07-28) envelope: `outputSchema` becomes `{ type: 'object', properties: { result: <yours> }, required: ['result'] }` and the result becomes `{ "result": "42.50" }`. The 2026-07-28 revision carries both bare. This is a wire concern only. Your route declares and returns the bare value, the text content block still renders it unwrapped, and nothing in the pipeline ever sees `{ result: ... }`.
+
 One exception to "advertises that schema": a route that can park at a durable suspension advertises `oneOf: [Output, Suspended]` instead, because a call that parks returns the framework's `Suspended` acknowledgment rather than the declared output. See [Suspendable tools](/docs/advanced/expose-as-mcp#suspendable-tools).
 
 **Declined calls:**

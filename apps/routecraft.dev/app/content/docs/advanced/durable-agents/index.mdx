@@ -93,7 +93,7 @@ A cancelled run is terminal and honest about its spend: the abort signal (route 
 
 ## Over MCP
 
-A tool whose route dispatches an agent may park, so if it declares `.output()` its advertised `outputSchema` is the derived union `oneOf: [Output, Suspended]`, and a park replies with the acknowledgment in `structuredContent` on an ordinary `isError: false` result, emitting `plugin:mcp:tool:suspended`. See [Running an MCP server](/docs/advanced/expose-as-mcp#suspendable-tools).
+A tool whose route dispatches an agent may park, so if it declares `.output()` its advertised `outputSchema` is the derived union `oneOf: [Output, Suspended]`, and a park replies with the acknowledgment in `structuredContent` on an ordinary `isError: false` result, emitting `plugin:mcp:tool:suspended`. On the 2025 protocol revision the advertisement and the acknowledgment both carry the `{ result: ... }` envelope. See [Running an MCP server](/docs/advanced/expose-as-mcp#suspendable-tools).
 
 ## Related
 

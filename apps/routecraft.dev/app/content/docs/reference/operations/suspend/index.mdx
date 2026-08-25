@@ -72,7 +72,7 @@ A route with a reachable suspend therefore has output type `Output | Suspended`.
 | Source | Rendering |
 |--------|-----------|
 | `http()` | `202 Accepted`, the `Suspended` value as the body, `Retry-After` from the `ttl` |
-| `mcp()` | an ordinary `isError: false` tool result whose `structuredContent` is the acknowledgment; a tool that declares `.output()` and can park advertises `oneOf: [Output, Suspended]` (see [Running an MCP server](/docs/advanced/expose-as-mcp#suspendable-tools)) |
+| `mcp()` | an ordinary `isError: false` tool result whose `structuredContent` is the acknowledgment; a tool that declares `.output()` and can park advertises `oneOf: [Output, Suspended]`, and on the 2025 protocol revision both sides arrive inside the `{ result: ... }` envelope (see [Running an MCP server](/docs/advanced/expose-as-mcp#suspendable-tools)) |
 | `direct()` | the value itself; the caller narrows with `isSuspended(result)` |
 | `cron()`, `simple()`, file | nothing on the wire, a log line only; completion is simply deferred |
 | queue sources | ack, never nack: the work is parked in the suspension store, and a redelivery would ask the approver twice |
