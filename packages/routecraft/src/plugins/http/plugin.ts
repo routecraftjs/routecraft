@@ -60,9 +60,8 @@ interface ResolvedMount {
  *   - `teardown(ctx)`: unmount the dispatchers and clear the registries.
  */
 export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
-  const mountsResolved = validate(options);
+  const { mounts: mountsResolved, maxBodySize } = validate(options);
 
-  const maxBodySize = resolveMaxBodySize(options.maxBodySize, "httpPlugin");
   const perRequestEnabled = options.events?.perRequest ?? true;
 
   // Built-ins config: every endpoint takes the same {enabled, requireAuth}
@@ -309,7 +308,10 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
   };
 }
 
-function validate(options: HttpPluginOptions): ResolvedMount[] {
+function validate(options: HttpPluginOptions): {
+  mounts: ResolvedMount[];
+  maxBodySize: number;
+} {
   const removed = options as HttpPluginOptions & {
     port?: unknown;
     host?: unknown;
@@ -337,7 +339,7 @@ function validate(options: HttpPluginOptions): ResolvedMount[] {
         "httpPlugin: `server` and `mounts` are mutually exclusive. Top-level `server` is sugar for a single default mount; with `mounts`, set server per mount.",
     });
   }
-  resolveMaxBodySize(options.maxBodySize, "httpPlugin");
+  const maxBodySize = resolveMaxBodySize(options.maxBodySize, "httpPlugin");
   for (const name of ["health", "ready", "openapi"] as const) {
     const entry = options.builtins?.[name];
     if (entry === undefined) continue;
@@ -384,7 +386,7 @@ function validate(options: HttpPluginOptions): ResolvedMount[] {
     }
   }
 
-  return resolveMounts(options);
+  return { mounts: resolveMounts(options), maxBodySize };
 }
 
 function resolveMounts(options: HttpPluginOptions): ResolvedMount[] {

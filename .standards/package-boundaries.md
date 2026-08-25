@@ -160,13 +160,13 @@ Worked example: `WebFetch`. A bespoke `webFetch()` adapter would take `allowedDo
 craft()
   .id('web-fetch')
   .input({ body: z.object({ url: AllowedUrl }) })   // the allowlist, in one schema
-  .throttle({ limit: 10, window: '1m' })
-  .cache({ ttl: '1h' })
+  .throttle({ rate: 10, per: 'minute' })
+  .cache({ ttl: 3_600_000 })
   .timeout(30_000)
   .from(direct('web-fetch'))
   .enrich(http({ url: (ex) => ex.body.url, redirect: 'manual' }))
   .choice(when(isRedirect, revalidateAndFollow))    // the rule re-runs per hop
-  .to(llm('summarise this page'))
+  .enrich(llm('summariser', { user: (ex) => ex.body.body }))
 ```
 
 `isRedirect` is shipped, because the adapter already owns that rule and a route re-deriving it would get `304` wrong. `revalidateAndFollow` is the author's, because what to do on a hop is the decision this section says must stay in the route.

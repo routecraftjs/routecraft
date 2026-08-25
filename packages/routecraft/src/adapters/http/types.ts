@@ -221,7 +221,14 @@ export interface HttpPluginOptions {
   mounts?: Record<string, HttpMountDefinition>;
   /**
    * Maximum request body size in bytes. Requests exceeding this cap return
-   * 413 Payload Too Large. Defaults to 10 MB.
+   * 413 Payload Too Large. Defaults to 10 MB, the same number as the
+   * `http()` client's response cap.
+   *
+   * Must be a positive integer. Unlike the client option of the same name,
+   * `Infinity` is refused: an inbound request comes from a stranger and is
+   * buffered whole before it can be measured, so an unbounded cap here
+   * means one request can exhaust the process, which is what this option
+   * exists to prevent.
    */
   maxBodySize?: number;
   /** Event emission toggles. */

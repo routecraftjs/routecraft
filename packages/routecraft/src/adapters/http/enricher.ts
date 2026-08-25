@@ -45,7 +45,11 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
   private readonly redirect: HttpRedirectMode;
 
   constructor(private readonly options: HttpClientOptions<T>) {
-    this.maxBodySize = resolveMaxBodySize(options.maxBodySize, "http() client");
+    this.maxBodySize = resolveMaxBodySize(
+      options.maxBodySize,
+      "http() client",
+      { allowUnbounded: true },
+    );
     this.redirect = normalizeRedirect(options.redirect);
   }
 

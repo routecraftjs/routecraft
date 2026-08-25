@@ -2974,3 +2974,50 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
     expect(res.status).toBe(200);
   });
 });
+
+/**
+ * The inbound cap is not negotiable in the way the outbound one is.
+ *
+ * `http()`'s client accepts `Infinity` as a named opt-out, because there the
+ * route author chose the endpoint and is spending their own process on a
+ * response they asked for. Inbound, the caller is a stranger and
+ * `parseRequestBody` buffers the whole request before it can measure it, so
+ * an unbounded cap means one request can exhaust the process. The two sides
+ * share a resolver, which is exactly why this needs a guard: the sharing is
+ * what could quietly widen the plugin next time someone refactors it.
+ */
+describe("httpPlugin maxBodySize refuses unbounded", () => {
+  /**
+   * @case Infinity is refused as an inbound request cap
+   * @preconditions httpPlugin constructed with maxBodySize: Infinity
+   * @expectedResult RC5003 at construction, so the inbound cap can never be removed by configuration
+   */
+  test("refuses maxBodySize: Infinity", () => {
+    let caught: unknown;
+    try {
+      httpPlugin({ maxBodySize: Number.POSITIVE_INFINITY });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect((caught as { rc?: string } | undefined)?.rc).toBe("RC5003");
+    expect((caught as Error).message).toContain("maxBodySize");
+  });
+
+  /**
+   * @case The refusal does not advertise an opt-out the plugin does not offer
+   * @preconditions httpPlugin constructed with an invalid maxBodySize
+   * @expectedResult The message names positive integers only, never Infinity, so it does not point at a way out that this side refuses
+   */
+  test("does not offer Infinity in its refusal message", () => {
+    let caught: unknown;
+    try {
+      httpPlugin({ maxBodySize: 0 });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect((caught as { rc?: string } | undefined)?.rc).toBe("RC5003");
+    expect((caught as Error).message).not.toContain("Infinity");
+  });
+});
