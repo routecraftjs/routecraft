@@ -1,7 +1,12 @@
 import type { Enricher } from "../../operations/enrich.ts";
 import type { Exchange } from "../../exchange";
 import { rcError } from "../../error";
+import {
+  declaredLengthOver,
+  resolveMaxBodySize,
+} from "../../plugins/http/max-body-size";
 import type { StepSignalContext } from "../../types.ts";
+import { isRedirect } from "./redirect";
 import type {
   HttpClientOptions,
   HttpRedirectMode,
@@ -9,26 +14,10 @@ import type {
   QueryParams,
 } from "./types";
 
-/**
- * Default response-body ceiling in bytes. Deliberately the same number as
- * the http plugin's inbound `maxBodySize` (see `plugins/http/plugin.ts`):
- * one name and one number for one concept on both sides of the framework.
- */
-const DEFAULT_MAX_BODY_SIZE = 10 * 1024 * 1024;
-
 const REDIRECT_MODES: ReadonlySet<string> = new Set<HttpRedirectMode>([
   "follow",
   "manual",
   "error",
-]);
-
-/**
- * Statuses that carry a redirect. `304 Not Modified` is deliberately absent:
- * it is a cache answer rather than a hop, it names no `Location`, and a
- * route asking for `redirect: "manual"` is asking about hops.
- */
-const REDIRECT_STATUSES: ReadonlySet<number> = new Set([
-  301, 302, 303, 307, 308,
 ]);
 
 /**
@@ -56,7 +45,7 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
   private readonly redirect: HttpRedirectMode;
 
   constructor(private readonly options: HttpClientOptions<T>) {
-    this.maxBodySize = normalizeMaxBodySize(options.maxBodySize);
+    this.maxBodySize = resolveMaxBodySize(options.maxBodySize, "http() client");
     this.redirect = normalizeRedirect(options.redirect);
   }
 
@@ -148,18 +137,10 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
         headersRecord[key] = value;
       });
 
-      // The cap applies to the error branch too. An endpoint answering 500
-      // with a gigabyte is the same exhaustion risk as one answering 200
-      // with it, and the size error names the status so the HTTP failure is
-      // still legible in the message.
       const bodyText = await this.readBody(res, headersRecord, finalUrl);
 
-      // A 3xx under `redirect: "manual"` is the outcome the route asked
-      // for, not a failure, so `throwOnHttpError` does not fire on it. It
-      // still fires on every other non-2xx, because opting out of following
-      // a redirect is not opting out of noticing a 404.
       const isRequestedRedirect =
-        this.redirect === "manual" && REDIRECT_STATUSES.has(res.status);
+        this.redirect === "manual" && isRedirect({ status: res.status });
 
       if (throwOnHttpError && !res.ok && !isRequestedRedirect) {
         throw new Error(`HTTP ${res.status}: ${bodyText}`);
@@ -193,12 +174,19 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
    * `maxBodySize`.
    *
    * A declared `Content-Length` over the cap is refused first, without
-   * reading a byte of the body: the cheapest refusal available, and the
-   * only one possible before anything arrives. It is not sufficient alone,
-   * because a chunked response declares nothing, so the streaming arm below
-   * counts what actually arrives and abandons the response the moment the
-   * count crosses the ceiling. That second arm is what makes the option
-   * bound memory rather than merely bound what the route sees.
+   * reading a byte of the body: the cheapest refusal available. It is not
+   * sufficient alone, because a chunked response declares nothing, so the
+   * streaming arm counts what actually arrives and abandons the response the
+   * moment the count crosses the ceiling. That second arm is what makes the
+   * option bound what the process spends rather than only what the route
+   * sees. Chunks are decoded as they arrive and never held together, so the
+   * peak is the decoded text plus one chunk rather than several copies of
+   * the body.
+   *
+   * Both refusing arms cancel the body first. An unconsumed response body
+   * holds its connection checked out and keeps the runtime buffering
+   * whatever the server sends, which is the exact cost the refusal exists to
+   * avoid, and it leaks a socket per attempt on a route that polls.
    *
    * A response with no readable stream (a 204, a `HEAD`, or a test double
    * standing in for one) falls back to buffering, where the cap can only be
@@ -215,8 +203,9 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
   ): Promise<string> {
     const max = this.maxBodySize;
 
-    const declared = parseInt(headersRecord["content-length"] ?? "", 10);
-    if (!isNaN(declared) && declared > max) {
+    const declared = declaredLengthOver(headersRecord["content-length"], max);
+    if (declared !== undefined) {
+      await res.body?.cancel().catch(() => {});
       throw this.tooLarge(res, requestUrl, declared, "declared");
     }
 
@@ -231,7 +220,8 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     }
 
     const reader = stream.getReader();
-    const chunks: Uint8Array[] = [];
+    const decoder = new TextDecoder();
+    let text = "";
     let total = 0;
     try {
       for (;;) {
@@ -241,21 +231,14 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
         if (total > max) {
           throw this.tooLarge(res, requestUrl, total, "read");
         }
-        chunks.push(value);
+        // `stream: true` keeps a multi-byte character split across a chunk
+        // boundary intact.
+        text += decoder.decode(value, { stream: true });
       }
     } finally {
-      // Releases the connection when the loop exited early; a reader whose
-      // stream already ended cancels harmlessly.
       await reader.cancel().catch(() => {});
     }
-
-    const merged = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      merged.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return new TextDecoder().decode(merged);
+    return text + decoder.decode();
   }
 
   private tooLarge(
@@ -310,25 +293,6 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
       return undefined;
     }
   }
-}
-
-/**
- * Refuse a nonsensical cap at the `http({...})` call site rather than at
- * the first response. Zero and negative values are refused rather than
- * read as "no limit": a route that means no limit says so with a large
- * number, and one that typed `0` by accident would otherwise get a client
- * that rejects every response it ever receives.
- *
- * @throws RoutecraftError RC5003 when the value is not a positive integer.
- */
-function normalizeMaxBodySize(value: number | undefined): number {
-  if (value === undefined) return DEFAULT_MAX_BODY_SIZE;
-  if (!Number.isInteger(value) || value <= 0) {
-    throw rcError("RC5003", undefined, {
-      message: `http() client: invalid maxBodySize ${String(value)}. Pass a positive integer (bytes).`,
-    });
-  }
-  return value;
 }
 
 /**

@@ -57,9 +57,7 @@ beforeAll(async () => {
       return;
     }
 
-    // Chunked: no Content-Length at all, so only the streaming count can
-    // catch it. Written as many small writes so the ceiling is crossed
-    // partway through rather than on the first chunk.
+    // No Content-Length: only the streaming count can catch this one.
     if (url === "/chunked-over") {
       res.writeHead(200, { "content-type": "text/plain" });
       for (let i = 0; i < 20; i++) res.write("c".repeat(200));
@@ -67,17 +65,9 @@ beforeAll(async () => {
       return;
     }
 
-    // Declares a length far above the cap and genuinely sends it. The
-    // declaration is what must trigger the refusal, and the message proves
-    // which branch fired: only the declared arm can name DECLARED_OVER,
-    // because the streaming arm reports what it counted instead.
-    //
-    // The route sends what it declares rather than stalling, because a
-    // stalled response is not the case this option covers. Node resolves
-    // `fetch` on headers, but Bun waits for the declared length to be
-    // satisfied or the stream to end, so a server that declares a megabyte
-    // and then falls silent hangs there. That is a dead connection, and
-    // `timeoutMs` is the option for it.
+    // Declares far above the cap and sends it, so the declaration alone must
+    // trigger the refusal. It must not stall: Bun's fetch does not resolve
+    // until the declared length is satisfied or the stream ends.
     if (url === "/over-declaring") {
       const body = "d".repeat(DECLARED_OVER);
       res.writeHead(200, {
@@ -88,10 +78,8 @@ beforeAll(async () => {
       return;
     }
 
-    // Declares far less than it sends. The declaration alone would wave the
-    // body past the early check, so what arrives is bounded by the streaming
-    // count or by the runtime's own content-length enforcement, never by the
-    // declaration being taken at its word.
+    // Declares far less than it sends: the low declaration must not buy the
+    // body a pass.
     if (url === "/under-declaring") {
       const socket = res.socket;
       if (socket) {
@@ -135,8 +123,7 @@ beforeAll(async () => {
       return;
     }
 
-    // A 302 with no Location: nothing to follow, so every runtime hands the
-    // 3xx back even under redirect: "follow".
+    // No Location: every runtime hands the 3xx back even under "follow".
     if (url === "/dangling-redirect") {
       res.writeHead(302, { "content-type": "text/plain" });
       res.end("nowhere");
@@ -178,6 +165,16 @@ async function callClient(
 ): Promise<HttpResult> {
   const enricher = http(options);
   return (await enricher.fetch({} as Exchange<unknown>, {})) as HttpResult;
+}
+
+/** The `rc` code of whatever `build` throws, for construction-time guards. */
+function rcOf(build: () => unknown): string | undefined {
+  try {
+    build();
+  } catch (error) {
+    return (error as { rc?: string }).rc;
+  }
+  return undefined;
 }
 
 describe("http() client maxBodySize", () => {
@@ -322,15 +319,27 @@ describe("http() client maxBodySize", () => {
    * @expectedResult RC5003 at construction, rather than a client that silently rejects every response it receives
    */
   test("refuses a non-positive maxBodySize at construction", () => {
-    expect(() => http({ url: `${base}/at`, maxBodySize: 0 })).toThrow(
-      /maxBodySize/,
-    );
-    expect(() => http({ url: `${base}/at`, maxBodySize: -1 })).toThrow(
-      /maxBodySize/,
-    );
-    expect(() => http({ url: `${base}/at`, maxBodySize: 1.5 })).toThrow(
-      /maxBodySize/,
-    );
+    for (const value of [0, -1, 1.5]) {
+      expect(() => http({ url: `${base}/at`, maxBodySize: value })).toThrow();
+      expect(rcOf(() => http({ url: `${base}/at`, maxBodySize: value }))).toBe(
+        "RC5003",
+      );
+    }
+  });
+
+  /**
+   * @case Infinity is the named way to say "no limit"
+   * @preconditions maxBodySize: Infinity against a body larger than the default cap
+   * @expectedResult The body arrives whole, so an endpoint that legitimately returns more than 10 MB has an opt-out that reads as intent rather than a magic number
+   */
+  test("accepts Infinity as an explicit opt-out", async () => {
+    const result = await callClient({
+      url: `${base}/over`,
+      maxBodySize: Number.POSITIVE_INFINITY,
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body).toBe(OVER);
   });
 
   /**
@@ -451,13 +460,12 @@ describe("http() client redirect", () => {
    * @expectedResult RC5003 at construction, rather than a route believing it opted out while the adapter kept following
    */
   test("refuses an unknown redirect mode at construction", () => {
-    expect(() =>
-      http({
-        url: `${base}/redirect`,
-        // Deliberately outside HttpRedirectMode: the guard exists for untyped
-        // JS callers, so the test has to squeeze past the types to reach it.
-        redirect: "manual-ish" as "manual",
-      }),
-    ).toThrow(/redirect/);
+    // Deliberately outside HttpRedirectMode: the guard exists for untyped JS
+    // callers, so the test has to squeeze past the types to reach it.
+    const build = () =>
+      http({ url: `${base}/redirect`, redirect: "manual-ish" as "manual" });
+
+    expect(build).toThrow();
+    expect(rcOf(build)).toBe("RC5003");
   });
 });

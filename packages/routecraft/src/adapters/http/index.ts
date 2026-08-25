@@ -71,6 +71,7 @@ export function http(
 }
 
 // Re-export adapter classes and types for the public API surface.
+export { isRedirect, HTTP_REDIRECT_STATUSES } from "./redirect";
 export { HttpEnricherAdapter } from "./enricher";
 export { HttpSourceAdapter } from "./source";
 export type {

@@ -1,5 +1,6 @@
 import { isRoutecraftError } from "../../brand";
 import { rcError, type RCCode, type RoutecraftError } from "../../error";
+import { declaredLengthOver } from "./max-body-size.ts";
 import {
   verifyWebhookSignature,
   type HttpWebhookSignatureOptions,
@@ -92,7 +93,9 @@ const EMPTY_BODY = new Uint8Array(0);
  * Read and parse the request body using a `Content-Type`-driven strategy.
  *
  * Buffers the full body in memory before parsing so we can enforce
- * `maxBodySize` deterministically. Streaming bodies are a follow-up.
+ * `maxBodySize` deterministically, which means a chunked request over the cap
+ * is held before it is refused. The `http()` client counts while it streams
+ * instead; bringing that here is a follow-up.
  *
  * Methods listed in {@link METHODS_WITHOUT_BODY} produce
  * `{ body: undefined, rawBytes: <empty> }` without touching the request
@@ -116,18 +119,23 @@ export async function parseRequestBody(
   }
 
   // Guard against oversized requests before buffering when the client
-  // declares Content-Length. Chunked transfers still require the post-buffer
-  // check below (the fetch API provides no streaming byte-count hook).
-  const declaredLength = parseInt(req.headers.get("content-length") ?? "", 10);
-  if (!isNaN(declaredLength) && declaredLength > opts.maxBodySize) {
+  // declares Content-Length.
+  const declaredLength = declaredLengthOver(
+    req.headers.get("content-length"),
+    opts.maxBodySize,
+  );
+  if (declaredLength !== undefined) {
     throw bodyError(
       413,
       `request body of ${declaredLength} bytes exceeds maxBodySize ${opts.maxBodySize}`,
     );
   }
 
-  // arrayBuffer() buffers the full body. The post-buffer check below catches
-  // chunked transfers whose true size wasn't known from Content-Length.
+  // arrayBuffer() buffers the full body, so a chunked request over the cap is
+  // held in memory before the post-buffer check below rejects it. The http()
+  // client streams and counts instead (see its readBody); adopting that here
+  // is a follow-up, and the reason this side still buffers is history rather
+  // than a missing mechanism.
   const buffer = await req.arrayBuffer();
   if (buffer.byteLength > opts.maxBodySize) {
     throw bodyError(

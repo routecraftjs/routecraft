@@ -30,8 +30,7 @@ import { requireWebIngress } from "../server/registry.ts";
 import { normalizeStaticPathPrefix } from "../server/mount-path.ts";
 import type { PathClaim } from "../server/types.ts";
 import { staticPathPrefix } from "./path-matcher.ts";
-
-const DEFAULT_MAX_BODY_SIZE = 10 * 1024 * 1024;
+import { resolveMaxBodySize } from "./max-body-size.ts";
 
 /** Resolved per-mount config after the single-mount sugar is normalised. */
 interface ResolvedMount {
@@ -63,7 +62,7 @@ interface ResolvedMount {
 export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
   const mountsResolved = validate(options);
 
-  const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
+  const maxBodySize = resolveMaxBodySize(options.maxBodySize, "httpPlugin");
   const perRequestEnabled = options.events?.perRequest ?? true;
 
   // Built-ins config: every endpoint takes the same {enabled, requireAuth}
@@ -338,14 +337,7 @@ function validate(options: HttpPluginOptions): ResolvedMount[] {
         "httpPlugin: `server` and `mounts` are mutually exclusive. Top-level `server` is sugar for a single default mount; with `mounts`, set server per mount.",
     });
   }
-  if (
-    options.maxBodySize !== undefined &&
-    (!Number.isInteger(options.maxBodySize) || options.maxBodySize <= 0)
-  ) {
-    throw rcError("RC5003", undefined, {
-      message: `httpPlugin: invalid maxBodySize ${String(options.maxBodySize)}. Pass a positive integer (bytes).`,
-    });
-  }
+  resolveMaxBodySize(options.maxBodySize, "httpPlugin");
   for (const name of ["health", "ready", "openapi"] as const) {
     const entry = options.builtins?.[name];
     if (entry === undefined) continue;

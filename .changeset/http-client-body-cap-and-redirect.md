@@ -19,4 +19,8 @@ Exceeding the cap fails the exchange with the new `RC5061`, naming the option, t
 .choice(when(isRedirect, revalidateAndFollow))
 ```
 
+`isRedirect` and `HTTP_REDIRECT_STATUSES` are exported alongside the option, because the adapter already owns that rule and the obvious hand-rolled version (`status >= 300 && status < 400`) includes `304`, which is a cache answer rather than a hop. What to do on a hop stays the route's own business.
+
+`maxBodySize` accepts `Infinity` as the named opt-out; zero and negatives are refused rather than read as "no limit".
+
 The option reports what happened and hands control back. It carries no allowlist, no address classification and no cross-host rules: whether a URL is acceptable is the route's decision, where a reader can see the rule and change it. `.standards/package-boundaries.md` section 6.1 records that as a general rule for framework additions.

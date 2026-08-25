@@ -30,6 +30,9 @@ const DECLARED_OVER = CAP * 100;
 let server: Server;
 let base: string;
 
+/** Sockets the fixture server currently has open, for the leak regression. */
+let liveConnections = 0;
+
 beforeAll(async () => {
   server = createServer((req, res) => {
     const url = req.url ?? "/";
@@ -81,6 +84,11 @@ beforeAll(async () => {
 
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("nope");
+  });
+
+  server.on("connection", (socket) => {
+    liveConnections++;
+    socket.on("close", () => liveConnections--);
   });
 
   await new Promise<void>((resolve) =>
@@ -225,6 +233,22 @@ describe("http() client maxBodySize (cross-runtime contract)", () => {
     await expect(promise).rejects.toThrow(/maxBodySize/);
     const error = await promise.catch((e: unknown) => e);
     expect((error as { rc?: string }).rc).toBe("RC5061");
+  });
+
+  /**
+   * @case A refusal releases the connection rather than leaking it
+   * @preconditions Twenty calls refused on the declared Content-Length, each against a response the client never reads
+   * @expectedResult The fixture server settles back to a handful of live connections. A response body that is neither read nor cancelled keeps its connection checked out and keeps the runtime buffering what the server sends, which is the cost the refusal exists to avoid. This lives here rather than in the unit suite because the leak is undici-specific: Bun releases the connection either way, so only the Node job can catch a regression
+   */
+  test("releases the connection when it refuses on the declaration", async () => {
+    for (let i = 0; i < 20; i++) {
+      await expect(
+        callClient({ url: `${base}/big`, maxBodySize: CAP }),
+      ).rejects.toThrow(/maxBodySize/);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(liveConnections).toBeLessThan(5);
   });
 
   /**

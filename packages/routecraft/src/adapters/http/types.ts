@@ -38,7 +38,10 @@ export type QueryParams = Record<string, string | number | boolean>;
  * - `"manual"`: the 3xx itself is returned, `Location` readable in
  *   {@link HttpResult.headers}, so a route that validated the URL it asked
  *   for can re-run that rule on the next hop instead of having the adapter
- *   walk somewhere the route never approved.
+ *   walk somewhere the route never approved. Such a 3xx does not trip
+ *   `throwOnHttpError`, because it is the outcome the route asked for;
+ *   every other non-2xx still does, `304` included, since a cache answer is
+ *   not a hop.
  * - `"error"`: the request fails rather than following.
  */
 export type HttpRedirectMode = "follow" | "manual" | "error";
@@ -64,6 +67,10 @@ export interface HttpClientOptions<T = unknown> {
    * the process rather than only what it hands the route. Exceeding it
    * fails the exchange with `RC5061`: a truncated body would hand the
    * route half a document and let it parse as though it were whole.
+   *
+   * `Infinity` is the named way to opt out entirely. Zero and negatives are
+   * refused rather than read as "no limit", so an options object built
+   * programmatically cannot arrive at unbounded by accident.
    */
   maxBodySize?: number;
   /**

@@ -142,7 +142,6 @@ Note on determinism: MCP is a thin protocol over HTTP and is usable from any rou
 
 **Open decision:** the `mcp()` client is a transport over a protocol, not an AI feature. By the section 2 rule (standards live in core), the MCP client transport arguably belongs in **core**, so a plain non-AI route can use `mcp()` without importing the AI module, leaving only the AI-specific pieces in `@routecraft/ai`. Recorded here as undecided; resolve before v1.
 
-
 ### 6.1 Build the harness out of the framework, not into it
 
 The agent tools above are where this pressure shows up first, because every one of them looks like it wants to be an adapter. Ranked worst to best:
@@ -169,6 +168,8 @@ craft()
   .choice(when(isRedirect, revalidateAndFollow))    // the rule re-runs per hop
   .to(llm('summarise this page'))
 ```
+
+`isRedirect` is shipped, because the adapter already owns that rule and a route re-deriving it would get `304` wrong. `revalidateAndFollow` is the author's, because what to do on a hop is the decision this section says must stay in the route.
 
 Change the allowlist by editing a schema. Change the rate limit by editing a number. Neither requires a framework release, and a reviewer can see both.
 
