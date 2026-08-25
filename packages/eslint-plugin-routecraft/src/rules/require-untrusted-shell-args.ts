@@ -82,6 +82,10 @@ function readsFrom(
         readsFrom(node["consequent"], param, tainted) ||
         readsFrom(node["alternate"], param, tainted)
       );
+    case "AssignmentExpression":
+      // An assignment evaluates to its right side, so `a = b = ex.body.url`
+      // hands the exchange value to `a` as well as to `b`.
+      return readsFrom(node["right"], param, tainted);
     case "SequenceExpression": {
       // A comma expression evaluates to its last operand, and only that
       // operand reaches argv. Testing every operand would report
@@ -211,7 +215,7 @@ function collectTaintedLocals(
   return tainted;
 }
 
-/** Every variable declarator in the resolver's own body. */
+/** Every binding in the resolver's own body: declarators and assignments alike. */
 function gatherDeclarations(
   node: unknown,
   found: { names: string[]; init: unknown }[],
@@ -226,6 +230,19 @@ function gatherDeclarations(
       const names: string[] = [];
       gatherBoundNames(node["id"], names);
       if (names.length > 0) found.push({ names, init: node["init"] });
+      return;
+    }
+    case "AssignmentExpression": {
+      // `let url; url = ex.body.url` binds the exchange as plainly as a
+      // declarator does. Collecting only declarators left the rule blind
+      // to it, which is the same one-spelling-covered-one-missed shape
+      // this rule has already been caught by more than once.
+      const names: string[] = [];
+      gatherBoundNames(node["left"], names);
+      if (names.length > 0) found.push({ names, init: node["right"] });
+      // The right side can itself contain a declaration or a further
+      // assignment (`a = b = ex.body.url`), so keep descending.
+      gatherDeclarations(node["right"], found);
       return;
     }
     default:
@@ -289,6 +306,9 @@ const DECLARATION_CHILD_KEYS = [
   "cases",
   "declarations",
   "init",
+  // An assignment reaches the walk through the statement wrapping it.
+  "expression",
+  "expressions",
 ] as const;
 
 /**

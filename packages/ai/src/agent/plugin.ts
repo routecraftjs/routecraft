@@ -41,8 +41,13 @@ export interface AgentPluginOptions {
    * eagerly-authored `FnOptions` (description, input, handler) or a
    * deferred descriptor emitted by a builder helper such as
    * `directTool(routeId)`.
-   * Deferred descriptors resolve at agent dispatch time when all
-   * registries are populated.
+   * Deferred descriptors resolve during this plugin's `start()`, once
+   * every registry they depend on is live, and the result is memoised
+   * for dispatch. A descriptor that cannot resolve there fails
+   * `context.start()`: a tool naming a route that does not exist, or one
+   * carrying no `.description()` or `.input()`, is a configuration error,
+   * and it surfaces at the startup that introduced it rather than
+   * mid-conversation when an agent first reaches for it.
    *
    * Duplicate ids across multiple `agentPlugin` installs throw at
    * context init.

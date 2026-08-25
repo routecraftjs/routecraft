@@ -200,6 +200,12 @@ describe("the unshare tier's guarantees", () => {
     try {
       const host = await unisolated("ipcs", ["-m"]);
       const isolated = await run("ipcs", ["-m"]);
+      // Without this the test passes when `ipcs` cannot start inside the
+      // tier at all: empty stdout counts as zero segments, which is the
+      // answer it is looking for. An assertion that a broken probe
+      // satisfies is the vacuous-green case this file exists to refuse.
+      expect(host.exitCode).toBe(0);
+      expect(isolated.exitCode).toBe(0);
       const segments = (text: string) =>
         text.split("\n").filter((line) => line.startsWith("0x")).length;
       expect(segments(host.stdout)).toBeGreaterThan(0);
