@@ -1,7 +1,5 @@
-import type { Exchange } from "@routecraft/routecraft";
-
-/** Option value that can be static or resolved from the exchange. */
-export type Resolvable<T, V> = V | ((exchange: Exchange<T>) => V);
+export type { Resolvable } from "../../shared/resolvable.ts";
+import type { Resolvable } from "../../shared/resolvable.ts";
 
 /**
  * Shared options available on every command.

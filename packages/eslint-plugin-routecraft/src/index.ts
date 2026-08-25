@@ -4,6 +4,7 @@ import batchBeforeFromRule from "./rules/batch-before-from.ts";
 import singleToPerRouteRule from "./rules/single-to-per-route.ts";
 import capabilityBoundariesRule from "./rules/capability-boundaries.ts";
 import restrictPrincipalMintingRule from "./rules/restrict-principal-minting.ts";
+import requireUntrustedShellArgsRule from "./rules/require-untrusted-shell-args.ts";
 
 export const rules: Record<string, Rule.RuleModule> = {
   "require-named-route": requireNamedRouteRule,
@@ -13,6 +14,7 @@ export const rules: Record<string, Rule.RuleModule> = {
   // and is deliberately excluded from the recommended/all configs below.
   "capability-boundaries": capabilityBoundariesRule,
   "restrict-principal-minting": restrictPrincipalMintingRule,
+  "require-untrusted-shell-args": requireUntrustedShellArgsRule,
 };
 
 export const configs = {
@@ -22,6 +24,7 @@ export const configs = {
       "@routecraft/routecraft/batch-before-from": "error",
       "@routecraft/routecraft/single-to-per-route": "warn",
       "@routecraft/routecraft/restrict-principal-minting": "error",
+      "@routecraft/routecraft/require-untrusted-shell-args": "warn",
     },
   },
   recommended: {
@@ -33,6 +36,12 @@ export const configs = {
       // per-site sanctioned act (disable comment with justification or a
       // per-file config override), never something that lands silently.
       "@routecraft/routecraft/restrict-principal-minting": "error",
+      // An unmarked exchange value in a command's arguments is a
+      // flag-injection hole, and marking it is a one-word fix at the call
+      // site. It warns rather than errors because the analysis behind it is
+      // young: a misfiring warning is a nuisance in an editor, where a
+      // misfiring error fails a build that was not ours to break.
+      "@routecraft/routecraft/require-untrusted-shell-args": "warn",
     },
   },
 };

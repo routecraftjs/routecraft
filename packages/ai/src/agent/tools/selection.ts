@@ -10,7 +10,7 @@ import {
 } from "../../mcp/types.ts";
 import type { McpToolRegistry } from "../../mcp/tool-registry.ts";
 import { directTool } from "./builders.ts";
-import { isDeferredFn, type FnEntry } from "./types.ts";
+import { isDeferredFn, resolveFnOptions, type FnEntry } from "./types.ts";
 import {
   describeToolNameViolation,
   isSplittableNameHead,
@@ -312,12 +312,11 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
           // whose id happens to start with `mcp__` stays reachable.
           if (isMcpRefName(item) && !fnRegistryHas(ctx, item)) {
             for (const tool of resolveMcpRefs(ctx, item, undefined)) {
-              out.set(tool.name, tool);
+              record(out, tool);
             }
             continue;
           }
-          const tool = resolveByName(ctx, item, undefined);
-          out.set(tool.name, tool);
+          record(out, resolveByName(ctx, item, undefined));
           continue;
         }
         if (item === null || typeof item !== "object" || !("name" in item)) {
@@ -340,7 +339,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             });
           }
           for (const tool of resolveMcpRefs(ctx, item.name, item.guard)) {
-            out.set(tool.name, tool);
+            record(out, tool);
           }
           continue;
         }
@@ -361,7 +360,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
           item.description !== undefined
             ? { ...base, description: item.description }
             : base;
-        out.set(tool.name, tool);
+        record(out, tool);
       }
       return [...out.values()];
     },
@@ -384,25 +383,24 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
     Map<string, FnEntry> | undefined;
   if (fnRegistry) {
     for (const [name, entry] of fnRegistry) {
-      if (isDeferredFn(entry)) {
-        // Deferred wrappers don't carry their own description/tags in
-        // the registry; users who want to filter on those should walk
-        // catalog.routes for the underlying route, then reference it
-        // as `Direct(<routeId>)` in the returned items list.
-        fns.push(Object.freeze({ name }));
-      } else {
-        const tags =
-          entry.tags && entry.tags.length > 0
-            ? Object.freeze([...entry.tags])
-            : undefined;
-        fns.push(
-          Object.freeze({
-            name,
-            description: entry.description,
-            ...(tags !== undefined ? { tags } : {}),
-          }),
-        );
-      }
+      // Resolve before reading. A deferred entry read raw carries no
+      // description or tags, and a builder filtering on either would
+      // silently drop every route-backed tool while reporting nothing.
+      // Every deferred entry resolved during the plugin's start(), so
+      // this reads the memoized result; one that could not resolve
+      // failed the boot rather than reaching here.
+      const declared = resolveFnOptions(ctx, name, entry);
+      const tags =
+        declared.tags && declared.tags.length > 0
+          ? Object.freeze([...declared.tags])
+          : undefined;
+      fns.push(
+        Object.freeze({
+          name,
+          description: declared.description,
+          ...(tags !== undefined ? { tags } : {}),
+        }),
+      );
     }
   }
 
@@ -533,6 +531,50 @@ function resolveByName(
   });
 }
 
+/**
+ * Run two guards as one. Both must pass, because each was written to
+ * withhold something and a combination that let either one through would
+ * grant more than either author intended.
+ *
+ * @internal
+ */
+function combineGuards(
+  first: ToolGuard | undefined,
+  second: ToolGuard,
+): ToolGuard {
+  if (!first) return second;
+  return async (input, ctx) => {
+    await first(input, ctx);
+    await second(input, ctx);
+  };
+}
+
+/**
+ * Add a resolved tool, composing rather than replacing when the name is
+ * already present.
+ *
+ * Repeated entries for one tool collide here. Overwriting silently dropped
+ * whatever the earlier entry carried, including an explicit guard, which
+ * would quietly widen the grant depending on which line came last.
+ *
+ * @internal
+ */
+function record(out: Map<string, ResolvedTool>, tool: ResolvedTool): void {
+  const existing = out.get(tool.name);
+  if (!existing) {
+    out.set(tool.name, tool);
+    return;
+  }
+  const guard =
+    existing.guard && tool.guard
+      ? combineGuards(existing.guard, tool.guard)
+      : (existing.guard ?? tool.guard);
+  out.set(tool.name, {
+    ...existing,
+    ...(guard ? { guard } : {}),
+  });
+}
+
 function resolveFnEntry(
   ctx: CraftContext,
   name: string,
@@ -540,7 +582,7 @@ function resolveFnEntry(
   guard: ToolGuard | undefined,
 ): ResolvedTool {
   if (isDeferredFn(entry)) {
-    const fn = entry.resolve(ctx, name);
+    const fn = resolveFnOptions(ctx, name, entry);
     // Derived from `entry.kind`, never asserted. `isDeferredFn` is a
     // brand check only, so hardcoding "direct" here would silently
     // classify a future deferred kind (a sub-agent tool is the named

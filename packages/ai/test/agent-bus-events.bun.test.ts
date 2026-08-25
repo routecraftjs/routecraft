@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { craft, simple } from "@routecraft/routecraft";
+import { craft, rcError, simple } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { z } from "zod";
 import {
@@ -216,6 +216,75 @@ describe("agent context-bus events", () => {
     const snap = errorDetails!["_snapshot"] as Record<string, unknown>;
     expect(snap).toBeDefined();
     expect((snap["error"] as Error).message).toBe("tool-boom");
+  });
+
+  /**
+   * @case A guard refusal is countable on the bus, not only visible to the model
+   * @preconditions A tool whose guard throws a Routecraft error; a subscriber listens for the refusal
+   * @expectedResult refused fires once carrying the tool and the error code, the handler never runs, and the refused input is absent
+   */
+  test("a guard refusal emits route:agent:tool:refused", async () => {
+    let handlerRan = false;
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "k" } } }),
+          agentPlugin({
+            functions: {
+              guardedTool: {
+                description: "Refuses everything",
+                input: z.object({}),
+                handler: async () => {
+                  handlerRan = true;
+                  return "never";
+                },
+              },
+            },
+          }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("with-refusing-guard")
+          .from(simple("hi"))
+          .to(
+            agent({
+              system: "x",
+              model: "anthropic:claude-opus-4-7",
+              tools: tools([
+                {
+                  name: "guardedTool",
+                  guard: () => {
+                    throw rcError("RC5003", undefined, {
+                      message:
+                        "not permitted: secret-bearing-command --token=hunter2",
+                    });
+                  },
+                },
+              ]),
+            }),
+          ),
+      )
+      .build();
+
+    const refusals: Record<string, unknown>[] = [];
+    t.ctx.on(
+      "route:agent:tool:refused" as never,
+      ({ details }: { details: unknown }) => {
+        refusals.push(details as Record<string, unknown>);
+      },
+    );
+
+    await t.test();
+
+    expect(refusals.length).toBe(1);
+    expect(refusals[0]!["toolName"]).toBe("guardedTool");
+    expect(refusals[0]!["rc"]).toBe("RC5003");
+    // A refused call never reaches the handler, and the input that was
+    // refused is the one least worth carrying onto the bus.
+    expect(handlerRan).toBe(false);
+    expect(refusals[0]!["_snapshot"]).toBeUndefined();
+    expect(JSON.stringify(refusals[0])).not.toContain("hunter2");
   });
 
   /**

@@ -2,163 +2,254 @@
   {
     "name": "simple",
     "category": "Core",
-    "roles": ["Source"],
+    "roles": [
+      "Source"
+    ],
     "description": "Static or dynamic data source from a value or function."
   },
   {
     "name": "log",
     "category": "Core",
-    "roles": ["Destination"],
+    "roles": [
+      "Destination"
+    ],
     "description": "Console logging for debugging and inspection."
   },
   {
     "name": "debug",
     "category": "Core",
-    "roles": ["Destination"],
+    "roles": [
+      "Destination"
+    ],
     "description": "Verbose dump of the full exchange for development."
   },
   {
     "name": "timer",
     "category": "Core",
-    "roles": ["Source"],
+    "roles": [
+      "Source"
+    ],
     "description": "Recurring source on a fixed interval."
   },
   {
     "name": "cron",
     "category": "Core",
-    "roles": ["Source"],
+    "roles": [
+      "Source"
+    ],
     "description": "Cron-scheduled source with timezone support."
   },
   {
     "name": "event",
     "category": "Core",
-    "roles": ["Source"],
+    "roles": [
+      "Source"
+    ],
     "description": "Internal event bus source for cross-route signalling."
   },
   {
     "name": "direct",
     "category": "Core",
-    "roles": ["Source", "Enricher"],
+    "roles": [
+      "Source",
+      "Enricher"
+    ],
     "description": "Synchronous route-to-route plumbing with type safety."
   },
   {
     "name": "http",
     "category": "Core",
-    "roles": ["Source", "Enricher"],
+    "roles": [
+      "Source",
+      "Enricher"
+    ],
     "description": "HTTP client for outbound requests and an HTTP server (via defineConfig({ http })) for exposing routes."
   },
   {
     "name": "noop",
     "category": "Test",
-    "roles": ["Destination"],
+    "roles": [
+      "Destination"
+    ],
     "description": "Discards the exchange. Useful for benchmarks and stubs."
   },
   {
     "name": "pseudo",
     "category": "Test",
-    "roles": ["Source", "Destination", "Processor"],
+    "roles": [
+      "Source",
+      "Destination",
+      "Processor"
+    ],
     "description": "Typed placeholder for docs, examples, and test wiring."
   },
   {
     "name": "spy",
     "category": "Test",
-    "roles": ["Destination", "Enricher", "Processor"],
+    "roles": [
+      "Destination",
+      "Enricher",
+      "Processor"
+    ],
     "description": "Records exchanges and exposes them for test assertions."
   },
   {
     "name": "file",
     "category": "File",
-    "roles": ["Source", "Destination", "Enricher"],
+    "roles": [
+      "Source",
+      "Destination",
+      "Enricher"
+    ],
     "description": "Read or write a single text file (per-line chunked reads)."
   },
   {
     "name": "directory",
     "category": "File",
-    "roles": ["Source", "Enricher"],
+    "roles": [
+      "Source",
+      "Enricher"
+    ],
     "description": "Scan a directory for files, with metadata to filter on; list or per-file."
   },
   {
     "name": "json",
     "category": "File",
-    "roles": ["Source", "Destination", "Enricher", "Transformer"],
+    "roles": [
+      "Source",
+      "Destination",
+      "Enricher",
+      "Transformer"
+    ],
     "description": "Parse, write, or transform JSON files."
   },
   {
     "name": "csv",
     "category": "File",
-    "roles": ["Source", "Destination", "Enricher", "Transformer"],
+    "roles": [
+      "Source",
+      "Destination",
+      "Enricher",
+      "Transformer"
+    ],
     "description": "Stream rows from a CSV file or write rows out."
   },
   {
     "name": "jsonl",
     "category": "File",
-    "roles": ["Source", "Destination", "Enricher", "Transformer"],
+    "roles": [
+      "Source",
+      "Destination",
+      "Enricher",
+      "Transformer"
+    ],
     "description": "Stream JSON Lines records or write a JSONL file."
   },
   {
     "name": "html",
     "category": "File",
-    "roles": ["Source", "Destination", "Enricher", "Transformer"],
+    "roles": [
+      "Source",
+      "Destination",
+      "Enricher",
+      "Transformer"
+    ],
     "description": "Parse or write HTML, with DOM-style selection helpers."
   },
   {
     "name": "xml",
     "category": "File",
-    "roles": ["Source", "Destination", "Enricher", "Transformer"],
+    "roles": [
+      "Source",
+      "Destination",
+      "Enricher",
+      "Transformer"
+    ],
     "description": "Parse, write, or transform XML as a plain object."
   },
   {
     "name": "mail",
     "category": "Messaging",
-    "roles": ["Source", "Destination", "Enricher"],
+    "roles": [
+      "Source",
+      "Destination",
+      "Enricher"
+    ],
     "description": "Receive email via IMAP or send via SMTP."
   },
   {
     "name": "carddav",
     "category": "Contacts",
-    "roles": ["Source", "Destination", "Enricher"],
+    "roles": [
+      "Source",
+      "Destination",
+      "Enricher"
+    ],
     "description": "Read and write contacts over CardDAV. Defaults to Apple iCloud Contacts; works with any CardDAV server."
   },
   {
     "name": "agentBrowser",
     "category": "Browser",
-    "roles": ["Enricher"],
+    "roles": [
+      "Enricher"
+    ],
     "description": "Drive a real browser session: navigate, click, snapshot."
+  },
+  {
+    "name": "shell",
+    "category": "System",
+    "roles": [
+      "Enricher"
+    ],
+    "description": "Run a command, isolated by default, and capture its output."
   },
   {
     "name": "mcp",
     "category": "AI",
-    "roles": ["Source", "Enricher"],
+    "roles": [
+      "Source",
+      "Enricher"
+    ],
     "description": "Expose capabilities as MCP tools or call remote MCP servers."
   },
   {
     "name": "llm",
     "category": "AI",
-    "roles": ["Enricher"],
+    "roles": [
+      "Enricher"
+    ],
     "description": "Call a language model for text or structured output."
   },
   {
     "name": "agent",
     "category": "AI",
-    "roles": ["Enricher"],
+    "roles": [
+      "Enricher"
+    ],
     "description": "Run an LLM with a fixed system prompt and tool set."
   },
   {
     "name": "embedding",
     "category": "AI",
-    "roles": ["Enricher"],
+    "roles": [
+      "Enricher"
+    ],
     "description": "Generate vector embeddings from text."
   },
   {
     "name": "group",
     "category": "Clustering",
-    "roles": ["Transformer"],
+    "roles": [
+      "Transformer"
+    ],
     "description": "Group exchanges into batches by key, count, or time."
   },
   {
     "name": "cosine",
     "category": "Clustering",
-    "roles": ["Transformer"],
+    "roles": [
+      "Transformer"
+    ],
     "description": "Cluster items by cosine similarity of embeddings."
   }
 ]

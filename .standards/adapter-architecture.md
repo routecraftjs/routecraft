@@ -43,6 +43,10 @@ Precedence, one line: when an adapter has both `send` and `fetch`, `.to()` picks
 5. **True sends that produce receipts surface them via HEADERS**, never as a body replacement (see the `SendContext` sink above).
 6. **No new DSL keywords. No nested verb imports. No dot-notation factories.** The transformer family stays on the bare factory, discriminated by key presence (`path` present = file roles; absent = transformer) and enforced by `.transform()` requiring a `transform` slot. `path` always means a file path; a transformer's extraction key uses a different name (json's `pointer`), so the two option shapes never collide.
 
+### Adapter granularity
+
+When the implementation changes what the route author MEANS, each implementation is its own adapter (postgres and mysql). When the implementation is environment-selected containment or transport under one contract, it is one adapter with isolated internal engine modules (shell's isolation tiers, http's server engines), selectable by config and env, never by editing the route.
+
 What these laws forbid (all removed in the #532 refactor, do not reintroduce): `mode` options that change the adapter's kind, path-string sniffing, category inference from option VALUES, arity-selected roles, result-returning `send`, `Omit<Options, "path">` overload idioms, and per-mode type aliases (`FileReadAdapter` and friends).
 
 ---

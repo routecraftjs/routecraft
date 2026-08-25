@@ -779,4 +779,79 @@ describe("agents() markdown loader", () => {
     const result = await agents(dir);
     expect(Object.keys(result)).toEqual(["triage"]);
   });
+  /** An ordinary registered tool, granted by name and nothing else. */
+  const bashFn = {
+    ...echoFn,
+    description: "Runs a command",
+  };
+
+  /**
+   * @case A bare grant of a registered tool resolves
+   * @preconditions tools names Bash and a Bash fn is registered
+   * @expectedResult The tool resolves under its own name, with no narrowing warning
+   */
+  test("a bare grant resolves to the registered tool", async () => {
+    const dir = makeDir({
+      "x.md": "---\nname: x\ndescription: d\ntools:\n  - Bash\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(await resolveToolNames(result["x"], { Bash: bashFn })).toEqual([
+      "Bash",
+    ]);
+    expect(
+      warn.mock.calls.some((c: unknown[]) =>
+        String(c[0]).includes("without a specifier"),
+      ),
+    ).toBe(false);
+  });
+
+  /**
+   * @case The removed specifier grammar fails loudly rather than widening a grant
+   * @preconditions tools carries Bash(git status:*), the form the framework no longer parses
+   * @expectedResult Resolution throws unknown-tool naming what is available, rather than granting an unrestricted Bash
+   */
+  test("a scoped reference is no longer a grant", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\ntools:\n  - Bash(git status:*)\n---\nsystem",
+    });
+    const result = await agents(dir);
+    await expect(
+      resolveToolNames(result["x"], { Bash: bashFn }),
+    ).rejects.toThrow(/unknown tool "Bash\(git status:\*\)"/);
+  });
+
+  /**
+   * @case A denial removes the grant it names and nothing else
+   * @preconditions tools grants Direct(a) and Direct(b); disallowedTools names Direct(a)
+   * @expectedResult Direct(b) survives, so a deny cannot collapse onto a shared constructor
+   */
+  test("a denial removes only the reference it names", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\ntools:\n  - echo\n  - Bash\ndisallowedTools:\n  - Bash\n---\nsystem",
+    });
+    const result = await agents(dir);
+    expect(
+      await resolveToolNames(result["x"], { echo: echoFn, Bash: bashFn }),
+    ).toEqual(["echo"]);
+    expect(
+      warn.mock.calls.some((c: unknown[]) =>
+        String(c[0]).includes("removes nothing"),
+      ),
+    ).toBe(false);
+  });
+
+  /**
+   * @case The deny-only error explains the whitelist decision rather than citing an open ticket
+   * @preconditions An agent file carrying disallowedTools without tools
+   * @expectedResult Loading throws, and the message says the deny-against-defaults idea was declined
+   */
+  test("a deny-only agent file explains why it cannot be honoured", async () => {
+    const dir = makeDir({
+      "x.md":
+        "---\nname: x\ndescription: d\ndisallowedTools:\n  - Bash\n---\nsystem",
+    });
+    await expect(agents(dir)).rejects.toThrow(/declined/);
+  });
 });

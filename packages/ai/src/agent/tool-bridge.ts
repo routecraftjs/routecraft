@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  rcCodeOf,
   rcError,
   type CraftContext,
   type Principal,
@@ -149,7 +150,27 @@ export async function buildVercelTools(
         }
 
         try {
-          if (guard) await guard(input, callCtx);
+          if (guard) {
+            try {
+              await guard(input, callCtx);
+            } catch (refusal: unknown) {
+              // Emitted before the rethrow so a refusal is countable even
+              // though it surfaces to the model as an ordinary tool error.
+              if (ctx && dispatchIdentity) {
+                ctx.emit("route:agent:tool:refused", {
+                  routeId: dispatchIdentity.routeId,
+                  exchangeId: dispatchIdentity.exchangeId,
+                  correlationId: dispatchIdentity.correlationId,
+                  toolCallId,
+                  toolName: r.name,
+                  ...(rcCodeOf(refusal) !== undefined
+                    ? { rc: rcCodeOf(refusal)! }
+                    : {}),
+                });
+              }
+              throw refusal;
+            }
+          }
           let output = await handler(input, callCtx);
           let suspended = false;
           if (isSuspendSentinel(output)) {

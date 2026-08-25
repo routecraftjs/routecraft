@@ -47,5 +47,12 @@
     "module": "@routecraft/routecraft",
     "hint": "Health and readiness.",
     "description": "Serve liveness, readiness, and operational health, mounted on a named server. Route lifecycle and circuit-breaker state are derived from events the framework already emits; indicators cover dependencies it cannot see."
+  },
+  {
+    "number": "08",
+    "name": "shellPlugin",
+    "module": "@routecraft/os",
+    "hint": "shell() context defaults.",
+    "description": "Set context-wide defaults for shell(): isolation tier, timeout, and output cap. The lowest of the three precedence layers, under the ROUTECRAFT_SHELL_ISOLATION operator override and the call site."
   }
 ]

@@ -62,8 +62,8 @@ Native adapters beat MCP here: throughput, streaming, backpressure, exactly-once
 
 Members, current and likely:
 
-- `shell()` - subprocess execution (#181)
-- `sandbox()` - sandboxed execution as a first-class concept (section 3.1)
+- `shell()` - isolated subprocess execution (#181)
+- `sandbox()` - DEFERRED. Isolation ships as an option on `shell()` rather than a second factory: "run a command, isolated" is one concept, and a second factory selecting the same behaviour is a `mode:` option wearing a different hat (Option Law 1). It earns its own factory when something other than a subprocess needs isolating.
 - `agentBrowser()` - browser automation, merged from `@routecraft/browser` (section 3.2)
 - `clipboard()`, `notify()`, `watch()`, `screen()`, `process()` - future host capabilities
 
@@ -73,11 +73,12 @@ We keep the name `@routecraft/os` rather than "computer-use": `os` is broader an
 
 Routecraft's mission is secure-by-default integration, and the os package is where that is most load-bearing.
 
-- `shell()` runs inside a **sandbox tier by default**, not raw on the host. Raw host access is possible but always explicit, never the default.
-- The sandbox shares **only the environment variables the route node declares it needs**. A tool can do only what the route granted it.
-- Argument sanitisation (`shescape`) is always on, on every tier.
+- `shell()` runs inside an **isolation tier by default**, not raw on the host. Raw host access is possible but always explicit, never the default. A tier that cannot be established fails loudly; it never degrades to a weaker one.
+- The tier shares **only the environment variables the route node declares it needs**, over a documented baseline (`PATH`, `HOME`, `LANG`, `TZ`) that carries no credentials. The baseline is always present; further environment variables and network egress are reached only when the route grants them. Filesystem reads are the stated exception: the `unshare` tier does not contain them, so a command can read any file the calling user can.
+- The security boundary is **direct argv spawning**: `shell()` never invokes a shell, so an argument cannot become a command. Argument hygiene layers on top of that boundary rather than being it: control-character escaping on every argument, and flag-injection protection on values the author marks with `untrusted()`. Blanket flag protection was measured and rejected, because it strips the leading dashes from the author's own flags.
+- Each tier is named for the mechanism that provides it, so its name is its promise, and each documents what it does NOT contain as explicitly as what it does.
 
-`shell()` versus a separate `sandbox()` adapter, and the exact tier defaults, are a #181 design detail. The principle (sandbox-by-default, env-scoped) is fixed here. See also [`security.md`](./security.md).
+The principle (isolated-by-default, env-scoped, fail-loud) is fixed here; the tiers a given release ships are a #181 detail. See also [`security.md`](./security.md).
 
 ### 3.2 `@routecraft/browser` merges into `@routecraft/os`
 
@@ -161,7 +162,7 @@ Three kinds of module. The 8-to-12 bound governs only the first group.
 |---|---|---|
 | `@routecraft/routecraft` | core: framework + standards | keep; add graphql; consider absorbing the MCP client (section 6) |
 | `@routecraft/ai` | llm, agent, mcp, embeddings, providers, agent tools | keep |
-| `@routecraft/os` | system-native: shell, sandbox, browser, ... | keep; absorbs `@routecraft/browser` |
+| `@routecraft/os` | system-native: shell (isolated), browser, ... | keep; absorbs `@routecraft/browser` |
 | `@routecraft/browser` | browser automation | merge into `@routecraft/os`, deprecate the name |
 | `@routecraft/google` | Google ecosystem | on first adapter (#370) |
 | `@routecraft/aws` | proprietary AWS services | deferred (S3 stays core) |
@@ -248,4 +249,4 @@ Provider entries via the Vercel AI SDK seam (#385), not packages. Have: openai, 
 - [CI/CD](./ci-cd.md) -- adding a package, dependency shapes, optional peers
 - [Adapter Architecture](./adapter-architecture.md) -- how to build the adapter once its home is decided
 - [Naming Policy](./naming-policy.md) -- what to call it
-- [Security](./security.md) -- protocol-level auth in core, and the sandbox-by-default contract for `@routecraft/os`
+- [Security](./security.md) -- protocol-level auth in core, and the isolated-by-default contract for `@routecraft/os`

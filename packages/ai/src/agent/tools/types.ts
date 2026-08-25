@@ -1,5 +1,6 @@
 import type { CraftContext } from "@routecraft/routecraft";
 import type { FnOptions } from "../../fn/types.ts";
+import { ADAPTER_FN_RESOLVED } from "../../fn/store.ts";
 
 /**
  * Discriminator value for {@link DeferredFn}. Plain symbol so a
@@ -72,3 +73,41 @@ export function isDeferredFn(value: unknown): value is DeferredFn {
  * and resolved on first agent dispatch.
  */
 export type FnEntry = FnOptions | DeferredFn;
+
+/**
+ * The declared shape of a registered tool, whichever way it was authored.
+ *
+ * A deferred entry is a thunk until the registries it depends on are
+ * live, and reading its fields before that yields nothing. Nothing about
+ * the tool is missing at that point; the resolution simply has not
+ * happened. Every path that wants a tool's description, input schema or
+ * tags goes through here so the difference stops being observable:
+ * after context start a lazily-resolved tool answers the same questions
+ * an eagerly authored one does.
+ *
+ * @param ctx - Live context, with registries populated
+ * @param fnId - The id the entry is registered under, for diagnostics
+ * @throws RC5003 when a deferred entry cannot resolve (the route is
+ *   missing, or carries no `.description()` or `.input()`)
+ *
+ * @internal
+ */
+export function resolveFnOptions(
+  ctx: CraftContext,
+  fnId: string,
+  entry: FnEntry,
+): FnOptions {
+  if (!isDeferredFn(entry)) return entry;
+  const memo = ctx.getStore(ADAPTER_FN_RESOLVED);
+  const cached = memo?.get(fnId);
+  if (cached) return cached;
+  const resolved = entry.resolve(ctx, fnId);
+  // Only successes are memoised. A resolution that failed because a route
+  // was not registered yet must be free to succeed later; caching the
+  // failure would make a transient ordering problem permanent for the
+  // life of the context.
+  const store = memo ?? new Map<string, FnOptions>();
+  store.set(fnId, resolved);
+  if (!memo) ctx.setStore(ADAPTER_FN_RESOLVED, store);
+  return resolved;
+}

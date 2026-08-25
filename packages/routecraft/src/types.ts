@@ -979,6 +979,29 @@ export interface EventDetailsMap {
     toolKind: string;
     reason: "rule" | "rule-error" | "unknown-provenance";
   };
+  /**
+   * A call the model made was refused by the tool's guard, at call time,
+   * on a tool the model could see and was allowed to attempt.
+   *
+   * Distinct from `denied`, which fires when a policy withholds a tool at
+   * selection time so the model never sees it. Counting the two together
+   * would mix "this agent may not have that tool" with "this agent asked
+   * for something its grant does not cover", and it is the second that
+   * tells an operator an agent is probing the edges of its allowlist.
+   * That signal is the whole reason an allowlist is worth auditing.
+   *
+   * The payload is deliberately bounded to identity plus the error code.
+   * The refused input is what carries the secret material (a command line
+   * can hold a token someone passed as an argument), and a refusal is
+   * exactly the case where that input is least trustworthy, so it is not
+   * carried here even under snapshot capture.
+   */
+  "route:agent:tool:refused": ExchangeScoped & {
+    toolCallId: string;
+    toolName: string;
+    /** Error code when the guard threw a Routecraft error, e.g. `RC5002`. */
+    rc?: string;
+  };
   "route:agent:tool:invoked": ExchangeScoped & {
     toolCallId: string;
     toolName: string;

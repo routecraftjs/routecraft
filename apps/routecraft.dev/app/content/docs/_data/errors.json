@@ -430,5 +430,29 @@
     "category": "Adapter",
     "message": "MCP tool declined the request",
     "retryable": false
+  },
+  {
+    "code": "OS1001",
+    "category": "Adapter",
+    "message": "Isolation tier unavailable",
+    "retryable": false
+  },
+  {
+    "code": "OS1002",
+    "category": "Adapter",
+    "message": "Command execution failed",
+    "retryable": false
+  },
+  {
+    "code": "OS1003",
+    "category": "Adapter",
+    "message": "Command timed out",
+    "retryable": true
+  },
+  {
+    "code": "OS1004",
+    "category": "Adapter",
+    "message": "Isolation cannot satisfy the request",
+    "retryable": false
   }
 ]

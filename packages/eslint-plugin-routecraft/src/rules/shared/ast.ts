@@ -17,6 +17,13 @@ export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/** Read a node's `type` discriminant without asserting a node shape. */
+export function typeOf(node: unknown): string | undefined {
+  return isObject(node) && typeof node["type"] === "string"
+    ? node["type"]
+    : undefined;
+}
+
 /** Narrow to an ESTree Identifier node carrying a name. */
 export function isIdentifier(
   node: unknown,

@@ -204,6 +204,19 @@ function optionalToolRefs(
 }
 
 /**
+ * Whether a `disallowedTools` entry removes a granted reference.
+ *
+ * A tool is named by exactly one reference, so a denial matches the
+ * grant it names and nothing else. `Direct(a)` denies that route and
+ * leaves `Direct(b)` alone.
+ *
+ * @internal
+ */
+function isDeniedBy(granted: string, denial: string): boolean {
+  return granted.trim() === denial.trim();
+}
+
+/**
  * Build the agent's tool selection from its frontmatter references.
  *
  * Two Claude-compatibility rules live here rather than in `tools()`,
@@ -225,13 +238,13 @@ function toolSelection(
   disallowed: readonly string[],
   source: string,
 ): ToolSelection {
-  const denied = new Set(disallowed);
+  const denied = new Set(disallowed.map((entry) => entry.trim()));
   // A deny that names something the agent never had is a typo, and the
   // tool it meant to remove stays granted. Same reason a deny with no
   // allow throws: a field whose whole purpose is removing capability
   // must not fail quietly.
   for (const ref of denied) {
-    if (!refs.includes(ref)) {
+    if (!refs.some((granted) => isDeniedBy(granted, ref))) {
       logger.warn(
         `Markdown file "${source}": "disallowedTools" names "${ref}", which is not in "tools", so the entry removes nothing. Check the spelling.`,
       );
@@ -242,12 +255,13 @@ function toolSelection(
     const registered = new Set(catalog.fns.map((fn) => fn.name));
     const kept: string[] = [];
     for (const ref of refs) {
-      if (denied.has(ref)) continue;
-      if (!registered.has(ref) && CLAUDE_BUILTIN_TOOLS.has(ref)) {
-        if (!warned.has(ref)) {
-          warned.add(ref);
+      const name = ref.trim();
+      if (denied.has(name)) continue;
+      if (!registered.has(name) && CLAUDE_BUILTIN_TOOLS.has(name)) {
+        if (!warned.has(name)) {
+          warned.add(name);
           logger.warn(
-            `Markdown file "${source}": tool "${ref}" is a Claude Code built-in this runtime does not provide; skipping it for this agent.`,
+            `Markdown file "${source}": tool "${name}" is a Claude Code built-in this runtime does not provide; skipping it for this agent.`,
           );
         }
         continue;
@@ -357,7 +371,7 @@ function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
     // no allow cannot be honoured, and an agent that inherits the very
     // tools its file denies is the worst possible reading of the file.
     throw rcError("RC5003", undefined, {
-      message: `Markdown file "${source}": "disallowedTools" is set but "tools" is not, and a deny list alone cannot be honoured: a per-agent tool list replaces the context default outright rather than narrowing it, so this agent would inherit the very tools it denies. List the tools this agent may use in "tools", or drop "disallowedTools". Honouring a deny list against inherited defaults is tracked in routecraftjs/routecraft#583.`,
+      message: `Markdown file "${source}": "disallowedTools" is set but "tools" is not, and a deny list alone cannot be honoured: a per-agent tool list replaces the context default outright rather than narrowing it, so this agent would inherit the very tools it denies. List the tools this agent may use in "tools", or drop "disallowedTools". Honouring a deny list against inherited defaults was considered and declined: Routecraft's tool model is whitelist-only, and a deny list would silently grow every time the context's default toolset did. See routecraftjs/routecraft#583.`,
     });
   }
   // Frontmatter carries only the boolean form; the function-renderer
