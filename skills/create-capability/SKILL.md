@@ -114,8 +114,8 @@ The previous rule pushes logic *out* of step bodies and into the chain. This one
 
 **Every extraction is a trade: fewer lines in the route, one more file the reader must open.** Make it when the lines genuinely cost more than the jump, and not before.
 
-- **Under ten lines, inline it. That is a rule, not a preference.** A step body of nine lines or fewer stays in the chain. There is no reader for whom a name plus a file jump beats nine visible lines.
-- **Over ten lines, you decide.** Weigh the two costs honestly: lines in the route against a file the reader must open. A twenty-line body with its own control flow almost always wants a name; a fifteen-line linear mapping usually does not. Judgement, not a threshold.
+- **Ten lines or fewer: inline it. That is a rule, not a preference.** A step body of ten lines or fewer stays in the chain. There is no reader for whom a name plus a file jump beats ten visible lines.
+- **More than ten lines: you decide.** Weigh the two costs honestly: lines in the route against a file the reader must open. A twenty-line body with its own control flow almost always wants a name; a fifteen-line linear mapping usually does not. Judgement, not a threshold.
 - **A named function whose body is one line is worse than the line.** `.validate(hasApprovedStatus)` where `hasApprovedStatus` is `(ex) => ex.body.status === "approved"` costs a file jump to learn something shorter than the name. Write the predicate.
 - **A name has to say more than the code it replaces.** If the name is a restatement (`buildMessage`, `processInput`, `handleResult`), the extraction bought nothing. If you cannot name it better than the code says itself, that is the signal it belongs inline.
 
@@ -139,7 +139,9 @@ The same applies to thresholds, limits, timeouts, retry counts and route ids: a 
 
 ### Mapping: prefer `.map()` over a hand-written transform
 
-Field-by-field reshaping has a declarative form. Use it: it is readable, it fails at compile time when a field is missing, and the output shape is visible in the route.
+Field-by-field reshaping has a declarative form. Use it: it is readable, and the output shape is visible in the route.
+
+**Pass the target type.** `.map<OrderLine>({...})` is checked against `OrderLine`, so omitting a field is a compile error. Written as `.map({...})` with no type argument the output type is inferred from the object you wrote, so there is nothing to be missing and nothing to catch. The type argument is what buys the guarantee.
 
 `.map()` is the preferred spelling. It is sugar for `.transform(mapper({...}))`, so use `mapper()` directly only where you need the transformer as a value.
 
@@ -153,7 +155,7 @@ Field-by-field reshaping has a declarative form. Use it: it is readable, it fail
 
 Reference: https://routecraft.dev/raw/docs/reference/operations/map.md
 
-Reach for a lambda `.transform(...)` when the mapping is not field-by-field: it depends on async work, it needs branching, or the output is not an object. And when that lambda grows past ten lines, the extraction question from the rule above applies to it.
+Reach for a lambda `.transform(...)` when the mapping is not field-by-field: it depends on async work, it needs branching, or the output is not an object. And when that lambda passes ten lines, the extraction question from the rule above applies to it.
 
 ### Adapters: one per system, not one per operation
 
@@ -172,7 +174,7 @@ One adapter per system is right. Three one-line adapters over one service's `rea
 
 Authoring rules to keep in mind:
 
-- **Keep the DSL readable -- this is the point of the framework**: `route.ts` exists so a reader can follow the *flow* (where data comes from, what happens to it in order, where it lands) without reading the inner workings of every step. A wall of inline logic defeats that, and so does a chain of names that each hide one line. Extract a step body when it passes ten lines and the name would earn its file jump, into a named function in a sibling internal file in the capability folder (e.g. `summarise.ts`, `map-order.ts`), and pass the reference: `.transform(toOrderLine)` instead of `.transform((x) => { /* 30 lines */ })`. Under ten lines, inline it without deliberating: a short lambda in the chain is readable and costs the reader nothing, while a name costs a file jump. See "Extraction hides things" above
+- **Keep the DSL readable -- this is the point of the framework**: `route.ts` exists so a reader can follow the *flow* (where data comes from, what happens to it in order, where it lands) without reading the inner workings of every step. A wall of inline logic defeats that, and so does a chain of names that each hide one line. Extract a step body when it passes ten lines and the name would earn its file jump, into a named function in a sibling internal file in the capability folder (e.g. `summarise.ts`, `map-order.ts`), and pass the reference: `.transform(toOrderLine)` instead of `.transform((x) => { /* 30 lines */ })`. Ten lines or fewer, inline it without deliberating: a short lambda in the chain is readable and costs the reader nothing, while a name costs a file jump. See "Extraction hides things" above
 - **Metadata first**: `.id()`, `.title()`, `.description()`, `.input()`, `.output()`, `.error()`, `.batch()` come **before** `.from(...)`. Once you call `.from(...)`, you are in the pipeline and metadata methods no longer apply
 - **Typed bodies**: declare `.input({ body: Schema })` before `.from(...)`; the chain is retyped from the schema's inferred output, so no `.from<Input>(...)` generic is needed. An explicit `.from<T>(...)` still overrides the inferred type when you need to
 - **No mutation**: pure transforms return new objects via spread. Side effects belong in `.tap(destination)`
