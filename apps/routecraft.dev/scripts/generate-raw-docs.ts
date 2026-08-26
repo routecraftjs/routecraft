@@ -310,35 +310,39 @@ function extractBlurb(cleaned: string): string {
   return ''
 }
 
+/** One row of a reference catalogue: the page name and its one-line summary. */
+interface CatalogueEntry {
+  name: string
+  description: string
+}
+
 /**
- * The reference catalogues, rendered as link sections for llms.txt.
+ * Render one reference catalogue as a link section for llms.txt.
  *
  * The leaf pages (28 adapters, 42 operations, 8 plugins) are not in
  * `navigation`, so the NAV_ORDER walk below never reaches them and the index
  * linked only the five catalogue pages. A model then paid two fetches to learn
  * that `http` or `concurrency` exists.
  *
- * The rows come from `app/lib/generated/docs-*.ts`, which
+ * Callers pass rows from `app/lib/generated/docs-*.ts`, which
  * `scripts/generate-docs-catalogue` writes one step earlier in the same
  * `generate` chain. That is the same source the rendered reference tables use,
  * so an entry reaches the site and this index together or neither.
  *
- * Read the generated modules rather than `_data/*.json` directly. The release
+ * Pass the generated modules rather than `_data/*.json` directly. The release
  * freeze replaces `app/content/docs` with a checkout of the released tag, and a
  * tag predating `_data` carries no data files at all; the catalogue generator
  * already resolves that through its `fallbackRows` path, and reading the JSON
- * here would bypass it and crash the release build (it did).
+ * here would bypass it and crash the release build (it did). An empty
+ * catalogue therefore returns an empty string rather than an empty heading,
+ * and the caller filters it out.
  *
- * RELEASED CHANNEL ONLY, hence `latest`. The `next` channel describes API that
- * has not shipped, and llms.txt has no `-next` sibling by design (see the note
- * above the canary bundle), so publishing next's rows would advertise
- * unreleased adapters to every model that lands on the index.
+ * RELEASED CHANNEL ONLY, hence the `latest` rows at every call site. The `next`
+ * channel describes API that has not shipped, and llms.txt has no `-next`
+ * sibling by design (see the note above the canary bundle), so publishing
+ * next's rows would advertise unreleased adapters to every model that lands on
+ * the index.
  */
-interface CatalogueEntry {
-  name: string
-  description: string
-}
-
 function catalogueSection(
   heading: string,
   entries: readonly CatalogueEntry[],
