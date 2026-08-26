@@ -1,11 +1,20 @@
 import globals from "globals";
 import pluginJs from "@eslint/js";
 import tseslint from "typescript-eslint";
+import noInstanceofPromise from "./.eslint-rules/no-instanceof-promise.mjs";
 import testCaseDoc from "./.eslint-rules/test-case-doc.mjs";
 import eslintConfigPrettier from "eslint-config-prettier";
 import routecraftPlugin from "./packages/eslint-plugin-routecraft/src/index.ts";
 
 /** @type {import('eslint').Linter.Config[]} */
+/** Repo-local ESLint rules, registered once under the `custom` namespace. */
+const localRules = {
+  rules: {
+    "no-instanceof-promise": noInstanceofPromise,
+    "test-case-doc": testCaseDoc,
+  },
+};
+
 export default [
   {
     ignores: [
@@ -58,15 +67,22 @@ export default [
     plugins: { "@routecraft/routecraft": routecraftPlugin },
     ...routecraftPlugin.configs.recommended,
   },
+  // One home for repo-local rules. Registering the namespace twice is a
+  // config error rather than a merge, so a file matching both scoped blocks
+  // below would abort the whole lint run.
+  {
+    plugins: { custom: localRules },
+  },
+  // Framework source only: a sixth hand-rolled thenable check would appear
+  // here, and nowhere else in the tree is ours to police.
+  {
+    files: ["packages/*/src/**/*.{ts,tsx,mts,cts}"],
+    rules: {
+      "custom/no-instanceof-promise": "error",
+    },
+  },
   {
     files: ["**/*.test.{js,ts,tsx,mjs,cjs}", "**/*.spec.{js,ts,tsx,mjs,cjs}"],
-    plugins: {
-      custom: {
-        rules: {
-          "test-case-doc": testCaseDoc,
-        },
-      },
-    },
     rules: {
       // Relaxed rules for test files, plus the JSDoc-on-every-test contract
       "@typescript-eslint/no-explicit-any": "off",

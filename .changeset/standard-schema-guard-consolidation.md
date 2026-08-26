@@ -19,4 +19,6 @@ Mostly consolidation. The thenable defect itself was fixed in #660; this is the 
 
 **One behaviour fix comes with it.** An event handler that returned a thenable rather than a `Promise` was logged as having thrown when it had returned normally: the bus followed its duck-type with `result.catch(...)`, which a thenable does not carry, so the call threw from inside the surrounding `try`. The thenable is adapted before `catch` is reached, and a rejecting one is still caught and logged as a rejection.
 
+A repo-internal ESLint rule now bans `instanceof Promise` in `packages/*/src`, so a sixth hand-rolled site is caught at review rather than found by its symptoms. It is not in `@routecraft/eslint-plugin-routecraft`, which `eslint.config.mjs` scopes to `examples/**` and which therefore could not guard framework source at all.
+
 `agent()`'s two output guards collapsed into one because both already produced the same message. `validateFnOptions` adopts partially: it keeps a first guard that rejects a value that is not schema-shaped at all, separately from the shared predicate rejecting a schema-shaped value with no validator, because the two messages diagnose different mistakes.
