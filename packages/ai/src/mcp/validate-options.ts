@@ -1,8 +1,8 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
-  formatSchemaIssues,
   normalizeStaticPathPrefix,
   rcError,
+  validateAgainst,
 } from "@routecraft/routecraft";
 import { exposedNameFor, parseProxyRef } from "./proxy.ts";
 import { MCP_TOOL_NAME_PATTERN } from "./types.ts";
@@ -12,10 +12,6 @@ import {
   TOOL_NAME_PATTERN_SOURCE,
   TOOL_NAME_SEPARATOR,
 } from "../tool-name.ts";
-
-/** Standard Schema validate result: success has value, failure has issues. */
-type ValidateResult<T = unknown> =
-  { value: T; issues?: never } | { value?: never; issues: readonly unknown[] };
 
 /**
  * Validates MCP plugin options at apply time.
@@ -350,30 +346,20 @@ export async function validateWithSchema(
   options: McpPluginOptions,
   schema: StandardSchemaV1,
 ): Promise<McpPluginOptions> {
-  const standard = (
-    schema as {
-      "~standard"?: {
-        validate: (
-          v: unknown,
-        ) => ValidateResult<unknown> | Promise<ValidateResult<unknown>>;
-      };
-    }
-  )["~standard"];
-  if (!standard?.validate) {
+  const standard = (schema as { "~standard"?: { validate?: unknown } })[
+    "~standard"
+  ];
+  if (typeof standard?.validate !== "function") {
     throw new Error(
       "mcpPlugin: schema must be a StandardSchemaV1 with ~standard.validate",
     );
   }
-  let result = standard.validate(options);
-  if (result instanceof Promise) {
-    result = await result;
+  const result = await validateAgainst(schema, options);
+  if (!result.ok) {
+    throw new Error(`mcpPlugin options validation failed: ${result.message}`);
   }
-  if (result.issues) {
-    throw new Error(
-      `mcpPlugin options validation failed: ${formatSchemaIssues(result.issues)}`,
-    );
-  }
-  // Guard against schemas that pass (no issues) but omit value
+  // `validateAgainst` falls back to the input when a passing result carries
+  // no `value`, so this only still catches an explicit `{ value: undefined }`.
   if (result.value === undefined) {
     throw new Error("mcpPlugin options validation failed: no value returned");
   }
