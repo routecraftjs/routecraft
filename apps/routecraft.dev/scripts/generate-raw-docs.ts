@@ -217,6 +217,17 @@ const BASE_URL = 'https://routecraft.dev'
 const DESCRIPTION =
   'Routecraft is a code-first TypeScript automation framework that bridges traditional integration patterns (ETL, webhooks, cron jobs) and AI-native workflows (MCP tool use). Write deterministic capabilities in TypeScript, expose them to AI agents via Model Context Protocol, and keep full control over what AI can access.'
 
+const AUTHORING_SKILLS = [
+  'Routecraft ships Agent Skills (open standard) for authoring capabilities and adapters. They point at the closest',
+  'existing example plus the matching docs page, then loop on lint, typecheck and test. Install them before writing',
+  'Routecraft code: the DSL has conventions (operator order, metadata before `.from()`, what belongs in the chain',
+  'rather than in a step body) that are easy to get wrong from the reference alone.',
+  '',
+  '- Any agent, via the Vercel skills CLI: `bunx skills add routecraftjs/routecraft`',
+  '- Claude Code plugin: `/plugin install routecraft-skills@routecraft`',
+  '- Source and README: <https://github.com/routecraftjs/routecraft/tree/main/skills>',
+].join('\n')
+
 const PROJECT_LINKS = [
   `- Website: <${BASE_URL}>`,
   `- GitHub: <https://github.com/routecraftjs/routecraft>`,
@@ -296,6 +307,46 @@ function extractBlurb(cleaned: string): string {
   return ''
 }
 
+/**
+ * The reference catalogues, rendered as link sections for llms.txt.
+ *
+ * The leaf pages (28 adapters, 42 operations, 8 plugins) are not in
+ * `navigation`, so the NAV_ORDER walk below never reaches them and the index
+ * linked only the five catalogue pages. A model then paid two fetches to learn
+ * that `http` or `concurrency` exists.
+ *
+ * The rows come from the same `_data/*.json` that feeds the rendered tables
+ * (via `scripts/generate-docs-catalogue` and `app/lib/generated/docs-*.ts`), so
+ * an entry added there reaches the site and this index together or neither.
+ *
+ * RELEASED CHANNEL ONLY. `docs-next/_data` describes API that has not shipped;
+ * llms.txt has no `-next` sibling by design (see the note above the canary
+ * bundle), so reading the wrong directory would advertise unreleased adapters
+ * to every model that lands on the index.
+ */
+interface CatalogueEntry {
+  name: string
+  description: string
+}
+
+function catalogueSection(
+  heading: string,
+  file: string,
+  route: string,
+  preamble: string,
+): string {
+  const raw = fs.readFileSync(
+    path.join(ROOT, 'app', 'content', 'docs', '_data', file),
+    'utf8',
+  )
+  const entries = JSON.parse(raw) as CatalogueEntry[]
+  const links = entries.map(
+    (e) =>
+      `- [${e.name}](${BASE_URL}/raw/docs/reference/${route}/${e.name.toLowerCase()}.md): ${e.description}`,
+  )
+  return `## ${heading}\n\n${preamble}\n\n${links.join('\n')}`
+}
+
 const llmsSections: string[] = []
 for (const { section, pages: urls } of NAV_ORDER) {
   const links: string[] = []
@@ -317,7 +368,26 @@ const llmsTxt =
     `# Routecraft`,
     `> ${DESCRIPTION}`,
     `## Links\n\n${PROJECT_LINKS}`,
+    `## Authoring skills\n\n${AUTHORING_SKILLS}`,
     ...llmsSections,
+    catalogueSection(
+      'Adapters',
+      'adapters.json',
+      'adapters',
+      'Every connector Routecraft ships. Read this list before writing an integration: the one you need may already exist.',
+    ),
+    catalogueSection(
+      'Operations',
+      'operations.json',
+      'operations',
+      'Every verb in the route DSL. Read this list before reaching for imperative code in a step body: concurrency limits, throttling, retries, caching and branching are operations, not things to hand-roll.',
+    ),
+    catalogueSection(
+      'Plugins',
+      'plugins.json',
+      'plugins',
+      'Runtime extensions configured once on the context.',
+    ),
     `## Optional`,
     [
       `- [Full Documentation (single file)](${BASE_URL}/llms-full.txt): All documentation concatenated into one markdown file for bulk ingestion`,

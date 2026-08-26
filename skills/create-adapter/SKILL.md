@@ -85,7 +85,8 @@ Use `bun run <script>` (not `bun <script>`) so Bun invokes the package.json scri
 
 ## Useful URLs
 
-- Adapters reference: https://routecraft.dev/raw/docs/reference/adapters.md
+- Adapters reference (every connector, one line each; read it first, the one you need may already ship): https://routecraft.dev/raw/docs/reference/adapters.md
+- Operations reference (every verb; behaviour that is an operation does not belong in an adapter): https://routecraft.dev/raw/docs/reference/operations.md
 - Creating adapters guide: https://routecraft.dev/raw/docs/advanced/custom-adapters.md
 - Adapters introduction: https://routecraft.dev/raw/docs/introduction/adapters.md
 - All Routecraft AI-friendly docs index: https://routecraft.dev/llms.txt
