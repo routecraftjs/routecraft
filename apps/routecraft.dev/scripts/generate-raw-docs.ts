@@ -19,6 +19,9 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Glob } from 'bun'
 import { cleanMdx } from '../app/lib/clean-mdx'
+import { adaptersByChannel } from '../app/lib/generated/docs-adapters'
+import { operationsByChannel } from '../app/lib/generated/docs-operations'
+import { pluginsByChannel } from '../app/lib/generated/docs-plugins'
 import { navigation } from '../app/lib/navigation'
 import { parseFrontmatter } from '../app/lib/frontmatter'
 
@@ -315,14 +318,21 @@ function extractBlurb(cleaned: string): string {
  * linked only the five catalogue pages. A model then paid two fetches to learn
  * that `http` or `concurrency` exists.
  *
- * The rows come from the same `_data/*.json` that feeds the rendered tables
- * (via `scripts/generate-docs-catalogue` and `app/lib/generated/docs-*.ts`), so
- * an entry added there reaches the site and this index together or neither.
+ * The rows come from `app/lib/generated/docs-*.ts`, which
+ * `scripts/generate-docs-catalogue` writes one step earlier in the same
+ * `generate` chain. That is the same source the rendered reference tables use,
+ * so an entry reaches the site and this index together or neither.
  *
- * RELEASED CHANNEL ONLY. `docs-next/_data` describes API that has not shipped;
- * llms.txt has no `-next` sibling by design (see the note above the canary
- * bundle), so reading the wrong directory would advertise unreleased adapters
- * to every model that lands on the index.
+ * Read the generated modules rather than `_data/*.json` directly. The release
+ * freeze replaces `app/content/docs` with a checkout of the released tag, and a
+ * tag predating `_data` carries no data files at all; the catalogue generator
+ * already resolves that through its `fallbackRows` path, and reading the JSON
+ * here would bypass it and crash the release build (it did).
+ *
+ * RELEASED CHANNEL ONLY, hence `latest`. The `next` channel describes API that
+ * has not shipped, and llms.txt has no `-next` sibling by design (see the note
+ * above the canary bundle), so publishing next's rows would advertise
+ * unreleased adapters to every model that lands on the index.
  */
 interface CatalogueEntry {
   name: string
@@ -331,15 +341,11 @@ interface CatalogueEntry {
 
 function catalogueSection(
   heading: string,
-  file: string,
+  entries: readonly CatalogueEntry[],
   route: string,
   preamble: string,
 ): string {
-  const raw = fs.readFileSync(
-    path.join(ROOT, 'app', 'content', 'docs', '_data', file),
-    'utf8',
-  )
-  const entries = JSON.parse(raw) as CatalogueEntry[]
+  if (entries.length === 0) return ''
   const links = entries.map(
     (e) =>
       `- [${e.name}](${BASE_URL}/raw/docs/reference/${route}/${e.name.toLowerCase()}.md): ${e.description}`,
@@ -372,19 +378,19 @@ const llmsTxt =
     ...llmsSections,
     catalogueSection(
       'Adapters',
-      'adapters.json',
+      adaptersByChannel.latest,
       'adapters',
       'Every connector Routecraft ships. Read this list before writing an integration: the one you need may already exist.',
     ),
     catalogueSection(
       'Operations',
-      'operations.json',
+      operationsByChannel.latest,
       'operations',
       'Every verb in the route DSL. Read this list before reaching for imperative code in a step body: concurrency limits, throttling, retries, caching and branching are operations, not things to hand-roll.',
     ),
     catalogueSection(
       'Plugins',
-      'plugins.json',
+      pluginsByChannel.latest,
       'plugins',
       'Runtime extensions configured once on the context.',
     ),
@@ -393,7 +399,11 @@ const llmsTxt =
       `- [Full Documentation (single file)](${BASE_URL}/llms-full.txt): All documentation concatenated into one markdown file for bulk ingestion`,
       `- [Changelog](${BASE_URL}/raw/changelog.md)`,
     ].join('\n'),
-  ].join('\n\n') + '\n'
+  ]
+    // A catalogue with no rows yields '', which would otherwise join into a
+    // blank gap. A frozen tag predating `_data` is exactly that case.
+    .filter((part) => part !== '')
+    .join('\n\n') + '\n'
 
 const llmsPath = path.join(ROOT, 'public', 'llms.txt')
 fs.writeFileSync(llmsPath, llmsTxt, 'utf8')
