@@ -15,21 +15,71 @@
  * one of those callers hashes what comes back: a default changed in this
  * module would change every stored digest without a line of suspension code
  * moving. Each caller pins its own constant and passes it.
+ *
+ * The module also holds `isStandardSchema`, which reads the same bag for a
+ * callable `validate` rather than for the JSON Schema arms.
  */
+
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 /** The `~standard` bag, as far as anything here reads it. */
 export interface StandardExtension {
   vendor?: string;
   version?: number;
+  validate?: unknown;
   jsonSchema?: { input?: unknown; output?: unknown };
 }
 
-/** Read a schema's `~standard` bag, or `undefined` when it carries none. */
+/**
+ * Read a schema's `~standard` bag, or `undefined` when it carries none.
+ *
+ * Functions count. An ArkType schema is a callable object carrying the bag,
+ * and `validate()` works on one, so a test that admitted only `"object"`
+ * was narrower than the validation it feeds.
+ */
 export function standardExtensionOf(
   schema: unknown,
 ): StandardExtension | undefined {
-  if (schema === null || typeof schema !== "object") return undefined;
+  if (
+    schema === null ||
+    (typeof schema !== "object" && typeof schema !== "function")
+  ) {
+    return undefined;
+  }
   return (schema as { "~standard"?: StandardExtension })["~standard"];
+}
+
+/**
+ * Whether a value is a Standard Schema carrying a callable validator.
+ *
+ * The check every validation boundary has to make before handing a
+ * caller-supplied value to `validateAgainst`, which dereferences
+ * `~standard.validate` without guarding. Seven sites hand-rolled the same
+ * index cast and predicate before this existed (#575).
+ *
+ * Deliberately only the predicate: the refusal stays with the caller,
+ * because the error code and message differ per boundary on purpose. A
+ * plugin option validator throws a plain `Error` for its own message, the
+ * fn registry throws `RC5003` naming the fn, and the structured-text
+ * fallback declines to a `undefined` rather than throwing at all.
+ *
+ * @param value - Any value, typically arriving from user configuration
+ * @returns Whether `value["~standard"].validate` is callable. That is all it
+ *   proves: `version` and `vendor` are spec-required but not checked, and
+ *   the local `StandardExtension` treats both as optional because schemas
+ *   omitting them reach the framework in practice. A caller that reads
+ *   either should still guard it.
+ *
+ * @example
+ * ```ts
+ * if (!isStandardSchema(schema)) {
+ *   throw new Error("options.schema must be a Standard Schema");
+ * }
+ * const result = await validateAgainst(schema, value);
+ * ```
+ */
+export function isStandardSchema(value: unknown): value is StandardSchemaV1 {
+  return typeof standardExtensionOf(value)?.validate === "function";
 }
 
 /**

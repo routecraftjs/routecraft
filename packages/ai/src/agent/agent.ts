@@ -1,6 +1,7 @@
 import {
   type Enricher,
   factoryArgs,
+  isStandardSchema,
   rcError,
   tagAdapter,
 } from "@routecraft/routecraft";
@@ -82,15 +83,8 @@ export function validateAgentOptions(options: AgentOptions): void {
     });
   }
   if (options.output !== undefined) {
-    if (options.output === null || typeof options.output !== "object") {
-      throw rcError("RC5003", undefined, {
-        message: `Agent: "output" must be a Standard Schema (Zod/Valibot/ArkType/etc.).`,
-      });
-    }
-    const standard = (
-      options.output as { ["~standard"]?: { validate?: unknown } }
-    )["~standard"];
-    if (typeof standard?.validate !== "function") {
+    // Both arms said the same thing, so one predicate covers them.
+    if (!isStandardSchema(options.output)) {
       throw rcError("RC5003", undefined, {
         message: `Agent: "output" must be a Standard Schema (Zod/Valibot/ArkType/etc.).`,
       });

@@ -1,4 +1,4 @@
-import { rcError } from "@routecraft/routecraft";
+import { isStandardSchema, rcError } from "@routecraft/routecraft";
 import type { FnOptions } from "./types.ts";
 
 /**
@@ -22,9 +22,12 @@ export function validateFnOptions(id: string, options: FnOptions): void {
       message: `agentPlugin: fn "${id}" is missing a non-empty "description".`,
     });
   }
+  // A callable counts: an ArkType schema is a function carrying the bag, and
+  // this message names ArkType among the libraries it accepts.
   if (
     options.input === null ||
-    typeof options.input !== "object" ||
+    (typeof options.input !== "object" &&
+      typeof options.input !== "function") ||
     typeof (options.input as { ["~standard"]?: unknown })["~standard"] !==
       "object"
   ) {
@@ -32,10 +35,7 @@ export function validateFnOptions(id: string, options: FnOptions): void {
       message: `agentPlugin: fn "${id}" "input" is required and must be a Standard Schema value (Zod/Valibot/ArkType/etc.).`,
     });
   }
-  const standard = (
-    options.input as { ["~standard"]?: { validate?: unknown } }
-  )["~standard"];
-  if (typeof standard?.validate !== "function") {
+  if (!isStandardSchema(options.input)) {
     throw rcError("RC5003", undefined, {
       message: `agentPlugin: fn "${id}" "input" must be a Standard Schema with a callable validate.`,
     });
