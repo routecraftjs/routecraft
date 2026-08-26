@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import vm from "node:vm";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   spy,
@@ -159,6 +160,38 @@ describe("schema returning a thenable", () => {
         expect(result.issues).toEqual([]);
       });
     }
+  });
+
+  /**
+   * @case A native Promise from another realm still validates
+   * @preconditions Schema whose validate() returns a genuine Promise built in a node:vm context, so it fails instanceof Promise in this realm
+   * @expectedResult The failure is reported, pinning the second documented way instanceof Promise misses an async schema: not a hand-rolled thenable, but a real Promise with a different intrinsic
+   */
+  test("a native Promise from another realm still validates", async () => {
+    const context = vm.createContext({});
+    const foreign = vm.runInContext(
+      "Promise.resolve({ issues: [{ message: 'cross-realm reject' }] })",
+      context,
+    ) as PromiseLike<unknown>;
+
+    // The premise of the test: a real Promise that this realm disowns.
+    expect(foreign instanceof Promise).toBe(false);
+    expect(Object.prototype.toString.call(foreign)).toBe("[object Promise]");
+
+    const result = await validateAgainst(
+      {
+        "~standard": {
+          version: 1,
+          vendor: "test",
+          validate: () => foreign,
+        },
+      } as unknown as StandardSchemaV1,
+      "anything",
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.message).toContain("cross-realm reject");
   });
 
   /**
