@@ -19,6 +19,26 @@ describe("schema returning a thenable", () => {
       issues: [{ message: "expected number" }],
     }) as StandardSchemaV1;
 
+  /** A schema with the JSON Schema the bridge needs, over a given validate(). */
+  const bridge = (validate: StandardSchemaV1["~standard"]["validate"]) =>
+    toAiInputSchema({
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        jsonSchema: {
+          input: () => ({
+            type: "object",
+            properties: { n: { type: "number" } },
+          }),
+        },
+        validate,
+      },
+    } as unknown as StandardSchemaV1) as {
+      validate: (
+        value: unknown,
+      ) => { success: true; value: unknown } | { success: false; error: Error };
+    };
+
   /**
    * @case validateWithSchema rejects options a thenable schema refused
    * @preconditions mcpPlugin options validated with a schema whose validate() returns a rejecting non-Promise thenable
@@ -31,29 +51,25 @@ describe("schema returning a thenable", () => {
   });
 
   /**
+   * @case The AI SDK bridge fails an empty issue list rather than passing it
+   * @preconditions A tool input schema whose validate() returns `{ issues: [] }` synchronously
+   * @expectedResult validate reports failure, not `{ success: true, value: undefined }`: present issues mean failure whether or not the schema said why, matching validateAgainst
+   */
+  test("the AI SDK bridge fails an empty issue list", () => {
+    const bridged = bridge(() => ({ issues: [] }));
+
+    const result = bridged.validate({ n: 1 });
+
+    expect(result.success).toBe(false);
+  });
+
+  /**
    * @case The AI SDK bridge refuses a thenable instead of passing it
    * @preconditions A tool input schema whose validate() returns a non-Promise thenable
    * @expectedResult validate reports failure with the async refusal, rather than success with an undefined value
    */
-  test("the AI SDK bridge refuses it", async () => {
-    const base = rejecting();
-    const schema = {
-      "~standard": {
-        ...base["~standard"],
-        jsonSchema: {
-          input: () => ({
-            type: "object",
-            properties: { n: { type: "number" } },
-          }),
-        },
-      },
-    } as unknown as StandardSchemaV1;
-
-    const bridged = toAiInputSchema(schema) as {
-      validate: (
-        value: unknown,
-      ) => { success: true; value: unknown } | { success: false; error: Error };
-    };
+  test("the AI SDK bridge refuses it", () => {
+    const bridged = bridge(rejecting()["~standard"].validate);
 
     const result = bridged.validate({ n: 1 });
 

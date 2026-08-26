@@ -89,16 +89,21 @@ export async function validateAgainst<S extends StandardSchemaV1>(
   let result: unknown = schema["~standard"].validate(value);
   if (isThenable(result)) result = await result;
   // After the await, so a sync schema, a thenable and a real `Promise` are
-  // held to the same contract. A non-record has two ways to kill this
-  // function: `undefined` and `null` die on the `issues` read, a primitive
-  // survives that and dies on `"value" in successResult`. The message is
-  // written out rather than routed through `formatSchemaIssues`, which
-  // renders an empty issue list as the literal string "[]".
-  if (typeof result !== "object" || result === null) {
+  // held to the same contract. A non-record fails three ways: `undefined`
+  // and `null` die on the `issues` read, a primitive survives that and dies
+  // on `"value" in successResult`, and an array clears both (it is a
+  // non-null `object`) to reach the input fallback and report success on
+  // unvalidated input. The message is written out rather than routed through
+  // `formatSchemaIssues`, which renders an empty issue list as "[]".
+  if (typeof result !== "object" || result === null || Array.isArray(result)) {
     return {
       ok: false,
       message: `schema returned a malformed result: expected an object, received ${
-        result === null ? "null" : typeof result
+        Array.isArray(result)
+          ? "array"
+          : result === null
+            ? "null"
+            : typeof result
       }`,
       issues: [],
     };

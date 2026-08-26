@@ -102,10 +102,14 @@ describe("schema returning a thenable", () => {
    */
   describe("returning a non-record", () => {
     const NON_RECORDS = [
-      ["undefined", undefined],
-      ["null", null],
-      ["a string", "nope"],
-      ["a number", 42],
+      ["undefined", undefined, "undefined"],
+      ["null", null, "null"],
+      ["a string", "nope", "string"],
+      ["a number", 42, "number"],
+      // An array is the one non-record that clears a `typeof`-and-null guard,
+      // so it reached the input fallback and reported success on unvalidated
+      // input: #545's failure through a different malformed shape.
+      ["an array", [], "array"],
     ] as const;
 
     const syncSchema = (out: unknown) =>
@@ -124,7 +128,7 @@ describe("schema returning a thenable", () => {
         },
       }) as unknown as StandardSchemaV1;
 
-    for (const [label, out] of NON_RECORDS) {
+    for (const [label, out, expected] of NON_RECORDS) {
       /**
        * @case A synchronous schema returning a non-record fails with a message
        * @preconditions validate() returns the non-record directly, no thenable involved
@@ -136,7 +140,7 @@ describe("schema returning a thenable", () => {
         expect(result.ok).toBe(false);
         if (result.ok) throw new Error("unreachable");
         expect(result.message).toContain("malformed result");
-        expect(result.message).toContain(out === null ? "null" : typeof out);
+        expect(result.message).toContain(expected);
         expect(result.issues).toEqual([]);
       });
 
@@ -151,7 +155,7 @@ describe("schema returning a thenable", () => {
         expect(result.ok).toBe(false);
         if (result.ok) throw new Error("unreachable");
         expect(result.message).toContain("malformed result");
-        expect(result.message).toContain(out === null ? "null" : typeof out);
+        expect(result.message).toContain(expected);
         expect(result.issues).toEqual([]);
       });
     }
