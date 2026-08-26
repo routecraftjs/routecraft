@@ -65,7 +65,9 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
  * @param value - The value to validate
  * @returns `{ ok: true, value }` with the validated (possibly transformed)
  *   value, or `{ ok: false, message, issues }` with the failure both
- *   formatted and raw
+ *   formatted and raw. A schema that returns something other than a result
+ *   record fails the same way, with an empty `issues` and a message naming
+ *   what came back
  *
  * @example
  * ```ts
@@ -86,6 +88,21 @@ export async function validateAgainst<S extends StandardSchemaV1>(
 > {
   let result: unknown = schema["~standard"].validate(value);
   if (isThenable(result)) result = await result;
+  // After the await, so a sync schema, a thenable and a real `Promise` are
+  // held to the same contract. A non-record has two ways to kill this
+  // function: `undefined` and `null` die on the `issues` read, a primitive
+  // survives that and dies on `"value" in successResult`. The message is
+  // written out rather than routed through `formatSchemaIssues`, which
+  // renders an empty issue list as the literal string "[]".
+  if (typeof result !== "object" || result === null) {
+    return {
+      ok: false,
+      message: `schema returned a malformed result: expected an object, received ${
+        result === null ? "null" : typeof result
+      }`,
+      issues: [],
+    };
+  }
   const issues = (result as { issues?: unknown }).issues;
   if (issues !== undefined && issues !== null) {
     return {

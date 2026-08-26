@@ -95,6 +95,69 @@ describe("schema returning a thenable", () => {
   });
 
   /**
+   * A schema whose `validate()` resolves to something that is not a result
+   * record used to kill `validateAgainst` outright, in two places: `undefined`
+   * and `null` on the `issues` read, a primitive on `"value" in result`. The
+   * guard sits after the await, so the synchronous path is held to it too.
+   */
+  describe("returning a non-record", () => {
+    const NON_RECORDS = [
+      ["undefined", undefined],
+      ["null", null],
+      ["a string", "nope"],
+      ["a number", 42],
+    ] as const;
+
+    const syncSchema = (out: unknown) =>
+      ({
+        "~standard": { version: 1, vendor: "test", validate: () => out },
+      }) as unknown as StandardSchemaV1;
+
+    const thenableOf = (out: unknown) =>
+      ({
+        "~standard": {
+          version: 1,
+          vendor: "test",
+          validate: () => ({
+            then: (resolve: (r: unknown) => void) => resolve(out),
+          }),
+        },
+      }) as unknown as StandardSchemaV1;
+
+    for (const [label, out] of NON_RECORDS) {
+      /**
+       * @case A synchronous schema returning a non-record fails with a message
+       * @preconditions validate() returns the non-record directly, no thenable involved
+       * @expectedResult ok is false with a message naming what came back, rather than a raw TypeError out of framework internals
+       */
+      test(`fails a sync schema returning ${label}`, async () => {
+        const result = await validateAgainst(syncSchema(out), "IN");
+
+        expect(result.ok).toBe(false);
+        if (result.ok) throw new Error("unreachable");
+        expect(result.message).toContain("malformed result");
+        expect(result.message).toContain(out === null ? "null" : typeof out);
+        expect(result.issues).toEqual([]);
+      });
+
+      /**
+       * @case A thenable resolving to a non-record fails with a message
+       * @preconditions validate() returns a non-Promise thenable resolving to the non-record
+       * @expectedResult The same failure record as the sync path, so unwrapping a thenable cannot reach the crash either
+       */
+      test(`fails a thenable resolving to ${label}`, async () => {
+        const result = await validateAgainst(thenableOf(out), "IN");
+
+        expect(result.ok).toBe(false);
+        if (result.ok) throw new Error("unreachable");
+        expect(result.message).toContain("malformed result");
+        expect(result.message).toContain(out === null ? "null" : typeof out);
+        expect(result.issues).toEqual([]);
+      });
+    }
+  });
+
+  /**
    * @case Route .input() rejects a body a thenable schema refused
    * @preconditions Route declares .input({ body }) with a rejecting thenable schema
    * @expectedResult RC5002 fails the exchange and the destination never runs, so the boundary control the caller asked for actually ran
