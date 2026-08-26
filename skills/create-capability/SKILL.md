@@ -34,7 +34,14 @@ Confirm answers to these questions before writing. Ask the user only the ones th
 
 ## Step 2: pick the closest example
 
-Read [`reference/examples-index.md`](reference/examples-index.md) and pick the row that best matches the answers above. The index maps intent to a public doc page and the closest existing capability on GitHub.
+**First, learn what already exists.** Read the adapter and operation catalogues before choosing anything:
+
+- Adapters: https://routecraft.dev/raw/docs/reference/adapters.md
+- Operations: https://routecraft.dev/raw/docs/reference/operations.md
+
+Both are one-line-per-entry lists with a link to each full page, so reading them costs little and answers two questions that otherwise get answered wrongly: whether the integration you are about to write already ships, and whether the behaviour you are about to hand-roll is already an operation. Concurrency limits, throttling, retries, timeouts, caching, deduplication, batching and branching are all operations. An author who has not read the list writes them by hand.
+
+Then read [`reference/examples-index.md`](reference/examples-index.md) and pick the row that best matches the answers above. The index maps intent to a public doc page and the closest existing capability on GitHub.
 
 Then, in this order:
 
@@ -260,7 +267,8 @@ Use `bun run <script>` (not `bun <script>`) so Bun invokes the package.json scri
 - Project structure (folder-per-capability standard): https://routecraft.dev/raw/docs/introduction/project-structure.md
 - Capabilities introduction: https://routecraft.dev/raw/docs/introduction/capabilities.md
 - Operations introduction: https://routecraft.dev/raw/docs/introduction/operations.md
-- Operations reference: https://routecraft.dev/raw/docs/reference/operations.md
+- Operations reference (every verb, one line each): https://routecraft.dev/raw/docs/reference/operations.md
+- Adapters reference (every connector, one line each): https://routecraft.dev/raw/docs/reference/adapters.md
 - Exchange model: https://routecraft.dev/raw/docs/introduction/exchange.md
 - Composing capabilities: https://routecraft.dev/raw/docs/advanced/composing-capabilities.md
 - Error handling: https://routecraft.dev/raw/docs/advanced/error-handling.md
