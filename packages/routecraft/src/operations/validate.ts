@@ -1,13 +1,8 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import { type Exchange, OperationType, DefaultExchange } from "../exchange.ts";
-import { formatSchemaIssues, rcError } from "../error.ts";
-
-/** Standard Schema validate() result shape: success has value, failure has issues. */
-interface StandardSchemaResult {
-  value?: unknown;
-  issues?: unknown;
-}
+import { rcError } from "../error.ts";
+import { validateAgainst } from "../pipeline/validation.ts";
 
 /**
  * Callable validator function. Receives the full exchange, returns the
@@ -84,19 +79,13 @@ export function schema<S extends StandardSchemaV1>(
 ): Validator<unknown, StandardSchemaV1.InferOutput<S>> {
   return {
     validate: async (exchange) => {
-      let rawResult = standardSchema["~standard"].validate(exchange.body);
-      if (rawResult instanceof Promise) rawResult = await rawResult;
-      const result = rawResult as StandardSchemaResult;
-
-      if (result.issues) {
-        throw rcError("RC5002", new Error(formatSchemaIssues(result.issues)), {
-          message: `Validation failed: ${formatSchemaIssues(result.issues)}`,
+      const result = await validateAgainst(standardSchema, exchange.body);
+      if (!result.ok) {
+        throw rcError("RC5002", new Error(result.message), {
+          message: `Validation failed: ${result.message}`,
         });
       }
-
-      return (
-        "value" in result ? result.value : exchange.body
-      ) as StandardSchemaV1.InferOutput<S>;
+      return result.value;
     },
   };
 }

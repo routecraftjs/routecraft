@@ -1,9 +1,9 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
-  formatSchemaIssues,
   logger as defaultLogger,
   parseDuration,
   rcError,
+  validateAgainst,
   type Duration,
 } from "@routecraft/routecraft";
 
@@ -109,16 +109,10 @@ export async function testFn<TIn, TOut>(
     });
   }
 
-  const validate = standard.validate as (
-    value: unknown,
-  ) =>
-    | { value?: unknown; issues?: unknown }
-    | Promise<{ value?: unknown; issues?: unknown }>;
-  let result = validate(input);
-  if (result instanceof Promise) result = await result;
-  if (result.issues !== undefined && result.issues !== null) {
+  const result = await validateAgainst(spec.input, input);
+  if (!result.ok) {
     throw rcError("RC5002", undefined, {
-      message: `testFn: input validation failed: ${formatSchemaIssues(result.issues)}`,
+      message: `testFn: input validation failed: ${result.message}`,
     });
   }
 
@@ -150,6 +144,5 @@ export async function testFn<TIn, TOut>(
     },
   };
 
-  const validated = "value" in result ? (result.value as TIn) : (input as TIn);
-  return (await spec.handler(validated, ctx)) as TOut;
+  return (await spec.handler(result.value, ctx)) as TOut;
 }

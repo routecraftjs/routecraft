@@ -26,6 +26,16 @@ export interface ValidationDeps {
 }
 
 /**
+ * Standard Schema allows `validate()` to return any thenable, not only a
+ * `Promise`. A non-`Promise` thenable fails `instanceof Promise` and then
+ * reads as a success record with no `issues`, which is how a rejecting
+ * schema used to report success.
+ */
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return typeof (value as { then?: unknown } | null)?.then === "function";
+}
+
+/**
  * Run Standard Schema validation against a value. Returns the validated
  * value on success (schemas can legitimately transform to `undefined`,
  * so presence of the `value` key is what decides success, not truthiness)
@@ -40,11 +50,24 @@ export interface ValidationDeps {
  * `message` so a caller can build a structured rejection (a JSON-RPC
  * `error.data`, an HTTP 422 field map) instead of only a sentence.
  *
+ * Standard Schema allows `validate()` to return a thenable rather than a
+ * real `Promise`, so awaiting one runs schema-author `then` code on this
+ * path: a schema that never settles hangs the validation instead of
+ * silently passing, which is the safer of the two failures. Nothing bounds
+ * that wait. `.input()` is position #4 of the pre-from chain and `.timeout()`
+ * is #8, so a route timeout sits below validation and cannot reclaim it.
+ *
+ * `schema` is assumed to carry a callable `~standard.validate`; this helper
+ * dereferences it unguarded, so a caller holding a value from configuration
+ * checks that first and chooses its own refusal.
+ *
  * @param schema - The Standard Schema to validate with
  * @param value - The value to validate
  * @returns `{ ok: true, value }` with the validated (possibly transformed)
  *   value, or `{ ok: false, message, issues }` with the failure both
- *   formatted and raw
+ *   formatted and raw. A schema that returns something other than a result
+ *   record fails the same way, with an empty `issues` and a message naming
+ *   what came back
  *
  * @example
  * ```ts
@@ -63,8 +86,28 @@ export async function validateAgainst<S extends StandardSchemaV1>(
       issues: readonly StandardSchemaV1.Issue[];
     }
 > {
-  let result = schema["~standard"].validate(value);
-  if (result instanceof Promise) result = await result;
+  let result: unknown = schema["~standard"].validate(value);
+  if (isThenable(result)) result = await result;
+  // After the await, so a sync schema, a thenable and a real `Promise` are
+  // held to the same contract. A non-record fails three ways: `undefined`
+  // and `null` die on the `issues` read, a primitive survives that and dies
+  // on `"value" in successResult`, and an array clears both (it is a
+  // non-null `object`) to reach the input fallback and report success on
+  // unvalidated input. The message is written out rather than routed through
+  // `formatSchemaIssues`, which renders an empty issue list as "[]".
+  if (typeof result !== "object" || result === null || Array.isArray(result)) {
+    return {
+      ok: false,
+      message: `schema returned a malformed result: expected an object, received ${
+        Array.isArray(result)
+          ? "array"
+          : result === null
+            ? "null"
+            : typeof result
+      }`,
+      issues: [],
+    };
+  }
   const issues = (result as { issues?: unknown }).issues;
   if (issues !== undefined && issues !== null) {
     return {

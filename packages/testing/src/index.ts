@@ -40,6 +40,11 @@ export {
 // routes that read `routecraft.<adapter>.*` headers can be exercised.
 export { sourceMessage } from "./source-message";
 
+// Standard Schema fixture whose validate() returns a non-Promise thenable,
+// for exercising validation boundaries against the thenable contract rather
+// than the Promise class.
+export { thenableSchema } from "./thenable-schema";
+
 // Test helper for fn-like specs (schema + handler). Used to exercise
 // fns registered in `@routecraft/ai`'s agentPlugin without depending on
 // any non-public dispatcher.

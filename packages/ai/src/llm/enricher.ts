@@ -1,6 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   getExchangeContext,
+  validateAgainst,
   type CraftContext,
   type Enricher,
   type Exchange,
@@ -24,7 +25,12 @@ import { ADAPTER_LLM_OPTIONS } from "./types.ts";
 /**
  * When the AI SDK doesn't set result.output (e.g. it threw on the getter), try to
  * parse result.text as JSON and validate with the output schema. Returns the
- * parsed value or undefined. Handles both sync and async Standard Schema validate().
+ * validated value, or undefined when there is no fallback to offer: the text is
+ * not JSON, the schema is not a Standard Schema, or the schema rejected it.
+ *
+ * A schema that accepts without returning a `value` yields the parsed JSON,
+ * which is `validateAgainst`'s fallback and the reading this path wants: the
+ * schema vouched for `parsed`, so `parsed` is the structured output.
  */
 async function parseStructuredTextFallback(
   text: string,
@@ -38,28 +44,10 @@ async function parseStructuredTextFallback(
   }
   const standard = (schema as unknown as Record<string, unknown>)[
     "~standard"
-  ] as
-    | {
-        validate: (
-          value: unknown,
-        ) =>
-          | { value?: unknown; issues?: unknown }
-          | Promise<{ value?: unknown; issues?: unknown }>;
-      }
-    | undefined;
-  if (!standard?.validate) return undefined;
-  let result = standard.validate(parsed);
-  if (result instanceof Promise) result = await result;
-  if (
-    result &&
-    typeof result === "object" &&
-    "issues" in result &&
-    result.issues
-  )
-    return undefined;
-  return result && typeof result === "object" && "value" in result
-    ? result.value
-    : undefined;
+  ] as { validate?: unknown } | undefined;
+  if (typeof standard?.validate !== "function") return undefined;
+  const result = await validateAgainst(schema, parsed);
+  return result.ok ? result.value : undefined;
 }
 
 const DEFAULT_TEMPERATURE = 0;

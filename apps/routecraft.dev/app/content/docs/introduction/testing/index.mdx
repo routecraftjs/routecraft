@@ -136,6 +136,7 @@ it("moves spam and replies to friends", async () => {
 | Test that an in-process destination was invoked | `spy()` (see below) |
 | Drive a route's input manually from the test | `simple(value)` or a `callableSource` |
 | Assert on logger calls | `t.logger.info` / `t.logger.warn` (vi spies) |
+| Check a validation boundary honours an async schema | `thenableSchema({ issues })` / `thenableSchema({ value })` |
 
 ### Anatomy of a mock
 

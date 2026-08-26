@@ -75,6 +75,7 @@ The `test(...)` string itself is the searchable label. Keep it short and declara
 | `pseudo()` | Configurable adapter that you fully control (source, destination, both). Use when no real adapter fits the test scenario. |
 | `mockAdapter()` + `testContext().override()` | Replace a real adapter with a mock for one test run. Use when you need to assert on adapter-level interactions without standing up the real implementation. |
 | `testFn(spec, input)` | Exercise a fn-shaped spec (`{ schema, handler }`) directly. Validates input, builds a synthetic `FnHandlerContext`, and calls the handler. Use for unit-testing fns registered via `agentPlugin({ functions: { ... } })` without touching the agent loop. |
+| `thenableSchema(outcome)` | Standard Schema fixture whose `validate()` returns a non-`Promise` thenable, in an accepting (`{ value }`) or rejecting (`{ issues }`) flavour. Use to hold a validation boundary to the thenable contract rather than the `Promise` class. |
 | `fixture(path)` | Load a JSON fixture file. `fixtureEach(path, test, run)` runs one test per array entry, using `entry.name` as the test name; pass your runner's `test` function as the second argument (e.g. `test` from `bun:test`). |
 | `createSpyLogger(fn?)` / `createNoopSpyLogger(fn?)` | Capture or silence log output. `testContext()` builds the spy logger internally; assert via `t.logger.warn.mock.calls`, or pass your runner's mock factory (`testContext({ fn: mock })` for bun:test, `{ fn: vi.fn }` for Vitest) for native matcher support. |
 
