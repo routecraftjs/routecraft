@@ -4,11 +4,10 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import {
   agent,
   agentPlugin,
-  currentTime,
-  randomUuid,
   tools,
   type AgentRegisteredOptions,
 } from "../src/index.ts";
+import { currentTimeFn, randomUuidFn } from "./helpers/fn-fixtures.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
@@ -32,7 +31,7 @@ describe("agentPlugin defaultOptions storage", () => {
       .with({
         plugins: [
           agentPlugin({
-            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+            functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
             defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],
@@ -74,7 +73,7 @@ describe("agentPlugin defaultOptions storage", () => {
       .with({
         plugins: [
           agentPlugin({
-            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+            functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
           }),
         ],
       })
@@ -95,8 +94,8 @@ describe("agentPlugin defaultOptions storage", () => {
           plugins: [
             agentPlugin({
               functions: {
-                CurrentTime: currentTime(),
-                RandomUuid: randomUuid(),
+                CurrentTime: currentTimeFn,
+                RandomUuid: randomUuidFn,
               },
               defaultOptions: { tools: tools(["CurrentTime"]) },
             }),
@@ -144,7 +143,7 @@ describe("agentPlugin defaultOptions storage", () => {
             defaultOptions: { model: "anthropic:claude-opus-4-7" },
           }),
           agentPlugin({
-            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+            functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
             defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],
@@ -214,7 +213,7 @@ describe("agentPlugin per-agent tools field", () => {
       .with({
         plugins: [
           agentPlugin({
-            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+            functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
             agents: {
               researcher: {
                 description: "Research workflow coordinator.",

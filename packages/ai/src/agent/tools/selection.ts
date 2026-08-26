@@ -271,7 +271,7 @@ export function isToolSelection(value: unknown): value is ToolSelection {
  * ```ts
  * agent({
  *   tools: tools([
- *     "currentTime",
+ *     "CurrentTime",
  *     "fetchOrder",
  *     "Direct(cancel-order)",
  *     "MCP(github:create_issue)",

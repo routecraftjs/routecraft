@@ -5,12 +5,11 @@ import { z } from "zod";
 import {
   agent,
   agentPlugin,
-  currentTime,
-  randomUuid,
   llmPlugin,
   tools,
   type AgentResult,
 } from "../src/index.ts";
+import { currentTimeFn, randomUuidFn } from "./helpers/fn-fixtures.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 // Mock the LLM dispatcher so the runtime tests stay hermetic. Each
@@ -87,7 +86,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({
-            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+            functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
           }),
         ],
       })
@@ -126,7 +125,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({
-            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+            functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
           }),
         ],
       })
@@ -261,7 +260,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({
-            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+            functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
             defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],
@@ -292,7 +291,7 @@ describe("agent runtime: tool wiring through callLlm", () => {
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({
-            functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+            functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
             defaultOptions: { tools: tools(["CurrentTime"]) },
           }),
         ],

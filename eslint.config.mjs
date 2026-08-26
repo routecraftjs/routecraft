@@ -12,6 +12,12 @@ export default [
       "**/node_modules/**",
       "**/dist/**",
       "coverage/**",
+      // Agent worktrees are nested checkouts of this repository. Linting one
+      // reports every file in it a second time, against a config it did not
+      // come from, and fails the parent repo's gate for changes that are not
+      // the parent's. `.gitignore` does not cover this: flat config does not
+      // read it.
+      ".claude/**",
       ".husky/_/**",
       "bun.lock",
       "**/.next/**",

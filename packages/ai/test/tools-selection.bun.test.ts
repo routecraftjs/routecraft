@@ -2,7 +2,8 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { craft, direct, isRoutecraftError, log } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { agentPlugin, currentTime, randomUuid, tools } from "../src/index.ts";
+import { agentPlugin, tools } from "../src/index.ts";
+import { currentTimeFn, randomUuidFn } from "./helpers/fn-fixtures.ts";
 import { isToolSelection } from "../src/agent/tools/selection.ts";
 
 async function buildCtx(opts: {
@@ -47,11 +48,11 @@ describe("tools() resolver - bare references", () => {
   /**
    * @case Bare fn name resolves against the fn registry
    * @preconditions agentPlugin functions includes CurrentTime; resolve tools(["CurrentTime"])
-   * @expectedResult Single ResolvedTool named "CurrentTime" with description and handler from currentTime()
+   * @expectedResult Single ResolvedTool named "CurrentTime" with description and handler from currentTimeFn
    */
   test("bare fn name resolves to a registered fn", async () => {
     t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+      functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
     const resolved = tools(["CurrentTime"]).resolve(t.ctx);
     expect(resolved).toHaveLength(1);
@@ -141,7 +142,7 @@ describe("tools() resolver - bare references", () => {
    */
   test("unknown bare name throws RC5003", async () => {
     t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+      functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
     let caught: unknown;
     try {
@@ -182,7 +183,7 @@ describe("tools() resolver - { name, guard }", () => {
    */
   test("{ name, guard } attaches the guard", async () => {
     t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+      functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
     const guard = mock();
     const [resolved] = tools([{ name: "CurrentTime", guard }]).resolve(t.ctx);
@@ -197,7 +198,7 @@ describe("tools() resolver - { name, guard }", () => {
    */
   test("{ name } rejects empty string", async () => {
     t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+      functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
     expect(() => tools([{ name: "" }]).resolve(t!.ctx)).toThrow(/non-empty/i);
   });
@@ -209,7 +210,7 @@ describe("tools() resolver - { name, guard }", () => {
    */
   test("{ name, description } overrides description per binding", async () => {
     t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+      functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
     const [resolved] = tools([
       {
@@ -222,7 +223,7 @@ describe("tools() resolver - { name, guard }", () => {
     // Registry entry stays canonical: a second binding without the
     // override sees the original description.
     const [resolved2] = tools(["CurrentTime"]).resolve(t.ctx);
-    expect(resolved2.description).toBe(currentTime().description);
+    expect(resolved2.description).toBe(currentTimeFn.description);
     expect(resolved2.description).not.toBe(resolved.description);
   });
 
@@ -233,7 +234,7 @@ describe("tools() resolver - { name, guard }", () => {
    */
   test("{ name, description } rejects empty string", async () => {
     t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+      functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
     expect(() =>
       tools([{ name: "CurrentTime", description: "" }]).resolve(t!.ctx),
@@ -247,7 +248,7 @@ describe("tools() resolver - { name, guard }", () => {
    */
   test("{ name, guard, description } applies both overrides", async () => {
     t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+      functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
     const guard = mock();
     const [resolved] = tools([
@@ -276,7 +277,7 @@ describe("tools() resolver - misc", () => {
    */
   test("duplicate explicit refs are deduplicated", async () => {
     t = await buildCtx({
-      functions: { CurrentTime: currentTime(), RandomUuid: randomUuid() },
+      functions: { CurrentTime: currentTimeFn, RandomUuid: randomUuidFn },
     });
     const resolved = tools(["CurrentTime", "CurrentTime"]).resolve(t.ctx);
     expect(resolved).toHaveLength(1);
@@ -289,7 +290,7 @@ describe("tools() resolver - misc", () => {
    */
   test("tools() throws on object items lacking name", async () => {
     t = await buildCtx({
-      functions: { CurrentTime: currentTime() },
+      functions: { CurrentTime: currentTimeFn },
     });
     expect(() =>
       tools([{ guard: () => undefined } as never]).resolve(t!.ctx),
@@ -312,8 +313,8 @@ describe("tools() resolver - builder form", () => {
   test("builder can filter fns by tag from the catalog", async () => {
     t = await buildCtx({
       functions: {
-        CurrentTime: currentTime(),
-        RandomUuid: randomUuid(),
+        CurrentTime: currentTimeFn,
+        RandomUuid: randomUuidFn,
         wipe: {
           description: "Wipe data.",
           input: z.object({}),
@@ -341,8 +342,8 @@ describe("tools() resolver - builder form", () => {
   test("builder mixes explicit refs with catalog-derived names", async () => {
     t = await buildCtx({
       functions: {
-        CurrentTime: currentTime(),
-        RandomUuid: randomUuid(),
+        CurrentTime: currentTimeFn,
+        RandomUuid: randomUuidFn,
         wipe: {
           description: "Wipe data.",
           input: z.object({}),
@@ -397,7 +398,7 @@ describe("tools() resolver - builder form", () => {
    */
   test("builder errors are wrapped in RC5003", async () => {
     t = await buildCtx({
-      functions: { CurrentTime: currentTime() },
+      functions: { CurrentTime: currentTimeFn },
     });
     expect(() =>
       tools(() => {
@@ -413,7 +414,7 @@ describe("tools() resolver - builder form", () => {
    */
   test("builder must return an array", async () => {
     t = await buildCtx({
-      functions: { CurrentTime: currentTime() },
+      functions: { CurrentTime: currentTimeFn },
     });
     expect(() => tools((() => ({})) as never).resolve(t!.ctx)).toThrow(
       /builder must return an array/,

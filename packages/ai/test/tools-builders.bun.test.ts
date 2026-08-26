@@ -9,15 +9,7 @@ import {
   log,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
-import {
-  agentPlugin,
-  currentTime,
-  randomUuid,
-  directTool,
-  tools,
-  type FnEntry,
-  type FnOptions,
-} from "../src/index.ts";
+import { agentPlugin, directTool, tools, type FnEntry } from "../src/index.ts";
 import { isDeferredFn } from "../src/agent/tools/types.ts";
 import { ADAPTER_FN_REGISTRY } from "../src/fn/store.ts";
 
@@ -448,51 +440,6 @@ describe("tool builders - directTool dispatch", () => {
     }
     expect(isRoutecraftError(caught)).toBe(true);
     expect((caught as { rc?: string }).rc).toBe("RC5023");
-  });
-});
-
-describe("tool builders - built-in fn factories", () => {
-  /**
-   * @case currentTime() and randomUuid() factories return eager FnOptions
-   * @preconditions Call the factories directly
-   * @expectedResult Both return objects with description / schema / handler / tags
-   */
-  test("currentTime() and randomUuid() return eager fns", () => {
-    expect(currentTime()).toBeDefined();
-    expect(isDeferredFn(currentTime())).toBe(false);
-    const ct = currentTime() as FnOptions;
-    expect(typeof ct.description).toBe("string");
-    expect(typeof ct.handler).toBe("function");
-    expect(ct.tags).toContain("read-only");
-
-    expect(randomUuid()).toBeDefined();
-    const ru = randomUuid() as FnOptions;
-    expect(typeof ru.description).toBe("string");
-    expect(typeof ru.handler).toBe("function");
-  });
-
-  /**
-   * @case CurrentTime handler returns an ISO 8601 timestamp string
-   * @preconditions Call currentTime().handler({}, ctx)
-   * @expectedResult Returns a parseable ISO string within a second of now
-   */
-  test("CurrentTime handler returns a fresh ISO timestamp", async () => {
-    const ct = currentTime() as FnOptions<Record<string, never>, string>;
-    const before = Date.now();
-    const out = await ct.handler(
-      {},
-      {
-        logger: undefined as unknown as Parameters<
-          typeof ct.handler
-        >[1]["logger"],
-        abortSignal: new AbortController().signal,
-        suspend: refuseSuspend,
-      },
-    );
-    const after = Date.now();
-    const parsed = Date.parse(out);
-    expect(parsed).toBeGreaterThanOrEqual(before);
-    expect(parsed).toBeLessThanOrEqual(after);
   });
 });
 

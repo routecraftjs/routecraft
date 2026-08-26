@@ -6,11 +6,9 @@ import {
   rcError,
   type Capability,
   type CraftContext,
-  type KnownTag,
   type Principal,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { randomUUID } from "node:crypto";
 import type {
   FnHandlerContext,
   FnOptions,
@@ -47,60 +45,6 @@ function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
     out.claims = structuredClone(rp.claims) as Record<string, unknown>;
   return isAuthentic(rp) ? markAuthentic(out) : out;
 }
-
-/**
- * JSON Schema describing an empty object. Closed for additional
- * properties so the LLM can't confuse models that have more fields.
- */
-const EMPTY_OBJECT_JSON_SCHEMA = {
-  type: "object" as const,
-  properties: {},
-  additionalProperties: false,
-};
-
-/**
- * Standard Schema implementation of an empty input object. Used by the
- * built-in fn factories so this module stays free of a Zod runtime dependency
- * (per CLAUDE.md "Use Standard Schema, not Zod/Valibot directly in
- * shared code").
- *
- * Exposes both `~standard.validate` (mandatory per the spec) and the
- * non-standard `~standard.jsonSchema.{input,output}` extension that
- * the Vercel AI SDK bridge consumes, so this hand-rolled schema can
- * back tools and structured-output specs alongside Zod / Valibot
- * schemas without special-casing.
- */
-const emptyObjectSchema: StandardSchemaV1<unknown, Record<string, never>> = {
-  "~standard": {
-    version: 1,
-    vendor: "routecraft",
-    validate(value) {
-      if (
-        value === null ||
-        typeof value !== "object" ||
-        Array.isArray(value) ||
-        Object.keys(value as object).length > 0
-      ) {
-        return {
-          issues: [
-            {
-              message: "Expected an empty object {}.",
-            },
-          ],
-        };
-      }
-      return { value: {} as Record<string, never> };
-    },
-    // Non-standard `jsonSchema` extension consumed by the AI SDK bridge.
-    // Cast away from the strict StandardSchemaV1 shape since the spec
-    // doesn't include this field; library schemas (Zod, Valibot) ship it
-    // as an extension and the bridge looks it up defensively.
-    jsonSchema: {
-      input: () => EMPTY_OBJECT_JSON_SCHEMA,
-      output: () => EMPTY_OBJECT_JSON_SCHEMA,
-    },
-  } as StandardSchemaV1<unknown, Record<string, never>>["~standard"],
-};
 
 /**
  * Per-call overrides accepted by the builder helpers. Lets the caller
@@ -288,48 +232,4 @@ function abortError(routeId: string, reason: unknown): Error {
   );
   err.name = "AbortError";
   return err;
-}
-
-/**
- * Built-in fn factory: returns the current UTC timestamp in ISO 8601
- * format. Takes no configuration. Assign it a tool name in your
- * `agentPlugin({ functions: { ... } })` config, the same way you use
- * `directTool(...)`.
- *
- * @example
- * ```ts
- * agentPlugin({
- *   functions: {
- *     CurrentTime: currentTime(),
- *     fetchOrder: directTool("fetch-order"),
- *   },
- * });
- * ```
- */
-export function currentTime(): FnOptions {
-  return {
-    description: "Returns the current UTC timestamp in ISO 8601 format.",
-    input: emptyObjectSchema,
-    handler: () => new Date().toISOString(),
-    tags: ["read-only", "idempotent"] satisfies KnownTag[],
-  };
-}
-
-/**
- * Built-in fn factory: generates a fresh random UUID v4. Takes no
- * configuration. Assign it a tool name in your
- * `agentPlugin({ functions: { ... } })` config.
- *
- * @example
- * ```ts
- * agentPlugin({ functions: { RandomUuid: randomUuid() } });
- * ```
- */
-export function randomUuid(): FnOptions {
-  return {
-    description: "Generates a fresh random UUID v4.",
-    input: emptyObjectSchema,
-    handler: () => randomUUID(),
-    tags: ["read-only"] satisfies KnownTag[],
-  };
 }
