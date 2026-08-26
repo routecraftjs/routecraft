@@ -8,6 +8,7 @@ import {
   markOutputValidated,
 } from "../exchange.ts";
 import { rcError, formatSchemaIssues } from "../error.ts";
+import { isThenable } from "../shared/thenable.ts";
 import type { ErrorHandler, ForwardFn, Route } from "../route.ts";
 
 /**
@@ -23,16 +24,6 @@ export interface ValidationDeps {
   errorHandler?: ErrorHandler;
   /** Build a forward callable whose target inherits `caller`'s headers. */
   buildForward: (caller: Exchange) => ForwardFn;
-}
-
-/**
- * Standard Schema allows `validate()` to return any thenable, not only a
- * `Promise`. A non-`Promise` thenable fails `instanceof Promise` and then
- * reads as a success record with no `issues`, which is how a rejecting
- * schema used to report success.
- */
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return typeof (value as { then?: unknown } | null)?.then === "function";
 }
 
 /**

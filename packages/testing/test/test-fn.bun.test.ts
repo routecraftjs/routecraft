@@ -11,6 +11,45 @@ import { thenableSchema } from "../src/thenable-schema.ts";
  */
 describe("testFn with a schema returning a thenable", () => {
   /**
+   * @case testFn keeps its RC5003 refusal for a non-schema input
+   * @preconditions spec.input carries a ~standard bag with no callable validate
+   * @expectedResult RC5003 with the spec.input message, so adopting the shared predicate moved the test and not the error contract
+   */
+  test("keeps its RC5003 refusal for a non-schema input", async () => {
+    const spec = {
+      input: { "~standard": {} } as unknown as StandardSchemaV1<
+        unknown,
+        number
+      >,
+      handler: async (input: number) => input,
+    };
+
+    await expect(testFn(spec, 1)).rejects.toMatchObject({ rc: "RC5003" });
+    await expect(testFn(spec, 1)).rejects.toThrow(
+      /spec\.input must be a Standard Schema with a callable validate/,
+    );
+  });
+
+  /**
+   * @case ctx.suspend keeps its RC5003 refusal for a non-schema
+   * @preconditions Handler calls ctx.suspend with a schema carrying no callable validate
+   * @expectedResult RC5003 explaining the suspend schema contract, matching the production ctx.suspend
+   */
+  test("ctx.suspend keeps its RC5003 refusal", async () => {
+    const spec = {
+      input: thenableSchema({ value: 1 }),
+      handler: async (
+        _input: number,
+        ctx: { suspend: (o?: unknown) => unknown },
+      ) => ctx.suspend({ schema: { "~standard": {} } }) as never,
+    };
+
+    await expect(testFn(spec as never, 1)).rejects.toMatchObject({
+      rc: "RC5003",
+    });
+  });
+
+  /**
    * @case testFn refuses input a thenable schema rejected
    * @preconditions spec.input is a schema whose validate() returns a rejecting non-Promise thenable
    * @expectedResult RC5002 is thrown and the handler never runs

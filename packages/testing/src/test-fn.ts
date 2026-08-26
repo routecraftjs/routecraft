@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
+  isStandardSchema,
   logger as defaultLogger,
   parseDuration,
   rcError,
@@ -100,10 +101,7 @@ export async function testFn<TIn, TOut>(
   input: unknown,
   options: TestFnOptions = {},
 ): Promise<TOut> {
-  const standard = (spec.input as { ["~standard"]?: { validate?: unknown } })[
-    "~standard"
-  ];
-  if (typeof standard?.validate !== "function") {
+  if (!isStandardSchema(spec.input)) {
     throw rcError("RC5003", undefined, {
       message: `testFn: spec.input must be a Standard Schema with a callable validate.`,
     });
@@ -124,10 +122,7 @@ export async function testFn<TIn, TOut>(
       // makeSuspend), so a handler exercised in isolation cannot pass with
       // a suspension request the agent runtime would reject.
       if (suspendOptions?.schema !== undefined) {
-        const validate = (
-          suspendOptions.schema as { ["~standard"]?: { validate?: unknown } }
-        )?.["~standard"]?.validate;
-        if (typeof validate !== "function") {
+        if (!isStandardSchema(suspendOptions.schema)) {
           throw rcError("RC5003", undefined, {
             message:
               'testFn: ctx.suspend "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.',

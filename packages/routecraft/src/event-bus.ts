@@ -1,5 +1,6 @@
 import { rcError } from "./error.ts";
 import type { EventHandler, EventName, EventPayload } from "./types.ts";
+import { isThenable } from "./shared/thenable.ts";
 
 /**
  * Minimal logging surface the bus needs for handler-error reporting.
@@ -131,9 +132,11 @@ export class EventBus {
     for (const handler of matchingHandlers) {
       try {
         const result = (handler as unknown as EventHandler<K>)(payload);
-        // Handle async handlers properly to catch promise rejections
-        if (result && typeof result.then === "function") {
-          void result.catch((err: unknown) => {
+        // A thenable carries no `catch`, and reaching for one unwrapped
+        // throws from inside this `try`, misreporting the handler as
+        // having thrown when it returned normally.
+        if (isThenable(result)) {
+          void Promise.resolve(result).catch((err: unknown) => {
             // Log async handler errors at error level for error events, warn for others
             const logLevel = event === "context:error" ? "error" : "warn";
             this.logger[logLevel](

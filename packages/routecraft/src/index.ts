@@ -387,6 +387,7 @@ export {
 } from "./error.ts";
 
 export { validateAgainst } from "./pipeline/validation.ts";
+export { isStandardSchema } from "./shared/standard-schema.ts";
 
 export {
   isCraftContext,
