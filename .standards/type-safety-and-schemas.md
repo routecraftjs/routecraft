@@ -80,7 +80,7 @@ Prefer **`@standard-schema/spec`** types so code works with any spec-compliant l
 
 | Type | Purpose |
 |------|---------|
-| `StandardSchemaV1` | Validation/parsing. Has `~standard.validate(value)`. Use in option types, plugin options, and route schema parameters. |
+| `StandardSchemaV1` | Validation/parsing. Has `~standard.validate(value)`, which may return a result or any thenable resolving to one. Use in option types, plugin options, and route schema parameters; validate through `validateAgainst`. |
 | `StandardJSONSchemaV1` | JSON Schema conversion. Has `~standard.jsonSchema.input(options)`. Use for OpenAPI, MCP tool schemas, or other JSON Schema output. |
 
 Import only from `@standard-schema/spec` (e.g., `import type { StandardSchemaV1 } from "@standard-schema/spec"`). Do not depend on `zod`, `valibot`, or `arktype` in shared/core code.
@@ -88,7 +88,8 @@ Import only from `@standard-schema/spec` (e.g., `import type { StandardSchemaV1 
 ### In public APIs and options
 
 - **Schema options:** Type as `StandardSchemaV1`. Example: `schema?: StandardSchemaV1` on direct/mcp options.
-- **Validation:** Call `schema['~standard'].validate(value)` and handle `result.issues` / `result.value`. Do not use `z.parse()` or library-specific APIs in framework code.
+- **Validation:** Use `validateAgainst(schema, value)` (`packages/routecraft/src/pipeline/validation.ts`, exported from `@routecraft/routecraft`) rather than calling `schema['~standard'].validate(value)` yourself. It returns `{ ok: true, value }` or `{ ok: false, message, issues }`, and each caller maps that onto its own error contract. Do not use `z.parse()` or library-specific APIs in framework code.
+- **Never gate on `instanceof Promise`.** The spec says `validate()` returns a result *or a promise of one*, and "promise" is the thenable contract, not the `Promise` class. A hand-rolled `instanceof Promise` check misses a thenable, then reads the thenable object itself as the result record, where the absent `issues` reads as success: a rejecting schema reports that the value passed (#545). `validateAgainst` tests for `then`; a synchronous seam that cannot await (the AI SDK `jsonSchema({ validate })` bridge) refuses on the same test.
 - **JSON Schema from a schema:** If the schema has `~standard.jsonSchema?.input`, call it with the draft you need. Do not use `z.toJSONSchema()` or library-specific converters in shared code.
 - **Type inference from schema:** Use `StandardSchemaV1.InferOutput<S>` so the body or result type is inferred when a schema is provided; when omitted, keep the type as `unknown`.
 

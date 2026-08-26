@@ -30,6 +30,11 @@ export function wrapJsonSchemaAsStandard(
   };
 }
 
+/** Any thenable counts as async here, not only a `Promise`. */
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return typeof (value as { then?: unknown } | null)?.then === "function";
+}
+
 /**
  * Build an AI SDK schema (`jsonSchema(...)`) from a Standard Schema. The
  * `direction` argument selects which JSON-schema variant the underlying
@@ -65,7 +70,7 @@ function toAiSchema(
       }
     | undefined;
 
-  if (!standard?.validate) {
+  if (typeof standard?.validate !== "function") {
     throw new Error(
       `${errorContext} must be a StandardSchemaV1 with ~standard.validate`,
     );
@@ -106,7 +111,11 @@ function toAiSchema(
         error: err instanceof Error ? err : new Error(String(err)),
       };
     }
-    if (result instanceof Promise) {
+    if (isThenable(result)) {
+      // This seam is synchronous, so the thenable is abandoned here. Without
+      // a catch its rejection lands as an unhandled rejection and takes the
+      // process down, far from the schema that caused it.
+      void Promise.resolve(result).catch(() => {});
       return {
         success: false,
         error: new Error(

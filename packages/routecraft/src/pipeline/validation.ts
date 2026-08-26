@@ -26,6 +26,16 @@ export interface ValidationDeps {
 }
 
 /**
+ * Standard Schema allows `validate()` to return any thenable, not only a
+ * `Promise`. A non-`Promise` thenable fails `instanceof Promise` and then
+ * reads as a success record with no `issues`, which is how a rejecting
+ * schema used to report success.
+ */
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return typeof (value as { then?: unknown } | null)?.then === "function";
+}
+
+/**
  * Run Standard Schema validation against a value. Returns the validated
  * value on success (schemas can legitimately transform to `undefined`,
  * so presence of the `value` key is what decides success, not truthiness)
@@ -39,6 +49,17 @@ export interface ValidationDeps {
  * transforming schema is not the type that went in. `issues` accompanies
  * `message` so a caller can build a structured rejection (a JSON-RPC
  * `error.data`, an HTTP 422 field map) instead of only a sentence.
+ *
+ * Standard Schema allows `validate()` to return a thenable rather than a
+ * real `Promise`, so awaiting one runs schema-author `then` code on this
+ * path: a schema that never settles hangs the validation instead of
+ * silently passing, which is the safer of the two failures. Nothing bounds
+ * that wait. `.input()` is position #4 of the pre-from chain and `.timeout()`
+ * is #8, so a route timeout sits below validation and cannot reclaim it.
+ *
+ * `schema` is assumed to carry a callable `~standard.validate`; this helper
+ * dereferences it unguarded, so a caller holding a value from configuration
+ * checks that first and chooses its own refusal.
  *
  * @param schema - The Standard Schema to validate with
  * @param value - The value to validate
@@ -63,8 +84,8 @@ export async function validateAgainst<S extends StandardSchemaV1>(
       issues: readonly StandardSchemaV1.Issue[];
     }
 > {
-  let result = schema["~standard"].validate(value);
-  if (result instanceof Promise) result = await result;
+  let result: unknown = schema["~standard"].validate(value);
+  if (isThenable(result)) result = await result;
   const issues = (result as { issues?: unknown }).issues;
   if (issues !== undefined && issues !== null) {
     return {

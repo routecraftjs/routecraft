@@ -358,10 +358,13 @@ export async function validateWithSchema(
   if (!result.ok) {
     throw new Error(`mcpPlugin options validation failed: ${result.message}`);
   }
-  // `validateAgainst` falls back to the input when a passing result carries
-  // no `value`, so this only still catches an explicit `{ value: undefined }`.
+  // A transforming schema can pass while producing `undefined`, which is not
+  // usable as plugin options. `validateAgainst` falls back to the input when a
+  // passing result carries no `value`, so only an explicit one reaches here.
   if (result.value === undefined) {
-    throw new Error("mcpPlugin options validation failed: no value returned");
+    throw new Error(
+      "mcpPlugin options validation failed: schema produced undefined options",
+    );
   }
   return result.value as McpPluginOptions;
 }
