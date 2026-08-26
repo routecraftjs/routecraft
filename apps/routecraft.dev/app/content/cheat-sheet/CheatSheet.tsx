@@ -449,9 +449,13 @@ craft()
             <CheatNote>
               Register functions and direct-route tools once via{' '}
               <code>
-                agentPlugin({'{'} functions: {'{'} CurrentTime: {'{'}{' '}
-                description, input, handler {'}'}, greetUser: directTool(
-                {"'"}greet-user{"'"}) {'}'} {'}'})
+                agentPlugin({'{'} functions {'}'})
+              </code>
+              . A fn is an inline object with <code>description</code>,{' '}
+              <code>input</code> and <code>handler</code>; a route-backed tool
+              is{' '}
+              <code>
+                directTool({"'"}greet-user{"'"})
               </code>
               .
             </CheatNote>
