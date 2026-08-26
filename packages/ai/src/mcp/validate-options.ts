@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
+  isStandardSchema,
   normalizeStaticPathPrefix,
   rcError,
   validateAgainst,
@@ -346,10 +347,7 @@ export async function validateWithSchema(
   options: McpPluginOptions,
   schema: StandardSchemaV1,
 ): Promise<McpPluginOptions> {
-  const standard = (schema as { "~standard"?: { validate?: unknown } })[
-    "~standard"
-  ];
-  if (typeof standard?.validate !== "function") {
+  if (!isStandardSchema(schema)) {
     throw new Error(
       "mcpPlugin: schema must be a StandardSchemaV1 with ~standard.validate",
     );

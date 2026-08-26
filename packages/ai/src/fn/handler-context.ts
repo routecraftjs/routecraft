@@ -1,6 +1,7 @@
 import {
   logger as frameworkLogger,
   isAuthentic,
+  isStandardSchema,
   markAuthentic,
   parseDuration,
   rcError,
@@ -100,10 +101,7 @@ function makeSuspend(
 ): (options?: AgentSuspendOptions) => AgentSuspendSentinel {
   return (options) => {
     if (options?.schema !== undefined) {
-      const validate = (
-        options.schema as { ["~standard"]?: { validate?: unknown } }
-      )?.["~standard"]?.validate;
-      if (typeof validate !== "function") {
+      if (!isStandardSchema(options.schema)) {
         throw rcError("RC5003", undefined, {
           message: `ctx.suspend in tool "${toolName}": "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.`,
         });

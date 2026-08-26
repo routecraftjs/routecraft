@@ -1,6 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   getExchangeContext,
+  isStandardSchema,
   validateAgainst,
   type CraftContext,
   type Enricher,
@@ -42,10 +43,7 @@ async function parseStructuredTextFallback(
   } catch {
     return undefined;
   }
-  const standard = (schema as unknown as Record<string, unknown>)[
-    "~standard"
-  ] as { validate?: unknown } | undefined;
-  if (typeof standard?.validate !== "function") return undefined;
+  if (!isStandardSchema(schema)) return undefined;
   const result = await validateAgainst(schema, parsed);
   return result.ok ? result.value : undefined;
 }

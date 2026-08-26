@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { formatSchemaIssues } from "@routecraft/routecraft";
+import { formatSchemaIssues, isStandardSchema } from "@routecraft/routecraft";
 import { Output, jsonSchema } from "ai";
 
 /**
@@ -62,36 +62,25 @@ function toAiSchema(
   direction: "input" | "output",
   errorContext: string,
 ): unknown {
-  const standard = (schema as unknown as Record<string, unknown>)[
-    "~standard"
-  ] as
-    | {
-        validate: (
-          value: unknown,
-        ) =>
-          | { value?: unknown; issues?: unknown }
-          | Promise<{ value?: unknown; issues?: unknown }>;
-        jsonSchema?: {
-          output?: (opts: { target: string }) => Record<string, unknown>;
-          input?: (opts: { target: string }) => Record<string, unknown>;
-        };
-      }
-    | undefined;
-
-  if (typeof standard?.validate !== "function") {
+  if (!isStandardSchema(schema)) {
     throw new Error(
       `${errorContext} must be a StandardSchemaV1 with ~standard.validate`,
     );
   }
+  const standard = schema["~standard"];
 
-  const primary =
-    direction === "input"
-      ? standard.jsonSchema?.input
-      : standard.jsonSchema?.output;
-  const fallback =
-    direction === "input"
-      ? standard.jsonSchema?.output
-      : standard.jsonSchema?.input;
+  // `jsonSchema` is the non-standard extension, absent from the spec type,
+  // so reading it still needs a cast. Only the `validate` half of the old
+  // one moved onto `isStandardSchema`.
+  const { jsonSchema: arms } = standard as {
+    jsonSchema?: {
+      output?: (opts: { target: string }) => Record<string, unknown>;
+      input?: (opts: { target: string }) => Record<string, unknown>;
+    };
+  };
+
+  const primary = direction === "input" ? arms?.input : arms?.output;
+  const fallback = direction === "input" ? arms?.output : arms?.input;
   const jsonSchemaObj =
     primary?.({ target: "draft-2020-12" }) ??
     fallback?.({ target: "draft-2020-12" });
@@ -112,7 +101,7 @@ function toAiSchema(
           issues?: unknown;
         }>;
     try {
-      result = standard!.validate(value);
+      result = standard.validate(value);
     } catch (err) {
       return {
         success: false,
