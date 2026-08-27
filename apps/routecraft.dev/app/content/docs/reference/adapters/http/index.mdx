@@ -173,7 +173,7 @@ What each yielded value becomes:
 
 | Yielded | On the wire |
 |---|---|
-| object with a `data` property | An event: `event:`, `id:`, `retry:` and `data:` fields read from it. Other keys are not sent. |
+| object with a `data` property (an `SseEvent`) | An event: `event:`, `id:`, `retry:` and `data:` fields read from it. Other keys are not sent. |
 | any other object, array or primitive | `data: <JSON>`, one frame. |
 | string | Its exact bytes, no framing added. The escape hatch for a hand-built frame, an SSE comment (`": ping\n\n"`), or a different line format entirely. |
 | `Uint8Array` | Its exact bytes, as above. |

@@ -109,6 +109,7 @@ export type {
   WebIngress,
 } from "./plugins/server/types.ts";
 export { apiKey } from "./plugins/http/auth.ts";
+export type { SseEvent } from "./plugins/http/sse.ts";
 
 export { opsPlugin } from "./plugins/ops/plugin.ts";
 export { defineIndicator } from "./plugins/ops/indicator.ts";
