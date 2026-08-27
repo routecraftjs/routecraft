@@ -16,6 +16,7 @@ import {
   generateProjectStructure,
   isExcludedExamplePath,
   mergeExamplePackageJson,
+  parseGitHubExampleUrl,
   processTemplate,
   isUrl,
   type InitOptions,
@@ -653,5 +654,88 @@ describe("mergeExamplePackageJson", () => {
     const before = await readJson(join(target, "package.json"));
     await mergeExamplePackageJson(source, target);
     expect(await readJson(join(target, "package.json"))).toEqual(before);
+  });
+});
+
+// ─── Unit: parseGitHubExampleUrl ─────────────────────────────────────────────
+
+describe("parseGitHubExampleUrl", () => {
+  /**
+   * @case A plain repository URL takes the default branch and the whole tree
+   * @preconditions No /tree/ segment
+   * @expectedResult branch "main" and an empty subpath, because templates are
+   *   untagged and always scaffolded from main
+   */
+  test("defaults to main and the repository root", () => {
+    expect(parseGitHubExampleUrl("https://github.com/owner/repo")).toEqual({
+      owner: "owner",
+      repo: "repo",
+      branch: "main",
+      subPath: "",
+    });
+  });
+
+  /**
+   * @case A branch with no subpath names the whole repository at that branch
+   * @preconditions /tree/<branch> with and without a trailing slash
+   * @expectedResult The branch, and an empty subpath. Without this a template
+   *   repository cannot scaffold from the branch under test in its own CI.
+   */
+  test("accepts a branch with no subpath", () => {
+    for (const url of [
+      "https://github.com/owner/repo/tree/feature-x",
+      "https://github.com/owner/repo/tree/feature-x/",
+    ]) {
+      expect(parseGitHubExampleUrl(url)).toEqual({
+        owner: "owner",
+        repo: "repo",
+        branch: "feature-x",
+        subPath: "",
+      });
+    }
+  });
+
+  /**
+   * @case A branch and a subpath are both read
+   * @preconditions /tree/<branch>/<nested/path>
+   * @expectedResult Both, with the subpath keeping its own separators
+   */
+  test("reads a branch and a nested subpath", () => {
+    expect(
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/examples/api",
+      ),
+    ).toEqual({
+      owner: "owner",
+      repo: "repo",
+      branch: "main",
+      subPath: "examples/api",
+    });
+  });
+
+  /**
+   * @case A .git suffix is tolerated
+   * @preconditions A clone URL pasted as an example
+   * @expectedResult The repository name without the suffix
+   */
+  test("strips a .git suffix", () => {
+    expect(parseGitHubExampleUrl("https://github.com/owner/repo.git")).toEqual({
+      owner: "owner",
+      repo: "repo",
+      branch: "main",
+      subPath: "",
+    });
+  });
+
+  /**
+   * @case A URL that is not a GitHub repository is refused
+   * @preconditions A host that is not github.com, and a path with no repo
+   * @expectedResult Throws, rather than cloning something unexpected
+   */
+  test("refuses a URL that is not a GitHub repository", () => {
+    expect(() =>
+      parseGitHubExampleUrl("https://example.com/owner/repo"),
+    ).toThrow();
+    expect(() => parseGitHubExampleUrl("https://github.com/owner")).toThrow();
   });
 });

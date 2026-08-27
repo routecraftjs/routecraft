@@ -221,6 +221,45 @@ export async function collidingExamplePaths(
 }
 
 /**
+ * What a GitHub example URL names.
+ */
+export interface GitHubExampleRef {
+  owner: string;
+  repo: string;
+  /** Branch to clone. `main` when the URL names none: templates are untagged. */
+  branch: string;
+  /** Subdirectory inside the repository, or `""` for the whole thing. */
+  subPath: string;
+}
+
+/**
+ * Parse `https://github.com/owner/repo`, optionally `/tree/<branch>` and
+ * optionally a subpath under it, with a trailing slash allowed on any of
+ * them.
+ *
+ * The subpath is optional so a whole repository at a named branch is
+ * expressible. It was not, which left a template repository unable to
+ * scaffold from the branch under test in its own CI.
+ *
+ * A branch is one path segment. `feature/my-branch` parses as branch
+ * `feature` with subpath `my-branch`, because nothing in the URL says which
+ * slash is the boundary and resolving it would need a call to GitHub. Use
+ * the default branch, or a single-segment one, for URL examples.
+ *
+ * @throws Error when the URL is not a GitHub repository URL
+ */
+export function parseGitHubExampleUrl(url: string): GitHubExampleRef {
+  const match = url.match(
+    /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/tree\/([^/]+?)(?:\/(.+?))?)?\/?$/,
+  );
+  if (!match) {
+    throw new Error(`Invalid GitHub URL format: ${url}`);
+  }
+  const [, owner, repo, branch = "main", subPath = ""] = match;
+  return { owner: owner!, repo: repo!, branch, subPath };
+}
+
+/**
  * Download and extract a GitHub example
  */
 async function downloadGitHubExample(url: string): Promise<string> {
@@ -229,16 +268,7 @@ async function downloadGitHubExample(url: string): Promise<string> {
   try {
     console.log(`📥 Downloading example from ${url}...`);
 
-    // Regex supports multi-segment branches (e.g. feature/my-branch)
-    const urlPattern =
-      /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/tree\/([^/]+?)\/(.+))?$/;
-    const match = url.match(urlPattern);
-
-    if (!match) {
-      throw new Error(`Invalid GitHub URL format: ${url}`);
-    }
-
-    const [, owner, repo, branch = "main", subPath = ""] = match;
+    const { owner, repo, branch, subPath } = parseGitHubExampleUrl(url);
     const repoUrl = `https://github.com/${owner}/${repo}.git`;
 
     try {
