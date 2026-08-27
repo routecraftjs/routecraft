@@ -277,7 +277,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
         // cancels the resumed run: graceful stage one drains rather than
         // cancels. A short deadline keeps the test honest about which stage
         // does the cancelling.
-        shutdown: { timeoutMs: 300 },
+        shutdown: { timeout: 300 },
         plugins: plugins({ ask: askFn, hang }),
       })
       .routes([

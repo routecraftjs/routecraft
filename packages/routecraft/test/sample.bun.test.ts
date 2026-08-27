@@ -96,7 +96,7 @@ describe("sample (.sample())", () => {
         craft()
           .id("sample-interval")
           .from(direct())
-          .sample({ intervalMs: 60_000 })
+          .sample({ interval: 60_000 })
           .to(s),
       )
       .build();
@@ -122,7 +122,7 @@ describe("sample (.sample())", () => {
         craft()
           .id("sample-interval-next")
           .from(direct())
-          .sample({ intervalMs: 30 })
+          .sample({ interval: 30 })
           .to(s),
       )
       .build();
@@ -187,7 +187,7 @@ describe("sample (.sample())", () => {
         craft()
           .id("sample-interval-events")
           .from(direct())
-          .sample({ intervalMs: 1000 })
+          .sample({ interval: 1000 })
           .to(s),
       )
       .build();
@@ -215,11 +215,11 @@ describe("sample (.sample())", () => {
       /mutually exclusive/,
     );
     expect(
-      () => new SampleStep({ every: 2, intervalMs: 5 } as SampleOptions),
+      () => new SampleStep({ every: 2, interval: 5 } as SampleOptions),
     ).toThrow(/mutually exclusive/);
     expect(() => new SampleStep({ every: 0 })).toThrow(/every/);
     expect(() => new SampleStep({ every: 1.5 })).toThrow(/every/);
-    expect(() => new SampleStep({ intervalMs: 0 })).toThrow(/intervalMs/);
-    expect(() => new SampleStep({ intervalMs: -10 })).toThrow(/intervalMs/);
+    expect(() => new SampleStep({ interval: 0 })).toThrow(/interval/);
+    expect(() => new SampleStep({ interval: -10 })).toThrow(/interval/);
   });
 });

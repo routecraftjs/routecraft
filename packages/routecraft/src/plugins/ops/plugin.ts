@@ -12,6 +12,7 @@
  */
 
 import type { CraftContext, CraftPlugin } from "../../context";
+import { parseDuration } from "../../shared/duration.ts";
 import { rcError } from "../../error";
 import { requireWebIngress } from "../server/registry";
 import type { PathClaim } from "../server/types";
@@ -165,7 +166,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       }
 
       for (const indicator of indicators) {
-        const { maxAgeMs, domain } = indicator.definition;
+        const { maxAge, domain } = indicator.definition;
+        const maxAgeMs =
+          maxAge === undefined ? undefined : parseDuration(maxAge, "maxAge");
         state.registerIndicator(indicator.name, {
           ...(maxAgeMs !== undefined ? { maxAgeMs } : {}),
           ...(domain !== undefined ? { domain } : {}),

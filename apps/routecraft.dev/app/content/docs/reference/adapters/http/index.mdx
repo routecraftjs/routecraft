@@ -429,7 +429,7 @@ Make HTTP requests. Returns an `Enricher` (a pull-in) whose `fetch` produces an 
 | `query` | `Record<string,string\|number\|boolean> \| (exchange) => Query` | `{}` | No | Query parameters appended to URL |
 | `body` | `unknown \| (exchange) => unknown` | -- | No | Request body (JSON serialized when not string/binary) |
 | `throwOnHttpError` | `boolean` | `true` | No | Throw when response is non-2xx. A 3xx under `redirect: 'manual'` is exempt: it is the outcome the route asked for. |
-| `timeoutMs` | `number` | -- | No | Request timeout in milliseconds |
+| `timeout` | `Duration` | -- | No | Request timeout |
 | `maxBodySize` | `number` | `10485760` (10 MB) | No | Maximum response body in bytes; `Infinity` for no limit. Larger responses fail the exchange with [`RC5061`](/docs/reference/errors#rc-5061). See [Response size limit](#response-size-limit). |
 | `redirect` | `'follow' \| 'manual' \| 'error'` | `'follow'` | No | What to do with a 3xx. See [Redirect policy](#redirect-policy). |
 

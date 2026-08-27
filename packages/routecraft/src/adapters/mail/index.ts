@@ -226,7 +226,7 @@ const SERVER_ONLY_KEYS: Record<ServerOnlyKey, true> = {
   limit: true,
   description: true,
   keywords: true,
-  pollIntervalMs: true,
+  pollInterval: true,
   includeHeaders: true,
   verify: true,
   onParseError: true,

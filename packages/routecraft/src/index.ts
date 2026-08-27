@@ -388,6 +388,8 @@ export {
 
 export { validateAgainst } from "./pipeline/validation.ts";
 export { isStandardSchema } from "./shared/standard-schema.ts";
+export { parseDuration } from "./shared/duration.ts";
+export type { Duration, DurationUnit } from "./shared/duration.ts";
 
 export {
   isCraftContext,
@@ -612,14 +614,11 @@ export {
   isSuspendSignal,
   isSuspended,
   markSuspendCapable,
-  parseDuration,
   routeCanSuspend,
   suspendedSchema,
   suspensionPlugin,
 } from "./suspension/index.ts";
 export type {
-  Duration,
-  DurationUnit,
   ExpiredScanCursor,
   NewSuspension,
   SuspendSignalRequest,

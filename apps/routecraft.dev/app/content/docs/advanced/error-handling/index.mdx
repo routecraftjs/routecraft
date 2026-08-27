@@ -18,7 +18,7 @@ craft()
   .error((error, exchange) => {
     return { status: 'failed', reason: (error as Error).message }
   })
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: 60_000 }))
   .transform(fetchOrders)
   .to(processOrder)
 ```
@@ -79,7 +79,7 @@ craft()
     // result is now the recovery value for this capability
     return result
   })
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: 60_000 }))
   .transform(fetchOrders)
   .to(processOrder)
 ```
@@ -116,7 +116,7 @@ If you only need to log or return a static fallback, you do not need `forward` a
 ```ts
 craft()
   .id('resilient-pipeline')
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: 60_000 }))
   .transform(prepareRequest)
   .error((err) => ({ fallback: true, reason: String(err) }))
   .to(http({ url: 'https://flaky.api/endpoint' }))
@@ -135,7 +135,7 @@ Step handlers are local recovery; route handlers are the safety net. Use both:
 craft()
   .id('with-safety-net')
   .error((err, ex, forward) => forward('errors.catchall', ex.body))   // route scope
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: 60_000 }))
   .transform(prepareRequest)
   .error((err) => ({ fallback: true }))                               // step scope
   .to(http({ url: 'https://flaky.api/endpoint' }))

@@ -285,7 +285,7 @@ describe("Throttle wrapper (.throttle())", () => {
         craft()
           .id("throttle-outside-retry")
           .throttle({ rate: 100 })
-          .retry({ maxAttempts: 3, backoffMs: 1 })
+          .retry({ maxAttempts: 3, backoff: 1 })
           .from(simple("in"))
           .transform((body: string) => {
             calls++;
@@ -651,7 +651,7 @@ describe("Throttle wrapper (.throttle())", () => {
         craft()
           .id("throttle-stacked")
           .from(simple("in"))
-          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .retry({ maxAttempts: 2, backoff: 1 })
           .throttle({ rate: 100 })
           .transform((body: string) => {
             calls++;

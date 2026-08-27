@@ -1,3 +1,4 @@
+import { type Duration, parseDuration } from "../shared/duration.ts";
 import {
   type Exchange,
   DefaultExchange,
@@ -40,12 +41,11 @@ export interface CacheOptions<Current = unknown> {
    */
   key?: (exchange: Exchange<Current>) => string;
   /**
-   * Time to live in milliseconds. After expiry, the next execution
-   * with the same key recomputes the value. When omitted, the
-   * provider's default applies (the bundled in-memory provider keeps
-   * entries until LRU eviction).
+   * Time to live. After expiry, the next execution with the same key
+   * recomputes the value. When omitted, the provider's default applies
+   * (the bundled in-memory provider keeps entries until LRU eviction).
    */
-  ttl?: number;
+  ttl?: Duration;
   /**
    * Cache backend. Defaults to a process-wide in-memory provider. Pass
    * a custom provider (Redis, multi-tier, file-backed, etc.) by
@@ -80,7 +80,10 @@ export function resolveCacheOptions<Current = unknown>(
 ): ResolvedCacheOptions<Current> {
   return {
     key: options.key ?? (defaultKey as (e: Exchange<Current>) => string),
-    ttl: options.ttl,
+    ttl:
+      options.ttl === undefined
+        ? undefined
+        : parseDuration(options.ttl, "cache({ ttl })"),
     provider: options.provider ?? defaultMemoryCacheProvider,
   };
 }

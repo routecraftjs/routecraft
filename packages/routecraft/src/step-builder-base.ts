@@ -1,3 +1,4 @@
+import type { Duration } from "./shared/duration.ts";
 import { ENRICH_MERGE_TYPE } from "./brand.ts";
 import type { Adapter, Step } from "./types.ts";
 import type { Exchange, HeaderValue, HeaderLiteral } from "./exchange.ts";
@@ -383,12 +384,12 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * outermost): `.retry().delay(1000).process(op)` waits before each
    * attempt, because retry re-runs the delay-wrapped step.
    *
-   * @param delayMs - Milliseconds to wait before the next step
+   * @param duration - How long to wait before the next step
    * @returns This builder (same subclass, same body type)
    */
-  delay(delayMs: number): this {
+  delay(duration: Duration): this {
     this.pendingStepWrappers.push(
-      (inner) => new DelayWrapperStep(inner, delayMs),
+      (inner) => new DelayWrapperStep(inner, duration),
     );
     return this;
   }
@@ -411,12 +412,12 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * filter chain position 8 (inside `.retry()`, so each attempt gets
    * its own deadline); called AFTER `.from()` it wraps the next step.
    *
-   * @param timeoutMs - Deadline in milliseconds
+   * @param duration - The deadline
    * @returns This builder (same subclass, same body type)
    */
-  timeout(timeoutMs: number): this {
+  timeout(duration: Duration): this {
     this.pendingStepWrappers.push(
-      (inner) => new TimeoutWrapperStep(inner, timeoutMs),
+      (inner) => new TimeoutWrapperStep(inner, duration),
     );
     return this;
   }

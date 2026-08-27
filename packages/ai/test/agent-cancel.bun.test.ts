@@ -94,7 +94,7 @@ describe("cooperative cancellation of agent runs", () => {
         // Generous relative to the mid-drain assertion below: a tight
         // deadline would let the forced stage fire first on a loaded runner
         // and the test would report a cancellation that stage one did not do.
-        shutdown: { timeoutMs: 2_000 },
+        shutdown: { timeout: 2_000 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({ functions: { hang: hangFn } }),
@@ -155,7 +155,7 @@ describe("cooperative cancellation of agent runs", () => {
 
     t = await testContext()
       .with({
-        shutdown: { timeoutMs: 5_000 },
+        shutdown: { timeout: 5_000 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({ functions: { slow: slowFn } }),
@@ -238,7 +238,7 @@ describe("cooperative cancellation of agent runs", () => {
       .with({
         // The run is cancelled by the FORCED stage now: graceful stage one
         // drains rather than cancels, and this tool never finishes on its own.
-        shutdown: { timeoutMs: 300 },
+        shutdown: { timeout: 300 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({ functions: { hang: hangFn } }),
@@ -417,7 +417,7 @@ describe("cooperative cancellation of agent runs", () => {
           store,
           secret: "cancel-test-secret-key-0123456789-abcdef",
         },
-        shutdown: { timeoutMs: 300 },
+        shutdown: { timeout: 300 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({ functions: { ask, hang: hangFn } }),

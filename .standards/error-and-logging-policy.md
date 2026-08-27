@@ -111,7 +111,7 @@ The exchange lifecycle event names (`route:exchange:started` / `:completed` / `:
 
 **Rules:**
 
-- Every `route:exchange:started` must eventually be followed by exactly one of: `:completed`, `:failed`, `:dropped`, or `:suspended`. The one exception is a forced shutdown (`shutdown.timeoutMs` elapsed): in-flight exchanges are abandoned mid-step and emit no terminal event. Do not widen that exception; it is the only case where a started exchange may go unterminated.
+- Every `route:exchange:started` must eventually be followed by exactly one of: `:completed`, `:failed`, `:dropped`, or `:suspended`. The one exception is a forced shutdown (`shutdown.timeout` elapsed): in-flight exchanges are abandoned mid-step and emit no terminal event. Do not widen that exception; it is the only case where a started exchange may go unterminated.
 - Child exchanges (from split) get their own `started`/`completed`/`failed`/`dropped` events.
 - The `exchangeId` field must be `exchange.id` (not `correlationId`). Use `correlationId` for grouping related exchanges.
 - Operations that drop exchanges (filter, debounce, sample) must emit `route:exchange:dropped` with a `reason` string.

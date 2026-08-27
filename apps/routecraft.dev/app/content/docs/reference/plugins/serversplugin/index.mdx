@@ -44,7 +44,7 @@ Each entry in the `servers` record:
 | `host` | `string` | `127.0.0.1` | Host to bind. Use `0.0.0.0` to expose externally. |
 | `kind` | `'http'` | `'http'` | Listener kind. Reserved for future non-HTTP listeners; only `'http'` is valid today. |
 | `auth` | `ValidatorAuthOptions` | -- | Server-level credential validator inherited by every mount that sets no `auth` of its own. Verification only: each mount keeps its admission policy and refusal format. A mount removes the wall with `auth: false`, which keeps this validator reachable for routes that pull identity. |
-| `shutdownGraceMs` | `number` | `30000` | How long a graceful close may drain in-flight work before the listener is force-closed. |
+| `shutdownGrace` | `Duration` | `30000` | How long a graceful close may drain in-flight work before the listener is force-closed. |
 
 ## Mounts and claims
 
@@ -56,7 +56,7 @@ Authentication on a shared listener is three-tiered: the server verifies credent
 
 - `apply(ctx)` publishes one ingress registry per declared server on the context store. No socket is bound.
 - `start(ctx)` validates every mount's claims, then binds each listener (`Bun.serve` on Bun, `node:http` on Node 22+) and emits `server:listening { server, host, port }`. A bind failure emits `server:failed` and fails the context start with [`RC5019`](/docs/reference/errors#rc-5019).
-- `teardown(ctx, info)` closes gracefully (stop accepting, reap idle connections, drain in-flight up to `shutdownGraceMs`, then force-close) and emits `server:closed { server }`.
+- `teardown(ctx, info)` closes gracefully (stop accepting, reap idle connections, drain in-flight up to `shutdownGrace`, then force-close) and emits `server:closed { server }`.
 - The plugin declares `keepsAlive`, so a context whose routes have all completed keeps running until `stop()` while a listener is up.
 
 ## Events

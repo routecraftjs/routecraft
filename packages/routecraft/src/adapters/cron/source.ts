@@ -4,11 +4,12 @@ import { CronHeaders } from "./types";
 import type { Source, Subscription } from "../../operations/from";
 import type { CraftContext, MergedOptions } from "../../context";
 import { loadOptionalPeer } from "../shared/optional-peer";
+import { parseDuration } from "../../shared/duration.ts";
 import type { CronExpression, CronOptions } from "./types";
 
 /**
  * Store key for merged cron adapter options.
- * Set context-level defaults (e.g., jitterMs) once and share across all
+ * Set context-level defaults (e.g., jitter) once and share across all
  * cron sources in the same context.
  * @internal
  */
@@ -99,7 +100,7 @@ export class CronSourceAdapter
     const {
       timezone,
       maxFires = Infinity,
-      jitterMs = 0,
+      jitter: jitterOption = 0,
       name,
       protect = true,
       startAt,
@@ -109,9 +110,7 @@ export class CronSourceAdapter
     if (Number.isNaN(maxFires) || maxFires < 0) {
       throw new Error("cron maxFires must be a non-negative number");
     }
-    if (Number.isNaN(jitterMs) || jitterMs < 0) {
-      throw new Error("cron jitterMs must be a non-negative number");
-    }
+    const jitterMs = parseDuration(jitterOption, "cron({ jitter })", 0);
 
     // Resolve immediately if already aborted (avoids hanging when
     // startAt/stopAt postpone the first tick indefinitely).

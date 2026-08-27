@@ -7,7 +7,7 @@ title: delay
 </Lead>
 
 ```ts
-delay(delayMs: number): RouteBuilder<Current>
+delay(duration: Duration): RouteBuilder<Current>
 ```
 
 Wait a fixed time before the next operation runs. Pass-through: the exchange is unchanged by the wait, and the body type flows through untouched.
@@ -24,7 +24,7 @@ craft()
 **Mental model:** Step scope only. `.delay()` wraps the immediately-next step; there is no route-scope form, because a delay over the whole pipeline is equivalent to a delay before the first step. Calling `.delay()` before `.from()` is a compile error.
 
 **Parameters:**
-- `delayMs` - Milliseconds to wait before the next operation runs
+- `duration` - How long to wait before the next operation runs
 
 **Cancellation:** The wait is tied to the route's abort signal. When the route shuts down mid-wait, the remaining wait is skipped and the wrapped step still runs, so no exchange is silently dropped by a shutdown. The `route:delay:stopped` event carries `cancelled: true` in that case.
 
@@ -35,7 +35,7 @@ craft()
 craft()
   .id('paced-retry')
   .from(source)
-  .retry({ maxAttempts: 3, backoffMs: 1000 })
+  .retry({ maxAttempts: 3, backoff: 1000 })
   .delay(500)
   .to(http({ url: 'https://api.example.com' }))
 ```

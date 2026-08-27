@@ -8,6 +8,7 @@ import type {
   AnyRouteBuilder,
   AdapterOverride,
   SuspensionConfig,
+  Duration,
 } from "@routecraft/routecraft";
 import {
   ContextBuilder,
@@ -17,6 +18,7 @@ import {
   rcError,
   logger,
   RC_ADAPTER_OVERRIDES,
+  parseDuration,
 } from "@routecraft/routecraft";
 import type { SpyFactory, SpyLogger } from "./spy-logger";
 import {
@@ -68,8 +70,8 @@ function describeOverrideTarget(target: unknown): string {
 }
 
 export interface TestContextOptions {
-  /** Timeout in ms for waiting for all routes to emit routeStarted. Default 200. */
-  routesReadyTimeoutMs?: number;
+  /** How long to wait for all routes to emit routeStarted. Default 200ms. */
+  routesReadyTimeout?: Duration;
   /**
    * Mock factory used to build the spy logger. Defaults to the built-in
    * runner-agnostic spy. Pass your runner's factory (`vi.fn` from Vitest, or
@@ -84,11 +86,11 @@ export interface TestContextOptions {
  */
 export interface TestOptions {
   /**
-   * Delay in ms after all routes are ready, before draining.
+   * Delay after all routes are ready, before draining.
    * Use for timer (or other deferred) sources so at least one message is processed before drain/stop.
-   * E.g. `await t.test({ delayBeforeDrainMs: 50 })` for a timer with intervalMs >= 50.
+   * E.g. `await t.test({ delayBeforeDrain: 50 })` for a timer with interval >= 50.
    */
-  delayBeforeDrainMs?: number;
+  delayBeforeDrain?: Duration;
 }
 
 /**
@@ -123,7 +125,9 @@ export class TestContext {
     if (options?.restoreLoggerChild)
       this.restoreLoggerChild = options.restoreLoggerChild;
     this.routesReadyTimeoutMs =
-      options?.routesReadyTimeoutMs ?? DEFAULT_ROUTES_READY_TIMEOUT_MS;
+      options?.routesReadyTimeout === undefined
+        ? DEFAULT_ROUTES_READY_TIMEOUT_MS
+        : parseDuration(options.routesReadyTimeout, "routesReadyTimeout");
     const pushError = (err: unknown) => {
       this.errors.push(
         isRoutecraftError(err)
@@ -254,7 +258,7 @@ export class TestContext {
    * Start context, wait for all routes ready, optionally delay, drain in-flight, then stop.
    * Assert after this returns (mocks, t.errors, t.ctx.getStore() all valid).
    *
-   * @param options.delayBeforeDrainMs If set, wait this many ms after routes are ready before draining.
+   * @param options.delayBeforeDrain If set, wait this long after routes are ready before draining.
    *   Use for timer (or other deferred) sources so at least one message is processed before drain/stop.
    */
   async test(options?: TestOptions): Promise<void> {
@@ -266,7 +270,10 @@ export class TestContext {
     started.catch(() => {});
     try {
       await allReady;
-      const delayMs = options?.delayBeforeDrainMs ?? 0;
+      const delayMs =
+        options?.delayBeforeDrain === undefined
+          ? 0
+          : parseDuration(options.delayBeforeDrain, "delayBeforeDrain", 0);
       if (delayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
@@ -315,12 +322,15 @@ export class TestContextBuilder {
 
   constructor(options?: TestContextOptions) {
     this.spyFactory = options?.fn ?? createSpyFn;
-    this.routesReadyTimeoutMs = options?.routesReadyTimeoutMs;
+    this.routesReadyTimeoutMs =
+      options?.routesReadyTimeout === undefined
+        ? undefined
+        : parseDuration(options.routesReadyTimeout, "routesReadyTimeout");
   }
 
-  /** Override timeout for waiting for routes to start (ms). Used by tests that assert timeout behavior. */
-  routesReadyTimeout(ms: number): this {
-    this.routesReadyTimeoutMs = ms;
+  /** Override how long to wait for routes to start. Used by tests that assert timeout behavior. */
+  routesReadyTimeout(duration: Duration): this {
+    this.routesReadyTimeoutMs = parseDuration(duration, "routesReadyTimeout");
     return this;
   }
 
@@ -413,7 +423,7 @@ export class TestContextBuilder {
       restoreLoggerChild: () => void;
     } = {
       ...(this.routesReadyTimeoutMs !== undefined
-        ? { routesReadyTimeoutMs: this.routesReadyTimeoutMs }
+        ? { routesReadyTimeout: this.routesReadyTimeoutMs }
         : {}),
       spyLogger,
       restoreLoggerChild: () => {

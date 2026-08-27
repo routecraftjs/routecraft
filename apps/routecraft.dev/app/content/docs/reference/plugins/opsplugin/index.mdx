@@ -271,7 +271,7 @@ import { defineIndicator } from '@routecraft/routecraft'
 
 export const mailHealth = defineIndicator({
   name: 'mail',
-  maxAgeMs: 15 * 60_000,
+  maxAge: 15 * 60_000,
   domain: 'deployment',
   route: 'probe-mail',
 })
@@ -280,7 +280,7 @@ export const mailHealth = defineIndicator({
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `name` | `string` | required | Unique name. Becomes the report key and the path segment. |
-| `maxAgeMs` | `number` | none | No report inside this window makes the indicator `down` (stale). Omit it for an indicator with no cadence. |
+| `maxAge` | `Duration` | none | No report inside this window makes the indicator `down` (stale). Omit it for an indicator with no cadence. |
 | `domain` | `'instance' \| 'deployment'` | `'deployment'` | Whether readiness may carry this failure. |
 | `route` | `string` | none | Bind to a route's exchange outcomes. |
 
@@ -295,7 +295,7 @@ export const craftConfig = defineConfig({
 
 ### Route-bound: no code in the route
 
-With `route` set, a completed exchange on that route reports up, a failed exchange reports down, and no exchange inside `maxAgeMs` goes stale. The probe route carries no health code at all:
+With `route` set, a completed exchange on that route reports up, a failed exchange reports down, and no exchange inside `maxAge` goes stale. The probe route carries no health code at all:
 
 ```ts
 export default craft()
@@ -325,7 +325,7 @@ A bound indicator and its route are separate components that move on different r
 | Exchange dropped | no change | `up` | 200 |
 | Breaker open, no `fallback` | `down` | `degraded` | 503 |
 | Breaker open, with `fallback` | `up` | `degraded` | 200 |
-| No exchange within `maxAgeMs` | `down`, `reason: 'stale'` | no change | 503 |
+| No exchange within `maxAge` | `down`, `reason: 'stale'` | no change | 503 |
 | Source gave up producing | no change until stale | `down` | 503 |
 
 Three rows earn an explanation.

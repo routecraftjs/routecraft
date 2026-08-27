@@ -1,3 +1,4 @@
+import type { Duration } from "../shared/duration.ts";
 import type { TracerProvider } from "@opentelemetry/api";
 
 /**
@@ -19,10 +20,10 @@ export interface TelemetrySqliteOptions {
   eventBatchSize?: number;
 
   /**
-   * Maximum time in milliseconds between event flushes.
+   * Maximum time between event flushes.
    * Defaults to `1000` (1 second).
    */
-  eventFlushIntervalMs?: number;
+  eventFlushInterval?: Duration;
 
   /**
    * Maximum number of exchange rows to keep in the database.

@@ -207,13 +207,13 @@
   {
     "name": "sample",
     "category": "Flow Control",
-    "signature": ".sample({ every } | { intervalMs })",
+    "signature": ".sample({ every } | { interval })",
     "description": "Pass every Nth exchange, or the first per time window."
   },
   {
     "name": "debounce",
     "category": "Flow Control",
-    "signature": ".debounce({ waitMs })",
+    "signature": ".debounce({ wait })",
     "description": "Release only the last exchange in a burst after a quiet period."
   },
   {

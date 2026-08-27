@@ -76,7 +76,7 @@ Core adapters have dedicated fields on `CraftConfig`:
 ```ts
 // craft.config.ts
 export const craftConfig: CraftConfig = {
-  cron: { timezone: 'UTC', jitterMs: 2000 },
+  cron: { timezone: 'UTC', jitter: 2000 },
   direct: { channelType: KafkaChannel },
 }
 ```

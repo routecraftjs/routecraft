@@ -1,3 +1,4 @@
+import { type Duration, parseDuration } from "./shared/duration.ts";
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
@@ -168,23 +169,27 @@ const ROUTE_READINESS_TIMEOUT_MS = 30_000;
 type RouteBootOutcome = "started" | "failed" | "waiting";
 
 /**
- * Validate `shutdown.timeoutMs` at construction.
+ * Validate `shutdown.timeout` at construction.
  *
  * Refused rather than clamped, and refused while the context is being built
  * rather than when it stops: a `0` reads as "no bound" and behaves as "force
  * immediately", and an operator discovering that during an outage is the worst
  * possible moment to learn the polarity.
  *
- * @throws RC1003 when the value is not a positive, finite number of milliseconds.
+ * @throws RC5058 when the value is not a positive, finite duration. The
+ *   shutdown-specific code is kept rather than letting `parseDuration`'s
+ *   generic RC5003 surface, because RC5058 carries the polarity warning an
+ *   operator needs and the docs page is written against that code.
  */
-function resolveShutdownTimeout(timeoutMs: number | undefined): number {
-  if (timeoutMs === undefined) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+function resolveShutdownTimeout(timeout: Duration | undefined): number {
+  if (timeout === undefined) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  try {
+    return parseDuration(timeout, "shutdown.timeout");
+  } catch {
     throw rcError("RC5058", undefined, {
-      message: `shutdown.timeoutMs must be a positive number of milliseconds. Received ${String(timeoutMs)}. Omit it to use the ${String(DEFAULT_SHUTDOWN_TIMEOUT_MS)}ms default.`,
+      message: `shutdown.timeout must be a positive number of milliseconds or a duration string like "30s". Received ${JSON.stringify(timeout)}. Omit it to use the ${String(DEFAULT_SHUTDOWN_TIMEOUT_MS)}ms default.`,
     });
   }
-  return timeoutMs;
 }
 
 /** Rejection marker for the shutdown deadline, so it cannot be confused with a drain failure. */
@@ -264,7 +269,7 @@ export interface ShutdownConfig {
    * decides the outcome rather than the platform's: past that timer the
    * platform sends SIGKILL and whatever stage two was meant to do is lost.
    */
-  timeoutMs?: number;
+  timeout?: Duration;
 }
 
 /**
@@ -409,9 +414,7 @@ export class CraftContext {
   constructor(config?: CraftConfig) {
     setBrand(this, BRAND.CraftContext);
     if (config?.name !== undefined) this.name = config.name;
-    this.shutdownTimeoutMs = resolveShutdownTimeout(
-      config?.shutdown?.timeoutMs,
-    );
+    this.shutdownTimeoutMs = resolveShutdownTimeout(config?.shutdown?.timeout);
     this.logger = logger.child(childBindings(this));
     this.events = new EventBus(this.contextId, this.logger);
     if (config) {
@@ -1556,7 +1559,7 @@ export class CraftContext {
         : "Graceful shutdown did not complete in time; forcing shutdown.",
     );
     for (const route of this.routes) {
-      route.abortExecution("shutdown.timeoutMs elapsed");
+      route.abortExecution("shutdown.timeout elapsed");
     }
     return pending.map((entry) => entry.route);
   }

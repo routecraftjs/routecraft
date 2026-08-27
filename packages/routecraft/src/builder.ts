@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { type Duration, parseDuration } from "./shared/duration.ts";
 import { BRAND, setBrand } from "./brand.ts";
 import {
   StepBuilderBase,
@@ -500,7 +501,7 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
   /** Tag the next route. See {@link RouteBuilder.tag}. */
   tag(value: Tag | Tag[]): this;
   /** Configure batch processing for the next route. See {@link RouteBuilder.batch}. */
-  batch(options?: { size?: number; flushIntervalMs?: number }): this;
+  batch(options?: { size?: number; flushInterval?: Duration }): this;
   /**
    * Attach a ROUTE-SCOPE error handler (catch-all) to the next route. The
    * step-scope variant lives on the post-`.from()` builder; position picks
@@ -525,7 +526,7 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
    * step-scope variant lives on the post-`.from()` builder. See
    * {@link RouteBuilder.timeout}.
    */
-  timeout(timeoutMs: number): this;
+  timeout(duration: Duration): this;
   /**
    * Configure a ROUTE-SCOPE throttle for the next route (rate-limit the
    * whole pipeline, chain position 5). The step-scope variant lives on
@@ -786,18 +787,21 @@ export class RouteBuilder<
    * Configure batch processing for the next route to be created.
    * Stages the batch consumer; does not affect the current route if one already exists.
    *
-   * @param options - Optional `size` (batch size) and `flushIntervalMs` (flush interval)
+   * @param options - Optional `size` (batch size) and `flushInterval`
    * @returns This builder for chaining
    *
    * @example
    * ```typescript
-   * craft().batch({ size: 10, flushIntervalMs: 1000 }).from(timer(1000)).to(log()).build();
+   * craft().batch({ size: 10, flushInterval: "1s" }).from(timer({ interval: "1s" })).to(log()).build();
    * ```
    */
-  batch(options?: { size?: number; flushIntervalMs?: number }): PreFromBuilder {
+  batch(options?: { size?: number; flushInterval?: Duration }): PreFromBuilder {
     const mapped = {
       size: options?.size,
-      time: options?.flushIntervalMs,
+      time:
+        options?.flushInterval === undefined
+          ? undefined
+          : parseDuration(options.flushInterval, "batch({ flushInterval })"),
     };
     this.pendingOptions = {
       ...(this.pendingOptions ?? {}),
@@ -931,19 +935,19 @@ export class RouteBuilder<
    * cancelled); the timeout bounds how long the route waits, not the
    * work itself.
    */
-  override timeout(timeoutMs: number): this {
+  override timeout(duration: Duration): this {
     if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
       // Route scope: stage the resolved config (validates the deadline
       // at staging time) so the next `.from()` writes it into the new
       // RouteDefinition.
       this.pendingOptions = {
         ...(this.pendingOptions ?? {}),
-        timeoutConfig: resolveTimeoutOptions(timeoutMs),
+        timeoutConfig: resolveTimeoutOptions(duration),
       };
       logger.trace("Staging route-scope timeout config for next route");
       return this;
     }
-    return super.timeout(timeoutMs);
+    return super.timeout(duration);
   }
 
   /**

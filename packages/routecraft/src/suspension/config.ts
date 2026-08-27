@@ -13,7 +13,7 @@ import {
   resolveSigningSecret,
 } from "./tokens.ts";
 import type { SuspensionStore } from "./types.ts";
-import { type Duration, parseDuration } from "./duration.ts";
+import { type Duration, parseDuration } from "../shared/duration.ts";
 import {
   DEFAULT_EXPIRY_LEASE,
   DEFAULT_SUSPENSION_RETENTION,

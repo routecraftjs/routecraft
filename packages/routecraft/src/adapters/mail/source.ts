@@ -1,13 +1,9 @@
 import type { Source, Subscription } from "../../operations/from.ts";
 import type { Exchange } from "../../exchange.ts";
+import { parseDuration } from "../../shared/duration.ts";
 import { rcError } from "../../error.ts";
 import { isRoutecraftError } from "../../brand.ts";
-import type {
-  MailBody,
-  MailMessage,
-  MailReconnectOptions,
-  MailServerOptions,
-} from "./types.ts";
+import type { MailBody, MailMessage, MailServerOptions } from "./types.ts";
 import type { MailClientManager } from "./client-manager.ts";
 import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
 import {
@@ -39,13 +35,30 @@ const MAIL_RECONNECT_MAX_MS = 60_000;
  */
 function resolveReconnect(
   options: MailServerOptions,
-): Required<MailReconnectOptions> | null {
+): ResolvedReconnect | null {
   if (options.reconnect === false) return null;
+  const { baseDelay, maxDelay } = options.reconnect ?? {};
   return {
     maxAttempts: options.reconnect?.maxAttempts ?? MAIL_RECONNECT_MAX_ATTEMPTS,
-    baseDelayMs: options.reconnect?.baseDelayMs ?? MAIL_RECONNECT_BASE_MS,
-    maxDelayMs: options.reconnect?.maxDelayMs ?? MAIL_RECONNECT_MAX_MS,
+    baseDelayMs:
+      baseDelay === undefined
+        ? MAIL_RECONNECT_BASE_MS
+        : parseDuration(baseDelay, "mail({ reconnect: { baseDelay } })"),
+    maxDelayMs:
+      maxDelay === undefined
+        ? MAIL_RECONNECT_MAX_MS
+        : parseDuration(maxDelay, "mail({ reconnect: { maxDelay } })"),
   };
+}
+
+/**
+ * `reconnect` with every default applied and every duration resolved to
+ * milliseconds, which is what the backoff arithmetic needs.
+ */
+interface ResolvedReconnect {
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
 }
 
 /**
@@ -79,7 +92,7 @@ function throwFailFast(error: unknown): never {
  * - Default mode is IDLE: the server pushes new-arrival notifications and the
  *   \Seen flag is the cross-cycle dedupe state. This is the right model when
  *   each message should be delivered to the handler exactly once.
- * - Set `pollIntervalMs` to run in poll mode. Poll mode is required whenever
+ * - Set `pollInterval` to run in poll mode. Poll mode is required whenever
  *   you opt out of the \Seen-flag model by setting `markSeen: false` or
  *   `unseen: false` (for example, to re-evaluate the inbox on every cycle and
  *   rely on a folder move as the done-signal). IDLE cannot bound re-delivery
@@ -100,7 +113,7 @@ function throwFailFast(error: unknown): never {
  *   .from(mail('INBOX', {
  *     markSeen: false,
  *     unseen: false,
- *     pollIntervalMs: 60_000,
+ *     pollInterval: "60s",
  *   }))
  *   .filter(matchesCriteria)
  *   .to(mail({ action: 'move', folder: 'Archive' }))
@@ -242,7 +255,7 @@ export class MailSourceAdapter implements Source<MailBody> {
       // Aborted while still connecting: nothing to drain or watch.
       if (!clientRef.current) return;
 
-      if (resolved.pollIntervalMs) {
+      if (resolved.pollInterval !== undefined) {
         await this.pollLoop(
           clientRef,
           manager,
@@ -391,6 +404,10 @@ export class MailSourceAdapter implements Source<MailBody> {
     logger?: MailFetchLogger,
   ): Promise<void> {
     const onParseError = options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
+    const pollIntervalMs =
+      options.pollInterval === undefined
+        ? 0
+        : parseDuration(options.pollInterval, "mail({ pollInterval })", 0);
     const reconnect = resolveReconnect(options);
     while (!abortController.signal.aborted) {
       const client = clientRef.current;
@@ -468,7 +485,7 @@ export class MailSourceAdapter implements Source<MailBody> {
 
       if (abortController.signal.aborted) break;
 
-      await waitWithAbort(options.pollIntervalMs ?? 0, abortController);
+      await waitWithAbort(pollIntervalMs, abortController);
     }
   }
 
@@ -609,7 +626,7 @@ export class MailSourceAdapter implements Source<MailBody> {
     folder: string,
     usePool: boolean,
     mode: "connect" | "idle" | "poll",
-    reconnect: Required<MailReconnectOptions>,
+    reconnect: ResolvedReconnect,
     abortController: AbortController,
     logger?: MailFetchLogger,
   ): Promise<void> {
@@ -711,15 +728,16 @@ function validateSourceOptions(
   const disabledSeen = options.markSeen === false;
   const disabledUnseen = options.unseen === false;
   const hasPoll =
-    typeof options.pollIntervalMs === "number" && options.pollIntervalMs > 0;
+    options.pollInterval !== undefined &&
+    parseDuration(options.pollInterval, "mail({ pollInterval })", 0) > 0;
 
   if ((disabledSeen || disabledUnseen) && !hasPoll) {
     const which = disabledSeen ? "markSeen: false" : "unseen: false";
     throw rcError("RC5003", undefined, {
       message:
-        `Mail source configured with ${which} requires pollIntervalMs. ` +
+        `Mail source configured with ${which} requires pollInterval. ` +
         "IDLE mode cannot bound re-delivery cycles and would refetch the " +
-        "entire folder on every incoming message. Set pollIntervalMs to " +
+        "entire folder on every incoming message. Set pollInterval to " +
         "poll on a cadence, or remove the markSeen/unseen override.",
     });
   }
@@ -728,12 +746,12 @@ function validateSourceOptions(
     logger?.warn(
       { limit: options.limit, folder: options.folder },
       "mail source `limit` with IDLE: backlog beyond the limit will only " +
-        "drain when new mail arrives. Use pollIntervalMs for predictable drain.",
+        "drain when new mail arrives. Use pollInterval for predictable drain.",
     );
   }
 
   if (options.reconnect !== undefined && options.reconnect !== false) {
-    const { maxAttempts, baseDelayMs, maxDelayMs } = options.reconnect;
+    const { maxAttempts, baseDelay, maxDelay } = options.reconnect;
     if (
       maxAttempts !== undefined &&
       maxAttempts !== Infinity &&
@@ -744,30 +762,18 @@ function validateSourceOptions(
           "Mail source reconnect.maxAttempts must be a positive integer or Infinity.",
       });
     }
-    if (
-      baseDelayMs !== undefined &&
-      !(Number.isFinite(baseDelayMs) && baseDelayMs >= 1)
-    ) {
-      throw rcError("RC5003", undefined, {
-        message:
-          "Mail source reconnect.baseDelayMs must be a positive number of milliseconds.",
-      });
-    }
-    if (
-      maxDelayMs !== undefined &&
-      !(Number.isFinite(maxDelayMs) && maxDelayMs >= 1)
-    ) {
-      throw rcError("RC5003", undefined, {
-        message:
-          "Mail source reconnect.maxDelayMs must be a positive number of milliseconds.",
-      });
-    }
-    const base = baseDelayMs ?? MAIL_RECONNECT_BASE_MS;
-    const max = maxDelayMs ?? MAIL_RECONNECT_MAX_MS;
+    const base =
+      baseDelay === undefined
+        ? MAIL_RECONNECT_BASE_MS
+        : parseDuration(baseDelay, "mail({ reconnect: { baseDelay } })");
+    const max =
+      maxDelay === undefined
+        ? MAIL_RECONNECT_MAX_MS
+        : parseDuration(maxDelay, "mail({ reconnect: { maxDelay } })");
     if (max < base) {
       throw rcError("RC5003", undefined, {
         message:
-          "Mail source reconnect.maxDelayMs must be greater than or equal to reconnect.baseDelayMs.",
+          "Mail source reconnect.maxDelay must be greater than or equal to reconnect.baseDelay.",
       });
     }
   }

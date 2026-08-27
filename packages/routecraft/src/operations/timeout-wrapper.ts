@@ -3,7 +3,7 @@ import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
-import { assertDurationMs } from "./cancellable-sleep.ts";
+import { type Duration, parseDuration } from "../shared/duration.ts";
 
 /**
  * Route-scope `.timeout()` config. This is the shape stored on
@@ -26,10 +26,9 @@ export interface ResolvedTimeoutOptions {
  * @internal
  */
 export function resolveTimeoutOptions(
-  timeoutMs: number,
+  duration: Duration,
 ): ResolvedTimeoutOptions {
-  assertDurationMs("timeout(timeoutMs)", timeoutMs, 1);
-  return { timeoutMs };
+  return { timeoutMs: parseDuration(duration, "timeout(duration)") };
 }
 
 /**
@@ -113,9 +112,9 @@ export class TimeoutWrapperStep<
 > extends WrapperStep<T> {
   readonly #timeoutMs: number;
 
-  constructor(inner: Step<T>, timeoutMs: number) {
+  constructor(inner: Step<T>, duration: Duration) {
     super(inner);
-    this.#timeoutMs = resolveTimeoutOptions(timeoutMs).timeoutMs;
+    this.#timeoutMs = resolveTimeoutOptions(duration).timeoutMs;
   }
 
   protected override async runInner(

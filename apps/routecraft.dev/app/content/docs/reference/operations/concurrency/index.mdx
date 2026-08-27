@@ -91,7 +91,7 @@ When the bulkhead rejects (reject mode, or a full `maxQueue`) it throws `RC5026`
 `RC5026` is retryable: a slot frees as soon as in-flight work completes, so an enclosing `.retry()` (which sits OUTSIDE the bulkhead) can back off and re-acquire one. That gives a useful composition, "do not queue indefinitely, retry-with-backoff instead":
 
 ```ts
-.retry({ maxAttempts: 4, backoffMs: 50, factor: 2 })
+.retry({ maxAttempts: 4, backoff: 50, factor: 2 })
 .concurrency({ max: 8, mode: 'reject' })
 .to(http({ url }))
 ```

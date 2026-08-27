@@ -346,8 +346,8 @@ export class MailClientManager {
 
     if (overrides.since !== undefined) result.since = overrides.since;
     if (overrides.limit !== undefined) result.limit = overrides.limit;
-    if (overrides.pollIntervalMs !== undefined)
-      result.pollIntervalMs = overrides.pollIntervalMs;
+    if (overrides.pollInterval !== undefined)
+      result.pollInterval = overrides.pollInterval;
     if (overrides.includeHeaders !== undefined)
       result.includeHeaders = overrides.includeHeaders;
     if (overrides.verify !== undefined) result.verify = overrides.verify;

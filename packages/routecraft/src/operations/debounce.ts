@@ -9,6 +9,7 @@ import {
   emitExchangeDropped,
 } from "../exchange.ts";
 import { wrapperEventScope } from "./event-scope.ts";
+import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rcError } from "../error.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 
@@ -17,12 +18,11 @@ import { RouteScopedController } from "./route-scoped-controller.ts";
  */
 export interface DebounceOptions<In = unknown> {
   /**
-   * Quiet window in milliseconds. An exchange is released only after
-   * `waitMs` has elapsed with no newer arrival in its group; each new arrival
-   * resets the window and supersedes (drops) the one being held. Must be a
-   * finite number > 0.
+   * Quiet window. An exchange is released only after `wait` has elapsed with
+   * no newer arrival in its group; each new arrival resets the window and
+   * supersedes (drops) the one being held. Must be at least 1ms.
    */
-  waitMs: number;
+  wait: Duration;
   /**
    * Partition selector: exchanges sharing a key are debounced independently
    * (for example one quiet window per file path). When omitted, the whole
@@ -30,14 +30,13 @@ export interface DebounceOptions<In = unknown> {
    */
   key?: (exchange: Exchange<In>) => string;
   /**
-   * Upper bound in milliseconds on how long an exchange may be held from the
-   * START of its burst, guaranteeing eventual release under continuous
-   * activity (otherwise a steady stream of arrivals could reset `waitMs`
-   * forever and starve the trailing edge). Measured from the first arrival in
-   * the burst and NOT reset by later arrivals. Must be a finite number
-   * `>= waitMs` when set.
+   * Upper bound on how long an exchange may be held from the START of its
+   * burst, guaranteeing eventual release under continuous activity
+   * (otherwise a steady stream of arrivals could reset `wait` forever and
+   * starve the trailing edge). Measured from the first arrival in the burst
+   * and NOT reset by later arrivals. Must be `>= wait` when set.
    */
-  maxWaitMs?: number;
+  maxWait?: Duration;
 }
 
 /**
@@ -63,10 +62,10 @@ export function resolveDebounceOptions(
 ): ResolvedDebounceOptions {
   if (typeof options !== "object" || options === null) {
     throw rcError("RC5003", undefined, {
-      message: "debounce() requires an options object with a `waitMs`.",
+      message: "debounce() requires an options object with a `wait`.",
     });
   }
-  const { waitMs, maxWaitMs, key } = options;
+  const { wait, maxWait, key } = options;
   // Defend JS callers and widened values: a non-function `key` would pass
   // the build and then throw a raw TypeError on every exchange. Mirrors the
   // sticky-key validation in dispatch.
@@ -75,22 +74,15 @@ export function resolveDebounceOptions(
       message: `debounce({ key }) must be a function deriving the partition key, got ${typeof key}.`,
     });
   }
-  if (!Number.isFinite(waitMs) || waitMs <= 0) {
+  const waitMs = parseDuration(wait, "debounce({ wait })");
+  const maxWaitMs =
+    maxWait === undefined
+      ? undefined
+      : parseDuration(maxWait, "debounce({ maxWait })");
+  if (maxWaitMs !== undefined && maxWaitMs < waitMs) {
     throw rcError("RC5003", undefined, {
-      message: `debounce({ waitMs }) must be a finite number > 0 (milliseconds), got ${String(waitMs)}.`,
+      message: `debounce({ maxWait }) must be >= wait (${waitMs}ms), got ${maxWaitMs}ms.`,
     });
-  }
-  if (maxWaitMs !== undefined) {
-    if (!Number.isFinite(maxWaitMs) || maxWaitMs <= 0) {
-      throw rcError("RC5003", undefined, {
-        message: `debounce({ maxWaitMs }) must be a finite number > 0 (milliseconds), got ${String(maxWaitMs)}.`,
-      });
-    }
-    if (maxWaitMs < waitMs) {
-      throw rcError("RC5003", undefined, {
-        message: `debounce({ maxWaitMs }) must be >= waitMs (${waitMs}), got ${maxWaitMs}.`,
-      });
-    }
   }
   return {
     waitMs,
@@ -100,8 +92,8 @@ export function resolveDebounceOptions(
 }
 
 /**
- * Why a held exchange was released. `"quiet"`: the `waitMs` window closed;
- * `"maxWait"`: the `maxWaitMs` cap fired during continuous activity;
+ * Why a held exchange was released. `"quiet"`: the `wait` window closed;
+ * `"maxWait"`: the `maxWait` cap fired during continuous activity;
  * `"flush"`: a drain / shutdown released it early.
  *
  * @internal

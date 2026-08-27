@@ -369,9 +369,9 @@ Circuit breaker is open
 A route-scope or step-scope `.circuitBreaker()` exceeded its failure threshold and tripped open, so it is fast-failing subsequent calls without running the protected work until the cooldown elapses (then it admits a probe). Also raised when a half-open breaker is already at its probe capacity.
 
 **Suggestion**  
-- Wait for `cooldownMs` to elapse; the breaker then probes with a half-open call and closes on success.
+- Wait for `cooldown` to elapse; the breaker then probes with a half-open call and closes on success.
 - Configure a `fallback` to return a degraded result instead of throwing.
-- Raise `failureThreshold` or `cooldownMs` if the breaker is too sensitive.
+- Raise `failureThreshold` or `cooldown` if the breaker is too sensitive.
 - Not retryable: an immediate retry would hit the same open breaker.
 
 ## RC5026
@@ -815,7 +815,7 @@ Find what overwrote the header. The usual culprit is code that rebuilds a header
 Invalid shutdown configuration
 
 **Why it happens**  
-`shutdown.timeoutMs` was set to something that is not a positive, finite number of milliseconds: `0`, a negative, `NaN`, or `Infinity`. It is refused while the context is being built rather than when the context stops, because a shutdown is the worst possible moment to discover the value was never usable.
+`shutdown.timeout` was set to something that is not a positive, finite duration: `0`, a negative, `NaN`, or `Infinity`. It is refused while the context is being built rather than when the context stops, because a shutdown is the worst possible moment to discover the value was never usable.
 
 The refusal is deliberate rather than a clamp. The two plausible readings of `0` are opposites: it looks like "no bound", and a clamp would make it behave as "force immediately", abandoning in-flight work the instant a stop begins.
 

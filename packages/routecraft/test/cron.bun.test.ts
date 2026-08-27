@@ -359,7 +359,7 @@ describe("CronSourceAdapter", () => {
   test("jitterMs delays handler execution correctly", async () => {
     const adapter = new CronSourceAdapter("* * * * * *", {
       maxFires: 1,
-      jitterMs: 2000,
+      jitter: 2000,
     });
     const context = mockContext();
     const abortController = new AbortController();
@@ -386,7 +386,7 @@ describe("CronSourceAdapter", () => {
     const randomSpy = spyOn(Math, "random").mockReturnValue(0.99);
 
     const adapter = new CronSourceAdapter("* * * * * *", {
-      jitterMs: 10000,
+      jitter: 10000,
     });
     const context = mockContext();
     const abortController = new AbortController();

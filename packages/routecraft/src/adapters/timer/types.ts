@@ -1,15 +1,17 @@
+import type { Duration } from "../../shared/duration.ts";
+
 export interface TimerOptions {
   /**
-   * Time between executions in milliseconds
+   * Time between executions.
    * @default 1000
    */
-  intervalMs?: number;
+  interval?: Duration;
 
   /**
-   * Delay before the first execution in milliseconds
+   * Delay before the first execution.
    * @default 0
    */
-  delayMs?: number;
+  delay?: Duration;
 
   /**
    * Number of times to trigger before stopping
@@ -39,7 +41,7 @@ export interface TimerOptions {
    * Adds random delay to prevent synchronized execution spikes
    * @default 0
    */
-  jitterMs?: number;
+  jitter?: Duration;
 }
 
 /**

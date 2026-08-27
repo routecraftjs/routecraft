@@ -2,6 +2,7 @@ import type { ExchangeHeaders } from "../../exchange";
 import { TimerHeaders } from "./types";
 import type { Source, Subscription } from "../../operations/from";
 import type { TimerOptions } from "./types";
+import { parseDuration } from "../../shared/duration.ts";
 
 export class TimerSourceAdapter implements Source<undefined> {
   readonly adapterId = "routecraft.adapter.timer";
@@ -9,13 +10,16 @@ export class TimerSourceAdapter implements Source<undefined> {
 
   subscribe(sub: Subscription<undefined>): Promise<void> {
     const {
-      intervalMs = 1000,
-      delayMs = 0,
+      interval = 1000,
+      delay = 0,
       repeatCount = Infinity,
       fixedRate = false,
       exactTime,
-      jitterMs = 0,
+      jitter = 0,
     } = this.options || {};
+    const intervalMs = parseDuration(interval, "timer({ interval })");
+    const delayMs = parseDuration(delay, "timer({ delay })", 0);
+    const jitterMs = parseDuration(jitter, "timer({ jitter })", 0);
 
     // Determine the start time
     let baseTime: number;

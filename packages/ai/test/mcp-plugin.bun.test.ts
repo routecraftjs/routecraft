@@ -473,12 +473,12 @@ describe("MCP Plugin Integration", () => {
     });
 
     /**
-     * @case Validation rejects zero restartDelayMs
-     * @preconditions restartDelayMs set to 0
+     * @case Validation rejects a zero restartDelay
+     * @preconditions restartDelay set to 0
      * @expectedResult TypeError thrown
      */
-    test("rejects zero restartDelayMs", () => {
-      expect(() => mcpPlugin({ restartDelayMs: 0 })).toThrow(/positive number/);
+    test("rejects a zero restartDelay", () => {
+      expect(() => mcpPlugin({ restartDelay: 0 })).toThrow(/positive duration/);
     });
 
     /**
@@ -493,13 +493,13 @@ describe("MCP Plugin Integration", () => {
     });
 
     /**
-     * @case Validation rejects negative toolRefreshIntervalMs
-     * @preconditions toolRefreshIntervalMs set to -100
+     * @case Validation rejects a negative toolRefreshInterval
+     * @preconditions toolRefreshInterval set to -100
      * @expectedResult TypeError thrown
      */
-    test("rejects negative toolRefreshIntervalMs", () => {
-      expect(() => mcpPlugin({ toolRefreshIntervalMs: -100 })).toThrow(
-        /non-negative integer/,
+    test("rejects a negative toolRefreshInterval", () => {
+      expect(() => mcpPlugin({ toolRefreshInterval: -100 })).toThrow(
+        /non-negative duration/,
       );
     });
 
@@ -511,9 +511,9 @@ describe("MCP Plugin Integration", () => {
     test("accepts valid restart options", () => {
       const p = mcpPlugin({
         maxRestarts: 10,
-        restartDelayMs: 500,
+        restartDelay: 500,
         restartBackoffMultiplier: 1.5,
-        toolRefreshIntervalMs: 30000,
+        toolRefreshInterval: 30000,
       });
       expect(typeof p.apply).toBe("function");
     });
@@ -581,7 +581,7 @@ describe("MCP Plugin Integration", () => {
           },
         },
         maxRestarts: 3,
-        restartDelayMs: 100,
+        restartDelay: 100,
         restartBackoffMultiplier: 2,
       });
       expect(typeof p.apply).toBe("function");

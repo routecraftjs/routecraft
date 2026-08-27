@@ -60,10 +60,10 @@ describe("CraftConfig.cron defaults", () => {
   test("CronSourceAdapter merges config defaults with per-adapter options", () => {
     const ctx = mockContext({ timezone: "UTC", jitterMs: 2000 });
 
-    const adapter = new CronSourceAdapter("@daily", { jitterMs: 5000 });
+    const adapter = new CronSourceAdapter("@daily", { jitter: 5000 });
     const merged = adapter.mergedOptions(ctx);
 
     expect(merged.timezone).toBe("UTC");
-    expect(merged.jitterMs).toBe(5000); // per-adapter wins
+    expect(merged.jitter).toBe(5000); // per-adapter wins
   });
 });

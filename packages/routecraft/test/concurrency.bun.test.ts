@@ -364,7 +364,7 @@ describe("Concurrency wrapper (.concurrency())", () => {
         craft()
           .id("cc-retry-compose")
           .from(direct())
-          .retry({ maxAttempts: 4, backoffMs: 40 })
+          .retry({ maxAttempts: 4, backoff: 40 })
           .concurrency({ max: 1, mode: "reject" })
           .process(async (ex) => {
             await sleep(20);

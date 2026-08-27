@@ -50,7 +50,7 @@ describe("bounded graceful shutdown", () => {
     let completed = false;
 
     t = await testContext()
-      .with({ shutdown: { timeoutMs: 5_000 } })
+      .with({ shutdown: { timeout: 5_000 } })
       .routes(
         craft()
           .id("slow")
@@ -88,7 +88,7 @@ describe("bounded graceful shutdown", () => {
     let sawExecutionAbort = false;
 
     t = await testContext()
-      .with({ shutdown: { timeoutMs: 250 } })
+      .with({ shutdown: { timeout: 250 } })
       .routes(
         craft()
           .id("wedged")
@@ -154,14 +154,12 @@ describe("bounded graceful shutdown", () => {
    * @expectedResult Each refuses with RC5058 while the context is being built. Refused rather than clamped: `0` reads as "no bound" and a clamp would make it mean "force immediately", which is its opposite
    */
   test("refuses a shutdown timeout that cannot bound anything", () => {
-    for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(() => new CraftContext({ shutdown: { timeoutMs } })).toThrow(
-        /shutdown\.timeoutMs must be a positive number/,
+    for (const timeout of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new CraftContext({ shutdown: { timeout } })).toThrow(
+        /shutdown\.timeout must be a positive number/,
       );
     }
-    expect(
-      () => new CraftContext({ shutdown: { timeoutMs: 1 } }),
-    ).not.toThrow();
+    expect(() => new CraftContext({ shutdown: { timeout: 1 } })).not.toThrow();
     expect(() => new CraftContext({})).not.toThrow();
   });
 
@@ -259,7 +257,7 @@ describe("bounded graceful shutdown", () => {
     const inStep = entered();
 
     t = await testContext()
-      .with({ shutdown: { timeoutMs: 250 } })
+      .with({ shutdown: { timeout: 250 } })
       .routes(
         craft()
           .id("wedged")

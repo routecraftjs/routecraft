@@ -116,7 +116,7 @@ describe("Delay wrapper (.delay())", () => {
         craft()
           .id("retry-delay-stack")
           .from(simple("in"))
-          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .retry({ maxAttempts: 2, backoff: 1 })
           .delay(10)
           .transform((body: string) => {
             calls++;
@@ -171,13 +171,13 @@ describe("Delay wrapper (.delay())", () => {
    * @preconditions A delay wrapper configured with a negative and a NaN duration
    * @expectedResult Building the route throws RC5003 before any exchange is processed
    */
-  test("rejects non-finite or negative delayMs at build time", () => {
+  test("rejects a non-finite or negative delay at build time", () => {
     expect(() =>
       craft().id("delay-negative").from(simple("in")).delay(-1).to(spy()),
-    ).toThrow(/delayMs/);
+    ).toThrow(/delay\(duration\)/);
     expect(() =>
       craft().id("delay-nan").from(simple("in")).delay(Number.NaN).to(spy()),
-    ).toThrow(/delayMs/);
+    ).toThrow(/delay\(duration\)/);
   });
 
   /**

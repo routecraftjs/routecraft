@@ -27,18 +27,18 @@ Core adapters (`cron`, `direct`) have dedicated fields on `CraftConfig`. Set the
 import type { CraftConfig } from '@routecraft/routecraft'
 
 export const craftConfig: CraftConfig = {
-  cron: { timezone: 'UTC', jitterMs: 2000 },
+  cron: { timezone: 'UTC', jitter: 2000 },
 }
 
 ```
 
-Now every `cron()` source inherits `timezone: 'UTC'` and `jitterMs: 2000` unless overridden:
+Now every `cron()` source inherits `timezone: 'UTC'` and `jitter: 2000` unless overridden:
 
 ```ts
-// Inherits timezone: 'UTC' and jitterMs: 2000 from config
+// Inherits timezone: 'UTC' and jitter: 2000 from config
 .from(cron('@daily'))
 
-// Overrides timezone but keeps jitterMs: 2000
+// Overrides timezone but keeps jitter: 2000
 .from(cron('0 9 * * 1-5', { timezone: 'America/New_York' }))
 ```
 

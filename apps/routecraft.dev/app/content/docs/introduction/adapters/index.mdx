@@ -20,7 +20,7 @@ A source produces data and starts the flow. It goes in `.from()`.
 
 ```ts
 // Triggered by a timer
-.from(timer({ intervalMs: 60_000 }))
+.from(timer({ interval: 60_000 }))
 
 // One-shot with a fixed payload
 .from(simple({ report: 'daily-summary' }))
@@ -85,13 +85,13 @@ Many adapters support **merged options**: they merge their own per-call options 
 import type { CraftConfig } from '@routecraft/routecraft'
 
 export const craftConfig: CraftConfig = {
-  cron: { timezone: 'UTC', jitterMs: 2000 },
+  cron: { timezone: 'UTC', jitter: 2000 },
 }
 
 ```
 
 ```ts
-// capability file -- timezone and jitterMs come from the config
+// capability file -- timezone and jitter come from the config
 .from(cron('@daily'))
 
 // Override timezone for this specific source

@@ -590,7 +590,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Definition",
     message: "Invalid shutdown configuration",
     suggestion:
-      '`shutdown.timeoutMs` must be a positive, finite number of milliseconds. It is refused rather than clamped because the two plausible readings of `0` are opposites: it looks like "no bound" and would behave as "force immediately", abandoning in-flight work the moment a stop begins. Omit the key to take the 30-second default, and set it below your platform\'s kill timer so the process\'s own policy decides the outcome.',
+      '`shutdown.timeout` must be a positive, finite duration. It is refused rather than clamped because the two plausible readings of `0` are opposites: it looks like "no bound" and would behave as "force immediately", abandoning in-flight work the moment a stop begins. Omit the key to take the 30-second default, and set it below your platform\'s kill timer so the process\'s own policy decides the outcome.',
     docs: `${DOCS_BASE}#rc-5058`,
     retryable: false,
   },

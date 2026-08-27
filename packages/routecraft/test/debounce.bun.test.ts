@@ -76,7 +76,7 @@ describe("debounce operation", () => {
           .id("debounce-collapse")
           // A long window so nothing releases on its own; drain flushes it.
           .from(items<Change>([change("a", 1), change("a", 2), change("a", 3)]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .to(downstream),
       )
       .on("route:operation:debounce:held", (() => {
@@ -119,7 +119,7 @@ describe("debounce operation", () => {
           // A trailing gap keeps the source open past the quiet window, so the
           // timer (not the auto-stop flush) is what releases the exchange.
           .from(feed<Change>([{ item: change("a", 1) }, { gap: 200 }]))
-          .debounce({ waitMs: 40 })
+          .debounce({ wait: 40 })
           .to(downstream),
       )
       .on("route:operation:debounce:released", ((payload: {
@@ -155,7 +155,7 @@ describe("debounce operation", () => {
               { item: change("b", 1) },
             ]),
           )
-          .debounce({ waitMs: 40 })
+          .debounce({ wait: 40 })
           .to(downstream),
       )
       .build();
@@ -180,7 +180,7 @@ describe("debounce operation", () => {
         craft()
           .id("debounce-keyed")
           .from(items<Change>([change("a", 1), change("b", 1), change("a", 2)]))
-          .debounce({ waitMs: 10_000, key: (ex) => ex.body.path })
+          .debounce({ wait: 10_000, key: (ex) => ex.body.path })
           .to(downstream),
       )
       .on("route:operation:debounce:held", (() => {
@@ -224,7 +224,7 @@ describe("debounce operation", () => {
           // never closes during activity; only the 100ms maxWaitMs cap
           // (measured from the burst start, never reset) can release.
           .from(feed<Change>(stream))
-          .debounce({ waitMs: 50, maxWaitMs: 100 })
+          .debounce({ wait: 50, maxWait: 100 })
           .to(downstream),
       )
       .on("route:operation:debounce:released", ((payload: {
@@ -256,7 +256,7 @@ describe("debounce operation", () => {
         craft()
           .id("debounce-flush")
           .from(items<Change>([change("a", 1)]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .to(downstream),
       )
       .on("route:operation:debounce:held", (() => {
@@ -292,7 +292,7 @@ describe("debounce operation", () => {
         craft()
           .id("debounce-downstream")
           .from(items<Change>([change("a", 1)]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .transform((body) => ({ ...body, reloaded: true as const }))
           .to(downstream),
       )
@@ -328,7 +328,7 @@ describe("debounce operation", () => {
         craft()
           .id("debounce-lifecycle-balance")
           .from(items<Change>([change("a", 1), change("a", 2), change("a", 3)]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .to(downstream),
       )
       .on("route:operation:debounce:held", (() => {
@@ -369,7 +369,7 @@ describe("debounce operation", () => {
             return "recovered";
           })
           .from(items<Change>([change("a", 1)]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .to({
             send: async () => {
               throw new Error("downstream boom");
@@ -400,7 +400,7 @@ describe("debounce operation", () => {
           .id("debounce-output-validation")
           .output({ body: z.object({ ok: z.boolean() }) })
           .from(items<{ ok: boolean }>([{ ok: true }]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .transform(() => ({ ok: "not-a-boolean" }))
           .to(downstream),
       )
@@ -438,7 +438,7 @@ describe("debounce operation", () => {
         craft()
           .id("debounce-nonclonable")
           .from(items<WithFn>([{ run: () => undefined }]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .to(downstream),
       )
       .on("route:operation:debounce:held", (() => {
@@ -470,7 +470,7 @@ describe("debounce operation", () => {
         .id("debounce-not-wrappable")
         .from(items<Change>([change("a", 1)]))
         .retry()
-        .debounce({ waitMs: 100 })
+        .debounce({ wait: 100 })
         .build(),
     ).toThrow();
   });
@@ -485,7 +485,7 @@ describe("debounce operation", () => {
       craft()
         .id("debounce-bad-wait")
         .from(items<Change>([change("a", 1)]))
-        .debounce({ waitMs: 0 })
+        .debounce({ wait: 0 })
         .build(),
     ).toThrow();
   });
@@ -500,7 +500,7 @@ describe("debounce operation", () => {
       craft()
         .id("debounce-bad-key")
         .from(items<Change>([change("a", 1)]))
-        .debounce({ waitMs: 100, key: "path" as never })
+        .debounce({ wait: 100, key: "path" as never })
         .build(),
     ).toThrow(/must be a function/);
   });
@@ -515,7 +515,7 @@ describe("debounce operation", () => {
       craft()
         .id("debounce-bad-maxwait")
         .from(items<Change>([change("a", 1)]))
-        .debounce({ waitMs: 500, maxWaitMs: 100 })
+        .debounce({ wait: 500, maxWait: 100 })
         .build(),
     ).toThrow();
   });

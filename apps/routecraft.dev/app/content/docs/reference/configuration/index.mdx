@@ -41,7 +41,7 @@ export const craftConfig = defineConfig({
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
 | `suspension` | `SuspensionConfig` | Only when a route can reach `.suspend()` or `.resume()` | -- | Where parked exchanges are stored and how resume tokens are signed. A context with a suspendable route and no `suspension` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#suspension)) |
-| `shutdown` | `{ timeoutMs?: number }` | No | `{ timeoutMs: 30000 }` | How long a graceful shutdown may drain before it is forced ([details](#shutdown)) |
+| `shutdown` | `{ timeout?: Duration }` | No | `{ timeout: 30000 }` | How long a graceful shutdown may drain before it is forced ([details](#shutdown)) |
 | `plugins` | `CraftPlugin[]` | No | -- | Custom plugins to initialize before routes are registered |
 
 ### Ecosystem keys (added by `@routecraft/ai`)
@@ -86,7 +86,7 @@ Default options applied to every `cron()` source in this context. Per-adapter op
 
 ```ts
 const config: CraftConfig = {
-  cron: { timezone: 'UTC', jitterMs: 2000 },
+  cron: { timezone: 'UTC', jitter: 2000 },
 }
 ```
 
@@ -94,7 +94,7 @@ const config: CraftConfig = {
 |--------|------|-------------|
 | `timezone` | `string` | IANA timezone (e.g. `"America/New_York"`, `"UTC"`) |
 | `maxFires` | `number` | Maximum fires before stopping |
-| `jitterMs` | `number` | Random delay in ms added to each fire |
+| `jitter` | `Duration` | Random delay added to each fire |
 | `name` | `string` | Human-readable job name for observability |
 | `protect` | `boolean` | Prevent overlapping handler execution |
 | `startAt` | `Date \| string` | Date/ISO string at which cron jobs start |
@@ -136,7 +136,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-Each server accepts `port` (required), `host` (default `127.0.0.1`), `kind` (currently only `http`), an optional validator `auth`, and `shutdownGraceMs` (default `30000`) bounding the graceful drain on stop. A surface inherits server auth unless it supplies its own `auth`; `auth: false` removes the wall while keeping the inherited validator reachable for routes that pull identity. Every named server must receive at least one mount, and two names cannot claim the same non-ephemeral `host:port`. Full listener behaviour lives on the [serversPlugin reference](/docs/reference/plugins/serversplugin).
+Each server accepts `port` (required), `host` (default `127.0.0.1`), `kind` (currently only `http`), an optional validator `auth`, and `shutdownGrace` (default `30000`) bounding the graceful drain on stop. A surface inherits server auth unless it supplies its own `auth`; `auth: false` removes the wall while keeping the inherited validator reachable for routes that pull identity. Every named server must receive at least one mount, and two names cannot claim the same non-ephemeral `host:port`. Full listener behaviour lives on the [serversPlugin reference](/docs/reference/plugins/serversplugin).
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -156,7 +156,7 @@ import { defineConfig, defineIndicator } from '@routecraft/routecraft'
 
 export const mailHealth = defineIndicator({
   name: 'mail',
-  maxAgeMs: 15 * 60_000,
+  maxAge: 15 * 60_000,
   route: 'probe-mail',
 })
 
@@ -233,19 +233,19 @@ producing and no new exchange is admitted, while work already in the
 pipeline runs to its natural end. Stage two is forced, and abandons that
 work.
 
-`shutdown.timeoutMs` is how long stage one may drain before stage two
+`shutdown.timeout` is how long stage one may drain before stage two
 fires. It defaults to 30 seconds.
 
 ```ts
 export const craftConfig = defineConfig({
-  shutdown: { timeoutMs: 20_000 },
+  shutdown: { timeout: 20_000 },
 })
 ```
 
 **Set it below your platform's kill timer.** Kubernetes
 `terminationGracePeriodSeconds` and its equivalents send SIGKILL once they
 elapse, and a SIGKILL takes the decision away: nothing drains, nothing is
-released, and the forced stage never runs. A `timeoutMs` under that timer
+released, and the forced stage never runs. A `timeout` under that timer
 keeps the outcome the process's own.
 
 The bound applies to every shutdown, not just a signal: `craft start
@@ -285,14 +285,14 @@ Plugin teardown itself is not bounded by this key. Teardown releases
 resources, and cutting it short would trade a bounded shutdown for a leaked
 one.
 
-**So `timeoutMs` is not the whole shutdown budget.** Teardown runs after the
+**So `timeout` is not the whole shutdown budget.** Teardown runs after the
 deadline, and a plugin that drains on its own clock adds to the total: a
 named server drains up to its
-[`shutdownGraceMs`](/docs/reference/plugins/serversplugin), which also
+[`shutdownGrace`](/docs/reference/plugins/serversplugin), which also
 defaults to 30 seconds. A context with an HTTP mount and both defaults can
-therefore take up to 60 seconds to exit. When you size `timeoutMs` against a
+therefore take up to 60 seconds to exit. When you size `timeout` against a
 platform kill timer, budget for the teardown that follows it, not for
-`timeoutMs` alone.
+`timeout` alone.
 
 ## Logging configuration
 

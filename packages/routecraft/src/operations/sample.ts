@@ -1,3 +1,4 @@
+import { type Duration, parseDuration } from "../shared/duration.ts";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
@@ -12,7 +13,7 @@ import { RouteScopedController } from "./route-scoped-controller.ts";
 
 /**
  * Options for the `.sample()` flow-control operation. Exactly one of
- * `every` (count-based) or `intervalMs` (time-based) must be set; the union
+ * `every` (count-based) or `interval` (time-based) must be set; the union
  * makes them mutually exclusive at compile time (passing both, or neither,
  * is a type error), and {@link resolveSampleOptions} re-checks at runtime
  * for JS callers.
@@ -25,15 +26,14 @@ export type SampleOptions =
        * finite integer >= 1.
        */
       every: number;
-      intervalMs?: never;
+      interval?: never;
     }
   | {
       /**
-       * Time-based: pass the first exchange seen in each window of
-       * `intervalMs` milliseconds and drop the rest until the window
-       * elapses. Must be a finite number > 0.
+       * Time-based: pass the first exchange seen in each `interval` window
+       * and drop the rest until the window elapses. Must be at least 1ms.
        */
-      intervalMs: number;
+      interval: Duration;
       every?: never;
     };
 
@@ -63,7 +63,7 @@ export function resolveSampleOptions(
   // values that bypass the types. One shared message so the two sites cannot
   // drift.
   const exclusiveMessage =
-    "sample() requires exactly one of `every` or `intervalMs` (they are mutually exclusive).";
+    "sample() requires exactly one of `every` or `interval` (they are mutually exclusive).";
 
   // Guard before destructuring so a non-object (a JS caller passing nothing,
   // null, or a primitive) yields the coded RC5003 rather than a bare TypeError.
@@ -71,9 +71,9 @@ export function resolveSampleOptions(
     throw rcError("RC5003", undefined, { message: exclusiveMessage });
   }
 
-  const { every, intervalMs } = options;
+  const { every, interval } = options;
 
-  if (every !== undefined && intervalMs !== undefined) {
+  if (every !== undefined && interval !== undefined) {
     throw rcError("RC5003", undefined, { message: exclusiveMessage });
   }
 
@@ -89,13 +89,11 @@ export function resolveSampleOptions(
     return { mode: "count", every };
   }
 
-  if (intervalMs !== undefined) {
-    if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
-      throw rcError("RC5003", undefined, {
-        message: `sample({ intervalMs }) must be a finite number > 0, got ${String(intervalMs)}.`,
-      });
-    }
-    return { mode: "interval", intervalMs };
+  if (interval !== undefined) {
+    return {
+      mode: "interval",
+      intervalMs: parseDuration(interval, "sample({ interval })"),
+    };
   }
 
   throw rcError("RC5003", undefined, { message: exclusiveMessage });
@@ -133,7 +131,7 @@ export interface SampleAdapter extends Adapter {
 
 /**
  * Step that samples exchanges by count (`every`) or time window
- * (`intervalMs`), passing the admitted ones and dropping the rest. A drop
+ * (`interval`), passing the admitted ones and dropping the rest. A drop
  * is silent (no error), exactly like a `filter` predicate returning false:
  * it emits `route:operation:sample:dropped` and `route:exchange:dropped`
  * (reason `"sampled"`) so telemetry and the TUI can count it.

@@ -7,7 +7,7 @@ title: timeout
 </Lead>
 
 ```ts
-timeout(timeoutMs: number): RouteBuilder<Current>
+timeout(duration: Duration): RouteBuilder<Current>
 ```
 
 Bound the next operation with a deadline. When the operation settles in time its result passes through unchanged; when the deadline fires first, `RC5011` (Request timeout) is thrown.
@@ -33,7 +33,7 @@ craft()
 ```
 
 **Parameters:**
-- `timeoutMs` - Deadline in milliseconds
+- `duration` - The deadline
 
 **Error semantics:** Expiry throws `RC5011`, which is registered `retryable: true`: a wrapping `.retry()` re-attempts timeouts by default, and an `.error()` handler can branch on the code (`if (err.rc === 'RC5011') ...`). A failure of the wrapped operation *inside* the deadline propagates unchanged; `.timeout()` never rewrites other errors.
 

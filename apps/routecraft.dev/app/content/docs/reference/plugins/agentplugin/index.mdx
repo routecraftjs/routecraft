@@ -44,7 +44,7 @@ import { agent } from '@routecraft/ai'
 
 craft()
   .id('daily-digest')
-  .from(timer({ intervalMs: 24 * 60 * 60 * 1000 }))
+  .from(timer({ interval: 24 * 60 * 60 * 1000 }))
   .to(agent('summariser'))
   .to(direct('reply'))
 ```

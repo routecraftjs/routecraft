@@ -2,6 +2,7 @@ import {
   type CraftContext,
   type CraftPlugin,
   type EventName,
+  parseDuration,
 } from "@routecraft/routecraft";
 import { McpServer } from "./server.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
@@ -168,7 +169,10 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
         command: config.command,
         args: config.args ?? [],
         maxRestarts: options.maxRestarts ?? 5,
-        restartDelayMs: options.restartDelayMs ?? 1000,
+        restartDelayMs:
+          options.restartDelay === undefined
+            ? 1000
+            : parseDuration(options.restartDelay, "mcpPlugin.restartDelay"),
         restartBackoffMultiplier: options.restartBackoffMultiplier ?? 2,
       };
     if (config.env !== undefined) managerOpts.env = config.env;
@@ -289,7 +293,14 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     registry: McpToolRegistry,
     auth?: McpClientHttpConfig["auth"],
   ): void {
-    const interval = options.toolRefreshIntervalMs ?? 60_000;
+    const interval =
+      options.toolRefreshInterval === undefined
+        ? 60_000
+        : parseDuration(
+            options.toolRefreshInterval,
+            "mcpPlugin.toolRefreshInterval",
+            0,
+          );
     if (interval <= 0) return;
 
     const timer = setInterval(() => {

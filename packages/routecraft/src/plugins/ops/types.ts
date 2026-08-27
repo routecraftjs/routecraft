@@ -6,6 +6,7 @@
  * fields may be added, never removed or repurposed.
  */
 
+import type { Duration } from "../../shared/duration.ts";
 import type { HttpAuth } from "../../adapters/http/types";
 import type { Suspended } from "../../suspension/suspended";
 
@@ -247,7 +248,7 @@ export interface IndicatorDefinition {
    * push, which is the correct reading for one fed from a business route that
    * may legitimately be idle for hours.
    */
-  maxAgeMs?: number;
+  maxAge?: Duration;
   /**
    * How widely this dependency's failure is felt. Defaults to `deployment`,
    * which is right for anything reached over the network with shared
@@ -258,7 +259,7 @@ export interface IndicatorDefinition {
   /**
    * Bind this indicator to a route's exchange outcomes: a completed exchange
    * reports up, a failed exchange reports down, and no exchange within
-   * `maxAgeMs` goes stale. The route needs no health code at all.
+   * `maxAge` goes stale. The route needs no health code at all.
    *
    * For probe routes only, where the exchange is the health check by
    * construction. Binding a business route would make every expected refusal
