@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 
 import { mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 import { execSync, execFileSync } from "node:child_process";
@@ -146,6 +146,78 @@ async function validateExampleContent(sourceDir: string): Promise<void> {
       `Content validation failed: ${error instanceof Error ? error.message : error}`,
     );
   }
+}
+
+/**
+ * Path segments never copied out of an example, whatever its source.
+ *
+ * Matched per SEGMENT rather than as a substring of the whole relative
+ * path. A substring test excludes `.gitignore` and every file under
+ * `.github/` along with the repository directory it was aimed at, and
+ * excludes a capability folder named `pnpm-lock.yaml-parser` along with the
+ * lockfile.
+ */
+const EXAMPLE_EXCLUDED_DIRECTORIES = new Set(["node_modules", ".git"]);
+
+/**
+ * Lockfiles never copied out of an example. A scaffolded project resolves
+ * its own dependency tree, and a lockfile pinned against the example's
+ * dependency set would either be ignored or, worse, honoured.
+ */
+const EXAMPLE_EXCLUDED_FILES = new Set([
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lock",
+  "bun.lockb",
+]);
+
+/**
+ * Whether a path inside an example is one the scaffolder never copies.
+ *
+ * @param relativePath Path relative to the example root, `""` for the root
+ */
+export function isExcludedExamplePath(relativePath: string): boolean {
+  const segments = relativePath.split(sep).filter(Boolean);
+  if (segments.length === 0) return false;
+  if (segments.some((segment) => EXAMPLE_EXCLUDED_DIRECTORIES.has(segment))) {
+    return true;
+  }
+  return EXAMPLE_EXCLUDED_FILES.has(segments[segments.length - 1]!);
+}
+
+/**
+ * Files an example would place where the base template already wrote one.
+ *
+ * The built-in example copy lets the base file win, which is silent data
+ * loss unless someone says which files went. Walking for the answer up
+ * front is what lets the copy name them afterwards.
+ *
+ * @param sourceDir Example root
+ * @param targetDir Project root, already carrying the base template
+ * @param exclude Paths the copy will skip anyway, so they are not reported
+ * @returns Example-relative paths that already exist in the project
+ */
+export async function collidingExamplePaths(
+  sourceDir: string,
+  targetDir: string,
+  exclude: (relativePath: string) => boolean = isExcludedExamplePath,
+): Promise<string[]> {
+  const collisions: string[] = [];
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(dir)) {
+      const absolute = join(dir, entry);
+      const relativePath = relative(sourceDir, absolute);
+      if (exclude(relativePath)) continue;
+      if ((await stat(absolute)).isDirectory()) {
+        await walk(absolute);
+      } else if (existsSync(join(targetDir, relativePath))) {
+        collisions.push(relativePath);
+      }
+    }
+  };
+  await walk(sourceDir);
+  return collisions.sort();
 }
 
 /**
@@ -470,20 +542,17 @@ export async function generateProjectStructure(
       try {
         await cp(tempExampleDir, projectDir, {
           recursive: true,
+          // The example wins on collision: a URL example is a whole project
+          // template, and a base file left standing in the middle of it is a
+          // file the template's own CI never saw.
           force: true,
-          filter: (src) => {
-            const relativePath = src
-              .replace(tempExampleDir, "")
-              .replace(/^\//, "");
-            return (
-              !relativePath.includes("node_modules") &&
-              !relativePath.includes(".git") &&
-              !relativePath.includes("package-lock.json") &&
-              !relativePath.includes("yarn.lock") &&
-              !relativePath.includes("pnpm-lock.yaml")
-            );
-          },
+          filter: (src) => !skipFromUrlExample(relative(tempExampleDir, src)),
         });
+        // package.json is held back from the copy above and merged instead,
+        // because a straight overwrite drops the project name the user just
+        // chose and the package manager they picked.
+        await mergeExamplePackageJson(tempExampleDir, projectDir);
+        await mergeExampleDeps(tempExampleDir, projectDir);
         console.log(`✅ Added example from ${options.example}`);
       } finally {
         try {
@@ -496,16 +565,34 @@ export async function generateProjectStructure(
       // Handle built-in examples - copy from templates/examples/
       const exampleDir = join(TEMPLATES_DIR, "examples", options.example);
       if (existsSync(exampleDir)) {
+        // deps.json is metadata for dependency injection, not project content.
+        const skip = (relativePath: string): boolean =>
+          relativePath === "deps.json" || isExcludedExamplePath(relativePath);
+        const dropped = await collidingExamplePaths(
+          exampleDir,
+          projectDir,
+          skip,
+        );
         await cp(exampleDir, projectDir, {
           recursive: true,
+          // The base template wins on collision here: its package.json and
+          // index.ts carry the placeholders this function already resolved.
           force: false,
-          // deps.json is metadata for dependency injection, not project content.
-          filter: (src) => !src.endsWith(`${options.example}/deps.json`),
+          filter: (src) => !skip(relative(exampleDir, src)),
         });
 
         await mergeExampleDeps(exampleDir, projectDir);
 
         console.log(`✅ Added ${options.example} example`);
+        if (dropped.length > 0) {
+          // Named rather than swallowed. `force: false` is silent, so an
+          // example file colliding with a base file used to vanish with no
+          // trace in a scaffold that looked like it had succeeded.
+          console.warn(
+            `⚠️  ${dropped.length} file(s) from the ${options.example} example were NOT copied because the base template already wrote them:\n` +
+              dropped.map((file) => `   - ${file}`).join("\n"),
+          );
+        }
       } else {
         throw new Error(`Unknown example: ${options.example}`);
       }
@@ -513,6 +600,84 @@ export async function generateProjectStructure(
   }
 
   console.log("Generated project structure");
+}
+
+/**
+ * Paths a URL example's copy holds back.
+ *
+ * `package.json` and `deps.json` are merged rather than copied: the first
+ * carries the project name and package manager the scaffolder just
+ * resolved, and the second is dependency metadata, not project content.
+ */
+function skipFromUrlExample(relativePath: string): boolean {
+  return (
+    relativePath === "package.json" ||
+    relativePath === "deps.json" ||
+    isExcludedExamplePath(relativePath)
+  );
+}
+
+/**
+ * Fields the scaffolded `package.json` keeps whatever the example declares.
+ *
+ * The project name is what the user typed and `packageManager` is what they
+ * picked in the prompt; an example overwriting either replaces a decision
+ * with its own placeholder.
+ */
+const PROJECT_OWNED_PACKAGE_FIELDS = ["name", "packageManager"] as const;
+
+/**
+ * Merge a URL example's `package.json` into the scaffolded one.
+ *
+ * The example wins on every field it declares (its scripts, its engines,
+ * its dependency ranges: it is a whole project template and its CI ran
+ * against exactly those), except the two fields that belong to this
+ * scaffold rather than to the template. The three dependency maps and
+ * `scripts` merge key by key instead of being replaced, so the base's
+ * `@routecraft/cli` devDependency survives a template that only declares
+ * its own additions.
+ *
+ * A URL example with no `package.json` is left alone: it is an example
+ * fragment rather than a project template, and the base manifest already
+ * describes the project.
+ */
+export async function mergeExamplePackageJson(
+  exampleDir: string,
+  projectDir: string,
+): Promise<void> {
+  const examplePath = join(exampleDir, "package.json");
+  if (!existsSync(examplePath)) return;
+
+  const example = JSON.parse(await readFile(examplePath, "utf-8")) as Record<
+    string,
+    unknown
+  >;
+  const pkgPath = join(projectDir, "package.json");
+  const pkg = JSON.parse(await readFile(pkgPath, "utf-8")) as Record<
+    string,
+    unknown
+  >;
+
+  const merged: Record<string, unknown> = { ...pkg, ...example };
+  for (const field of PROJECT_OWNED_PACKAGE_FIELDS) {
+    if (pkg[field] !== undefined) merged[field] = pkg[field];
+  }
+  for (const field of [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "scripts",
+  ] as const) {
+    const base = pkg[field];
+    const overlay = example[field];
+    if (base === undefined && overlay === undefined) continue;
+    merged[field] = {
+      ...(base as Record<string, string> | undefined),
+      ...(overlay as Record<string, string> | undefined),
+    };
+  }
+
+  await writeFile(pkgPath, JSON.stringify(merged, null, 2) + "\n");
 }
 
 /**

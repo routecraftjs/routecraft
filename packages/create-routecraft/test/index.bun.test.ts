@@ -7,12 +7,15 @@ import {
   beforeEach,
   afterEach,
 } from "bun:test";
-import { mkdir, rm, readFile } from "node:fs/promises";
+import { mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import {
+  collidingExamplePaths,
   generateProjectStructure,
+  isExcludedExamplePath,
+  mergeExamplePackageJson,
   processTemplate,
   isUrl,
   type InitOptions,
@@ -445,5 +448,210 @@ describe("generateProjectStructure", () => {
         makeOptions({ example: "does-not-exist" }),
       ),
     ).rejects.toThrow("Unknown example: does-not-exist");
+  });
+});
+
+// ─── Unit: example copy filters ──────────────────────────────────────────────
+
+describe("isExcludedExamplePath", () => {
+  /**
+   * @case The repository directory and installed packages are excluded
+   * @preconditions Paths inside .git/ and node_modules/ at any depth
+   * @expectedResult Both excluded, at the root and nested
+   */
+  test("excludes .git and node_modules at any depth", () => {
+    expect(isExcludedExamplePath(".git/HEAD")).toBe(true);
+    expect(isExcludedExamplePath("node_modules/zod/index.js")).toBe(true);
+    expect(isExcludedExamplePath("packages/app/node_modules/x.js")).toBe(true);
+  });
+
+  /**
+   * @case Files whose names merely start with .git are kept
+   * @preconditions .gitignore and .github/workflows/ci.yml
+   * @expectedResult Both kept, because a substring test used to drop a template's
+   *   gitignore and its whole CI folder along with the repository directory
+   */
+  test("keeps .gitignore and .github", () => {
+    expect(isExcludedExamplePath(".gitignore")).toBe(false);
+    expect(isExcludedExamplePath(".github/workflows/ci.yml")).toBe(false);
+  });
+
+  /**
+   * @case Every lockfile is excluded, bun's included
+   * @preconditions One path per supported package manager
+   * @expectedResult All excluded, so a scaffolded project resolves its own tree
+   */
+  test("excludes every lockfile", () => {
+    for (const file of [
+      "package-lock.json",
+      "yarn.lock",
+      "pnpm-lock.yaml",
+      "bun.lock",
+      "bun.lockb",
+    ]) {
+      expect(isExcludedExamplePath(file)).toBe(true);
+    }
+  });
+
+  /**
+   * @case A path that merely contains a lockfile name is kept
+   * @preconditions A capability folder named after a lockfile parser
+   * @expectedResult Kept, because the exclusion matches whole segments
+   */
+  test("keeps a path that only contains a lockfile name", () => {
+    expect(
+      isExcludedExamplePath("capabilities/pnpm-lock.yaml-parser/route.ts"),
+    ).toBe(false);
+  });
+
+  /**
+   * @case The example root is never excluded
+   * @preconditions The empty relative path node:fs/promises cp passes for the root
+   * @expectedResult Kept, or the copy would produce nothing at all
+   */
+  test("keeps the example root", () => {
+    expect(isExcludedExamplePath("")).toBe(false);
+  });
+});
+
+describe("collidingExamplePaths", () => {
+  let source: string;
+  let target: string;
+
+  beforeEach(async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    source = join(tmpdir(), `rc-src-${stamp}`);
+    target = join(tmpdir(), `rc-dst-${stamp}`);
+    await mkdir(join(source, "capabilities", "greet"), { recursive: true });
+    await mkdir(join(target, "capabilities", "greet"), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(source, { recursive: true, force: true });
+    await rm(target, { recursive: true, force: true });
+  });
+
+  /**
+   * @case Files the target already holds are reported, nested ones included
+   * @preconditions An example and a project that share index.ts and a nested route.ts
+   * @expectedResult Both reported by their example-relative path, sorted, so the
+   *   copy can name what it dropped instead of losing it silently
+   */
+  test("reports files the project already has", async () => {
+    await writeFile(join(source, "index.ts"), "example");
+    await writeFile(join(target, "index.ts"), "base");
+    await writeFile(join(source, "capabilities", "greet", "route.ts"), "a");
+    await writeFile(join(target, "capabilities", "greet", "route.ts"), "b");
+    await writeFile(join(source, "README.md"), "only in the example");
+
+    expect(await collidingExamplePaths(source, target)).toEqual([
+      join("capabilities", "greet", "route.ts"),
+      "index.ts",
+    ]);
+  });
+
+  /**
+   * @case Excluded paths are never reported
+   * @preconditions A lockfile present on both sides
+   * @expectedResult Not reported, because the copy skips it deliberately rather
+   *   than dropping it by collision
+   */
+  test("never reports a path the copy skips anyway", async () => {
+    await writeFile(join(source, "bun.lock"), "x");
+    await writeFile(join(target, "bun.lock"), "y");
+
+    expect(await collidingExamplePaths(source, target)).toEqual([]);
+  });
+});
+
+describe("mergeExamplePackageJson", () => {
+  let source: string;
+  let target: string;
+
+  beforeEach(async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    source = join(tmpdir(), `rc-src-${stamp}`);
+    target = join(tmpdir(), `rc-dst-${stamp}`);
+    await mkdir(source, { recursive: true });
+    await mkdir(target, { recursive: true });
+    await writeFile(
+      join(target, "package.json"),
+      JSON.stringify({
+        name: "my-app",
+        packageManager: "bun@1.3.9",
+        scripts: { start: "craft run index.ts", lint: "eslint ." },
+        dependencies: { "@routecraft/routecraft": "^0.6.0" },
+        devDependencies: { typescript: "^5.9.3" },
+      }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(source, { recursive: true, force: true });
+    await rm(target, { recursive: true, force: true });
+  });
+
+  /**
+   * @case The project name and package manager survive a template package.json
+   * @preconditions A URL example declaring its own name and packageManager
+   * @expectedResult Both keep the scaffold's values, because they are what the
+   *   user typed and picked rather than anything the template can know
+   */
+  test("keeps the project name and package manager", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ name: "craft-harness", packageManager: "npm@10.0.0" }),
+    );
+
+    await mergeExamplePackageJson(source, target);
+
+    const pkg = await readJson(join(target, "package.json"));
+    expect(pkg.name).toBe("my-app");
+    expect(pkg.packageManager).toBe("bun@1.3.9");
+  });
+
+  /**
+   * @case Dependency maps and scripts merge key by key
+   * @preconditions A template declaring one extra dependency and one extra script
+   * @expectedResult The base entries survive alongside the template's, and the
+   *   template wins where both declare the same key
+   */
+  test("merges dependency maps and scripts instead of replacing them", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({
+        scripts: { start: "craft start", test: "bun test" },
+        dependencies: { "@routecraft/ai": "^0.6.0" },
+        devDependencies: { prettier: "^3.8.1" },
+      }),
+    );
+
+    await mergeExamplePackageJson(source, target);
+
+    const pkg = await readJson(join(target, "package.json"));
+    expect(pkg.scripts).toEqual({
+      start: "craft start",
+      lint: "eslint .",
+      test: "bun test",
+    });
+    expect(pkg.dependencies).toEqual({
+      "@routecraft/routecraft": "^0.6.0",
+      "@routecraft/ai": "^0.6.0",
+    });
+    expect(pkg.devDependencies).toEqual({
+      typescript: "^5.9.3",
+      prettier: "^3.8.1",
+    });
+  });
+
+  /**
+   * @case An example with no package.json leaves the scaffold alone
+   * @preconditions An example fragment carrying only route files
+   * @expectedResult The base manifest is unchanged, since it already describes the project
+   */
+  test("leaves the manifest alone when the example has none", async () => {
+    const before = await readJson(join(target, "package.json"));
+    await mergeExamplePackageJson(source, target);
+    expect(await readJson(join(target, "package.json"))).toEqual(before);
   });
 });
