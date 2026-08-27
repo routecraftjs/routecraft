@@ -17,6 +17,7 @@ import {
 import { TOOL_NAME_MAX_LENGTH } from "../tool-name.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
 import { parseProviderModel } from "../llm/shared.ts";
+import type { AgentStream } from "./delta-stream.ts";
 import { AgentEnricherAdapter, type AgentByNameOverrides } from "./enricher.ts";
 import { isToolSelection } from "./tools/selection.ts";
 import type { AgentOptions, AgentResult } from "./types.ts";
@@ -67,6 +68,18 @@ export function validateAgentOptions(options: AgentOptions): void {
         message: `Agent: "model" string must be in "providerId:modelName" form (e.g. ollama:llama3). Got: "${options.model}"`,
       });
     }
+  }
+  if (options.stream === true && options.onDelta !== undefined) {
+    throw rcError("RC5003", undefined, {
+      message:
+        `Agent: "stream" and "onDelta" are two spellings of the same thing and cannot both be set. ` +
+        `Use "stream: true" to have the dispatch produce the deltas, or "onDelta" to push them into a listener you own.`,
+    });
+  }
+  if (options.stream !== undefined && typeof options.stream !== "boolean") {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "stream" must be a boolean when present.`,
+    });
   }
   if (options.tools !== undefined && !isToolSelection(options.tools)) {
     throw rcError("RC5003", undefined, {
@@ -330,6 +343,9 @@ function validateBlocksLevel(
  *   .to(direct("reply"));
  * ```
  */
+export function agent(
+  options: AgentOptions & { stream: true },
+): Enricher<unknown, AgentStream>;
 export function agent(options: AgentOptions): Enricher<unknown, AgentResult>;
 export function agent(name: string): Enricher<unknown, AgentResult>;
 export function agent(
@@ -339,7 +355,7 @@ export function agent(
 export function agent(
   arg: AgentOptions | string,
   perCall?: AgentByNameOverrides,
-): Enricher<unknown, AgentResult> {
+): Enricher<unknown, AgentResult | AgentStream> {
   if (typeof arg === "string") {
     if (arg.trim() === "") {
       throw rcError("RC5003", undefined, {

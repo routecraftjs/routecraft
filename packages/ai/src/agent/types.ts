@@ -296,6 +296,38 @@ export interface AgentOptions {
    * are typically request-scoped (e.g. a per-connection SSE channel).
    */
   onDelta?: AgentDeltaListener;
+
+  /**
+   * Produce the token deltas themselves instead of the consolidated
+   * {@link AgentResult}.
+   *
+   * The dispatch returns an `AgentStream`, an async iterable of
+   * `AgentDelta`, as soon as the model starts writing rather than when it
+   * finishes. Returned from a route served over `http()`, the
+   * dispatcher frames it as Server-Sent Events, which is the shortest path
+   * from a prompt to a token-by-token reply:
+   *
+   * ```ts
+   * craft()
+   *   .id("chat-stream")
+   *   .from(http({ path: "/chat/stream", method: "POST" }))
+   *   .input({ body: ChatInput })
+   *   .to(agent({ system: aria, user: (b) => b.message, stream: true }));
+   * ```
+   *
+   * The trade is the result: `text`, `output`, `usage` and `toolCalls` are
+   * consolidated when a run finishes, and a stream is handed over before
+   * that. A route that needs both streams for the reader and reads the
+   * coarse `route:agent:*` events for the record.
+   *
+   * Iterating the stream is what drives the run, and abandoning it aborts
+   * one: a client that disconnects mid-answer stops the model rather than
+   * leaving it writing into a queue nobody will read.
+   *
+   * Mutually exclusive with {@link AgentOptions.onDelta}, which is the
+   * push form of the same thing.
+   */
+  stream?: boolean;
 }
 
 /**

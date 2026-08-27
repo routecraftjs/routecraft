@@ -33,6 +33,7 @@ import type {
   AgentToolPolicyContext,
   AgentToolSource,
 } from "./tools/policy.ts";
+import { streamAgentDeltas, type AgentStream } from "./delta-stream.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
@@ -89,7 +90,10 @@ export type AgentBinding =
  * store (`ADAPTER_AGENT_REGISTRY`) at dispatch time, throwing a clear
  * error if the name is unknown.
  */
-export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
+export class AgentEnricherAdapter implements Enricher<
+  unknown,
+  AgentResult | AgentStream
+> {
   readonly adapterId = "routecraft.adapter.agent";
 
   constructor(public readonly binding: AgentBinding) {
@@ -102,7 +106,7 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
   async fetch(
     exchange: Exchange<unknown>,
     stepCtx?: StepSignalContext,
-  ): Promise<AgentResult> {
+  ): Promise<AgentResult | AgentStream> {
     const context = getExchangeContext(exchange);
     const baseOptions = this.resolveOptions(context);
     const merged = mergeWithDefaults(baseOptions, context);
@@ -219,9 +223,16 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
     // route-scope .timeout() abandoning this run). Falls back to a
     // never-firing signal when the exchange has no route binding (rare;
     // mostly synthetic exchanges in tests).
+    //
+    // A streaming dispatch adds a third owner: the consumer of the delta
+    // stream. Abandoning the stream aborts the run, which is what makes a
+    // disconnected SSE client stop the model rather than pay for the rest
+    // of an answer nobody will read.
+    const consumer = new AbortController();
     const signals = [route?.signal, stepCtx?.signal].filter(
       (s): s is AbortSignal => s !== undefined,
     );
+    if (merged.stream === true) signals.push(consumer.signal);
     const abortSignal =
       signals.length > 1
         ? AbortSignal.any(signals)
@@ -235,7 +246,18 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
       this.binding.kind === "by-name"
         ? (this.binding.perCall?.onDelta ?? merged.onDelta)
         : merged.onDelta;
-    // The consolidated AgentResult is returned in both paths, so
+    // `stream: true` is the pull form of the same streaming run: the
+    // deltas become the dispatch's own product rather than being pushed
+    // into a listener the route had to supply. The queue and the abort
+    // that closes it live beside `onDelta` here, so a route asking for a
+    // token stream stays one declarative step.
+    if (merged.stream === true) {
+      return streamAgentDeltas(
+        (emit) => session.runStream(abortSignal, emit),
+        (reason) => consumer.abort(reason),
+      );
+    }
+    // The consolidated AgentResult is returned in both remaining paths, so
     // downstream pipeline ops are unaffected by the choice.
     if (onDelta !== undefined) {
       return await session.runStream(abortSignal, onDelta);
