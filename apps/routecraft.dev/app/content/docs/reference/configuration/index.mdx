@@ -25,6 +25,39 @@ export const craftConfig = defineConfig({
 
 `defineConfig` is a no-op at runtime; it returns the input unchanged. The legacy `satisfies CraftConfig` pattern continues to work.
 
+## Durations
+
+Every time option you write takes a `Duration`: either a plain number of milliseconds, or a string with a unit suffix (`'500ms'`, `'30s'`, `'15m'`, `'72h'`, `'7d'`).
+
+```ts
+shutdown: { timeout: 20_000 }   // milliseconds
+shutdown: { timeout: '20s' }    // the same deadline, read at a glance
+```
+
+The two forms are interchangeable everywhere, because `Duration` is a superset of `number`. The string form exists because the realistic values are human ones: an approval window is three days, not `259_200_000`.
+
+Values the framework **reports** are the opposite case and stay plain millisecond numbers: `durationMs` on events, `ageMs` on ops responses, and anything else emitted rather than authored. Those are machine-readable data, not configuration, so they carry no unit ambiguity to resolve.
+
+Validate one yourself with the exported `parseDuration(value, field)`, which applies exactly the rules every option applies.
+
+## Route enablement
+
+A route can declare whether it runs at all:
+
+```ts
+craft()
+  .id('mail-inbound')
+  .enabled(() =>
+    env.MAIL_USER && env.MAIL_APP_PASSWORD
+      ? true
+      : 'MAIL_USER and MAIL_APP_PASSWORD are not set',
+  )
+  .from(mail({ account: 'default', folder: 'INBOX' }))
+  .to(direct('triage'))
+```
+
+A disabled route is registered and known to the context, not started, not intaking, and not offered as an agent tool, and [ops](#ops) reports it as disabled with its reason rather than as failed. This is per-route configuration rather than a `CraftConfig` field because the condition belongs with the route it gates. See [`.enabled()`](/docs/reference/operations/enabled).
+
 ## Configuration fields
 
 | Field | Type | Required | Default | Description |

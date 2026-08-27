@@ -61,9 +61,25 @@ The second part is which failures may also refuse traffic, which is decided by f
 | Source gave up producing | `down` | The route is not running, so nothing it exists to serve is being served |
 | Circuit breaker open or half-open | `degraded` | Live, but holding calls off, and expected to close again on its own |
 | Route deliberately taken offline | `degraded` | Deliberate reduced capability, visible without paging |
+| Route disabled by its [`.enabled()`](/docs/reference/operations/enabled) predicate | `inactive` | A capability whose credentials were never supplied is a configuration state the operator chose, not an incident. Listed with its reason, excluded from aggregation |
 | Route running normally | `up` | |
 | One-shot finished, or route stopped cleanly | `inactive` | Excluded from aggregation entirely |
 | An exchange failed | no change | A refused caller, a validation error, or a business rule saying no is a healthy route behaving correctly |
+
+**Disabled is not offline, and neither is failed.** The three are separate readings of separate situations: `failed` is a route that should be running and is not, `offline` is a running deployment having capability taken away from it, and `disabled` is capability that was never configured. Collapsing any pair would either page on a dormant route or stop paging on a derotated one. A disabled route reports its reason in `details.reason`, so an operator reading `/ops` sees
+
+```json
+"mail-inbound": {
+  "status": "inactive",
+  "domain": "deployment",
+  "details": {
+    "lifecycle": "disabled",
+    "reason": "MAIL_USER and MAIL_APP_PASSWORD are not set"
+  }
+}
+```
+
+and knows immediately that nothing is broken. Overall health is unaffected: a deliberate configuration state is not an open circuit.
 
 That last row is the rule the surface is built around. **Exchange errors are route issues, not health issues.** A failing exchange never changes any status, whatever the streak, because many errors are entirely expected and paging on them turns every scope gap and every malformed request into an incident. Repeated failure reaches health through exactly two doors, both deliberate: a circuit breaker, which knows which errors it counts and actually stops the route serving, or the app catching the error and pushing an indicator down itself. The consecutive-failure count still appears in `details` as context for a human; it is never an input to status.
 

@@ -47,6 +47,8 @@ per-capability view watches `route:error` instead.
 
 "Route" here refers to a registered capability internally.
 
+A capability held back by its [`.enabled()`](/docs/reference/operations/enabled) predicate emits `route:registered` and `route:enablement:changed`, and none of the starting / started events: it is registered and known to the context, but never started.
+
 | Event | When it fires | Details |
 | --- | --- | --- |
 | `route:registered` | Capability registered with the context | `{ route }` |
@@ -55,6 +57,7 @@ per-capability view watches `route:error` instead.
 | `route:stopping` | Capability is stopping | `{ route, reason?, exchange? }` |
 | `route:stopped` | Capability has stopped ACCEPTING work. In-flight exchanges may still be draining: shutdown fires this when intake closes, not when the drain completes | `{ route, exchange? }` |
 | `route:source:failed` | A source gave up producing (e.g. a connection-backed source exhausted its reconnect attempts) and the route is about to stop | `{ routeId, route, adapter?, error }` |
+| `route:enablement:changed` | A capability's [`.enabled()`](/docs/reference/operations/enabled) verdict changed (or was reached for the first time). `reason` is present only when `enabled` is false | `{ routeId, route, enabled, reason? }` |
 | `route:error` | An exchange failed unrecoverably on this capability: no route-scope `.error()` handler, or the handler itself rethrew | `{ routeId, error, route?, exchange? }` |
 | `route:error:caught` | A route-scope `.error()` handler recovered the exchange, so the pipeline continues | `{ routeId, error, route?, exchange? }` |
 

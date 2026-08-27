@@ -1,0 +1,89 @@
+---
+title: enabled
+---
+
+<Lead>
+[← All operations](/docs/reference/operations)
+</Lead>
+
+```ts
+enabled(
+  predicate: () => boolean | string | Promise<boolean | string>,
+  options?: { refresh?: Duration | CronExpression },
+): RouteBuilder<Current>
+```
+
+Gate a route on a predicate. A route whose predicate is false is **disabled**: registered and known to the context, not started, not intaking, and not advertised as an agent tool.
+
+This is the state a capability without its credentials never had. Without it such a route either registers and fails when something calls it, or is commented out by hand, and a route that is missing looks exactly like one that is deliberately off, though only the first is an incident.
+
+```ts
+craft()
+  .id('mail-inbound')
+  .description('Triage inbound mail')
+  .enabled(() =>
+    env.MAIL_USER && env.MAIL_APP_PASSWORD
+      ? true
+      : 'MAIL_USER and MAIL_APP_PASSWORD are not set',
+  )
+  .from(mail({ account: 'default', folder: 'INBOX' }))
+  .to(direct('triage'))
+```
+
+## The verdict
+
+- `true` enables the route.
+- A **string** disables it, and that string is the reason [ops](/docs/reference/plugins/opsplugin) reports. There is no separate reason argument on purpose: one declaration cannot drift from the other.
+- `false` disables it with a generic reason, for a predicate with nothing useful to add.
+- A predicate that **throws** leaves the route disabled with the error message as its reason and never fails the boot. A missing credential is a configuration state, not a reason to take the process down.
+
+The predicate may be async; the boot waits for the verdict rather than racing it.
+
+## The tool surface follows it
+
+The agent tool list is derived from what the context has enabled, so a disabled capability is simply never offered to the model. That is what makes "the agent cannot use this until I supply credentials" true by construction rather than by the model behaving well.
+
+```ts
+ctx.capabilities() // the disabled route's endpoint is absent
+```
+
+## Refresh cadence
+
+```ts
+.enabled(predicate)                            // manual (default)
+.enabled(predicate, { refresh: '5m' })         // interval
+.enabled(predicate, { refresh: '0 * * * *' })  // cron schedule
+```
+
+**Manual is the default**: the predicate runs once as the route starts and is not run again until something explicitly asks. That keeps the common case, an environment variable that cannot change without a restart, free of any recurring cost, and it stops a predicate that reaches the network from becoming an invisible repeating one.
+
+`refresh` takes the framework's [`Duration`](/docs/reference/configuration) type (`number | '5m'`) or a cron expression. The two are told apart by shape: every cron expression contains a space or starts with `@`, and no `Duration` does. A cron cadence loads `croner`, the same optional peer the [`cron()` adapter](/docs/reference/adapters/cron) uses.
+
+A malformed cadence is refused while the route is built, not discovered as a dead timer at boot.
+
+## Transitions
+
+**Enabled to disabled** is a graceful drain, identical to what shutdown does per route: the route's intake signal fires so it stops accepting new work while in-flight exchanges finish, then execution is abandoned once the [`shutdown.timeout`](/docs/reference/configuration#shutdown) grace deadline passes. A flag flip is never a data-loss event, and there is no second stop path.
+
+**Disabled to enabled** starts the route normally, and it reappears in `capabilities()`.
+
+## Re-evaluating on demand
+
+```ts
+await ctx.reevaluateEnablement('mail-inbound') // one route
+await ctx.reevaluateEnablement()               // every declaring route
+```
+
+This is the operator loop: set the secret, ask for a re-check, and the capability comes up without a process restart.
+
+## Reporting
+
+The ops health surface reports a disabled route as `disabled` **with its reason**, distinct from `failed` and distinct from absent, and maps it to `inactive` so it is excluded from aggregation. Overall health never degrades because a route is disabled: a deliberate configuration state is not an open circuit. See [opsPlugin](/docs/reference/plugins/opsplugin).
+
+A genuine transition emits [`route:enablement:changed`](/docs/reference/events). A refresh that re-confirms what the route was already doing is silent, so a five-minute cadence over a stable predicate is not a heartbeat.
+
+## Not a filter
+
+Enablement is route **metadata**, not a filter. It decides whether the route runs at all, per route lifecycle rather than per exchange, so it sits beside `.id()` and `.description()` and never enters the [pre-from filter chain](/docs/reference/operations). It never sees an exchange and never runs on the hot path.
+
+`.enabled()` may be declared at most once per route.
