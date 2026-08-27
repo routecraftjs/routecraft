@@ -2,6 +2,7 @@ export { llm } from "./llm.ts";
 export { LlmEnricherAdapter } from "./enricher.ts";
 export { llmPlugin } from "./plugin.ts";
 export { validateLlmPluginOptions } from "./validate-options.ts";
+export { isContextOverflow } from "./context-overflow.ts";
 export { ADAPTER_LLM_OPTIONS, ADAPTER_LLM_PROVIDERS } from "./types.ts";
 export type {
   CustomLanguageModel,

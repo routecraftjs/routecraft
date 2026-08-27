@@ -25,7 +25,12 @@ export type {
 } from "./registry.ts";
 
 // LLM adapter and plugin
-export { llm, LlmEnricherAdapter, llmPlugin } from "./llm/index.ts";
+export {
+  isContextOverflow,
+  llm,
+  LlmEnricherAdapter,
+  llmPlugin,
+} from "./llm/index.ts";
 export type {
   CustomLanguageModel,
   LlmAnthropicProviderOptions,
@@ -127,6 +132,8 @@ export {
   AgentEnricherAdapter,
   agentPlugin,
   agents,
+  assertResumableThread,
+  replaceParkedThread,
   SuspendError,
 } from "./agent/index.ts";
 export type {

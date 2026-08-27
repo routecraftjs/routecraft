@@ -426,6 +426,18 @@
     "retryable": false
   },
   {
+    "code": "AI1008",
+    "category": "Adapter",
+    "message": "Parked agent thread replacement refused",
+    "retryable": false
+  },
+  {
+    "code": "AI1009",
+    "category": "Adapter",
+    "message": "Model context window exceeded",
+    "retryable": false
+  },
+  {
     "code": "AI2001",
     "category": "Adapter",
     "message": "MCP tool output violated its declared schema",

@@ -10,6 +10,7 @@ import {
   type CallLlmParams,
   type ProviderExtras,
 } from "./llm-utils.ts";
+import { rethrowContextOverflow } from "../context-overflow.ts";
 import { resolveLanguageModel } from "./resolve.ts";
 
 /**
@@ -61,20 +62,29 @@ export async function runStreamGenerate(
   const params = buildSdkParams(model, options, system, user, extras);
   const result = streamText(params as Parameters<typeof streamText>[0]);
 
-  for await (const part of result.fullStream) {
-    const delta = normalizeStreamDelta(part);
-    if (delta === null) continue;
-    try {
-      await onDelta(delta);
-    } catch (err) {
-      frameworkLogger.warn(
-        { err },
-        "agent.onDelta listener threw; ignoring and continuing stream",
-      );
+  // A stream rejects where it is drained rather than where it is created,
+  // so the guard covers the drain and the text it settles into. The
+  // optional accessors below are read through `safeAwait`, which reports a
+  // rejection as absent, so a provider refusal cannot reach them first.
+  let text: string | undefined;
+  try {
+    for await (const part of result.fullStream) {
+      const delta = normalizeStreamDelta(part);
+      if (delta === null) continue;
+      try {
+        await onDelta(delta);
+      } catch (err) {
+        frameworkLogger.warn(
+          { err },
+          "agent.onDelta listener threw; ignoring and continuing stream",
+        );
+      }
     }
+    text = await result.text;
+  } catch (cause) {
+    rethrowContextOverflow(cause);
   }
 
-  const text = await result.text;
   const out: LlmResult = { text: text ?? "", raw: result };
   const usage = await safeAwait<{
     inputTokens?: number | undefined;

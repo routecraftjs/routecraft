@@ -9,6 +9,7 @@ import {
   type CallLlmParams,
   type ProviderExtras,
 } from "./llm-utils.ts";
+import { rethrowContextOverflow } from "../context-overflow.ts";
 import { resolveLanguageModel } from "./resolve.ts";
 import { streamLlm as _streamLlm } from "./stream-llm.ts";
 import type { AgentDeltaListener } from "../../agent/events.ts";
@@ -49,9 +50,12 @@ async function runGenerate(
 ): Promise<LlmResult> {
   const { generateText } = await import("ai");
   const params = buildSdkParams(model, options, system, user, extras);
+  // Only the dispatch is guarded. Reading the result below cannot fail for
+  // a full context window, and widening the catch would relabel unrelated
+  // decoding bugs as AI1009.
   const result = await generateText(
     params as Parameters<typeof generateText>[0],
-  );
+  ).catch(rethrowContextOverflow);
   const out: LlmResult = { text: result.text ?? "", raw: result };
   if (result.usage) out.usage = toLlmUsage(result.usage);
   const parsed = getStructuredOutput(result as { output?: unknown });
