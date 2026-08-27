@@ -180,15 +180,24 @@ export class TestContext {
   }
 
   /**
-   * Resolves once every route has emitted `route:started`, or rejects on
+   * Resolves once every route has SETTLED its boot, or rejects on
    * `context:error` or the configured routes-ready timeout.
+   *
+   * A route settles by starting, or by being disabled: a route held back by
+   * its `.enabled()` predicate never emits `route:started`, so waiting only
+   * on that would make every test with one dormant capability sit out the
+   * full timeout and then fail on a message about routes not starting.
+   *
+   * Tracked as a SET of route ids rather than a counter because a route can
+   * legitimately produce both signals in one boot (disabled, then re-enabled
+   * and started), and a counter would then read that one route as two.
    */
   private awaitRoutesReady(): Promise<void> {
     const ctx = this.ctx;
     const total = ctx.getRoutes().length;
     if (total === 0) return Promise.resolve();
     return new Promise<void>((resolve, reject) => {
-      let ready = 0;
+      const ready = new Set<string>();
       let settled = false;
       let timeoutId: ReturnType<typeof setTimeout> | undefined = setTimeout(
         () => {
@@ -199,14 +208,25 @@ export class TestContext {
         this.routesReadyTimeoutMs,
       );
 
-      const offRouteStarted = ctx.on("route:started", (() => {
+      const markReady = (routeId: string): void => {
         if (settled) return;
-        ready++;
-        if (ready >= total) {
+        ready.add(routeId);
+        if (ready.size >= total) {
           cleanup();
           resolve();
         }
-      }) as EventHandler<EventName>);
+      };
+
+      const offRouteStarted = ctx.on("route:started", ((payload: {
+        details: { routeId: string };
+      }) => {
+        markReady(payload.details.routeId);
+      }) as unknown as EventHandler<EventName>);
+      const offDisabled = ctx.on("route:enablement:changed", ((payload: {
+        details: { routeId: string; enabled: boolean };
+      }) => {
+        if (!payload.details.enabled) markReady(payload.details.routeId);
+      }) as unknown as EventHandler<EventName>);
       const offError = ctx.on("context:error", (payload) => {
         if (settled) return;
         cleanup();
@@ -217,6 +237,7 @@ export class TestContext {
         if (settled) return;
         settled = true;
         offRouteStarted();
+        offDisabled();
         offError();
         if (timeoutId !== undefined) {
           clearTimeout(timeoutId);

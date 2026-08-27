@@ -1397,7 +1397,18 @@ export class CraftContext {
 
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
-        if (allFulfilled && !this.plugins.some((plugin) => plugin.keepsAlive)) {
+        // A disabled route has not COMPLETED, it never ran, so it must not
+        // be counted as work that finished. Auto-stopping a context whose
+        // routes are merely dormant would make the operator loop this
+        // feature exists for impossible: supply the secret, re-check, and
+        // the capability comes up without a process restart cannot happen
+        // in a context that already exited.
+        const anyDisabled = this.enablement.disabled().size > 0;
+        if (
+          allFulfilled &&
+          !anyDisabled &&
+          !this.plugins.some((plugin) => plugin.keepsAlive)
+        ) {
           this.logger.debug({}, "All routes have completed. Stopping context.");
           await this.stop();
           return;
@@ -1661,7 +1672,28 @@ export class CraftContext {
     this.controllers.set(route.definition.id, controller);
     route.resetForRestart(controller);
     this.emit("route:starting", { routeId: route.definition.id, route });
-    await route.start();
+
+    // Resolved on READINESS, not on `start()` settling, exactly as the boot
+    // path does. A server ingress (direct, http, mcp) holds its subscribe
+    // open until the route is aborted, so awaiting `start()` here would
+    // never return and the re-enable would hang forever on precisely the
+    // routes this feature is for. A finite source settles `start()` first
+    // and resolves through the other arm.
+    const ready = Promise.withResolvers<void>();
+    const off = this.on("route:started", ({ details }) => {
+      if (details.routeId === route.definition.id) ready.resolve();
+    });
+    const running = route.start().catch((err: unknown) => {
+      controller.abort(err);
+      route.abortExecution(err);
+      ready.reject(err);
+    });
+
+    try {
+      await Promise.race([ready.promise, running]);
+    } finally {
+      off();
+    }
   }
 
   /**
