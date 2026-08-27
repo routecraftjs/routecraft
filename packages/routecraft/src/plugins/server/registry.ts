@@ -357,6 +357,7 @@ export class HttpMountRegistry implements WebIngress {
     return mount.handler(request, {
       serverName: this.serverName,
       authenticate,
+      exemptFromIdleTimeout: () => runtime?.exemptFromIdleTimeout(request),
       authPolicy: this.authPolicyByMount.get(mount.id),
       auth:
         this.authFactsByMount.get(mount.id) ??

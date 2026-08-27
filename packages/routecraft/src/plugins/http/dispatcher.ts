@@ -12,6 +12,12 @@ import {
   parseRequestBody,
   type HttpBodyError,
 } from "./body-parser";
+import {
+  isAsyncIterable,
+  isReadableStream,
+  SSE_CONTENT_TYPE,
+  streamResponseBody,
+} from "./sse";
 import type { HttpWebhookSignatureRejection } from "./webhook-signature";
 
 /** Function called once per completed dispatch when per-request events are enabled. */
@@ -104,12 +110,14 @@ export function createDispatcher(
 ): (
   req: Request,
   authenticate?: () => Promise<AuthResult | undefined>,
+  exemptFromIdleTimeout?: () => void,
 ) => Promise<Response> {
   const log = opts.logger ?? defaultLogger;
 
   return async function dispatch(
     req: Request,
     authenticate?: () => Promise<AuthResult | undefined>,
+    exemptFromIdleTimeout?: () => void,
   ): Promise<Response> {
     const started = performance.now();
     const url = new URL(req.url);
@@ -348,6 +356,37 @@ export function createDispatcher(
     //    body + response hints into a Response.
     try {
       const exchange = await entry.handler(parsedBody, handlerHeaders);
+      const plan = planStream(exchange.body, exchange.headers);
+      if (plan) {
+        // A stream may stay quiet far longer than the listener's idle
+        // reaper allows, and the mount cannot know at bind time which of
+        // its routes will stream, so the exemption is claimed here, for
+        // this request, once the body proves to be one.
+        exemptFromIdleTimeout?.();
+        const body = streamResponseBody(plan.body, {
+          signal: req.signal,
+          onEnd: (error) => {
+            if (error !== undefined) {
+              log.error(
+                { err: error, routeId: entry.routeId, method, path: pathname },
+                "http source: streaming response body failed after the status line was sent",
+              );
+            }
+            emitCompleted(opts, {
+              method,
+              path: entry.matcher.pattern,
+              status: plan.status,
+              durationMs: ms(started),
+              routeId: entry.routeId,
+              principal: principal ? { subject: principal.subject } : undefined,
+            });
+          },
+        });
+        return new Response(body, {
+          status: plan.status,
+          headers: plan.headers,
+        });
+      }
       const response = serialiseResponse(exchange.body, exchange.headers);
       emitCompleted(opts, {
         method,
@@ -408,6 +447,56 @@ function ms(started: number): number {
   return Math.round(performance.now() - started);
 }
 
+/** A streaming body, with the status and headers its response carries. */
+interface StreamPlan {
+  body: AsyncIterable<unknown> | ReadableStream<Uint8Array>;
+  status: number;
+  headers: Record<string, string>;
+}
+
+/**
+ * Recognise a streaming body and decide the response it heads.
+ *
+ * Two arms, split on what the route handed back rather than on any option.
+ * An `AsyncIterable` is framed as Server-Sent Events, because that is the
+ * only thing a sequence of yielded values can mean over HTTP without the
+ * route saying more. A `ReadableStream` is already bytes and is passed
+ * through untouched, so a route that has its own wire format reaches for
+ * that one.
+ *
+ * Overrides win over both defaults, which is how a caller chooses
+ * `application/x-ndjson`. Framing follows the body type, not the content
+ * type: an iterable of objects is SSE-framed whatever the header says, and
+ * a route wanting different bytes yields strings.
+ */
+function planStream(
+  body: unknown,
+  headers: ExchangeHeaders,
+): StreamPlan | undefined {
+  if (body === null || body === undefined) return undefined;
+  const raw = isReadableStream(body);
+  if (!raw && !isAsyncIterable(body)) return undefined;
+
+  const hint = readResponseHint(headers);
+  const extraHeaders = hint.headers ?? {};
+  return {
+    body: body as AsyncIterable<unknown> | ReadableStream<Uint8Array>,
+    status: hint.status ?? 200,
+    headers: raw
+      ? {
+          "content-type": hint.contentType ?? "application/octet-stream",
+          ...extraHeaders,
+        }
+      : {
+          "content-type": hint.contentType ?? SSE_CONTENT_TYPE,
+          // A cached event stream is a contradiction, and an intermediary
+          // that buffers one turns a live feed into a delayed batch.
+          "cache-control": "no-cache",
+          ...extraHeaders,
+        },
+  };
+}
+
 /**
  * Translate the final exchange body + response hint headers into a Response
  * according to the documented convention.
@@ -435,27 +524,6 @@ function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
         ...extraHeaders,
       },
     });
-  }
-
-  // Reject streaming bodies in v1 (SSE deferred).
-  if (
-    body !== null &&
-    body !== undefined &&
-    (isReadableStream(body) || isAsyncIterable(body))
-  ) {
-    return new Response(
-      JSON.stringify({
-        error: "streaming response bodies are not supported in v1",
-        rc: "RC5018",
-      }),
-      {
-        status: 500,
-        headers: {
-          "content-type": "application/json; charset=utf-8",
-          ...extraHeaders,
-        },
-      },
-    );
   }
 
   // Null / undefined -> 204 unless the user explicitly overrode the status.
@@ -532,21 +600,4 @@ function readResponseHint(headers: ExchangeHeaders): HttpResponseHint {
     ...(typeof contentType === "string" ? { contentType } : {}),
     ...(responseHeaders ? { headers: responseHeaders } : {}),
   };
-}
-
-function isReadableStream(value: unknown): value is ReadableStream {
-  return (
-    typeof ReadableStream !== "undefined" && value instanceof ReadableStream
-  );
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    Symbol.asyncIterator in value &&
-    typeof (value as { [Symbol.asyncIterator]: unknown })[
-      Symbol.asyncIterator
-    ] === "function"
-  );
 }

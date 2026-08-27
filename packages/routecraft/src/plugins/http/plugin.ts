@@ -284,7 +284,11 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
               return claims;
             },
             handler: (request, mountContext) =>
-              dispatcher(request, mountContext.authenticate),
+              dispatcher(
+                request,
+                mountContext.authenticate,
+                mountContext.exemptFromIdleTimeout,
+              ),
           }),
         );
       }

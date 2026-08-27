@@ -133,6 +133,17 @@ export interface HttpMountContext {
   readonly authPolicy: HttpMountAuthPolicy | undefined;
   /** Resolved auth facts for this mount. */
   readonly auth: HttpMountAuth;
+  /**
+   * Lift the listener's idle timeout for this one request.
+   *
+   * The mount-level {@link HttpMount.longLived} flag says every request on
+   * a surface may stay quiet; this says one of them will. A mount whose
+   * routes are ordinary request/response apart from the occasional
+   * streaming body (the http source, where the body type decides) claims
+   * the exemption per request instead of widening it to the whole surface.
+   * A no-op on Node, whose timeouts do not govern response streaming.
+   */
+  readonly exemptFromIdleTimeout: () => void;
 }
 
 export interface WebIngress {
