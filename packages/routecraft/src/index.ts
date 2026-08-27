@@ -389,6 +389,14 @@ export {
 export { validateAgainst } from "./pipeline/validation.ts";
 export { isStandardSchema } from "./shared/standard-schema.ts";
 export { parseDuration } from "./shared/duration.ts";
+export type {
+  EnablementOptions,
+  EnablementPredicate,
+  EnablementState,
+  EnablementVerdict,
+  RefreshCadence,
+  RouteEnablement,
+} from "./enablement.ts";
 export type { Duration, DurationUnit } from "./shared/duration.ts";
 
 export {

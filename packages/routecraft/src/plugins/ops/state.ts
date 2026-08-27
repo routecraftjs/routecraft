@@ -71,6 +71,13 @@ interface RouteRecord {
   everSucceeded: boolean;
   /** Last status reported to `onChange`, so a transition is detected in O(1). */
   lastStatus: HealthStatus;
+  /**
+   * Why the route's `.enabled()` predicate held it back. Set only while
+   * `lifecycle` is `disabled`; it is the whole point of reporting disabled
+   * rather than merely absent, so an operator reads "mail-inbound: disabled
+   * (MAIL_USER, MAIL_APP_PASSWORD unset)" and knows nothing is broken.
+   */
+  disabledReason?: string;
 }
 
 interface IndicatorRecord {
@@ -95,6 +102,11 @@ interface IndicatorRecord {
 function routeStatus(record: RouteRecord): HealthStatus {
   const { lifecycle, breakers } = record;
   if (lifecycle === "failed") return "down";
+  // Excluded from aggregation entirely, ahead of every other reading: a
+  // route the operator deliberately switched off must not move the overall
+  // status at all. Degrading on it would make a dormant capability page,
+  // which is precisely the alarm this feature exists to avoid.
+  if (lifecycle === "disabled") return "inactive";
   if (lifecycle === "offline") return "degraded";
   if (lifecycle === "running") return breakers.size > 0 ? "degraded" : "up";
   return "inactive";
@@ -119,6 +131,9 @@ function routeComponent(record: RouteRecord): HealthComponent {
   const { lifecycle, breakers } = record;
   const details: HealthDetails = { lifecycle };
 
+  if (record.disabledReason !== undefined) {
+    details["reason"] = record.disabledReason;
+  }
   if (breakers.size > 0) {
     details["circuit"] = [...breakers.values()].includes("open")
       ? "open"
@@ -266,6 +281,39 @@ export class HealthState implements HealthLedger {
   }
 
   /**
+   * A route's `.enabled()` predicate held it back, or released it.
+   *
+   * Kept apart from {@link HealthState.setRouteOffline} rather than folded
+   * into it: `offline` degrades and `disabled` does not, because one is a
+   * running deployment losing capability and the other is capability that
+   * was never configured. Collapsing them would either page on a dormant
+   * route or stop paging on a derotated one.
+   *
+   * @param reason - Why it is off. Reported next to the route.
+   */
+  setRouteDisabled(routeId: string, reason: string): void {
+    const record = this.ensureRoute(routeId);
+    record.lifecycle = "disabled";
+    record.disabledReason = reason;
+    record.breakers.clear();
+    record.consecutiveFailures = 0;
+    this.settleRoute(routeId, record);
+  }
+
+  /**
+   * A route's predicate now passes. The route itself reports `running` once
+   * it starts; this only clears the disabled disposition so that
+   * `routeStarted` is not overruled by a stale reason.
+   */
+  clearRouteDisabled(routeId: string): void {
+    const record = this.routes.get(routeId);
+    if (!record || record.lifecycle !== "disabled") return;
+    record.lifecycle = "stopped";
+    delete record.disabledReason;
+    this.settleRoute(routeId, record);
+  }
+
+  /**
    * A route stopped. A one-shot that ran and succeeded is `completed`, one
    * that did nothing is `stopped`, and both are fine: a route closing is not a
    * failure. A route already judged `failed` or `offline` keeps that
@@ -274,7 +322,16 @@ export class HealthState implements HealthLedger {
   routeStopped(routeId: string): void {
     const record = this.routes.get(routeId);
     if (!record) return;
-    if (record.lifecycle === "failed" || record.lifecycle === "offline") return;
+    if (
+      record.lifecycle === "failed" ||
+      record.lifecycle === "offline" ||
+      // A route stopping BECAUSE it was disabled would otherwise report as a
+      // clean finish, losing the reason and the distinction the whole
+      // feature rests on.
+      record.lifecycle === "disabled"
+    ) {
+      return;
+    }
     record.lifecycle = record.everSucceeded ? "completed" : "stopped";
     this.settleRoute(routeId, record);
   }
@@ -290,8 +347,13 @@ export class HealthState implements HealthLedger {
     // A dead source stays dead. Bringing a route back online says the
     // operator wants it serving, not that its source recovered; only
     // `routeStarted` can clear `failed`, which is the same rule
-    // `routeStopped` and `exchangeCompleted` already follow.
-    if (record.lifecycle === "failed") return;
+    // `routeStopped` and `exchangeCompleted` already follow. A disabled
+    // route is the same case from the other direction: the predicate
+    // decides, and an operator toggling offline must not talk it into
+    // serving without its credentials.
+    if (record.lifecycle === "failed" || record.lifecycle === "disabled") {
+      return;
+    }
     record.lifecycle = offline ? "offline" : "running";
     if (!offline) record.consecutiveFailures = 0;
     this.settleRoute(routeId, record);
@@ -342,7 +404,14 @@ export class HealthState implements HealthLedger {
    */
   exchangeCompleted(routeId: string): void {
     const record = this.ensureRoute(routeId);
-    if (record.lifecycle !== "offline" && record.lifecycle !== "failed") {
+    if (
+      record.lifecycle !== "offline" &&
+      record.lifecycle !== "failed" &&
+      // An exchange draining out of a route that was just disabled settles
+      // after the flip. Treating it as evidence of life would clear the
+      // reason and report the route running while it drains to a stop.
+      record.lifecycle !== "disabled"
+    ) {
       record.lifecycle = "running";
     }
     record.everSucceeded = true;

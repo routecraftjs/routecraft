@@ -202,6 +202,20 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         ctx.on("route:stopped", ({ details }) => {
           state.routeStopped(details.routeId);
         }),
+        // Disabled is reported distinctly from failed, WITH its reason, and
+        // never degrades the aggregate: an operator reading /ops sees
+        // "mail-inbound: disabled (MAIL_USER, MAIL_APP_PASSWORD unset)" and
+        // knows immediately that nothing is broken.
+        ctx.on("route:enablement:changed", ({ details }) => {
+          if (details.enabled) {
+            state.clearRouteDisabled(details.routeId);
+          } else {
+            state.setRouteDisabled(
+              details.routeId,
+              details.reason ?? "disabled by its enabled() predicate",
+            );
+          }
+        }),
         // The only route-liveness signal. `context:error` is deliberately not
         // subscribed: it fires for every unhandled exchange error and for any
         // throwing event handler, so reading it as a dead source would make
@@ -308,6 +322,16 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       // unproven. Routes that did signal already have their real state.
       for (const route of ctx.getRoutes()) {
         runtime.state.declareRoute(route.definition.id);
+      }
+
+      // Routes disabled during the boot: their `route:enablement:changed`
+      // fired while the context was starting, which is before this plugin's
+      // start() hook runs, so the subscription above missed it. Replayed
+      // from the context's own record rather than by re-evaluating the
+      // predicates, which would run a user's credential check a second time
+      // for a state the context already holds.
+      for (const [routeId, reason] of ctx.disabledRoutes()) {
+        runtime.state.setRouteDisabled(routeId, reason);
       }
 
       // Reaching this with the gate mode and no validator means the

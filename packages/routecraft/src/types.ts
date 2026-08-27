@@ -485,6 +485,21 @@ export interface EventDetailsMap {
 
   // -- Route lifecycle --
   "route:registered": { routeId: string; route: Route };
+  /**
+   * A route's enablement predicate was evaluated and the verdict CHANGED
+   * (or was reached for the first time). Not emitted when a refresh
+   * re-confirms what the route was already doing, so a five-minute cadence
+   * on a stable predicate is silent rather than a heartbeat.
+   *
+   * `reason` is present only when `enabled` is false, and is what ops
+   * reports next to the route.
+   */
+  "route:enablement:changed": {
+    routeId: string;
+    route: Route;
+    enabled: boolean;
+    reason?: string;
+  };
   "route:starting": { routeId: string; route: Route };
   "route:started": { routeId: string; route: Route };
   "route:stopping": {

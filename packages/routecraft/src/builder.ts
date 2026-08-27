@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type Duration, parseDuration } from "./shared/duration.ts";
+import {
+  isCronCadence,
+  type EnablementOptions,
+  type EnablementPredicate,
+  type RouteEnablement,
+} from "./enablement.ts";
 import { BRAND, setBrand } from "./brand.ts";
 import {
   StepBuilderBase,
@@ -484,6 +490,8 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
   title(value: string): this;
   /** Set a human-readable description for the next route. See {@link RouteBuilder.description}. */
   description(value: string): this;
+  /** Gate the next route on a predicate. See {@link RouteBuilder.enabled}. */
+  enabled(predicate: EnablementPredicate, options?: EnablementOptions): this;
   /**
    * Declare input schemas for the next route and retype the chain. When a
    * body schema is given (bare, or as `{ body }`), the schema's inferred
@@ -637,6 +645,7 @@ export class RouteBuilder<
         circuitBreakerConfig?: ResolvedCircuitBreakerOptions;
         concurrencyConfigs?: ResolvedConcurrencyOptions[];
         discovery?: RouteDiscovery;
+        enablement?: RouteEnablement;
         authorizers?: AuthorizeOptions[];
       }
     | undefined;
@@ -682,6 +691,78 @@ export class RouteBuilder<
    */
   description(value: string): PreFromBuilder {
     this.mergeDiscovery({ description: value });
+    return this.prelude();
+  }
+
+  /**
+   * Gate the next route on a predicate. A route whose predicate is false is
+   * `disabled`: registered and known to the context, not started, not
+   * intaking, and not advertised as an agent tool.
+   *
+   * This is what makes "the agent cannot call this until I supply
+   * credentials" true by construction. The tool surface is derived from what
+   * the context has enabled, so a disabled capability is never offered to
+   * the model rather than being offered and failing when called.
+   *
+   * Returning `true` enables the route. Returning a STRING disables it and
+   * that string is the reason ops reports, which is why there is no separate
+   * reason argument: one declaration cannot drift from the other. A
+   * predicate that throws leaves the route disabled with the error message
+   * as its reason and never fails the boot, because a missing credential is
+   * a configuration state and not a reason to take the process down.
+   *
+   * Route metadata, not a filter: this decides whether the route runs at
+   * all, so it sits beside `.id()` and `.description()` and never enters the
+   * pre-from filter chain. It is evaluated per route lifecycle, never per
+   * exchange.
+   *
+   * @param predicate - Returns `true`, or a string naming why it is off.
+   * @param options - `refresh` re-evaluates on an interval or a cron
+   *   schedule. Omitted is MANUAL: evaluated once as the route starts and
+   *   never again until something explicitly asks, which keeps the common
+   *   environment-variable case free of any recurring cost.
+   *
+   * @example
+   * ```typescript
+   * craft()
+   *   .id('mail-inbound')
+   *   .description('Triage inbound mail')
+   *   .enabled(() =>
+   *     env.MAIL_USER && env.MAIL_APP_PASSWORD
+   *       ? true
+   *       : 'MAIL_USER and MAIL_APP_PASSWORD are not set',
+   *   )
+   *   .from(mail({ account: 'default', folder: 'INBOX' }))
+   *   .to(direct('triage'));
+   * ```
+   */
+  enabled(
+    predicate: EnablementPredicate,
+    options?: EnablementOptions,
+  ): PreFromBuilder {
+    if (typeof predicate !== "function") {
+      throw rcError("RC2001", undefined, {
+        message: `.enabled() takes a predicate function returning true or a reason string, got ${typeof predicate}.`,
+      });
+    }
+    if (this.pendingOptions?.enablement !== undefined) {
+      throw rcError("RC2001", undefined, {
+        message: `Route metadata already declared: .enabled() can only be called once per route.`,
+      });
+    }
+    // Resolved here rather than at start so a malformed cadence fails while
+    // the route is being built, which is where every other staged option
+    // fails, instead of surfacing as a dead refresh timer at boot.
+    if (options?.refresh !== undefined && !isCronCadence(options.refresh)) {
+      parseDuration(options.refresh, ".enabled({ refresh })");
+    }
+    this.pendingOptions = {
+      ...(this.pendingOptions ?? {}),
+      enablement: {
+        predicate,
+        ...(options?.refresh !== undefined ? { refresh: options.refresh } : {}),
+      },
+    };
     return this.prelude();
   }
 
@@ -1235,6 +1316,7 @@ export class RouteBuilder<
     const circuitBreakerConfig = this.pendingOptions?.circuitBreakerConfig;
     const concurrencyConfigs = this.pendingOptions?.concurrencyConfigs;
     const discovery = this.pendingOptions?.discovery;
+    const enablement = this.pendingOptions?.enablement;
     const authorizers = this.pendingOptions?.authorizers ?? [];
 
     // Multi-ingress routes feed one shared pipeline, so they need one shared
@@ -1341,6 +1423,7 @@ export class RouteBuilder<
       },
       ...(errorHandler ? { errorHandler } : {}),
       ...(discovery ? { discovery } : {}),
+      ...(enablement ? { enablement } : {}),
       ...(authorizers.length > 0 ? { requiresPrincipal: true } : {}),
       // Route-scope retry (#7) and timeout (#8) scope over the chain
       // tail rather than running as flat filters, so they live as

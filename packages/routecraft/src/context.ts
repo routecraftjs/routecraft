@@ -1,4 +1,8 @@
 import { type Duration, parseDuration } from "./shared/duration.ts";
+import {
+  RouteEnablementCoordinator,
+  type EnablementState,
+} from "./enablement.ts";
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
@@ -166,7 +170,7 @@ const ROUTE_READINESS_TIMEOUT_MS = 30_000;
  * `waiting` means the backstop fired before the route signalled, which is
  * a different operational problem from a route that failed outright.
  */
-type RouteBootOutcome = "started" | "failed" | "waiting";
+type RouteBootOutcome = "started" | "failed" | "waiting" | "disabled";
 
 /**
  * Validate `shutdown.timeout` at construction.
@@ -191,6 +195,9 @@ function resolveShutdownTimeout(timeout: Duration | undefined): number {
     });
   }
 }
+
+/** Shared empty set, so the no-predicate boot path allocates nothing. */
+const EMPTY_ROUTE_IDS: ReadonlySet<string> = new Set<string>();
 
 /** Rejection marker for the shutdown deadline, so it cannot be confused with a drain failure. */
 const SHUTDOWN_DEADLINE = Symbol("routecraft.shutdown.deadline");
@@ -346,6 +353,31 @@ export class CraftContext {
 
   /** Abort controllers for each route */
   private controllers: Map<string, AbortController> = new Map();
+
+  /**
+   * Owns every route's `.enabled()` state, its refresh cadence, and the
+   * transitions between them. Built eagerly (it is a few maps) so the
+   * capability filter and ops can read it whether or not any route
+   * declares a predicate.
+   */
+  private readonly enablement = new RouteEnablementCoordinator({
+    logger: () => this.logger,
+    abortIntake: (routeId, reason) => {
+      // The route's INTAKE controller, the same one shutdown's stage one
+      // fires. Sources stop producing; in-flight exchanges are untouched.
+      this.controllers.get(routeId)?.abort(reason);
+    },
+    drainWithin: (route) => this.drainRouteWithin(route as Route),
+    startRoute: (route) => this.restartRoute(route as Route),
+    emitChanged: (route, enabled, reason) => {
+      this.emit("route:enablement:changed", {
+        routeId: route.definition.id,
+        route: route as Route,
+        enabled,
+        ...(reason !== undefined ? { reason } : {}),
+      });
+    },
+  });
 
   /** Storage for adapter configuration and state */
   private store = new Map<
@@ -653,21 +685,32 @@ export class CraftContext {
    *
    * @internal
    */
-  private awaitRoutesStarted(): {
+  private awaitRoutesStarted(disabled: ReadonlySet<string>): {
     ready: Promise<void>;
     settle: (routeId: string, outcome: RouteBootOutcome) => void;
     outcomes: Map<string, RouteBootOutcome>;
   } {
     const pending = new Map<string, { resolve: () => void }>();
     const outcomes = new Map<string, RouteBootOutcome>(
-      this.routes.map((route) => [route.definition.id, "waiting" as const]),
+      this.routes.map((route) => [
+        route.definition.id,
+        disabled.has(route.definition.id)
+          ? ("disabled" as const)
+          : ("waiting" as const),
+      ]),
     );
-    const waits = this.routes.map(
-      (route) =>
-        new Promise<void>((resolve) => {
-          pending.set(route.definition.id, { resolve });
-        }),
-    );
+    // A disabled route is settled before the gate is armed rather than left
+    // to time out: it is never going to emit `route:started`, and making
+    // every boot with one dormant capability wait out the readiness bound
+    // would turn a deliberate configuration state into a slow start.
+    const waits = this.routes
+      .filter((route) => !disabled.has(route.definition.id))
+      .map(
+        (route) =>
+          new Promise<void>((resolve) => {
+            pending.set(route.definition.id, { resolve });
+          }),
+      );
     const off = this.on("route:started", ({ details }) => {
       outcomes.set(details.routeId, "started");
       pending.get(details.routeId)?.resolve();
@@ -700,6 +743,7 @@ export class CraftContext {
       // connect looks like) did not come up, and the summary must not report
       // it as started just because `route:started` had already fired.
       settle: (routeId: string, outcome: RouteBootOutcome) => {
+        if (outcomes.get(routeId) === "disabled") return;
         if (outcome === "failed" || outcomes.get(routeId) !== "started") {
           outcomes.set(routeId, outcome);
         }
@@ -729,12 +773,17 @@ export class CraftContext {
     const started = by("started");
     const failed = by("failed");
     const waiting = by("waiting");
+    // Listed, never counted as a problem: a route held back by its own
+    // predicate is a configuration state the operator chose, so it belongs
+    // in the line without turning it into a warning.
+    const disabled = by("disabled");
     const total = outcomes.size;
     const summary = {
       started: started.length,
       total,
       ...(failed.length > 0 ? { failed } : {}),
       ...(waiting.length > 0 ? { waiting } : {}),
+      ...(disabled.length > 0 ? { disabled } : {}),
     };
     // Fixed message, counts in bindings: `.standards/error-and-logging-policy.md`
     // section 3, so the line stays countable in an aggregator.
@@ -1072,7 +1121,16 @@ export class CraftContext {
   capabilities(): Capability[] {
     const registry = this.getStore(CAPABILITY_REGISTRY);
     if (!registry) return [];
-    return [...registry.values()].map(snapshotCapability);
+    // Filtered by enablement, which is what makes "the agent cannot use
+    // this until I supply credentials" true by construction: the tool
+    // surface is derived from this list, so a disabled capability is never
+    // offered to the model rather than being offered and failing on call.
+    // A route disabled at boot never subscribed and so never registered
+    // here at all; this covers the route disabled AFTER it started, whose
+    // registry entry outlives the transition.
+    return [...registry.values()]
+      .filter((capability) => this.enablement.isEnabled(capability.endpoint))
+      .map(snapshotCapability);
   }
 
   /**
@@ -1210,11 +1268,51 @@ export class CraftContext {
     );
     this.emit("context:starting", {});
 
+    // Every predicate is evaluated here, as one batch, BEFORE any route
+    // starts. A disabled route must never subscribe even briefly: a mail
+    // source with no credentials would connect and fail, which is the
+    // failure this feature exists to prevent. Batched rather than folded
+    // into each route's start so one slow predicate delays the decision
+    // only, never an unrelated route coming up.
+    //
+    // Guarded rather than awaited unconditionally: every await here is a
+    // turn a concurrent `stop()` can land on, so a context whose routes
+    // declare no predicate must reach the start loop exactly as directly
+    // as it did before this feature existed.
+    let disabled: ReadonlySet<string> = EMPTY_ROUTE_IDS;
+    const declaring = this.routes.filter(
+      (route) => route.definition.enablement,
+    );
+    if (declaring.length > 0) {
+      disabled = await this.enablement.evaluateForBoot(declaring);
+      // Same re-check the post-readiness path makes: a stop() that landed
+      // while the predicates were running has already torn the plugins
+      // down, and starting routes now would announce boot progress for a
+      // context that is gone.
+      if (this.hasStopped) {
+        await this.shutdownPromise?.catch(() => undefined);
+        return;
+      }
+      for (const [routeId, reason] of this.enablement.disabled()) {
+        this.logger.info(
+          { route: routeId, reason },
+          "Route is disabled by its enabled() predicate; registered but not started",
+        );
+      }
+    }
+
     this.logger.debug({}, "Starting all routes");
     this.emit("context:started", {});
-    const routes = this.awaitRoutesStarted();
+    const routes = this.awaitRoutesStarted(disabled);
     const running = Promise.allSettled(
       this.routes.map(async (route) => {
+        // Registered and known to the context, not started and not
+        // intaking. The route object stays in `getRoutes()` so ops can
+        // report it: a missing route and a deliberately-off one must not
+        // look identical, since only one of them is an incident.
+        if (disabled.has(route.definition.id)) {
+          return { routeId: route.definition.id, success: true as const };
+        }
         try {
           this.logger.info({ route: route.definition.id }, "Starting route");
           this.emit("route:starting", {
@@ -1256,6 +1354,10 @@ export class CraftContext {
       // hook run now would begin work on a stopped context with nothing
       // left to ever tear it down.
       if (!this.hasStopped) await this.startPlugins();
+      // Armed only once the boot has settled: a cadence firing into a
+      // context that is still starting could transition a route the boot
+      // gate is still waiting on.
+      if (!this.hasStopped) this.enablement.startRefreshing(this.routes);
     } catch (err) {
       started.reject(err);
       try {
@@ -1448,6 +1550,10 @@ export class CraftContext {
 
   private async performShutdown(): Promise<ShutdownOutcome> {
     this.logger.info({}, "Stopping Routecraft context");
+    // Before anything is torn down: a refresh firing mid-shutdown would
+    // start a route the shutdown has already walked past, leaving an
+    // ingress open behind the drain.
+    this.enablement.stop();
     this.emit("context:stopping", { reason: undefined });
 
     // STAGE ONE. Close intake: sources stop producing, no new exchange is
@@ -1506,6 +1612,100 @@ export class CraftContext {
       throw drainError;
     }
     return { forced, pending };
+  }
+
+  /**
+   * Wait for ONE route to drain, bounded by the same `shutdown.timeout` the
+   * whole-context shutdown uses.
+   *
+   * Enablement's disable transition is the caller: taking a route out of
+   * service is a per-route shutdown, so it gets the per-route drain under
+   * the same operator-facing knob rather than a second timeout nobody knows
+   * to look for.
+   *
+   * @returns True when the route drained; false when the deadline elapsed
+   *   first and the caller must force it.
+   */
+  private async drainRouteWithin(route: Route): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), this.shutdownTimeoutMs);
+      timer.unref?.();
+    });
+    try {
+      return await Promise.race([route.drain().then(() => true), deadline]);
+    } catch (err) {
+      // A drain that threw is a route that is no longer working, which is
+      // what the caller wanted; the failure belongs to the route's own
+      // error path, not to the flag flip that asked it to stop.
+      this.logger.warn(
+        { route: route.definition.id, err },
+        "Route drain threw while it was being disabled; treating it as drained",
+      );
+      return true;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Re-arm a disabled route under a fresh controller and start it.
+   *
+   * The controller is minted HERE rather than inside the route so this map
+   * and the route never disagree about which controller a shutdown aborts:
+   * a route holding one controller while `controllers` held the previous,
+   * latched one would make `stop()` a silent no-op for that route.
+   */
+  private async restartRoute(route: Route): Promise<void> {
+    const controller = new AbortController();
+    this.controllers.set(route.definition.id, controller);
+    route.resetForRestart(controller);
+    this.emit("route:starting", { routeId: route.definition.id, route });
+    await route.start();
+  }
+
+  /**
+   * Re-evaluate enablement predicates on demand and apply any transitions.
+   *
+   * The internal control surface behind the operator loop the deferred
+   * `/ops` re-evaluate endpoint will expose: set the secret, ask for a
+   * re-check, and a route whose predicate now passes starts without a
+   * process restart. The endpoint is wiring on top of this, not a redesign
+   * of it.
+   *
+   * @param routeId - Re-evaluate only this route. Omitted re-evaluates
+   *   every route that declared a predicate.
+   * @returns Each re-evaluated route's resulting state, by route id.
+   */
+  async reevaluateEnablement(
+    routeId?: string,
+  ): Promise<ReadonlyMap<string, EnablementState>> {
+    if (routeId === undefined) {
+      return this.enablement.refreshAll(this.routes);
+    }
+    const route = this.getRouteById(routeId);
+    if (!route) return new Map();
+    const state = await this.enablement.refresh(route);
+    return new Map([[routeId, state]]);
+  }
+
+  /**
+   * Whether a route is currently serving, as far as `.enabled()` is
+   * concerned. True for a route that never declared a predicate.
+   */
+  isRouteEnabled(routeId: string): boolean {
+    return this.enablement.isEnabled(routeId);
+  }
+
+  /**
+   * Every route currently disabled by its predicate, mapped to the reason.
+   *
+   * Read by the ops surface, which reports a disabled route distinctly from
+   * a failed one: a deliberate configuration state is not an open circuit
+   * and must not degrade the aggregate.
+   */
+  disabledRoutes(): ReadonlyMap<string, string> {
+    return this.enablement.disabled();
   }
 
   /**
