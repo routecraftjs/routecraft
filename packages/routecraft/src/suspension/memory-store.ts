@@ -1,5 +1,6 @@
 import { rcError } from "../error.ts";
 import { compareCodeUnits } from "../shared/compare.ts";
+import { stepStateFingerprint } from "./hash.ts";
 import { encodePersistable } from "./serialize.ts";
 import type {
   ExpiredScanCursor,
@@ -145,6 +146,30 @@ export class MemorySuspensionStore implements SuspensionStore {
       released++;
     }
     return released;
+  }
+
+  async replaceStepState(
+    id: string,
+    expected: string,
+    stepState: unknown,
+  ): Promise<SuspensionCasResult> {
+    const record = this.#records.get(id);
+    if (!record) return { won: false, suspension: undefined };
+    if (
+      record.status !== "suspended" ||
+      stepStateFingerprint(record.stepState) !== expected
+    ) {
+      return { won: false, suspension: clone(record) };
+    }
+    // Encoded through the same gate `create` uses. The slot is free-form,
+    // so a caller can hand back a value the durable backend would refuse,
+    // and finding that out only after a failover is the bug this avoids.
+    const stored = clone({
+      ...record,
+      stepState: encodePersistable(stepState, "stepState"),
+    });
+    this.#records.set(id, stored);
+    return { won: true, suspension: clone(stored) };
   }
 
   async recordTerminal(id: string, terminal: SerializedOutcome): Promise<void> {

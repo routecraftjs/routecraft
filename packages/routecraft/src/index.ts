@@ -614,6 +614,7 @@ export {
   markSuspendCapable,
   parseDuration,
   routeCanSuspend,
+  stepStateFingerprint,
   suspendedSchema,
   suspensionPlugin,
 } from "./suspension/index.ts";
