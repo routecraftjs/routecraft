@@ -274,7 +274,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Adapter",
     message: "HTTP source request rejected",
     suggestion:
-      "Check that the request method and path match a registered http() source. 404 means no route is bound to that path; 405 means the path exists but the method differs; unsupported response body shapes (ReadableStream, AsyncIterable) fall under this code until SSE lands in a follow-up.",
+      "Check that the request method and path match a registered http() source. 404 means no route is bound to that path; 405 means the path exists but the method differs; 413 means the body exceeded http.maxBodySize; 400 means it could not be parsed for its declared Content-Type.",
     docs: `${DOCS_BASE}#rc-5018`,
     retryable: false,
   },

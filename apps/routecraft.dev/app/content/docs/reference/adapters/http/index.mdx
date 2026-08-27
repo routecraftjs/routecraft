@@ -139,13 +139,106 @@ Cap controlled by `http: { maxBodySize?: number }` (default 10 MB). Larger reque
 - string -> `200`, `Content-Type: text/plain; charset=utf-8`.
 - `Uint8Array` / `ArrayBuffer` -> `200`, `Content-Type: application/octet-stream`.
 - object / array -> `200`, `Content-Type: application/json; charset=utf-8`.
-- `ReadableStream` / `AsyncIterable` -> rejected with `RC5018` (SSE deferred to a follow-up).
+- `AsyncIterable` -> `200`, streamed as Server-Sent Events. See [Streaming responses](#streaming-responses-sse).
+- `ReadableStream` -> `200`, streamed as raw chunked bytes with no framing.
 
 Override via the exchange before the response is built:
 
 - `routecraft.http.response.status` -> numeric status (e.g. `201`).
 - `routecraft.http.response.contentType` -> explicit content-type.
 - `routecraft.http.response.headers` -> extra response headers.
+
+### Streaming responses (SSE)
+
+A route whose final body is an `AsyncIterable` answers with
+`Content-Type: text/event-stream; charset=utf-8` and `Cache-Control: no-cache`,
+and each yielded value becomes one SSE frame. There is no `sse()` adapter and
+no separate mode: SSE is an HTTP response, so it is one more row in the table
+above and the whole pre-from chain still applies once, at request entry.
+
+```ts
+craft()
+  .id("order-events")
+  .from(http({ path: "/orders/:id/events", method: "GET" }))
+  .transform(async function* (_, ex) {
+    const id = ex.headers["routecraft.http.params"].id;
+    for await (const update of watchOrder(id)) {
+      yield { event: "update", id: update.sequence, data: update };
+    }
+  })
+  .to(noop());
+```
+
+What each yielded value becomes:
+
+| Yielded | On the wire |
+|---|---|
+| object with a `data` property | An event: `event:`, `id:`, `retry:` and `data:` fields read from it. Other keys are not sent. |
+| any other object, array or primitive | `data: <JSON>`, one frame. |
+| string | Its exact bytes, no framing added. The escape hatch for a hand-built frame, an SSE comment (`": ping\n\n"`), or a different line format entirely. |
+| `Uint8Array` | Its exact bytes, as above. |
+| `undefined` | Nothing, so a producer can skip a tick without branching. |
+
+`data` that is not a string is JSON-encoded; a string with newlines becomes
+several `data:` lines, per the spec. `retry` is sent only when it is a whole
+number of milliseconds. Newlines in `event` and `id` are stripped, because the
+grammar has no escape for them and a value carrying one could otherwise close
+the frame and forge the next.
+
+The stream opens with a `: open` comment. Neither runtime puts the status line
+on the wire before the body's first chunk, so without it a stream that is quiet
+to begin with leaves the client's `fetch` unresolved and an `EventSource`
+without its `open` event. Conforming clients discard comments.
+
+<Callout type="warning">
+
+**Resilience operations apply up to the first byte, and no further.** Once the
+status line is sent, the response cannot be replayed or replaced: `retry()`
+cannot re-run a half-delivered stream, and `timeout()` bounds time to first
+byte rather than the life of the stream. A stream that fails midway ends
+unterminated and the failure is logged; there is no status left to change it
+to. Put per-item error handling inside the producer, not around the route.
+
+</Callout>
+
+#### Raw streams and other formats
+
+A `ReadableStream` is already bytes: it passes through unframed with
+`Content-Type: application/octet-stream` and no cache directive, and the caller
+owns every header. Reach for it when the route has its own wire format.
+
+Framing follows the body type, not the content type. Overriding
+`routecraft.http.response.contentType` to `application/x-ndjson` changes the
+header, not what an iterable of objects turns into, so a route serving ndjson
+yields strings (which pass through verbatim) and writes its own newlines.
+
+#### Reconnection
+
+A reconnecting `EventSource` sends the `Last-Event-ID` header, which arrives on
+the exchange like any other request header, at
+`routecraft.http.rawHeaders["last-event-id"]`. Replay is the route's own
+business: only the route knows what its `id` values mean and how far back it
+can rewind. Set `id` on the frames you want a client to be able to resume from.
+
+#### Keeping a stream alive
+
+A quiet stream has two natural enemies. The listener's own idle reaper is
+handled: a streaming response claims a per-request exemption, so it is not cut
+short. Intermediaries between the client and the process are not, so a route
+that can go minutes without an event should yield an SSE comment periodically.
+Behind nginx, `proxy_buffering off` (or an `X-Accel-Buffering: no` response
+header via the override) stops the proxy holding frames back.
+
+Open streams end when the context begins stopping, so a graceful shutdown does
+not wait out its whole grace window on connections that would have closed on
+request. `plugin:http:request:completed` fires when the stream closes, with
+`status: 200` and a `durationMs` spanning request receipt to stream end.
+
+A client that disconnects cancels the route's iterator, visible as a `return()`
+delivered into a generator's `finally` block or as a `for await` loop exiting.
+An async generator delivers that return only after any pending step settles, so
+a producer parked on an inner `await` unblocks when that await does; one that
+must stop sooner watches its own cancellation source.
 
 ### Built-in endpoints
 
