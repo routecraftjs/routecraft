@@ -30,6 +30,7 @@ import { decodeCursor, takePage } from "./pagination";
 import { compareCodeUnits } from "../../shared/compare";
 import type {
   OpsDispatchOutcome,
+  OpsEventTailItem,
   OpsPage,
   OpsRouteDetail,
   OpsRouteFilter,
@@ -58,7 +59,28 @@ export interface ManagementApi {
     body: unknown,
     principal: Principal | undefined,
   ): Promise<OpsDispatchOutcome>;
+  tailEvents(signal: AbortSignal): AsyncIterable<OpsEventTailItem>;
 }
+
+/**
+ * How many events the tail holds for a reader that has fallen behind.
+ *
+ * The bus emits synchronously on the route's own hot path, so the tail can
+ * never block it: it buffers and moves on. A bound is what keeps a reader
+ * that stopped reading from growing that buffer until the process dies,
+ * and dropping the oldest is the right end to lose, because a live tail is
+ * watched for what is happening now.
+ */
+const TAIL_BUFFER = 256;
+
+/**
+ * How long the tail stays silent before putting a comment on the wire.
+ *
+ * An idle app emits nothing, and a proxy between the operator and the
+ * process reaps a connection that says nothing for long enough. The comment
+ * is the SSE spec's own no-op, ignored by every conforming client.
+ */
+const TAIL_HEARTBEAT_MS = 30_000;
 
 /**
  * Build the management handlers over a live context.
@@ -108,6 +130,77 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
       return page.nextCursor === undefined
         ? { items: page.items }
         : { items: page.items, nextCursor: page.nextCursor };
+    },
+
+    /**
+     * Tail every event the context emits until the caller goes away.
+     *
+     * Subscribes to the bus catch-all and hands items over a bounded
+     * buffer, because `emit` runs on the caller's stack: a tail that awaited
+     * its reader there would put an operator's network back-pressure inside
+     * a route step.
+     *
+     * The generator parks on a promise rather than polling, and the signal
+     * resolves it. Cancelling the response is not enough on its own: an
+     * async generator delivers a queued `return()` only after the pending
+     * `next()` settles, so a tail with nothing to yield would sit on that
+     * promise forever with its subscription still live.
+     */
+    async *tailEvents(signal: AbortSignal): AsyncIterable<OpsEventTailItem> {
+      const queue: OpsEventTailItem[] = [];
+      let dropped = 0;
+      let wake: (() => void) | undefined;
+
+      // The tail is in-flight work for as long as it runs, and a graceful
+      // close would otherwise wait out its whole window on a stream that
+      // ends the moment it is asked to. `context:stopping` arrives on the
+      // bus this is already reading, so it needs no second channel: the
+      // event is delivered, and then the tail closes behind it.
+      let stopping = false;
+      const unsubscribe = ctx.on("*", (payload) => {
+        if (queue.length >= TAIL_BUFFER) {
+          queue.shift();
+          dropped++;
+        }
+        queue.push({
+          kind: "event",
+          name: payload._event,
+          ts: payload.ts,
+          contextId: payload.contextId,
+          details: payload.details,
+        });
+        if (payload._event === "context:stopping") stopping = true;
+        wake?.();
+      });
+      const onAbort = (): void => wake?.();
+      signal.addEventListener("abort", onAbort);
+
+      try {
+        while (!signal.aborted) {
+          if (queue.length === 0) {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            await new Promise<void>((resolve) => {
+              wake = resolve;
+              timer = setTimeout(resolve, TAIL_HEARTBEAT_MS);
+            });
+            if (timer !== undefined) clearTimeout(timer);
+            wake = undefined;
+            if (queue.length === 0 && !signal.aborted)
+              yield { kind: "heartbeat" };
+            continue;
+          }
+          if (dropped > 0) {
+            const count = dropped;
+            dropped = 0;
+            yield { kind: "dropped", count };
+          }
+          yield queue.shift()!;
+          if (stopping && queue.length === 0) return;
+        }
+      } finally {
+        signal.removeEventListener("abort", onAbort);
+        unsubscribe();
+      }
     },
 
     describeRoute(id: string): OpsRouteDetail | undefined {

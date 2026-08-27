@@ -179,7 +179,7 @@ describe("HTTP streaming responses", () => {
     );
     expect(res.headers.get("cache-control")).toBe("no-cache");
     expect(await readAll(res)).toBe(
-      'event: tick\ndata: {"n":1}\n\nevent: tick\ndata: {"n":2}\n\n',
+      ': open\n\nevent: tick\ndata: {"n":1}\n\nevent: tick\ndata: {"n":2}\n\n',
     );
   });
 
@@ -275,8 +275,13 @@ describe("HTTP streaming responses", () => {
       signal: controller.signal,
     });
     const reader = res.body!.getReader();
-    const first = await reader.read();
-    expect(decoder.decode(first.value)).toContain("data: 0");
+    // Chunk boundaries are the runtime's business, so read until the first
+    // frame has arrived rather than assuming it lands on its own.
+    let opening = "";
+    while (!opening.includes("data: 0")) {
+      opening += decoder.decode((await reader.read()).value);
+    }
+    expect(opening.startsWith(": open\n\n")).toBe(true);
     controller.abort();
 
     const deadline = Date.now() + 2000;
@@ -325,7 +330,7 @@ describe("HTTP streaming responses", () => {
 
     const res = await fetch(`http://127.0.0.1:${bound.port}/slow`);
     const body = await readAll(res);
-    expect(body).toBe("data: one\n\ndata: two\n\n");
+    expect(body).toBe(": open\n\ndata: one\n\ndata: two\n\n");
 
     const deadline = Date.now() + 2000;
     while (events.length === 0 && Date.now() < deadline) {

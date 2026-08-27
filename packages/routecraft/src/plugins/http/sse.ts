@@ -20,6 +20,13 @@
 export const SSE_CONTENT_TYPE = "text/event-stream; charset=utf-8";
 
 /**
+ * Cache directive every event stream carries. A cached event stream is a
+ * contradiction, and an intermediary that buffers one turns a live feed
+ * into a delayed batch.
+ */
+export const SSE_CACHE_CONTROL = "no-cache";
+
+/**
  * One yielded SSE event.
  *
  * A yielded object is read as this descriptor when it carries an own `data`
@@ -141,9 +148,26 @@ function streamSource(stream: ReadableStream<Uint8Array>): ChunkSource {
   };
 }
 
+/**
+ * The comment an event stream opens with.
+ *
+ * Neither runtime puts the status line on the wire until the body produces
+ * its first chunk, so a stream that is quiet to begin with, which is most
+ * of them, leaves the client's `fetch` unresolved and an `EventSource`
+ * without its `open`. One comment fixes that: the SSE grammar defines it as
+ * a no-op, every conforming client discards it, and it costs nine bytes.
+ */
+const SSE_PREAMBLE = ": open\n\n";
+
 export interface StreamBodyOptions {
   /** The request's signal. Aborting it cancels the source. */
   signal: AbortSignal;
+  /**
+   * Open the stream with the SSE comment above, flushing the response
+   * headers before the first event. Only for a response that actually is
+   * an event stream: any other body owns its bytes from the first one.
+   */
+  preamble?: boolean;
   /**
    * Called exactly once when the response body is finished, whichever way
    * it finished: drained, cancelled by a disconnect, or failed mid-flight.
@@ -191,6 +215,11 @@ export function streamResponseBody(
   options.signal.addEventListener("abort", onAbort, { once: true });
 
   return new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (options.preamble === true) {
+        controller.enqueue(encoder.encode(SSE_PREAMBLE));
+      }
+    },
     async pull(controller) {
       // The client may have gone while this stream sat in the queue, in
       // which case no cancel is coming and the pump has to notice itself.
@@ -241,5 +270,29 @@ export function isAsyncIterable(
     typeof (value as { [Symbol.asyncIterator]: unknown })[
       Symbol.asyncIterator
     ] === "function"
+  );
+}
+
+/**
+ * The plain SSE response, for a routecraft-owned surface that streams
+ * events of its own rather than serving a route's body.
+ *
+ * The http dispatcher does not use this: a route's response also carries
+ * whatever status and headers the exchange asked for, so it builds its own.
+ * What both share is the pair of header values, which are decided above.
+ */
+export function sseResponse(
+  events: AsyncIterable<unknown>,
+  signal: AbortSignal,
+): Response {
+  return new Response(
+    streamResponseBody(events, { signal, preamble: true, onEnd: () => {} }),
+    {
+      status: 200,
+      headers: {
+        "content-type": SSE_CONTENT_TYPE,
+        "cache-control": SSE_CACHE_CONTROL,
+      },
+    },
   );
 }

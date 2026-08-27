@@ -339,6 +339,15 @@ export interface OpsTiers {
   introspection?: OpsTier;
   /** `POST /ops/routes/{id}/exchanges`. */
   dispatch?: OpsTier;
+  /**
+   * `GET /ops/events`, the context event bus tailed as Server-Sent Events.
+   *
+   * Its own tier rather than a corner of introspection: the route listing
+   * describes an app's shape, while the tail carries what it is doing right
+   * now, exchange failures and auth decisions included. An operator who
+   * wants one is not thereby asking for the other.
+   */
+  events?: OpsTier;
 }
 
 /**
@@ -350,6 +359,8 @@ export interface OpsTiers {
 export const OPS_SCOPE_INTROSPECTION = "ops:introspection";
 /** The scope name this project documents for the dispatch tier. */
 export const OPS_SCOPE_DISPATCH = "ops:dispatch";
+/** The scope name this project documents for the events tier. */
+export const OPS_SCOPE_EVENTS = "ops:events";
 
 /**
  * A collection response. Never a bare array, from the first release: a
@@ -428,6 +439,25 @@ export interface OpsRouteQuery extends OpsRouteFilter {
   limit?: number;
   after?: string;
 }
+
+/**
+ * One item from the event tail.
+ *
+ * `dropped` and `heartbeat` are the tail's own signals rather than bus
+ * events: a slow reader must learn that it missed something instead of
+ * silently seeing a gap, and an idle app must still put a byte on the wire
+ * often enough that an intermediary does not reap the connection.
+ */
+export type OpsEventTailItem =
+  | {
+      kind: "event";
+      name: string;
+      ts: string;
+      contextId: string;
+      details: unknown;
+    }
+  | { kind: "dropped"; count: number }
+  | { kind: "heartbeat" };
 
 /**
  * What a dispatch produced.

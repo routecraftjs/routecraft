@@ -126,6 +126,18 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           ? (event) => ctx.emit("plugin:http:request:completed", { ...event })
           : undefined;
 
+      // Streaming responses are the one kind of in-flight request that can
+      // outlive any sensible grace window, because nothing about them says
+      // when they end. `context:stopping` is emitted before sources are
+      // closed, so every open stream hears the shutdown first and the
+      // listener's graceful close finds nothing left to drain.
+      const shutdown = new AbortController();
+      unmounts.push(
+        ctx.on("context:stopping", () => {
+          shutdown.abort(new Error("Context is stopping"));
+        }),
+      );
+
       // All server names resolve before anything mounts, so a misspelt
       // `server` on the third mount cannot leave the first two registered on
       // a context whose boot then fails; the unwind is not guaranteed to
@@ -229,6 +241,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
           ...(authAwareBuiltins !== undefined ? { authAwareBuiltins } : {}),
           ...(gatedBuiltins !== undefined ? { gatedBuiltins } : {}),
           ...(onRequestCompleted !== undefined ? { onRequestCompleted } : {}),
+          shutdownSignal: shutdown.signal,
           onAuthAbsent,
           onSignatureRejected,
           logger: ctx.logger,

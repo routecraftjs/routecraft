@@ -98,8 +98,13 @@ describe("http source SSE streaming (cross-runtime contract)", () => {
     expect(res.headers.get("cache-control")).toBe("no-cache");
 
     const reader = res.body!.getReader();
-    const first = await reader.read();
-    expect(decoder.decode(first.value)).toBe('event: tick\ndata: {"n":0}\n\n');
+    // The stream opens with the SSE comment that flushes the headers, and
+    // whether it shares a chunk with the first frame is the runtime's call.
+    let opening = "";
+    while (!opening.includes('data: {"n":0}')) {
+      opening += decoder.decode((await reader.read()).value);
+    }
+    expect(opening).toBe(': open\n\nevent: tick\ndata: {"n":0}\n\n');
 
     let rest = "";
     for (;;) {
@@ -178,7 +183,7 @@ describe("http source SSE streaming (cross-runtime contract)", () => {
     t = bound.ctx;
 
     const res = await fetch(`http://127.0.0.1:${bound.port}/cross-slow`);
-    expect(await res.text()).toBe("data: one\n\ndata: two\n\n");
+    expect(await res.text()).toBe(": open\n\ndata: one\n\ndata: two\n\n");
 
     await until(() => events.some((e) => e.path === "/cross-slow"));
     const completed = events.find((e) => e.path === "/cross-slow");

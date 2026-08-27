@@ -15,6 +15,7 @@ import {
 import {
   isAsyncIterable,
   isReadableStream,
+  SSE_CACHE_CONTROL,
   SSE_CONTENT_TYPE,
   streamResponseBody,
 } from "./sse";
@@ -79,6 +80,15 @@ export interface DispatcherOptions {
   /** Optional auth-aware built-ins (/ready under `requireAuth: true`). */
   authAwareBuiltins?: AuthAwareBuiltins;
   onRequestCompleted?: RequestCompletedHandler;
+  /**
+   * Fires when the context begins stopping.
+   *
+   * A streaming response is in-flight work for as long as it runs, so
+   * without this a graceful close waits out its whole grace window on a
+   * stream that would happily have ended on request. Combined with the
+   * client's own signal, so either end can close the stream.
+   */
+  shutdownSignal?: AbortSignal;
   /**
    * Called when the dispatcher itself synthesises a 401 because a route
    * with `auth: "required"` saw no credential. The plugin uses this to
@@ -364,7 +374,11 @@ export function createDispatcher(
         // this request, once the body proves to be one.
         exemptFromIdleTimeout?.();
         const body = streamResponseBody(plan.body, {
-          signal: req.signal,
+          signal:
+            opts.shutdownSignal === undefined
+              ? req.signal
+              : AbortSignal.any([req.signal, opts.shutdownSignal]),
+          preamble: plan.preamble,
           onEnd: (error) => {
             if (error !== undefined) {
               log.error(
@@ -452,6 +466,8 @@ interface StreamPlan {
   body: AsyncIterable<unknown> | ReadableStream<Uint8Array>;
   status: number;
   headers: Record<string, string>;
+  /** The response is an event stream, so it opens with the SSE comment. */
+  preamble: boolean;
 }
 
 /**
@@ -479,21 +495,27 @@ function planStream(
 
   const hint = readResponseHint(headers);
   const extraHeaders = hint.headers ?? {};
+  const responseHeaders = raw
+    ? {
+        "content-type": hint.contentType ?? "application/octet-stream",
+        ...extraHeaders,
+      }
+    : {
+        "content-type": hint.contentType ?? SSE_CONTENT_TYPE,
+        "cache-control": SSE_CACHE_CONTROL,
+        ...extraHeaders,
+      };
+  const contentType = Object.entries(responseHeaders).find(
+    ([name]) => name.toLowerCase() === "content-type",
+  )?.[1];
   return {
     body: body as AsyncIterable<unknown> | ReadableStream<Uint8Array>,
     status: hint.status ?? 200,
-    headers: raw
-      ? {
-          "content-type": hint.contentType ?? "application/octet-stream",
-          ...extraHeaders,
-        }
-      : {
-          "content-type": hint.contentType ?? SSE_CONTENT_TYPE,
-          // A cached event stream is a contradiction, and an intermediary
-          // that buffers one turns a live feed into a delayed batch.
-          "cache-control": "no-cache",
-          ...extraHeaders,
-        },
+    headers: responseHeaders,
+    // Conditioned on the content type rather than on the body type, because
+    // the comment is only legal in an event stream. A route that named a
+    // different format owns its bytes from the first one.
+    preamble: contentType?.startsWith("text/event-stream") === true,
   };
 }
 

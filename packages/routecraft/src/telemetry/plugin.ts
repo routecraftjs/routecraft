@@ -6,6 +6,7 @@ import {
   SpanStatusCode,
 } from "@opentelemetry/api";
 import type { CraftContext, CraftPlugin } from "../context.ts";
+import { safeStringify } from "../shared/safe-json.ts";
 import type { EventName, EventHandler } from "../types.ts";
 import type { TelemetryOptions, TelemetryEvent } from "./types.ts";
 import { SqliteConnection } from "./sqlite-connection.ts";
@@ -205,7 +206,9 @@ class TelemetryPlugin implements CraftPlugin {
           // potentially-sensitive payloads under `_snapshot` (e.g. the AI
           // package puts agent tool input/output there) and have them
           // honour the same switch as exchange-body snapshots.
-          details: safeStringify(payload.details, !this.captureSnapshots),
+          details: safeStringify(payload.details, {
+            dropSnapshot: !this.captureSnapshots,
+          }),
         };
         if (exchangeId) event.exchangeId = exchangeId;
         if (corrId) event.correlationId = corrId;
@@ -525,67 +528,6 @@ class TelemetryPlugin implements CraftPlugin {
  */
 export function telemetry(options?: TelemetryOptions): CraftPlugin {
   return new TelemetryPlugin(options);
-}
-
-/**
- * Safely stringify a value to JSON, handling circular references.
- *
- * When `dropSnapshot` is true, any property named `_snapshot` is omitted
- * at every level. Event authors use `_snapshot` to mark sub-payloads that
- * should only be persisted when telemetry snapshot capture is enabled
- * (mirroring how exchange bodies/headers are gated by `captureSnapshots`).
- */
-function safeStringify(value: unknown, dropSnapshot = false): string {
-  const seen = new WeakSet<object>();
-  try {
-    return JSON.stringify(value, (key, val: unknown) => {
-      if (dropSnapshot && key === "_snapshot") return undefined;
-      if (val instanceof Error) {
-        return {
-          name: val.name,
-          message: val.message,
-          ...(typeof val.stack === "string" ? { stack: val.stack } : {}),
-        };
-      }
-      // Reduce Exchange objects to a lightweight reference
-      if (
-        val &&
-        typeof val === "object" &&
-        "id" in val &&
-        "headers" in val &&
-        "body" in val &&
-        "logger" in val
-      ) {
-        const ex = val as { id: string };
-        return { exchangeId: ex.id };
-      }
-      if (
-        val &&
-        typeof val === "object" &&
-        "definition" in val &&
-        "context" in val
-      ) {
-        const route = val as { definition: { id: string } };
-        return { routeId: route.definition.id };
-      }
-      if (
-        val &&
-        typeof val === "object" &&
-        "contextId" in val &&
-        "routes" in val
-      ) {
-        const ctx = val as { contextId: string };
-        return { contextId: ctx.contextId };
-      }
-      if (val && typeof val === "object") {
-        if (seen.has(val as object)) return "[Circular]";
-        seen.add(val as object);
-      }
-      return val;
-    });
-  } catch (err) {
-    return JSON.stringify({ _serializationError: String(err) });
-  }
 }
 
 /**

@@ -142,6 +142,7 @@ export type {
   OpsRouteFilter,
   OpsRouteQuery,
   OpsRouteSchemas,
+  OpsEventTailItem,
   OpsRouteSummary,
   OpsTier,
   OpsTiers,
@@ -149,6 +150,7 @@ export type {
 } from "./plugins/ops/types.ts";
 export {
   OPS_SCOPE_DISPATCH,
+  OPS_SCOPE_EVENTS,
   OPS_SCOPE_INTROSPECTION,
 } from "./plugins/ops/types.ts";
 /** @deprecated Use `CraftConfig.direct` instead. Will be removed in next major version. */

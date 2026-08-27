@@ -20,10 +20,12 @@ import {
   methodNotAllowed,
   missingCredentialResponse,
 } from "../http/response";
+import { safeStringify } from "../../shared/safe-json";
+import { sseResponse, type SseEvent } from "../http/sse";
 import type { HttpMountContext } from "../server/types";
 import type { ManagementApi } from "./management";
 import { admitToTier, type TierVerdict } from "./tier";
-import type { OpsRouteQuery, OpsTiers } from "./types";
+import type { OpsEventTailItem, OpsRouteQuery, OpsTiers } from "./types";
 
 export interface ManagementHandlerOptions {
   api: ManagementApi;
@@ -49,6 +51,8 @@ export interface ManagementHandlerOptions {
 const ROUTES_COLLECTION = "/ops/routes";
 const ROUTE_DETAIL = /^\/ops\/routes\/([^/]+)$/;
 const ROUTE_EXCHANGES = /^\/ops\/routes\/([^/]+)\/exchanges$/;
+/** `GET /ops/events`. */
+const EVENTS = "/ops/events";
 
 /**
  * Percent-decode a path segment, or `undefined` when the escape is
@@ -163,6 +167,20 @@ export function createManagementHandler(
         : describeRoute(api, detailMatch![1]!);
     }
 
+    if (pathname === EVENTS) {
+      const verdict = await admitToTier(tiers.events, context);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused);
+      if (req.method !== "GET") {
+        return methodNotAllowed("GET");
+      }
+      // A tail may say nothing for hours, which is exactly what the
+      // listener's idle reaper exists to cut. The rest of this mount is
+      // ordinary request/response, so the exemption is claimed for this
+      // request rather than declared for the whole surface.
+      context.exemptFromIdleTimeout();
+      return sseResponse(tailEvents(api, req.signal), req.signal);
+    }
+
     if (exchangesMatch) {
       const verdict = await admitToTier(tiers.dispatch, context);
       if (verdict.kind !== "admit") return refuse(verdict, onRefused);
@@ -275,4 +293,47 @@ async function dispatchExchange(
 
 function badRequest(message: string): Response {
   return jsonResponse({ error: "bad request", message }, { status: 400 });
+}
+
+/**
+ * Map the tail's items onto the wire.
+ *
+ * The bus event name rides the SSE `event` field so a client can subscribe
+ * to one kind, and repeats inside `data` because a reader consuming the
+ * body with `fetch` rather than `EventSource` sees the payload and not the
+ * fields. The tail's own signals are not bus events and do not borrow a
+ * bus name: a drop is named for what it is, and a heartbeat is the spec's
+ * comment, which every client already ignores.
+ */
+async function* tailEvents(
+  api: ManagementApi,
+  signal: AbortSignal,
+): AsyncIterable<SseEvent | string> {
+  for await (const item of api.tailEvents(signal)) {
+    yield frameOf(item);
+  }
+}
+
+function frameOf(item: OpsEventTailItem): SseEvent | string {
+  if (item.kind === "heartbeat") return ": keep-alive\n\n";
+  if (item.kind === "dropped") {
+    return { event: "ops:events:dropped", data: { count: item.count } };
+  }
+  return {
+    event: item.name,
+    // Pre-serialised rather than handed over as an object, because a bus
+    // payload is not JSON: it carries errors, and exchanges and routes that
+    // cycle. `_snapshot` sub-payloads go with it. They exist so a surface
+    // that was not asked to capture payloads does not, and a tail an
+    // operator opened is not that asking.
+    data: safeStringify(
+      {
+        event: item.name,
+        ts: item.ts,
+        contextId: item.contextId,
+        details: item.details,
+      },
+      { dropSnapshot: true },
+    ),
+  };
 }
