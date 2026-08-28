@@ -31,7 +31,9 @@ export function rejectStaleOptions(
   if (typeof options !== "object" || options === null) return;
 
   for (const [key, guidance] of Object.entries(removed)) {
-    if (key in options) {
+    // Own keys only, matching the Ms scan below. `in` would walk the
+    // prototype chain and fail a build over a key the caller never wrote.
+    if (Object.hasOwn(options, key)) {
       throw rcError("RC5003", undefined, {
         message: `${surface}({ ${key} }) was removed; ${guidance}`,
       });

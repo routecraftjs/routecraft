@@ -73,6 +73,21 @@ describe("stale option names", () => {
   });
 
   /**
+   * @case An inherited key is not the caller's own and must not fail the build
+   * @preconditions An options object whose prototype carries exactTime, so `"exactTime" in opts` is true while Object.hasOwn is false
+   * @expectedResult No throw. The two checks in the guard read the same set of keys, so a name the caller never wrote cannot refuse their route
+   */
+  test("ignores a stale name inherited from a prototype", () => {
+    const proto = { exactTime: "09:00:00", intervalMs: 5 };
+    const options = Object.create(proto) as Record<string, unknown>;
+    options["interval"] = "5s";
+
+    expect("exactTime" in options).toBe(true);
+    expect(Object.hasOwn(options, "exactTime")).toBe(false);
+    expect(() => timer(options as never)).not.toThrow();
+  });
+
+  /**
    * @case Operation options are guarded on the same terms as adapters
    * @preconditions Routes built with the pre-0.7 names on retry, circuitBreaker, debounce, sample and batch
    * @expectedResult Every one throws, naming the option the author wrote
