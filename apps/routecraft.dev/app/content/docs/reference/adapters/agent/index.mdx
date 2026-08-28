@@ -107,7 +107,7 @@ craft()
 
 The queue and the abort that closes it live inside the adapter. Iterating the stream is what drives the run, and abandoning it aborts that run, so a client that disconnects mid-answer stops the model. Custom SSE event names are one ordinary `.transform()` step away; a queue and a wake loop written by hand in a transform are not the way there.
 
-The trade is what a stream cannot carry. `text`, `output`, `usage` and `toolCalls` are consolidated when a run finishes, and a stream is handed over before that. A route needing both streams to its reader and reads the coarse `route:agent:*` events for the record. Under `.enrich()` the stream merges like any other enrichment value. See [the agent plugin's observability channels](/docs/reference/plugins/agentplugin#observability-three-channels) for the full comparison with `onDelta`.
+The trade is what a stream cannot carry. `text`, `output`, `usage` and `toolCalls` are consolidated when a run finishes, and a stream is handed over before that. A route that needs both sends the stream to its reader and takes the completed record from the coarse `route:agent:*` events. Under `.enrich()` the stream merges like any other enrichment value. See [the agent plugin's observability channels](/docs/reference/plugins/agentplugin#observability-three-channels) for the full comparison with `onDelta`.
 
 **Resolution semantics:**
 
