@@ -10,6 +10,8 @@
  * exchange looks like once serialised.
  */
 
+import { isCraftContext, isExchange, isRoute } from "../brand.ts";
+
 export interface SafeStringifyOptions {
   /**
    * Omit any property named `_snapshot`, at every level.
@@ -48,34 +50,22 @@ export function safeStringify(
           ...(typeof val.stack === "string" ? { stack: val.stack } : {}),
         };
       }
-      if (
-        val &&
-        typeof val === "object" &&
-        "id" in val &&
-        "headers" in val &&
-        "body" in val &&
-        "logger" in val
-      ) {
-        const ex = val as { id: string };
-        return { exchangeId: ex.id };
+      // The framework's own brand guards, not a shape heuristic. The
+      // structural version misread any payload that happened to carry the
+      // same key names, and its unguarded read through `definition` threw
+      // inside the replacer for a nullish one, which collapsed the WHOLE
+      // value to a serialisation error rather than losing one field. These
+      // are the same guards `logger.ts` already discriminates these three
+      // types with, so the two readers cannot disagree about what an
+      // exchange looks like.
+      if (isExchange(val)) return { exchangeId: (val as { id: string }).id };
+      if (isRoute(val)) {
+        return {
+          routeId: (val as { definition: { id: string } }).definition.id,
+        };
       }
-      if (
-        val &&
-        typeof val === "object" &&
-        "definition" in val &&
-        "context" in val
-      ) {
-        const route = val as { definition: { id: string } };
-        return { routeId: route.definition.id };
-      }
-      if (
-        val &&
-        typeof val === "object" &&
-        "contextId" in val &&
-        "routes" in val
-      ) {
-        const ctx = val as { contextId: string };
-        return { contextId: ctx.contextId };
+      if (isCraftContext(val)) {
+        return { contextId: (val as { contextId: string }).contextId };
       }
       if (val && typeof val === "object") {
         if (seen.has(val as object)) return "[Circular]";

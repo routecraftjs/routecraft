@@ -16,6 +16,8 @@
  * its per-request event.
  */
 
+export { isAsyncIterable, isReadableStream } from "../../shared/iterable.ts";
+
 /** Default content type for the SSE arm, overridable per response. */
 export const SSE_CONTENT_TYPE = "text/event-stream; charset=utf-8";
 
@@ -285,27 +287,6 @@ export function streamResponseBody(
       cancelSource(reason);
     },
   });
-}
-
-export function isReadableStream(
-  value: unknown,
-): value is ReadableStream<Uint8Array> {
-  return (
-    typeof ReadableStream !== "undefined" && value instanceof ReadableStream
-  );
-}
-
-export function isAsyncIterable(
-  value: unknown,
-): value is AsyncIterable<unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    Symbol.asyncIterator in value &&
-    typeof (value as { [Symbol.asyncIterator]: unknown })[
-      Symbol.asyncIterator
-    ] === "function"
-  );
 }
 
 /**

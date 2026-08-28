@@ -20,7 +20,7 @@ import {
   methodNotAllowed,
   missingCredentialResponse,
 } from "../http/response";
-import { safeStringify } from "../../shared/safe-json";
+import { safeStringify } from "../../shared/safe-json.ts";
 import { sseResponse, type SseEvent } from "../http/sse";
 import type { HttpMountContext } from "../server/types";
 import type { ManagementApi } from "./management";
@@ -283,8 +283,11 @@ async function dispatchExchange(
     // whatever its steps threw, and `rcError` messages routinely interpolate
     // the cause: adapter failures carry hostnames, file paths and upstream
     // response text. On an open dispatch tier that is reconnaissance for
-    // anyone who can reach the port, and it would contradict the same
-    // surface's rule that no response body carries an error message. The code
+    // anyone who can reach the port, and it would contradict the health
+    // surface's rule that no response body carries an error message. That
+    // rule governs dispatch and health; the event tail is a separately
+    // scope-gated observation surface and does carry messages, on purpose,
+    // because a failure event without one is not diagnostic. The code
     // is enough to tell an authorize refusal from a broken step; the message
     // is in the logs, where the error policy already routes it.
     return jsonResponse({ error: "dispatch failed", code }, { status: 500 });
