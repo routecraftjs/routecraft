@@ -175,7 +175,7 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
     }
     throw new OpsClientError(
       "error",
-      wire.message ?? `The instance answered ${String(response.status)}.`,
+      wire.message ?? describeWireError(wire, response.status),
       response.status,
       wire,
     );
@@ -322,6 +322,24 @@ function classifyTransportFailure(
     "unreachable",
     `Could not reach a running instance at ${address}: ${messageOf(error)}\nStart one with 'craft start', or point at another instance with --url.`,
   );
+}
+
+/**
+ * Describe an error body that carries no message.
+ *
+ * The framework's error code belongs to a bounded, documented vocabulary and
+ * is safe to show, so it is shown: without it a route that refused the
+ * caller's own credential (`RC5038`) is indistinguishable from one that
+ * crashed, and the operator is told only that the instance answered 500.
+ */
+function describeWireError(wire: WireError, status: number): string {
+  const answered = `The instance answered ${String(status)}`;
+  if (wire.error === undefined && wire.code === undefined)
+    return `${answered}.`;
+  const parts = [wire.error, wire.code].filter(
+    (part): part is string => part !== undefined,
+  );
+  return `${answered}: ${parts.join(" ")}. See https://routecraft.dev/docs/reference/errors for what the code means.`;
 }
 
 /** A non-JSON error body, carried as the reason so it still reaches the reader. */
