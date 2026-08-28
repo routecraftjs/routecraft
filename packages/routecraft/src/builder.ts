@@ -760,7 +760,7 @@ export class RouteBuilder<
       options.refresh !== MANUAL_REFRESH &&
       !isCronCadence(options.refresh)
     ) {
-      parseDuration(options.refresh, ".enabled({ refresh })");
+      parseDuration(options.refresh as Duration, ".enabled({ refresh })");
     }
     // Resolved here for the same reason the cadence is: a malformed grace
     // must fail while the route is being built, not when a transition

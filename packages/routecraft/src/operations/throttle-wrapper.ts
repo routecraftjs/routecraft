@@ -40,10 +40,24 @@ const WINDOW_MS: Record<ThrottleTimeUnit, number> = {
  * @internal
  */
 function resolveWindow(per: ThrottleTimeUnit | Duration): number {
-  if (typeof per === "string" && per in WINDOW_MS) {
+  // `hasOwn`, not `in`: `per: "constructor"` resolves through the prototype
+  // chain, and the resulting `rate / undefined` is a NaN refill rate, which
+  // is a limiter that never admits anything and never errors.
+  if (typeof per === "string" && Object.hasOwn(WINDOW_MS, per)) {
     return WINDOW_MS[per as ThrottleTimeUnit];
   }
-  return parseDuration(per as Duration, "throttle({ per })");
+  try {
+    return parseDuration(per as Duration, "throttle({ per })");
+  } catch {
+    // The duration grammar is the wrong thing to quote at someone who
+    // mistyped a unit word, which is the likelier mistake now that both
+    // forms are accepted. Name both vocabularies.
+    throw rcError("RC5003", undefined, {
+      message: `throttle({ per }) must be one of ${Object.keys(WINDOW_MS)
+        .map((u) => `"${u}"`)
+        .join(", ")}, or a duration like "90s"; got ${String(per)}.`,
+    });
+  }
 }
 
 /**

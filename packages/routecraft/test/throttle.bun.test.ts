@@ -717,4 +717,32 @@ describe("Throttle wrapper (.throttle())", () => {
       }),
     ).toThrow(/throttle\(\{ per \}\)/);
   });
+
+  /**
+   * @case A prototype-chain key is not mistaken for a unit word
+   * @preconditions per set to "constructor", which `in` would resolve through Object.prototype
+   * @expectedResult It is refused, rather than producing a NaN refill rate and a limiter that silently never admits anything
+   */
+  test("refuses a prototype-chain key as a per unit", () => {
+    expect(() =>
+      resolveThrottleOptions({
+        rate: 1,
+        per: "constructor" as NonNullable<ThrottleOptions["per"]>,
+      }),
+    ).toThrow(/throttle\(\{ per \}\)/);
+  });
+
+  /**
+   * @case A mistyped unit word names both accepted vocabularies
+   * @preconditions per set to "minutes", a plural typo of a unit word
+   * @expectedResult The refusal lists the unit words as well as the duration form, rather than quoting only the duration grammar at someone who meant a unit
+   */
+  test("names the unit words when one is mistyped", () => {
+    expect(() =>
+      resolveThrottleOptions({
+        rate: 1,
+        per: "minutes" as NonNullable<ThrottleOptions["per"]>,
+      }),
+    ).toThrow(/"minute"/);
+  });
 });

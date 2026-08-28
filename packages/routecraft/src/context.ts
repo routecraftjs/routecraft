@@ -361,22 +361,21 @@ export class CraftContext {
    * capability filter and ops can read it whether or not any route
    * declares a predicate.
    */
-  private readonly enablement = new RouteEnablementCoordinator({
+  private readonly enablement = new RouteEnablementCoordinator<Route>({
     logger: () => this.logger,
     abortIntake: (routeId, reason) => {
       // The route's INTAKE controller, the same one shutdown's stage one
       // fires. Sources stop producing; in-flight exchanges are untouched.
       this.controllers.get(routeId)?.abort(reason);
     },
-    drainWithin: (route, graceMs) =>
-      this.drainRouteWithin(route as Route, graceMs),
-    startRoute: (route) => this.restartRoute(route as Route),
-    emitChanged: (route, enabled, reason) => {
+    drainWithin: (route, graceMs) => this.drainRouteWithin(route, graceMs),
+    startRoute: (route) => this.restartRoute(route),
+    emitChanged: (route, state) => {
       this.emit("route:enablement:changed", {
         routeId: route.definition.id,
-        route: route as Route,
-        enabled,
-        ...(reason !== undefined ? { reason } : {}),
+        route,
+        enabled: state.enabled,
+        ...(state.enabled ? {} : { reason: state.reason }),
       });
     },
   });
@@ -1723,10 +1722,31 @@ export class CraftContext {
       ready.reject(err);
     });
 
+    // The same bound the boot applies, for the same reason: a source that
+    // never calls ready() and never emits would otherwise hold this open
+    // forever, and a server ingress never settles `running` either, so
+    // without it the caller of a re-enable can wait indefinitely while the
+    // cadence keeps queueing further transitions behind it.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const bound = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        this.logger.warn(
+          {
+            route: route.definition.id,
+            timeoutMs: ROUTE_READINESS_TIMEOUT_MS,
+          },
+          "Re-enabled route did not signal readiness in time; continuing.",
+        );
+        resolve();
+      }, ROUTE_READINESS_TIMEOUT_MS);
+      timer.unref?.();
+    });
+
     try {
-      await Promise.race([ready.promise, running]);
+      await Promise.race([ready.promise, running, bound]);
     } finally {
       off();
+      if (timer) clearTimeout(timer);
     }
   }
 

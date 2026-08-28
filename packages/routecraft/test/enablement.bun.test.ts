@@ -722,4 +722,59 @@ describe("route enablement", () => {
         .enabled(() => true, { drainGrace: "soonish" as "2s" }),
     ).toThrow(/drainGrace/);
   });
+
+  /**
+   * @case A verdict that flaps while a disable is draining does not abort the restarted run
+   * @preconditions A route holding an exchange that never settles; the disable is sequenced on its own route:enablement:changed event so it is genuinely mid-drain, then the predicate flips back and a second re-check is issued
+   * @expectedResult The route ends up genuinely running: enabled, and its execution signal not aborted. Unserialised, the stale disable force-aborts the execution controller the re-enable had just minted, leaving the route reporting healthy while cancellation-aware consumers are latched
+   */
+  test("does not let a stale disable abort a restarted run", async () => {
+    let enabled = true;
+    const inStep = Promise.withResolvers<void>();
+    const disabling = Promise.withResolvers<void>();
+
+    t = await testContext()
+      // Short, because the wedged exchange never settles: this bounds the
+      // afterEach stop() as well as anything the route's own grace does not.
+      .with({ shutdown: { timeout: 150 } })
+      .routes([
+        craft()
+          .id("flapping")
+          .enabled(() => (enabled ? true : "off"), { drainGrace: 80 })
+          .from(direct())
+          .transform(() => {
+            inStep.resolve();
+            return new Promise(() => {
+              // Never settles, so the drain must reach its grace.
+            });
+          })
+          .to(noop()),
+        craft().id("keeps-open").from(direct()).to(noop()),
+      ])
+      .build();
+    t.ctx.on("route:enablement:changed", ({ details }) => {
+      if (details.routeId === "flapping" && !details.enabled) {
+        disabling.resolve();
+      }
+    });
+    await t.startAndWaitReady();
+
+    void t.client.sendDirect("flapping", "payload").catch(() => undefined);
+    await inStep.promise;
+
+    // Flip off and wait until the disable has actually recorded, so the
+    // second re-check lands while the drain is genuinely in flight rather
+    // than before the predicate has even run.
+    enabled = false;
+    const first = t.ctx.reevaluateEnablement("flapping");
+    await disabling.promise;
+
+    enabled = true;
+    const second = t.ctx.reevaluateEnablement("flapping");
+    await Promise.all([first, second]);
+
+    expect(t.ctx.isRouteEnabled("flapping")).toBe(true);
+    // The run that is live must not be carrying an aborted execution signal.
+    expect(t.ctx.getRouteById("flapping")?.signal.aborted).toBe(false);
+  });
 });

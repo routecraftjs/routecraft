@@ -570,10 +570,10 @@ export class DefaultRoute implements Route {
   public readonly logger: ReturnType<typeof logger.child>;
 
   /** Internal queues, one per source, for passing messages to the consumers */
-  private messageChannels: ProcessingQueue<Message>[];
+  private messageChannels!: ProcessingQueue<Message>[];
 
   /** Processes messages from the message channels, one consumer per source */
-  private consumers: Consumer[];
+  private consumers!: Consumer[];
 
   /** All in-flight work (handler and task promises) for drain */
   private inFlight = new Set<Promise<unknown>>();
@@ -602,18 +602,7 @@ export class DefaultRoute implements Route {
     // consumers drive the same shared step pipeline via the handler
     // registered in start(); the route stays a single logical entity (one id,
     // one lifecycle event stream) regardless of how many ingresses it exposes.
-    this.messageChannels = this.definition.sources.map(
-      () => new InMemoryProcessingQueue<Message>(),
-    );
-    this.consumers = this.messageChannels.map(
-      (channel) =>
-        new this.definition.consumer.type({
-          context: this.context,
-          definition: this.definition,
-          channel,
-          options: this.definition.consumer.options,
-        }),
-    );
+    this.buildChannelsAndConsumers();
 
     this.watchIntakeAbort();
   }
@@ -1065,14 +1054,18 @@ export class DefaultRoute implements Route {
     this.abortExecution("Route stop() called");
   }
 
-  /** @inheritDoc */
-  resetForRestart(controller: AbortController): void {
-    this.abortController = controller;
-    this.executionController = new AbortController();
-    // Rebuilt rather than reused: a queue cleared by stop() is still the
-    // queue whose consumer was registered against the previous run, and a
-    // consumer may hold per-run state (a batch window, a debounce hold).
-    // start() registers a fresh handler on whatever is here.
+  /**
+   * One (channel, consumer) pair per source, so each ingress gets its own
+   * delivery queue and, for batch routes, its own batch window. All
+   * consumers drive the same shared step pipeline via the handler registered
+   * in start(), so the route stays a single logical entity regardless of how
+   * many ingresses it exposes.
+   *
+   * Shared by the constructor and the restart so a consumer that gains a
+   * construction dependency cannot get it in one path and silently miss it
+   * in the other.
+   */
+  private buildChannelsAndConsumers(): void {
     this.messageChannels = this.definition.sources.map(
       () => new InMemoryProcessingQueue<Message>(),
     );
@@ -1085,6 +1078,17 @@ export class DefaultRoute implements Route {
           options: this.definition.consumer.options,
         }),
     );
+  }
+
+  /** @inheritDoc */
+  resetForRestart(controller: AbortController): void {
+    this.abortController = controller;
+    this.executionController = new AbortController();
+    // Rebuilt rather than reused: a queue cleared by stop() is still the
+    // queue whose consumer was registered against the previous run, and a
+    // consumer may hold per-run state (a batch window, a debounce hold).
+    // start() registers a fresh handler on whatever is here.
+    this.buildChannelsAndConsumers();
     this.watchIntakeAbort();
   }
 

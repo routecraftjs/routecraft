@@ -143,10 +143,14 @@ export function isLiveCadence(
  * Shape alone decides it. A cron expression is either a nickname (`@daily`)
  * or whitespace-separated fields; a `Duration` is a number or a single
  * unit-suffixed token, so neither form can be mistaken for the other.
+ *
+ * Returns a plain `boolean` rather than a type predicate on purpose.
+ * `CronExpression` ends in `(string & {})`, which absorbs every string in
+ * the union, so `refresh is CronExpression` would narrow the FALSE branch to
+ * `number` while `"5m"` routinely flows through it. The next edit there that
+ * trusted the compiler's `number` would compile and produce `NaN`.
  */
-export function isCronCadence(
-  refresh: RefreshCadence,
-): refresh is CronExpression {
+export function isCronCadence(refresh: RefreshCadence): boolean {
   return (
     typeof refresh === "string" &&
     refresh !== MANUAL_REFRESH &&
@@ -263,10 +267,14 @@ export const loadCronDriver: { current: () => Promise<typeof CronType> } = {
  *
  * @internal The class is internal; reach it through `CraftContext`.
  */
-export class RouteEnablementCoordinator {
+export class RouteEnablementCoordinator<
+  R extends EnablementRoute = EnablementRoute,
+> {
   readonly #states = new Map<string, EnablementState>();
   readonly #intervals = new Map<string, ReturnType<typeof setInterval>>();
   readonly #crons = new Map<string, CronType>();
+  /** Newest in-flight transition per route id; see {@link refresh}. */
+  readonly #inFlight = new Map<string, Promise<EnablementState>>();
   #stopped = false;
 
   /**
@@ -274,15 +282,7 @@ export class RouteEnablementCoordinator {
    *   imported so this file stays testable without building a context and
    *   free of a cycle back into `context.ts`.
    */
-  constructor(private readonly deps: EnablementDeps) {}
-
-  /**
-   * Every route's state, for ops and for the capability filter. A route with
-   * no `.enabled()` never appears here; absent means enabled.
-   */
-  stateOf(routeId: string): EnablementState | undefined {
-    return this.#states.get(routeId);
-  }
+  constructor(private readonly deps: EnablementDeps<R>) {}
 
   /** Whether this route may run. True for a route that never declared one. */
   isEnabled(routeId: string): boolean {
@@ -315,7 +315,7 @@ export class RouteEnablementCoordinator {
    * @returns The ids that must NOT be started.
    */
   async evaluateForBoot(
-    declaring: ReadonlyArray<EnablementRoute>,
+    declaring: ReadonlyArray<R>,
   ): Promise<ReadonlySet<string>> {
     await Promise.all(
       declaring.map(async (route) => {
@@ -347,7 +347,7 @@ export class RouteEnablementCoordinator {
    * here instead would have left one arm of the same option silently
    * degraded.
    */
-  async startRefreshing(routes: ReadonlyArray<EnablementRoute>): Promise<void> {
+  async startRefreshing(routes: ReadonlyArray<R>): Promise<void> {
     if (this.#stopped) return;
     const arming: Promise<void>[] = [];
     for (const route of routes) {
@@ -356,9 +356,9 @@ export class RouteEnablementCoordinator {
       // exists to let an author SAY manual, not to behave differently.
       if (refresh === undefined || refresh === MANUAL_REFRESH) continue;
       if (isCronCadence(refresh)) {
-        arming.push(this.#armCron(route, refresh));
+        arming.push(this.#armCron(route, refresh as CronExpression));
       } else {
-        const ms = refreshIntervalMs(refresh, route.definition.id);
+        const ms = refreshIntervalMs(refresh as Duration, route.definition.id);
         const timer = setInterval(() => {
           void this.refresh(route);
         }, ms);
@@ -385,7 +385,31 @@ export class RouteEnablementCoordinator {
    *
    * @returns The state after the re-evaluation.
    */
-  async refresh(route: EnablementRoute): Promise<EnablementState> {
+  async refresh(route: R): Promise<EnablementState> {
+    const id = route.definition.id;
+    // Serialised per route. Three drivers reach this concurrently (an
+    // interval tick, a cron fire, an operator's on-demand re-check) and a
+    // transition is long: a disable holds until its drain grace elapses.
+    // Overlapping them lets a stale disable force-abort the execution
+    // controller of the run that a later enable already restarted, leaving
+    // the route reporting enabled while its execution signal is aborted.
+    // Chained rather than dropped, so an on-demand re-check still takes
+    // effect rather than being silently swallowed by an in-flight tick.
+    const chained = (this.#inFlight.get(id) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => this.#refreshNow(route));
+    this.#inFlight.set(id, chained);
+    try {
+      return await chained;
+    } finally {
+      // Only the newest link clears the slot; an older one finishing must
+      // not drop a successor that is still queued behind it.
+      if (this.#inFlight.get(id) === chained) this.#inFlight.delete(id);
+    }
+  }
+
+  /** One transition, with no other transition for this route in flight. */
+  async #refreshNow(route: R): Promise<EnablementState> {
     const enablement = route.definition.enablement;
     if (!enablement) return { enabled: true };
     if (this.#stopped) {
@@ -412,7 +436,7 @@ export class RouteEnablementCoordinator {
 
   /** Re-evaluate every declaring route. The all-routes control surface. */
   async refreshAll(
-    routes: ReadonlyArray<EnablementRoute>,
+    routes: ReadonlyArray<R>,
   ): Promise<ReadonlyMap<string, EnablementState>> {
     await Promise.all(
       routes
@@ -448,7 +472,7 @@ export class RouteEnablementCoordinator {
    * the context's `shutdown.timeout` otherwise. `"never"` waits indefinitely,
    * which is the only setting under which no exchange is ever abandoned.
    */
-  async #disable(route: EnablementRoute, reason: string): Promise<void> {
+  async #disable(route: R, reason: string): Promise<void> {
     const graceMs = resolveDrainGrace(route);
     this.deps.logger().info(
       {
@@ -476,7 +500,7 @@ export class RouteEnablementCoordinator {
   }
 
   /** Bring a disabled route up: re-arm it, then start it normally. */
-  async #enable(route: EnablementRoute): Promise<void> {
+  async #enable(route: R): Promise<void> {
     if (this.#stopped) return;
     this.deps
       .logger()
@@ -502,18 +526,14 @@ export class RouteEnablementCoordinator {
   }
 
   /** Store the state and announce a genuine change. */
-  #record(route: EnablementRoute, state: EnablementState): void {
+  #record(route: R, state: EnablementState): void {
     const previous = this.#states.get(route.definition.id);
     this.#states.set(route.definition.id, state);
     // Only a real transition is announced. A five-minute cadence over a
     // stable predicate would otherwise emit a heartbeat that every listener
     // has to filter, and the one event that matters would be lost in it.
     if (previous !== undefined && previous.enabled === state.enabled) return;
-    this.deps.emitChanged(
-      route,
-      state.enabled,
-      state.enabled ? undefined : state.reason,
-    );
+    this.deps.emitChanged(route, state);
   }
 
   /**
@@ -532,10 +552,7 @@ export class RouteEnablementCoordinator {
    *   driver's own message. A missing `croner` surfaces as the RC5017 the
    *   optional-peer loader raises, with its install hint intact.
    */
-  async #armCron(
-    route: EnablementRoute,
-    expression: CronExpression,
-  ): Promise<void> {
+  async #armCron(route: R, expression: CronExpression): Promise<void> {
     const Cron = await loadCronDriver.current();
     if (this.#stopped) return;
     try {
@@ -574,10 +591,9 @@ export interface EnablementRoute {
  *
  * @internal
  */
-export interface EnablementDeps {
+export interface EnablementDeps<R extends EnablementRoute = EnablementRoute> {
   logger(): {
     info(obj: object, msg: string): void;
-    warn(obj: object, msg: string): void;
     error(obj: object, msg: string): void;
   };
   /** Fire the route's intake signal: stop accepting, keep running. */
@@ -588,11 +604,8 @@ export interface EnablementDeps {
    * @param graceMs - The route's own grace in milliseconds; `undefined` for
    *   the context's `shutdown.timeout`; `null` to wait indefinitely.
    */
-  drainWithin(
-    route: EnablementRoute,
-    graceMs: number | undefined | null,
-  ): Promise<boolean>;
+  drainWithin(route: R, graceMs: number | undefined | null): Promise<boolean>;
   /** Re-arm and start a route that was disabled. */
-  startRoute(route: EnablementRoute): Promise<void>;
-  emitChanged(route: EnablementRoute, enabled: boolean, reason?: string): void;
+  startRoute(route: R): Promise<void>;
+  emitChanged(route: R, state: EnablementState): void;
 }
