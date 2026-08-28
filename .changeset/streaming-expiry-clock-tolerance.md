@@ -8,6 +8,6 @@ The stream expiry check now applies the clock tolerance that admitted the creden
 
 The resolved tolerance now rides on the admit verdict, beside the principal and the credential it already carried, so anything re-checking that credential inherits the boundary by construction rather than by remembering to pass an argument. Resolving it a second time from config at each consumer would reproduce the same class of bug the moment the two resolutions drifted.
 
-The timer sleeps to the deadline the tolerance moves rather than to `exp`, since waking inside the window would find the credential good and re-arm on the fifty millisecond floor for the rest of it.
+The timer sleeps to the deadline the tolerance moves rather than to `exp`, since waking inside the window would find the credential good and re-arm on the fifty-millisecond floor for the rest of it.
 
 Revoking the stream also no longer depends on the notification succeeding. The signal called `onExpired` and then aborted, so a notifier that threw took the abort with it: on the synchronous arm the throw escaped and the caller got no signal, and on the timer path it was an uncaught exception with the abort never running, leaving the expired credential's stream open. The abort now runs first and a throw from the callback is swallowed.
