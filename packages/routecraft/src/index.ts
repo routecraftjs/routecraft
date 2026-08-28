@@ -111,6 +111,20 @@ export type {
 } from "./plugins/server/types.ts";
 export { apiKey } from "./plugins/http/auth.ts";
 export type { SseEvent } from "./plugins/http/sse.ts";
+export {
+  buildProtectedResourceMetadata,
+  PROTECTED_RESOURCE_METADATA_PATH,
+  resourceMetadataUrlFor,
+  type ProtectedResourceMetadata,
+  type ProtectedResourceMetadataInput,
+} from "./plugins/server/protected-resource.ts";
+export {
+  buildCorsHeaders,
+  defaultLoopbackOriginResolver,
+  resolveCorsOptions,
+  type HttpCorsOptions,
+  type HttpCorsOriginResolver,
+} from "./plugins/server/cors.ts";
 
 export { opsPlugin } from "./plugins/ops/plugin.ts";
 export { defineIndicator } from "./plugins/ops/indicator.ts";

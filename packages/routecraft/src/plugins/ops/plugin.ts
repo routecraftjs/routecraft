@@ -283,6 +283,16 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       ): Promise<Response> =>
         (await management(req, mountContext)) ?? health(req, mountContext);
 
+      // The scopes the RFC 9728 document may advertise: exactly the tier
+      // gates an operator configured, deduplicated in configuration order.
+      // Boolean tiers contribute nothing; there is no scope to name.
+      const tierScopes = [
+        ...new Set(
+          Object.values(tiers).filter(
+            (value): value is string => typeof value === "string",
+          ),
+        ),
+      ];
       runtime.unmount = ingress.mountHttp({
         id: "ops",
         // The health paths never wall, so the flag answers for the mount as
@@ -291,6 +301,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         // claim a gate this mount never runs.
         enforcesWall: enforcesWall(tiers),
         ...(mountAuthOption !== undefined ? { auth: mountAuthOption } : {}),
+        ...(tierScopes.length > 0
+          ? { resourceMetadata: { scopesSupported: tierScopes } }
+          : {}),
         claims: () => CLAIMS,
         handler,
       });
