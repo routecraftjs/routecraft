@@ -487,4 +487,64 @@ describe("route enablement", () => {
     expect(t.ctx.disabledRoutes().size).toBe(0);
     expect(sink.received).toHaveLength(1);
   });
+
+  /**
+   * @case An explicit refresh: "manual" behaves exactly like omitting refresh
+   * @preconditions Two disabled routes, one omitting refresh and one passing "manual"
+   * @expectedResult Both stay disabled with no cadence armed, and both still respond to an on-demand re-check
+   */
+  test("treats refresh: manual as the default cadence, said out loud", async () => {
+    let ready = false;
+    const predicate = (): boolean | string => (ready ? true : "not yet");
+
+    t = await testContext()
+      .routes([
+        craft().id("implicit").enabled(predicate).from(direct()).to(noop()),
+        craft()
+          .id("explicit")
+          .enabled(predicate, { refresh: "manual" })
+          .from(direct())
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    expect(t.ctx.isRouteEnabled("implicit")).toBe(false);
+    expect(t.ctx.isRouteEnabled("explicit")).toBe(false);
+
+    // Nothing re-evaluates on its own for either of them.
+    ready = true;
+    await sleep(60);
+    expect(t.ctx.isRouteEnabled("implicit")).toBe(false);
+    expect(t.ctx.isRouteEnabled("explicit")).toBe(false);
+
+    // Both still answer the on-demand control surface.
+    await t.ctx.reevaluateEnablement();
+    expect(t.ctx.isRouteEnabled("implicit")).toBe(true);
+    expect(t.ctx.isRouteEnabled("explicit")).toBe(true);
+  });
+
+  /**
+   * @case A computed cadence can fall back to "manual" without assembling the options object conditionally
+   * @preconditions refresh given as `undefined ?? "manual"`, the shape a computed cadence produces
+   * @expectedResult The route builds and is disabled, so the sentinel is accepted where a bare string would be refused
+   */
+  test("accepts manual as a computed cadence fallback", async () => {
+    const configuredCadence: string | undefined = undefined;
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("computed")
+          .enabled(() => "off", {
+            refresh: (configuredCadence ?? "manual") as "manual",
+          })
+          .from(direct())
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    expect(t.ctx.isRouteEnabled("computed")).toBe(false);
+  });
 });

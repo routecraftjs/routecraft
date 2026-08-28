@@ -26,22 +26,12 @@ export interface TimerOptions {
   fixedRate?: boolean;
 
   /**
-   * Executes at an exact time of day (ISO HH:mm:ss)
-   * @default null
-   */
-  exactTime?: string;
-
-  /**
-   * Allows custom date formats for execution times
-   * @default null
-   */
-  timePattern?: string;
-
-  /**
-   * Adds random delay to prevent synchronized execution spikes
+   * Upper bound on a random delay added to each scheduled run, to stop many
+   * instances firing in lockstep. Each wait is drawn uniformly from
+   * `[0, maxJitter)`.
    * @default 0
    */
-  jitter?: Duration;
+  maxJitter?: Duration;
 }
 
 /**

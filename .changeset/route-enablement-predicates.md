@@ -27,9 +27,16 @@ Returning a string disables the route AND is the reason ops reports, so there is
 
 ```ts
 .enabled(predicate)                            // manual (default)
+.enabled(predicate, { refresh: "manual" })     // manual, said explicitly
 .enabled(predicate, { refresh: "5m" })         // interval
 .enabled(predicate, { refresh: "0 * * * *" })  // cron schedule
 ```
+
+Omitting `refresh` and passing `"manual"` mean the same thing. The sentinel
+exists for a computed cadence, where it says what it means instead of assembling
+the options object conditionally (`refresh: pollCadence ?? "manual"`), and it
+restores the sentinel precedent `suspension` already sets with
+`defaultTtl: "never"` and `retention: "never"`.
 
 `refresh` takes `Duration` or a cron expression, told apart by shape. A cron cadence loads `croner` lazily, the same optional peer `cron()` uses, so a context that does not ask for one never pays for it. A malformed cadence is refused while the route is built.
 

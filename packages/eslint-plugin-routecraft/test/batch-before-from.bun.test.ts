@@ -43,7 +43,7 @@ ruleTester.run("batch-before-from", batchBeforeFromRule, {
       code: `
         craft()
           .id('r')
-          .batch({ size: 10, flushIntervalMs: 1000 })
+          .batch({ size: 10, flushInterval: 1000 })
           .from(simple([1,2,3]))
           .transform(x => x)
           .to(log());

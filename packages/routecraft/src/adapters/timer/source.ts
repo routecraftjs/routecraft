@@ -14,30 +14,13 @@ export class TimerSourceAdapter implements Source<undefined> {
       delay = 0,
       repeatCount = Infinity,
       fixedRate = false,
-      exactTime,
-      jitter = 0,
+      maxJitter = 0,
     } = this.options || {};
     const intervalMs = parseDuration(interval, "timer({ interval })");
     const delayMs = parseDuration(delay, "timer({ delay })", 0);
-    const jitterMs = parseDuration(jitter, "timer({ jitter })", 0);
+    const maxJitterMs = parseDuration(maxJitter, "timer({ maxJitter })", 0);
 
-    // Determine the start time
-    let baseTime: number;
-    if (exactTime) {
-      // exactTime should be in the format "HH:mm:ss"
-      const now = new Date();
-      const [hour, minute, second] = exactTime.split(":").map(Number);
-      // Create a Date for today with the provided exact time
-      const scheduled = new Date(now);
-      scheduled.setHours(hour, minute, second, 0);
-      // If the scheduled time already passed today, schedule for tomorrow
-      if (scheduled.getTime() <= now.getTime()) {
-        scheduled.setDate(scheduled.getDate() + 1);
-      }
-      baseTime = scheduled.getTime();
-    } else {
-      baseTime = Date.now() + delayMs;
-    }
+    const baseTime = Date.now() + delayMs;
 
     sub.ready();
 
@@ -49,12 +32,7 @@ export class TimerSourceAdapter implements Source<undefined> {
         while (count < repeatCount && !sub.signal.aborted) {
           let scheduledTime: number;
           if (fixedRate) {
-            if (exactTime) {
-              // For exact time scheduling with fixedRate, fire once per day.
-              scheduledTime = baseTime + count * 24 * 60 * 60 * 1000;
-            } else {
-              scheduledTime = baseTime + count * intervalMs;
-            }
+            scheduledTime = baseTime + count * intervalMs;
           } else {
             // Non-fixedRate: the first run uses baseTime; subsequent runs trigger delay after the previous run.
             if (count === 0) {
@@ -70,9 +48,10 @@ export class TimerSourceAdapter implements Source<undefined> {
           if (waitTime < 0) {
             waitTime = 0;
           }
-          if (jitterMs > 0) {
-            const jitter = Math.floor(Math.random() * jitterMs);
-            waitTime += jitter;
+          if (maxJitterMs > 0) {
+            // Uniform in [0, maxJitter): the option is an upper bound, which
+            // is what its name promises.
+            waitTime += Math.floor(Math.random() * maxJitterMs);
           }
 
           // Abort-aware wait: a plain setTimeout would pin shutdown for up
@@ -94,24 +73,15 @@ export class TimerSourceAdapter implements Source<undefined> {
           count++;
 
           // Compute the next scheduled time for header information
-          let nextScheduledTime: number;
-          if (fixedRate) {
-            if (exactTime) {
-              nextScheduledTime = baseTime + count * 24 * 60 * 60 * 1000;
-            } else {
-              nextScheduledTime = baseTime + count * intervalMs;
-            }
-          } else {
-            nextScheduledTime = Date.now() + intervalMs;
-          }
+          const nextScheduledTime = fixedRate
+            ? baseTime + count * intervalMs
+            : Date.now() + intervalMs;
 
           // Prepare timer-based headers
           const headers: ExchangeHeaders = {
             [TimerHeaders.TIME]: firedTime.toISOString(),
             [TimerHeaders.FIRED_TIME]: firedTime.toISOString(),
-            [TimerHeaders.PERIOD_MS]: exactTime
-              ? 24 * 60 * 60 * 1000
-              : intervalMs,
+            [TimerHeaders.PERIOD_MS]: intervalMs,
             [TimerHeaders.COUNTER]: count,
             [TimerHeaders.NEXT_RUN]: new Date(nextScheduledTime).toISOString(),
           };

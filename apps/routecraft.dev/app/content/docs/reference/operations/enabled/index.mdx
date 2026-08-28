@@ -9,7 +9,7 @@ title: enabled
 ```ts
 enabled(
   predicate: () => boolean | string | Promise<boolean | string>,
-  options?: { refresh?: Duration | CronExpression },
+  options?: { refresh?: Duration | CronExpression | 'manual' },
 ): RouteBuilder<Current>
 ```
 
@@ -51,6 +51,7 @@ ctx.capabilities() // the disabled route's endpoint is absent
 
 ```ts
 .enabled(predicate)                            // manual (default)
+.enabled(predicate, { refresh: 'manual' })     // manual, said explicitly
 .enabled(predicate, { refresh: '5m' })         // interval
 .enabled(predicate, { refresh: '0 * * * *' })  // cron schedule
 ```
@@ -58,6 +59,12 @@ ctx.capabilities() // the disabled route's endpoint is absent
 **Manual is the default**: the predicate runs once as the route starts and is not run again until something explicitly asks. That keeps the common case, an environment variable that cannot change without a restart, free of any recurring cost, and it stops a predicate that reaches the network from becoming an invisible repeating one.
 
 `refresh` takes the framework's [`Duration`](/docs/reference/configuration) type (`number | '5m'`) or a cron expression. The two are told apart by shape: every cron expression contains a space or starts with `@`, and no `Duration` does. A cron cadence loads `croner`, the same optional peer the [`cron()` adapter](/docs/reference/adapters/cron) uses.
+
+Omitting `refresh` and passing `'manual'` mean exactly the same thing. The sentinel exists for a **computed** cadence, where it says what it means instead of assembling the options object conditionally:
+
+```ts
+.enabled(predicate, { refresh: pollCadence ?? 'manual' })
+```
 
 A malformed cadence is refused while the route is built, not discovered as a dead timer at boot.
 

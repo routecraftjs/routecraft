@@ -32,7 +32,7 @@ describe("CraftConfig.cron defaults", () => {
    * @expectedResult The context store contains the defaults under ADAPTER_CRON_OPTIONS
    */
   test("stores cron defaults in the context store", async () => {
-    const defaults = { timezone: "UTC", jitterMs: 2000 };
+    const defaults = { timezone: "UTC", maxJitter: 2000 };
     const ctx = new CraftContext({ cron: defaults });
     await ctx.initPlugins();
 
@@ -54,16 +54,16 @@ describe("CraftConfig.cron defaults", () => {
 
   /**
    * @case CronSourceAdapter merges context defaults with per-adapter options
-   * @preconditions Context store has timezone default, adapter has jitterMs override
-   * @expectedResult mergedOptions returns both timezone from store and jitterMs from adapter
+   * @preconditions Context store has timezone default, adapter has maxJitter override
+   * @expectedResult mergedOptions returns both timezone from store and maxJitter from adapter
    */
   test("CronSourceAdapter merges config defaults with per-adapter options", () => {
-    const ctx = mockContext({ timezone: "UTC", jitterMs: 2000 });
+    const ctx = mockContext({ timezone: "UTC", maxJitter: 2000 });
 
-    const adapter = new CronSourceAdapter("@daily", { jitter: 5000 });
+    const adapter = new CronSourceAdapter("@daily", { maxJitter: 5000 });
     const merged = adapter.mergedOptions(ctx);
 
     expect(merged.timezone).toBe("UTC");
-    expect(merged.jitter).toBe(5000); // per-adapter wins
+    expect(merged.maxJitter).toBe(5000); // per-adapter wins
   });
 });

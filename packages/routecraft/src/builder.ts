@@ -3,6 +3,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type Duration, parseDuration } from "./shared/duration.ts";
 import {
   isCronCadence,
+  MANUAL_REFRESH,
   type EnablementOptions,
   type EnablementPredicate,
   type RouteEnablement,
@@ -718,9 +719,9 @@ export class RouteBuilder<
    *
    * @param predicate - Returns `true`, or a string naming why it is off.
    * @param options - `refresh` re-evaluates on an interval or a cron
-   *   schedule. Omitted is MANUAL: evaluated once as the route starts and
-   *   never again until something explicitly asks, which keeps the common
-   *   environment-variable case free of any recurring cost.
+   *   schedule. Omitted (or `"manual"`) is MANUAL: evaluated once as the
+   *   route starts and never again until something explicitly asks, which
+   *   keeps the common environment-variable case free of any recurring cost.
    *
    * @example
    * ```typescript
@@ -753,7 +754,11 @@ export class RouteBuilder<
     // Resolved here rather than at start so a malformed cadence fails while
     // the route is being built, which is where every other staged option
     // fails, instead of surfacing as a dead refresh timer at boot.
-    if (options?.refresh !== undefined && !isCronCadence(options.refresh)) {
+    if (
+      options?.refresh !== undefined &&
+      options.refresh !== MANUAL_REFRESH &&
+      !isCronCadence(options.refresh)
+    ) {
       parseDuration(options.refresh, ".enabled({ refresh })");
     }
     this.pendingOptions = {
@@ -926,7 +931,7 @@ export class RouteBuilder<
    * craft()
    *   .id('process-orders')
    *   .error((err, ex, forward) => forward('error-route', { reason: String(err) }))
-   *   .from(timer({ intervalMs: 60000 }))
+   *   .from(timer({ interval: "1m" }))
    *   .to(dangerousDestination)
    * ```
    *
@@ -934,7 +939,7 @@ export class RouteBuilder<
    * ```ts
    * craft()
    *   .id('resilient-pipeline')
-   *   .from(timer({ intervalMs: 60000 }))
+   *   .from(timer({ interval: "1m" }))
    *   .transform(prepareRequest)
    *   .error((err) => ({ fallback: true, reason: String(err) }))
    *   .to(http({ url: 'https://flaky.api/endpoint' }))
@@ -1783,7 +1788,7 @@ export class RouteBuilder<
    * @example
    * ```ts
    * .from(file({ path: "./config", watch: true }))
-   * .debounce({ waitMs: 500 }) // wait for editing to finish
+   * .debounce({ wait: "500ms" }) // wait for editing to finish
    * .process(reloadConfig)
    * ```
    */

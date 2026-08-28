@@ -218,7 +218,7 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case A growth `factor` multiplies the wait per attempt
-   * @preconditions Route with .retry({ maxAttempts: 3, backoffMs: 10, factor: 2 }) wrapping an always-failing transform
+   * @preconditions Route with .retry({ maxAttempts: 3, backoff: 10, factor: 2 }) wrapping an always-failing transform
    * @expectedResult The attempt events report backoffMs 10 then 20 (factor: 2 replaces the old exponential: true)
    */
   test("factor multiplies the backoff per attempt", async () => {
@@ -247,7 +247,7 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case A zero base backoff stays zero regardless of factor (no NaN-to-ceiling inversion)
-   * @preconditions .retry({ maxAttempts: 3, backoffMs: 0, factor: 2 }) wrapping an always-failing transform
+   * @preconditions .retry({ maxAttempts: 3, backoff: 0, factor: 2 }) wrapping an always-failing transform
    * @expectedResult Every reported wait is exactly 0 (a zero base must not be turned into a large wait by the overflow guard)
    */
   test("backoffMs 0 yields zero waits regardless of factor", async () => {
@@ -276,7 +276,7 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case maxBackoffMs caps the computed wait so a steep factor cannot grow unbounded
-   * @preconditions .retry({ maxAttempts: 4, backoffMs: 10, factor: 10, maxBackoffMs: 50 }) wrapping an always-failing transform
+   * @preconditions .retry({ maxAttempts: 4, backoff: 10, factor: 10, maxBackoff: 50 }) wrapping an always-failing transform
    * @expectedResult The attempt waits are 10, 100->50 (clamped), 1000->50 (clamped), never exceeding maxBackoffMs
    */
   test("maxBackoffMs clamps the computed wait", async () => {
@@ -310,7 +310,7 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case Jitter keeps every wait within [computed * (1 - jitter), computed]
-   * @preconditions .retry({ maxAttempts: 5, backoffMs: 100, jitter: 0.5 }) (fixed factor) wrapping an always-failing transform
+   * @preconditions .retry({ maxAttempts: 5, backoff: 100, jitter: 0.5 }) (fixed factor) wrapping an always-failing transform
    * @expectedResult Each reported wait is in [50, 100] and at least one differs from the others (randomised)
    */
   test("jitter randomises the wait within bounds", async () => {
@@ -532,7 +532,7 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case Route shutdown during a backoff wait gives up instead of waiting it out
-   * @preconditions Route with .retry({ backoffMs: 10000 }) around an always-failing step; the context is stopped during the first backoff
+   * @preconditions Route with .retry({ backoff: 10000 }) around an always-failing step; the context is stopped during the first backoff
    * @expectedResult The last real error surfaces promptly on the default error path; the 10s backoff is not waited out
    */
   test("shutdown during backoff propagates the last error promptly", async () => {

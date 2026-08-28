@@ -81,8 +81,8 @@ await t.stop();
 - **`TestOptions`** -- Options for `test()`, e.g. `delayBeforeDrainMs` -- useful for timer-based capabilities so at least one message is processed before drain.
 
 ```typescript
-// Wait 50ms after ready before draining (e.g. for a timer with intervalMs: 50)
-await t.test({ delayBeforeDrainMs: 50 });
+// Wait 50ms after ready before draining (e.g. for a timer with interval: 50)
+await t.test({ delayBeforeDrain: 50 });
 ```
 
 ## Documentation

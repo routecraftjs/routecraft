@@ -86,10 +86,10 @@ describe("sample (.sample())", () => {
 
   /**
    * @case Time-based sampling passes the first exchange per window and drops the rest
-   * @preconditions Route with .sample({ intervalMs: 60_000 }); three sequential sends inside one window
+   * @preconditions Route with .sample({ interval: 60_000 }); three sequential sends inside one window
    * @expectedResult Only the first send passes; the other two are dropped while the window is open
    */
-  test("intervalMs: passes the first exchange in a window", async () => {
+  test("interval: passes the first exchange in a window", async () => {
     const s = spy();
     t = await testContext()
       .routes(
@@ -112,10 +112,10 @@ describe("sample (.sample())", () => {
 
   /**
    * @case A new time window admits the next exchange once the interval elapses
-   * @preconditions Route with .sample({ intervalMs: 30 }); two sends separated by a 50ms sleep
+   * @preconditions Route with .sample({ interval: 30 }); two sends separated by a 50ms sleep
    * @expectedResult Both sends pass, one per window
    */
-  test("intervalMs: admits again after the window elapses", async () => {
+  test("interval: admits again after the window elapses", async () => {
     const s = spy();
     t = await testContext()
       .routes(
@@ -169,7 +169,7 @@ describe("sample (.sample())", () => {
 
   /**
    * @case Sample emits passed/dropped operation events with the interval mode
-   * @preconditions Route with .sample({ intervalMs }) over two sends in one window; event subscribers registered
+   * @preconditions Route with .sample({ interval }) over two sends in one window; event subscribers registered
    * @expectedResult One route:operation:sample:passed and one :dropped, both mode "interval"
    */
   test("emits route:operation:sample:passed and :dropped in interval mode", async () => {

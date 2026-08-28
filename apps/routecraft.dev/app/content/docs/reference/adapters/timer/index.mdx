@@ -10,7 +10,9 @@ title: timer
 timer(options?: TimerOptions): Source<undefined>
 ```
 
-Trigger routes at regular intervals or specific times. Produces `undefined` as the message body.
+Trigger routes at a regular interval. Produces `undefined` as the message body.
+
+For a wall-clock schedule ("every weekday at 09:00"), use [`cron()`](/docs/reference/adapters/cron), which understands timezones. `timer()` measures elapsed time, not clock time.
 
 ```ts
 // Simple interval (every second)
@@ -25,17 +27,13 @@ Trigger routes at regular intervals or specific times. Produces `undefined` as t
 .id('delayed-start')
 .from(timer({ interval: 1000, delay: 5000 }))
 
-// Daily at specific time
-.id('daily-report')
-.from(timer({ exactTime: '09:30:00' }))
-
 // Fixed rate (ignore execution time)
 .id('heartbeat')
 .from(timer({ interval: 1000, fixedRate: true }))
 
 // Add random jitter to prevent synchronized execution
 .id('distributed-task')
-.from(timer({ interval: 1000, jitter: 200 }))
+.from(timer({ interval: 1000, maxJitter: 200 }))
 ```
 
 Options:
@@ -46,8 +44,6 @@ Options:
 | `delay` | `Duration` | `0` | No | Delay before the first execution |
 | `repeatCount` | `number` | `Infinity` | No | Number of executions before stopping |
 | `fixedRate` | `boolean` | `false` | No | Execute at exact intervals ignoring processing time |
-| `exactTime` | `string` | -- | No | Execute daily at time of day `HH:mm:ss` (fires once/day) |
-| `timePattern` | `string` | -- | No | Custom date format for execution times |
-| `jitter` | `Duration` | `0` | No | Random jitter added to each scheduled run |
+| `maxJitter` | `Duration` | `0` | No | Upper bound on a random delay added to each run, drawn uniformly from `[0, maxJitter)` |
 
 **Headers added:** Timer metadata including fired time, counter, period, and next run time

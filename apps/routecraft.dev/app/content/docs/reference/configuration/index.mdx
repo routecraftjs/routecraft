@@ -40,6 +40,14 @@ Values the framework **reports** are the opposite case and stay plain millisecon
 
 Validate one yourself with the exported `parseDuration(value, field)`, which applies exactly the rules every option applies.
 
+### The one exception: `clockToleranceSec`
+
+`authorize()`, `jwt()`, `jwks()`, HTTP auth and `mcpPlugin` auth all take `clockToleranceSec`, which is a number of **seconds**, not a `Duration`.
+
+This is deliberate. JWT `exp` and `nbf` are epoch-seconds and the option maps directly onto the underlying verifier's own `clockTolerance`, so seconds is the unit the domain works in. The name says `Sec`, so it does not mislead, which is the test the rest of this convention is built on: a name ending in `Ms` that accepted `"5m"` would lie, and this one does not.
+
+It is the only authored time option in the framework that is not a `Duration`.
+
 ## Route enablement
 
 A route can declare whether it runs at all:
@@ -119,7 +127,7 @@ Default options applied to every `cron()` source in this context. Per-adapter op
 
 ```ts
 const config: CraftConfig = {
-  cron: { timezone: 'UTC', jitter: 2000 },
+  cron: { timezone: 'UTC', maxJitter: 2000 },
 }
 ```
 
@@ -127,7 +135,7 @@ const config: CraftConfig = {
 |--------|------|-------------|
 | `timezone` | `string` | IANA timezone (e.g. `"America/New_York"`, `"UTC"`) |
 | `maxFires` | `number` | Maximum fires before stopping |
-| `jitter` | `Duration` | Random delay added to each fire |
+| `maxJitter` | `Duration` | Upper bound on a random delay added to each fire |
 | `name` | `string` | Human-readable job name for observability |
 | `protect` | `boolean` | Prevent overlapping handler execution |
 | `startAt` | `Date \| string` | Date/ISO string at which cron jobs start |

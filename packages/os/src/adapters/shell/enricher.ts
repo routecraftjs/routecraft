@@ -1,5 +1,6 @@
 import {
   getExchangeContext,
+  parseDuration,
   rcError,
   type Enricher,
   type Exchange,
@@ -90,7 +91,11 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
       this.options.maxOutputBytes ??
       defaults.maxOutputBytes ??
       DEFAULT_MAX_OUTPUT_BYTES;
-    const timeout = this.options.timeout ?? defaults.timeout;
+    const configuredTimeout = this.options.timeout ?? defaults.timeout;
+    const timeout =
+      configuredTimeout === undefined
+        ? undefined
+        : parseDuration(configuredTimeout, "shell({ timeout })");
 
     const { execa } = await loadExeca();
     const stdout = new BoundedOutput(limit);

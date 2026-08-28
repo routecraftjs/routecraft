@@ -100,7 +100,7 @@ describe("Delay wrapper (.delay())", () => {
 
   /**
    * @case Delay composes with retry so the wait applies to every attempt
-   * @preconditions Route with .retry({ maxAttempts: 2, backoffMs: 1 }).delay(10) wrapping a step that fails once then succeeds
+   * @preconditions Route with .retry({ maxAttempts: 2, backoff: 1 }).delay(10) wrapping a step that fails once then succeeds
    * @expectedResult Two route:delay:started events fire (one per attempt) and the destination receives the recovered value
    */
   test("retry().delay() waits before each attempt", async () => {

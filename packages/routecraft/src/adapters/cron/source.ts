@@ -9,7 +9,7 @@ import type { CronExpression, CronOptions } from "./types";
 
 /**
  * Store key for merged cron adapter options.
- * Set context-level defaults (e.g., jitter) once and share across all
+ * Set context-level defaults (e.g., maxJitter) once and share across all
  * cron sources in the same context.
  * @internal
  */
@@ -100,7 +100,7 @@ export class CronSourceAdapter
     const {
       timezone,
       maxFires = Infinity,
-      jitter: jitterOption = 0,
+      maxJitter = 0,
       name,
       protect = true,
       startAt,
@@ -110,7 +110,7 @@ export class CronSourceAdapter
     if (Number.isNaN(maxFires) || maxFires < 0) {
       throw new Error("cron maxFires must be a non-negative number");
     }
-    const jitterMs = parseDuration(jitterOption, "cron({ jitter })", 0);
+    const maxJitterMs = parseDuration(maxJitter, "cron({ maxJitter })", 0);
 
     // Resolve immediately if already aborted (avoids hanging when
     // startAt/stopAt postpone the first tick indefinitely).
@@ -176,8 +176,10 @@ export class CronSourceAdapter
               const firedTime = new Date();
 
               // Apply jitter delay before firing (blocking, not fire-and-forget)
-              if (jitterMs > 0) {
-                const jitter = Math.floor(Math.random() * jitterMs);
+              if (maxJitterMs > 0) {
+                // Uniform in [0, maxJitter): the option is an upper bound,
+                // which is what its name promises.
+                const jitter = Math.floor(Math.random() * maxJitterMs);
                 await new Promise((r) => setTimeout(r, jitter));
                 if (sub.signal.aborted) {
                   settle();

@@ -9,7 +9,7 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
  * Supports standard 5-field cron, 6-field (with seconds), and nicknames (@daily, @weekly, @hourly, @monthly, @yearly, @annually, @midnight).
  *
  * @param expression - Cron expression string
- * @param options - timezone, maxFires, jitter, name, protect, startAt, stopAt
+ * @param options - timezone, maxFires, maxJitter, name, protect, startAt, stopAt
  * @returns A Source usable with `.from(cron(expression, options))`
  *
  * @example

@@ -24,7 +24,7 @@ import { craft, timer, log } from '@routecraft/routecraft';
 
 export default craft()
   .id('timer-ping')
-  .from(timer({ intervalMs: 1000 }))
+  .from(timer({ interval: "1s" }))
   .transform((ex) => ({ timestamp: Date.now() }))
   .to(log());
 ```
@@ -48,7 +48,7 @@ import { craft, timer, http } from '@routecraft/routecraft';
 
 craft()
   .id('sync-users')
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: "1m" }))
   .transform((ex) => ({ ...ex.body, syncedAt: Date.now() }))
   .to(http({ url: 'https://api.example.com/sync' }));
 ```

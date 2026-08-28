@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, type ThrottleOptions } from "@routecraft/routecraft";
+import { resolveThrottleOptions } from "../src/operations/throttle-wrapper.ts";
 
 /** Poll until `predicate` returns true or `timeoutMs` elapses. */
 async function waitFor(
@@ -670,5 +671,50 @@ describe("Throttle wrapper (.throttle())", () => {
     expect(passes).toBe(2);
     expect(s.received).toHaveLength(1);
     expect(s.received[0].body).toBe("IN");
+  });
+
+  /**
+   * @case The `per` window accepts a Duration as well as a unit word
+   * @preconditions The same rate resolved against a unit word, an equivalent duration string, and a window no unit word can name
+   * @expectedResult "minute" and "60s" resolve to the identical refill rate, and "90s" resolves to a window a unit word could not express
+   */
+  test("resolves a Duration window as well as a unit word", () => {
+    const windowOf = (per: NonNullable<ThrottleOptions["per"]>): number =>
+      60 / resolveThrottleOptions({ rate: 60, per }).refillPerMs;
+
+    expect(windowOf("minute")).toBe(60_000);
+    expect(windowOf("60s")).toBe(60_000);
+    expect(windowOf("1m")).toBe(60_000);
+    // The point of the widening: a window no unit word names.
+    expect(windowOf("90s")).toBe(90_000);
+  });
+
+  /**
+   * @case A bare number in `per` is milliseconds, as it is everywhere a Duration is accepted
+   * @preconditions `per: 60`, which reads like "per minute" but is not
+   * @expectedResult It resolves to a 60ms window. This is the trap-shaped corner of accepting a Duration here, and it is pinned so the behaviour cannot drift silently
+   */
+  test("reads a bare number in per as milliseconds, not as a unit", () => {
+    const resolved = resolveThrottleOptions({ rate: 60, per: 60 });
+
+    expect(60 / resolved.refillPerMs).toBe(60);
+    // Write per: "60s" (or per: "minute") for one per second over a minute.
+    expect(
+      60 / resolveThrottleOptions({ rate: 60, per: "60s" }).refillPerMs,
+    ).toBe(60_000);
+  });
+
+  /**
+   * @case A `per` that is neither a unit word nor a duration is refused at build time
+   * @preconditions per set to an arbitrary string
+   * @expectedResult Building throws RC5003 naming the option, rather than producing a NaN refill rate at runtime
+   */
+  test("refuses a per that is neither a unit word nor a duration", () => {
+    expect(() =>
+      resolveThrottleOptions({
+        rate: 1,
+        per: "banana" as NonNullable<ThrottleOptions["per"]>,
+      }),
+    ).toThrow(/throttle\(\{ per \}\)/);
   });
 });

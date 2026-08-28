@@ -1,4 +1,4 @@
-import type { Exchange } from "@routecraft/routecraft";
+import type { Duration, Exchange } from "@routecraft/routecraft";
 import type { Resolvable } from "../../shared/resolvable.ts";
 import type { ShellArg } from "./untrusted.ts";
 
@@ -64,8 +64,8 @@ export interface ShellOptions<T = unknown> {
    * parent is simply absent; it is not an error.
    */
   passEnv?: readonly string[];
-  /** Milliseconds before the command (and anything it spawned) is killed. */
-  timeout?: number;
+  /** How long before the command (and anything it spawned) is killed. */
+  timeout?: Duration;
   /**
    * Throw `OS1002` when the command exits non-zero. On by default, because
    * a route whose `git push` failed should not continue as though it had.

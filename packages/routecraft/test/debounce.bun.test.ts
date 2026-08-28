@@ -61,7 +61,7 @@ describe("debounce operation", () => {
 
   /**
    * @case A burst collapses to the last exchange; earlier ones are dropped
-   * @preconditions Three rapid arrivals through .debounce({ waitMs }) with a long window; drain flushes the pending hold
+   * @preconditions Three rapid arrivals through .debounce({ wait }) with a long window; drain flushes the pending hold
    * @expectedResult Only the last exchange reaches downstream; three held events, two dropped, one released
    */
   test("collapses a burst to the last exchange", async () => {
@@ -105,7 +105,7 @@ describe("debounce operation", () => {
 
   /**
    * @case The held exchange is released after the quiet window elapses
-   * @preconditions A single arrival through .debounce({ waitMs: 40 }); no further activity
+   * @preconditions A single arrival through .debounce({ wait: 40 }); no further activity
    * @expectedResult The exchange reaches downstream via a "quiet" release without needing drain
    */
   test("releases the trailing exchange after the quiet window", async () => {
@@ -477,7 +477,7 @@ describe("debounce operation", () => {
 
   /**
    * @case debounce rejects a non-positive waitMs at build time
-   * @preconditions A route built with .debounce({ waitMs: 0 })
+   * @preconditions A route built with .debounce({ wait: 0 })
    * @expectedResult Building throws (RC5003)
    */
   test("rejects a non-positive waitMs at build time", () => {
@@ -492,7 +492,7 @@ describe("debounce operation", () => {
 
   /**
    * @case debounce rejects a non-function key at build time
-   * @preconditions A route built with .debounce({ waitMs: 100, key: "path" }) from a JS caller
+   * @preconditions A route built with .debounce({ wait: 100, key: "path" }) from a JS caller
    * @expectedResult Building throws (RC5003) instead of a per-exchange TypeError at runtime
    */
   test("rejects a non-function key at build time", () => {
@@ -507,7 +507,7 @@ describe("debounce operation", () => {
 
   /**
    * @case debounce rejects a maxWaitMs smaller than waitMs
-   * @preconditions A route built with .debounce({ waitMs: 500, maxWaitMs: 100 })
+   * @preconditions A route built with .debounce({ wait: 500, maxWait: 100 })
    * @expectedResult Building throws (RC5003): the cap must not fire before the window
    */
   test("rejects maxWaitMs smaller than waitMs", () => {

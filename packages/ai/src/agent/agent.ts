@@ -325,7 +325,7 @@ function validateBlocksLevel(
  *
  * craft()
  *   .id("caller")
- *   .from(timer({ intervalMs: 60_000 }))
+ *   .from(timer({ interval: "1m" }))
  *   .to(agent("summariser"))
  *   .to(direct("reply"));
  * ```

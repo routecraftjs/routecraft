@@ -37,7 +37,7 @@ Supports standard 5-field cron (minute granularity), extended 6-field (second gr
 
 // With jitter to prevent thundering herd
 .id('distributed-poll')
-.from(cron('*/5 * * * *', { jitter: 5000 }))
+.from(cron('*/5 * * * *', { maxJitter: '5s' }))
 
 // Run only during Q1 2026
 .id('q1-campaign')
@@ -50,7 +50,7 @@ Options:
 | --- | --- | --- | --- | --- |
 | `timezone` | `string` | System local | No | IANA timezone (e.g., `"America/New_York"`, `"UTC"`) |
 | `maxFires` | `number` | `Infinity` | No | Maximum number of fires before stopping (delegated to croner's `maxRuns`) |
-| `jitter` | `Duration` | `0` | No | Random delay added to each fire |
+| `maxJitter` | `Duration` | `0` | No | Upper bound on a random delay added to each fire, drawn uniformly from `[0, maxJitter)` |
 | `name` | `string` | -- | No | Human-readable job name for observability |
 | `protect` | `boolean` | `true` | No | Prevents overlapping handler execution when the previous run is still in progress |
 | `startAt` | `Date \| string` | -- | No | Date or ISO 8601 string at which the cron job should start running |

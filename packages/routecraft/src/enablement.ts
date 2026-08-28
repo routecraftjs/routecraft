@@ -36,7 +36,19 @@ export type EnablementPredicate = () =>
  * They are told apart by shape rather than by a mode flag: every cron
  * expression contains a space or starts with `@`, and no `Duration` does.
  */
-export type RefreshCadence = Duration | CronExpression;
+export type RefreshCadence = Duration | CronExpression | typeof MANUAL_REFRESH;
+
+/**
+ * Explicit opt-out from any refresh cadence: the predicate is evaluated once
+ * as the route starts and never again until something asks.
+ *
+ * Omitting `refresh` means the same thing, so this exists for the case where
+ * the cadence is COMPUTED: `refresh: pollCadence ?? "manual"` says what it
+ * means, where the alternative is assembling the options object
+ * conditionally. It also restores the sentinel precedent `suspension`
+ * already sets with `defaultTtl: "never"` and `retention: "never"`.
+ */
+export const MANUAL_REFRESH = "manual";
 
 /** Options for the second argument of `.enabled()`. */
 export interface EnablementOptions {
@@ -48,6 +60,9 @@ export interface EnablementOptions {
    * common case, an environment variable that cannot change without a
    * restart, free of any recurring cost, and it stops a predicate that
    * reaches the network from becoming an invisible repeating one.
+   *
+   * Pass `"manual"` to say so explicitly, which is what a computed cadence
+   * wants: `refresh: pollCadence ?? "manual"`.
    */
   refresh?: RefreshCadence;
 }
@@ -89,6 +104,7 @@ export function isCronCadence(
 ): refresh is CronExpression {
   return (
     typeof refresh === "string" &&
+    refresh !== MANUAL_REFRESH &&
     (refresh.startsWith("@") || /\s/.test(refresh.trim()))
   );
 }
@@ -260,7 +276,9 @@ export class RouteEnablementCoordinator {
     if (this.#stopped) return;
     for (const route of routes) {
       const refresh = route.definition.enablement?.refresh;
-      if (refresh === undefined) continue;
+      // Absent and `"manual"` are the same state deliberately: the sentinel
+      // exists to let an author SAY manual, not to behave differently.
+      if (refresh === undefined || refresh === MANUAL_REFRESH) continue;
       if (isCronCadence(refresh)) {
         void this.#armCron(route, refresh);
       } else {

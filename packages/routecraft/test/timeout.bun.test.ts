@@ -240,7 +240,7 @@ describe("Timeout wrapper (.timeout())", () => {
 
   /**
    * @case Each retry attempt gets its own deadline and the final RC5011 escapes
-   * @preconditions Route with .retry({ maxAttempts: 2, backoffMs: 1 }).timeout(30) wrapping an always-slow transform
+   * @preconditions Route with .retry({ maxAttempts: 2, backoff: 1 }).timeout(30) wrapping an always-slow transform
    * @expectedResult Two expired events fire (one per attempt), one retry:attempt fires, and the final RC5011 reaches the default error path
    */
   test("retry().timeout(): per-attempt deadline, final RC5011 escapes", async () => {
