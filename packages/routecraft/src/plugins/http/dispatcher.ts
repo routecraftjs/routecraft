@@ -4,7 +4,7 @@ import { logger as defaultLogger } from "../../logger";
 import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
 import { isRoutecraftError } from "../../brand";
 import { isSuspended } from "../../suspension/suspended";
-import { isPrincipalExpired } from "../../auth/expiry.ts";
+import { principalExpirySignal } from "../../auth/expiry.ts";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
 import type { AuthResult } from "./auth";
@@ -401,7 +401,12 @@ export function createDispatcher(
         // already exists. A principal with no `expiresAt` is left alone,
         // because a credential with no expiry granting an unexpiring stream
         // is the operator's choice honoured rather than a gap.
-        const expiry = principalExpiry(principal, log);
+        const expiry = principalExpirySignal(principal, ({ subject }) => {
+          log.info(
+            { subject, routeId: entry.routeId, path: pathname },
+            "http source: closing stream, the admitted credential has expired",
+          );
+        });
         const body = streamResponseBody(plan.body, {
           signal: anySignal(req.signal, opts.shutdownSignal, expiry?.signal),
           preamble: plan.preamble,
@@ -498,41 +503,6 @@ function emitCompleted(
       // never let listener exceptions propagate into the request path
     }
   }
-}
-
-/**
- * A signal that fires when the admitted principal's credential expires.
- *
- * The deadline only schedules the check; whether the credential has actually
- * lapsed is `isPrincipalExpired`'s to say, so the boundary and its clock
- * tolerance stay the framework's single answer rather than a second
- * comparison that can drift by a second. A timer that fires early against a
- * skewed clock re-arms instead of closing a live stream.
- */
-function principalExpiry(
-  principal: Principal | undefined,
-  log: { info(details: Record<string, unknown>, message: string): void },
-): { signal: AbortSignal; cancel: () => void } | undefined {
-  if (principal?.expiresAt === undefined) return undefined;
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const arm = (): void => {
-    if (isPrincipalExpired(principal)) {
-      log.info(
-        { subject: principal.subject },
-        "http source: closing stream, the admitted credential has expired",
-      );
-      controller.abort(new Error("Credential expired"));
-      return;
-    }
-    const remaining = principal.expiresAt! * 1000 - Date.now();
-    timer = setTimeout(arm, Math.max(remaining, 50));
-  };
-  arm();
-  return {
-    signal: controller.signal,
-    cancel: () => clearTimeout(timer),
-  };
 }
 
 function ms(started: number): number {

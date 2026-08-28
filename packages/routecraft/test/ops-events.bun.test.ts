@@ -204,6 +204,46 @@ describe("the ops event tail", () => {
   });
 
   /**
+   * @case The event tail closes when the credential that admitted it expires
+   * @preconditions events tier gated on a scope; the admitting principal expires one second out
+   * @expectedResult The response body ends on its own, so the most disclosing surface does not serve on lapsed authority
+   */
+  test("the tail closes when its credential expires", async () => {
+    const port = await start({
+      auth: apiKey({
+        verify: (key: string): Principal | null =>
+          key === "watcher"
+            ? {
+                kind: "custom",
+                scheme: "apiKey",
+                subject: "watcher",
+                scopes: ["ops:events"],
+                expiresAt: Math.floor(Date.now() / 1000) + 1,
+              }
+            : null,
+      }),
+      tiers: { events: "ops:events" },
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/ops/events`, {
+      headers: { "x-api-key": "watcher" },
+    });
+    expect(res.status).toBe(200);
+
+    const reader = res.body!.getReader();
+    const deadline = Date.now() + 5000;
+    let closed = false;
+    while (Date.now() < deadline) {
+      const step = await reader.read();
+      if (step.done) {
+        closed = true;
+        break;
+      }
+    }
+    expect(closed).toBe(true);
+  });
+
+  /**
    * @case The tail refuses a method it does not serve
    * @preconditions events tier is open; the caller sends POST
    * @expectedResult 405 with Allow: GET

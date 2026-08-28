@@ -27,6 +27,7 @@ import {
   standardExtensionOf,
 } from "../../shared/standard-schema";
 import { decodeCursor, takePage } from "./pagination";
+import { safeStringify } from "../../shared/safe-json.ts";
 import { compareCodeUnits } from "../../shared/compare";
 import type {
   OpsDispatchOutcome,
@@ -165,9 +166,20 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
         queue.push({
           kind: "event",
           name: payload._event,
-          ts: payload.ts,
-          contextId: payload.contextId,
-          details: payload.details,
+          // Rendered here, on the emit, rather than held by reference until
+          // the reader takes it: see OpsEventTailItem.data. `_snapshot`
+          // sub-payloads go with it, because they exist so a surface that was
+          // not asked to capture payloads does not, and a tail an operator
+          // opened is not that asking.
+          data: safeStringify(
+            {
+              event: payload._event,
+              ts: payload.ts,
+              contextId: payload.contextId,
+              details: payload.details,
+            },
+            { dropSnapshot: true },
+          ),
         });
         if (payload._event === "context:stopping") stopping = true;
         wake?.();

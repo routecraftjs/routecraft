@@ -451,10 +451,21 @@ export interface OpsRouteQuery extends OpsRouteFilter {
 export type OpsEventTailItem =
   | {
       kind: "event";
+      /** The bus event's name, which rides the SSE `event` field. */
       name: string;
-      ts: string;
-      contextId: string;
-      details: unknown;
+      /**
+       * The frame's payload, already rendered to JSON.
+       *
+       * Rendered when the event is emitted rather than when the reader takes
+       * it, for two reasons. A bus payload may carry `exchange.body`, which
+       * the framework deliberately leaves mutable, so a reference held until
+       * the reader catches up could report a value that never existed at the
+       * moment it was emitted. And a buffer bounded by count alone bounds
+       * nothing about size: holding a few hundred payloads by reference pins
+       * whatever they reach, which on a route moving large bodies is all of
+       * it.
+       */
+      data: string;
     }
   | { kind: "dropped"; count: number }
   | { kind: "heartbeat" };

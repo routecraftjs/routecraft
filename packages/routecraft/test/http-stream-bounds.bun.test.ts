@@ -128,6 +128,45 @@ describe("streaming listener bounds", () => {
   });
 
   /**
+   * @case A credential expiring past setTimeout's ceiling does not spin the event loop
+   * @preconditions An api key whose principal expires 400 days out, well past the 32-bit millisecond limit
+   * @expectedResult The stream stays open and serving, rather than the expiry timer firing immediately and re-arming in a hot loop
+   */
+  test("a distant expiry does not busy-loop the expiry timer", async () => {
+    const bound = await boot({
+      routes: endless(),
+      http: {
+        auth: apiKey({
+          verify: (): Principal => ({
+            kind: "custom",
+            scheme: "apiKey",
+            subject: "longlived",
+            // Past 2^31-1 milliseconds, where setTimeout overflows and fires
+            // on the next tick instead of waiting.
+            expiresAt: Math.floor(Date.now() / 1000) + 400 * 24 * 60 * 60,
+          }),
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const controller = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${bound.port}/endless`, {
+      headers: { "x-api-key": "anything" },
+      signal: controller.signal,
+    });
+    expect(res.status).toBe(200);
+
+    const reader = res.body!.getReader();
+    // Still delivering after a beat, which an aborted stream would not be.
+    await reader.read();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const step = await reader.read();
+    expect(step.done).toBe(false);
+    controller.abort();
+  });
+
+  /**
    * @case A stream closes when the credential that admitted it expires
    * @preconditions An api key whose principal carries an expiresAt one second out
    * @expectedResult The response body ends on its own, without the client asking

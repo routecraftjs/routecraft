@@ -20,7 +20,8 @@ import {
   methodNotAllowed,
   missingCredentialResponse,
 } from "../http/response";
-import { safeStringify } from "../../shared/safe-json.ts";
+import { principalExpirySignal } from "../../auth/expiry.ts";
+import { anySignal } from "../../shared/abort.ts";
 import { sseResponse, type SseEvent } from "../http/sse";
 import type { HttpMountContext } from "../server/types";
 import type { ManagementApi } from "./management";
@@ -192,7 +193,22 @@ export function createManagementHandler(
       // rather than declared for the whole surface.
       const release = context.claimStreamingSlot();
       if (release === undefined) return listenerFull();
-      return sseResponse(tailEvents(api, req.signal), req.signal, release);
+      // Admission is checked once, and this tail may outlive the credential
+      // that passed it by hours. The rule is the http source's, and it bites
+      // hardest here: this is the surface that streams failure events with
+      // their messages and stack traces, so it is the last one that should
+      // keep serving on lapsed authority. Closing is the whole remedy, since
+      // a 401 cannot follow the 200 already on the wire and an EventSource
+      // reconnects into ordinary admission.
+      // No event and no wire message: the close IS the signal, and inventing
+      // an auth:rejected reason for it would put a value outside the bounded
+      // vocabulary onto a surface an operator counts refusals from.
+      const expiry = principalExpirySignal(verdict.principal);
+      const closes = anySignal(req.signal, expiry?.signal);
+      return sseResponse(tailEvents(api, closes), closes, () => {
+        expiry?.cancel();
+        release();
+      });
     }
 
     if (exchangesMatch) {
@@ -336,21 +352,8 @@ function frameOf(item: OpsEventTailItem): SseEvent | string {
   if (item.kind === "dropped") {
     return { event: "ops:events:dropped", data: { count: item.count } };
   }
-  return {
-    event: item.name,
-    // Pre-serialised rather than handed over as an object, because a bus
-    // payload is not JSON: it carries errors, and exchanges and routes that
-    // cycle. `_snapshot` sub-payloads go with it. They exist so a surface
-    // that was not asked to capture payloads does not, and a tail an
-    // operator opened is not that asking.
-    data: safeStringify(
-      {
-        event: item.name,
-        ts: item.ts,
-        contextId: item.contextId,
-        details: item.details,
-      },
-      { dropSnapshot: true },
-    ),
-  };
+  // Already rendered at emission, so it passes through untouched: sending it
+  // back through the serialiser would escape it a second time and hand the
+  // reader a JSON string where it expects an object.
+  return { event: item.name, data: item.data };
 }
