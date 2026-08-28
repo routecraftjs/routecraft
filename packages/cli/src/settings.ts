@@ -109,6 +109,24 @@ const ENV_FORMAT = "CRAFT_FORMAT";
 export class SettingsError extends Error {}
 
 /**
+ * A blank flag or environment value, read as not supplied.
+ *
+ * `--url "$CRAFT_URL"` with the variable unset, and an exported `CRAFT_URL=`,
+ * both arrive as an empty string; treating one as supplied lets it win the
+ * precedence it never earned and silently override the settings file with
+ * nothing. Trimmed rather than merely tested, so a value pasted with a
+ * trailing newline is not refused as invalid with nothing to suggest the
+ * whitespace is why.
+ *
+ * A blank value written into a settings file is not this: somebody typed it
+ * there, and the refusal is what tells them.
+ */
+export function supplied(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed === "" ? undefined : trimmed;
+}
+
+/**
  * Read one settings file, or `undefined` when it is not there.
  *
  * A missing file is the normal case and says nothing. A file that exists
@@ -177,9 +195,11 @@ export function resolveSettings(
 
   const pick = <K extends keyof CraftSettings>(
     key: K,
-    fromFlag: string | undefined,
-    fromEnv: string | undefined,
+    flag: string | undefined,
+    env: string | undefined,
   ): Resolved<NonNullable<CraftSettings[K]>> | undefined => {
+    const fromFlag = supplied(flag);
+    const fromEnv = supplied(env);
     if (fromFlag !== undefined) {
       return {
         value: fromFlag as NonNullable<CraftSettings[K]>,
@@ -239,6 +259,16 @@ export function resolveSettings(
   if (token !== undefined && typeof token.value !== "string") {
     throw new SettingsError(
       `The token from the ${token.source} must be a string.`,
+    );
+  }
+  // The file half of the blank rule, and the reason it is checked here: a
+  // blank flag or environment value never reaches this point, so a blank
+  // token can only have been written into a file by hand. Left alone it
+  // presents `Bearer` with nothing after it and the operator is told their
+  // credential was rejected.
+  if (token !== undefined && token.value.trim() === "") {
+    throw new SettingsError(
+      `The token from the ${describeSource(token)} is empty. Put a credential there, or remove the key.`,
     );
   }
 
