@@ -248,6 +248,10 @@ export function createDispatcher(
     //    route that declares `.authorize()` (`requiresPrincipal`), which
     //    can only make itself stricter, never looser.
     let principal: Principal | undefined;
+    // Kept beside the principal rather than re-read from config later: the
+    // stream expiry check below re-examines this very credential, and the
+    // boundary it applies has to be the one that admitted it.
+    let clockToleranceSec = 0;
     if (opts.walled || entry.requiresPrincipal) {
       const result = await resolveAuth();
       if (!result) {
@@ -277,6 +281,7 @@ export function createDispatcher(
         return response;
       } else {
         principal = result.principal;
+        clockToleranceSec = result.clockToleranceSec;
       }
     }
 
@@ -401,11 +406,14 @@ export function createDispatcher(
         // already exists. A principal with no `expiresAt` is left alone,
         // because a credential with no expiry granting an unexpiring stream
         // is the operator's choice honoured rather than a gap.
-        const expiry = principalExpirySignal(principal, ({ subject }) => {
-          log.info(
-            { subject, routeId: entry.routeId, path: pathname },
-            "http source: closing stream, the admitted credential has expired",
-          );
+        const expiry = principalExpirySignal(principal, {
+          clockToleranceSec,
+          onExpired: ({ subject }) => {
+            log.info(
+              { subject, routeId: entry.routeId, path: pathname },
+              "http source: closing stream, the admitted credential has expired",
+            );
+          },
         });
         const body = streamResponseBody(plan.body, {
           signal: anySignal(req.signal, opts.shutdownSignal, expiry?.signal),
