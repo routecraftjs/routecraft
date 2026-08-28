@@ -217,6 +217,8 @@ Exit codes, which are the API for anything scripting this:
 | 3 | No instance could be reached at the effective address |
 | 4 | The door refused or answered 404: no credential, a rejected one, a missing scope, a disabled tier, or no such route. The instance deliberately does not distinguish the last two, and the message names every reading |
 
+**A refusal reports how to get in.** On a 401 or 403 the CLI reads the `WWW-Authenticate` challenge, follows its RFC 9728 `resource_metadata` hint (best effort, short timeout), and folds the answer into the refusal: which scope is required, who issues acceptable tokens (or that the instance advertises no authorization server, meaning a locally configured static key or self-signed JWT), and where to supply a credential (`--token`, `CRAFT_TOKEN`, the [settings file](#settings-file)). The [credential ladder](/docs/advanced/securing-capabilities#the-credential-ladder) walks the four ways an instance is secured.
+
 ### ops
 
 Inspect a running instance: health, readiness, routes, indicators.
@@ -259,6 +261,8 @@ Two locations, both YAML and both optional:
 | --- | --- |
 | Project-local | `.routecraft/settings.yaml` under the working directory |
 | Global | `.routecraft/settings.yaml` under your home directory |
+
+`settings.yml` is accepted as an alternate spelling in either location. A location carrying **both** spellings is refused with both paths named: a silent preference would leave edits to the unread file unexplained.
 
 Every option it accepts:
 

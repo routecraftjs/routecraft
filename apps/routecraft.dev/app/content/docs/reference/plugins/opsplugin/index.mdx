@@ -266,6 +266,8 @@ curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/routes'
 
 **Not every route is dispatchable.** A `direct()` ingress makes the route id into a door; a cron-, mail- or http-sourced route runs from its own trigger and has none. That is a fact about the route, so it rides on the representation rather than splitting the collection in two, and a dispatch against a route without a door is refused distinguishably with [`RC5060`](/docs/reference/errors#rc-5060).
 
+**A route can close its door on purpose.** [`direct({ internal: true })`](/docs/reference/adapters/direct) keeps the in-process endpoint (other routes compose against it unchanged) and skips the capability registry, so the route shows `dispatchable: false` here and a dispatch refuses with `RC5060` naming the declaration rather than advising a direct source the route already has. It is the opt-out for a trusting subroutine whose boundary route carries `.input()`, `.description()` and `.authorize()`; dispatch the boundary route instead.
+
 Query parameters narrow the one collection:
 
 | Parameter | Description |
@@ -426,6 +428,19 @@ ops: {
   health: { details: 'when-authenticated' },
 }
 ```
+
+### The credential ladder
+
+Four rungs, one decision. Every rung verifies through the same `auth` options this page already described; none of them makes Routecraft mint or store anything. The full recipes, each a complete `craft.config.ts`, live on [Securing capabilities](/docs/advanced/securing-capabilities#the-credential-ladder).
+
+1. **No auth.** Nothing configured, tiers set to `true`. `craft exec` needs no flags. For local work and trusted-network listeners.
+2. **A static key.** A `{ validator }` comparing one secret from the environment with `timingSafeStringEqual` (exported from `@routecraft/routecraft`; never `===`, which leaks timing). Scope-gate the tiers and put the scopes on the principal the validator returns.
+3. **A self-signed JWT.** `jwt({ secret, issuer, audience })` on the server; mint tokens with your own tooling (any HS256 signer). Buys expiry and per-token scopes without an IdP.
+4. **A real IdP.** `jwks()` at the IdP's keys. Discovery tells a refused caller where to go.
+
+### Discovery on refusals (RFC 9728)
+
+A caller refused at the management door can find out what would satisfy it. Every bearer 401 carries a `resource_metadata` hint in its `WWW-Authenticate` challenge, and the `insufficient_scope` 403 carries the same hint alongside the `scope` it already names. The hint points at the server's RFC 9728 protected-resource metadata document (`/.well-known/oauth-protected-resource`, path-suffixed per resource), which names the issuer from the effective validator and, for the ops paths, lists the scope-gated tiers in `scopes_supported`. [`craft exec`](/docs/reference/cli#exec) and `craft ops` follow the hint automatically and fold scope, issuer, and remedy into their refusal message. A disabled tier still answers 404 and discloses nothing.
 
 ## Wiring the probes
 

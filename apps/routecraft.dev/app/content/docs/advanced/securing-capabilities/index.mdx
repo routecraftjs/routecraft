@@ -12,6 +12,127 @@ Stdio transport runs as a local subprocess with no network surface, so it needs 
 
 For wiring the server itself and pointing clients at it, see [Running an MCP server](/docs/advanced/expose-as-mcp). For a concrete, copyable capability, see the [MCP example](/docs/examples/mcp).
 
+## The credential ladder
+
+Every http surface (application routes, the [ops management API](/docs/reference/plugins/opsplugin#management-api), MCP) verifies against the same auth options, so securing an instance is one decision made at the right rung. Routecraft verifies; issuers issue. Nothing here mints, stores, or refreshes a credential, which is why every rung survives contact with a real IdP later.
+
+Each rung is discoverable by a refused caller: a 401 (and the ops 403) carries an RFC 9728 `resource_metadata` hint, the instance serves the document it points at, and [`craft exec`](/docs/reference/cli#exec) follows it to report which scope is required, who issues, and how to supply a credential. See [Protected-resource metadata](#protected-resource-metadata-rfc-9728).
+
+### Rung 1: no auth
+
+Nothing configured, and a route with no `.authorize()`. Right for local development and for a listener that is only reachable inside a trusted network boundary.
+
+```ts
+// craft.config.ts
+import { defineConfig } from '@routecraft/routecraft'
+
+export default defineConfig({
+  servers: { default: { port: 8080 } },
+  ops: { tiers: { dispatch: true } },
+})
+```
+
+`craft exec <route>` reaches it with no flags at all.
+
+### Rung 2: a static key
+
+One shared secret in an environment variable, compared in constant time. The everyday local answer, and enough for a single-operator deployment. The comparison MUST be `timingSafeStringEqual`: `===` returns as soon as two bytes differ, and that timing is measurable.
+
+```ts
+// craft.config.ts
+import {
+  defineConfig,
+  timingSafeStringEqual,
+  type Principal,
+} from '@routecraft/routecraft'
+
+export default defineConfig({
+  servers: {
+    default: {
+      port: 8080,
+      auth: {
+        validator: (token: string): Principal => {
+          if (!timingSafeStringEqual(process.env.CRAFT_API_KEY!, token)) {
+            throw new Error('unknown token')
+          }
+          return {
+            kind: 'custom',
+            scheme: 'bearer',
+            subject: 'operator',
+            scopes: ['ops:dispatch'],
+          }
+        },
+      },
+    },
+  },
+  ops: { tiers: { dispatch: 'ops:dispatch' } },
+})
+```
+
+Present the same key from the caller's side: `craft exec <route> --token "$CRAFT_API_KEY"`, or put it as `token` in `.routecraft/settings.yaml` (gitignored), or export `CRAFT_TOKEN`.
+
+### Rung 3: a self-signed JWT
+
+`jwt({ secret })` verifies tokens you mint with your own tooling, which buys you expiry and per-token scopes without an IdP. `issuer` and `audience` are required on the verifying side, so mint with the same values.
+
+```ts
+// craft.config.ts
+import { defineConfig, jwt } from '@routecraft/routecraft'
+
+export default defineConfig({
+  servers: {
+    default: {
+      port: 8080,
+      auth: jwt({
+        secret: process.env.JWT_SECRET!,
+        issuer: 'https://ops.example.com',
+        audience: 'https://ops.example.com',
+      }),
+    },
+  },
+  ops: { tiers: { dispatch: 'ops:dispatch' } },
+})
+```
+
+Mint with anything that signs HS256, for example [jose](https://github.com/panva/jose):
+
+```ts
+// mint-token.ts (operator tooling, not part of the app)
+import { SignJWT } from 'jose'
+
+const token = await new SignJWT({ scope: 'ops:dispatch' })
+  .setProtectedHeader({ alg: 'HS256' })
+  .setIssuer('https://ops.example.com')
+  .setAudience('https://ops.example.com')
+  .setSubject('operator')
+  .setExpirationTime('8h')
+  .sign(new TextEncoder().encode(process.env.JWT_SECRET!))
+console.log(token)
+```
+
+### Rung 4: a real IdP
+
+`jwks()` at the IdP's keys. The metadata document now names the issuer, so discovery tells a refused caller exactly where to go; token acquisition is the caller's business with the IdP.
+
+```ts
+// craft.config.ts
+import { defineConfig, jwks } from '@routecraft/routecraft'
+
+export default defineConfig({
+  servers: {
+    default: {
+      port: 8080,
+      auth: jwks({
+        jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
+        issuer: 'https://idp.example.com',
+        audience: 'https://ops.example.com',
+      }),
+    },
+  },
+  ops: { tiers: { dispatch: 'ops:dispatch' } },
+})
+```
+
 You attach authentication with the `auth` option on `mcpPlugin({ transport: 'http' })`:
 
 ```ts
@@ -235,6 +356,8 @@ See the [mcpPlugin reference](/docs/reference/plugins/mcpplugin) for the full `P
 ## Protected-resource metadata (RFC 9728)
 
 Auto-discovering MCP clients (Claude.ai custom connectors, MCP Inspector, `mcp-remote`, Claude Desktop) probe the MCP path, receive a 401, then fetch the path-suffixed RFC 9728 document (`/.well-known/oauth-protected-resource/mcp` for the default path) to find out which authorization server to use. The framework serves this metadata document whichever auth helper you use, appends a `resource_metadata="..."` parameter to the 401 `WWW-Authenticate` header so clients know where the document lives, and serves it regardless of credential state, so a client holding a stale token can still discover where to re-authenticate.
+
+Discovery is not MCP-only: every http server serves `/.well-known/oauth-protected-resource` (and a path-suffixed document mirroring any path, per RFC 9728 section 3.1), sourced from the effective validator of the mount that owns the mirrored path: issuer from `jwt()` / `jwks()` when present, `scopes_supported` from what the surface declares (the ops mount declares its scope-gated tiers). A bare `{ validator }` with no issuer produces an honest minimal document: bearer accepted, no discoverable authorization server. Every bearer 401 on any mount carries the `resource_metadata` hint, and the ops 403 carries it alongside the `scope` it already named, which is what lets [`craft exec`](/docs/reference/cli#exec) report scope, issuer, and remedy on a refusal.
 
 Protected-resource identity is configured on the plugin, not on the auth helper. It is orthogonal to the auth mode: the same `resource: {...}` block works whether you use `jwt()` / `jwks()` directly or via `oauth()`.
 
