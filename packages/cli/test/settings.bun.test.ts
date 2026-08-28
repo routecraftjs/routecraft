@@ -283,4 +283,48 @@ describe("CLI settings resolution", () => {
     const settings = resolveSettings({ home, cwd: root, env: {} });
     expect(settings.url.value).toBe(DEFAULT_URL);
   });
+
+  /**
+   * @case The .yml spelling is read exactly like .yaml
+   * @preconditions A working directory carrying only .routecraft/settings.yml
+   * @expectedResult Values resolve from it with the file's own path as provenance, so an operator who typed the shorter extension is not silently on defaults
+   */
+  test("accepts settings.yml as an alternate spelling", () => {
+    const root = mkdtempSync(join(tmpdir(), "craft-settings-yml-"));
+    roots.push(root);
+    mkdirSync(join(root, ".routecraft"), { recursive: true });
+    writeFileSync(
+      join(root, ".routecraft", "settings.yml"),
+      "url: http://10.0.0.7:9090\n",
+      "utf8",
+    );
+    const settings = resolveSettings({ home, cwd: root, env: {} });
+    expect(settings.url.value).toBe("http://10.0.0.7:9090");
+    expect(settings.url.source).toBe("project file");
+    expect(settings.url.path).toContain("settings.yml");
+  });
+
+  /**
+   * @case Both spellings in one location refuse with both paths named
+   * @preconditions .routecraft/settings.yaml and .routecraft/settings.yml both present in the working directory
+   * @expectedResult SettingsError naming both files. A silent preference would leave edits to the unread file unexplained, which is a debugging trap
+   */
+  test("refuses when both settings.yaml and settings.yml exist", () => {
+    const root = scratch("url: http://from-yaml:8080\n");
+    writeFileSync(
+      join(root, ".routecraft", "settings.yml"),
+      "url: http://from-yml:8080\n",
+      "utf8",
+    );
+    let thrown: unknown;
+    try {
+      resolveSettings({ home, cwd: root, env: {} });
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(SettingsError);
+    const message = (thrown as Error).message;
+    expect(message).toContain("settings.yaml");
+    expect(message).toContain("settings.yml");
+  });
 });

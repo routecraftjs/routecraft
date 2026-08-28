@@ -161,9 +161,9 @@ describe("craft exec", () => {
   });
 
   /**
-   * @case A credential-free dispatch against a scope-gated tier is refused with the remedy
-   * @preconditions Dispatch gated on a scope, no token given
-   * @expectedResult Exit 4 and a message naming where a token can be put, so the reader's next action is in the error
+   * @case A credential-free dispatch against a scope-gated tier is refused with the remedy, the issuer, and the scopes
+   * @preconditions Dispatch gated on a scope, no token given, the instance serving RFC 9728 metadata
+   * @expectedResult Exit 4 and a message naming where a token can be put, who issues one (followed from the challenge's resource_metadata hint), and the scope the surface understands
    */
   test("refuses a credential-free dispatch and names the remedy", async () => {
     await start({ dispatch: "ops:dispatch" });
@@ -173,6 +173,8 @@ describe("craft exec", () => {
     });
     expect(result.code).toBe(EXEC_EXIT.refused);
     expect(result.error).toMatch(/--token/);
+    expect(result.error).toMatch(/Tokens are issued by https:\/\/idp\.test/);
+    expect(result.error).toMatch(/ops:dispatch/);
   });
 
   /**
@@ -193,6 +195,7 @@ describe("craft exec", () => {
     expect(result.code).toBe(EXEC_EXIT.refused);
     expect(result.error).toMatch(/ops:dispatch/);
     expect(result.error).toMatch(/identity is valid/);
+    expect(result.error).toMatch(/Tokens are issued by https:\/\/idp\.test/);
   });
 
   /**

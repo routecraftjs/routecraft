@@ -38,6 +38,15 @@ import { messageOf } from "./util.js";
  */
 const REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * How long the follow-up fetch of an RFC 9728 metadata document may take.
+ *
+ * Much shorter than the request timeout: the refusal is already decided,
+ * and this fetch only enriches the message. A caller must never wait
+ * longer to be told no than they would have waited to be told yes.
+ */
+const DISCOVERY_TIMEOUT_MS = 5_000;
+
 /** Why a call did not produce an answer. Each needs a different remedy. */
 export type OpsFailureKind =
   /** The instance could not be reached at all. */
@@ -158,9 +167,19 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
         ? textAsWireError(text)
         : (parsed as WireError);
     if (response.status === 401 || response.status === 403) {
+      const challenge = parseBearerChallenge(
+        response.headers.get("www-authenticate"),
+      );
+      const discovery = await fetchDiscovery(challenge.resourceMetadata);
       throw new OpsClientError(
         "refused",
-        refusalMessage(response.status, wire, token !== undefined),
+        refusalMessage(
+          response.status,
+          wire,
+          token !== undefined,
+          challenge,
+          discovery,
+        ),
         response.status,
         wire,
       );
@@ -185,23 +204,51 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
    * Render the door's own refusal rather than a summary of it. A missing
    * scope and a missing credential need opposite actions, and the server
    * already distinguishes them on the wire.
+   *
+   * When the challenge carried an RFC 9728 `resource_metadata` hint and the
+   * document resolved, the refusal also says who issues acceptable tokens
+   * and which scopes the surface understands. One message path for every
+   * refusal: the discovery lines append to the existing text, they never
+   * replace it.
    */
   function refusalMessage(
     status: number,
     wire: WireError,
     presented: boolean,
+    challenge: BearerChallenge,
+    discovery: Discovery | undefined,
   ): string {
+    const lines: string[] = [];
     if (status === 403 && wire.reason === "insufficient_scope") {
-      return `Refused: the credential does not carry the scope "${
-        wire.scope ?? "(unnamed)"
-      }". The identity is valid and the credential is not, so this needs a token carrying that scope rather than signing in again.`;
+      lines.push(
+        `Refused: the credential does not carry the scope "${
+          wire.scope ?? challenge.scope ?? "(unnamed)"
+        }". The identity is valid and the credential is not, so this needs a token carrying that scope rather than signing in again.`,
+      );
+    } else if (!presented) {
+      lines.push(
+        `Refused: this surface requires a credential and none was presented. Put a token in .routecraft/settings.yaml, set CRAFT_TOKEN, or pass --token.`,
+      );
+    } else {
+      lines.push(
+        `Refused: the instance rejected the credential${
+          wire.reason === undefined ? "" : ` (${wire.reason})`
+        }.`,
+      );
     }
-    if (!presented) {
-      return `Refused: this surface requires a credential and none was presented. Put a token in .routecraft/settings.yaml, set CRAFT_TOKEN, or pass --token.`;
+    if (discovery !== undefined) {
+      lines.push(
+        discovery.issuers !== undefined && discovery.issuers.length > 0
+          ? `Tokens are issued by ${discovery.issuers.join(", ")}.`
+          : "The instance advertises no authorization server: its credential is configured locally (a static key or a self-signed JWT), so ask whoever operates it.",
+      );
+      if (discovery.scopes !== undefined && discovery.scopes.length > 0) {
+        lines.push(
+          `Scopes this surface understands: ${discovery.scopes.join(", ")}.`,
+        );
+      }
     }
-    return `Refused: the instance rejected the credential${
-      wire.reason === undefined ? "" : ` (${wire.reason})`
-    }.`;
+    return lines.join("\n");
   }
 
   // The health surface answers 503 with a complete report when something is
@@ -278,6 +325,84 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
         { method: "POST", body: body ?? {} },
       ),
   };
+}
+
+/** What a refusal's `WWW-Authenticate` header said, reduced to what is used. */
+interface BearerChallenge {
+  scope?: string;
+  resourceMetadata?: string;
+}
+
+/**
+ * Read the RFC 6750 challenge parameters off a refusal.
+ *
+ * Quoted `key="value"` pairs only, which is what every routecraft surface
+ * emits and what RFC 9728 prescribes for `resource_metadata`. A header
+ * that is absent, not a Bearer challenge, or otherwise unparseable yields
+ * an empty result rather than an error: the challenge only enriches a
+ * refusal that already stands on its own.
+ */
+function parseBearerChallenge(header: string | null): BearerChallenge {
+  if (header === null || !/^\s*bearer[\s,]/i.test(header)) return {};
+  const result: BearerChallenge = {};
+  for (const match of header.matchAll(/([a-z_]+)\s*=\s*"([^"]*)"/gi)) {
+    const key = match[1]!.toLowerCase();
+    if (key === "scope") result.scope = match[2]!;
+    if (key === "resource_metadata") result.resourceMetadata = match[2]!;
+  }
+  return result;
+}
+
+/** What the RFC 9728 document said, reduced to what a refusal can report. */
+interface Discovery {
+  issuers?: string[];
+  scopes?: string[];
+}
+
+/**
+ * Follow a challenge's `resource_metadata` hint.
+ *
+ * Best-effort by design: the hint names the instance's own document, but a
+ * proxy can strip it, the fetch can time out, and a non-routecraft server
+ * can answer nonsense. Every failure resolves to `undefined` so the
+ * refusal degrades to what the status line already proves, never to a
+ * second error about the enrichment.
+ */
+async function fetchDiscovery(
+  url: string | undefined,
+): Promise<Discovery | undefined> {
+  if (url === undefined) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return undefined;
+  }
+  try {
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+    });
+    if (!response.ok) return undefined;
+    const doc = (await response.json()) as {
+      authorization_servers?: unknown;
+      scopes_supported?: unknown;
+    };
+    const strings = (value: unknown): string[] | undefined =>
+      Array.isArray(value) && value.every((entry) => typeof entry === "string")
+        ? (value as string[])
+        : undefined;
+    const issuers = strings(doc.authorization_servers);
+    const scopes = strings(doc.scopes_supported);
+    return {
+      ...(issuers !== undefined ? { issuers } : {}),
+      ...(scopes !== undefined ? { scopes } : {}),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 /**

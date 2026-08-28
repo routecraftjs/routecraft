@@ -13,6 +13,9 @@
  * - project-local: `.routecraft/settings.yaml` under the working directory
  * - global: `.routecraft/settings.yaml` under the user's home
  *
+ * `.yml` is accepted as an alternate spelling in either location; a
+ * location carrying both spellings is refused with both paths named.
+ *
  * Project-local wins over global, an environment variable wins over both,
  * and a flag wins over everything. `.routecraft/` is already gitignored,
  * which is what keeps a pasted token out of a commit; the scaffolder half
@@ -25,7 +28,7 @@
 
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { parse } from "yaml";
 
 import { messageOf } from "./util.js";
@@ -95,8 +98,34 @@ export interface ResolvedSettings {
  */
 export const DEFAULT_URL = "http://127.0.0.1:8080";
 
-/** File name looked for in both locations. */
-const SETTINGS_FILE = join(".routecraft", "settings.yaml");
+/**
+ * File names looked for in both locations, in preference order. `.yaml` is
+ * the documented spelling; `.yml` is accepted because half the world types
+ * it. Order only names the default for a fresh location: when both exist
+ * the resolver refuses rather than silently preferring one, because a
+ * setting edited in the file that is not being read is a debugging trap
+ * with nothing to say for itself.
+ */
+const SETTINGS_FILES = [
+  join(".routecraft", "settings.yaml"),
+  join(".routecraft", "settings.yml"),
+] as const;
+
+/**
+ * Resolve which settings file one location uses, or refuse when the answer
+ * is ambiguous. A location with neither file resolves to the canonical
+ * `.yaml` path so error messages and provenance still name a real place.
+ */
+function resolveSettingsPath(resolveIn: (file: string) => string): string {
+  const candidates = SETTINGS_FILES.map(resolveIn);
+  const present = candidates.filter((path) => existsSync(path));
+  if (present.length > 1) {
+    throw new SettingsError(
+      `Both ${present[0]} and ${present[1]} exist. Settings are read from exactly one file per location; keep one and remove the other.`,
+    );
+  }
+  return present[0] ?? candidates[0]!;
+}
 
 const FORMATS: readonly OutputFormat[] = ["pretty", "json", "raw"];
 
@@ -185,8 +214,9 @@ export function resolveSettings(
 ): ResolvedSettings {
   const cwd = overrides.cwd ?? process.cwd();
   const env = overrides.env ?? process.env;
-  const projectPath = resolve(cwd, SETTINGS_FILE);
-  const globalPath = join(overrides.home ?? homedir(), SETTINGS_FILE);
+  const projectPath = resolveSettingsPath((file) => resolve(cwd, file));
+  const home = overrides.home ?? homedir();
+  const globalPath = resolveSettingsPath((file) => join(home, file));
   const project = readSettingsFile(projectPath);
   // A project file that IS the global file (running in the home directory)
   // must not be reported as two independent sources agreeing.
