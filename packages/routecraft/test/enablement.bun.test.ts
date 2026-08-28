@@ -202,13 +202,16 @@ describe("route enablement", () => {
     const sink = spy();
 
     t = await testContext()
-      .routes(
+      .routes([
         craft()
           .id("late-credential")
           .enabled(() => (credentialPresent ? true : "TOKEN is not set"))
           .from(direct())
           .to(sink),
-      )
+        // A live ingress, as any real app has. Without one the context has
+        // nothing to receive a re-check through and correctly auto-stops.
+        craft().id("always-on").from(direct()).to(noop()),
+      ])
       .build();
     await t.startAndWaitReady();
     expect(t.ctx.isRouteEnabled("late-credential")).toBe(false);
@@ -233,22 +236,28 @@ describe("route enablement", () => {
     let ready = false;
 
     t = await testContext()
-      .routes(
+      .routes([
         craft()
           .id("gated-tool")
           .description("Gated")
           .enabled(() => (ready ? true : "not yet"))
           .from(direct())
           .to(noop()),
-      )
+        craft().id("keeps-open").from(direct()).to(noop()),
+      ])
       .build();
     await t.startAndWaitReady();
-    expect(t.ctx.capabilities()).toHaveLength(0);
+    expect(t.ctx.capabilities().map((c) => c.endpoint)).toEqual(["keeps-open"]);
 
     ready = true;
     await t.ctx.reevaluateEnablement("gated-tool");
 
-    expect(t.ctx.capabilities().map((c) => c.endpoint)).toEqual(["gated-tool"]);
+    expect(
+      t.ctx
+        .capabilities()
+        .map((c) => c.endpoint)
+        .sort(),
+    ).toEqual(["gated-tool", "keeps-open"]);
   });
 
   /**
@@ -505,6 +514,7 @@ describe("route enablement", () => {
           .enabled(predicate, { refresh: "manual" })
           .from(direct())
           .to(noop()),
+        craft().id("keeps-open").from(direct()).to(noop()),
       ])
       .build();
     await t.startAndWaitReady();
@@ -591,5 +601,125 @@ describe("route enablement", () => {
     await t.startAndWaitReady();
 
     expect(t.ctx.isRouteEnabled("good-cron")).toBe(true);
+  });
+
+  /**
+   * @case A predicate that resolves after shutdown does not restart its route
+   * @preconditions An interval cadence whose predicate is still in flight when stop() completes, then resolves to enabled
+   * @expectedResult No route:starting or route:started fires after context:stopped, and the route stays disabled. Without the post-await guard the route came back up behind a completed shutdown, with nothing left to ever stop it again
+   */
+  test("does not resurrect a route after the context has stopped", async () => {
+    let ready = false;
+    const gate = Promise.withResolvers<void>();
+    let evaluations = 0;
+    const events: string[] = [];
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("polled")
+          .enabled(
+            async () => {
+              evaluations++;
+              // The boot evaluation resolves at once; every later one waits,
+              // so the shutdown lands with a predicate in flight.
+              if (evaluations > 1) await gate.promise;
+              return ready ? true : "not yet";
+            },
+            { refresh: 30 },
+          )
+          .from(direct())
+          .to(noop()),
+      )
+      .build();
+    t.ctx.on("context:stopped", () => {
+      events.push("context:stopped");
+    });
+    t.ctx.on("route:starting", () => {
+      events.push("route:starting");
+    });
+    t.ctx.on("route:started", () => {
+      events.push("route:started");
+    });
+
+    await t.startAndWaitReady();
+    await sleep(60);
+    expect(evaluations).toBeGreaterThan(1);
+
+    ready = true;
+    await t.ctx.stop();
+    gate.resolve();
+    await sleep(120);
+
+    expect(events).toEqual(["context:stopped"]);
+    expect(t.ctx.isRouteEnabled("polled")).toBe(false);
+    t = undefined;
+  });
+
+  /**
+   * @case A disabled route with no live cadence does not strand the context
+   * @preconditions One finite route that completes and one route disabled with the default manual cadence, no keepsAlive plugin
+   * @expectedResult The context still auto-stops, so plugin teardown and the context:stopped event still run. A manual cadence has no in-process path back to enabled, so waiting for one only costs the shutdown
+   */
+  test("still auto-stops when a disabled route has no live cadence", async () => {
+    let stopped = false;
+
+    t = await testContext()
+      .routes([
+        craft().id("finite").from(simple("once")).to(noop()),
+        craft()
+          .id("dormant")
+          .enabled(() => "no credentials")
+          .from(direct())
+          .to(noop()),
+      ])
+      .build();
+    t.ctx.on("context:stopped", () => {
+      stopped = true;
+    });
+
+    await t.ctx.start();
+
+    expect(stopped).toBe(true);
+    t = undefined;
+  });
+
+  /**
+   * @case A route can declare its own drain grace, and can refuse to force at all
+   * @preconditions Two routes declaring drainGrace, one a duration and one "never"
+   * @expectedResult Both build and start, so the option is accepted and validated at build time rather than when a transition first needs it
+   */
+  test("accepts a per-route drain grace, including never", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("quick")
+          .enabled(() => true, { drainGrace: "2s" })
+          .from(direct())
+          .to(noop()),
+        craft()
+          .id("patient")
+          .enabled(() => true, { drainGrace: "never" })
+          .from(direct())
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    expect(t.ctx.isRouteEnabled("quick")).toBe(true);
+    expect(t.ctx.isRouteEnabled("patient")).toBe(true);
+  });
+
+  /**
+   * @case A malformed drain grace is refused while the route is built
+   * @preconditions .enabled() given a drainGrace that is neither a duration nor "never"
+   * @expectedResult Building throws naming the option, matching how a malformed refresh cadence already fails
+   */
+  test("refuses a malformed drain grace at build time", () => {
+    expect(() =>
+      craft()
+        .id("bad-grace")
+        .enabled(() => true, { drainGrace: "soonish" as "2s" }),
+    ).toThrow(/drainGrace/);
   });
 });

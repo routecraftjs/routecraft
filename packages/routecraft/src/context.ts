@@ -1,5 +1,6 @@
 import { type Duration, parseDuration } from "./shared/duration.ts";
 import {
+  isLiveCadence,
   RouteEnablementCoordinator,
   type EnablementState,
 } from "./enablement.ts";
@@ -367,7 +368,8 @@ export class CraftContext {
       // fires. Sources stop producing; in-flight exchanges are untouched.
       this.controllers.get(routeId)?.abort(reason);
     },
-    drainWithin: (route) => this.drainRouteWithin(route as Route),
+    drainWithin: (route, graceMs) =>
+      this.drainRouteWithin(route as Route, graceMs),
     startRoute: (route) => this.restartRoute(route as Route),
     emitChanged: (route, enabled, reason) => {
       this.emit("route:enablement:changed", {
@@ -1400,15 +1402,23 @@ export class CraftContext {
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
         // A disabled route has not COMPLETED, it never ran, so it must not
-        // be counted as work that finished. Auto-stopping a context whose
-        // routes are merely dormant would make the operator loop this
-        // feature exists for impossible: supply the secret, re-check, and
-        // the capability comes up without a process restart cannot happen
-        // in a context that already exited.
-        const anyDisabled = this.enablement.disabled().size > 0;
+        // be counted as work that finished. But suppressing the auto-stop
+        // for EVERY disabled route strands the context: a route disabled
+        // under the default MANUAL cadence has no in-process path back to
+        // enabled, so nothing would ever re-evaluate it and the wait buys
+        // nothing while costing the whole shutdown (no plugin teardown, no
+        // `context:stopped`). Suppress only for a cadence that re-evaluates
+        // on its own; its timer is ref'd for the same reason, so the two
+        // decisions cannot disagree.
+        const awaitingCadence = [...this.enablement.disabled().keys()].some(
+          (routeId) =>
+            isLiveCadence(
+              this.getRouteById(routeId)?.definition.enablement?.refresh,
+            ),
+        );
         if (
           allFulfilled &&
-          !anyDisabled &&
+          !awaitingCadence &&
           !this.plugins.some((plugin) => plugin.keepsAlive)
         ) {
           this.logger.debug({}, "All routes have completed. Stopping context.");
@@ -1628,21 +1638,43 @@ export class CraftContext {
   }
 
   /**
-   * Wait for ONE route to drain, bounded by the same `shutdown.timeout` the
-   * whole-context shutdown uses.
+   * Wait for ONE route to drain, bounded by the route's own grace or, when
+   * it declared none, by the same `shutdown.timeout` the whole-context
+   * shutdown uses.
    *
    * Enablement's disable transition is the caller: taking a route out of
-   * service is a per-route shutdown, so it gets the per-route drain under
-   * the same operator-facing knob rather than a second timeout nobody knows
-   * to look for.
+   * service is a per-route shutdown, so it defaults to the same
+   * operator-facing knob rather than a second timeout nobody knows to look
+   * for. A route that declared `.enabled({ drainGrace })` overrides it,
+   * because the author is the one who knows what this pipeline's in-flight
+   * work costs.
    *
+   * @param graceMs - Milliseconds to allow; `undefined` for the context
+   *   default; `null` to wait indefinitely and never force.
    * @returns True when the route drained; false when the deadline elapsed
    *   first and the caller must force it.
    */
-  private async drainRouteWithin(route: Route): Promise<boolean> {
+  private async drainRouteWithin(
+    route: Route,
+    graceMs?: number | null,
+  ): Promise<boolean> {
+    // An unbounded wait has no deadline arm at all, so nothing can report
+    // `false` and the caller never forces.
+    if (graceMs === null) {
+      try {
+        await route.drain();
+      } catch (err) {
+        this.logger.warn(
+          { route: route.definition.id, err },
+          "Route drain threw while it was being disabled; treating it as drained",
+        );
+      }
+      return true;
+    }
+    const boundMs = graceMs ?? this.shutdownTimeoutMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<false>((resolve) => {
-      timer = setTimeout(() => resolve(false), this.shutdownTimeoutMs);
+      timer = setTimeout(() => resolve(false), boundMs);
       timer.unref?.();
     });
     try {

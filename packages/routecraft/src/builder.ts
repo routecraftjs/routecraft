@@ -4,6 +4,7 @@ import { type Duration, parseDuration } from "./shared/duration.ts";
 import {
   isCronCadence,
   MANUAL_REFRESH,
+  NEVER_FORCE,
   type EnablementOptions,
   type EnablementPredicate,
   type RouteEnablement,
@@ -761,11 +762,23 @@ export class RouteBuilder<
     ) {
       parseDuration(options.refresh, ".enabled({ refresh })");
     }
+    // Resolved here for the same reason the cadence is: a malformed grace
+    // must fail while the route is being built, not when a transition
+    // eventually needs it.
+    if (
+      options?.drainGrace !== undefined &&
+      options.drainGrace !== NEVER_FORCE
+    ) {
+      parseDuration(options.drainGrace, ".enabled({ drainGrace })", 0);
+    }
     this.pendingOptions = {
       ...(this.pendingOptions ?? {}),
       enablement: {
         predicate,
         ...(options?.refresh !== undefined ? { refresh: options.refresh } : {}),
+        ...(options?.drainGrace !== undefined
+          ? { drainGrace: options.drainGrace }
+          : {}),
       },
     };
     return this.prelude();

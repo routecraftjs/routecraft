@@ -51,6 +51,17 @@ export type RefreshCadence = Duration | CronExpression | typeof MANUAL_REFRESH;
  */
 export const MANUAL_REFRESH = "manual";
 
+/**
+ * `drainGrace` value meaning "wait as long as it takes": the disable never
+ * forces, and in-flight exchanges always reach a terminal outcome.
+ *
+ * The route stops intaking immediately either way, so this trades a bounded
+ * transition for a guaranteed one. Choose it when the work is more expensive
+ * to lose than the transition is to wait for, and only when the pipeline is
+ * known to terminate; a step that can hang holds the disable open forever.
+ */
+export const NEVER_FORCE = "never";
+
 /** Options for the second argument of `.enabled()`. */
 export interface EnablementOptions {
   /**
@@ -66,6 +77,23 @@ export interface EnablementOptions {
    * wants: `refresh: pollCadence ?? "manual"`.
    */
   refresh?: RefreshCadence;
+
+  /**
+   * How long in-flight exchanges may keep running after the route stops
+   * intaking, before execution is abandoned.
+   *
+   * Defaults to the context's `shutdown.timeout`, because a disable is a
+   * per-route shutdown and one knob for both is what an operator expects to
+   * find. Set it per route when the author knows what this pipeline's
+   * in-flight work actually costs: a route whose steps take a minute needs
+   * longer than the 30 second default, and a route of fast steps can be
+   * taken out of service far quicker.
+   *
+   * `"never"` ({@link NEVER_FORCE}) waits indefinitely, so every in-flight
+   * exchange reaches a terminal outcome and nothing is abandoned. See
+   * {@link NEVER_FORCE} for when that is the right trade.
+   */
+  drainGrace?: Duration | typeof NEVER_FORCE;
 }
 
 /**
@@ -76,6 +104,7 @@ export interface EnablementOptions {
 export interface RouteEnablement {
   readonly predicate: EnablementPredicate;
   readonly refresh?: RefreshCadence;
+  readonly drainGrace?: Duration | typeof NEVER_FORCE;
 }
 
 /**
@@ -92,6 +121,21 @@ export type EnablementState =
 /** Reason recorded when a predicate returns a bare `false`. */
 export const DEFAULT_DISABLED_REASON =
   "the route's enabled() predicate returned false";
+
+/**
+ * Whether a cadence re-evaluates on its own, as opposed to only when
+ * something explicitly asks.
+ *
+ * The distinction the context's auto-stop turns on: a live cadence is a
+ * reason to keep a context alive, and a manual one is not, because a manual
+ * route has no in-process path back to enabled and waiting for one would
+ * only cost the shutdown.
+ */
+export function isLiveCadence(
+  refresh: RefreshCadence | undefined,
+): refresh is Exclude<RefreshCadence, typeof MANUAL_REFRESH> {
+  return refresh !== undefined && refresh !== MANUAL_REFRESH;
+}
 
 /**
  * Whether a refresh cadence is a cron schedule rather than an interval.
@@ -153,6 +197,28 @@ export async function evaluateEnablement(
       reason: `the route's enabled() predicate threw: ${message}`,
     };
   }
+}
+
+/**
+ * Resolve a route's drain grace to milliseconds, or `undefined` for the
+ * context default, or `null` when the route opted out of forcing entirely.
+ *
+ * Three-way rather than two, because "use the context's knob" and "never
+ * force" are different instructions and a number cannot carry both.
+ *
+ * @internal
+ */
+export function resolveDrainGrace(
+  route: EnablementRoute,
+): number | undefined | null {
+  const grace = route.definition.enablement?.drainGrace;
+  if (grace === undefined) return undefined;
+  if (grace === NEVER_FORCE) return null;
+  return parseDuration(
+    grace,
+    `route "${route.definition.id}" .enabled({ drainGrace })`,
+    0,
+  );
 }
 
 /**
@@ -296,10 +362,13 @@ export class RouteEnablementCoordinator {
         const timer = setInterval(() => {
           void this.refresh(route);
         }, ms);
-        // A refresh cadence must not be the reason a process stays alive:
-        // the routes decide that, and a context whose routes have all
-        // finished should exit rather than idle on a poll timer.
-        timer.unref?.();
+        // Deliberately NOT unref'd. A declared cadence is ongoing work the
+        // author asked for, exactly like a plugin's `keepsAlive`, and the
+        // context suppresses its auto-stop for it. Unref'ing while also
+        // suppressing the auto-stop is the contradiction that strands a
+        // context: nothing refs the loop, so the process exits having run no
+        // teardown, and the re-check the cadence promised never happens.
+        // `stop()` clears every timer, so this cannot outlive a shutdown.
         this.#intervals.set(route.definition.id, timer);
       }
     }
@@ -323,6 +392,11 @@ export class RouteEnablementCoordinator {
       return this.#states.get(route.definition.id) ?? { enabled: true };
     }
     const next = await evaluateEnablement(enablement);
+    // Re-checked after the predicate: it is user code of unbounded duration,
+    // so a shutdown can complete while it runs. Without this a slow predicate
+    // resolving after `context:stopped` restarts the route behind the
+    // shutdown, and nothing is left to ever stop it again.
+    if (this.#stopped) return next;
     const previous = this.#states.get(route.definition.id);
     this.#record(route, next);
     if (previous === undefined || previous.enabled === next.enabled) {
@@ -369,22 +443,33 @@ export class RouteEnablementCoordinator {
    * Exactly what shutdown does per route, through the same two signals, for
    * the same reason: a flag flip must never be a data-loss event. There is
    * deliberately no second stop path.
+   *
+   * The deadline is the route's own `drainGrace` when it declared one, and
+   * the context's `shutdown.timeout` otherwise. `"never"` waits indefinitely,
+   * which is the only setting under which no exchange is ever abandoned.
    */
   async #disable(route: EnablementRoute, reason: string): Promise<void> {
-    this.deps
-      .logger()
-      .info(
-        { route: route.definition.id, reason },
-        "Route disabled by its enabled() predicate; draining",
-      );
+    const graceMs = resolveDrainGrace(route);
+    this.deps.logger().info(
+      {
+        route: route.definition.id,
+        reason,
+        ...(graceMs === undefined ? {} : { graceMs }),
+      },
+      "Route disabled by its enabled() predicate; draining",
+    );
     // Stage one: intake only. Work already in the pipeline runs to its
     // natural end, which is the whole difference between a drain and a
     // cancellation.
     this.deps.abortIntake(route.definition.id, `disabled: ${reason}`);
-    // Stage two: the grace deadline the context already applies to
-    // shutdown. Read from the context so one knob governs both, rather
-    // than enablement inventing a second timeout an operator has to find.
-    const drained = await this.deps.drainWithin(route);
+    const drained = await this.deps.drainWithin(route, graceMs);
+    // Deliberately NOT guarded on `#stopped`. Aborting intake lets a server
+    // ingress resolve its subscribe, which can settle the context's own
+    // route promises and trip its auto-stop while this drain is still
+    // running. `#stopped` therefore goes true on the ordinary path, and
+    // skipping the force here would leave the wedged work running.
+    // Guarding the stale-transition case needs a per-route token, not this
+    // flag; see the serialisation in `refresh`.
     if (!drained) {
       route.abortExecution(`disabled: ${reason}`);
     }
@@ -392,6 +477,7 @@ export class RouteEnablementCoordinator {
 
   /** Bring a disabled route up: re-arm it, then start it normally. */
   async #enable(route: EnablementRoute): Promise<void> {
+    if (this.#stopped) return;
     this.deps
       .logger()
       .info(
@@ -496,8 +582,16 @@ export interface EnablementDeps {
   };
   /** Fire the route's intake signal: stop accepting, keep running. */
   abortIntake(routeId: string, reason: string): void;
-  /** Wait out the shutdown grace period. False when it elapsed first. */
-  drainWithin(route: EnablementRoute): Promise<boolean>;
+  /**
+   * Wait for the route to drain. False when the grace elapsed first.
+   *
+   * @param graceMs - The route's own grace in milliseconds; `undefined` for
+   *   the context's `shutdown.timeout`; `null` to wait indefinitely.
+   */
+  drainWithin(
+    route: EnablementRoute,
+    graceMs: number | undefined | null,
+  ): Promise<boolean>;
   /** Re-arm and start a route that was disabled. */
   startRoute(route: EnablementRoute): Promise<void>;
   emitChanged(route: EnablementRoute, enabled: boolean, reason?: string): void;

@@ -9,7 +9,10 @@ title: enabled
 ```ts
 enabled(
   predicate: () => boolean | string | Promise<boolean | string>,
-  options?: { refresh?: Duration | CronExpression | 'manual' },
+  options?: {
+    refresh?: Duration | CronExpression | 'manual'
+    drainGrace?: Duration | 'never'
+  },
 ): RouteBuilder<Current>
 ```
 
@@ -76,6 +79,19 @@ The cron check happens at startup rather than at build time because `croner` is 
 
 **Disabled to enabled** starts the route normally, and it reappears in `capabilities()`.
 
+### How long the drain gets
+
+`drainGrace` sets how long in-flight exchanges may keep running after the route stops intaking, before execution is abandoned. It defaults to [`shutdown.timeout`](/docs/reference/configuration#shutdown), because a disable is a per-route shutdown and one knob for both is what an operator expects to find.
+
+```ts
+.enabled(predicate, { drainGrace: '2m' })      // this pipeline is slow
+.enabled(predicate, { drainGrace: 'never' })   // never abandon an exchange
+```
+
+Set it per route when you know what your own in-flight work costs: a route whose steps take a minute needs longer than the 30 second default, and a route of fast steps can be taken out of service far quicker.
+
+`'never'` waits indefinitely, so every in-flight exchange reaches a terminal outcome and nothing is abandoned. That is the only setting under which the [exchange-observability invariant](/docs/reference/events) holds unconditionally for a disable; under any bounded grace, an exchange still running when the grace elapses is abandoned mid-step and emits no terminal event, exactly as it would in a forced shutdown. Choose `'never'` when the work costs more to lose than the transition costs to wait for, and only when the pipeline is known to terminate.
+
 ## Re-evaluating on demand
 
 ```ts
@@ -84,6 +100,8 @@ await ctx.reevaluateEnablement()               // every declaring route
 ```
 
 This is the operator loop: set the secret, ask for a re-check, and the capability comes up without a process restart.
+
+It needs a **running context**. A context whose routes have all finished, or whose only routes are dormant under the default manual cadence, has nothing left to receive a re-check through and shuts down normally rather than idling. In practice something already holds such a context open, since a capability worth gating is usually reachable over HTTP, MCP or the ops surface. A declared `refresh` cadence also counts: the context stays alive to serve it.
 
 ## Reporting
 

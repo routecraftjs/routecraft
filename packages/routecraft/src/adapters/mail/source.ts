@@ -29,6 +29,21 @@ const MAIL_RECONNECT_BASE_MS = 1_000;
 const MAIL_RECONNECT_MAX_MS = 60_000;
 
 /**
+ * Resolve `pollInterval` to milliseconds, with `0` for both "not declared"
+ * and "declared as zero".
+ *
+ * One resolver so the mode switch, the poll loop and the validator cannot
+ * disagree about what a given value means. They did: a presence test chose
+ * poll mode while the validator's `> 0` said the same options were not
+ * polling at all.
+ */
+function resolvePollIntervalMs(options: MailServerOptions): number {
+  return options.pollInterval === undefined
+    ? 0
+    : parseDuration(options.pollInterval, "mail({ pollInterval })", 0);
+}
+
+/**
  * Resolve the `reconnect` option against defaults. `null` means reconnection
  * is disabled (`reconnect: false`) and connection failures are fatal
  * immediately.
@@ -255,7 +270,14 @@ export class MailSourceAdapter implements Source<MailBody> {
       // Aborted while still connecting: nothing to drain or watch.
       if (!clientRef.current) return;
 
-      if (resolved.pollInterval !== undefined) {
+      const resolvedPollIntervalMs = resolvePollIntervalMs(resolved);
+      // `> 0`, not merely "declared": `pollInterval: 0` reads as "no
+      // polling" and must keep falling through to IDLE, which is what the
+      // truthiness test did before this option took a Duration. A presence
+      // test turns it into a poll loop whose wait is zero, hammering the
+      // IMAP server as fast as it answers. `validateSourceOptions` already
+      // decides "has poll" this way; the two must agree.
+      if (resolvedPollIntervalMs > 0) {
         await this.pollLoop(
           clientRef,
           manager,
@@ -404,10 +426,7 @@ export class MailSourceAdapter implements Source<MailBody> {
     logger?: MailFetchLogger,
   ): Promise<void> {
     const onParseError = options.onParseError ?? DEFAULT_ON_PARSE_ERROR;
-    const pollIntervalMs =
-      options.pollInterval === undefined
-        ? 0
-        : parseDuration(options.pollInterval, "mail({ pollInterval })", 0);
+    const pollIntervalMs = resolvePollIntervalMs(options);
     const reconnect = resolveReconnect(options);
     while (!abortController.signal.aborted) {
       const client = clientRef.current;
@@ -727,9 +746,7 @@ function validateSourceOptions(
 ): void {
   const disabledSeen = options.markSeen === false;
   const disabledUnseen = options.unseen === false;
-  const hasPoll =
-    options.pollInterval !== undefined &&
-    parseDuration(options.pollInterval, "mail({ pollInterval })", 0) > 0;
+  const hasPoll = resolvePollIntervalMs(options) > 0;
 
   if ((disabledSeen || disabledUnseen) && !hasPoll) {
     const which = disabledSeen ? "markSeen: false" : "unseen: false";

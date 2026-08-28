@@ -111,7 +111,9 @@ The exchange lifecycle event names (`route:exchange:started` / `:completed` / `:
 
 **Rules:**
 
-- Every `route:exchange:started` must eventually be followed by exactly one of: `:completed`, `:failed`, `:dropped`, or `:suspended`. The one exception is a forced shutdown (`shutdown.timeout` elapsed): in-flight exchanges are abandoned mid-step and emit no terminal event. Do not widen that exception; it is the only case where a started exchange may go unterminated.
+- Every `route:exchange:started` must eventually be followed by exactly one of: `:completed`, `:failed`, `:dropped`, or `:suspended`. The exception is a **forced stop**, in either of its two forms: a forced shutdown (`shutdown.timeout` elapsed) or a route taken out of service by `.enabled()` whose drain outran its grace (`.enabled({ drainGrace })`, defaulting to `shutdown.timeout`). Both abandon in-flight exchanges mid-step through the same `abortExecution` path, and neither emits a terminal event.
+
+  These are one exception, not two: a disable is a per-route shutdown and reuses its machinery deliberately rather than inventing a second stop path. Do not widen it further. An author who cannot afford an abandoned exchange sets `drainGrace: "never"`, under which the route stops intaking but every in-flight exchange still reaches a terminal outcome; that is the only setting where the invariant holds unconditionally.
 - Child exchanges (from split) get their own `started`/`completed`/`failed`/`dropped` events.
 - The `exchangeId` field must be `exchange.id` (not `correlationId`). Use `correlationId` for grouping related exchanges.
 - Operations that drop exchanges (filter, debounce, sample) must emit `route:exchange:dropped` with a `reason` string.
