@@ -1,4 +1,5 @@
 import { rcError } from "../error.ts";
+import { anySignal } from "../shared/abort.ts";
 import {
   type Exchange,
   DefaultExchange,
@@ -127,10 +128,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
     // unable to interrupt a hook that never settles, and an unsettled hook
     // holds the step, which holds drain().
     const route = getExchangeRoute(exchange);
-    const bounds = [route?.intakeSignal, signalCtx.signal].filter(
-      (candidate): candidate is AbortSignal => candidate !== undefined,
-    );
-    const hookSignal = bounds.length > 1 ? AbortSignal.any(bounds) : bounds[0];
+    const hookSignal = anySignal(route?.intakeSignal, signalCtx.signal);
     // Only a principal this ingress verified live may stand as the resuming
     // party. A revived exchange carries its parked principal back marked
     // restored, so a route that both suspends and resumes would otherwise

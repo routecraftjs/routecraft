@@ -1,4 +1,5 @@
 import { jsonResponse, missingCredentialResponse } from "./response.ts";
+import { anySignal } from "../../shared/abort.ts";
 import { logger as defaultLogger } from "../../logger";
 import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
 import { isRoutecraftError } from "../../brand";
@@ -374,10 +375,7 @@ export function createDispatcher(
         // this request, once the body proves to be one.
         exemptFromIdleTimeout?.();
         const body = streamResponseBody(plan.body, {
-          signal:
-            opts.shutdownSignal === undefined
-              ? req.signal
-              : AbortSignal.any([req.signal, opts.shutdownSignal]),
+          signal: anySignal(req.signal, opts.shutdownSignal),
           preamble: plan.preamble,
           onEnd: (error) => {
             if (error !== undefined) {

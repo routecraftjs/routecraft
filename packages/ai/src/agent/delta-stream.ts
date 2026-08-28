@@ -1,3 +1,4 @@
+import { rcError } from "@routecraft/routecraft";
 import type { AgentDelta, AgentDeltaListener } from "./events.ts";
 
 /**
@@ -61,20 +62,45 @@ export function streamAgentDeltas(
     }
   };
 
-  void run(onDelta).then(
-    () => {
-      settled = true;
-      wakeConsumer?.();
-    },
-    (error: unknown) => {
-      failure = error;
-      settled = true;
-      wakeConsumer?.();
-    },
-  );
+  let started = false;
+  /**
+   * Start the run on first iteration, not at construction.
+   *
+   * Everything that reclaims a run lives in the generator's `finally`, which
+   * only exists once someone has begun iterating. Starting eagerly meant an
+   * iterable nobody read filled the buffer, parked the producer on a
+   * back-pressure promise no consumer would ever release, and left the
+   * provider generating and billing until the process ended. Lazily, an
+   * abandoned stream costs nothing.
+   */
+  const begin = (): void => {
+    if (started) return;
+    started = true;
+    void run(onDelta).then(
+      () => {
+        settled = true;
+        wakeConsumer?.();
+      },
+      (error: unknown) => {
+        failure = error;
+        settled = true;
+        wakeConsumer?.();
+      },
+    );
+  };
 
   return {
     async *[Symbol.asyncIterator](): AsyncGenerator<AgentDelta> {
+      // One consumer only. Two iterators share `wakeConsumer`'s single slot,
+      // so the second overwrites the first's resolver and both park forever;
+      // a named refusal beats a deadlock.
+      if (started) {
+        throw rcError("RC5003", undefined, {
+          message:
+            "An agent delta stream can only be iterated once. Tee it yourself if two consumers need the same tokens.",
+        });
+      }
+      begin();
       try {
         for (;;) {
           while (buffer.length > 0) {

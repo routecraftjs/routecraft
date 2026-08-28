@@ -10,10 +10,12 @@ import {
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   agent,
+  agentPlugin,
   llmPlugin,
   type AgentDelta,
   type AgentStream,
 } from "../src/index.ts";
+import { streamAgentDeltas } from "../src/agent/delta-stream.ts";
 import type { LlmResult } from "../src/llm/types.ts";
 
 /**
@@ -30,6 +32,8 @@ const TOKENS = ["Hel", "lo ", "world"];
 
 /** Set by the mock so a test can assert the run was cancelled, not drained. */
 let aborted = false;
+/** Counts provider calls, so a test can prove a run never started at all. */
+let runs = 0;
 
 mock.module("../src/llm/providers/index.ts", () => ({
   callLlm: mock(async (): Promise<LlmResult> => ({
@@ -44,6 +48,7 @@ mock.module("../src/llm/providers/index.ts", () => ({
       onDelta: (d: AgentDelta) => void | Promise<void>;
       abortSignal?: AbortSignal;
     }): Promise<LlmResult> => {
+      runs++;
       for (const text of TOKENS) {
         if (abortSignal?.aborted === true) {
           aborted = true;
@@ -65,6 +70,7 @@ describe("agent({ stream: true })", () => {
 
   beforeEach(() => {
     aborted = false;
+    runs = 0;
   });
 
   afterEach(async () => {
@@ -209,6 +215,90 @@ describe("agent({ stream: true })", () => {
 
     await t.test();
     expect(seen).toEqual(TOKENS);
+  });
+
+  /**
+   * @case A stream nobody reads never starts a run
+   * @preconditions Route ends in agent({ stream: true }); the next step replaces the body without draining it
+   * @expectedResult The provider is never called, so an abandoned stream costs no generation
+   */
+  test("an un-iterated stream never starts the run", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("stream-dropped")
+          .from(simple("hi"))
+          .to(
+            agent({
+              system: "Be helpful.",
+              model: "anthropic:claude-opus-4-7",
+              stream: true,
+            }),
+          )
+          .transform(() => ({ replaced: true }))
+          .to(noop()),
+      )
+      .build();
+
+    await t.test();
+    // Give an eagerly-started run every chance to appear before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(runs).toBe(0);
+  });
+
+  /**
+   * @case A second consumer is refused rather than silently deadlocking
+   * @preconditions One AgentStream, iterated twice
+   * @expectedResult The second iteration throws RC5003 naming the single-consumer rule
+   */
+  test("iterating the stream twice is refused", async () => {
+    const stream = streamAgentDeltas(
+      async (emit) => {
+        await emit({ type: "text-delta", text: "x" });
+      },
+      () => {},
+    );
+    const drain = async (): Promise<void> => {
+      for await (const delta of stream) {
+        expect(delta.type).toBe("text-delta");
+        break;
+      }
+    };
+    await drain();
+    await expect(drain()).rejects.toThrow(/only be iterated once/);
+  });
+
+  /**
+   * @case A registered agent may not declare stream, because by-name calls cannot widen
+   * @preconditions agentPlugin registers an agent carrying stream: true
+   * @expectedResult Context build fails with RC5003 naming the call-site rule
+   */
+  test("a registered agent declaring stream is refused at registration", async () => {
+    await expect(
+      testContext()
+        .with({
+          plugins: [
+            llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+            agentPlugin({
+              agents: {
+                chat: {
+                  description: "streams",
+                  model: "anthropic:claude-opus-4-7",
+                  system: "x",
+                  stream: true,
+                },
+              },
+            }),
+          ],
+        })
+        .routes(craft().id("noop-route").from(simple("hi")).to(noop()))
+        .build(),
+    ).rejects.toThrow(/call-site decision/);
   });
 
   /**

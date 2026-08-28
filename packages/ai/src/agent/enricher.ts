@@ -33,6 +33,7 @@ import type {
   AgentToolPolicyContext,
   AgentToolSource,
 } from "./tools/policy.ts";
+import { anySignal } from "@routecraft/routecraft";
 import { streamAgentDeltas, type AgentStream } from "./delta-stream.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
@@ -139,8 +140,15 @@ export class AgentEnricherAdapter implements Enricher<
     // route-bound: without a dispatch identity there is no site to park
     // against, so no wiring is handed out and ctx.suspend refuses (AI1006).
     const agentIdentity = agentName ?? dispatchIdentity?.routeId;
+    // Withheld under `stream: true`. The dispatch returns its iterable the
+    // moment the run starts, so this step has already settled by the time a
+    // tool could park it: the sentinel would reach the stream's consumer as
+    // an ordinary failure and the exchange would never park, stranding a
+    // resume token the handler had already sent. Refusing at the handler
+    // instead (AI1006, the same refusal an unbound dispatch gets) puts the
+    // error where the author can act on it.
     const suspension: AgentSessionSuspension | undefined =
-      dispatchIdentity && agentIdentity !== undefined
+      dispatchIdentity && agentIdentity !== undefined && merged.stream !== true
         ? {
             id: exchange.suspension.id,
             // Lazy: minting reads the context's signer and throws RC5052
@@ -224,19 +232,14 @@ export class AgentEnricherAdapter implements Enricher<
     // never-firing signal when the exchange has no route binding (rare;
     // mostly synthetic exchanges in tests).
     //
-    // A streaming dispatch adds a third owner: the consumer of the delta
-    // stream. Abandoning the stream aborts the run, which is what makes a
-    // disconnected SSE client stop the model rather than pay for the rest
-    // of an answer nobody will read.
+    // A streaming dispatch adds a third owner, the consumer of the delta
+    // stream, so abandoning the stream stops the run (see AgentOptions.stream).
     const consumer = new AbortController();
-    const signals = [route?.signal, stepCtx?.signal].filter(
-      (s): s is AbortSignal => s !== undefined,
+    const abortSignal = anySignal(
+      route?.signal,
+      stepCtx?.signal,
+      merged.stream === true ? consumer.signal : undefined,
     );
-    if (merged.stream === true) signals.push(consumer.signal);
-    const abortSignal =
-      signals.length > 1
-        ? AbortSignal.any(signals)
-        : (signals[0] ?? new AbortController().signal);
 
     // Streaming is selected by the presence of `onDelta` on the
     // merged options or as a per-call override at the by-name call
@@ -246,11 +249,7 @@ export class AgentEnricherAdapter implements Enricher<
       this.binding.kind === "by-name"
         ? (this.binding.perCall?.onDelta ?? merged.onDelta)
         : merged.onDelta;
-    // `stream: true` is the pull form of the same streaming run: the
-    // deltas become the dispatch's own product rather than being pushed
-    // into a listener the route had to supply. The queue and the abort
-    // that closes it live beside `onDelta` here, so a route asking for a
-    // token stream stays one declarative step.
+    // `stream: true` is the pull form of `onDelta` (see AgentOptions.stream).
     if (merged.stream === true) {
       return streamAgentDeltas(
         (emit) => session.runStream(abortSignal, emit),

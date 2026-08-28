@@ -346,7 +346,14 @@ function validateBlocksLevel(
 export function agent(
   options: AgentOptions & { stream: true },
 ): Enricher<unknown, AgentStream>;
-export function agent(options: AgentOptions): Enricher<unknown, AgentResult>;
+// `{ stream?: false }` rather than a bare `AgentOptions`, matching the
+// `chunked` precedent on the file-family adapters: the option law admits
+// exactly two overloads, literal `true` and absent-or-`false`, so a widened
+// `stream: someBoolean` is a compile error instead of a call that claims
+// `AgentResult` and hands back an iterable.
+export function agent(
+  options: AgentOptions & { stream?: false },
+): Enricher<unknown, AgentResult>;
 export function agent(name: string): Enricher<unknown, AgentResult>;
 export function agent(
   name: string,
