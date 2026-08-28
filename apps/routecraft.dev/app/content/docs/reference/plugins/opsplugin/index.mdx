@@ -203,7 +203,7 @@ The refusal on a missing scope is `403` with `insufficient_scope`, and it carrie
 
 <Callout type="warning" title="`true` is an open door">
 
-A tier set to `true` needs no credential, and the ops surface mounts on the `default` server unless told otherwise, which on a typical app is the public listener. `dispatch: true` on a publicly bound server lets anyone who can reach the port run any dispatchable route. Use it on a listener the public cannot reach, or give the tier a scope.
+A tier set to `true` needs no credential, and the ops surface mounts on the `default` server unless told otherwise, which on a typical app is the public listener. `dispatch: true` on a publicly bound server lets anyone who can reach the port run any dispatchable route. `events: true` is the quieter version of the same hazard: the tail carries failure events with their messages and stack traces, so filesystem paths, internal hostnames and upstream response text reach anyone who can reach the port. Use either on a listener the public cannot reach, or give the tier a scope.
 
 </Callout>
 

@@ -310,9 +310,15 @@ export interface AgentOptions {
    * ```ts
    * craft()
    *   .id("chat-stream")
-   *   .from(http({ path: "/chat/stream", method: "POST" }))
    *   .input({ body: ChatInput })
-   *   .to(agent({ system: aria, user: (b) => b.message, stream: true }));
+   *   .from(http({ path: "/chat/stream", method: "POST" }))
+   *   .to(
+   *     agent({
+   *       system: aria,
+   *       user: (ex) => (ex.body as z.infer<typeof ChatInput>).message,
+   *       stream: true,
+   *     }),
+   *   );
    * ```
    *
    * The trade is the result: `text`, `output`, `usage` and `toolCalls` are

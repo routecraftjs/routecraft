@@ -44,9 +44,15 @@ Every event stream opens with a `: open` comment. Neither runtime puts the statu
 ```ts
 craft()
   .id("chat-stream")
-  .from(http({ path: "/chat/stream", method: "POST" }))
   .input({ body: ChatInput })
-  .to(agent({ system: aria, user: (b) => b.message, stream: true }));
+  .from(http({ path: "/chat/stream", method: "POST" }))
+  .to(
+    agent({
+      system: aria,
+      user: (ex) => (ex.body as z.infer<typeof ChatInput>).message,
+      stream: true,
+    }),
+  );
 ```
 
 The queue and the abort that closes it live inside the adapter beside `onDelta`, and abandoning the stream aborts the run, so a client that disconnects mid-answer stops the model. Only the `stream: true` call site widens its declared output; every other agent route still says `AgentResult`. Setting `stream` alongside `onDelta` is refused at construction, since they are the pull and push spellings of one thing.
@@ -55,6 +61,28 @@ The queue and the abort that closes it live inside the adapter beside `onDelta`,
 
 `GET /ops/events` tails the context event bus as SSE, gated by a new `events` tier (`ops:events` is the documented scope name). Its own tier rather than a corner of introspection: a route listing describes an app's shape, while the tail carries what it is doing right now. A bounded buffer keeps a slow reader from growing memory without bound, and a dropped-count frame says so rather than leaving a silent gap.
 
+## Bounds on a streaming listener
+
+A streaming response is exempt from the idle reaper, which was the only limit
+on how long a connection could stay open, so two options on a server
+definition put a ceiling back. `idleTimeout` (a `Duration`, default `"255s"`)
+sets the reap window for ordinary connections and is refused above Bun's 255s
+ceiling rather than clamped, because a config honoured on Node and capped on
+Bun means two different things depending on where it runs.
+`maxStreamingRequests` (default `500`) caps the streams one listener carries
+and answers `503` with `Retry-After` past it. A backstop below the
+file-descriptor cliff, the same kind of number as `maxBodySize`'s 10 MB, and
+a complement to `.concurrency({ max, mode: "reject" })` rather than a
+replacement: the route operation shapes one endpoint, the listener cap catches
+the routes that never thought about it.
+
+A stream admitted on an expiring credential now closes at expiry, through the
+same `isPrincipalExpired` boundary the rest of the framework checks. No 401 is
+attempted, because one cannot follow a `200` already on the wire; an
+`EventSource` reconnects by specification and meets ordinary admission. A
+browser client authenticates through `apiKey({ in: "query" })`, documented
+with the caveat that query strings reach access logs and browser history.
+
 ## Notes
 
-`RC5018` keeps its meaning for request-side refusals (413 and 400); only the streaming-response arm is gone. `HttpMountContext` gains `exemptFromIdleTimeout()`, so a mount whose routes only sometimes stream no longer has to widen the exemption to its whole surface. The cycle-safe JSON the telemetry sink kept private moved to a shared module, because a bus payload reaching a wire needs the same reductions wherever it is going.
+`RC5018` keeps its meaning for request-side refusals (413 and 400); only the streaming-response arm is gone. `HttpMountContext` gains `claimStreamingSlot()`, which exempts a request from the reaper and counts it against the cap in one decision, returning a release or refusing. `plugin:http:request:completed` gains an optional `error`, so a stream that breaks after its status line is sent stops being counted as a `200`. The cycle-safe JSON the telemetry sink kept private moved to a shared module and now identifies framework objects by their brand rather than by key names, matching how `logger.ts` already discriminates them. `anySignal` is exported for composing cancellation scopes, replacing six hand-rolled variants that had drifted on the empty case.

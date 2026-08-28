@@ -161,7 +161,7 @@ craft()
   .id("order-events")
   .from(http({ path: "/orders/:id/events", method: "GET" }))
   .transform(async function* (_, ex) {
-    const id = ex.headers["routecraft.http.params"].id;
+    const { id } = ex.headers["routecraft.http.params"]!;
     for await (const update of watchOrder(id)) {
       yield { event: "update", id: update.sequence, data: update };
     }
@@ -220,11 +220,89 @@ the exchange like any other request header, at
 business: only the route knows what its `id` values mean and how far back it
 can rewind. Set `id` on the frames you want a client to be able to resume from.
 
+#### Bounding open streams
+
+A streaming response is exempt from the listener's idle reaper, which is
+otherwise the only limit on how long a connection may sit open. Two options on
+the server definition put a ceiling back:
+
+```ts
+servers: {
+  public: {
+    port: 3000,
+    shutdownGrace: "30s",
+    idleTimeout: "255s",       // reap window for ordinary connections
+    maxStreamingRequests: 500, // streams this listener carries at once
+  },
+}
+```
+
+`idleTimeout` takes a [`Duration`](/docs/reference/configuration) and defaults
+to `"255s"`, the value that was previously fixed. That is Bun's maximum for a
+per-connection idle timeout, so a larger value is refused at construction
+naming the limit rather than being clamped: a config honoured on Node and
+capped on Bun would mean two different things depending on where it ran.
+
+`maxStreamingRequests` defaults to 500 and answers `503` with `Retry-After`
+once the listener is full. It is a backstop, not a capacity plan. Without it a
+client that opens streams and never reads them walks the process to its
+file-descriptor limit, taking every other in-flight request with it; the cap
+sits below that cliff so an operator gets a clean refusal instead. The number
+is the same kind of number as `maxBodySize`'s 10 MB, which nobody mistakes for
+the right body size.
+
+<Callout type="note">
+
+**This is the listener's bound, not a route's.**
+[`.concurrency({ max, mode: "reject" })`](/docs/reference/operations/concurrency)
+is the per-route bound an author opts into, with that route's own semantics.
+The two are complements: the route operation governs a route that chooses it,
+and the listener cap protects the process whatever any route declares,
+including the routes that never thought about it. Reach for `.concurrency()`
+to shape one endpoint's admission, and leave `maxStreamingRequests` as the
+floor nothing falls through.
+
+</Callout>
+
+#### Authority does not outlive the credential
+
+Admission is checked once, when the request arrives. On an ordinary request
+that covers the whole request; on a stream held open for hours it would
+otherwise cover an unbounded window.
+
+So a stream admitted on a principal carrying an expiry closes when that expiry
+passes. There is no attempt at a 401, because one cannot follow a `200` that
+is already on the wire. Closing is enough: an `EventSource` reconnects by
+specification, the reconnect meets ordinary admission, and the refusal comes
+from the path that already answers it. A principal with no expiry is left
+alone, since a credential that does not expire granting a stream that does not
+expire is the operator's choice honoured rather than a gap.
+
+#### Authenticating a browser client
+
+`EventSource` cannot set an `Authorization` header, so a browser consumer
+authenticates with [`apiKey`](/docs/reference/plugins/httpplugin) in query
+mode:
+
+```ts
+http: { auth: apiKey({ in: "query", name: "api_key" }) }
+```
+
+<Callout type="warning">
+
+A query string is not a private channel. It lands in access logs, proxy logs
+and browser history, and it is visible to anything that sees the URL. Issue
+credentials for this channel short-lived and narrowly scoped, and rely on the
+expiry behaviour above to close the stream when they lapse so the client
+reconnects with a fresh one.
+
+</Callout>
+
 #### Keeping a stream alive
 
 A quiet stream has two natural enemies. The listener's own idle reaper is
-handled: a streaming response claims a per-request exemption, so it is not cut
-short. Intermediaries between the client and the process are not, so a route
+handled: a streaming response claims a per-request slot that exempts it, so it
+is not cut short, and that slot is what `maxStreamingRequests` counts. Intermediaries between the client and the process are not, so a route
 that can go minutes without an event should yield an SSE comment periodically.
 Behind nginx, `proxy_buffering off` (or an `X-Accel-Buffering: no` response
 header via the override) stops the proxy holding frames back.

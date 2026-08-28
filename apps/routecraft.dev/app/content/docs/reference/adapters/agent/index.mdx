@@ -94,9 +94,15 @@ The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 ```typescript
 craft()
   .id('chat-stream')
-  .from(http({ path: '/chat/stream', method: 'POST' }))
   .input({ body: ChatInput })
-  .to(agent({ system: aria, user: (b) => b.message, stream: true }));
+  .from(http({ path: '/chat/stream', method: 'POST' }))
+  .to(
+    agent({
+      system: aria,
+      user: (ex) => (ex.body as z.infer<typeof ChatInput>).message,
+      stream: true,
+    }),
+  );
 ```
 
 The queue and the abort that closes it live inside the adapter. Iterating the stream is what drives the run, and abandoning it aborts one, so a client that disconnects mid-answer stops the model. Custom SSE event names are one ordinary `.transform()` step away; a queue and a wake loop written by hand in a transform are not the way there.

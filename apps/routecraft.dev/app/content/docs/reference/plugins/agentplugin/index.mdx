@@ -315,7 +315,7 @@ const out = await testFn(greet, { name: 'alice' })
 
 ## Agent tools
 
-> **Status: live.** Tools an agent declares via `tools([...])` are bridged into the Vercel AI SDK's tool-calling loop at dispatch time. The model sees each tool's name, description, and JSON schema; the SDK validates tool-call arguments against the schema, reports validation errors back to the model for self-correction, and otherwise invokes the agent's handler. Durable park and resume through `ctx.suspend()` is live; see [Durable agents](/docs/advanced/durable-agents). Streaming is tracked separately ([streaming agents](https://github.com/routecraftjs/routecraft/issues/257)).
+> **Status: live.** Tools an agent declares via `tools([...])` are bridged into the Vercel AI SDK's tool-calling loop at dispatch time. The model sees each tool's name, description, and JSON schema; the SDK validates tool-call arguments against the schema, reports validation errors back to the model for self-correction, and otherwise invokes the agent's handler. Durable park and resume through `ctx.suspend()` is live; see [Durable agents](/docs/advanced/durable-agents). Token-level streaming is live via `agent({ stream: true })`; see [Streaming the reply](/docs/reference/adapters/agent#streaming-the-reply).
 
 Tags, the `tools([...])` selector, the builder helpers, and the context-level `defaultOptions` bag compose to give an agent a typed, whitelisted set of capabilities.
 
@@ -641,9 +641,15 @@ ctx.on("route:agent:finished", ({ details }) => {
 ```ts
 craft()
   .id("chat-stream")
-  .from(http({ path: "/chat/stream", method: "POST" }))
   .input({ body: ChatInput })
-  .to(agent({ system: aria, user: (b) => b.message, stream: true }));
+  .from(http({ path: "/chat/stream", method: "POST" }))
+  .to(
+    agent({
+      system: aria,
+      user: (ex) => (ex.body as z.infer<typeof ChatInput>).message,
+      stream: true,
+    }),
+  );
 ```
 
 The route stays declarative: the queue and the abort that closes it live inside the adapter. Iterating the stream is what drives the run, and abandoning it aborts one, so a client that disconnects mid-answer stops the model rather than paying for the rest of an answer nobody will read. An author who wants custom SSE event names maps the stream in one ordinary `.transform()` step; hand-rolling a queue and a wake loop in a transform is not the way to get there.

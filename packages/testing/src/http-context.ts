@@ -1,4 +1,3 @@
-import { expect } from "bun:test";
 import {
   TestContext,
   TestContextBuilder,
@@ -40,7 +39,15 @@ export async function bootServer(
   );
   const ctx = await build(builder).build();
   await ctx.startAndWaitReady();
-  expect(port).toBeGreaterThan(0);
+  if (port === 0) {
+    // Thrown rather than asserted: this package ships to both runtimes and
+    // must not depend on a test runner's globals. A port left at 0 also has
+    // to fail here, because every later request would otherwise present as a
+    // connection error rather than as the setup that never bound.
+    throw new Error(
+      "No server reported a port: nothing emitted server:listening, so no listener bound.",
+    );
+  }
   return { ctx, port };
 }
 
