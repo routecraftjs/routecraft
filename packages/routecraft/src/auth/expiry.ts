@@ -72,7 +72,8 @@ const MAX_TIMEOUT_MS = 2_147_483_647;
  *   unauthenticated request
  * @param options.clockToleranceSec - Skew the admitting verification allowed
  * @param options.onExpired - Called once when the credential is found to have
- *   lapsed, before the signal aborts, for the surface to report it
+ *   lapsed, for the surface to report it. Runs after the signal aborts, and
+ *   a throw from it is swallowed: revocation does not depend on it
  * @returns The signal and a `cancel` to release the timer when the response
  *   ends, or `undefined` when the principal carries no expiry, since a
  *   credential that does not expire granting a stream that does not expire is
@@ -99,8 +100,19 @@ export function principalExpirySignal(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const arm = (): void => {
     if (isPrincipalExpired(principal, clockToleranceSec)) {
-      options.onExpired?.(principal);
+      // Abort first, and never behind the notification: revoking the stream
+      // is this function's contract and telling someone about it is a
+      // courtesy, so a notifier that throws must not be able to keep an
+      // expired credential's stream open.
       controller.abort(new Error("Credential expired"));
+      try {
+        options.onExpired?.(principal);
+      } catch {
+        // Swallowed rather than rethrown because there is nowhere to report
+        // it: the notifier is the surface's own logger, and on the timer
+        // path a throw here is an uncaught exception that takes the process
+        // down over a log line.
+      }
       return;
     }
     // The deadline the tolerance actually moves, not `exp` itself: sleeping

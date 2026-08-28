@@ -67,11 +67,11 @@ describe("principalExpirySignal", () => {
   });
 
   /**
-   * @case The surface is told before the signal aborts
+   * @case The surface is told which credential closed its stream
    * @preconditions An already lapsed principal with an onExpired callback
    * @expectedResult The callback receives the subject, so a surface can log which credential closed its stream without reaching for the credential itself
    */
-  test("reports the subject before aborting", () => {
+  test("reports the subject to the surface", () => {
     const seen: string[] = [];
 
     const expiry = principalExpirySignal(lapsed(10), {
@@ -80,6 +80,26 @@ describe("principalExpirySignal", () => {
     });
 
     expect(seen).toEqual(["operator"]);
+    expect(expiry?.signal.aborted).toBe(true);
+  });
+
+  /**
+   * @case The notifier throws
+   * @preconditions An already lapsed principal whose onExpired callback throws, as a surface's own logger can
+   * @expectedResult The signal still aborts and nothing escapes. Revoking the stream is the contract and the notification is a courtesy, so ordering the abort behind it made an expired credential's stream survive a bad log line, and on the timer path an uncaught exception took the process with it
+   */
+  test("revokes even when the notifier throws", () => {
+    let called = false;
+
+    const expiry = principalExpirySignal(lapsed(10), {
+      clockToleranceSec: 0,
+      onExpired: () => {
+        called = true;
+        throw new Error("the surface's logger failed");
+      },
+    });
+
+    expect(called).toBe(true);
     expect(expiry?.signal.aborted).toBe(true);
   });
 
