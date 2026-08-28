@@ -19,6 +19,7 @@ import {
   logger,
   RC_ADAPTER_OVERRIDES,
   parseDuration,
+  rejectStaleOptions,
 } from "@routecraft/routecraft";
 import type { SpyFactory, SpyLogger } from "./spy-logger";
 import {
@@ -124,6 +125,7 @@ export class TestContext {
     this.logger = options?.spyLogger ?? createNoopSpyLogger();
     if (options?.restoreLoggerChild)
       this.restoreLoggerChild = options.restoreLoggerChild;
+    rejectStaleOptions(options, "testContext");
     this.routesReadyTimeoutMs =
       options?.routesReadyTimeout === undefined
         ? DEFAULT_ROUTES_READY_TIMEOUT_MS
@@ -283,6 +285,7 @@ export class TestContext {
    *   Use for timer (or other deferred) sources so at least one message is processed before drain/stop.
    */
   async test(options?: TestOptions): Promise<void> {
+    rejectStaleOptions(options, "t.test");
     const ctx = this.ctx;
     const allReady = this.awaitContextReady();
     const started = ctx.start();

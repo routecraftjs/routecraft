@@ -6,6 +6,7 @@ import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
+import { rejectStaleOptions } from "../shared/stale-options.ts";
 
 /**
  * Options for the `.retry()` wrapper (step scope and route scope).
@@ -100,15 +101,10 @@ export function defaultRetryOn(error: Error): boolean {
 export function resolveRetryOptions(
   options: RetryOptions = {},
 ): ResolvedRetryOptions {
-  // Loud failure for the removed `exponential` boolean (a clean pre-1.0
-  // break). TypeScript rejects it at compile time on object literals; this
-  // catches plain-JS / `as any` callers so they fail at build, not silently.
-  if ("exponential" in options) {
-    throw rcError("RC5003", undefined, {
-      message:
-        "retry({ exponential }) was removed; use factor (exponential: true -> factor: 2, exponential: false -> factor: 1).",
-    });
-  }
+  rejectStaleOptions(options, "retry", {
+    exponential:
+      "use factor (exponential: true -> factor: 2, exponential: false -> factor: 1).",
+  });
 
   const maxAttempts = options.maxAttempts ?? 3;
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {

@@ -602,7 +602,7 @@ export class HealthState implements HealthLedger {
   /**
    * Project an indicator record, applying staleness.
    *
-   * An indicator with no `maxAgeMs` never goes stale: it is only as fresh as
+   * An indicator with no `maxAge` never goes stale: it is only as fresh as
    * its last push, which is the right reading for one fed by a business route
    * that may be idle for hours. Staleness is measured from the last report,
    * or from `context:started` when it has never reported, so a slow first

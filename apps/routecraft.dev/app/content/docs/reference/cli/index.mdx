@@ -118,7 +118,7 @@ instead of a hand-written barrel file. Where `run` executes one entry file, `sta
 plugins, agents, and skills.
 
 ```bash
-craft start [dir] [--env <.env path>] [--once] [--timeout <ms>]
+craft start [dir] [--env <.env path>] [--once] [--timeout <duration>]
 ```
 
 With no argument it starts the project in the current directory. Both the root-level and the
@@ -131,7 +131,7 @@ Options:
 | `[dir]` | Project root. Defaults to the current directory |
 | `--env <path>` | Load environment variables from a .env file |
 | `--once` | Shut down cleanly after the first exchange reaches a terminal outcome on any route |
-| `--timeout <ms>` | Give up and exit non-zero after this many milliseconds. Requires `--once`, and must be at least 1 |
+| `--timeout <duration>` | Give up and exit non-zero after this long. Takes milliseconds or a duration string such as `"30s"`. Requires `--once`, and must be at least 1ms |
 
 What it loads, and in what order:
 
@@ -157,7 +157,7 @@ A route that throws on the way up fails the command too, in either mode. Startin
 every route rather than racing them, so a project can come up with one route dead and the
 rest healthy; `start` reports that as a failed boot rather than a clean one.
 
-Pair it with `--timeout <ms>` in CI. Without one, a project whose sources never produce an
+Pair it with `--timeout <duration>` in CI. Without one, a project whose sources never produce an
 exchange waits indefinitely, which reports as a killed job rather than as a diagnosis; with
 one, the command exits non-zero saying nothing reached a terminal outcome in time.
 

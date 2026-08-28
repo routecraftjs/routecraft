@@ -381,10 +381,23 @@ export interface OpsRouteSchemas {
  * that registration is the door `POST .../exchanges` goes through. A cron-,
  * mail- or http-sourced route has no such door and says so here rather than
  * failing at dispatch time.
+ *
+ * `enabled` is reported separately because `dispatchable` alone cannot carry
+ * both meanings. A route held back by its `.enabled()` predicate never
+ * subscribes, so it is not in the capability registry either, and without
+ * this field it would be indistinguishable from a cron-sourced route that
+ * simply has no dispatch door. One is a configuration state an operator can
+ * change; the other is the shape of the route.
  */
 export interface OpsRouteSummary {
   id: string;
   dispatchable: boolean;
+  /**
+   * False only while the route's `.enabled()` predicate is holding it back.
+   * True for every route that declares no predicate, so an existing consumer
+   * reading this field sees the state it already assumed.
+   */
+  enabled: boolean;
   /** Source kinds, in declaration order (`direct`, `cron`, `mail`, ...). */
   sources: string[];
   /** The route declares a route-entry `.authorize()`. */

@@ -467,7 +467,7 @@ export interface EventDetailsMap {
   "context:stopping": { reason?: unknown };
   /**
    * Shutdown finished. `forced` is true when stage one did not drain inside
-   * `shutdown.timeoutMs` and in-flight execution was abandoned, with
+   * `shutdown.timeout` and in-flight execution was abandoned, with
    * `pending` naming the routes that still had work. A clean stop carries
    * `forced: false` and an empty `pending`, so the shape is stable and a
    * subscriber can count forced shutdowns without reading exit codes.
@@ -948,7 +948,7 @@ export interface EventDetailsMap {
   "route:operation:debounce:dropped": ExchangeScoped & {
     key?: string;
   };
-  /** The quiet window (or `maxWaitMs` cap) elapsed; the last held exchange is released downstream. */
+  /** The quiet window (or `maxWait` cap) elapsed; the last held exchange is released downstream. */
   "route:operation:debounce:released": ExchangeScoped & {
     key?: string;
     /**

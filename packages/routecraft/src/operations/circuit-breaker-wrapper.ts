@@ -7,6 +7,7 @@ import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
+import { rejectStaleOptions } from "../shared/stale-options.ts";
 import { defaultRetryOn } from "./retry-wrapper.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 
@@ -131,6 +132,7 @@ export interface ResolvedCircuitBreakerOptions {
 export function resolveCircuitBreakerOptions(
   options: CircuitBreakerOptions,
 ): ResolvedCircuitBreakerOptions {
+  rejectStaleOptions(options, "circuitBreaker");
   const {
     failureThreshold,
     window = 60_000,

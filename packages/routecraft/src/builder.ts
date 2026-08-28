@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type Duration, parseDuration } from "./shared/duration.ts";
+import { rejectStaleOptions } from "./shared/stale-options.ts";
 import {
   isCronCadence,
   MANUAL_REFRESH,
@@ -895,6 +896,7 @@ export class RouteBuilder<
    * ```
    */
   batch(options?: { size?: number; flushInterval?: Duration }): PreFromBuilder {
+    rejectStaleOptions(options, "batch");
     const mapped = {
       size: options?.size,
       time:
@@ -1783,7 +1785,7 @@ export class RouteBuilder<
    *
    * Each arrival is held (not passed downstream) and resets a `waitMs` quiet
    * timer; a newer arrival supersedes and drops the one being held. When the
-   * timer fires (or the optional `maxWaitMs` cap elapses from the burst's
+   * timer fires (or the optional `maxWait` cap elapses from the burst's
    * start, guaranteeing progress under continuous activity), the held
    * exchange is released through the steps after `.debounce()`. An optional
    * `key` selector debounces independently per group.
@@ -1795,7 +1797,7 @@ export class RouteBuilder<
    * rather than being lost. State is per-route; it is a route-scope operation
    * and is deliberately not available inside a fan-out path.
    *
-   * @param options - `{ waitMs }`, plus optional `key` selector and `maxWaitMs` cap
+   * @param options - `{ wait }`, plus optional `key` selector and `maxWait` cap
    * @returns This RouteBuilder, body type unchanged
    *
    * @example

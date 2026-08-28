@@ -27,6 +27,30 @@ describe("route enablement", () => {
   });
 
   /**
+   * @case A disabled direct() route has no dispatch door
+   * @preconditions Two direct()-sourced routes in one context, one carrying a false predicate
+   * @expectedResult The enabled endpoint is the only capability, and a dispatch naming the disabled one is refused rather than parked. Enablement is a deployment switch, so being off keeps every caller out; it is not a per-caller check, which is what .authorize() is for
+   */
+  test("refuses a dispatch to a disabled direct route", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("off")
+          .enabled(() => "nope")
+          .from(direct())
+          .to(noop()),
+        craft().id("on").from(direct()).to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    expect(t.ctx.capabilities().map((c) => c.endpoint)).toEqual(["on"]);
+    await expect(t.client.sendDirect("off", { a: 1 })).rejects.toThrow(
+      /No direct channel for endpoint "off"/,
+    );
+  });
+
+  /**
    * @case A route whose predicate returns a reason string is registered but never started
    * @preconditions One route with a false predicate and one without any predicate, in the same context
    * @expectedResult Both routes are registered; only the enabled one produced work, and the disabled one reports its reason
@@ -776,5 +800,34 @@ describe("route enablement", () => {
     expect(t.ctx.isRouteEnabled("flapping")).toBe(true);
     // The run that is live must not be carrying an aborted execution signal.
     expect(t.ctx.getRouteById("flapping")?.signal.aborted).toBe(false);
+  });
+
+  /**
+   * @case A throwing predicate is logged at the boundary with the raw error
+   * @preconditions A route whose predicate throws, in a context whose logger is spied
+   * @expectedResult An error-level line carries the route id and the err object, so the stack survives somewhere. The reason string keeps only the message, so without this log a broken predicate is indistinguishable from a deliberately-off route
+   */
+  test("logs a throwing predicate at the boundary", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("explodes")
+          .enabled(() => {
+            throw new Error("vault unreachable");
+          })
+          .from(direct())
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    const logged = t.logger.error.mock.calls.some(
+      (call: unknown[]) =>
+        typeof call[0] === "object" &&
+        call[0] !== null &&
+        (call[0] as { route?: string }).route === "explodes" &&
+        (call[0] as { err?: unknown }).err instanceof Error,
+    );
+    expect(logged).toBe(true);
   });
 });

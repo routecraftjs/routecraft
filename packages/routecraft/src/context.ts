@@ -1,4 +1,5 @@
 import { type Duration, parseDuration } from "./shared/duration.ts";
+import { rejectStaleOptions } from "./shared/stale-options.ts";
 import {
   isLiveCadence,
   RouteEnablementCoordinator,
@@ -195,6 +196,22 @@ function resolveShutdownTimeout(timeout: Duration | undefined): number {
       message: `shutdown.timeout must be a positive number of milliseconds or a duration string like "30s". Received ${JSON.stringify(timeout)}. Omit it to use the ${String(DEFAULT_SHUTDOWN_TIMEOUT_MS)}ms default.`,
     });
   }
+}
+
+/**
+ * Refuse pre-0.7 `Ms`-suffixed names on the config's authored durations.
+ *
+ * Checked here rather than in `defineConfig()`, which is an optional typing
+ * helper: a config object handed straight to the context would otherwise
+ * skip the guard entirely, and a `shutdown.timeoutMs` that means nothing is
+ * a 30-second default nobody asked for.
+ */
+function rejectStaleConfig(config: CraftConfig): void {
+  rejectStaleOptions(config.shutdown, "shutdown");
+  for (const [name, server] of Object.entries(config.servers ?? {})) {
+    rejectStaleOptions(server, `servers.${name}`);
+  }
+  rejectStaleOptions(config.telemetry?.sqlite, "telemetry.sqlite");
 }
 
 /** Shared empty set, so the no-predicate boot path allocates nothing. */
@@ -446,6 +463,7 @@ export class CraftContext {
    */
   constructor(config?: CraftConfig) {
     setBrand(this, BRAND.CraftContext);
+    if (config !== undefined) rejectStaleConfig(config);
     if (config?.name !== undefined) this.name = config.name;
     this.shutdownTimeoutMs = resolveShutdownTimeout(config?.shutdown?.timeout);
     this.logger = logger.child(childBindings(this));
@@ -1657,19 +1675,24 @@ export class CraftContext {
     route: Route,
     graceMs?: number | null,
   ): Promise<boolean> {
-    // An unbounded wait has no deadline arm at all, so nothing can report
-    // `false` and the caller never forces.
-    if (graceMs === null) {
-      try {
-        await route.drain();
-      } catch (err) {
+    // A drain that threw is a route that is no longer working, which is
+    // what the caller wanted; the failure belongs to the route's own error
+    // path, not to the flag flip that asked it to stop.
+    const drained = route.drain().then(
+      () => true as const,
+      (err: unknown) => {
         this.logger.warn(
           { route: route.definition.id, err },
           "Route drain threw while it was being disabled; treating it as drained",
         );
-      }
-      return true;
-    }
+        return true as const;
+      },
+    );
+
+    // An unbounded wait has no deadline arm at all, so nothing can report
+    // `false` and the caller never forces.
+    if (graceMs === null) return drained;
+
     const boundMs = graceMs ?? this.shutdownTimeoutMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<false>((resolve) => {
@@ -1677,16 +1700,7 @@ export class CraftContext {
       timer.unref?.();
     });
     try {
-      return await Promise.race([route.drain().then(() => true), deadline]);
-    } catch (err) {
-      // A drain that threw is a route that is no longer working, which is
-      // what the caller wanted; the failure belongs to the route's own
-      // error path, not to the flag flip that asked it to stop.
-      this.logger.warn(
-        { route: route.definition.id, err },
-        "Route drain threw while it was being disabled; treating it as drained",
-      );
-      return true;
+      return await Promise.race([drained, deadline]);
     } finally {
       if (timer) clearTimeout(timer);
     }

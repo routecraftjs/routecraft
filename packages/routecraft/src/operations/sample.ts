@@ -1,4 +1,5 @@
 import { type Duration, parseDuration } from "../shared/duration.ts";
+import { rejectStaleOptions } from "../shared/stale-options.ts";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
@@ -70,6 +71,8 @@ export function resolveSampleOptions(
   if (typeof options !== "object" || options === null) {
     throw rcError("RC5003", undefined, { message: exclusiveMessage });
   }
+
+  rejectStaleOptions(options, "sample");
 
   const { every, interval } = options;
 

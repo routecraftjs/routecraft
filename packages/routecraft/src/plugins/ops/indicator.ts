@@ -9,6 +9,7 @@
  */
 
 import { parseDuration } from "../../shared/duration.ts";
+import { rejectStaleOptions } from "../../shared/stale-options.ts";
 import { rcError } from "../../error";
 import type { CraftContext } from "../../context";
 import type { HealthState } from "./state";
@@ -143,6 +144,7 @@ export function defineIndicator(definition: IndicatorDefinition): Indicator {
   // Parsed for its refusal, not its value: the resolved milliseconds are
   // computed again where the indicator registers. Validating here is what
   // makes a malformed duration fail at definition rather than at boot.
+  rejectStaleOptions(definition, `defineIndicator("${definition.name}")`);
   if (definition.maxAge !== undefined) {
     try {
       parseDuration(definition.maxAge, "maxAge");

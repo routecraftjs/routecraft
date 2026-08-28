@@ -50,6 +50,14 @@ The agent tool list is derived from what the context has enabled, so a disabled 
 ctx.capabilities() // the disabled route's endpoint is absent
 ```
 
+<Callout type="warning" title="Not an access check">
+
+`.enabled()` is a deployment switch, not an access check. The predicate runs at boot and on the refresh cadence, never per exchange, so it does not know who is calling and cannot answer differently for two callers. It decides whether the route runs at all; once it is on, every caller that reaches the route is treated the same.
+
+So a route being off keeps everyone out, and a route being on lets everyone in who could otherwise reach it. Use [`.authorize()`](/docs/reference/operations/authorize) for the per-caller boundary. The two compose: `.enabled()` for whether this deployment should be running the route, `.authorize()` for who may use it once it is.
+
+</Callout>
+
 ## Refresh cadence
 
 ```ts

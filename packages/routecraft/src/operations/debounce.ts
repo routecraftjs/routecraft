@@ -10,6 +10,7 @@ import {
 } from "../exchange.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
+import { rejectStaleOptions } from "../shared/stale-options.ts";
 import { rcError } from "../error.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 
@@ -65,6 +66,7 @@ export function resolveDebounceOptions(
       message: "debounce() requires an options object with a `wait`.",
     });
   }
+  rejectStaleOptions(options, "debounce");
   const { wait, maxWait, key } = options;
   // Defend JS callers and widened values: a non-function `key` would pass
   // the build and then throw a raw TypeError on every exchange. Mirrors the
@@ -158,7 +160,7 @@ export interface DebounceAdapter extends Adapter {
  *
  * Each arrival is held (not passed downstream) and resets a `waitMs` quiet
  * timer; a newer arrival in the same group supersedes and drops the one being
- * held. When the timer finally fires (or the optional `maxWaitMs` cap elapses
+ * held. When the timer finally fires (or the optional `maxWait` cap elapses
  * from the burst's start, guaranteeing progress under continuous activity),
  * the held exchange is released through the steps that follow `.debounce()`.
  * An optional `key` selector debounces independently per group.

@@ -171,6 +171,7 @@ export function isCronCadence(refresh: RefreshCadence): boolean {
  */
 export async function evaluateEnablement(
   enablement: RouteEnablement,
+  onThrow?: (err: unknown) => void,
 ): Promise<EnablementState> {
   try {
     const verdict = await enablement.predicate();
@@ -194,6 +195,12 @@ export async function evaluateEnablement(
       reason: `the route's enabled() predicate returned ${typeof verdict}, which is not a boolean or a reason string`,
     };
   } catch (err) {
+    // This is a BOUNDARY in the sense of `.standards/error-and-logging-policy.md`:
+    // user code threw, and it is handled here rather than re-thrown. The
+    // reason string keeps only the message, so the caller is handed the raw
+    // error to log; without that the stack is lost and a broken predicate is
+    // indistinguishable from a deliberately-off route in the logs.
+    onThrow?.(err);
     const message =
       err instanceof Error ? err.message : String(err ?? "unknown error");
     return {
@@ -321,7 +328,10 @@ export class RouteEnablementCoordinator<
       declaring.map(async (route) => {
         const enablement = route.definition.enablement;
         if (!enablement) return;
-        const state = await evaluateEnablement(enablement);
+        const state = await evaluateEnablement(
+          enablement,
+          this.#logPredicateThrow(route),
+        );
         this.#record(route, state);
       }),
     );
@@ -415,7 +425,10 @@ export class RouteEnablementCoordinator<
     if (this.#stopped) {
       return this.#states.get(route.definition.id) ?? { enabled: true };
     }
-    const next = await evaluateEnablement(enablement);
+    const next = await evaluateEnablement(
+      enablement,
+      this.#logPredicateThrow(route),
+    );
     // Re-checked after the predicate: it is user code of unbounded duration,
     // so a shutdown can complete while it runs. Without this a slow predicate
     // resolving after `context:stopped` restarts the route behind the
@@ -523,6 +536,25 @@ export class RouteEnablementCoordinator<
           "Route was re-enabled but failed to start",
         );
     }
+  }
+
+  /**
+   * The boundary log for a throwing `.enabled()` predicate.
+   *
+   * `error` level with `{ route, err }`, matching the agent tool policy
+   * predicate row in `.standards/error-and-logging-policy.md`: both are user
+   * code the framework calls and handles rather than propagates, and in both
+   * the raw error is only ever seen here.
+   */
+  #logPredicateThrow(route: R): (err: unknown) => void {
+    return (err) => {
+      this.deps
+        .logger()
+        .error(
+          { route: route.definition.id, err },
+          "Route enabled() predicate threw; the route is left disabled",
+        );
+    };
   }
 
   /** Store the state and announce a genuine change. */

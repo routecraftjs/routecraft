@@ -216,16 +216,25 @@ curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/routes'
     {
       "id": "greet",
       "dispatchable": true,
+      "enabled": true,
       "sources": ["direct"],
       "requiresPrincipal": false,
       "title": "Greeter",
       "description": "Says hello to whoever asks"
     },
-    { "id": "nightly", "dispatchable": false, "sources": ["cron"], "requiresPrincipal": false }
+    {
+      "id": "nightly",
+      "dispatchable": false,
+      "enabled": false,
+      "sources": ["cron"],
+      "requiresPrincipal": false
+    }
   ],
   "nextCursor": "eyJhZnRlciI6Im5pZ2h0bHkiLCJmaWx0ZXIiOiJbbnVsbCxudWxsLG51bGxdIn0"
 }
 ```
+
+**`dispatchable` and `enabled` are different questions.** `dispatchable` asks whether the route has a door at all; `enabled` asks whether its [`.enabled()`](/docs/reference/operations/enabled) predicate currently says yes. A disabled route stays in this listing, is absent from the agent tool surface, and reports `disabled` on the health endpoint rather than `failed`, so an operator can tell "switched off on purpose" from "broken".
 
 **Not every route is dispatchable.** A `direct()` ingress makes the route id into a door; a cron-, mail- or http-sourced route runs from its own trigger and has none. That is a fact about the route, so it rides on the representation rather than splitting the collection in two, and a dispatch against a route without a door is refused distinguishably with [`RC5060`](/docs/reference/errors#rc-5060).
 

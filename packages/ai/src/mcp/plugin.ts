@@ -3,6 +3,7 @@ import {
   type CraftPlugin,
   type EventName,
   parseDuration,
+  rejectStaleOptions,
 } from "@routecraft/routecraft";
 import { McpServer } from "./server.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
@@ -39,6 +40,7 @@ function isStdioConfig(config: ClientConfig): config is McpClientStdioConfig {
  * Required when any route uses .from(mcp(...)); the route will fail at start if this plugin is not applied.
  */
 export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
+  rejectStaleOptions(options, "mcpPlugin");
   validateMcpPluginOptions(options);
 
   let server: McpServer | null = null;

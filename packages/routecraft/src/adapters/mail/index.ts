@@ -3,6 +3,7 @@ import type { Destination } from "../../operations/to.ts";
 import type { Enricher } from "../../operations/enrich.ts";
 import { rcError } from "../../error.ts";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag.ts";
+import { rejectStaleOptions } from "../../shared/stale-options.ts";
 import { withAdapterIdentity } from "../shared/role-facade.ts";
 import { MailSourceAdapter } from "./source.ts";
 import { MailEnricherAdapter } from "./enricher.ts";
@@ -143,6 +144,18 @@ export function mail(
   folderOrOptions?: string | MailServerOptions | MailClientOptions | MailAction,
   options?: MailServerOptions,
 ): MailFolderAdapter | Destination<MailSendPayload> | Destination<unknown> {
+  // Both argument positions can carry options, and `reconnect` is the one
+  // nested object with authored durations of its own.
+  for (const candidate of [folderOrOptions, options]) {
+    rejectStaleOptions(candidate, "mail");
+    if (candidate !== undefined && typeof candidate === "object") {
+      rejectStaleOptions(
+        (candidate as { reconnect?: unknown }).reconnect,
+        "mail({ reconnect })",
+      );
+    }
+  }
+
   const args = factoryArgs(folderOrOptions, options);
 
   // A folder string names a folder to READ; whether that read streams

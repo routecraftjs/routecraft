@@ -51,7 +51,7 @@ describe('send-email capability', () => {
 
 ### `testContext(options?)`
 
-Returns a builder. Call `.routes(...).build()` to get a `TestContext`. Options include `fn` (your runner's mock factory, for native matcher support on `t.logger`) and `routesReadyTimeoutMs`.
+Returns a builder. Call `.routes(...).build()` to get a `TestContext`. Options include `fn` (your runner's mock factory, for native matcher support on `t.logger`) and `routesReadyTimeout` (a `Duration`, so `5000` or `"5s"`).
 
 ### `TestContext`
 
@@ -77,7 +77,7 @@ await t.stop();
 
 ### Options
 
-- **`TestContextOptions`** -- Builder options, e.g. `routesReadyTimeoutMs`.
+- **`TestContextOptions`** -- Builder options, e.g. `routesReadyTimeout`.
 - **`TestOptions`** -- Options for `test()`, e.g. `delayBeforeDrain` -- useful for timer-based capabilities so at least one message is processed before drain.
 
 ```typescript
