@@ -2,6 +2,7 @@ import {
   CraftClient,
   HeadersKeys,
   isAuthentic,
+  isInternalEndpoint,
   markAuthentic,
   rcError,
   type Capability,
@@ -139,6 +140,14 @@ function readDirectRoute(
   const capabilities = ctx.capabilities();
   const route = capabilities.find((c) => c.endpoint === routeId);
   if (!route) {
+    // An internal route is absent from the capability registry on purpose,
+    // so "unknown route id" would be a lie and "register it" wrong advice.
+    // This fails context.start(), the same moment a missing route does.
+    if (isInternalEndpoint(ctx, routeId)) {
+      throw rcError("RC5003", undefined, {
+        message: `directTool: route "${routeId}" is declared internal (direct({ internal: true })) and cannot be exposed as a tool (referenced as fn "${fnId}"). Expose a boundary route carrying .input(), .description() and .authorize() instead, and point the tool at that.`,
+      });
+    }
     const known = capabilities.map((c) => c.endpoint).sort();
     throw rcError("RC5003", undefined, {
       message:

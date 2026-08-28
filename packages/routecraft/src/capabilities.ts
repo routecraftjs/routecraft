@@ -60,6 +60,60 @@ export function registerCapability(
 }
 
 /**
+ * Core-owned store key for endpoints declared internal, keyed by RAW
+ * endpoint. Same ownership inversion as {@link CAPABILITY_REGISTRY}:
+ * adapters write, consumers read without knowing which adapter wrote.
+ *
+ * A `direct({ internal: true })` source registers here INSTEAD of the
+ * capability registry: its in-process endpoint works unchanged, while the
+ * two external doors (ops dispatch, agent `directTool` resolution) find
+ * no capability. This set is what lets their refusals say "declared
+ * internal" instead of the wrong advice "add `.from(direct())`" for a
+ * route that has one.
+ *
+ * @internal The set shape is internal; write via
+ *   {@link registerInternalEndpoint} and read via {@link isInternalEndpoint}.
+ */
+export const INTERNAL_ENDPOINT_REGISTRY = Symbol.for(
+  "routecraft.capabilities.internal",
+);
+
+declare module "@routecraft/routecraft" {
+  interface StoreRegistry {
+    [INTERNAL_ENDPOINT_REGISTRY]: Set<string>;
+  }
+}
+
+/**
+ * Record that an endpoint declared itself internal: composable in-process,
+ * deliberately absent from the capability registry. Called by adapters at
+ * subscribe, alongside where they would otherwise register a capability.
+ */
+export function registerInternalEndpoint(
+  context: CraftContext,
+  endpoint: string,
+): void {
+  let registry = context.getStore(INTERNAL_ENDPOINT_REGISTRY);
+  if (!registry) {
+    registry = new Set<string>();
+    context.setStore(INTERNAL_ENDPOINT_REGISTRY, registry);
+  }
+  registry.add(endpoint);
+}
+
+/**
+ * Whether an endpoint declared itself internal. Read by the external doors
+ * (ops dispatch, agent tool resolution) to refuse by name rather than with
+ * advice that does not apply.
+ */
+export function isInternalEndpoint(
+  context: CraftContext,
+  endpoint: string,
+): boolean {
+  return context.getStore(INTERNAL_ENDPOINT_REGISTRY)?.has(endpoint) ?? false;
+}
+
+/**
  * Copy a capability, cloning the mutable `tags` array so neither the
  * registering adapter nor a `capabilities()` caller can mutate the
  * registry's copy (or vice versa) through a shared reference. Schemas

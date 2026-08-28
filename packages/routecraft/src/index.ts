@@ -66,7 +66,12 @@ export {
   type ShutdownOutcome,
   type TeardownInfo,
 } from "./context.ts";
-export { type Capability, registerCapability } from "./capabilities.ts";
+export {
+  type Capability,
+  isInternalEndpoint,
+  registerCapability,
+  registerInternalEndpoint,
+} from "./capabilities.ts";
 export { defineConfig } from "./define-config.ts";
 export { registerConfigApplier, type ConfigApplier } from "./config-applier.ts";
 export {

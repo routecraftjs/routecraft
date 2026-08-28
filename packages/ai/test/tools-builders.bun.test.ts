@@ -576,6 +576,33 @@ describe("tool builders - a deferred tool is not a lesser tool", () => {
   });
 
   /**
+   * @case A tool naming an internal route fails the boot with the boundary-route guidance
+   * @preconditions A route with direct({ internal: true }) carrying .description() and .input(), and a directTool naming it
+   * @expectedResult context.start() rejects naming internal-ness and the boundary-route remedy, not the "unknown route id" advice: the route exists and adding metadata would not make it a tool
+   */
+  test("a tool naming an internal route fails startup with the boundary guidance", async () => {
+    const built = await testContext()
+      .with({
+        plugins: [
+          agentPlugin({ functions: { Hidden: directTool("subroutine") } }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("subroutine")
+          .description("Trusting subroutine")
+          .input({ body: z.object({ n: z.number() }) })
+          .from(direct({ internal: true }))
+          .transform((body) => body),
+      ])
+      .build();
+    await expect(built.ctx.start()).rejects.toThrow(
+      /internal.*boundary route/s,
+    );
+    await built.stop();
+  });
+
+  /**
    * @case A route failure behind a deferred tool reaches the caller as an ordinary route error
    * @preconditions Bash granted over a route whose input schema rejects the call
    * @expectedResult The handler rejects rather than returning, with no deferred-tool special casing in the failure
