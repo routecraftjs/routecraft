@@ -9,7 +9,7 @@ import {
   type EventName,
   type HttpPluginOptions,
 } from "@routecraft/routecraft";
-import { encodeSseFrame } from "../src/plugins/http/sse.ts";
+import { encodeSseFrame, streamResponseBody } from "../src/plugins/http/sse.ts";
 
 const decoder = new TextDecoder();
 
@@ -165,6 +165,86 @@ describe("SSE frame encoding", () => {
   });
 });
 
+describe("stream body teardown", () => {
+  /**
+   * @case A signal already aborted before the body is wired still cancels the source
+   * @preconditions streamResponseBody is handed an AbortSignal that has already fired
+   * @expectedResult The source is cancelled and onEnd fires, rather than the route's producer being left running
+   */
+  test("an already-aborted signal cancels the source", async () => {
+    let returned = false;
+    let ended = false;
+    const iterable = {
+      async *[Symbol.asyncIterator]() {
+        try {
+          yield { data: "one" };
+        } finally {
+          returned = true;
+        }
+      },
+    };
+    const controller = new AbortController();
+    controller.abort(new Error("gone before wiring"));
+
+    streamResponseBody(iterable, {
+      signal: controller.signal,
+      onEnd: () => {
+        ended = true;
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(ended).toBe(true);
+    // The generator never started, so its finally never runs; what matters is
+    // that cancellation was attempted rather than silently skipped.
+    expect(returned).toBe(false);
+  });
+
+  /**
+   * @case A route whose cleanup rejects does not take the process down
+   * @preconditions Generator's finally throws; the client aborts mid-stream
+   * @expectedResult The rejection reaches onCleanupError instead of escaping as an unhandled rejection that ends the process
+   */
+  test("a rejecting cleanup is reported, not thrown at the runtime", async () => {
+    let reported: unknown;
+    // Hand-rolled rather than a generator: what the pump actually sees is
+    // `return()` rejecting, and writing it directly says so without a throw
+    // inside a finally.
+    const iterable: AsyncIterable<unknown> = {
+      [Symbol.asyncIterator]() {
+        let sent = false;
+        return {
+          next: async () => {
+            if (sent) return await new Promise<never>(() => {});
+            sent = true;
+            return { done: false, value: { data: "one" } };
+          },
+          return: async () => {
+            throw new Error("cleanup failed");
+          },
+        };
+      },
+    };
+    const controller = new AbortController();
+    const body = streamResponseBody(iterable, {
+      signal: controller.signal,
+      onEnd: () => {},
+      onCleanupError: (error) => {
+        reported ??= error;
+      },
+    });
+    const reader = body.getReader();
+    await reader.read();
+    controller.abort(new Error("client gone"));
+
+    const deadline = Date.now() + 1000;
+    while (reported === undefined && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(reported).toBeInstanceOf(Error);
+    expect((reported as Error).message).toBe("cleanup failed");
+  });
+});
+
 describe("HTTP streaming responses", () => {
   let t: TestContext | undefined;
 
@@ -310,6 +390,82 @@ describe("HTTP streaming responses", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     expect(closed).toBe(true);
+  });
+
+  /**
+   * @case A cased Content-Type override replaces the header rather than duplicating it
+   * @preconditions Route sets routecraft.http.response.headers with "Content-Type" in mixed case
+   * @expectedResult One content-type on the wire, and no SSE preamble on a body the route declared as ndjson
+   */
+  test("a differently-cased content-type override wins cleanly", async () => {
+    const bound = await boot({
+      routes: craft()
+        .id("cased")
+        .from(http({ path: "/cased", method: "GET" }))
+        .process(async (ex) =>
+          DefaultExchange.rewrap(ex, {
+            headers: {
+              ...ex.headers,
+              "routecraft.http.response.headers": {
+                "Content-Type": "application/x-ndjson",
+              },
+            },
+          }),
+        )
+        .transform(async function* () {
+          yield '{"n":1}\n';
+        })
+        .to(noop()),
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/cased`);
+    expect(res.headers.get("content-type")).toBe("application/x-ndjson");
+    expect(await readAll(res)).toBe('{"n":1}\n');
+  });
+
+  /**
+   * @case A stream that breaks mid-flight is not reported as a success
+   * @preconditions Generator throws after its first frame is already on the wire
+   * @expectedResult The completed event carries the failure, so an operator cannot score it as a 200
+   */
+  test("a mid-stream failure rides the completed event", async () => {
+    const events: Array<{
+      path: string;
+      error?: { name: string; message: string };
+    }> = [];
+    const bound = await boot({
+      routes: craft()
+        .id("breaks")
+        .from(http({ path: "/breaks", method: "GET" }))
+        .transform(async function* () {
+          yield { data: "one" };
+          throw new Error("producer gave up");
+        })
+        .to(noop()),
+      events: {
+        "plugin:http:request:completed": (ev) => {
+          events.push(
+            ev.details as {
+              path: string;
+              error?: { name: string; message: string };
+            },
+          );
+        },
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/breaks`);
+    await res.body?.cancel().catch(() => {});
+
+    const deadline = Date.now() + 2000;
+    while (!events.some((e) => e.path === "/breaks") && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const completed = events.find((e) => e.path === "/breaks");
+    expect(completed).toBeDefined();
+    expect(completed!.error?.message).toBe("producer gave up");
   });
 
   /**

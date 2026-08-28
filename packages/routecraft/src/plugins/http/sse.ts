@@ -175,6 +175,13 @@ export interface StreamBodyOptions {
    * `durationMs` span request receipt to stream end.
    */
   onEnd: (error?: unknown) => void;
+  /**
+   * Called when tearing the source down fails, which is separate from the
+   * body ending. Cancelling runs the route's own cleanup, and a cleanup that
+   * throws is the route's bug: it must be reported, but it cannot change a
+   * response that has already been delivered and closed out.
+   */
+  onCleanupError?: (error: unknown) => void;
 }
 
 /**
@@ -208,11 +215,34 @@ export function streamResponseBody(
     options.signal.removeEventListener("abort", onAbort);
     options.onEnd(error);
   };
+  /**
+   * Tear down the source without letting its failure escape.
+   *
+   * Cancelling runs the route's own cleanup: `iterator.return()` lands in a
+   * generator's `finally`, which is exactly where an author writes
+   * `await conn.close()`. A rejection from that had nothing to catch it, and
+   * an unhandled rejection ends the process on both runtimes, so one client
+   * disconnecting from a route whose cleanup failed took the server down.
+   * Reported rather than discarded, and on its own channel: by the time a
+   * cancel settles the body has already ended, so `onEnd` has fired and the
+   * request is closed out. A cleanup that fails afterwards is the route's,
+   * not the response's.
+   */
+  const cancelSource = (reason: unknown): void => {
+    void Promise.resolve(source.cancel(reason)).catch((error: unknown) => {
+      options.onCleanupError?.(error);
+    });
+  };
   function onAbort(): void {
-    void source.cancel(options.signal.reason);
+    cancelSource(options.signal.reason);
     end();
   }
   options.signal.addEventListener("abort", onAbort, { once: true });
+  // An abort that landed before this wiring never invokes the listener, and
+  // a runtime under no obligation to read a body it has given up on (Bun,
+  // where the response is neither pulled nor cancelled) then leaves the
+  // route's source running with nothing to stop it.
+  if (options.signal.aborted) onAbort();
 
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -224,6 +254,7 @@ export function streamResponseBody(
       // The client may have gone while this stream sat in the queue, in
       // which case no cancel is coming and the pump has to notice itself.
       if (options.signal.aborted) {
+        cancelSource(options.signal.reason);
         controller.close();
         end();
         return;
@@ -245,9 +276,13 @@ export function streamResponseBody(
         end(error);
       }
     },
-    async cancel(reason) {
-      await source.cancel(reason);
+    cancel(reason) {
+      // Ended before the teardown, not after: `return()` into a generator
+      // parked on an inner await sits behind that pending `next()`, and the
+      // request's completion must not wait on something that may never
+      // settle. Not awaited for the same reason.
       end();
+      cancelSource(reason);
     },
   });
 }

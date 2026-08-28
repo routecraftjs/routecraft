@@ -30,6 +30,8 @@ export type RequestCompletedHandler = (event: {
   durationMs: number;
   routeId?: string;
   principal?: Pick<Principal, "subject"> | undefined;
+  /** Set when a streaming body failed after its status line was sent. */
+  error?: { name: string; message: string };
 }) => void;
 
 /** Synthetic handler for built-in endpoints (/health, /ready, /openapi.json). */
@@ -377,6 +379,12 @@ export function createDispatcher(
         const body = streamResponseBody(plan.body, {
           signal: anySignal(req.signal, opts.shutdownSignal),
           preamble: plan.preamble,
+          onCleanupError: (error) => {
+            log.error(
+              { err: error, routeId: entry.routeId, method, path: pathname },
+              "http source: streaming route failed to clean up after the response ended",
+            );
+          },
           onEnd: (error) => {
             if (error !== undefined) {
               log.error(
@@ -391,6 +399,15 @@ export function createDispatcher(
               durationMs: ms(started),
               routeId: entry.routeId,
               principal: principal ? { subject: principal.subject } : undefined,
+              ...(error !== undefined
+                ? {
+                    error: {
+                      name: error instanceof Error ? error.name : "Error",
+                      message:
+                        error instanceof Error ? error.message : String(error),
+                    },
+                  }
+                : {}),
             });
           },
         });
@@ -492,7 +509,7 @@ function planStream(
   if (!raw && !isAsyncIterable(body)) return undefined;
 
   const hint = readResponseHint(headers);
-  const extraHeaders = hint.headers ?? {};
+  const extraHeaders = lowerCaseKeys(hint.headers);
   const responseHeaders = raw
     ? {
         "content-type": hint.contentType ?? "application/octet-stream",
@@ -503,9 +520,6 @@ function planStream(
         "cache-control": SSE_CACHE_CONTROL,
         ...extraHeaders,
       };
-  const contentType = Object.entries(responseHeaders).find(
-    ([name]) => name.toLowerCase() === "content-type",
-  )?.[1];
   return {
     body: body as AsyncIterable<unknown> | ReadableStream<Uint8Array>,
     status: hint.status ?? 200,
@@ -513,8 +527,29 @@ function planStream(
     // Conditioned on the content type rather than on the body type, because
     // the comment is only legal in an event stream. A route that named a
     // different format owns its bytes from the first one.
-    preamble: contentType?.startsWith("text/event-stream") === true,
+    preamble:
+      responseHeaders["content-type"]?.startsWith("text/event-stream") === true,
   };
+}
+
+/**
+ * Lower-case a header override's keys so the spread that follows genuinely
+ * overrides.
+ *
+ * HTTP header names are case-insensitive and object keys are not, so a route
+ * spelling an override `Content-Type` used to add a second key beside the
+ * framework's own `content-type`. `Headers` then joined the two values into
+ * one nonsensical field, and the streaming arm additionally read the wrong
+ * one when deciding whether to open with the SSE comment, prepending bytes
+ * to a body the route had declared as something else.
+ */
+function lowerCaseKeys(
+  headers: Readonly<Record<string, string>> | undefined,
+): Record<string, string> {
+  if (headers === undefined) return {};
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]),
+  );
 }
 
 /**
@@ -523,7 +558,9 @@ function planStream(
  */
 function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
   const hint = readResponseHint(headers);
-  const extraHeaders = hint.headers ?? {};
+  // Same normalisation as the streaming arm: a differently-cased override
+  // otherwise duplicates the header rather than replacing it.
+  const extraHeaders = lowerCaseKeys(hint.headers);
 
   // A parked exchange answers 202 with the acknowledgment as its body. HTTP
   // is the one transport with an out-of-band status channel, so the status
