@@ -131,3 +131,12 @@ export {
 
 // HS256 token minting, so suites exercising the JWT validator share one signer
 export { signHs256, type SignHs256Options } from "./jwt";
+
+// Re-export http server test helpers
+export {
+  bootServer,
+  readUntil,
+  readUntilClosed,
+  waitFor,
+  type BootedServer,
+} from "./http-context";

@@ -109,6 +109,7 @@ export type {
   WebIngress,
 } from "./plugins/server/types.ts";
 export { apiKey } from "./plugins/http/auth.ts";
+export type { SseEvent } from "./plugins/http/sse.ts";
 
 export { opsPlugin } from "./plugins/ops/plugin.ts";
 export { defineIndicator } from "./plugins/ops/indicator.ts";
@@ -142,6 +143,7 @@ export type {
   OpsRouteFilter,
   OpsRouteQuery,
   OpsRouteSchemas,
+  OpsEventTailItem,
   OpsRouteSummary,
   OpsTier,
   OpsTiers,
@@ -149,6 +151,7 @@ export type {
 } from "./plugins/ops/types.ts";
 export {
   OPS_SCOPE_DISPATCH,
+  OPS_SCOPE_EVENTS,
   OPS_SCOPE_INTROSPECTION,
 } from "./plugins/ops/types.ts";
 /** @deprecated Use `CraftConfig.direct` instead. Will be removed in next major version. */
@@ -390,6 +393,7 @@ export { validateAgainst } from "./pipeline/validation.ts";
 export { isStandardSchema } from "./shared/standard-schema.ts";
 export { parseDuration } from "./shared/duration.ts";
 export { rejectStaleOptions } from "./shared/stale-options.ts";
+export { anySignal } from "./shared/abort.ts";
 export { MANUAL_REFRESH, NEVER_FORCE } from "./enablement.ts";
 export type {
   EnablementOptions,

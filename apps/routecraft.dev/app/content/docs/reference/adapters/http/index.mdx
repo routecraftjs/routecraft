@@ -139,13 +139,241 @@ Cap controlled by `http: { maxBodySize?: number }` (default 10 MB). Larger reque
 - string -> `200`, `Content-Type: text/plain; charset=utf-8`.
 - `Uint8Array` / `ArrayBuffer` -> `200`, `Content-Type: application/octet-stream`.
 - object / array -> `200`, `Content-Type: application/json; charset=utf-8`.
-- `ReadableStream` / `AsyncIterable` -> rejected with `RC5018` (SSE deferred to a follow-up).
+- `AsyncIterable` -> `200`, streamed as Server-Sent Events. See [Streaming responses](#streaming-responses-sse).
+- `ReadableStream` -> `200`, streamed as raw chunked bytes with no framing.
 
 Override via the exchange before the response is built:
 
 - `routecraft.http.response.status` -> numeric status (e.g. `201`).
 - `routecraft.http.response.contentType` -> explicit content-type.
 - `routecraft.http.response.headers` -> extra response headers.
+
+### Streaming responses (SSE)
+
+A route whose final body is an `AsyncIterable` answers with
+`Content-Type: text/event-stream; charset=utf-8` and `Cache-Control: no-cache`,
+and each yielded value becomes one SSE frame. There is no `sse()` adapter and
+no separate mode: SSE is an HTTP response, so it is one more row in the table
+above and the whole pre-from chain still applies once, at request entry.
+
+```ts
+craft()
+  .id("order-events")
+  .from(http({ path: "/orders/:id/events", method: "GET" }))
+  .transform(async function* (_, ex) {
+    const { id } = ex.headers["routecraft.http.params"]!;
+    for await (const update of watchOrder(id)) {
+      yield { event: "update", id: update.sequence, data: update };
+    }
+  })
+  .to(noop());
+```
+
+What each yielded value becomes:
+
+| Yielded | On the wire |
+|---|---|
+| object with a `data` property (an `SseEvent`) | An event: `event:`, `id:`, `retry:` and `data:` fields read from it. Other keys are not sent. |
+| any other object, array or primitive | `data: <JSON>`, one frame. |
+| string | Its exact bytes, no framing added. The escape hatch for a hand-built frame, an SSE comment (`": ping\n\n"`), or a different line format entirely. |
+| `Uint8Array` | Its exact bytes, as above. |
+| `undefined` | Nothing, so a producer can skip a tick without branching. |
+
+`data` that is not a string is JSON-encoded; a string with newlines becomes
+several `data:` lines, per the spec. `retry` is sent only when it is a whole
+number of milliseconds. Newlines in `event` and `id` are stripped, because the
+grammar has no escape for them and a value carrying one could otherwise close
+the frame and forge the next.
+
+The stream opens with a `: open` comment. Neither runtime puts the status line
+on the wire before the body's first chunk, so without it a stream that is quiet
+to begin with leaves the client's `fetch` unresolved and an `EventSource`
+without its `open` event. Conforming clients discard comments.
+
+<Callout type="warning">
+
+**Resilience operations apply up to the first byte, and no further.** Once the
+status line is sent, the response cannot be replayed or replaced: `retry()`
+cannot re-run a half-delivered stream, and `timeout()` bounds time to first
+byte rather than the life of the stream. A stream that fails midway ends
+unterminated and the failure is logged; there is no status left to change it
+to. Put per-item error handling inside the producer, not around the route.
+
+</Callout>
+
+#### Raw streams and other formats
+
+A `ReadableStream` is already bytes: it passes through unframed with
+`Content-Type: application/octet-stream` and no cache directive, and the caller
+owns every header. Reach for it when the route has its own wire format.
+
+Framing follows the body type, not the content type. Overriding
+`routecraft.http.response.contentType` to `application/x-ndjson` changes the
+header, not what an iterable of objects turns into, so a route serving ndjson
+yields strings (which pass through verbatim) and writes its own newlines.
+
+#### Reconnection
+
+A reconnecting `EventSource` sends the `Last-Event-ID` header, which arrives on
+the exchange like any other request header, at
+`routecraft.http.rawHeaders["last-event-id"]`. Replay is the route's own
+business: only the route knows what its `id` values mean and how far back it
+can rewind. Set `id` on the frames you want a client to be able to resume from.
+
+#### Bounding open streams
+
+A streaming response is exempt from the listener's idle reaper, which is
+otherwise the only limit on how long a connection may sit open. Two options on
+the server definition put a ceiling back:
+
+```ts
+servers: {
+  public: {
+    port: 3000,
+    shutdownGrace: "30s",
+    idleTimeout: "255s",       // reap window for ordinary connections
+    maxStreamingRequests: 500, // streams this listener carries at once
+  },
+}
+```
+
+`idleTimeout` takes a [`Duration`](/docs/reference/configuration) and defaults
+to `"255s"`, the value that was previously fixed. That is Bun's maximum for a
+per-connection idle timeout, so a larger value is refused at construction
+naming the limit rather than being clamped: a config honoured on Node and
+capped on Bun would mean two different things depending on where it ran.
+
+`maxStreamingRequests` defaults to 500 and answers `503` with `Retry-After`
+once the listener is full. It is a backstop, not a capacity plan. Without it a
+client that opens streams and never reads them walks the process to its
+file-descriptor limit, taking every other in-flight request with it; the cap
+sits below that cliff so an operator gets a clean refusal instead. The number
+is the same kind of number as `maxBodySize`'s 10 MB, which nobody mistakes for
+the right body size.
+
+It counts requests that claim a streaming slot, which is how a route's
+streaming body is admitted here and how the [ops event
+tail](/docs/reference/plugins/opsplugin#tailing-events) is admitted on its
+mount. A surface that declares itself long-lived for every request instead,
+which today means the MCP mount, opts out at mount level and is not counted.
+So the cap bounds the streams this listener admits per request rather than
+every long-lived connection it carries: size it against the other surfaces
+sharing the same listener rather than treating it as the total.
+
+<Callout type="note">
+
+**This is the listener's bound, not a route's.**
+[`.concurrency({ max, mode: "reject" })`](/docs/reference/operations/concurrency)
+is the per-route bound an author opts into, with that route's own semantics.
+The two are complements: the route operation governs a route that chooses it,
+and the listener cap protects the process whatever any route declares,
+including the routes that never thought about it. Reach for `.concurrency()`
+to shape one endpoint's admission, and leave `maxStreamingRequests` as the
+floor nothing falls through.
+
+</Callout>
+
+#### Authority does not outlive the credential
+
+Admission is checked once, when the request arrives. On an ordinary request
+that covers the whole request; on a stream held open for hours it would
+otherwise cover an unbounded window.
+
+So a stream admitted on a principal carrying an expiry closes when that expiry
+passes. There is no attempt at a 401, because one cannot follow a `200` that
+is already on the wire. Closing is enough: an `EventSource` reconnects by
+specification, the reconnect meets ordinary admission, and the refusal comes
+from the path that already answers it. A principal with no expiry is left
+alone, since a credential that does not expire granting a stream that does not
+expire is the operator's choice honoured rather than a gap.
+
+#### Authenticating a browser client
+
+`EventSource` cannot set an `Authorization` header, so a browser consumer
+authenticates with [`apiKey`](/docs/reference/plugins/httpplugin) in query
+mode:
+
+```ts
+http: { auth: apiKey({ in: "query", name: "api_key" }) }
+```
+
+<Callout type="warning">
+
+A query string is not a private channel. It lands in access logs, proxy logs
+and browser history, and it is visible to anything that sees the URL. Issue
+credentials for this channel short-lived and narrowly scoped, and rely on the
+expiry behaviour above to close the stream when they lapse so the client
+reconnects with a fresh one.
+
+</Callout>
+
+#### Keeping a stream alive
+
+A quiet stream has two natural enemies. The listener's own idle reaper is
+handled: a streaming response claims a per-request slot that exempts it, so it
+is not cut short, and that slot is what `maxStreamingRequests` counts. Intermediaries between the client and the process are not, so a route
+that can go minutes without an event should yield an SSE comment periodically.
+Behind nginx, `proxy_buffering off` (or an `X-Accel-Buffering: no` response
+header via the override) stops the proxy holding frames back.
+
+Open streams end when the context begins stopping, so a graceful shutdown does
+not wait out its whole grace window on connections that would have closed on
+request. `plugin:http:request:completed` fires when the stream closes, with
+`status: 200` and a `durationMs` spanning request receipt to stream end.
+
+#### Observing a disconnect
+
+A client that disconnects cancels the route's iterator, visible as a `return()`
+delivered into a generator's `finally` block or as a `for await` loop exiting.
+
+**That return is delivered late for a producer parked on an inner `await`.**
+Async iteration settles a pending step before it delivers a return, so a
+generator sitting on `await nextRowFromTheDatabase()` learns nothing about the
+disconnect until that await resolves on its own. A source that can be quiet for
+minutes therefore holds the run, and the connection's resources, for as long as
+its own next item takes.
+
+The fix is the same periodic wake that keeps the connection alive, so one
+mechanism buys both. Race the slow source against a timer and yield an SSE
+comment when the timer wins: the loop reaches its next `yield`, which is where a
+pending `return()` lands. Hold the source's promise across the race rather than
+starting a fresh one each pass, or a keep-alive tick abandons the event that was
+already in flight.
+
+```ts
+const KEEP_ALIVE = Symbol("keep-alive");
+
+function withWake<T>(pending: Promise<T>, ms: number): Promise<T | typeof KEEP_ALIVE> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const wake = new Promise<typeof KEEP_ALIVE>((resolve) => {
+    timer = setTimeout(() => resolve(KEEP_ALIVE), ms);
+  });
+  return Promise.race([pending, wake]).finally(() => clearTimeout(timer));
+}
+
+craft()
+  .id("slow-feed")
+  .from(http({ path: "/feed", method: "GET" }))
+  .transform(async function* () {
+    let pending = nextEvent();
+    for (;;) {
+      const next = await withWake(pending, 15_000);
+      if (next === KEEP_ALIVE) {
+        yield ": keep-alive\n\n";
+        continue;
+      }
+      pending = nextEvent();
+      yield { event: "update", data: next };
+    }
+  })
+  .to(noop());
+```
+
+The interval bounds how long a disconnected client's run survives it, so pick it
+for the reap you are avoiding rather than making it as long as an intermediary
+allows. The [ops event tail](/docs/reference/plugins/opsplugin#tailing-events) is
+built this way. Neither shipped consumer is exposed: an agent stream aborts its
+run from inside the adapter, and the tail's keep-alive settles its own await.
 
 ### Built-in endpoints
 

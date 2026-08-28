@@ -66,6 +66,8 @@ Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be
 | `tools` | `ToolSelection` | -- | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
 | `principal` | `boolean \| (principal, exchange) => string` | `false` | No | When `true`, append a built-in `## Caller` section to the system prompt describing `exchange.principal` (identity + roles), or stating the request is unauthenticated. Pass a function to render the section yourself. See [Telling the agent who the caller is](#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | -- | No | Schema for structured output. The agent requests provider-level structured output, validates the response, and parses it onto `AgentResult.output` |
+| `stream` | `boolean` | `false` | No | Produce the token deltas instead of the consolidated `AgentResult`. See [Streaming the reply](#streaming-the-reply) |
+| `onDelta` | `(delta) => void \| Promise<void>` | -- | No | Push form of the same streaming run: each token delta goes to this listener and the consolidated result is still returned. Refused alongside `stream` |
 
 **`AgentRegisteredOptions` (entries in `agentPlugin({ agents: {...} })`, for by-name reuse):** same as `AgentOptions` plus:
 
@@ -84,6 +86,28 @@ The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 | `usage.inputTokens` | `number` | Input token count (when reported) |
 | `usage.outputTokens` | `number` | Output token count (when reported) |
 | `usage.totalTokens` | `number` | Total token count (when reported) |
+
+#### Streaming the reply
+
+`stream: true` replaces that result with an `AgentStream`, an async iterable of `AgentDelta` handed over before the run starts. Iterating it is what starts the run, so the first `next()` is where the model begins writing. The [http source frames an async iterable as Server-Sent Events](/docs/reference/adapters/http#streaming-responses-sse), so a token-by-token endpoint is one declarative route:
+
+```typescript
+craft()
+  .id('chat-stream')
+  .input({ body: ChatInput })
+  .from(http({ path: '/chat/stream', method: 'POST' }))
+  .to(
+    agent({
+      system: aria,
+      user: (ex) => (ex.body as z.infer<typeof ChatInput>).message,
+      stream: true,
+    }),
+  );
+```
+
+The queue and the abort that closes it live inside the adapter. Iterating the stream is what drives the run, and abandoning it aborts that run, so a client that disconnects mid-answer stops the model. Custom SSE event names are one ordinary `.transform()` step away; a queue and a wake loop written by hand in a transform are not the way there.
+
+The trade is what a stream cannot carry. `text`, `output`, `usage` and `toolCalls` are consolidated when a run finishes, and a stream is handed over before that. A route that needs both sends the stream to its reader and takes the completed record from the coarse `route:agent:*` events. Under `.enrich()` the stream merges like any other enrichment value. See [the agent plugin's observability channels](/docs/reference/plugins/agentplugin#observability-three-channels) for the full comparison with `onDelta`.
 
 **Resolution semantics:**
 

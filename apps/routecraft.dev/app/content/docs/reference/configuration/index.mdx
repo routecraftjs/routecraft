@@ -177,7 +177,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-Each server accepts `port` (required), `host` (default `127.0.0.1`), `kind` (currently only `http`), an optional validator `auth`, and `shutdownGrace` (default `30000`) bounding the graceful drain on stop. A surface inherits server auth unless it supplies its own `auth`; `auth: false` removes the wall while keeping the inherited validator reachable for routes that pull identity. Every named server must receive at least one mount, and two names cannot claim the same non-ephemeral `host:port`. Full listener behaviour lives on the [serversPlugin reference](/docs/reference/plugins/serversplugin).
+Each server accepts `port` (required), `host` (default `127.0.0.1`), `kind` (currently only `http`), an optional validator `auth`, `shutdownGrace` (default `30000`) bounding the graceful drain on stop, `idleTimeout` (default `"255s"`, Bun's ceiling and so refused above it rather than clamped) setting the reap window for ordinary connections, and `maxStreamingRequests` (default `500`) capping the streaming responses one listener admits per request before it answers `503`, which does not count surfaces that declare themselves long-lived for every request (today, the MCP mount). A surface inherits server auth unless it supplies its own `auth`; `auth: false` removes the wall while keeping the inherited validator reachable for routes that pull identity. Every named server must receive at least one mount, and two names cannot claim the same non-ephemeral `host:port`. Full listener behaviour lives on the [serversPlugin reference](/docs/reference/plugins/serversplugin).
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -217,6 +217,7 @@ export const craftConfig = defineConfig({
 | `health` | `{ details?: 'always' \| 'when-authenticated' \| 'never' }` | `{ details: 'when-authenticated' }` | How much per-component detail to expose. Statuses are always served; with no validator in scope the default withholds details (explicit `when-authenticated` with none refuses the boot). |
 | `tiers.introspection` | `false \| true \| string` | `false` | Admission to `GET /ops/routes` and `GET /ops/routes/{id}`. See the [management API](/docs/reference/plugins/opsplugin#management-api). |
 | `tiers.dispatch` | `false \| true \| string` | `false` | Admission to `POST /ops/routes/{id}/exchanges`. Always its own scope. |
+| `tiers.events` | `false \| true \| string` | `false` | Admission to `GET /ops/events`, the [live event tail](/docs/reference/plugins/opsplugin#tailing-events). |
 | `indicators` | `Indicator[]` | `[]` | Indicators to register, declared with [`defineIndicator`](/docs/reference/plugins/opsplugin#define-indicator). |
 
 Route lifecycle, circuit-breaker position, and the serving state are derived from events the framework already emits, so `ops: {}` alone gives a truthful surface. Indicators cover the dependencies the framework cannot see.

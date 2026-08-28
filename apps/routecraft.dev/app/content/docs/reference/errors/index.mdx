@@ -276,10 +276,10 @@ The error message names the adapter (`cron`, `html`, ...) and the missing packag
 HTTP source request rejected
 
 **Why it happens**  
-The HTTP source (`http({ path, method })` via `defineConfig({ http })`) could not service a request at the adapter boundary. It covers: an oversized request body (returned to the client as `413 Payload Too Large`), a body that cannot be parsed for its declared `Content-Type` (`400 Bad Request`, e.g. malformed JSON or multipart), and an unsupported response body shape (`ReadableStream` / `AsyncIterable`, since SSE/streaming is not yet implemented).
+The HTTP source (`http({ path, method })` via `defineConfig({ http })`) could not service a request at the adapter boundary. It covers an oversized request body (returned to the client as `413 Payload Too Large`) and a body that cannot be parsed for its declared `Content-Type` (`400 Bad Request`, e.g. malformed JSON or multipart).
 
 **Suggestion**  
-For 413, raise `http: { maxBodySize }` or have the client send a smaller payload. For 400, fix the request body so it matches the `Content-Type`. For streaming response bodies, return a buffered value for now (SSE support is tracked as a follow-up).
+For 413, raise `http: { maxBodySize }` or have the client send a smaller payload. For 400, fix the request body so it matches the `Content-Type`.
 
 ## RC5019
 HTTP server bind failed

@@ -20,10 +20,13 @@ import {
   methodNotAllowed,
   missingCredentialResponse,
 } from "../http/response";
+import { principalExpirySignal } from "../../auth/expiry.ts";
+import { anySignal } from "../../shared/abort.ts";
+import { sseResponse, type SseEvent } from "../http/sse";
 import type { HttpMountContext } from "../server/types";
 import type { ManagementApi } from "./management";
 import { admitToTier, type TierVerdict } from "./tier";
-import type { OpsRouteQuery, OpsTiers } from "./types";
+import type { OpsEventTailItem, OpsRouteQuery, OpsTiers } from "./types";
 
 export interface ManagementHandlerOptions {
   api: ManagementApi;
@@ -49,6 +52,8 @@ export interface ManagementHandlerOptions {
 const ROUTES_COLLECTION = "/ops/routes";
 const ROUTE_DETAIL = /^\/ops\/routes\/([^/]+)$/;
 const ROUTE_EXCHANGES = /^\/ops\/routes\/([^/]+)\/exchanges$/;
+/** `GET /ops/events`. */
+const EVENTS = "/ops/events";
 
 /**
  * Percent-decode a path segment, or `undefined` when the escape is
@@ -66,6 +71,19 @@ function decodeSegment(value: string): string | undefined {
 
 const notFound = (): Response =>
   jsonResponse({ error: "not found" }, { status: 404 });
+
+/**
+ * The listener is already carrying its full complement of streams.
+ *
+ * 503 rather than 429: nothing about this caller is wrong, and the condition
+ * clears as other streams end, which is what `Retry-After` says. The delay is
+ * a hint rather than a promise, since no one can know when a slot frees.
+ */
+const listenerFull = (): Response =>
+  jsonResponse(
+    { error: "service unavailable", reason: "streaming_capacity" },
+    { status: 503, headers: { "retry-after": "5" } },
+  );
 
 /**
  * Turn a refusal into its wire form.
@@ -161,6 +179,36 @@ export function createManagementHandler(
       return pathname === ROUTES_COLLECTION
         ? listRoutes(api, url)
         : describeRoute(api, detailMatch![1]!);
+    }
+
+    if (pathname === EVENTS) {
+      const verdict = await admitToTier(tiers.events, context);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused);
+      if (req.method !== "GET") {
+        return methodNotAllowed("GET");
+      }
+      // A tail may say nothing for hours, which is exactly what the
+      // listener's idle reaper exists to cut. The rest of this mount is
+      // ordinary request/response, so the slot is claimed for this request
+      // rather than declared for the whole surface.
+      const release = context.claimStreamingSlot();
+      if (release === undefined) return listenerFull();
+      // Admission is checked once, and this tail may outlive the credential
+      // that passed it by hours. The rule is the http source's, and it bites
+      // hardest here: this is the surface that streams failure events with
+      // their messages and stack traces, so it is the last one that should
+      // keep serving on lapsed authority. Closing is the whole remedy, since
+      // a 401 cannot follow the 200 already on the wire and an EventSource
+      // reconnects into ordinary admission.
+      // No event and no wire message: the close IS the signal, and inventing
+      // an auth:rejected reason for it would put a value outside the bounded
+      // vocabulary onto a surface an operator counts refusals from.
+      const expiry = principalExpirySignal(verdict.principal);
+      const closes = anySignal(req.signal, expiry?.signal);
+      return sseResponse(tailEvents(api, closes), closes, () => {
+        expiry?.cancel();
+        release();
+      });
     }
 
     if (exchangesMatch) {
@@ -265,8 +313,11 @@ async function dispatchExchange(
     // whatever its steps threw, and `rcError` messages routinely interpolate
     // the cause: adapter failures carry hostnames, file paths and upstream
     // response text. On an open dispatch tier that is reconnaissance for
-    // anyone who can reach the port, and it would contradict the same
-    // surface's rule that no response body carries an error message. The code
+    // anyone who can reach the port, and it would contradict the health
+    // surface's rule that no response body carries an error message. That
+    // rule governs dispatch and health; the event tail is a separately
+    // scope-gated observation surface and does carry messages, on purpose,
+    // because a failure event without one is not diagnostic. The code
     // is enough to tell an authorize refusal from a broken step; the message
     // is in the logs, where the error policy already routes it.
     return jsonResponse({ error: "dispatch failed", code }, { status: 500 });
@@ -275,4 +326,34 @@ async function dispatchExchange(
 
 function badRequest(message: string): Response {
   return jsonResponse({ error: "bad request", message }, { status: 400 });
+}
+
+/**
+ * Map the tail's items onto the wire.
+ *
+ * The bus event name rides the SSE `event` field so a client can subscribe
+ * to one kind, and repeats inside `data` because a reader consuming the
+ * body with `fetch` rather than `EventSource` sees the payload and not the
+ * fields. The tail's own signals are not bus events and do not borrow a
+ * bus name: a drop is named for what it is, and a heartbeat is the spec's
+ * comment, which every client already ignores.
+ */
+async function* tailEvents(
+  api: ManagementApi,
+  signal: AbortSignal,
+): AsyncIterable<SseEvent | string> {
+  for await (const item of api.tailEvents(signal)) {
+    yield frameOf(item);
+  }
+}
+
+function frameOf(item: OpsEventTailItem): SseEvent | string {
+  if (item.kind === "heartbeat") return ": keep-alive\n\n";
+  if (item.kind === "dropped") {
+    return { event: "ops:events:dropped", data: { count: item.count } };
+  }
+  // Already rendered at emission, so it passes through untouched: sending it
+  // back through the serialiser would escape it a second time and hand the
+  // reader a JSON string where it expects an object.
+  return { event: item.name, data: item.data };
 }

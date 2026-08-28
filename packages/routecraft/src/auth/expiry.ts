@@ -31,3 +31,63 @@ export function isPrincipalExpired(
     Math.floor(Date.now() / 1000) >= principal.expiresAt + clockToleranceSec
   );
 }
+
+/**
+ * `setTimeout`'s ceiling: a delay past a signed 32-bit integer overflows and
+ * fires on the next tick instead of waiting.
+ */
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * A signal that fires when a verified principal's credential expires.
+ *
+ * For a response that outlives the single admission check that let it in. An
+ * ordinary request is over long before its token is, but a stream can be held
+ * open for hours, and `security.md` makes `exp` mandatory precisely so that
+ * authority does not outlive it.
+ *
+ * The timer only schedules the check. Whether the credential has actually
+ * lapsed is {@link isPrincipalExpired}'s to say, so the boundary and its clock
+ * tolerance stay the framework's single answer rather than a second comparison
+ * that can drift by a second, and a timer that fires early against a skewed
+ * clock re-arms instead of closing a live stream.
+ *
+ * Each sleep is clamped to {@link MAX_TIMEOUT_MS}. A credential expiring
+ * further out than that overflows `setTimeout`, which fires immediately rather
+ * than waiting: the re-arm would then spin as fast as the event loop allows,
+ * for the life of the stream. Clamped, a distant expiry simply sleeps in
+ * stages.
+ *
+ * @param principal - The admitted principal, or undefined for an
+ *   unauthenticated request
+ * @param onExpired - Called once when the credential is found to have lapsed,
+ *   before the signal aborts, for the surface to report it
+ * @returns The signal and a `cancel` to release the timer when the response
+ *   ends, or `undefined` when the principal carries no expiry, since a
+ *   credential that does not expire granting a stream that does not expire is
+ *   the operator's own choice correctly honoured
+ */
+export function principalExpirySignal(
+  principal: Pick<Principal, "expiresAt" | "subject"> | undefined,
+  onExpired?: (principal: Pick<Principal, "subject">) => void,
+): { signal: AbortSignal; cancel: () => void } | undefined {
+  const expiresAt = principal?.expiresAt;
+  if (principal === undefined || expiresAt === undefined) return undefined;
+
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const arm = (): void => {
+    if (isPrincipalExpired(principal)) {
+      onExpired?.(principal);
+      controller.abort(new Error("Credential expired"));
+      return;
+    }
+    const remaining = expiresAt * 1000 - Date.now();
+    timer = setTimeout(arm, Math.min(Math.max(remaining, 50), MAX_TIMEOUT_MS));
+  };
+  arm();
+  return {
+    signal: controller.signal,
+    cancel: () => clearTimeout(timer),
+  };
+}

@@ -33,6 +33,8 @@ import type {
   AgentToolPolicyContext,
   AgentToolSource,
 } from "./tools/policy.ts";
+import { anySignal } from "@routecraft/routecraft";
+import { streamAgentDeltas, type AgentStream } from "./delta-stream.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
@@ -89,7 +91,10 @@ export type AgentBinding =
  * store (`ADAPTER_AGENT_REGISTRY`) at dispatch time, throwing a clear
  * error if the name is unknown.
  */
-export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
+export class AgentEnricherAdapter implements Enricher<
+  unknown,
+  AgentResult | AgentStream
+> {
   readonly adapterId = "routecraft.adapter.agent";
 
   constructor(public readonly binding: AgentBinding) {
@@ -102,7 +107,7 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
   async fetch(
     exchange: Exchange<unknown>,
     stepCtx?: StepSignalContext,
-  ): Promise<AgentResult> {
+  ): Promise<AgentResult | AgentStream> {
     const context = getExchangeContext(exchange);
     const baseOptions = this.resolveOptions(context);
     const merged = mergeWithDefaults(baseOptions, context);
@@ -135,8 +140,15 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
     // route-bound: without a dispatch identity there is no site to park
     // against, so no wiring is handed out and ctx.suspend refuses (AI1006).
     const agentIdentity = agentName ?? dispatchIdentity?.routeId;
+    // Withheld under `stream: true`. The dispatch returns its iterable the
+    // moment the run starts, so this step has already settled by the time a
+    // tool could park it: the sentinel would reach the stream's consumer as
+    // an ordinary failure and the exchange would never park, stranding a
+    // resume token the handler had already sent. Refusing at the handler
+    // instead (AI1006, the same refusal an unbound dispatch gets) puts the
+    // error where the author can act on it.
     const suspension: AgentSessionSuspension | undefined =
-      dispatchIdentity && agentIdentity !== undefined
+      dispatchIdentity && agentIdentity !== undefined && merged.stream !== true
         ? {
             id: exchange.suspension.id,
             // Lazy: minting reads the context's signer and throws RC5052
@@ -219,13 +231,15 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
     // route-scope .timeout() abandoning this run). Falls back to a
     // never-firing signal when the exchange has no route binding (rare;
     // mostly synthetic exchanges in tests).
-    const signals = [route?.signal, stepCtx?.signal].filter(
-      (s): s is AbortSignal => s !== undefined,
+    //
+    // A streaming dispatch adds a third owner, the consumer of the delta
+    // stream, so abandoning the stream stops the run (see AgentOptions.stream).
+    const consumer = new AbortController();
+    const abortSignal = anySignal(
+      route?.signal,
+      stepCtx?.signal,
+      merged.stream === true ? consumer.signal : undefined,
     );
-    const abortSignal =
-      signals.length > 1
-        ? AbortSignal.any(signals)
-        : (signals[0] ?? new AbortController().signal);
 
     // Streaming is selected by the presence of `onDelta` on the
     // merged options or as a per-call override at the by-name call
@@ -235,7 +249,14 @@ export class AgentEnricherAdapter implements Enricher<unknown, AgentResult> {
       this.binding.kind === "by-name"
         ? (this.binding.perCall?.onDelta ?? merged.onDelta)
         : merged.onDelta;
-    // The consolidated AgentResult is returned in both paths, so
+    // `stream: true` is the pull form of `onDelta` (see AgentOptions.stream).
+    if (merged.stream === true) {
+      return streamAgentDeltas(
+        (emit) => session.runStream(abortSignal, emit),
+        (reason) => consumer.abort(reason),
+      );
+    }
+    // The consolidated AgentResult is returned in both remaining paths, so
     // downstream pipeline ops are unaffected by the choice.
     if (onDelta !== undefined) {
       return await session.runStream(abortSignal, onDelta);

@@ -1116,6 +1116,16 @@ export interface EventDetailsMap {
     durationMs: number;
     routeId?: string;
     principal?: { subject: string } | undefined;
+    /**
+     * Why a streaming response ended badly, when it did.
+     *
+     * A stream fails after its status line is already on the wire, so
+     * `status` still reports what was sent and cannot say the response
+     * broke. Without this an operator counting completions would score a
+     * truncated stream as a 200 success, and only the logs would disagree.
+     * Absent on every response that completed normally.
+     */
+    error?: { name: string; message: string };
   };
 
   // -- Plugin lifecycle --

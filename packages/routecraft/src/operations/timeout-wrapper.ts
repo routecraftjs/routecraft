@@ -1,4 +1,5 @@
 import type { Exchange } from "../exchange.ts";
+import { anySignal } from "../shared/abort.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
@@ -145,9 +146,7 @@ export class TimeoutWrapperStep<
     const controller = new AbortController();
     const innerCtx: StepContext = {
       ...ctx,
-      signal: ctx.signal
-        ? AbortSignal.any([ctx.signal, controller.signal])
-        : controller.signal,
+      signal: anySignal(ctx.signal, controller.signal),
     };
 
     const start = Date.now();

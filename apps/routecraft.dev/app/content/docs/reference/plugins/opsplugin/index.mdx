@@ -103,6 +103,7 @@ Routes are always `deployment`. Indicators declare their own domain, and default
 | `health.details` | `'always' \| 'when-authenticated' \| 'never'` | `'when-authenticated'` | Exposure of per-component `details`. |
 | `tiers.introspection` | `false \| true \| string` | `false` | Admission to `GET /ops/routes` and `GET /ops/routes/{id}`. See [Management API](#management-api). |
 | `tiers.dispatch` | `false \| true \| string` | `false` | Admission to `POST /ops/routes/{id}/exchanges`. |
+| `tiers.events` | `false \| true \| string` | `false` | Admission to `GET /ops/events`, the live event tail. See [Tailing events](#tailing-events). |
 | `indicators` | `Indicator[]` | `[]` | Indicators to register. See [`defineIndicator`](#define-indicator). |
 
 The mount claims the `/health` and `/ops` prefixes on its server, so a collision with another surface fails at start rather than being decided by dispatch order.
@@ -160,13 +161,14 @@ One component with its own status code: 503 when it is `down`, 200 otherwise, 40
 
 ## Management API
 
-Three resources on the same mount, under `/ops`, for driving a running instance: list its routes, describe one, and dispatch work to one. [`craft exec`](/docs/reference/cli#exec) and the route commands in [`craft ops`](/docs/reference/cli#ops) are clients of exactly this API, and so is anything you point at it with `curl`. The rest of that family (`health`, `ready`, `indicators`) reads the `/health` resources above instead, which is the group-by-task split the CLI reference explains.
+Four resources on the same mount, under `/ops`, for driving a running instance: list its routes, describe one, dispatch work to one, and watch what it is doing. [`craft exec`](/docs/reference/cli#exec) and the route commands in [`craft ops`](/docs/reference/cli#ops) are clients of exactly this API, and so is anything you point at it with `curl`. The rest of that family (`health`, `ready`, `indicators`) reads the `/health` resources above instead, which is the group-by-task split the CLI reference explains.
 
 | Method and path | Tier | What |
 | --- | --- | --- |
 | `GET /ops/routes` | `introspection` | List routes, filtered and paginated |
 | `GET /ops/routes/{id}` | `introspection` | Describe one route |
 | `POST /ops/routes/{id}/exchanges` | `dispatch` | Dispatch work and return the outcome |
+| `GET /ops/events` | `events` | Tail the context event bus as Server-Sent Events |
 
 Dispatching creates an exchange, so the exchange is a sub-resource of the route it runs on rather than a verb of its own.
 
@@ -186,11 +188,12 @@ ops: {
   tiers: {
     introspection: 'ops:introspection',
     dispatch: 'ops:dispatch',
+    events: 'ops:events',
   },
 }
 ```
 
-`ops:introspection` and `ops:dispatch` are the names this project documents, not defaults: every tier defaults to `false`, and the value is any string your tokens carry. `ops:operations` is reserved for the operations tier when it ships. **Dispatch is always its own scope** and never rides along with introspection: a dashboard token that reads the route inventory must not also be able to run work.
+`ops:introspection`, `ops:dispatch` and `ops:events` are the names this project documents, not defaults: every tier defaults to `false`, and the value is any string your tokens carry. `ops:operations` is reserved for the operations tier when it ships. **Dispatch is always its own scope** and never rides along with introspection: a dashboard token that reads the route inventory must not also be able to run work.
 
 The mount's `auth` decides **who** the caller is (its own validator, else the named server's, per [mount auth inheritance](/docs/reference/plugins/serversplugin)); the tier value decides **what that identity must carry**. Because tiers are path-and-method rules, an operator can enforce the same split at a proxy that the framework enforces internally.
 
@@ -200,9 +203,34 @@ The refusal on a missing scope is `403` with `insufficient_scope`, and it carrie
 
 <Callout type="warning" title="`true` is an open door">
 
-A tier set to `true` needs no credential, and the ops surface mounts on the `default` server unless told otherwise, which on a typical app is the public listener. `dispatch: true` on a publicly bound server lets anyone who can reach the port run any dispatchable route. Use it on a listener the public cannot reach, or give the tier a scope.
+A tier set to `true` needs no credential, and the ops surface mounts on the `default` server unless told otherwise, which on a typical app is the public listener. `dispatch: true` on a publicly bound server lets anyone who can reach the port run any dispatchable route. `events: true` is the quieter version of the same hazard: the tail carries failure events with their messages and stack traces, so filesystem paths, internal hostnames and upstream response text reach anyone who can reach the port. Use either on a listener the public cannot reach, or give the tier a scope.
 
 </Callout>
+
+### Tailing events
+
+`GET /ops/events` streams the context event bus as [Server-Sent Events](/docs/reference/adapters/http#streaming-responses-sse): every event the app emits, as it emits it. It is the live counterpart to the route listing, which is why it is its own tier rather than a corner of introspection. A route inventory describes an app's shape; the tail carries exchange failures, auth decisions and health transitions as they happen, and an operator who wants one is not thereby asking for the other.
+
+```bash
+curl -N -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/events'
+```
+
+```
+: open
+
+event: route:exchange:failed
+data: {"event":"route:exchange:failed","ts":"2026-08-27T21:04:11.522Z","contextId":"...","details":{"routeId":"orders","error":{"name":"Error","message":"upstream refused"}}}
+
+: keep-alive
+```
+
+The bus event name rides the SSE `event` field, so an `EventSource` can subscribe to one kind, and repeats inside `data` so a reader consuming the body with `fetch` gets it without parsing fields. Payloads are rendered defensively: errors keep their name, message and stack, and an exchange, route or context collapses to its identifier rather than dragging its object graph onto the wire.
+
+**The tail omits `_snapshot` payloads.** Several events, the [agent events](/docs/reference/events#agent-operations) among them, carry request and response bodies under that key; the telemetry sink already gates them behind `captureSnapshots` because they are payload data rather than metadata. Opening a tail is not that opt-in, so a watcher of `route:agent:tool:result` sees the event without `_snapshot.output`. Read payloads through telemetry, which was asked for them.
+
+Two frames are the tail's own and not bus events. `: keep-alive` is an SSE comment sent when the app has been quiet, so an intermediary does not reap a healthy connection. `ops:events:dropped` reports how many events a reader missed: the bus emits on the route's own hot path and can never wait for a network, so the tail buffers a bounded backlog and drops the oldest past that, then says so rather than leaving a silent gap. The backlog is bounded twice, by count (256 events) and by size (1 MiB of rendered frames), because one event carrying a large error or body is worth many small ones.
+
+The tail closes when the context begins stopping, so a shutdown is not held open by a watcher.
 
 ### Listing routes
 

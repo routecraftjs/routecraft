@@ -1,8 +1,10 @@
 import { jsonResponse, missingCredentialResponse } from "./response.ts";
+import { anySignal } from "../../shared/abort.ts";
 import { logger as defaultLogger } from "../../logger";
 import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
 import { isRoutecraftError } from "../../brand";
 import { isSuspended } from "../../suspension/suspended";
+import { principalExpirySignal } from "../../auth/expiry.ts";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
 import type { AuthResult } from "./auth";
@@ -12,6 +14,13 @@ import {
   parseRequestBody,
   type HttpBodyError,
 } from "./body-parser";
+import {
+  isAsyncIterable,
+  isReadableStream,
+  SSE_CACHE_CONTROL,
+  SSE_CONTENT_TYPE,
+  streamResponseBody,
+} from "./sse";
 import type { HttpWebhookSignatureRejection } from "./webhook-signature";
 
 /** Function called once per completed dispatch when per-request events are enabled. */
@@ -22,6 +31,8 @@ export type RequestCompletedHandler = (event: {
   durationMs: number;
   routeId?: string;
   principal?: Pick<Principal, "subject"> | undefined;
+  /** Set when a streaming body failed after its status line was sent. */
+  error?: { name: string; message: string };
 }) => void;
 
 /** Synthetic handler for built-in endpoints (/health, /ready, /openapi.json). */
@@ -74,6 +85,15 @@ export interface DispatcherOptions {
   authAwareBuiltins?: AuthAwareBuiltins;
   onRequestCompleted?: RequestCompletedHandler;
   /**
+   * Fires when the context begins stopping.
+   *
+   * A streaming response is in-flight work for as long as it runs, so
+   * without this a graceful close waits out its whole grace window on a
+   * stream that would happily have ended on request. Combined with the
+   * client's own signal, so either end can close the stream.
+   */
+  shutdownSignal?: AbortSignal;
+  /**
    * Called when the dispatcher itself synthesises a 401 because a route
    * with `auth: "required"` saw no credential. The plugin uses this to
    * emit `auth:rejected` for the missing-credential case: the shared
@@ -104,12 +124,14 @@ export function createDispatcher(
 ): (
   req: Request,
   authenticate?: () => Promise<AuthResult | undefined>,
+  claimStreamingSlot?: () => (() => void) | undefined,
 ) => Promise<Response> {
   const log = opts.logger ?? defaultLogger;
 
   return async function dispatch(
     req: Request,
     authenticate?: () => Promise<AuthResult | undefined>,
+    claimStreamingSlot?: () => (() => void) | undefined,
   ): Promise<Response> {
     const started = performance.now();
     const url = new URL(req.url);
@@ -348,6 +370,85 @@ export function createDispatcher(
     //    body + response hints into a Response.
     try {
       const exchange = await entry.handler(parsedBody, handlerHeaders);
+      const plan = planStream(exchange.body, exchange.headers);
+      if (plan) {
+        // A stream may stay quiet far longer than the listener's idle
+        // reaper allows, and the mount cannot know at bind time which of
+        // its routes will stream, so the slot is claimed here, for this
+        // request, once the body proves to be one. A listener already at
+        // its cap refuses rather than opening a stream it cannot bound.
+        const release = claimStreamingSlot?.();
+        if (claimStreamingSlot !== undefined && release === undefined) {
+          const response = jsonResponse(
+            { error: "service unavailable", reason: "streaming_capacity" },
+            { status: 503, headers: { "retry-after": "5" } },
+          );
+          emitCompleted(opts, {
+            method,
+            path: entry.matcher.pattern,
+            status: 503,
+            durationMs: ms(started),
+            routeId: entry.routeId,
+          });
+          return response;
+        }
+        // A stream admitted on a credential that expires mid-flight would
+        // otherwise keep serving on authority that has lapsed, and this is
+        // the first surface where one admission check covers an unbounded
+        // window. Closing is the whole remedy: a 401 cannot follow a 200, and
+        // an SSE client reconnects by specification, so the reconnect goes
+        // through ordinary admission and gets its 401 from the path that
+        // already exists. A principal with no `expiresAt` is left alone,
+        // because a credential with no expiry granting an unexpiring stream
+        // is the operator's choice honoured rather than a gap.
+        const expiry = principalExpirySignal(principal, ({ subject }) => {
+          log.info(
+            { subject, routeId: entry.routeId, path: pathname },
+            "http source: closing stream, the admitted credential has expired",
+          );
+        });
+        const body = streamResponseBody(plan.body, {
+          signal: anySignal(req.signal, opts.shutdownSignal, expiry?.signal),
+          preamble: plan.preamble,
+          onCleanupError: (error) => {
+            log.error(
+              { err: error, routeId: entry.routeId, method, path: pathname },
+              "http source: streaming route failed to clean up after the response ended",
+            );
+          },
+          onEnd: (error) => {
+            release?.();
+            expiry?.cancel();
+            if (error !== undefined) {
+              log.error(
+                { err: error, routeId: entry.routeId, method, path: pathname },
+                "http source: streaming response body failed after the status line was sent",
+              );
+            }
+            emitCompleted(opts, {
+              method,
+              path: entry.matcher.pattern,
+              status: plan.status,
+              durationMs: ms(started),
+              routeId: entry.routeId,
+              principal: principal ? { subject: principal.subject } : undefined,
+              ...(error !== undefined
+                ? {
+                    error: {
+                      name: error instanceof Error ? error.name : "Error",
+                      message:
+                        error instanceof Error ? error.message : String(error),
+                    },
+                  }
+                : {}),
+            });
+          },
+        });
+        return new Response(body, {
+          status: plan.status,
+          headers: plan.headers,
+        });
+      }
       const response = serialiseResponse(exchange.body, exchange.headers);
       emitCompleted(opts, {
         method,
@@ -408,13 +509,91 @@ function ms(started: number): number {
   return Math.round(performance.now() - started);
 }
 
+/** A streaming body, with the status and headers its response carries. */
+interface StreamPlan {
+  body: AsyncIterable<unknown> | ReadableStream<Uint8Array>;
+  status: number;
+  headers: Record<string, string>;
+  /** The response is an event stream, so it opens with the SSE comment. */
+  preamble: boolean;
+}
+
+/**
+ * Recognise a streaming body and decide the response it heads.
+ *
+ * Two arms, split on what the route handed back rather than on any option.
+ * An `AsyncIterable` is framed as Server-Sent Events, because that is the
+ * only thing a sequence of yielded values can mean over HTTP without the
+ * route saying more. A `ReadableStream` is already bytes and is passed
+ * through untouched, so a route that has its own wire format reaches for
+ * that one.
+ *
+ * Overrides win over both defaults, which is how a caller chooses
+ * `application/x-ndjson`. Framing follows the body type, not the content
+ * type: an iterable of objects is SSE-framed whatever the header says, and
+ * a route wanting different bytes yields strings.
+ */
+function planStream(
+  body: unknown,
+  headers: ExchangeHeaders,
+): StreamPlan | undefined {
+  if (body === null || body === undefined) return undefined;
+  const raw = isReadableStream(body);
+  if (!raw && !isAsyncIterable(body)) return undefined;
+
+  const hint = readResponseHint(headers);
+  const extraHeaders = lowerCaseKeys(hint.headers);
+  const responseHeaders = raw
+    ? {
+        "content-type": hint.contentType ?? "application/octet-stream",
+        ...extraHeaders,
+      }
+    : {
+        "content-type": hint.contentType ?? SSE_CONTENT_TYPE,
+        "cache-control": SSE_CACHE_CONTROL,
+        ...extraHeaders,
+      };
+  return {
+    body: body as AsyncIterable<unknown> | ReadableStream<Uint8Array>,
+    status: hint.status ?? 200,
+    headers: responseHeaders,
+    // Conditioned on the content type rather than on the body type, because
+    // the comment is only legal in an event stream. A route that named a
+    // different format owns its bytes from the first one.
+    preamble:
+      responseHeaders["content-type"]?.startsWith("text/event-stream") === true,
+  };
+}
+
+/**
+ * Lower-case a header override's keys so the spread that follows genuinely
+ * overrides.
+ *
+ * HTTP header names are case-insensitive and object keys are not, so a route
+ * spelling an override `Content-Type` used to add a second key beside the
+ * framework's own `content-type`. `Headers` then joined the two values into
+ * one nonsensical field, and the streaming arm additionally read the wrong
+ * one when deciding whether to open with the SSE comment, prepending bytes
+ * to a body the route had declared as something else.
+ */
+function lowerCaseKeys(
+  headers: Readonly<Record<string, string>> | undefined,
+): Record<string, string> {
+  if (headers === undefined) return {};
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]),
+  );
+}
+
 /**
  * Translate the final exchange body + response hint headers into a Response
  * according to the documented convention.
  */
 function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
   const hint = readResponseHint(headers);
-  const extraHeaders = hint.headers ?? {};
+  // Same normalisation as the streaming arm: a differently-cased override
+  // otherwise duplicates the header rather than replacing it.
+  const extraHeaders = lowerCaseKeys(hint.headers);
 
   // A parked exchange answers 202 with the acknowledgment as its body. HTTP
   // is the one transport with an out-of-band status channel, so the status
@@ -435,27 +614,6 @@ function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
         ...extraHeaders,
       },
     });
-  }
-
-  // Reject streaming bodies in v1 (SSE deferred).
-  if (
-    body !== null &&
-    body !== undefined &&
-    (isReadableStream(body) || isAsyncIterable(body))
-  ) {
-    return new Response(
-      JSON.stringify({
-        error: "streaming response bodies are not supported in v1",
-        rc: "RC5018",
-      }),
-      {
-        status: 500,
-        headers: {
-          "content-type": "application/json; charset=utf-8",
-          ...extraHeaders,
-        },
-      },
-    );
   }
 
   // Null / undefined -> 204 unless the user explicitly overrode the status.
@@ -532,21 +690,4 @@ function readResponseHint(headers: ExchangeHeaders): HttpResponseHint {
     ...(typeof contentType === "string" ? { contentType } : {}),
     ...(responseHeaders ? { headers: responseHeaders } : {}),
   };
-}
-
-function isReadableStream(value: unknown): value is ReadableStream {
-  return (
-    typeof ReadableStream !== "undefined" && value instanceof ReadableStream
-  );
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    Symbol.asyncIterator in value &&
-    typeof (value as { [Symbol.asyncIterator]: unknown })[
-      Symbol.asyncIterator
-    ] === "function"
-  );
 }

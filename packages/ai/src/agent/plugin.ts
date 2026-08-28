@@ -112,6 +112,20 @@ function validateRegisteredAgent(
         `backed by a route.`,
     });
   }
+  // A registered agent is reached through `agent("id")`, whose overloads
+  // declare `AgentResult`: there is no literal in the options object for the
+  // widening overload to see. Accepting `stream` here would type every
+  // by-name call as the consolidated result while the dispatch handed back
+  // an iterable. It is also the wrong home for the option, because whether a
+  // route's output is a stream belongs to that route, not to a definition
+  // shared across every caller.
+  if (options.stream !== undefined) {
+    throw rcError("RC5003", undefined, {
+      message:
+        `agentPlugin: agent "${id}" sets "stream", which is a call-site decision rather than a registered one. ` +
+        `Use agent({ ...options, stream: true }) inline on the route that streams.`,
+    });
+  }
   validateAgentOptions(options);
 }
 

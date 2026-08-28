@@ -755,7 +755,9 @@ describe("agent durable suspension (ctx.suspend)", () => {
       options: { model: MODEL, system: "x", tools: tools(["ask"]) },
     });
     const exchange = new DefaultExchange(t.ctx, { body: "go", headers: {} });
-    const result = await adapter.fetch(exchange);
+    // The adapter's declared output widened to include the delta stream
+    // that `stream: true` produces; this dispatch is the consolidated arm.
+    const result = (await adapter.fetch(exchange)) as AgentResult;
 
     expect(result.text).toBe("recovered without suspending");
     expect(result.toolCalls).toHaveLength(1);
