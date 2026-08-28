@@ -74,7 +74,9 @@ and answers `503` with `Retry-After` past it. A backstop below the
 file-descriptor cliff, the same kind of number as `maxBodySize`'s 10 MB, and
 a complement to `.concurrency({ max, mode: "reject" })` rather than a
 replacement: the route operation shapes one endpoint, the listener cap catches
-the routes that never thought about it.
+the routes that never thought about it. It counts requests that claim a slot,
+so a surface declaring itself long-lived for every request (today, the MCP
+mount) is not counted and the cap is not a total.
 
 A stream admitted on an expiring credential now closes at expiry, through the
 same `isPrincipalExpired` boundary the rest of the framework checks. No 401 is

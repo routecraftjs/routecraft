@@ -251,6 +251,15 @@ sits below that cliff so an operator gets a clean refusal instead. The number
 is the same kind of number as `maxBodySize`'s 10 MB, which nobody mistakes for
 the right body size.
 
+It counts requests that claim a streaming slot, which is how a route's
+streaming body is admitted here and how the [ops event
+tail](/docs/reference/plugins/opsplugin#tailing-events) is admitted on its
+mount. A surface that declares itself long-lived for every request instead,
+which today means the MCP mount, opts out at mount level and is not counted.
+So the cap bounds the streams this listener admits per request rather than
+every long-lived connection it carries: size it against the other surfaces
+sharing the same listener rather than treating it as the total.
+
 <Callout type="note">
 
 **This is the listener's bound, not a route's.**
