@@ -26,6 +26,8 @@ export interface HttpServerRuntime {
 export interface StartServerOptions {
   port: number;
   host: string;
+  /** Idle reap window in milliseconds. Bun's ceiling (255s) is enforced by the caller. */
+  idleTimeoutMs?: number;
   fetch: (req: Request, runtime: HttpServerRuntime) => Promise<Response>;
   /** Receives startup warnings (e.g. a Bun too old for per-request timeout exemptions). */
   logger?: {
@@ -79,7 +81,9 @@ export async function startServer(
         // accumulate to the fd limit and holding graceful close open).
         // Long-lived quiet streams survive via the per-request exemption
         // below, not by widening this default.
-        idleTimeout: 255,
+        // Seconds on Bun's side. Streaming responses opt out per request,
+        // so this governs ordinary connections only.
+        idleTimeout: Math.round((opts.idleTimeoutMs ?? 255_000) / 1000),
         fetch: (req, bunServer) =>
           opts.fetch(req, {
             // Lift the idle timeout for one request only: mounts that

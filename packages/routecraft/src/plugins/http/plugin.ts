@@ -300,7 +300,7 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
               dispatcher(
                 request,
                 mountContext.authenticate,
-                mountContext.exemptFromIdleTimeout,
+                mountContext.claimStreamingSlot,
               ),
           }),
         );

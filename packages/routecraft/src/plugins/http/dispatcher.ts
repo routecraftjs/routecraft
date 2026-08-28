@@ -4,6 +4,7 @@ import { logger as defaultLogger } from "../../logger";
 import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
 import { isRoutecraftError } from "../../brand";
 import { isSuspended } from "../../suspension/suspended";
+import { isPrincipalExpired } from "../../auth/expiry.ts";
 import type { Principal } from "../../auth/types";
 import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
 import type { AuthResult } from "./auth";
@@ -123,14 +124,14 @@ export function createDispatcher(
 ): (
   req: Request,
   authenticate?: () => Promise<AuthResult | undefined>,
-  exemptFromIdleTimeout?: () => void,
+  claimStreamingSlot?: () => (() => void) | undefined,
 ) => Promise<Response> {
   const log = opts.logger ?? defaultLogger;
 
   return async function dispatch(
     req: Request,
     authenticate?: () => Promise<AuthResult | undefined>,
-    exemptFromIdleTimeout?: () => void,
+    claimStreamingSlot?: () => (() => void) | undefined,
   ): Promise<Response> {
     const started = performance.now();
     const url = new URL(req.url);
@@ -373,11 +374,36 @@ export function createDispatcher(
       if (plan) {
         // A stream may stay quiet far longer than the listener's idle
         // reaper allows, and the mount cannot know at bind time which of
-        // its routes will stream, so the exemption is claimed here, for
-        // this request, once the body proves to be one.
-        exemptFromIdleTimeout?.();
+        // its routes will stream, so the slot is claimed here, for this
+        // request, once the body proves to be one. A listener already at
+        // its cap refuses rather than opening a stream it cannot bound.
+        const release = claimStreamingSlot?.();
+        if (claimStreamingSlot !== undefined && release === undefined) {
+          const response = jsonResponse(
+            { error: "service unavailable", reason: "streaming_capacity" },
+            { status: 503, headers: { "retry-after": "5" } },
+          );
+          emitCompleted(opts, {
+            method,
+            path: entry.matcher.pattern,
+            status: 503,
+            durationMs: ms(started),
+            routeId: entry.routeId,
+          });
+          return response;
+        }
+        // A stream admitted on a credential that expires mid-flight would
+        // otherwise keep serving on authority that has lapsed, and this is
+        // the first surface where one admission check covers an unbounded
+        // window. Closing is the whole remedy: a 401 cannot follow a 200, and
+        // an SSE client reconnects by specification, so the reconnect goes
+        // through ordinary admission and gets its 401 from the path that
+        // already exists. A principal with no `expiresAt` is left alone,
+        // because a credential with no expiry granting an unexpiring stream
+        // is the operator's choice honoured rather than a gap.
+        const expiry = principalExpiry(principal, log);
         const body = streamResponseBody(plan.body, {
-          signal: anySignal(req.signal, opts.shutdownSignal),
+          signal: anySignal(req.signal, opts.shutdownSignal, expiry?.signal),
           preamble: plan.preamble,
           onCleanupError: (error) => {
             log.error(
@@ -386,6 +412,8 @@ export function createDispatcher(
             );
           },
           onEnd: (error) => {
+            release?.();
+            expiry?.cancel();
             if (error !== undefined) {
               log.error(
                 { err: error, routeId: entry.routeId, method, path: pathname },
@@ -470,6 +498,41 @@ function emitCompleted(
       // never let listener exceptions propagate into the request path
     }
   }
+}
+
+/**
+ * A signal that fires when the admitted principal's credential expires.
+ *
+ * The deadline only schedules the check; whether the credential has actually
+ * lapsed is `isPrincipalExpired`'s to say, so the boundary and its clock
+ * tolerance stay the framework's single answer rather than a second
+ * comparison that can drift by a second. A timer that fires early against a
+ * skewed clock re-arms instead of closing a live stream.
+ */
+function principalExpiry(
+  principal: Principal | undefined,
+  log: { info(details: Record<string, unknown>, message: string): void },
+): { signal: AbortSignal; cancel: () => void } | undefined {
+  if (principal?.expiresAt === undefined) return undefined;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const arm = (): void => {
+    if (isPrincipalExpired(principal)) {
+      log.info(
+        { subject: principal.subject },
+        "http source: closing stream, the admitted credential has expired",
+      );
+      controller.abort(new Error("Credential expired"));
+      return;
+    }
+    const remaining = principal.expiresAt! * 1000 - Date.now();
+    timer = setTimeout(arm, Math.max(remaining, 50));
+  };
+  arm();
+  return {
+    signal: controller.signal,
+    cancel: () => clearTimeout(timer),
+  };
 }
 
 function ms(started: number): number {

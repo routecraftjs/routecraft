@@ -300,9 +300,10 @@ export function streamResponseBody(
 export function sseResponse(
   events: AsyncIterable<unknown>,
   signal: AbortSignal,
+  onEnd: () => void = () => {},
 ): Response {
   return new Response(
-    streamResponseBody(events, { signal, preamble: true, onEnd: () => {} }),
+    streamResponseBody(events, { signal, preamble: true, onEnd }),
     {
       status: 200,
       headers: {

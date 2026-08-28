@@ -72,6 +72,19 @@ const notFound = (): Response =>
   jsonResponse({ error: "not found" }, { status: 404 });
 
 /**
+ * The listener is already carrying its full complement of streams.
+ *
+ * 503 rather than 429: nothing about this caller is wrong, and the condition
+ * clears as other streams end, which is what `Retry-After` says. The delay is
+ * a hint rather than a promise, since no one can know when a slot frees.
+ */
+const listenerFull = (): Response =>
+  jsonResponse(
+    { error: "service unavailable", reason: "streaming_capacity" },
+    { status: 503, headers: { "retry-after": "5" } },
+  );
+
+/**
  * Turn a refusal into its wire form.
  *
  * A disabled tier answers 404 rather than 403 so an instance discloses
@@ -175,10 +188,11 @@ export function createManagementHandler(
       }
       // A tail may say nothing for hours, which is exactly what the
       // listener's idle reaper exists to cut. The rest of this mount is
-      // ordinary request/response, so the exemption is claimed for this
-      // request rather than declared for the whole surface.
-      context.exemptFromIdleTimeout();
-      return sseResponse(tailEvents(api, req.signal), req.signal);
+      // ordinary request/response, so the slot is claimed for this request
+      // rather than declared for the whole surface.
+      const release = context.claimStreamingSlot();
+      if (release === undefined) return listenerFull();
+      return sseResponse(tailEvents(api, req.signal), req.signal, release);
     }
 
     if (exchangesMatch) {

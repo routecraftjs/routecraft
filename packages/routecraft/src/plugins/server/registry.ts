@@ -1,5 +1,6 @@
 import type { CraftContext } from "../../context.ts";
 import { rcError } from "../../error.ts";
+import type { HttpServerRuntime } from "../http/server/index.ts";
 import type { HttpMethod } from "../../adapters/http/types.ts";
 import type {
   HttpMount,
@@ -141,6 +142,9 @@ function scoreClaim(claim: PathClaim, path: string): number | undefined {
   return prefixContains(claim.path, path) ? claim.path.length : undefined;
 }
 
+/** Streaming responses one listener carries before it refuses more. */
+const DEFAULT_MAX_STREAMING_REQUESTS = 500;
+
 export class HttpMountRegistry implements WebIngress {
   readonly serverName: string;
   boundAddress: { readonly host: string; readonly port: number } | undefined;
@@ -162,14 +166,42 @@ export class HttpMountRegistry implements WebIngress {
   }> = [];
   private validated = false;
 
+  /** Streaming responses currently open on this listener. */
+  private streaming = 0;
+  private readonly maxStreamingRequests: number;
+
   constructor(
     serverName: string,
     context: CraftContext,
     serverAuth?: ValidatorAuthOptions,
+    maxStreamingRequests = DEFAULT_MAX_STREAMING_REQUESTS,
   ) {
     this.serverName = serverName;
     this.context = context;
     this.serverAuth = serverAuth;
+    this.maxStreamingRequests = maxStreamingRequests;
+  }
+
+  /**
+   * Take a streaming slot, or refuse when the listener is full.
+   *
+   * The release is idempotent: a response can end more than one way (drained,
+   * cancelled, failed) and the paths that report it are deliberately not
+   * exclusive, so double-releasing must not hand the listener free budget.
+   */
+  private takeStreamingSlot(
+    request: Request,
+    runtime: HttpServerRuntime | undefined,
+  ): (() => void) | undefined {
+    if (this.streaming >= this.maxStreamingRequests) return undefined;
+    this.streaming++;
+    runtime?.exemptFromIdleTimeout(request);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.streaming--;
+    };
   }
 
   resolveMountAuth(auth: HttpMount["auth"]): HttpMountAuth {
@@ -357,7 +389,7 @@ export class HttpMountRegistry implements WebIngress {
     return mount.handler(request, {
       serverName: this.serverName,
       authenticate,
-      exemptFromIdleTimeout: () => runtime?.exemptFromIdleTimeout(request),
+      claimStreamingSlot: () => this.takeStreamingSlot(request, runtime),
       authPolicy: this.authPolicyByMount.get(mount.id),
       auth:
         this.authFactsByMount.get(mount.id) ??
