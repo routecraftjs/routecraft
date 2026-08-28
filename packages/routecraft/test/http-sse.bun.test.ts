@@ -57,6 +57,27 @@ async function readAll(res: Response): Promise<string> {
   return await res.text();
 }
 
+/**
+ * The periodic-wake pattern published on the http adapter reference page,
+ * under "Observing a disconnect". Kept byte-for-byte the same shape as the
+ * documented example: the page promises a route built this way observes a
+ * client disconnect within one interval, and the test below is what holds
+ * that promise to the real server.
+ */
+const KEEP_ALIVE = Symbol("keep-alive");
+const WAKE_MS = 100;
+
+function withWake<T>(
+  pending: Promise<T>,
+  ms: number,
+): Promise<T | typeof KEEP_ALIVE> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const wake = new Promise<typeof KEEP_ALIVE>((resolve) => {
+    timer = setTimeout(() => resolve(KEEP_ALIVE), ms);
+  });
+  return Promise.race([pending, wake]).finally(() => clearTimeout(timer));
+}
+
 describe("SSE frame encoding", () => {
   /**
    * @case An object carrying `data` is read as an SSE event descriptor
@@ -341,5 +362,63 @@ describe("HTTP streaming responses", () => {
     expect(completed!.status).toBe(200);
     expect(completed!.routeId).toBe("slow");
     expect(completed!.durationMs).toBeGreaterThanOrEqual(100);
+  });
+
+  /**
+   * @case The documented periodic-wake pattern lets a disconnect reach a producer parked on a slow source
+   * @preconditions A source promise that never resolves, wrapped in the `withWake` shape from the http reference page with a 100ms interval; the caller aborts after the first keep-alive
+   * @expectedResult The generator's finally runs within a few wake intervals rather than never, since without the wake the pending step never settles and the queued return() is never delivered
+   */
+  test("a periodic wake delivers a disconnect to a parked producer", async () => {
+    let closed = false;
+    // The source the route is waiting on, standing in for one that can be
+    // quiet for minutes. It never settles, so the wake is the only thing
+    // that can return control to the loop.
+    const nextEvent = (): Promise<string> => new Promise<string>(() => {});
+
+    const bound = await boot({
+      routes: craft()
+        .id("slow-feed")
+        .from(http({ path: "/feed", method: "GET" }))
+        .transform(async function* () {
+          let pending = nextEvent();
+          try {
+            for (;;) {
+              const next = await withWake(pending, WAKE_MS);
+              if (next === KEEP_ALIVE) {
+                yield ": keep-alive\n\n";
+                continue;
+              }
+              pending = nextEvent();
+              yield { event: "update", data: next };
+            }
+          } finally {
+            closed = true;
+          }
+        })
+        .to(noop()),
+    });
+    t = bound.ctx;
+
+    const controller = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${bound.port}/feed`, {
+      signal: controller.signal,
+    });
+    const reader = res.body!.getReader();
+    let opening = "";
+    while (!opening.includes(": keep-alive")) {
+      opening += decoder.decode((await reader.read()).value);
+    }
+    controller.abort();
+
+    const abortedAt = Date.now();
+    const deadline = abortedAt + 2000;
+    while (!closed && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(closed).toBe(true);
+    // Bounded by the wake, not by the source: a generous ceiling that still
+    // fails if the return has to wait on `nextEvent()`, which never settles.
+    expect(Date.now() - abortedAt).toBeLessThan(1000);
   });
 });
