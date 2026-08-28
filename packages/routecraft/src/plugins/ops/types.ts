@@ -460,10 +460,10 @@ export type OpsEventTailItem =
        * it, for two reasons. A bus payload may carry `exchange.body`, which
        * the framework deliberately leaves mutable, so a reference held until
        * the reader catches up could report a value that never existed at the
-       * moment it was emitted. And a buffer bounded by count alone bounds
-       * nothing about size: holding a few hundred payloads by reference pins
-       * whatever they reach, which on a route moving large bodies is all of
-       * it.
+       * moment it was emitted. And holding a few hundred payloads by
+       * reference pins whatever they reach, which on a route moving large
+       * bodies is all of it. Rendering unpins that; the tail's byte budget
+       * is what bounds what remains.
        */
       data: string;
     }

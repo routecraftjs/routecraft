@@ -75,6 +75,18 @@ export interface ManagementApi {
 const TAIL_BUFFER = 256;
 
 /**
+ * How many bytes of rendered frames the tail holds for the same reader.
+ *
+ * The count bound alone bounds nothing about size: an event whose details
+ * carry a large error or a large body renders to a large frame, and a few
+ * hundred of those is a few hundred times whatever the largest one is.
+ * Streaming slots are per-server, so that ceiling multiplies by every tail
+ * an operator has open. Bytes and count are both evicted oldest-first, and
+ * both feed the same dropped marker the reader already sees.
+ */
+const TAIL_BUFFER_BYTES = 1_048_576;
+
+/**
  * How long the tail stays silent before putting a comment on the wire.
  *
  * An idle app emits nothing, and a proxy between the operator and the
@@ -82,6 +94,18 @@ const TAIL_BUFFER = 256;
  * is the SSE spec's own no-op, ignored by every conforming client.
  */
 const TAIL_HEARTBEAT_MS = 30_000;
+
+/**
+ * What one queued frame costs the byte budget.
+ *
+ * UTF-16 code units rather than encoded bytes: the frame is not encoded
+ * until the reader takes it, and an exact count would mean encoding every
+ * event on the bus's hot path to bound a buffer. The two agree for ASCII
+ * and stay within a small factor otherwise, which is all a ceiling needs.
+ */
+function frameBytes(item: OpsEventTailItem): number {
+  return item.kind === "event" ? item.data.length : 0;
+}
 
 /**
  * Build the management handlers over a live context.
@@ -149,6 +173,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
      */
     async *tailEvents(signal: AbortSignal): AsyncIterable<OpsEventTailItem> {
       const queue: OpsEventTailItem[] = [];
+      let queuedBytes = 0;
       let dropped = 0;
       let wake: (() => void) | undefined;
 
@@ -159,11 +184,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
       // event is delivered, and then the tail closes behind it.
       let stopping = false;
       const unsubscribe = ctx.on("*", (payload) => {
-        if (queue.length >= TAIL_BUFFER) {
-          queue.shift();
-          dropped++;
-        }
-        queue.push({
+        const item: OpsEventTailItem = {
           kind: "event",
           name: payload._event,
           // Rendered here, on the emit, rather than held by reference until
@@ -180,7 +201,21 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
             },
             { dropSnapshot: true },
           ),
-        });
+        };
+        const size = frameBytes(item);
+        // An oversized frame still goes on: evicting the whole buffer and
+        // then refusing it would leave the reader nothing at all. It is the
+        // next push that evicts it.
+        while (
+          queue.length > 0 &&
+          (queue.length >= TAIL_BUFFER ||
+            queuedBytes + size > TAIL_BUFFER_BYTES)
+        ) {
+          queuedBytes -= frameBytes(queue.shift()!);
+          dropped++;
+        }
+        queue.push(item);
+        queuedBytes += size;
         if (payload._event === "context:stopping") stopping = true;
         wake?.();
       });
@@ -206,7 +241,9 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
             dropped = 0;
             yield { kind: "dropped", count };
           }
-          yield queue.shift()!;
+          const next = queue.shift()!;
+          queuedBytes -= frameBytes(next);
+          yield next;
           if (stopping && queue.length === 0) return;
         }
       } finally {

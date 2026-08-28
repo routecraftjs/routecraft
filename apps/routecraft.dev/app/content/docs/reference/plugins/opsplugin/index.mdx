@@ -228,7 +228,7 @@ The bus event name rides the SSE `event` field, so an `EventSource` can subscrib
 
 **The tail omits `_snapshot` payloads.** Several events, the [agent events](/docs/reference/events#agent-operations) among them, carry request and response bodies under that key; the telemetry sink already gates them behind `captureSnapshots` because they are payload data rather than metadata. Opening a tail is not that opt-in, so a watcher of `route:agent:tool:result` sees the event without `_snapshot.output`. Read payloads through telemetry, which was asked for them.
 
-Two frames are the tail's own and not bus events. `: keep-alive` is an SSE comment sent when the app has been quiet, so an intermediary does not reap a healthy connection. `ops:events:dropped` reports how many events a reader missed: the bus emits on the route's own hot path and can never wait for a network, so the tail buffers a bounded number of events and drops the oldest past that, then says so rather than leaving a silent gap.
+Two frames are the tail's own and not bus events. `: keep-alive` is an SSE comment sent when the app has been quiet, so an intermediary does not reap a healthy connection. `ops:events:dropped` reports how many events a reader missed: the bus emits on the route's own hot path and can never wait for a network, so the tail buffers a bounded backlog and drops the oldest past that, then says so rather than leaving a silent gap. The backlog is bounded twice, by count (256 events) and by size (1 MiB of rendered frames), because one event carrying a large error or body is worth many small ones.
 
 The tail closes when the context begins stopping, so a shutdown is not held open by a watcher.
 

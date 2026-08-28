@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { bootServer, type TestContext } from "@routecraft/testing";
+import { bootServer, testContext, type TestContext } from "@routecraft/testing";
+import { createManagementApi } from "../src/plugins/ops/management.ts";
 import {
   apiKey,
   craft,
@@ -106,6 +107,43 @@ describe("the ops event tail", () => {
     t = booted.ctx;
     return booted.port;
   }
+
+  /**
+   * @case A backlog of large frames is bounded by bytes, not just by count
+   * @preconditions A tail nobody is reading, fed frames far below the 256-item bound but far above the byte budget
+   * @expectedResult The reader sees a dropped marker, so eviction happened before the item bound could
+   */
+  test("the tail evicts on its byte budget", async () => {
+    t = await testContext()
+      .routes(craft().id("worker").from(direct()).to(noop()))
+      .build();
+    const ctx = t.ctx;
+    const api = createManagementApi(ctx);
+    const controller = new AbortController();
+    const tail = api.tailEvents(controller.signal)[Symbol.asyncIterator]();
+    // The generator subscribes to the bus on its first `next()`, not on
+    // construction, so the read is started before anything is emitted and
+    // awaited after. The emit loop is synchronous, so all ten land in the
+    // buffer before the generator resumes.
+    const first = tail.next();
+
+    // Ten frames, well inside the 256-item bound, each a quarter of the
+    // megabyte budget. Nothing reads them, so only a byte bound can evict.
+    for (let i = 0; i < 10; i++) {
+      ctx.emit("plugin:http:request:completed", {
+        method: "GET",
+        path: `/${"x".repeat(256 * 1024)}`,
+        status: 200,
+        durationMs: 1,
+      });
+    }
+
+    const step = await first;
+    expect(step.value).toEqual({ kind: "dropped", count: expect.any(Number) });
+    expect((step.value as { count: number }).count).toBeGreaterThan(0);
+    controller.abort();
+    await tail.return?.(undefined);
+  });
 
   /**
    * @case An unconfigured events tier discloses nothing
