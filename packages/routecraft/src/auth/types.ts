@@ -236,6 +236,18 @@ export type OAuthTokenVerifier = (
  *     return { kind: "custom", scheme: "bearer", subject: user.id };
  *   }
  * }
+ *
+ * // A single shared secret. Compare it in constant time: `===` returns as
+ * // soon as two bytes differ, and that timing is measurable.
+ * import { timingSafeStringEqual } from "@routecraft/routecraft";
+ * auth: {
+ *   validator: (token) => {
+ *     if (!timingSafeStringEqual(process.env.OPS_SECRET!, token)) {
+ *       throw new Error("unknown token");
+ *     }
+ *     return { kind: "custom", scheme: "bearer", subject: "ops" };
+ *   }
+ * }
  * ```
  */
 export interface ValidatorAuthOptions {
