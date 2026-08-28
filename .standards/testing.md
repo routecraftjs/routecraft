@@ -155,6 +155,10 @@ Rules:
 - Always assign to a single `let t` declared in the `describe` scope; the `afterEach` then handles teardown unconditionally.
 - Always `await t.stop()`; not awaiting leaks timers, http servers, and background tasks across tests.
 - Prefer `t.test()` over `t.startAndWaitReady()` when you want the routes to actually run. Use `startAndWaitReady` for tests that drive interaction through direct endpoints or that assert on plugin-init side effects.
+- `startAndWaitReady()` rejects when a route or plugin fails to START, and not when an
+  exchange fails while running. A route with a startup-firing source can emit a failing
+  exchange before `route:started`, which waits on every source; that failure lands in
+  `t.errors` and is asserted on there, exactly as it would be after `t.test()`.
 
 ## 6. Asserting on `RoutecraftError`
 

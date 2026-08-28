@@ -231,6 +231,22 @@ export class TestContext {
       }) as unknown as EventHandler<EventName>);
       const offError = ctx.on("context:error", (payload) => {
         if (settled) return;
+        // An exchange that failed is not a route that failed to start, and
+        // the payload already separates them: the pipeline attaches the
+        // exchange it was running, while every start-path emitter (plugin
+        // construction, plugin start(), route start, context start) leaves
+        // it undefined. Only the bare form settles this promise.
+        //
+        // Rejecting on both made a whole shape of route untestable. A route
+        // with a startup-firing source whose exchange can legitimately fail
+        // emits that failure while a slower sibling source is still coming
+        // up, so it lands BEFORE `route:started`, and the caller got a
+        // rejection out of `startAndWaitReady()` instead of a started
+        // context. The failure was already collected in `errors`, so a test
+        // asserting on it never reached the assertion. Which side of the
+        // race won depended on whether the sibling's driver import was
+        // warm, so it read as an intermittent failure rather than as this.
+        if (payload.details.exchange !== undefined) return;
         cleanup();
         reject(payload.details.error);
       });
