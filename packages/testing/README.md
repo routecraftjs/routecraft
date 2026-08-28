@@ -78,7 +78,7 @@ await t.stop();
 ### Options
 
 - **`TestContextOptions`** -- Builder options, e.g. `routesReadyTimeoutMs`.
-- **`TestOptions`** -- Options for `test()`, e.g. `delayBeforeDrainMs` -- useful for timer-based capabilities so at least one message is processed before drain.
+- **`TestOptions`** -- Options for `test()`, e.g. `delayBeforeDrain` -- useful for timer-based capabilities so at least one message is processed before drain.
 
 ```typescript
 // Wait 50ms after ready before draining (e.g. for a timer with interval: 50)

@@ -1,5 +1,6 @@
 import type { Cron as CronType } from "croner";
 import { loadOptionalPeer } from "./adapters/shared/optional-peer.ts";
+import { rcError } from "./error.ts";
 import type { CronExpression } from "./adapters/cron/types.ts";
 import { type Duration, parseDuration } from "./shared/duration.ts";
 
@@ -271,16 +272,25 @@ export class RouteEnablementCoordinator {
    * Separate from {@link RouteEnablementCoordinator.evaluateForBoot} because
    * a timer armed before the routes are up could fire a transition into a
    * context that is still starting.
+   *
+   * Awaited by the caller, and a cadence that cannot be armed REJECTS. A
+   * cadence is authored configuration, so an unusable one is the author's
+   * error and gets the same treatment either form receives: a malformed
+   * `Duration` already throws when the route is built, and `cron()` already
+   * rejects its subscribe on a bad expression or an absent `croner`. Warning
+   * here instead would have left one arm of the same option silently
+   * degraded.
    */
-  startRefreshing(routes: ReadonlyArray<EnablementRoute>): void {
+  async startRefreshing(routes: ReadonlyArray<EnablementRoute>): Promise<void> {
     if (this.#stopped) return;
+    const arming: Promise<void>[] = [];
     for (const route of routes) {
       const refresh = route.definition.enablement?.refresh;
       // Absent and `"manual"` are the same state deliberately: the sentinel
       // exists to let an author SAY manual, not to behave differently.
       if (refresh === undefined || refresh === MANUAL_REFRESH) continue;
       if (isCronCadence(refresh)) {
-        void this.#armCron(route, refresh);
+        arming.push(this.#armCron(route, refresh));
       } else {
         const ms = refreshIntervalMs(refresh, route.definition.id);
         const timer = setInterval(() => {
@@ -293,6 +303,7 @@ export class RouteEnablementCoordinator {
         this.#intervals.set(route.definition.id, timer);
       }
     }
+    await Promise.all(arming);
   }
 
   /**
@@ -419,14 +430,29 @@ export class RouteEnablementCoordinator {
     );
   }
 
-  /** Arm a cron cadence, loading `croner` only for a route that wants one. */
+  /**
+   * Arm a cron cadence, loading `croner` only for a route that wants one.
+   *
+   * `croner` is an optional peer resolved by an async dynamic import, so its
+   * grammar cannot be consulted while the route is being built: the peer may
+   * not be installed, and the load cannot happen inside a synchronous
+   * constructor. That is why an expression is validated HERE and not at
+   * build time, and it is also why the framework does not pre-check the
+   * expression itself. A second grammar of our own would disagree with
+   * croner at the edges, and rejecting an expression croner accepts is worse
+   * than validating a moment later: it breaks a working route.
+   *
+   * @throws RC5003 when the expression is one croner refuses, wrapping the
+   *   driver's own message. A missing `croner` surfaces as the RC5017 the
+   *   optional-peer loader raises, with its install hint intact.
+   */
   async #armCron(
     route: EnablementRoute,
     expression: CronExpression,
   ): Promise<void> {
+    const Cron = await loadCronDriver.current();
+    if (this.#stopped) return;
     try {
-      const Cron = await loadCronDriver.current();
-      if (this.#stopped) return;
       this.#crons.set(
         route.definition.id,
         new Cron(expression, () => {
@@ -434,17 +460,12 @@ export class RouteEnablementCoordinator {
         }),
       );
     } catch (err) {
-      // A refresh cadence that cannot be armed leaves the route on whatever
-      // its boot evaluation decided. That is a degraded cadence, not a
-      // broken route, so it warns rather than failing the context: the
-      // alternative is a missing optional peer taking down a process whose
-      // routes are all working.
-      this.deps
-        .logger()
-        .warn(
-          { route: route.definition.id, expression, err },
-          "Could not arm the cron refresh cadence; the route keeps its current enablement state",
-        );
+      // Croner stays the authority on what a cron expression means; this
+      // only names the route and the option so the message says where to
+      // look, rather than surfacing a bare parser error.
+      throw rcError("RC5003", undefined, {
+        message: `Route "${route.definition.id}": .enabled({ refresh: ${JSON.stringify(expression)} }) is not a cron expression croner accepts. ${err instanceof Error ? err.message : String(err)}`,
+      });
     }
   }
 }

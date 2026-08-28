@@ -547,4 +547,49 @@ describe("route enablement", () => {
 
     expect(t.ctx.isRouteEnabled("computed")).toBe(false);
   });
+
+  /**
+   * @case A cron refresh cadence croner refuses fails the boot rather than warning
+   * @preconditions A route whose refresh is a cron-shaped string that croner rejects
+   * @expectedResult Starting the context rejects with RC5003 naming the route and the option, so the cadence cannot be silently dropped
+   */
+  test("fails the boot on a cron cadence croner refuses", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("bad-cron")
+          .enabled(() => true, { refresh: "not a cron at all" })
+          .from(direct())
+          .to(noop()),
+      )
+      .build();
+
+    // The whole point of the change: a cadence that cannot be armed is an
+    // authoring error, and gets the same treatment a malformed Duration
+    // already gets at build time.
+    await expect(t.startAndWaitReady()).rejects.toThrow(
+      /bad-cron.*refresh.*cron expression/s,
+    );
+    t = undefined;
+  });
+
+  /**
+   * @case A valid cron cadence arms without complaint
+   * @preconditions A route whose refresh is a well-formed cron expression
+   * @expectedResult The context starts normally and the route is enabled, proving the loud path did not become a false positive
+   */
+  test("arms a valid cron cadence", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("good-cron")
+          .enabled(() => true, { refresh: "0 * * * *" })
+          .from(direct())
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    expect(t.ctx.isRouteEnabled("good-cron")).toBe(true);
+  });
 });

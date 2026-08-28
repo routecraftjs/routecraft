@@ -580,7 +580,7 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case Invalid backoff durations are rejected at build time
-   * @preconditions A retry wrapper configured with a negative backoffMs
+   * @preconditions A retry wrapper configured with a negative backoff
    * @expectedResult Building the route throws RC5003 instead of silently coercing the wait to zero
    */
   test("rejects a negative backoff at build time", () => {

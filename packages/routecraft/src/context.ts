@@ -1356,8 +1356,10 @@ export class CraftContext {
       if (!this.hasStopped) await this.startPlugins();
       // Armed only once the boot has settled: a cadence firing into a
       // context that is still starting could transition a route the boot
-      // gate is still waiting on.
-      if (!this.hasStopped) this.enablement.startRefreshing(this.routes);
+      // gate is still waiting on. Awaited, so a cadence that cannot be
+      // armed fails the boot instead of leaving the route silently without
+      // the refresh it declared.
+      if (!this.hasStopped) await this.enablement.startRefreshing(this.routes);
     } catch (err) {
       started.reject(err);
       try {

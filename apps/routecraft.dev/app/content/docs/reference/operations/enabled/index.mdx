@@ -66,7 +66,9 @@ Omitting `refresh` and passing `'manual'` mean exactly the same thing. The senti
 .enabled(predicate, { refresh: pollCadence ?? 'manual' })
 ```
 
-A malformed cadence is refused while the route is built, not discovered as a dead timer at boot.
+**Both forms fail loudly on a bad value, at the earliest moment each one can.** A malformed `Duration` is refused while the route is built. A cron expression is checked when the cadence is armed at startup, and an expression croner refuses (or an absent `croner`) fails the boot rather than leaving the route silently without the refresh it declared.
+
+The cron check happens at startup rather than at build time because `croner` is an optional peer loaded through an async dynamic import: its grammar is not reachable from a synchronous constructor, and the package may not be installed at all. The framework deliberately does not pre-validate the expression itself, because a second grammar of its own would disagree with croner at the edges, and rejecting an expression croner accepts is worse than checking a moment later.
 
 ## Transitions
 

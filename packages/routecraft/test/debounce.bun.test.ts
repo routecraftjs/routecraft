@@ -138,7 +138,7 @@ describe("debounce operation", () => {
 
   /**
    * @case Separate bursts (a quiet gap between them) each release
-   * @preconditions One arrival, a gap longer than waitMs, then another arrival
+   * @preconditions One arrival, a gap longer than wait, then another arrival
    * @expectedResult Both exchanges reach downstream, in order
    */
   test("separate bursts each release", async () => {
@@ -202,8 +202,8 @@ describe("debounce operation", () => {
   });
 
   /**
-   * @case `maxWaitMs` forces a release under continuous activity
-   * @preconditions Arrivals every 20ms for ~200ms with waitMs longer than the gap and a short maxWaitMs cap
+   * @case `maxWait` forces a release under continuous activity
+   * @preconditions Arrivals every 20ms for ~200ms with wait longer than the gap and a short maxWait cap
    * @expectedResult At least one release fires with reason "maxWait" (the quiet window never closes during activity)
    */
   test("maxWaitMs releases under continuous activity", async () => {
@@ -476,7 +476,7 @@ describe("debounce operation", () => {
   });
 
   /**
-   * @case debounce rejects a non-positive waitMs at build time
+   * @case debounce rejects a non-positive wait at build time
    * @preconditions A route built with .debounce({ wait: 0 })
    * @expectedResult Building throws (RC5003)
    */
@@ -506,7 +506,7 @@ describe("debounce operation", () => {
   });
 
   /**
-   * @case debounce rejects a maxWaitMs smaller than waitMs
+   * @case debounce rejects a maxWait smaller than wait
    * @preconditions A route built with .debounce({ wait: 500, maxWait: 100 })
    * @expectedResult Building throws (RC5003): the cap must not fire before the window
    */
