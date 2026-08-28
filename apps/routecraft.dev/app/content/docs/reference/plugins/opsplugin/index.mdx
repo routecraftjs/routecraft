@@ -226,6 +226,8 @@ data: {"event":"route:exchange:failed","ts":"2026-08-27T21:04:11.522Z","contextI
 
 The bus event name rides the SSE `event` field, so an `EventSource` can subscribe to one kind, and repeats inside `data` so a reader consuming the body with `fetch` gets it without parsing fields. Payloads are rendered defensively: errors keep their name, message and stack, and an exchange, route or context collapses to its identifier rather than dragging its object graph onto the wire.
 
+**The tail omits `_snapshot` payloads.** Several events, the [agent events](/docs/reference/events#agent-operations) among them, carry request and response bodies under that key; the telemetry sink already gates them behind `captureSnapshots` because they are payload data rather than metadata. Opening a tail is not that opt-in, so a watcher of `route:agent:tool:result` sees the event without `_snapshot.output`. Read payloads through telemetry, which was asked for them.
+
 Two frames are the tail's own and not bus events. `: keep-alive` is an SSE comment sent when the app has been quiet, so an intermediary does not reap a healthy connection. `ops:events:dropped` reports how many events a reader missed: the bus emits on the route's own hot path and can never wait for a network, so the tail buffers a bounded number of events and drops the oldest past that, then says so rather than leaving a silent gap.
 
 The tail closes when the context begins stopping, so a shutdown is not held open by a watcher.

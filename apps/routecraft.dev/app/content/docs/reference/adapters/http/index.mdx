@@ -234,11 +234,59 @@ not wait out its whole grace window on connections that would have closed on
 request. `plugin:http:request:completed` fires when the stream closes, with
 `status: 200` and a `durationMs` spanning request receipt to stream end.
 
+#### Observing a disconnect
+
 A client that disconnects cancels the route's iterator, visible as a `return()`
 delivered into a generator's `finally` block or as a `for await` loop exiting.
-An async generator delivers that return only after any pending step settles, so
-a producer parked on an inner `await` unblocks when that await does; one that
-must stop sooner watches its own cancellation source.
+
+**That return is delivered late for a producer parked on an inner `await`.**
+Async iteration settles a pending step before it delivers a return, so a
+generator sitting on `await nextRowFromTheDatabase()` learns nothing about the
+disconnect until that await resolves on its own. A source that can be quiet for
+minutes therefore holds the run, and the connection's resources, for as long as
+its own next item takes.
+
+The fix is the same periodic wake that keeps the connection alive, so one
+mechanism buys both. Race the slow source against a timer and yield an SSE
+comment when the timer wins: the loop reaches its next `yield`, which is where a
+pending `return()` lands. Hold the source's promise across the race rather than
+starting a fresh one each pass, or a keep-alive tick abandons the event that was
+already in flight.
+
+```ts
+const KEEP_ALIVE = Symbol("keep-alive");
+
+function withWake<T>(pending: Promise<T>, ms: number): Promise<T | typeof KEEP_ALIVE> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const wake = new Promise<typeof KEEP_ALIVE>((resolve) => {
+    timer = setTimeout(() => resolve(KEEP_ALIVE), ms);
+  });
+  return Promise.race([pending, wake]).finally(() => clearTimeout(timer));
+}
+
+craft()
+  .id("slow-feed")
+  .from(http({ path: "/feed", method: "GET" }))
+  .transform(async function* () {
+    let pending = nextEvent();
+    for (;;) {
+      const next = await withWake(pending, 15_000);
+      if (next === KEEP_ALIVE) {
+        yield ": keep-alive\n\n";
+        continue;
+      }
+      pending = nextEvent();
+      yield { event: "update", data: next };
+    }
+  })
+  .to(noop());
+```
+
+The interval bounds how long a disconnected client's run survives it, so pick it
+for the reap you are avoiding rather than making it as long as an intermediary
+allows. The [ops event tail](/docs/reference/plugins/opsplugin#tailing-events) is
+built this way. Neither shipped consumer is exposed: an agent stream aborts its
+run from inside the adapter, and the tail's keep-alive settles its own await.
 
 ### Built-in endpoints
 
