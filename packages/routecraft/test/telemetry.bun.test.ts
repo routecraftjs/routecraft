@@ -15,18 +15,17 @@ import {
 import { SqliteEventWriter } from "../src/telemetry/sqlite-event-writer.ts";
 import type { SqliteDriverLoaders } from "../src/shared/sqlite/driver.ts";
 import type { SqliteDatabaseConstructor } from "../src/shared/sqlite/types.ts";
-import type { TelemetryEvent } from "../src/telemetry/types.ts";
+import type {
+  TelemetryEvent,
+  TelemetryOptions,
+} from "../src/telemetry/types.ts";
 
 /**
  * Helper: create a telemetry() plugin wired to a specific SQLite database.
  */
 function sqliteTelemetry(
   dbPath: string,
-  sqliteOpts?: {
-    eventBatchSize?: number;
-    eventFlushIntervalMs?: number;
-    captureSnapshots?: boolean;
-  },
+  sqliteOpts?: Omit<NonNullable<TelemetryOptions["sqlite"]>, "dbPath">,
 ) {
   return telemetry({ sqlite: { dbPath, ...sqliteOpts } });
 }
@@ -143,7 +142,7 @@ describe("TelemetryPlugin", () => {
    * @expectedResult Route appears in the routes table after context starts
    */
   test("records route registrations", async () => {
-    const plugin = sqliteTelemetry(dbPath, { eventFlushIntervalMs: 100 });
+    const plugin = sqliteTelemetry(dbPath, { eventFlushInterval: 100 });
 
     const route = craft()
       .id("recorded-route")
@@ -179,7 +178,7 @@ describe("TelemetryPlugin", () => {
    */
   test("records exchange lifecycle", async () => {
     const plugin = sqliteTelemetry(dbPath, {
-      eventFlushIntervalMs: 100,
+      eventFlushInterval: 100,
       eventBatchSize: 5,
     });
 
@@ -220,7 +219,7 @@ describe("TelemetryPlugin", () => {
    */
   test("records events to events table", async () => {
     const plugin = sqliteTelemetry(dbPath, {
-      eventFlushIntervalMs: 100,
+      eventFlushInterval: 100,
       eventBatchSize: 5,
     });
 
@@ -254,7 +253,7 @@ describe("TelemetryPlugin", () => {
    *   contents, but retain the non-sensitive sibling fields
    */
   test("drops _snapshot from event details when captureSnapshots is off", async () => {
-    const plugin = sqliteTelemetry(dbPath, { eventFlushIntervalMs: 50 });
+    const plugin = sqliteTelemetry(dbPath, { eventFlushInterval: 50 });
     const route = craft()
       .id("snap-off")
       .from(simple([1]))
@@ -300,7 +299,7 @@ describe("TelemetryPlugin", () => {
    */
   test("keeps _snapshot in event details when captureSnapshots is on", async () => {
     const plugin = sqliteTelemetry(dbPath, {
-      eventFlushIntervalMs: 50,
+      eventFlushInterval: 50,
       captureSnapshots: true,
     });
     const route = craft()
@@ -367,7 +366,7 @@ describe("TelemetryPlugin", () => {
    */
   test("teardown flushes buffered events", async () => {
     const plugin = sqliteTelemetry(dbPath, {
-      eventFlushIntervalMs: 60000,
+      eventFlushInterval: 60000,
       eventBatchSize: 1000,
     });
 

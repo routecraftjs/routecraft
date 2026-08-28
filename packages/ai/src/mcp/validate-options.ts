@@ -2,6 +2,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   isStandardSchema,
   normalizeStaticPathPrefix,
+  parseDuration,
   rcError,
   validateAgainst,
 } from "@routecraft/routecraft";
@@ -300,13 +301,12 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
       );
     }
   }
-  if (options.restartDelayMs !== undefined) {
-    if (
-      typeof options.restartDelayMs !== "number" ||
-      options.restartDelayMs <= 0
-    ) {
+  if (options.restartDelay !== undefined) {
+    try {
+      parseDuration(options.restartDelay, "restartDelay");
+    } catch {
       throw new TypeError(
-        "mcpPlugin: restartDelayMs must be a positive number",
+        "mcpPlugin: restartDelay must be a positive duration",
       );
     }
   }
@@ -320,14 +320,12 @@ export function validateMcpPluginOptions(options: McpPluginOptions): void {
   }
 
   // Validate HTTP tool refresh interval
-  if (options.toolRefreshIntervalMs !== undefined) {
-    if (
-      typeof options.toolRefreshIntervalMs !== "number" ||
-      !Number.isInteger(options.toolRefreshIntervalMs) ||
-      options.toolRefreshIntervalMs < 0
-    ) {
+  if (options.toolRefreshInterval !== undefined) {
+    try {
+      parseDuration(options.toolRefreshInterval, "toolRefreshInterval", 0);
+    } catch {
       throw new TypeError(
-        "mcpPlugin: toolRefreshIntervalMs must be a non-negative integer",
+        "mcpPlugin: toolRefreshInterval must be a non-negative duration",
       );
     }
   }

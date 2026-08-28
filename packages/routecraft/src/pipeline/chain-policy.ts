@@ -32,7 +32,12 @@ type NonChainField =
   // Metadata mirrored to sources (transport admission), not a chain
   // position: the authorize steps it describes already answer for
   // themselves under `preParseFilters`.
-  | "requiresPrincipal";
+  | "requiresPrincipal"
+  // Per-route LIFECYCLE, not per-exchange admission: it decides whether the
+  // route runs at all, and is evaluated when the route starts rather than
+  // when an exchange arrives. A detached run only happens inside a route
+  // that is already running, so the predicate has nothing to say about it.
+  | "enablement";
 
 /** A pre-from filter chain position, as carried on the route definition. */
 type ChainField = Exclude<keyof RouteDefinition, NonChainField>;

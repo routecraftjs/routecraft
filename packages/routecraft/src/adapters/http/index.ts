@@ -1,6 +1,7 @@
 import type { Enricher } from "../../operations/enrich.ts";
 import type { Source } from "../../operations/from";
 import { tagAdapter, factoryArgs } from "../shared/factory-tag";
+import { rejectStaleOptions } from "../../shared/stale-options.ts";
 import { HttpEnricherAdapter } from "./enricher";
 import { HttpSourceAdapter } from "./source";
 import type {
@@ -47,7 +48,7 @@ export function http(options: HttpServerOptions): Source<HttpRequestBody>;
  * keyword enforces the category: `.from(http({ url }))` fails to compile
  * because the client has no `subscribe`.
  *
- * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeoutMs, throwOnHttpError, maxBodySize, redirect
+ * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeout, throwOnHttpError, maxBodySize, redirect
  * @returns An Enricher whose fetch returns { status, headers, body, url }
  *
  * @example
@@ -62,6 +63,7 @@ export function http<T = unknown, R = unknown>(
 export function http(
   options: HttpServerOptions | HttpClientOptions<unknown>,
 ): Source<HttpRequestBody> | Enricher<unknown, HttpResult<unknown>> {
+  rejectStaleOptions(options, "http");
   if (isSourceOptions(options)) {
     const adapter = new HttpSourceAdapter(options);
     return tagAdapter(adapter, http, factoryArgs(options));

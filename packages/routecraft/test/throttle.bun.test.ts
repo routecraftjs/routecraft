@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 import { craft, simple, type ThrottleOptions } from "@routecraft/routecraft";
+import { resolveThrottleOptions } from "../src/operations/throttle-wrapper.ts";
 
 /** Poll until `predicate` returns true or `timeoutMs` elapses. */
 async function waitFor(
@@ -285,7 +286,7 @@ describe("Throttle wrapper (.throttle())", () => {
         craft()
           .id("throttle-outside-retry")
           .throttle({ rate: 100 })
-          .retry({ maxAttempts: 3, backoffMs: 1 })
+          .retry({ maxAttempts: 3, backoff: 1 })
           .from(simple("in"))
           .transform((body: string) => {
             calls++;
@@ -651,7 +652,7 @@ describe("Throttle wrapper (.throttle())", () => {
         craft()
           .id("throttle-stacked")
           .from(simple("in"))
-          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .retry({ maxAttempts: 2, backoff: 1 })
           .throttle({ rate: 100 })
           .transform((body: string) => {
             calls++;
@@ -670,5 +671,78 @@ describe("Throttle wrapper (.throttle())", () => {
     expect(passes).toBe(2);
     expect(s.received).toHaveLength(1);
     expect(s.received[0].body).toBe("IN");
+  });
+
+  /**
+   * @case The `per` window accepts a Duration as well as a unit word
+   * @preconditions The same rate resolved against a unit word, an equivalent duration string, and a window no unit word can name
+   * @expectedResult "minute" and "60s" resolve to the identical refill rate, and "90s" resolves to a window a unit word could not express
+   */
+  test("resolves a Duration window as well as a unit word", () => {
+    const windowOf = (per: NonNullable<ThrottleOptions["per"]>): number =>
+      60 / resolveThrottleOptions({ rate: 60, per }).refillPerMs;
+
+    expect(windowOf("minute")).toBe(60_000);
+    expect(windowOf("60s")).toBe(60_000);
+    expect(windowOf("1m")).toBe(60_000);
+    // The point of the widening: a window no unit word names.
+    expect(windowOf("90s")).toBe(90_000);
+  });
+
+  /**
+   * @case A bare number in `per` is milliseconds, as it is everywhere a Duration is accepted
+   * @preconditions `per: 60`, which reads like "per minute" but is not
+   * @expectedResult It resolves to a 60ms window. This is the trap-shaped corner of accepting a Duration here, and it is pinned so the behaviour cannot drift silently
+   */
+  test("reads a bare number in per as milliseconds, not as a unit", () => {
+    const resolved = resolveThrottleOptions({ rate: 60, per: 60 });
+
+    expect(60 / resolved.refillPerMs).toBe(60);
+    // Write per: "60s" (or per: "minute") for one per second over a minute.
+    expect(
+      60 / resolveThrottleOptions({ rate: 60, per: "60s" }).refillPerMs,
+    ).toBe(60_000);
+  });
+
+  /**
+   * @case A `per` that is neither a unit word nor a duration is refused at build time
+   * @preconditions per set to an arbitrary string
+   * @expectedResult Building throws RC5003 naming the option, rather than producing a NaN refill rate at runtime
+   */
+  test("refuses a per that is neither a unit word nor a duration", () => {
+    expect(() =>
+      resolveThrottleOptions({
+        rate: 1,
+        per: "banana" as NonNullable<ThrottleOptions["per"]>,
+      }),
+    ).toThrow(/throttle\(\{ per \}\)/);
+  });
+
+  /**
+   * @case A prototype-chain key is not mistaken for a unit word
+   * @preconditions per set to "constructor", which `in` would resolve through Object.prototype
+   * @expectedResult It is refused, rather than producing a NaN refill rate and a limiter that silently never admits anything
+   */
+  test("refuses a prototype-chain key as a per unit", () => {
+    expect(() =>
+      resolveThrottleOptions({
+        rate: 1,
+        per: "constructor" as NonNullable<ThrottleOptions["per"]>,
+      }),
+    ).toThrow(/throttle\(\{ per \}\)/);
+  });
+
+  /**
+   * @case A mistyped unit word names both accepted vocabularies
+   * @preconditions per set to "minutes", a plural typo of a unit word
+   * @expectedResult The refusal lists the unit words as well as the duration form, rather than quoting only the duration grammar at someone who meant a unit
+   */
+  test("names the unit words when one is mistyped", () => {
+    expect(() =>
+      resolveThrottleOptions({
+        rate: 1,
+        per: "minutes" as NonNullable<ThrottleOptions["per"]>,
+      }),
+    ).toThrow(/"minute"/);
   });
 });

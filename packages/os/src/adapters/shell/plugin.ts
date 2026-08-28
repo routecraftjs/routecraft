@@ -1,4 +1,8 @@
-import type { CraftContext, CraftPlugin } from "@routecraft/routecraft";
+import type {
+  CraftContext,
+  CraftPlugin,
+  Duration,
+} from "@routecraft/routecraft";
 import type { IsolationName } from "./types.ts";
 
 /**
@@ -12,8 +16,8 @@ import type { IsolationName } from "./types.ts";
 export interface ShellPluginOptions {
   /** Isolation tier for calls that do not choose one. */
   isolation?: IsolationName;
-  /** Default milliseconds before a command is killed. */
-  timeout?: number;
+  /** Default time before a command is killed. */
+  timeout?: Duration;
   /** Default cap on captured output, per stream, in bytes. */
   maxOutputBytes?: number;
 }
@@ -42,7 +46,7 @@ declare module "@routecraft/routecraft" {
  *
  * @example
  * ```typescript
- * plugins: [shellPlugin({ timeout: 30_000 })]
+ * plugins: [shellPlugin({ timeout: "30s" })]
  * ```
  */
 export function shellPlugin(options: ShellPluginOptions = {}): CraftPlugin {

@@ -7,7 +7,7 @@ title: debounce
 </Lead>
 
 ```ts
-debounce(options: { waitMs: number; key?; maxWaitMs? }): RouteBuilder<Current>
+debounce(options: { wait: Duration; key?; maxWait? }): RouteBuilder<Current>
 ```
 
 Suppress bursts of exchanges, releasing only the **last** one in a burst after a quiet period. Useful when only the final state matters: file-system change batching, search-as-you-type, or collapsing a flurry of webhook retries.
@@ -15,22 +15,22 @@ Suppress bursts of exchanges, releasing only the **last** one in a burst after a
 ```ts
 .id('file-watcher')
 .from(file({ path: './config', watch: true }))
-.debounce({ waitMs: 500 }) // wait for editing to finish
+.debounce({ wait: 500 }) // wait for editing to finish
 .process(reloadConfig)
 .to(log())
 ```
 
-Each arrival is held (not passed downstream) and resets a `waitMs` quiet timer; a newer arrival supersedes and drops the one being held. When the timer finally fires, the held exchange is released through the steps that follow `.debounce()`.
+Each arrival is held (not passed downstream) and resets a `wait` quiet timer; a newer arrival supersedes and drops the one being held. When the timer finally fires, the held exchange is released through the steps that follow `.debounce()`.
 
 ## Options
 
-- **`waitMs`** (required) -- the quiet window in milliseconds. An exchange is released only after `waitMs` elapses with no newer arrival in its group.
+- **`wait`** (required) -- the quiet window. An exchange is released only after `wait` elapses with no newer arrival in its group.
 - **`key`** -- a selector that debounces independently per group, e.g. one window per file path: `key: (ex) => ex.body.filePath`. When omitted, the whole route shares a single window.
-- **`maxWaitMs`** -- an upper bound on how long an exchange may be held, measured from the START of its burst and never reset. It guarantees eventual release under continuous activity (otherwise a steady stream of arrivals could reset `waitMs` forever and starve the trailing edge). Must be `>= waitMs`.
+- **`maxWait`** -- an upper bound on how long an exchange may be held, measured from the START of its burst and never reset. It guarantees eventual release under continuous activity (otherwise a steady stream of arrivals could reset `wait` forever and starve the trailing edge). Must be `>= wait`.
 
 ```ts
 // Per-path debounce with a 5s ceiling on continuous edits.
-.debounce({ waitMs: 500, key: (ex) => ex.body.filePath, maxWaitMs: 5000 })
+.debounce({ wait: 500, key: (ex) => ex.body.filePath, maxWait: 5000 })
 ```
 
 ## Semantics

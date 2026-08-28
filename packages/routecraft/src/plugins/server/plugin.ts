@@ -1,11 +1,28 @@
 import type { CraftContext, CraftPlugin } from "../../context.ts";
 import { rcError } from "../../error.ts";
+import { type Duration, parseDuration } from "../../shared/duration.ts";
 import { startServer, type HttpServerHandle } from "../http/server/index.ts";
 import { HttpMountRegistry, WEB_INGRESSES } from "./registry.ts";
 import type { ServerDefinitions } from "./types.ts";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_SHUTDOWN_GRACE_MS = 30_000;
+
+/**
+ * Resolve one server's `shutdownGrace` to milliseconds, defaulting when it is
+ * unset. `0` is legal here (close the listener immediately), which is why the
+ * floor is 0 rather than the deadline default of 1.
+ *
+ * @param name - Server name, quoted in the refusal so a multi-server config
+ *   says which entry is wrong.
+ */
+function resolveShutdownGrace(
+  name: string,
+  grace: Duration | undefined,
+): number {
+  if (grace === undefined) return DEFAULT_SHUTDOWN_GRACE_MS;
+  return parseDuration(grace, `servers.${name}.shutdownGrace`, 0);
+}
 
 async function closeServer(
   handle: HttpServerHandle,
@@ -81,7 +98,7 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
         try {
           await closeServer(
             handle,
-            definitions[name]?.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS,
+            resolveShutdownGrace(name, definitions[name]?.shutdownGrace),
           );
           ctx.logger.info({ server: name }, "Server closed");
           ctx.emit("server:closed", { server: name });
@@ -122,7 +139,7 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
       if (state.closed) {
         await closeServer(
           handle,
-          definition.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS,
+          resolveShutdownGrace(name, definition.shutdownGrace),
         );
         return;
       }
@@ -207,15 +224,7 @@ function validateDefinitions(definitions: ServerDefinitions): void {
         message: `servers.${name}: invalid port ${String(definition.port)}`,
       });
     }
-    if (
-      definition.shutdownGraceMs !== undefined &&
-      (!Number.isInteger(definition.shutdownGraceMs) ||
-        definition.shutdownGraceMs < 0)
-    ) {
-      throw rcError("RC5003", undefined, {
-        message: `servers.${name}: invalid shutdownGraceMs ${String(definition.shutdownGraceMs)}. Pass a non-negative integer (milliseconds).`,
-      });
-    }
+    resolveShutdownGrace(name, definition.shutdownGrace);
     const host = (definition.host ?? DEFAULT_HOST).toLowerCase();
     const key = `${host}:${definition.port}`;
     const existing = binds.get(key);

@@ -13,6 +13,7 @@ import {
   getExchangeRoute,
   emitExchangeDropped,
 } from "../exchange.ts";
+import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import type { CraftContext } from "../context.ts";
@@ -46,7 +47,7 @@ export interface DedupeOptions {
    * `maxKeys` caps the committed set, and an evicted key's next occurrence
    * is no longer recognised as a duplicate.
    */
-  ttl?: number;
+  ttl?: Duration;
   /**
    * Maximum number of committed keys retained per route. The committed set
    * is an LRU keyed by recency of use (a duplicate hit counts as a use, not
@@ -79,13 +80,11 @@ export interface ResolvedDedupeOptions {
 export function resolveDedupeOptions(
   options: DedupeOptions = {},
 ): ResolvedDedupeOptions {
-  const { ttl, maxKeys = DEFAULT_MAX_KEYS } = options;
-
-  if (ttl !== undefined && (!Number.isFinite(ttl) || ttl <= 0)) {
-    throw rcError("RC5003", undefined, {
-      message: `dedupe({ ttl }) must be a finite number > 0 (milliseconds), got ${String(ttl)}.`,
-    });
-  }
+  const { maxKeys = DEFAULT_MAX_KEYS } = options;
+  const ttl =
+    options.ttl === undefined
+      ? undefined
+      : parseDuration(options.ttl, "dedupe({ ttl })");
   // Upper-bound `maxKeys`: the committed-key LRU pre-allocates index arrays
   // sized to `max` at construction, so an "effectively unlimited" value
   // would OOM the process the moment the dedupe state is built.

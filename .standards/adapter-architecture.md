@@ -211,10 +211,11 @@ from<T>(source: SourceLike<T>): RouteBuilder<T> {
 ### Source adapter
 
 ```ts
-import type { Source, Subscription } from "@routecraft/routecraft";
+import type { Duration, Source, Subscription } from "@routecraft/routecraft";
+import { parseDuration } from "@routecraft/routecraft";
 
 export interface MySourceOptions {
-  pollIntervalMs?: number;
+  pollInterval?: Duration;
 }
 
 export class MySourceAdapter<T = unknown> implements Source<T> {
@@ -222,7 +223,8 @@ export class MySourceAdapter<T = unknown> implements Source<T> {
   constructor(private options: Partial<MySourceOptions> = {}) {}
 
   async subscribe(sub: Subscription<T>): Promise<void> {
-    const { pollIntervalMs = 1000 } = this.options;
+    const { pollInterval = 1000 } = this.options;
+    const pollIntervalMs = parseDuration(pollInterval, "pollInterval");
     sub.context.logger.info("Starting my-source subscription");
     sub.ready();
 

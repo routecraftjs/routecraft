@@ -40,7 +40,7 @@ ruleTester.run("require-named-route", requireNamedRouteRule, {
       code: `
         craft()
           .id("complex-route")
-          .from(timer({ intervalMs: 5000 }))
+          .from(timer({ interval: 5000 }))
           .transform((x) => x * 2)
           .to(log());
       `,

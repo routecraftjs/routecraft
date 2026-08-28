@@ -467,7 +467,7 @@ export interface EventDetailsMap {
   "context:stopping": { reason?: unknown };
   /**
    * Shutdown finished. `forced` is true when stage one did not drain inside
-   * `shutdown.timeoutMs` and in-flight execution was abandoned, with
+   * `shutdown.timeout` and in-flight execution was abandoned, with
    * `pending` naming the routes that still had work. A clean stop carries
    * `forced: false` and an empty `pending`, so the shape is stable and a
    * subscriber can count forced shutdowns without reading exit codes.
@@ -485,6 +485,21 @@ export interface EventDetailsMap {
 
   // -- Route lifecycle --
   "route:registered": { routeId: string; route: Route };
+  /**
+   * A route's enablement predicate was evaluated and the verdict CHANGED
+   * (or was reached for the first time). Not emitted when a refresh
+   * re-confirms what the route was already doing, so a five-minute cadence
+   * on a stable predicate is silent rather than a heartbeat.
+   *
+   * `reason` is present only when `enabled` is false, and is what ops
+   * reports next to the route.
+   */
+  "route:enablement:changed": {
+    routeId: string;
+    route: Route;
+    enabled: boolean;
+    reason?: string;
+  };
   "route:starting": { routeId: string; route: Route };
   "route:started": { routeId: string; route: Route };
   "route:stopping": {
@@ -933,7 +948,7 @@ export interface EventDetailsMap {
   "route:operation:debounce:dropped": ExchangeScoped & {
     key?: string;
   };
-  /** The quiet window (or `maxWaitMs` cap) elapsed; the last held exchange is released downstream. */
+  /** The quiet window (or `maxWait` cap) elapsed; the last held exchange is released downstream. */
   "route:operation:debounce:released": ExchangeScoped & {
     key?: string;
     /**

@@ -72,7 +72,7 @@ craft()
 // Recover from one flaky call, keep processing
 craft()
   .id('resilient-pipeline')
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: 60_000 }))
   .transform(prepareRequest)
   .error((err) => ({ fallback: true, reason: String(err) }))
   .to(http({ url: 'https://flaky.api/endpoint' }))
@@ -87,7 +87,7 @@ The handler signature is identical in both positions: `(error, exchange, forward
 craft()
   .id('with-safety-net')
   .error((err, ex, forward) => forward('errors.catchall', ex.body))  // route scope
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: 60_000 }))
   .transform(prepareRequest)
   .error((err) => ({ fallback: true }))                              // step scope
   .to(http({ url: 'https://flaky.api/endpoint' }))

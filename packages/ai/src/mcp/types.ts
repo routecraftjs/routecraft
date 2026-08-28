@@ -1,3 +1,4 @@
+import type { Duration } from "@routecraft/routecraft";
 import type { Exchange, Tag } from "@routecraft/routecraft";
 import type { Principal, ValidatorAuthOptions } from "@routecraft/routecraft";
 import type { ToolGuard } from "../fn/types.ts";
@@ -499,22 +500,22 @@ export interface McpPluginOptions {
   maxRestarts?: number;
 
   /**
-   * Base delay in ms before the first restart attempt.
+   * Base delay before the first restart attempt.
    * Subsequent attempts use exponential backoff. Default: 1000.
    */
-  restartDelayMs?: number;
+  restartDelay?: Duration;
 
   /**
    * Multiplier for exponential backoff between restart attempts.
-   * Delay = restartDelayMs * (restartBackoffMultiplier ^ restartCount). Default: 2.
+   * Delay = restartDelay * (restartBackoffMultiplier ^ restartCount). Default: 2.
    */
   restartBackoffMultiplier?: number;
 
   /**
-   * Interval in ms to re-list tools from HTTP clients.
+   * Interval at which tools are re-listed from HTTP clients.
    * Set to 0 to disable periodic refresh. Default: 60000 (60s).
    */
-  toolRefreshIntervalMs?: number;
+  toolRefreshInterval?: Duration;
 }
 
 /**

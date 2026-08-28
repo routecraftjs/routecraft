@@ -35,7 +35,7 @@ const mcp = pseudo<McpCallOptions>("mcp");
 
 // Object-only call: mcp<Result>(options)
 craft()
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: 60_000 }))
   .enrich(
     mcp<GmailListResult>({
       server: "gmail",

@@ -56,7 +56,7 @@ The `.from()` adapter determines how a capability is triggered:
 **Scheduled** -- runs on a timer, no caller to respond to:
 
 ```ts
-.from(timer({ intervalMs: 60_000 }))
+.from(timer({ interval: 60_000 }))
 ```
 
 **One-shot** -- processes a fixed payload and completes:
@@ -130,7 +130,7 @@ Capabilities can pass data to each other using `direct()`. This keeps each capab
 // capabilities/fetch-orders.ts
 export default craft()
   .id("fetch-orders")
-  .from(timer({ intervalMs: 300_000 }))
+  .from(timer({ interval: 300_000 }))
   .transform(fetchNewOrders)
   .to(direct("process-orders"));
 

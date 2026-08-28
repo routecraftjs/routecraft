@@ -5,6 +5,7 @@
  * Client options configure SMTP (send).
  */
 
+import type { Duration } from "../../shared/duration.ts";
 import type { Exchange } from "../../exchange.ts";
 import { MailHeaders } from "./shared.ts";
 import type { MailSender } from "./analysis.ts";
@@ -116,7 +117,7 @@ export interface MailContextConfig {
  * route start, IDLE drops, and fetch failures in both IDLE and poll mode.
  * Authentication failures never reconnect; they are fatal immediately.
  *
- * Delays grow exponentially from `baseDelayMs` up to `maxDelayMs`, with full
+ * Delays grow exponentially from `baseDelay` up to `maxDelay`, with full
  * jitter (each delay is drawn uniformly from [0, current backoff]).
  */
 export interface MailReconnectOptions {
@@ -129,17 +130,17 @@ export interface MailReconnectOptions {
    */
   maxAttempts?: number;
   /**
-   * Backoff for the first retry, in milliseconds.
+   * Backoff for the first retry.
    *
    * @default 1000
    */
-  baseDelayMs?: number;
+  baseDelay?: Duration;
   /**
-   * Upper bound for the exponential backoff, in milliseconds.
+   * Upper bound for the exponential backoff.
    *
    * @default 60000
    */
-  maxDelayMs?: number;
+  maxDelay?: Duration;
 }
 
 /**
@@ -200,8 +201,8 @@ export interface MailServerOptions {
   description?: string;
   /** Keywords for route discovery and categorization */
   keywords?: string[];
-  /** Poll interval in ms for Source mode (default: use IMAP IDLE) */
-  pollIntervalMs?: number;
+  /** Poll interval for Source mode (default: use IMAP IDLE) */
+  pollInterval?: Duration;
   /** Named account from context config (uses default if omitted) */
   account?: string;
   /**
@@ -261,7 +262,7 @@ export interface MailServerOptions {
    * source connection (initial connect, IDLE drops, fetch failures). Pass an
    * object to tune the backoff, or `false` to disable reconnection entirely
    * so the first connection failure stops the route. Defaults to
-   * `{ maxAttempts: 30, baseDelayMs: 1000, maxDelayMs: 60000 }`.
+   * `{ maxAttempts: 30, baseDelay: 1000, maxDelay: 60000 }`.
    *
    * Only meaningful in Source mode (`.from(mail(folder, {...}))`); the fetch
    * destination performs one-shot fetches and ignores this option.
@@ -280,7 +281,7 @@ export interface MailServerOptions {
    * mail('INBOX', { reconnect: false })
    * ```
    *
-   * @default { maxAttempts: 30, baseDelayMs: 1000, maxDelayMs: 60000 }
+   * @default { maxAttempts: 30, baseDelay: 1000, maxDelay: 60000 }
    */
   reconnect?: MailReconnectOptions | false;
 }

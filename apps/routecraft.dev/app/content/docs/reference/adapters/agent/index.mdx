@@ -47,7 +47,7 @@ agentPlugin({
 
 craft()
   .id('periodic-summary')
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: 60_000 }))
   .to(agent('summariser'))
   .to(log())
 ```

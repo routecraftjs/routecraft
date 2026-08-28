@@ -143,7 +143,7 @@ telemetry({
   sqlite: {
     dbPath: './logs/telemetry.db',  // custom path (default .routecraft/telemetry.db)
     eventBatchSize: 100,            // events buffered before flush (default 50)
-    eventFlushIntervalMs: 2000,     // max ms between flushes (default 1000)
+    eventFlushInterval: 2000,     // max time between flushes (default 1000)
     maxExchanges: 50_000,           // rows to retain (default 50000, 0 to disable)
     maxEvents: 100_000,             // rows to retain (default 100000, 0 to disable)
   },

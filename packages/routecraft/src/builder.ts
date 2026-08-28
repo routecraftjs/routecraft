@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { type Duration, parseDuration } from "./shared/duration.ts";
+import { rejectStaleOptions } from "./shared/stale-options.ts";
+import {
+  isCronCadence,
+  MANUAL_REFRESH,
+  NEVER_FORCE,
+  type EnablementOptions,
+  type EnablementPredicate,
+  type RouteEnablement,
+} from "./enablement.ts";
 import { BRAND, setBrand } from "./brand.ts";
 import {
   StepBuilderBase,
@@ -483,6 +493,8 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
   title(value: string): this;
   /** Set a human-readable description for the next route. See {@link RouteBuilder.description}. */
   description(value: string): this;
+  /** Gate the next route on a predicate. See {@link RouteBuilder.enabled}. */
+  enabled(predicate: EnablementPredicate, options?: EnablementOptions): this;
   /**
    * Declare input schemas for the next route and retype the chain. When a
    * body schema is given (bare, or as `{ body }`), the schema's inferred
@@ -500,7 +512,7 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
   /** Tag the next route. See {@link RouteBuilder.tag}. */
   tag(value: Tag | Tag[]): this;
   /** Configure batch processing for the next route. See {@link RouteBuilder.batch}. */
-  batch(options?: { size?: number; flushIntervalMs?: number }): this;
+  batch(options?: { size?: number; flushInterval?: Duration }): this;
   /**
    * Attach a ROUTE-SCOPE error handler (catch-all) to the next route. The
    * step-scope variant lives on the post-`.from()` builder; position picks
@@ -525,7 +537,7 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
    * step-scope variant lives on the post-`.from()` builder. See
    * {@link RouteBuilder.timeout}.
    */
-  timeout(timeoutMs: number): this;
+  timeout(duration: Duration): this;
   /**
    * Configure a ROUTE-SCOPE throttle for the next route (rate-limit the
    * whole pipeline, chain position 5). The step-scope variant lives on
@@ -636,6 +648,7 @@ export class RouteBuilder<
         circuitBreakerConfig?: ResolvedCircuitBreakerOptions;
         concurrencyConfigs?: ResolvedConcurrencyOptions[];
         discovery?: RouteDiscovery;
+        enablement?: RouteEnablement;
         authorizers?: AuthorizeOptions[];
       }
     | undefined;
@@ -681,6 +694,94 @@ export class RouteBuilder<
    */
   description(value: string): PreFromBuilder {
     this.mergeDiscovery({ description: value });
+    return this.prelude();
+  }
+
+  /**
+   * Gate the next route on a predicate. A route whose predicate is false is
+   * `disabled`: registered and known to the context, not started, not
+   * intaking, and not advertised as an agent tool.
+   *
+   * This is what makes "the agent cannot call this until I supply
+   * credentials" true by construction. The tool surface is derived from what
+   * the context has enabled, so a disabled capability is never offered to
+   * the model rather than being offered and failing when called.
+   *
+   * Returning `true` enables the route. Returning a STRING disables it and
+   * that string is the reason ops reports, which is why there is no separate
+   * reason argument: one declaration cannot drift from the other. A
+   * predicate that throws leaves the route disabled with the error message
+   * as its reason and never fails the boot, because a missing credential is
+   * a configuration state and not a reason to take the process down.
+   *
+   * Route metadata, not a filter: this decides whether the route runs at
+   * all, so it sits beside `.id()` and `.description()` and never enters the
+   * pre-from filter chain. It is evaluated per route lifecycle, never per
+   * exchange.
+   *
+   * @param predicate - Returns `true`, or a string naming why it is off.
+   * @param options - `refresh` re-evaluates on an interval or a cron
+   *   schedule. Omitted (or `"manual"`) is MANUAL: evaluated once as the
+   *   route starts and never again until something explicitly asks, which
+   *   keeps the common environment-variable case free of any recurring cost.
+   *
+   * @example
+   * ```typescript
+   * craft()
+   *   .id('mail-inbound')
+   *   .description('Triage inbound mail')
+   *   .enabled(() =>
+   *     env.MAIL_USER && env.MAIL_APP_PASSWORD
+   *       ? true
+   *       : 'MAIL_USER and MAIL_APP_PASSWORD are not set',
+   *   )
+   *   .from(mail({ account: 'default', folder: 'INBOX' }))
+   *   .to(direct('triage'));
+   * ```
+   */
+  enabled(
+    predicate: EnablementPredicate,
+    options?: EnablementOptions,
+  ): PreFromBuilder {
+    if (typeof predicate !== "function") {
+      throw rcError("RC2001", undefined, {
+        message: `.enabled() takes a predicate function returning true or a reason string, got ${typeof predicate}.`,
+      });
+    }
+    if (this.pendingOptions?.enablement !== undefined) {
+      throw rcError("RC2001", undefined, {
+        message: `Route metadata already declared: .enabled() can only be called once per route.`,
+      });
+    }
+    // Resolved here rather than at start so a malformed cadence fails while
+    // the route is being built, which is where every other staged option
+    // fails, instead of surfacing as a dead refresh timer at boot.
+    if (
+      options?.refresh !== undefined &&
+      options.refresh !== MANUAL_REFRESH &&
+      !isCronCadence(options.refresh)
+    ) {
+      parseDuration(options.refresh as Duration, ".enabled({ refresh })");
+    }
+    // Resolved here for the same reason the cadence is: a malformed grace
+    // must fail while the route is being built, not when a transition
+    // eventually needs it.
+    if (
+      options?.drainGrace !== undefined &&
+      options.drainGrace !== NEVER_FORCE
+    ) {
+      parseDuration(options.drainGrace, ".enabled({ drainGrace })", 0);
+    }
+    this.pendingOptions = {
+      ...(this.pendingOptions ?? {}),
+      enablement: {
+        predicate,
+        ...(options?.refresh !== undefined ? { refresh: options.refresh } : {}),
+        ...(options?.drainGrace !== undefined
+          ? { drainGrace: options.drainGrace }
+          : {}),
+      },
+    };
     return this.prelude();
   }
 
@@ -786,18 +887,22 @@ export class RouteBuilder<
    * Configure batch processing for the next route to be created.
    * Stages the batch consumer; does not affect the current route if one already exists.
    *
-   * @param options - Optional `size` (batch size) and `flushIntervalMs` (flush interval)
+   * @param options - Optional `size` (batch size) and `flushInterval`
    * @returns This builder for chaining
    *
    * @example
    * ```typescript
-   * craft().batch({ size: 10, flushIntervalMs: 1000 }).from(timer(1000)).to(log()).build();
+   * craft().batch({ size: 10, flushInterval: "1s" }).from(timer({ interval: "1s" })).to(log()).build();
    * ```
    */
-  batch(options?: { size?: number; flushIntervalMs?: number }): PreFromBuilder {
+  batch(options?: { size?: number; flushInterval?: Duration }): PreFromBuilder {
+    rejectStaleOptions(options, "batch");
     const mapped = {
       size: options?.size,
-      time: options?.flushIntervalMs,
+      time:
+        options?.flushInterval === undefined
+          ? undefined
+          : parseDuration(options.flushInterval, "batch({ flushInterval })"),
     };
     this.pendingOptions = {
       ...(this.pendingOptions ?? {}),
@@ -841,7 +946,7 @@ export class RouteBuilder<
    * craft()
    *   .id('process-orders')
    *   .error((err, ex, forward) => forward('error-route', { reason: String(err) }))
-   *   .from(timer({ intervalMs: 60000 }))
+   *   .from(timer({ interval: "1m" }))
    *   .to(dangerousDestination)
    * ```
    *
@@ -849,7 +954,7 @@ export class RouteBuilder<
    * ```ts
    * craft()
    *   .id('resilient-pipeline')
-   *   .from(timer({ intervalMs: 60000 }))
+   *   .from(timer({ interval: "1m" }))
    *   .transform(prepareRequest)
    *   .error((err) => ({ fallback: true, reason: String(err) }))
    *   .to(http({ url: 'https://flaky.api/endpoint' }))
@@ -931,19 +1036,19 @@ export class RouteBuilder<
    * cancelled); the timeout bounds how long the route waits, not the
    * work itself.
    */
-  override timeout(timeoutMs: number): this {
+  override timeout(duration: Duration): this {
     if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
       // Route scope: stage the resolved config (validates the deadline
       // at staging time) so the next `.from()` writes it into the new
       // RouteDefinition.
       this.pendingOptions = {
         ...(this.pendingOptions ?? {}),
-        timeoutConfig: resolveTimeoutOptions(timeoutMs),
+        timeoutConfig: resolveTimeoutOptions(duration),
       };
       logger.trace("Staging route-scope timeout config for next route");
       return this;
     }
-    return super.timeout(timeoutMs);
+    return super.timeout(duration);
   }
 
   /**
@@ -1231,6 +1336,7 @@ export class RouteBuilder<
     const circuitBreakerConfig = this.pendingOptions?.circuitBreakerConfig;
     const concurrencyConfigs = this.pendingOptions?.concurrencyConfigs;
     const discovery = this.pendingOptions?.discovery;
+    const enablement = this.pendingOptions?.enablement;
     const authorizers = this.pendingOptions?.authorizers ?? [];
 
     // Multi-ingress routes feed one shared pipeline, so they need one shared
@@ -1337,6 +1443,7 @@ export class RouteBuilder<
       },
       ...(errorHandler ? { errorHandler } : {}),
       ...(discovery ? { discovery } : {}),
+      ...(enablement ? { enablement } : {}),
       ...(authorizers.length > 0 ? { requiresPrincipal: true } : {}),
       // Route-scope retry (#7) and timeout (#8) scope over the chain
       // tail rather than running as flat filters, so they live as
@@ -1678,7 +1785,7 @@ export class RouteBuilder<
    *
    * Each arrival is held (not passed downstream) and resets a `waitMs` quiet
    * timer; a newer arrival supersedes and drops the one being held. When the
-   * timer fires (or the optional `maxWaitMs` cap elapses from the burst's
+   * timer fires (or the optional `maxWait` cap elapses from the burst's
    * start, guaranteeing progress under continuous activity), the held
    * exchange is released through the steps after `.debounce()`. An optional
    * `key` selector debounces independently per group.
@@ -1690,13 +1797,13 @@ export class RouteBuilder<
    * rather than being lost. State is per-route; it is a route-scope operation
    * and is deliberately not available inside a fan-out path.
    *
-   * @param options - `{ waitMs }`, plus optional `key` selector and `maxWaitMs` cap
+   * @param options - `{ wait }`, plus optional `key` selector and `maxWait` cap
    * @returns This RouteBuilder, body type unchanged
    *
    * @example
    * ```ts
    * .from(file({ path: "./config", watch: true }))
-   * .debounce({ waitMs: 500 }) // wait for editing to finish
+   * .debounce({ wait: "500ms" }) // wait for editing to finish
    * .process(reloadConfig)
    * ```
    */

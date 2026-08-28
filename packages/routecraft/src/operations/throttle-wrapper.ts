@@ -1,5 +1,6 @@
 import { LRUCache } from "lru-cache";
 import type { Exchange } from "../exchange.ts";
+import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { CraftContext } from "../context.ts";
@@ -29,6 +30,37 @@ const WINDOW_MS: Record<ThrottleTimeUnit, number> = {
 };
 
 /**
+ * Resolve the `per` window to milliseconds.
+ *
+ * The unit words are checked first, so they keep their exact meaning and
+ * never reach the duration grammar (where `"minute"` would be a parse
+ * error). Everything else is an ordinary {@link Duration}, which is what
+ * makes `per: "90s"` expressible at all.
+ *
+ * @internal
+ */
+function resolveWindow(per: ThrottleTimeUnit | Duration): number {
+  // `hasOwn`, not `in`: `per: "constructor"` resolves through the prototype
+  // chain, and the resulting `rate / undefined` is a NaN refill rate, which
+  // is a limiter that never admits anything and never errors.
+  if (typeof per === "string" && Object.hasOwn(WINDOW_MS, per)) {
+    return WINDOW_MS[per as ThrottleTimeUnit];
+  }
+  try {
+    return parseDuration(per as Duration, "throttle({ per })");
+  } catch {
+    // The duration grammar is the wrong thing to quote at someone who
+    // mistyped a unit word, which is the likelier mistake now that both
+    // forms are accepted. Name both vocabularies.
+    throw rcError("RC5003", undefined, {
+      message: `throttle({ per }) must be one of ${Object.keys(WINDOW_MS)
+        .map((u) => `"${u}"`)
+        .join(", ")}, or a duration like "90s"; got ${String(per)}.`,
+    });
+  }
+}
+
+/**
  * `setTimeout`'s maximum delay; a larger value is coerced to ~1ms and
  * fires immediately. The pacing wait is clamped to this so an extreme
  * backlog still waits (rather than being admitted instantly, which would
@@ -42,8 +74,16 @@ const MAX_TIMER_MS = 2_147_483_647;
 export interface ThrottleOptions {
   /** Allowed requests per `per` window. Must be a finite number > 0. */
   rate: number;
-  /** Time window the `rate` is measured over. Default `"second"`. */
-  per?: ThrottleTimeUnit;
+  /**
+   * Time window the `rate` is measured over. Default `"second"`.
+   *
+   * A unit word (`"minute"`) reads best for the common case; a
+   * {@link Duration} covers windows a unit word cannot name, such as
+   * `"90s"`. Note that a BARE NUMBER is milliseconds, as everywhere else a
+   * `Duration` is accepted: `per: 60` is 60ms, not a minute. Write
+   * `per: "60s"` (or `per: "minute"`) for that.
+   */
+  per?: ThrottleTimeUnit | Duration;
   /**
    * Behaviour when an exchange exceeds the rate:
    * - `"delay"` (default): pace it, waiting until a token frees. Smooths
@@ -146,13 +186,7 @@ export function resolveThrottleOptions(
       message: `throttle({ rate }) must be a finite number > 0, got ${String(rate)}.`,
     });
   }
-  if (!(per in WINDOW_MS)) {
-    throw rcError("RC5003", undefined, {
-      message: `throttle({ per }) must be one of ${Object.keys(WINDOW_MS)
-        .map((u) => `"${u}"`)
-        .join(", ")}, got ${String(per)}.`,
-    });
-  }
+  const windowMs = resolveWindow(per);
   if (burst !== undefined && (!Number.isFinite(burst) || burst <= 0)) {
     throw rcError("RC5003", undefined, {
       message: `throttle({ burst }) must be a finite number > 0, got ${String(burst)}.`,
@@ -168,7 +202,7 @@ export function resolveThrottleOptions(
     // `burst`) still admits the first call immediately instead of pacing
     // every exchange.
     capacity: Math.max(1, burst ?? rate),
-    refillPerMs: rate / WINDOW_MS[per],
+    refillPerMs: rate / windowMs,
     mode,
     ...(key ? { key } : {}),
     maxKeys,

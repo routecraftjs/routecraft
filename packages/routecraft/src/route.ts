@@ -54,6 +54,7 @@ import type {
   SuspendCapableStep,
   SuspendableStep,
 } from "./suspension/sites.ts";
+import type { RouteEnablement } from "./enablement.ts";
 
 // Re-exported for existing imports (builder.ts and @internal consumers).
 export { buildCacheCheckStep, buildCacheStoreStep, buildThrottleCheckStep };
@@ -244,6 +245,16 @@ export type RouteDefinition<T = unknown> = {
   readonly discovery?: RouteDiscovery;
 
   /**
+   * The route's enablement predicate and refresh cadence, from `.enabled()`.
+   *
+   * Route metadata rather than a filter: it decides whether this route runs
+   * at all, per route and per lifecycle, so it never enters the pre-from
+   * filter chain and never sees an exchange. Absent means always enabled,
+   * which is every route that does not declare one.
+   */
+  readonly enablement?: RouteEnablement;
+
+  /**
    * True when the route declares a route-entry `.authorize()`. Mirrored to
    * sources via {@link SourceMeta.requiresPrincipal} so identity-capable
    * transports enforce credential verification before dispatching into the
@@ -427,6 +438,25 @@ export interface Route<T = unknown> {
   stop(): void;
 
   /**
+   * Re-arm a stopped route so {@link Route.start} can run again, under the
+   * fresh controller the context now holds for it.
+   *
+   * Only enablement calls this. Both abort controllers latch, and the queues
+   * and consumers behind them belong to the run that just ended, so a route
+   * brought back from `disabled` needs new ones or it would refuse to start
+   * against its own aborted signal. Route IDENTITY is deliberately preserved:
+   * ops tracks by route id, the capability registry keys by endpoint, and
+   * listeners hold this instance, so re-enabling must not hand out a
+   * different object.
+   *
+   * @param controller - The intake controller the context has registered
+   *   for this route, so the two never disagree about which one a shutdown
+   *   aborts.
+   * @internal
+   */
+  resetForRestart(controller: AbortController): void;
+
+  /**
    * Wait until all in-flight message handlers and tracked tasks (e.g. tap) have completed.
    * Does not stop the route; use stop() to abort the sources.
    */
@@ -540,10 +570,10 @@ export class DefaultRoute implements Route {
   public readonly logger: ReturnType<typeof logger.child>;
 
   /** Internal queues, one per source, for passing messages to the consumers */
-  private messageChannels: ProcessingQueue<Message>[];
+  private messageChannels!: ProcessingQueue<Message>[];
 
   /** Processes messages from the message channels, one consumer per source */
-  private consumers: Consumer[];
+  private consumers!: Consumer[];
 
   /** All in-flight work (handler and task promises) for drain */
   private inFlight = new Set<Promise<unknown>>();
@@ -572,20 +602,18 @@ export class DefaultRoute implements Route {
     // consumers drive the same shared step pipeline via the handler
     // registered in start(); the route stays a single logical entity (one id,
     // one lifecycle event stream) regardless of how many ingresses it exposes.
-    this.messageChannels = this.definition.sources.map(
-      () => new InMemoryProcessingQueue<Message>(),
-    );
-    this.consumers = this.messageChannels.map(
-      (channel) =>
-        new this.definition.consumer.type({
-          context: this.context,
-          definition: this.definition,
-          channel,
-          options: this.definition.consumer.options,
-        }),
-    );
+    this.buildChannelsAndConsumers();
 
-    // Emit routeStopping/routeStopped when the controller is aborted externally
+    this.watchIntakeAbort();
+  }
+
+  /**
+   * Emit `route:stopping` / `route:stopped` when the intake controller
+   * aborts, however that abort arrives (shutdown, `stop()`, a finite source
+   * completing). Re-armed on every restart because the listener belongs to
+   * the controller, and a restart installs a new one.
+   */
+  private watchIntakeAbort(): void {
     this.abortController.signal.addEventListener("abort", (event) => {
       try {
         this.context.emit("route:stopping", {
@@ -1024,6 +1052,44 @@ export class DefaultRoute implements Route {
     // this route rather than the orderly drain graceful shutdown performs.
     this.abortController.abort("Route stop() called");
     this.abortExecution("Route stop() called");
+  }
+
+  /**
+   * One (channel, consumer) pair per source, so each ingress gets its own
+   * delivery queue and, for batch routes, its own batch window. All
+   * consumers drive the same shared step pipeline via the handler registered
+   * in start(), so the route stays a single logical entity regardless of how
+   * many ingresses it exposes.
+   *
+   * Shared by the constructor and the restart so a consumer that gains a
+   * construction dependency cannot get it in one path and silently miss it
+   * in the other.
+   */
+  private buildChannelsAndConsumers(): void {
+    this.messageChannels = this.definition.sources.map(
+      () => new InMemoryProcessingQueue<Message>(),
+    );
+    this.consumers = this.messageChannels.map(
+      (channel) =>
+        new this.definition.consumer.type({
+          context: this.context,
+          definition: this.definition,
+          channel,
+          options: this.definition.consumer.options,
+        }),
+    );
+  }
+
+  /** @inheritDoc */
+  resetForRestart(controller: AbortController): void {
+    this.abortController = controller;
+    this.executionController = new AbortController();
+    // Rebuilt rather than reused: a queue cleared by stop() is still the
+    // queue whose consumer was registered against the previous run, and a
+    // consumer may hold per-run state (a batch window, a debounce hold).
+    // start() registers a fresh handler on whatever is here.
+    this.buildChannelsAndConsumers();
+    this.watchIntakeAbort();
   }
 
   /**

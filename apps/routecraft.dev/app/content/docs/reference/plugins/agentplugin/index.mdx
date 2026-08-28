@@ -44,7 +44,7 @@ import { agent } from '@routecraft/ai'
 
 craft()
   .id('daily-digest')
-  .from(timer({ intervalMs: 24 * 60 * 60 * 1000 }))
+  .from(timer({ interval: 24 * 60 * 60 * 1000 }))
   .to(agent('summariser'))
   .to(direct('reply'))
 ```
@@ -375,6 +375,10 @@ Flat array of items. Each item is one of:
 **An MCP client name may not be empty, contain `__`, or end in `_`**, which `mcpPlugin({ clients })` rejects with RC5003 at startup; see [client names](/docs/reference/plugins/mcpplugin) for why. Constraining the server half is what leaves the tool half free, so a remote may use `__` in its own tool names and `mcp__github__issues__create` resolves correctly.
 
 `Direct(<routeId>)` needs no equivalent rule. A direct wire name carries exactly one separator by construction, and everything after it is the route id, so there is nothing to disambiguate.
+
+### Disabled routes are not offered
+
+A route held back by its [`.enabled()`](/docs/reference/operations/enabled) predicate is absent from `ctx.capabilities()`, and so from the tool surface built on top of it. The model is never shown a capability it cannot use, which is what makes "the agent must not call this until I supply credentials" true by construction rather than by the model behaving well. Re-enable the route and it is offered again, with no restart.
 
 Wire names must match `/^[A-Za-z0-9_-]{1,64}$/`, the charset every mainstream provider enforces. Route ids are deliberately not constrained that way, so `Direct(memory:get)` is rejected at resolution rather than encoded into something the model has to read. Expose such a route under a tool-safe alias instead:
 

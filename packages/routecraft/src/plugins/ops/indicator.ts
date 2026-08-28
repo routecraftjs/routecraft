@@ -8,6 +8,8 @@
  * licence server.
  */
 
+import { parseDuration } from "../../shared/duration.ts";
+import { rejectStaleOptions } from "../../shared/stale-options.ts";
 import { rcError } from "../../error";
 import type { CraftContext } from "../../context";
 import type { HealthState } from "./state";
@@ -94,10 +96,10 @@ export function isIndicator(value: unknown): value is Indicator {
  *
  * ```typescript
  * // Bound to a probe route: a completed exchange reports up, a failed one
- * // reports down, and no exchange within maxAgeMs goes stale.
+ * // reports down, and no exchange within maxAge goes stale.
  * export const mailHealth = defineIndicator({
  *   name: "mail",
- *   maxAgeMs: 15 * 60_000,
+ *   maxAge: "15m",
  *   route: "probe-mail",
  * });
  *
@@ -139,13 +141,18 @@ export function defineIndicator(definition: IndicatorDefinition): Indicator {
       message: `defineIndicator("${definition.name}"): name must be usable as a single URL path segment. It is the key in the health report and the last segment of /health/indicators/<name>, so it cannot contain a slash, a space, or any character needing percent-encoding.`,
     });
   }
-  if (
-    definition.maxAgeMs !== undefined &&
-    (!Number.isFinite(definition.maxAgeMs) || definition.maxAgeMs <= 0)
-  ) {
-    throw rcError("RC5053", undefined, {
-      message: `defineIndicator("${definition.name}"): maxAgeMs must be a positive, finite number of milliseconds.`,
-    });
+  // Parsed for its refusal, not its value: the resolved milliseconds are
+  // computed again where the indicator registers. Validating here is what
+  // makes a malformed duration fail at definition rather than at boot.
+  rejectStaleOptions(definition, `defineIndicator("${definition.name}")`);
+  if (definition.maxAge !== undefined) {
+    try {
+      parseDuration(definition.maxAge, "maxAge");
+    } catch {
+      throw rcError("RC5053", undefined, {
+        message: `defineIndicator("${definition.name}"): maxAge must be a positive, finite duration.`,
+      });
+    }
   }
 
   const bound: Bound[] = [];

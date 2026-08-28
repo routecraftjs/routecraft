@@ -43,7 +43,7 @@ export const craftConfig: CraftConfig = {
         },
       },
       maxRestarts: 5,
-      restartDelayMs: 1000,
+      restartDelay: 1000,
       restartBackoffMultiplier: 2,
     }),
   ],
@@ -71,9 +71,9 @@ export const craftConfig: CraftConfig = {
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
 | `proxy` | `Array<string \| McpProxyToolConfig>` | -- | Tools from registered `clients` to re-expose through this server (see below) |
 | `maxRestarts` | `number` | `5` | Max automatic restarts for stdio clients before giving up |
-| `restartDelayMs` | `number` | `1000` | Initial delay before first restart attempt (ms) |
+| `restartDelay` | `Duration` | `1000` | Initial delay before the first restart attempt |
 | `restartBackoffMultiplier` | `number` | `2` | Multiplier applied to delay on each successive restart |
-| `toolRefreshIntervalMs` | `number` | `60000` | Polling interval for HTTP client tool lists (0 = no polling) |
+| `toolRefreshInterval` | `Duration` | `60000` | Polling interval for HTTP client tool lists (0 = no polling) |
 
 **Client names may not be empty, contain `__`, or end in `_`:**
 

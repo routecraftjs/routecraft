@@ -49,7 +49,7 @@ describe("Retry wrapper (.retry())", () => {
         craft()
           .id("retry-first-success")
           .from(simple("ok"))
-          .retry({ maxAttempts: 3, backoffMs: 1 })
+          .retry({ maxAttempts: 3, backoff: 1 })
           .transform((body: string) => body.toUpperCase())
           .to(s),
       )
@@ -85,7 +85,7 @@ describe("Retry wrapper (.retry())", () => {
         craft()
           .id("retry-recovers")
           .from(simple("in"))
-          .retry({ maxAttempts: 3, backoffMs: 1 })
+          .retry({ maxAttempts: 3, backoff: 1 })
           .transform((body: string) => {
             calls++;
             if (calls < 3) throw new Error(`attempt ${calls} fails`);
@@ -123,7 +123,7 @@ describe("Retry wrapper (.retry())", () => {
         craft()
           .id("retry-exhausted")
           .from(simple("in"))
-          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .retry({ maxAttempts: 2, backoff: 1 })
           .transform(() => {
             calls++;
             throw new Error("always fails");
@@ -162,7 +162,7 @@ describe("Retry wrapper (.retry())", () => {
         craft()
           .id("retry-non-retryable")
           .from(simple("in"))
-          .retry({ maxAttempts: 3, backoffMs: 1 })
+          .retry({ maxAttempts: 3, backoff: 1 })
           .transform(() => {
             calls++;
             throw rcError("RC5002", undefined, {
@@ -195,7 +195,7 @@ describe("Retry wrapper (.retry())", () => {
         craft()
           .id("retry-custom-predicate")
           .from(simple("in"))
-          .retry({ maxAttempts: 2, backoffMs: 1, retryOn: () => true })
+          .retry({ maxAttempts: 2, backoff: 1, retryOn: () => true })
           .transform((body: string) => {
             calls++;
             if (calls === 1) {
@@ -218,7 +218,7 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case A growth `factor` multiplies the wait per attempt
-   * @preconditions Route with .retry({ maxAttempts: 3, backoffMs: 10, factor: 2 }) wrapping an always-failing transform
+   * @preconditions Route with .retry({ maxAttempts: 3, backoff: 10, factor: 2 }) wrapping an always-failing transform
    * @expectedResult The attempt events report backoffMs 10 then 20 (factor: 2 replaces the old exponential: true)
    */
   test("factor multiplies the backoff per attempt", async () => {
@@ -232,7 +232,7 @@ describe("Retry wrapper (.retry())", () => {
         craft()
           .id("retry-factor")
           .from(simple("in"))
-          .retry({ maxAttempts: 3, backoffMs: 10, factor: 2 })
+          .retry({ maxAttempts: 3, backoff: 10, factor: 2 })
           .transform(() => {
             throw new Error("always fails");
           })
@@ -247,7 +247,7 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case A zero base backoff stays zero regardless of factor (no NaN-to-ceiling inversion)
-   * @preconditions .retry({ maxAttempts: 3, backoffMs: 0, factor: 2 }) wrapping an always-failing transform
+   * @preconditions .retry({ maxAttempts: 3, backoff: 0, factor: 2 }) wrapping an always-failing transform
    * @expectedResult Every reported wait is exactly 0 (a zero base must not be turned into a large wait by the overflow guard)
    */
   test("backoffMs 0 yields zero waits regardless of factor", async () => {
@@ -261,7 +261,7 @@ describe("Retry wrapper (.retry())", () => {
         craft()
           .id("retry-zero-backoff")
           .from(simple("in"))
-          .retry({ maxAttempts: 3, backoffMs: 0, factor: 2 })
+          .retry({ maxAttempts: 3, backoff: 0, factor: 2 })
           .transform(() => {
             throw new Error("always fails");
           })
@@ -276,7 +276,7 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case maxBackoffMs caps the computed wait so a steep factor cannot grow unbounded
-   * @preconditions .retry({ maxAttempts: 4, backoffMs: 10, factor: 10, maxBackoffMs: 50 }) wrapping an always-failing transform
+   * @preconditions .retry({ maxAttempts: 4, backoff: 10, factor: 10, maxBackoff: 50 }) wrapping an always-failing transform
    * @expectedResult The attempt waits are 10, 100->50 (clamped), 1000->50 (clamped), never exceeding maxBackoffMs
    */
   test("maxBackoffMs clamps the computed wait", async () => {
@@ -292,9 +292,9 @@ describe("Retry wrapper (.retry())", () => {
           .from(simple("in"))
           .retry({
             maxAttempts: 4,
-            backoffMs: 10,
+            backoff: 10,
             factor: 10,
-            maxBackoffMs: 50,
+            maxBackoff: 50,
           })
           .transform(() => {
             throw new Error("always fails");
@@ -310,7 +310,7 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case Jitter keeps every wait within [computed * (1 - jitter), computed]
-   * @preconditions .retry({ maxAttempts: 5, backoffMs: 100, jitter: 0.5 }) (fixed factor) wrapping an always-failing transform
+   * @preconditions .retry({ maxAttempts: 5, backoff: 100, jitter: 0.5 }) (fixed factor) wrapping an always-failing transform
    * @expectedResult Each reported wait is in [50, 100] and at least one differs from the others (randomised)
    */
   test("jitter randomises the wait within bounds", async () => {
@@ -324,7 +324,7 @@ describe("Retry wrapper (.retry())", () => {
         craft()
           .id("retry-jitter")
           .from(simple("in"))
-          .retry({ maxAttempts: 5, backoffMs: 100, jitter: 0.5 })
+          .retry({ maxAttempts: 5, backoff: 100, jitter: 0.5 })
           .transform(() => {
             throw new Error("always fails");
           })
@@ -369,7 +369,7 @@ describe("Retry wrapper (.retry())", () => {
         craft()
           .id("retry-timeout-recovers")
           .from(simple("in"))
-          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .retry({ maxAttempts: 2, backoff: 1 })
           .timeout(50)
           .transform(async (body: string) => {
             calls++;
@@ -406,7 +406,7 @@ describe("Retry wrapper (.retry())", () => {
             return "handled";
           })
           .from(simple("in"))
-          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .retry({ maxAttempts: 2, backoff: 1 })
           .transform(() => {
             calls++;
             throw new Error("still broken");
@@ -439,7 +439,7 @@ describe("Retry wrapper (.retry())", () => {
       .routes(
         craft()
           .id("retry-route-scope")
-          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .retry({ maxAttempts: 2, backoff: 1 })
           .from(simple("in"))
           .transform((body: string) => {
             calls++;
@@ -476,7 +476,7 @@ describe("Retry wrapper (.retry())", () => {
       .routes(
         craft()
           .id("retry-split-fanout")
-          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .retry({ maxAttempts: 2, backoff: 1 })
           .from(simple("a-b-c"))
           .split((exchange) =>
             typeof exchange.body === "string" ? exchange.body.split("-") : [],
@@ -509,7 +509,7 @@ describe("Retry wrapper (.retry())", () => {
       .routes(
         craft()
           .id("retry-timeout-route-scope")
-          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .retry({ maxAttempts: 2, backoff: 1 })
           .timeout(50)
           .from(simple("in"))
           .transform(async (body: string) => {
@@ -532,7 +532,7 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case Route shutdown during a backoff wait gives up instead of waiting it out
-   * @preconditions Route with .retry({ backoffMs: 10000 }) around an always-failing step; the context is stopped during the first backoff
+   * @preconditions Route with .retry({ backoff: 10000 }) around an always-failing step; the context is stopped during the first backoff
    * @expectedResult The last real error surfaces promptly on the default error path; the 10s backoff is not waited out
    */
   test("shutdown during backoff propagates the last error promptly", async () => {
@@ -543,7 +543,7 @@ describe("Retry wrapper (.retry())", () => {
         craft()
           .id("retry-shutdown")
           .from(simple("in"))
-          .retry({ maxAttempts: 3, backoffMs: 10_000 })
+          .retry({ maxAttempts: 3, backoff: 10_000 })
           .transform(() => {
             calls++;
             throw new Error("fails into backoff");
@@ -580,17 +580,17 @@ describe("Retry wrapper (.retry())", () => {
 
   /**
    * @case Invalid backoff durations are rejected at build time
-   * @preconditions A retry wrapper configured with a negative backoffMs
+   * @preconditions A retry wrapper configured with a negative backoff
    * @expectedResult Building the route throws RC5003 instead of silently coercing the wait to zero
    */
-  test("rejects negative backoffMs at build time", () => {
+  test("rejects a negative backoff at build time", () => {
     expect(() =>
       craft()
         .id("retry-bad-backoff")
         .from(simple("in"))
-        .retry({ backoffMs: -100 })
+        .retry({ backoff: -100 })
         .to(spy()),
-    ).toThrow(/backoffMs/);
+    ).toThrow(/retry\(\{ backoff \}\)/);
   });
 
   /**
@@ -606,7 +606,7 @@ describe("Retry wrapper (.retry())", () => {
         craft()
           .id("retry-typed")
           .from(simple("typed"))
-          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .retry({ maxAttempts: 2, backoff: 1 })
           // Compile-time check: `body` must still be string here.
           .transform((body: string) => body.length)
           .to(s),

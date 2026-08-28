@@ -82,7 +82,7 @@ describe("cooperative cancellation of agent runs", () => {
 
   /**
    * @case A forced shutdown cancels an in-flight run with AI1005; graceful stage one does not
-   * @preconditions A tool that hangs until aborted, waited on rather than slept past, with shutdown.timeoutMs wide enough that the mid-drain assertion cannot race the forced stage
+   * @preconditions A tool that hangs until aborted, waited on rather than slept past, with shutdown.timeout wide enough that the mid-drain assertion cannot race the forced stage
    * @expectedResult The run is still alive while stage one drains, and is cancelled with AI1005 only once the forced stage fires. Before #610 the first signal cancelled it immediately, which is the contract violation this pins
    */
   test("a forced shutdown cancels the run with AI1005", async () => {
@@ -94,7 +94,7 @@ describe("cooperative cancellation of agent runs", () => {
         // Generous relative to the mid-drain assertion below: a tight
         // deadline would let the forced stage fire first on a loaded runner
         // and the test would report a cancellation that stage one did not do.
-        shutdown: { timeoutMs: 2_000 },
+        shutdown: { timeout: 2_000 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({ functions: { hang: hangFn } }),
@@ -155,7 +155,7 @@ describe("cooperative cancellation of agent runs", () => {
 
     t = await testContext()
       .with({
-        shutdown: { timeoutMs: 5_000 },
+        shutdown: { timeout: 5_000 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({ functions: { slow: slowFn } }),
@@ -238,7 +238,7 @@ describe("cooperative cancellation of agent runs", () => {
       .with({
         // The run is cancelled by the FORCED stage now: graceful stage one
         // drains rather than cancels, and this tool never finishes on its own.
-        shutdown: { timeoutMs: 300 },
+        shutdown: { timeout: 300 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({ functions: { hang: hangFn } }),
@@ -396,7 +396,7 @@ describe("cooperative cancellation of agent runs", () => {
 
   /**
    * @case Parked work survives a FORCED shutdown too, not only a graceful one
-   * @preconditions One agent run parks, a second run hangs so the deadline is reached, and shutdown.timeoutMs is short
+   * @preconditions One agent run parks, a second run hangs so the deadline is reached, and shutdown.timeout is short
    * @expectedResult The forced stage abandons the hung run but leaves the parked record suspended: a forced stage two may abandon execution, and must still never settle or deny a park
    */
   test("a forced shutdown never denies parked work", async () => {
@@ -417,7 +417,7 @@ describe("cooperative cancellation of agent runs", () => {
           store,
           secret: "cancel-test-secret-key-0123456789-abcdef",
         },
-        shutdown: { timeoutMs: 300 },
+        shutdown: { timeout: 300 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
           agentPlugin({ functions: { ask, hang: hangFn } }),

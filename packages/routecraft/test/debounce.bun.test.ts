@@ -61,7 +61,7 @@ describe("debounce operation", () => {
 
   /**
    * @case A burst collapses to the last exchange; earlier ones are dropped
-   * @preconditions Three rapid arrivals through .debounce({ waitMs }) with a long window; drain flushes the pending hold
+   * @preconditions Three rapid arrivals through .debounce({ wait }) with a long window; drain flushes the pending hold
    * @expectedResult Only the last exchange reaches downstream; three held events, two dropped, one released
    */
   test("collapses a burst to the last exchange", async () => {
@@ -76,7 +76,7 @@ describe("debounce operation", () => {
           .id("debounce-collapse")
           // A long window so nothing releases on its own; drain flushes it.
           .from(items<Change>([change("a", 1), change("a", 2), change("a", 3)]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .to(downstream),
       )
       .on("route:operation:debounce:held", (() => {
@@ -105,7 +105,7 @@ describe("debounce operation", () => {
 
   /**
    * @case The held exchange is released after the quiet window elapses
-   * @preconditions A single arrival through .debounce({ waitMs: 40 }); no further activity
+   * @preconditions A single arrival through .debounce({ wait: 40 }); no further activity
    * @expectedResult The exchange reaches downstream via a "quiet" release without needing drain
    */
   test("releases the trailing exchange after the quiet window", async () => {
@@ -119,7 +119,7 @@ describe("debounce operation", () => {
           // A trailing gap keeps the source open past the quiet window, so the
           // timer (not the auto-stop flush) is what releases the exchange.
           .from(feed<Change>([{ item: change("a", 1) }, { gap: 200 }]))
-          .debounce({ waitMs: 40 })
+          .debounce({ wait: 40 })
           .to(downstream),
       )
       .on("route:operation:debounce:released", ((payload: {
@@ -138,7 +138,7 @@ describe("debounce operation", () => {
 
   /**
    * @case Separate bursts (a quiet gap between them) each release
-   * @preconditions One arrival, a gap longer than waitMs, then another arrival
+   * @preconditions One arrival, a gap longer than wait, then another arrival
    * @expectedResult Both exchanges reach downstream, in order
    */
   test("separate bursts each release", async () => {
@@ -155,7 +155,7 @@ describe("debounce operation", () => {
               { item: change("b", 1) },
             ]),
           )
-          .debounce({ waitMs: 40 })
+          .debounce({ wait: 40 })
           .to(downstream),
       )
       .build();
@@ -180,7 +180,7 @@ describe("debounce operation", () => {
         craft()
           .id("debounce-keyed")
           .from(items<Change>([change("a", 1), change("b", 1), change("a", 2)]))
-          .debounce({ waitMs: 10_000, key: (ex) => ex.body.path })
+          .debounce({ wait: 10_000, key: (ex) => ex.body.path })
           .to(downstream),
       )
       .on("route:operation:debounce:held", (() => {
@@ -202,8 +202,8 @@ describe("debounce operation", () => {
   });
 
   /**
-   * @case `maxWaitMs` forces a release under continuous activity
-   * @preconditions Arrivals every 20ms for ~200ms with waitMs longer than the gap and a short maxWaitMs cap
+   * @case `maxWait` forces a release under continuous activity
+   * @preconditions Arrivals every 20ms for ~200ms with wait longer than the gap and a short maxWait cap
    * @expectedResult At least one release fires with reason "maxWait" (the quiet window never closes during activity)
    */
   test("maxWaitMs releases under continuous activity", async () => {
@@ -224,7 +224,7 @@ describe("debounce operation", () => {
           // never closes during activity; only the 100ms maxWaitMs cap
           // (measured from the burst start, never reset) can release.
           .from(feed<Change>(stream))
-          .debounce({ waitMs: 50, maxWaitMs: 100 })
+          .debounce({ wait: 50, maxWait: 100 })
           .to(downstream),
       )
       .on("route:operation:debounce:released", ((payload: {
@@ -256,7 +256,7 @@ describe("debounce operation", () => {
         craft()
           .id("debounce-flush")
           .from(items<Change>([change("a", 1)]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .to(downstream),
       )
       .on("route:operation:debounce:held", (() => {
@@ -292,7 +292,7 @@ describe("debounce operation", () => {
         craft()
           .id("debounce-downstream")
           .from(items<Change>([change("a", 1)]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .transform((body) => ({ ...body, reloaded: true as const }))
           .to(downstream),
       )
@@ -328,7 +328,7 @@ describe("debounce operation", () => {
         craft()
           .id("debounce-lifecycle-balance")
           .from(items<Change>([change("a", 1), change("a", 2), change("a", 3)]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .to(downstream),
       )
       .on("route:operation:debounce:held", (() => {
@@ -369,7 +369,7 @@ describe("debounce operation", () => {
             return "recovered";
           })
           .from(items<Change>([change("a", 1)]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .to({
             send: async () => {
               throw new Error("downstream boom");
@@ -400,7 +400,7 @@ describe("debounce operation", () => {
           .id("debounce-output-validation")
           .output({ body: z.object({ ok: z.boolean() }) })
           .from(items<{ ok: boolean }>([{ ok: true }]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .transform(() => ({ ok: "not-a-boolean" }))
           .to(downstream),
       )
@@ -438,7 +438,7 @@ describe("debounce operation", () => {
         craft()
           .id("debounce-nonclonable")
           .from(items<WithFn>([{ run: () => undefined }]))
-          .debounce({ waitMs: 10_000 })
+          .debounce({ wait: 10_000 })
           .to(downstream),
       )
       .on("route:operation:debounce:held", (() => {
@@ -470,14 +470,14 @@ describe("debounce operation", () => {
         .id("debounce-not-wrappable")
         .from(items<Change>([change("a", 1)]))
         .retry()
-        .debounce({ waitMs: 100 })
+        .debounce({ wait: 100 })
         .build(),
     ).toThrow();
   });
 
   /**
-   * @case debounce rejects a non-positive waitMs at build time
-   * @preconditions A route built with .debounce({ waitMs: 0 })
+   * @case debounce rejects a non-positive wait at build time
+   * @preconditions A route built with .debounce({ wait: 0 })
    * @expectedResult Building throws (RC5003)
    */
   test("rejects a non-positive waitMs at build time", () => {
@@ -485,14 +485,14 @@ describe("debounce operation", () => {
       craft()
         .id("debounce-bad-wait")
         .from(items<Change>([change("a", 1)]))
-        .debounce({ waitMs: 0 })
+        .debounce({ wait: 0 })
         .build(),
     ).toThrow();
   });
 
   /**
    * @case debounce rejects a non-function key at build time
-   * @preconditions A route built with .debounce({ waitMs: 100, key: "path" }) from a JS caller
+   * @preconditions A route built with .debounce({ wait: 100, key: "path" }) from a JS caller
    * @expectedResult Building throws (RC5003) instead of a per-exchange TypeError at runtime
    */
   test("rejects a non-function key at build time", () => {
@@ -500,14 +500,14 @@ describe("debounce operation", () => {
       craft()
         .id("debounce-bad-key")
         .from(items<Change>([change("a", 1)]))
-        .debounce({ waitMs: 100, key: "path" as never })
+        .debounce({ wait: 100, key: "path" as never })
         .build(),
     ).toThrow(/must be a function/);
   });
 
   /**
-   * @case debounce rejects a maxWaitMs smaller than waitMs
-   * @preconditions A route built with .debounce({ waitMs: 500, maxWaitMs: 100 })
+   * @case debounce rejects a maxWait smaller than wait
+   * @preconditions A route built with .debounce({ wait: 500, maxWait: 100 })
    * @expectedResult Building throws (RC5003): the cap must not fire before the window
    */
   test("rejects maxWaitMs smaller than waitMs", () => {
@@ -515,7 +515,7 @@ describe("debounce operation", () => {
       craft()
         .id("debounce-bad-maxwait")
         .from(items<Change>([change("a", 1)]))
-        .debounce({ waitMs: 500, maxWaitMs: 100 })
+        .debounce({ wait: 500, maxWait: 100 })
         .build(),
     ).toThrow();
   });

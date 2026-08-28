@@ -86,7 +86,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
     const capabilities = capabilityIndex();
     return ctx
       .getRoutes()
-      .map((route) => summarise(route.definition, capabilities))
+      .map((route) => summarise(ctx, route.definition, capabilities))
       .sort((left, right) => compareCodeUnits(left.id, right.id));
   };
 
@@ -116,7 +116,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
         .getRoutes()
         .find((candidate) => candidate.definition.id === id);
       if (!route) return undefined;
-      return detail(route.definition, capabilities);
+      return detail(ctx, route.definition, capabilities);
     },
 
     async dispatch(
@@ -181,6 +181,7 @@ function sourceKinds(definition: RouteDefinition): string[] {
 }
 
 function summarise(
+  ctx: CraftContext,
   definition: RouteDefinition,
   capabilities: Map<string, Capability>,
 ): OpsRouteSummary {
@@ -192,6 +193,7 @@ function summarise(
   return {
     id: definition.id,
     dispatchable: capabilities.has(definition.id),
+    enabled: ctx.isRouteEnabled(definition.id),
     sources: sourceKinds(definition),
     requiresPrincipal: definition.requiresPrincipal === true,
     ...(title !== undefined ? { title } : {}),
@@ -201,6 +203,7 @@ function summarise(
 }
 
 function detail(
+  ctx: CraftContext,
   definition: RouteDefinition,
   capabilities: Map<string, Capability>,
 ): OpsRouteDetail {
@@ -212,7 +215,7 @@ function detail(
     "output",
   );
   return {
-    ...summarise(definition, capabilities),
+    ...summarise(ctx, definition, capabilities),
     ...(input !== undefined ? { input } : {}),
     ...(output !== undefined ? { output } : {}),
   };

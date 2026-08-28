@@ -6,7 +6,8 @@ import type { ForwardFn, Route } from "../route.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { wrapperEventScope } from "./event-scope.ts";
-import { assertDurationMs } from "./cancellable-sleep.ts";
+import { type Duration, parseDuration } from "../shared/duration.ts";
+import { rejectStaleOptions } from "../shared/stale-options.ts";
 import { defaultRetryOn } from "./retry-wrapper.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 
@@ -17,7 +18,7 @@ import { RouteScopedController } from "./route-scoped-controller.ts";
  *   counted, and the breaker trips to `open` once they reach the
  *   threshold.
  * - `open`: calls fast-fail (fallback or `RC5025`) without running the
- *   protected work, until `cooldownMs` has elapsed.
+ *   protected work, until `cooldown` has elapsed.
  * - `half-open`: a bounded number of probe calls are allowed through to
  *   test whether the downstream has recovered; one success closes the
  *   breaker, one failure re-opens it.
@@ -32,20 +33,20 @@ export type CircuitBreakerState = "closed" | "open" | "half-open";
  */
 export interface CircuitBreakerOptions {
   /**
-   * Number of failures within `windowMs` that trips the breaker from
+   * Number of failures within `window` that trips the breaker from
    * `closed` to `open`. Must be a finite integer >= 1.
    */
   failureThreshold: number;
   /**
-   * Sliding window (ms) over which failures are counted. Failures older
-   * than this no longer count toward the threshold. Default `60_000`.
+   * Sliding window over which failures are counted. Failures older than
+   * this no longer count toward the threshold. Default `60_000`.
    */
-  windowMs?: number;
+  window?: Duration;
   /**
-   * How long (ms) the breaker stays `open` before allowing a probe
+   * How long the breaker stays `open` before allowing a probe
    * (transition to `half-open`). Default `30_000`.
    */
-  cooldownMs?: number;
+  cooldown?: Duration;
   /**
    * Maximum concurrent probe calls allowed in the `half-open` state.
    * Default `1`. Values above 1 are best-effort: the first probe to
@@ -131,10 +132,11 @@ export interface ResolvedCircuitBreakerOptions {
 export function resolveCircuitBreakerOptions(
   options: CircuitBreakerOptions,
 ): ResolvedCircuitBreakerOptions {
+  rejectStaleOptions(options, "circuitBreaker");
   const {
     failureThreshold,
-    windowMs = 60_000,
-    cooldownMs = 30_000,
+    window = 60_000,
+    cooldown = 30_000,
     halfOpenMax = 1,
     fallback,
     isFailure = defaultRetryOn,
@@ -146,8 +148,8 @@ export function resolveCircuitBreakerOptions(
       message: `circuitBreaker({ failureThreshold }) must be an integer >= 1, got ${String(failureThreshold)}.`,
     });
   }
-  assertDurationMs("circuitBreaker({ windowMs })", windowMs, 1);
-  assertDurationMs("circuitBreaker({ cooldownMs })", cooldownMs, 1);
+  const windowMs = parseDuration(window, "circuitBreaker({ window })");
+  const cooldownMs = parseDuration(cooldown, "circuitBreaker({ cooldown })");
   if (!Number.isInteger(halfOpenMax) || halfOpenMax < 1) {
     throw rcError("RC5003", undefined, {
       message: `circuitBreaker({ halfOpenMax }) must be an integer >= 1, got ${String(halfOpenMax)}.`,

@@ -1,3 +1,4 @@
+import type { Duration } from "../../shared/duration.ts";
 import type { HttpAuth, HttpMethod } from "../../adapters/http/types.ts";
 import type { ValidatorAuthOptions } from "../../auth/types.ts";
 import type { AuthResult } from "../http/auth.ts";
@@ -15,9 +16,9 @@ export interface HttpServerDefinition {
   auth?: ValidatorAuthOptions;
   /**
    * How long a graceful close may drain in-flight work before the listener is
-   * force-closed, in milliseconds. Defaults to 30000.
+   * force-closed. Defaults to 30000.
    */
-  shutdownGraceMs?: number;
+  shutdownGrace?: Duration;
 }
 
 export type ServerDefinitions = Record<string, HttpServerDefinition>;

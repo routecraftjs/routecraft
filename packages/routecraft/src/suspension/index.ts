@@ -82,7 +82,4 @@ export type { SuspendSignalRequest } from "./signal.ts";
 export { SuspensionHeaders } from "./exchange-state.ts";
 export type { SuspensionAffordance } from "./exchange-state.ts";
 
-export { parseDuration } from "./duration.ts";
-export type { Duration, DurationUnit } from "./duration.ts";
-
 export type { ResumeAcknowledgment, ResumeRequest } from "./revive.ts";

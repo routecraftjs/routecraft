@@ -46,7 +46,7 @@ import { craft, timer, log } from '@routecraft/routecraft';
 
 export default craft()
   .id('timer-ping')
-  .from(timer({ intervalMs: 1000 }))
+  .from(timer({ interval: "1s" }))
   .transform((ex) => ({ timestamp: Date.now() }))
   .to(log());
 ```

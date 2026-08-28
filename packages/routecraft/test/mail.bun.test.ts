@@ -330,7 +330,7 @@ describe("Mail Adapter", () => {
         { folder: "INBOX", limit: 5 },
         { folder: "INBOX", description: "incoming invoices" },
         { folder: "INBOX", keywords: ["invoices"] },
-        { folder: "INBOX", pollIntervalMs: 1000 },
+        { folder: "INBOX", pollInterval: 1000 },
         { folder: "INBOX", includeHeaders: true },
         { folder: "INBOX", verify: "headers" },
         { folder: "INBOX", onParseError: "drop" },
@@ -367,7 +367,7 @@ describe("Mail Adapter", () => {
         { limit: 5 },
         { description: "incoming invoices" },
         { keywords: ["invoices"] },
-        { pollIntervalMs: 1000 },
+        { pollInterval: 1000 },
         { includeHeaders: true },
         { verify: "headers" },
         { onParseError: "drop" },
@@ -1437,7 +1437,7 @@ describe("Mail Adapter", () => {
             .id("test-poll-source")
             .from(
               mail("INBOX", {
-                pollIntervalMs: 5,
+                pollInterval: 5,
                 markSeen: false,
                 unseen: true,
               }),
@@ -1512,7 +1512,7 @@ describe("Mail Adapter", () => {
               mail("INBOX", {
                 markSeen: false,
                 unseen: true,
-                pollIntervalMs: 5,
+                pollInterval: 5,
               }),
             )
             .to(s),
@@ -1581,7 +1581,7 @@ describe("Mail Adapter", () => {
               mail("INBOX", {
                 markSeen: false,
                 unseen: true,
-                pollIntervalMs: 5,
+                pollInterval: 5,
                 verify: "off",
               }),
             )
@@ -1656,7 +1656,7 @@ describe("Mail Adapter", () => {
               mail("INBOX", {
                 markSeen: false,
                 unseen: true,
-                pollIntervalMs: 5,
+                pollInterval: 5,
               }),
             )
             .to(s),
@@ -1717,7 +1717,7 @@ describe("Mail Adapter", () => {
             .id("test-handler-fail")
             .from(
               mail("INBOX", {
-                pollIntervalMs: 5,
+                pollInterval: 5,
                 // markSeen left at default (true) to exercise the post-handler path
               }),
             )
@@ -1782,7 +1782,7 @@ describe("Mail Adapter", () => {
             .id("test-handler-ok")
             .from(
               mail("INBOX", {
-                pollIntervalMs: 5,
+                pollInterval: 5,
               }),
             )
             .to(s),
@@ -1843,7 +1843,7 @@ describe("Mail Adapter", () => {
             .id("test-redelivery")
             .from(
               mail("INBOX", {
-                pollIntervalMs: 1,
+                pollInterval: 1,
                 markSeen: false,
                 unseen: false,
               }),
@@ -1999,7 +1999,7 @@ describe("Mail Adapter", () => {
         .routes(
           craft()
             .id("test-poll-reconnect")
-            .from(mail("INBOX", { pollIntervalMs: 5 }))
+            .from(mail("INBOX", { pollInterval: 5 }))
             .to(spy()),
         )
         .build();
@@ -2043,7 +2043,7 @@ describe("Mail Adapter", () => {
         .routes(
           craft()
             .id("test-poll-auth-fail")
-            .from(mail("INBOX", { pollIntervalMs: 5 }))
+            .from(mail("INBOX", { pollInterval: 5 }))
             .to(spy()),
         )
         .build();
@@ -2395,7 +2395,7 @@ describe("Mail Adapter", () => {
             .id("test-guard-reconnect-delays")
             .from(
               mail("INBOX", {
-                reconnect: { baseDelayMs: 5_000, maxDelayMs: 1_000 },
+                reconnect: { baseDelay: 5_000, maxDelay: 1_000 },
               }),
             )
             .to(spy()),
@@ -2510,7 +2510,7 @@ describe("Mail Adapter", () => {
               errors.push(err as { rc?: string });
               return undefined;
             })
-            .from(mail("INBOX", { pollIntervalMs: 5, unseen: true }))
+            .from(mail("INBOX", { pollInterval: 5, unseen: true }))
             .to(s),
         )
         .build();
@@ -2573,7 +2573,7 @@ describe("Mail Adapter", () => {
             .id("mail-parse-drop")
             .from(
               mail("INBOX", {
-                pollIntervalMs: 5,
+                pollInterval: 5,
                 unseen: true,
                 onParseError: "drop",
               }),

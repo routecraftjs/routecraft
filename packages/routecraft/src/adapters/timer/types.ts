@@ -1,15 +1,17 @@
+import type { Duration } from "../../shared/duration.ts";
+
 export interface TimerOptions {
   /**
-   * Time between executions in milliseconds
+   * Time between executions.
    * @default 1000
    */
-  intervalMs?: number;
+  interval?: Duration;
 
   /**
-   * Delay before the first execution in milliseconds
+   * Delay before the first execution.
    * @default 0
    */
-  delayMs?: number;
+  delay?: Duration;
 
   /**
    * Number of times to trigger before stopping
@@ -24,22 +26,12 @@ export interface TimerOptions {
   fixedRate?: boolean;
 
   /**
-   * Executes at an exact time of day (ISO HH:mm:ss)
-   * @default null
-   */
-  exactTime?: string;
-
-  /**
-   * Allows custom date formats for execution times
-   * @default null
-   */
-  timePattern?: string;
-
-  /**
-   * Adds random delay to prevent synchronized execution spikes
+   * Upper bound on a random delay added to each scheduled run, to stop many
+   * instances firing in lockstep. Each wait is drawn uniformly from
+   * `[0, maxJitter)`.
    * @default 0
    */
-  jitterMs?: number;
+  maxJitter?: Duration;
 }
 
 /**

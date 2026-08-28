@@ -142,7 +142,7 @@ describe("the filter chain on a resumed continuation", () => {
       .routes([
         craft()
           .id("payout")
-          .retry({ maxAttempts: 3, backoffMs: 1 })
+          .retry({ maxAttempts: 3, backoff: 1 })
           .from(direct())
           .suspend({ schema: Approval })
           .process((ex) => {
@@ -320,7 +320,7 @@ describe("the filter chain on a resumed continuation", () => {
       .routes([
         craft()
           .id("payout")
-          .retry({ maxAttempts: 2, backoffMs: 1 })
+          .retry({ maxAttempts: 2, backoff: 1 })
           .timeout(2_000)
           .concurrency({ max: 1, mode: "reject" })
           .from(direct())

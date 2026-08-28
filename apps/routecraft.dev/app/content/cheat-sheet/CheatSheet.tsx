@@ -149,7 +149,7 @@ await ctx.stop()`}</CheatCode>
 .from(simple(() => fetch('/api')))
 
 // Emit on an interval
-.from(timer({ intervalMs: 5000 }))
+.from(timer({ interval: "5s" }))
 
 // Cron schedule
 .from(cron('0 9 * * *'))

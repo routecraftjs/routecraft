@@ -1,3 +1,4 @@
+import { parseDuration } from "../shared/duration.ts";
 import {
   trace,
   type Tracer,
@@ -81,7 +82,12 @@ class TelemetryPlugin implements CraftPlugin {
     const sqlite = this.options.sqlite ?? {};
     const batchSize = Math.trunc(sqlite.eventBatchSize ?? DEFAULT_BATCH_SIZE);
     const flushIntervalMs = Math.trunc(
-      sqlite.eventFlushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS,
+      sqlite.eventFlushInterval === undefined
+        ? DEFAULT_FLUSH_INTERVAL_MS
+        : parseDuration(
+            sqlite.eventFlushInterval,
+            "telemetry.sqlite.eventFlushInterval",
+          ),
     );
     this.batchSize = batchSize > 0 ? batchSize : DEFAULT_BATCH_SIZE;
     this.flushIntervalMs =

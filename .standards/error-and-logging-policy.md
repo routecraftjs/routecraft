@@ -57,6 +57,7 @@ Each boundary handles the error (does not re-throw it to another boundary). Do n
 | **route.trackTask** | Background task (e.g., tap) rejection | error | `{ err, route }` |
 | **AI server tool handler** | Tool call errors | error | `{ tool, err }` |
 | **Agent tool policy predicate** | An `agentPlugin({ toolPolicy })` predicate threw | error | `{ agent, tool, kind, err }` |
+| **Route enablement predicate** | A `.enabled()` predicate threw. The route is left disabled with the error message as its reason and the boot is never failed, so this log is the only place the stack survives | error | `{ route, err }` |
 | **Suspension deny-on-cancellation** | Store failure while denying a suspension parked by a cancelled run (best effort: the caller's RC5054 must land whatever the store does) | error | `{ suspensionId, routeId, expiresAt, err }` |
 | **Resume authorize hook** | A `.resume({ authorize })` hook refused: returned false, threw, or did not settle before the route aborted. All three become one RC5056 with a generic message, so this log is the only place they are distinguishable; a hook whose failures can be told apart from outside is an oracle for what it knows | warn | `{ suspensionId, routeId, principal, outcome, err? }` |
 
@@ -111,7 +112,9 @@ The exchange lifecycle event names (`route:exchange:started` / `:completed` / `:
 
 **Rules:**
 
-- Every `route:exchange:started` must eventually be followed by exactly one of: `:completed`, `:failed`, `:dropped`, or `:suspended`. The one exception is a forced shutdown (`shutdown.timeoutMs` elapsed): in-flight exchanges are abandoned mid-step and emit no terminal event. Do not widen that exception; it is the only case where a started exchange may go unterminated.
+- Every `route:exchange:started` must eventually be followed by exactly one of: `:completed`, `:failed`, `:dropped`, or `:suspended`. The exception is a **forced stop**, in either of its two forms: a forced shutdown (`shutdown.timeout` elapsed) or a route taken out of service by `.enabled()` whose drain outran its grace (`.enabled({ drainGrace })`, defaulting to `shutdown.timeout`). Both abandon in-flight exchanges mid-step through the same `abortExecution` path, and neither emits a terminal event.
+
+  These are one exception, not two: a disable is a per-route shutdown and reuses its machinery deliberately rather than inventing a second stop path. Do not widen it further. An author who cannot afford an abandoned exchange sets `drainGrace: "never"`, under which the route stops intaking but every in-flight exchange still reaches a terminal outcome; that is the only setting where the invariant holds unconditionally.
 - Child exchanges (from split) get their own `started`/`completed`/`failed`/`dropped` events.
 - The `exchangeId` field must be `exchange.id` (not `correlationId`). Use `correlationId` for grouping related exchanges.
 - Operations that drop exchanges (filter, debounce, sample) must emit `route:exchange:dropped` with a `reason` string.

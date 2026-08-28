@@ -86,17 +86,17 @@ describe("sample (.sample())", () => {
 
   /**
    * @case Time-based sampling passes the first exchange per window and drops the rest
-   * @preconditions Route with .sample({ intervalMs: 60_000 }); three sequential sends inside one window
+   * @preconditions Route with .sample({ interval: 60_000 }); three sequential sends inside one window
    * @expectedResult Only the first send passes; the other two are dropped while the window is open
    */
-  test("intervalMs: passes the first exchange in a window", async () => {
+  test("interval: passes the first exchange in a window", async () => {
     const s = spy();
     t = await testContext()
       .routes(
         craft()
           .id("sample-interval")
           .from(direct())
-          .sample({ intervalMs: 60_000 })
+          .sample({ interval: 60_000 })
           .to(s),
       )
       .build();
@@ -112,17 +112,17 @@ describe("sample (.sample())", () => {
 
   /**
    * @case A new time window admits the next exchange once the interval elapses
-   * @preconditions Route with .sample({ intervalMs: 30 }); two sends separated by a 50ms sleep
+   * @preconditions Route with .sample({ interval: 30 }); two sends separated by a 50ms sleep
    * @expectedResult Both sends pass, one per window
    */
-  test("intervalMs: admits again after the window elapses", async () => {
+  test("interval: admits again after the window elapses", async () => {
     const s = spy();
     t = await testContext()
       .routes(
         craft()
           .id("sample-interval-next")
           .from(direct())
-          .sample({ intervalMs: 30 })
+          .sample({ interval: 30 })
           .to(s),
       )
       .build();
@@ -169,7 +169,7 @@ describe("sample (.sample())", () => {
 
   /**
    * @case Sample emits passed/dropped operation events with the interval mode
-   * @preconditions Route with .sample({ intervalMs }) over two sends in one window; event subscribers registered
+   * @preconditions Route with .sample({ interval }) over two sends in one window; event subscribers registered
    * @expectedResult One route:operation:sample:passed and one :dropped, both mode "interval"
    */
   test("emits route:operation:sample:passed and :dropped in interval mode", async () => {
@@ -187,7 +187,7 @@ describe("sample (.sample())", () => {
         craft()
           .id("sample-interval-events")
           .from(direct())
-          .sample({ intervalMs: 1000 })
+          .sample({ interval: 1000 })
           .to(s),
       )
       .build();
@@ -215,11 +215,11 @@ describe("sample (.sample())", () => {
       /mutually exclusive/,
     );
     expect(
-      () => new SampleStep({ every: 2, intervalMs: 5 } as SampleOptions),
+      () => new SampleStep({ every: 2, interval: 5 } as SampleOptions),
     ).toThrow(/mutually exclusive/);
     expect(() => new SampleStep({ every: 0 })).toThrow(/every/);
     expect(() => new SampleStep({ every: 1.5 })).toThrow(/every/);
-    expect(() => new SampleStep({ intervalMs: 0 })).toThrow(/intervalMs/);
-    expect(() => new SampleStep({ intervalMs: -10 })).toThrow(/intervalMs/);
+    expect(() => new SampleStep({ interval: 0 })).toThrow(/interval/);
+    expect(() => new SampleStep({ interval: -10 })).toThrow(/interval/);
   });
 });

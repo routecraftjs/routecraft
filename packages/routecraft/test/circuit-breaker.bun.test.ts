@@ -35,7 +35,7 @@ describe("CircuitBreakerMachine (state transitions)", () => {
    */
   test("trips from closed to open at the failure threshold", () => {
     const m = new CircuitBreakerMachine(
-      resolveCircuitBreakerOptions({ failureThreshold: 3, windowMs: 1000 }),
+      resolveCircuitBreakerOptions({ failureThreshold: 3, window: 1000 }),
     );
     const { events, hooks } = recorder();
 
@@ -56,7 +56,7 @@ describe("CircuitBreakerMachine (state transitions)", () => {
    */
   test("prunes failures older than the window so it never trips on stale ones", () => {
     const m = new CircuitBreakerMachine(
-      resolveCircuitBreakerOptions({ failureThreshold: 3, windowMs: 100 }),
+      resolveCircuitBreakerOptions({ failureThreshold: 3, window: 100 }),
     );
     const { events, hooks } = recorder();
 
@@ -75,7 +75,7 @@ describe("CircuitBreakerMachine (state transitions)", () => {
    */
   test("open rejects within cooldown and half-opens after it", () => {
     const m = new CircuitBreakerMachine(
-      resolveCircuitBreakerOptions({ failureThreshold: 1, cooldownMs: 100 }),
+      resolveCircuitBreakerOptions({ failureThreshold: 1, cooldown: 100 }),
     );
     const { events, hooks } = recorder();
 
@@ -103,7 +103,7 @@ describe("CircuitBreakerMachine (state transitions)", () => {
    */
   test("half-open closes on probe success and re-opens on probe failure", () => {
     const closing = new CircuitBreakerMachine(
-      resolveCircuitBreakerOptions({ failureThreshold: 1, cooldownMs: 100 }),
+      resolveCircuitBreakerOptions({ failureThreshold: 1, cooldown: 100 }),
     );
     let r = recorder();
     closing.acquire(0, r.hooks);
@@ -115,7 +115,7 @@ describe("CircuitBreakerMachine (state transitions)", () => {
     expect(r.events).toEqual(["opened:1", "halfOpen", "closed"]);
 
     const reopening = new CircuitBreakerMachine(
-      resolveCircuitBreakerOptions({ failureThreshold: 1, cooldownMs: 100 }),
+      resolveCircuitBreakerOptions({ failureThreshold: 1, cooldown: 100 }),
     );
     r = recorder();
     reopening.acquire(0, r.hooks);
@@ -135,7 +135,7 @@ describe("CircuitBreakerMachine (state transitions)", () => {
     const m = new CircuitBreakerMachine(
       resolveCircuitBreakerOptions({
         failureThreshold: 1,
-        cooldownMs: 100,
+        cooldown: 100,
         halfOpenMax: 1,
       }),
     );
@@ -177,7 +177,7 @@ describe("CircuitBreakerMachine (state transitions)", () => {
    */
   test("half-open ignores stale non-probe failures and successes", () => {
     const m = new CircuitBreakerMachine(
-      resolveCircuitBreakerOptions({ failureThreshold: 1, cooldownMs: 100 }),
+      resolveCircuitBreakerOptions({ failureThreshold: 1, cooldown: 100 }),
     );
     const { events, hooks } = recorder();
 
@@ -224,7 +224,7 @@ describe("Circuit breaker step scope (.circuitBreaker() after .from())", () => {
           .from(direct())
           .circuitBreaker({
             failureThreshold: 2,
-            cooldownMs: 10_000,
+            cooldown: 10_000,
             fallback: () => "FALLBACK",
           })
           .transform(() => {
@@ -262,7 +262,7 @@ describe("Circuit breaker step scope (.circuitBreaker() after .from())", () => {
         craft()
           .id("cb-step-throw")
           .from(direct())
-          .circuitBreaker({ failureThreshold: 1, cooldownMs: 10_000 })
+          .circuitBreaker({ failureThreshold: 1, cooldown: 10_000 })
           .transform(() => {
             calls++;
             throw new Error("downstream down");
@@ -302,7 +302,7 @@ describe("Circuit breaker step scope (.circuitBreaker() after .from())", () => {
         craft()
           .id("cb-step-events")
           .from(direct())
-          .circuitBreaker({ failureThreshold: 2, cooldownMs: 10_000 })
+          .circuitBreaker({ failureThreshold: 2, cooldown: 10_000 })
           .transform(() => {
             throw new Error("downstream down");
           })
@@ -342,7 +342,7 @@ describe("Circuit breaker step scope (.circuitBreaker() after .from())", () => {
         craft()
           .id("cb-step-noncounting")
           .from(direct())
-          .circuitBreaker({ failureThreshold: 2, cooldownMs: 10_000 })
+          .circuitBreaker({ failureThreshold: 2, cooldown: 10_000 })
           .transform(() => {
             calls++;
             throw rcError("RC5012");
@@ -382,7 +382,7 @@ describe("Circuit breaker step scope (.circuitBreaker() after .from())", () => {
         craft()
           .id("cb-step-recover")
           .from<string>(direct())
-          .circuitBreaker({ failureThreshold: 1, cooldownMs: 30 })
+          .circuitBreaker({ failureThreshold: 1, cooldown: 30 })
           .transform((body: string) => {
             calls++;
             if (fail) throw new Error("downstream down");
@@ -437,7 +437,7 @@ describe("Circuit breaker route scope (.circuitBreaker() before .from())", () =>
           .id("cb-route")
           .circuitBreaker({
             failureThreshold: 1,
-            cooldownMs: 10_000,
+            cooldown: 10_000,
             fallback: () => "ROUTE-FALLBACK",
           })
           .from(direct())
@@ -476,7 +476,7 @@ describe("Circuit breaker route scope (.circuitBreaker() before .from())", () =>
           .id("cb-primary")
           .circuitBreaker({
             failureThreshold: 1,
-            cooldownMs: 10_000,
+            cooldown: 10_000,
             fallback: (exchange, forward) =>
               forward("cb-fallback", exchange.body),
           })

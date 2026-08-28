@@ -2,11 +2,8 @@ import type { Exchange } from "../exchange.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { wrapperEventScope } from "./event-scope.ts";
-import {
-  assertDurationMs,
-  cancellableSleep,
-  SleepAbortedError,
-} from "./cancellable-sleep.ts";
+import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
+import { type Duration, parseDuration } from "../shared/duration.ts";
 
 /**
  * Step-scope `.delay()` wrapper. Waits a fixed time, then runs the
@@ -35,10 +32,9 @@ export class DelayWrapperStep<
 > extends WrapperStep<T> {
   readonly #delayMs: number;
 
-  constructor(inner: Step<T>, delayMs: number) {
+  constructor(inner: Step<T>, duration: Duration) {
     super(inner);
-    assertDurationMs("delay(delayMs)", delayMs, 0);
-    this.#delayMs = delayMs;
+    this.#delayMs = parseDuration(duration, "delay(duration)", 0);
   }
 
   protected override async runInner(

@@ -6,6 +6,7 @@
  * fields may be added, never removed or repurposed.
  */
 
+import type { Duration } from "../../shared/duration.ts";
 import type { HttpAuth } from "../../adapters/http/types";
 import type { Suspended } from "../../suspension/suspended";
 
@@ -67,11 +68,19 @@ export type ContextState = "starting" | "started" | "stopping" | "stopped";
  * - `completed`: stopped after doing work successfully. A finished one-shot.
  * - `stopped`: stopped cleanly without ever succeeding (shutdown, or a source
  *   that had nothing to do).
- * - `offline`: deliberately disabled. Reports `degraded`, never pages.
+ * - `offline`: taken out of service by an operator. Reports `degraded`,
+ *   never pages.
+ * - `disabled`: held back by its own `.enabled()` predicate, with the reason
+ *   in `details.reason`. Reports `inactive`, so it is listed and excluded
+ *   from aggregation: a capability whose credentials were never supplied is
+ *   a configuration state the operator chose, and paging on it would make
+ *   every deliberately-dormant route an incident. Distinct from `offline`,
+ *   which is a running deployment having capability taken away from it, and
+ *   from `failed`, which is a route that should be running and is not.
  * - `failed`: not running when it should be. Its source gave up producing.
  */
 export type RouteLifecycle =
-  "running" | "completed" | "stopped" | "offline" | "failed";
+  "running" | "completed" | "stopped" | "offline" | "disabled" | "failed";
 
 /** A circuit breaker's position, mirroring routecraft's breaker events. */
 export type CircuitState = "open" | "half-open";
@@ -247,7 +256,7 @@ export interface IndicatorDefinition {
    * push, which is the correct reading for one fed from a business route that
    * may legitimately be idle for hours.
    */
-  maxAgeMs?: number;
+  maxAge?: Duration;
   /**
    * How widely this dependency's failure is felt. Defaults to `deployment`,
    * which is right for anything reached over the network with shared
@@ -258,7 +267,7 @@ export interface IndicatorDefinition {
   /**
    * Bind this indicator to a route's exchange outcomes: a completed exchange
    * reports up, a failed exchange reports down, and no exchange within
-   * `maxAgeMs` goes stale. The route needs no health code at all.
+   * `maxAge` goes stale. The route needs no health code at all.
    *
    * For probe routes only, where the exchange is the health check by
    * construction. Binding a business route would make every expected refusal
@@ -372,10 +381,23 @@ export interface OpsRouteSchemas {
  * that registration is the door `POST .../exchanges` goes through. A cron-,
  * mail- or http-sourced route has no such door and says so here rather than
  * failing at dispatch time.
+ *
+ * `enabled` is reported separately because `dispatchable` alone cannot carry
+ * both meanings. A route held back by its `.enabled()` predicate never
+ * subscribes, so it is not in the capability registry either, and without
+ * this field it would be indistinguishable from a cron-sourced route that
+ * simply has no dispatch door. One is a configuration state an operator can
+ * change; the other is the shape of the route.
  */
 export interface OpsRouteSummary {
   id: string;
   dispatchable: boolean;
+  /**
+   * False only while the route's `.enabled()` predicate is holding it back.
+   * True for every route that declares no predicate, so an existing consumer
+   * reading this field sees the state it already assumed.
+   */
+  enabled: boolean;
   /** Source kinds, in declaration order (`direct`, `cron`, `mail`, ...). */
   sources: string[];
   /** The route declares a route-entry `.authorize()`. */
