@@ -16,9 +16,13 @@ import type { Principal } from "./types.ts";
  * concept (an API key behind a custom validator) is a legitimate result, and
  * requiring `exp` belongs to the verifier layer (section 1), never here.
  *
- * This predicate is the single source of the boundary; `authorize()` (RC5020)
- * and the HTTP bearer middleware both call it so the two checkpoints on the
- * same credential can never disagree by a second.
+ * This predicate is the single source of the boundary. Three checkpoints call
+ * it: `authorize()` (RC5020), the HTTP bearer middleware, and
+ * {@link principalExpirySignal}, which closes a stream when the credential
+ * that admitted it lapses. All three pass the same `clockToleranceSec`, which
+ * is what keeps them from disagreeing by a second on one credential; calling
+ * this predicate while dropping its tolerance argument buys the appearance of
+ * that guarantee without the substance.
  */
 export function isPrincipalExpired(
   principal: Pick<Principal, "expiresAt">,
@@ -58,10 +62,17 @@ const MAX_TIMEOUT_MS = 2_147_483_647;
  * for the life of the stream. Clamped, a distant expiry simply sleeps in
  * stages.
  *
+ * The tolerance is the one the verification that admitted this credential
+ * applied, carried on the admit verdict and passed in here. Without it a
+ * client inside the tolerance window loops: admission admits, the stream arms
+ * and finds the credential expired by its own stricter boundary, closes, and
+ * the client reconnects into the same pair of answers.
+ *
  * @param principal - The admitted principal, or undefined for an
  *   unauthenticated request
- * @param onExpired - Called once when the credential is found to have lapsed,
- *   before the signal aborts, for the surface to report it
+ * @param options.clockToleranceSec - Skew the admitting verification allowed
+ * @param options.onExpired - Called once when the credential is found to have
+ *   lapsed, before the signal aborts, for the surface to report it
  * @returns The signal and a `cancel` to release the timer when the response
  *   ends, or `undefined` when the principal carries no expiry, since a
  *   credential that does not expire granting a stream that does not expire is
@@ -69,20 +80,33 @@ const MAX_TIMEOUT_MS = 2_147_483_647;
  */
 export function principalExpirySignal(
   principal: Pick<Principal, "expiresAt" | "subject"> | undefined,
-  onExpired?: (principal: Pick<Principal, "subject">) => void,
+  options: {
+    /**
+     * Required, like the field on the verdict it comes from: a default of
+     * `0` here is the stricter boundary that closed a stream the door had
+     * just admitted, and an optional field is how a fourth caller reaches
+     * for it without noticing.
+     */
+    clockToleranceSec: number;
+    onExpired?: (principal: Pick<Principal, "subject">) => void;
+  },
 ): { signal: AbortSignal; cancel: () => void } | undefined {
   const expiresAt = principal?.expiresAt;
   if (principal === undefined || expiresAt === undefined) return undefined;
 
+  const { clockToleranceSec } = options;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const arm = (): void => {
-    if (isPrincipalExpired(principal)) {
-      onExpired?.(principal);
+    if (isPrincipalExpired(principal, clockToleranceSec)) {
+      options.onExpired?.(principal);
       controller.abort(new Error("Credential expired"));
       return;
     }
-    const remaining = expiresAt * 1000 - Date.now();
+    // The deadline the tolerance actually moves, not `exp` itself: sleeping
+    // to `exp` inside a tolerance window would wake, find the credential
+    // still good, and re-arm on the 50ms floor for the whole window.
+    const remaining = (expiresAt + clockToleranceSec) * 1000 - Date.now();
     timer = setTimeout(arm, Math.min(Math.max(remaining, 50), MAX_TIMEOUT_MS));
   };
   arm();

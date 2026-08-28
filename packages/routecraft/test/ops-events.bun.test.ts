@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   bootServer,
   readUntilClosed,
+  signHs256,
   testContext,
   type TestContext,
 } from "@routecraft/testing";
@@ -10,6 +11,7 @@ import {
   apiKey,
   craft,
   direct,
+  jwt,
   noop,
   opsPlugin,
   type HttpAuth,
@@ -274,6 +276,38 @@ describe("the ops event tail", () => {
     expect(res.status).toBe(200);
 
     expect(await readUntilClosed(res)).toBe(true);
+  });
+
+  /**
+   * @case A credential inside the admitting clock tolerance keeps its tail open
+   * @preconditions A validator allowing 60 seconds of skew, admitting a token whose exp passed five seconds ago; the events tier gated on the scope that token carries
+   * @expectedResult The tail is still open after the arm, because the stream applies the boundary that admitted the credential. Applying a stricter one would close every stream a client inside the window opens, and the client would reconnect into the same pair of answers
+   */
+  test("does not close a credential the door admitted within its tolerance", async () => {
+    const secret = "ops-events-tolerance-secret-please-change-me";
+    const port = await start({
+      auth: jwt({
+        secret,
+        issuer: "https://idp.test",
+        audience: "https://api.test",
+        clockToleranceSec: 60,
+      }),
+      tiers: { events: "ops:events" },
+    });
+    const token = signHs256({
+      secret,
+      claims: {
+        scope: "ops:events",
+        exp: Math.floor(Date.now() / 1000) - 5,
+      },
+    });
+
+    const res = await fetch(`http://127.0.0.1:${port}/ops/events`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await readUntilClosed(res, 500)).toBe(false);
   });
 
   /**

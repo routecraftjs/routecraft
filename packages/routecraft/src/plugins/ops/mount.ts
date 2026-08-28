@@ -203,7 +203,9 @@ export function createManagementHandler(
       // No event and no wire message: the close IS the signal, and inventing
       // an auth:rejected reason for it would put a value outside the bounded
       // vocabulary onto a surface an operator counts refusals from.
-      const expiry = principalExpirySignal(verdict.principal);
+      const expiry = principalExpirySignal(verdict.principal, {
+        clockToleranceSec: verdict.clockToleranceSec,
+      });
       const closes = anySignal(req.signal, expiry?.signal);
       return sseResponse(tailEvents(api, closes), closes, () => {
         expiry?.cancel();

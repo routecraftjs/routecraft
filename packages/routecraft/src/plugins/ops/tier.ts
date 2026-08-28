@@ -23,7 +23,22 @@ import type { OpsTier, OpsTiers } from "./types";
  */
 export type TierVerdict =
   | { kind: "disabled" }
-  | { kind: "admit"; principal?: Principal }
+  | {
+      kind: "admit";
+      principal?: Principal;
+      /**
+       * Clock skew the verification that admitted this caller allowed,
+       * carried through so a tail re-checking the same credential applies
+       * the boundary that let it in rather than a stricter one of its own.
+       *
+       * Required, like the field it comes from: an optional one would be a
+       * re-derivation with nicer syntax, and the value a consumer would
+       * reach for is `?? 0`, which is exactly the stricter boundary that
+       * closed a stream the door had just admitted. A verdict with no
+       * principal carries `0` honestly, because no credential was checked.
+       */
+      clockToleranceSec: number;
+    }
   | { kind: "unauthenticated"; scheme: string }
   | { kind: "rejected"; response: Response }
   | { kind: "insufficient"; missing: string; scheme: string };
@@ -49,11 +64,17 @@ export async function admitToTier(
   if (tier === undefined || tier === false) return { kind: "disabled" };
 
   if (tier === true) {
-    if (!context.auth.configured) return { kind: "admit" };
+    if (!context.auth.configured) {
+      return { kind: "admit", clockToleranceSec: 0 };
+    }
     const result = await context.authenticate();
     return result?.kind === "admit"
-      ? { kind: "admit", principal: result.principal }
-      : { kind: "admit" };
+      ? {
+          kind: "admit",
+          principal: result.principal,
+          clockToleranceSec: result.clockToleranceSec,
+        }
+      : { kind: "admit", clockToleranceSec: 0 };
   }
 
   const result = await context.authenticate();
@@ -79,7 +100,11 @@ export async function admitToTier(
       scheme: result.principal.scheme,
     };
   }
-  return { kind: "admit", principal: result.principal };
+  return {
+    kind: "admit",
+    principal: result.principal,
+    clockToleranceSec: result.clockToleranceSec,
+  };
 }
 
 /** Whether any tier is scope-gated, and so actually enforces a wall. */

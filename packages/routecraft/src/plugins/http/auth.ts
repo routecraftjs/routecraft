@@ -38,6 +38,15 @@ export type AuthResult =
        * in an error, or persist it outside the request lifetime.
        */
       credential: string;
+      /**
+       * Clock skew the verification that admitted this credential allowed.
+       *
+       * Carried on the verdict rather than re-derived from config by each
+       * consumer, because anything re-checking the same credential later (a
+       * stream that outlives its admission) must apply the same boundary.
+       * Two resolutions of one setting can drift; an inherited value cannot.
+       */
+      clockToleranceSec: number;
     }
   | { kind: "absent"; scheme: string }
   | {
@@ -287,6 +296,9 @@ export function createAuthMiddleware(
           kind: "admit",
           principal: markAuthentic(syntheticApiKeyPrincipal(raw, auth.scopes)),
           credential: raw,
+          // An api key is compared, never dated: this path applies no
+          // tolerance, so anything inheriting the verdict applies none either.
+          clockToleranceSec: 0,
         };
       }
       try {
@@ -298,6 +310,7 @@ export function createAuthMiddleware(
           kind: "admit",
           principal: markAuthentic(principal),
           credential: raw,
+          clockToleranceSec: 0,
         };
       } catch {
         return reject("invalid api key", "apiKey");
@@ -345,6 +358,7 @@ export function createAuthMiddleware(
           kind: "admit",
           principal: markAuthentic(principal),
           credential: token,
+          clockToleranceSec,
         };
       } catch (error) {
         return reject(classifyRejectionReason(error), "bearer", error);
