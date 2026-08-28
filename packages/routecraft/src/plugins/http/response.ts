@@ -1,5 +1,5 @@
 import { missingCredentialReason } from "./auth.ts";
-import { resourceMetadataUrlFor } from "../server/protected-resource.ts";
+import { bearerChallenge } from "../server/protected-resource.ts";
 
 /**
  * The JSON response every routecraft-owned HTTP surface answers with.
@@ -34,19 +34,15 @@ export function jsonResponse(
  */
 export function missingCredentialResponse(
   scheme: string,
-  requestUrl?: string,
+  requestUrl: string,
 ): Response {
   const headers: Record<string, string> = {};
   // WWW-Authenticate per RFC 7235 only when the scheme is bearer. Sending
   // `Bearer` on an api-key route mis-signals the protocol. The bearer
-  // challenge carries the RFC 9728 `resource_metadata` hint when the caller
-  // supplies its request URL, so a refused caller can discover who issues.
+  // challenge carries the RFC 9728 `resource_metadata` hint, so a refused
+  // caller can discover who issues.
   if (scheme === "bearer") {
-    const hint =
-      requestUrl === undefined
-        ? ""
-        : `, resource_metadata="${resourceMetadataUrlFor(requestUrl)}"`;
-    headers["www-authenticate"] = `Bearer realm="routecraft"${hint}`;
+    headers["www-authenticate"] = bearerChallenge({ requestUrl });
   }
   return jsonResponse(
     { error: "unauthorized", reason: missingCredentialReason(scheme) },

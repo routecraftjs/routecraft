@@ -117,6 +117,7 @@ export type {
 export { apiKey } from "./plugins/http/auth.ts";
 export type { SseEvent } from "./plugins/http/sse.ts";
 export {
+  bearerChallenge,
   buildProtectedResourceMetadata,
   PROTECTED_RESOURCE_METADATA_PATH,
   resourceMetadataUrlFor,

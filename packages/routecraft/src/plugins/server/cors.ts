@@ -114,8 +114,6 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
  * Real browsers never emit anything other than a canonical Origin, so this
  * tightening costs nothing in practice while ensuring we never echo a
  * malformed value into `Access-Control-Allow-Origin`.
- *
- * @internal
  */
 export function defaultLoopbackOriginResolver(
   requestOrigin: string | undefined,
@@ -138,8 +136,6 @@ export function defaultLoopbackOriginResolver(
 /**
  * Resolve a `cors` config slot into either a fully-populated internal shape or
  * `null` (CORS disabled entirely). `undefined` produces the loopback default.
- *
- * @internal
  */
 export function resolveCorsOptions(
   input: false | HttpCorsOptions | undefined,
@@ -214,7 +210,6 @@ function safeResolveOrigin(
  * @param cors Resolved CORS options, or `null` to short-circuit.
  * @param requestOrigin Value of the request's `Origin` header.
  * @param preflight `true` to include `Access-Control-Allow-Methods/Headers`.
- * @internal
  */
 export function buildCorsHeaders(
   cors: ResolvedHttpCors | null,

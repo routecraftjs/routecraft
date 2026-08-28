@@ -182,7 +182,12 @@ function readSettingsFile(path: string): CraftSettings | undefined {
   try {
     parsed = parse(text);
   } catch (error: unknown) {
-    throw new SettingsError(`${path} is not valid YAML: ${messageOf(error)}`);
+    // First line only: the parser's message appends a code frame quoting the
+    // offending source line, and in this file that line can be the token.
+    // stderr is often captured (CI logs), so the credential must not ride
+    // along with the diagnosis.
+    const firstLine = messageOf(error).split("\n", 1)[0];
+    throw new SettingsError(`${path} is not valid YAML: ${firstLine}`);
   }
   if (parsed === null || parsed === undefined) return {};
   if (typeof parsed !== "object" || Array.isArray(parsed)) {

@@ -1,5 +1,10 @@
 import { describe, expect, test, afterEach } from "bun:test";
-import { testContext, signHs256, type TestContext } from "@routecraft/testing";
+import {
+  bootServer,
+  signHs256,
+  testContext,
+  type TestContext,
+} from "@routecraft/testing";
 import {
   buildProtectedResourceMetadata,
   craft,
@@ -106,10 +111,20 @@ describe("protected resource metadata", () => {
       new Request("http://local:8080/.well-known/oauth-protected-resource"),
     );
     expect(root.status).toBe(200);
+    expect(root.headers.get("cache-control")).toBe("no-cache");
     const rootDoc = (await root.json()) as ProtectedResourceMetadata;
     expect(rootDoc.resource).toBe("http://local:8080");
     expect(rootDoc.authorization_servers).toBeUndefined();
     expect(rootDoc.scopes_supported).toBeUndefined();
+
+    // A suffix no mount owns gets no document: a 200 would assert a
+    // protected-resource identity for a resource the server does not serve.
+    const unowned = await ingress.dispatch(
+      new Request(
+        "http://local:8080/.well-known/oauth-protected-resource/unknown",
+      ),
+    );
+    expect(unowned.status).toBe(404);
   });
 
   /**
@@ -175,34 +190,30 @@ describe("discovery on refusals", () => {
   });
 
   async function boot(): Promise<string> {
-    let port: number | undefined;
-    t = await testContext()
-      .routes([
-        craft()
-          .id("orders")
-          .from(http({ path: "/orders", method: "GET" }))
-          .transform(() => "ok")
-          .to(noop()),
-        craft().id("dispatchable").from(direct()).to(noop()),
-      ])
-      .with({
-        servers: {
-          default: {
-            port: 0,
-            host: "127.0.0.1",
-            auth: jwt({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE }),
+    const booted = await bootServer((builder) =>
+      builder
+        .routes([
+          craft()
+            .id("orders")
+            .from(http({ path: "/orders", method: "GET" }))
+            .transform(() => "ok")
+            .to(noop()),
+          craft().id("dispatchable").from(direct()).to(noop()),
+        ])
+        .with({
+          servers: {
+            default: {
+              port: 0,
+              host: "127.0.0.1",
+              auth: jwt({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE }),
+            },
           },
-        },
-        http: {},
-        plugins: [opsPlugin({ tiers: { dispatch: "ops:dispatch" } })],
-      })
-      .build();
-    t.ctx.on("server:listening", ({ details }) => {
-      port = details.port;
-    });
-    await t.startAndWaitReady();
-    if (port === undefined) throw new Error("no port");
-    return `http://127.0.0.1:${String(port)}`;
+          http: {},
+          plugins: [opsPlugin({ tiers: { dispatch: "ops:dispatch" } })],
+        }),
+    );
+    t = booted.ctx;
+    return `http://127.0.0.1:${String(booted.port)}`;
   }
 
   /**

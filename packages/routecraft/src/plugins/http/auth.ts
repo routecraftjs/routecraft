@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { rcError } from "../../error";
-import { resourceMetadataUrlFor } from "../server/protected-resource.ts";
+import { bearerChallenge } from "../server/protected-resource.ts";
 import { classifyRejectionReason } from "../../auth/error-classification";
 import { isPrincipalExpired } from "../../auth/expiry";
 import { markAuthentic } from "../../auth/authentic";
@@ -148,7 +148,7 @@ export function missingCredentialReason(scheme: string): string {
 function reject(
   reason: string,
   scheme: string,
-  requestUrl?: string,
+  requestUrl: string,
   cause?: unknown,
 ): AuthResult {
   // An infrastructure failure (JWKS unreachable, userinfo fetch failed) is a
@@ -169,11 +169,7 @@ function reject(
   // the document naming who issues acceptable tokens; the ingress serves it
   // for every mount, so the hint goes on every bearer challenge.
   if (scheme === "bearer" && !infrastructure) {
-    const hint =
-      requestUrl === undefined
-        ? ""
-        : `, resource_metadata="${resourceMetadataUrlFor(requestUrl)}"`;
-    headers["www-authenticate"] = `Bearer realm="routecraft"${hint}`;
+    headers["www-authenticate"] = bearerChallenge({ requestUrl });
   }
   const response = new Response(
     JSON.stringify(
@@ -299,11 +295,11 @@ export function createAuthMiddleware(
         return { kind: "absent", scheme: "apiKey" };
       }
       if (raw.trim() === "") {
-        return reject("invalid api key", "apiKey");
+        return reject("invalid api key", "apiKey", req.url);
       }
       if (allowedSet) {
         if (!allowedSet.has(raw)) {
-          return reject("invalid api key", "apiKey");
+          return reject("invalid api key", "apiKey", req.url);
         }
         return {
           kind: "admit",
@@ -317,7 +313,7 @@ export function createAuthMiddleware(
       try {
         const principal = await verify!(raw);
         if (!principal) {
-          return reject("invalid api key", "apiKey");
+          return reject("invalid api key", "apiKey", req.url);
         }
         return {
           kind: "admit",
@@ -326,7 +322,7 @@ export function createAuthMiddleware(
           clockToleranceSec: 0,
         };
       } catch {
-        return reject("invalid api key", "apiKey");
+        return reject("invalid api key", "apiKey", req.url);
       }
     };
   }

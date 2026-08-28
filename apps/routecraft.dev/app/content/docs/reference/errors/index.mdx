@@ -163,10 +163,10 @@ Adjust the schema or coerce input; check data shapes. For Zod: use `z.object()`,
 Adapter misconfigured
 
 **Why it happens**  
-Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage.
+Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage. Also raised at `context.start()` when a `directTool` names a route declared [`direct({ internal: true })`](/docs/reference/adapters/direct), and when one endpoint declares itself both internal and a discoverable capability (e.g. two direct sources on one route, one internal and one not).
 
 **Suggestion**  
-Check required options and correct role usage (`.from()` vs `.to()`). Example: direct sources take no endpoint string (`.from(direct())` or `.from(direct(options))`); dynamic endpoints are only valid on destinations (`.to()`, `.tap()`).
+Check required options and correct role usage (`.from()` vs `.to()`). Example: direct sources take no endpoint string (`.from(direct())` or `.from(direct(options))`); dynamic endpoints are only valid on destinations (`.to()`, `.tap()`). For a `directTool` naming an internal route, expose a boundary route carrying `.input()`, `.description()` and `.authorize()`, and point the tool at that.
 
 ## RC5004
 No handler available
@@ -837,12 +837,14 @@ Send a `limit` that is a positive integer within the documented maximum. Pass `n
 Route is not dispatchable
 
 **Why it happens**  
-`POST /ops/routes/{id}/exchanges` targeted a route that exists but has no door for an exchange to arrive through. Only a `direct()` ingress makes a route id dispatchable; a route sourced from `cron()`, `mail()` or `http()` runs from its own trigger, and there is nothing for a dispatch to hand a message to.
+`POST /ops/routes/{id}/exchanges` targeted a route that exists but has no door for an exchange to arrive through. A `direct()` ingress is what makes a route id dispatchable; a route sourced from `cron()`, `mail()` or `http()` runs from its own trigger, and there is nothing for a dispatch to hand a message to.
+
+A route declared [`direct({ internal: true })`](/docs/reference/adapters/direct) raises the same code with a different message: it has a direct source and closed the door on purpose, so the refusal names the declaration instead of suggesting a source the route already carries.
 
 This is distinct from a 404, which means no route by that id is registered at all. The two need different answers, so they are told apart rather than collapsed.
 
 **Suggestion**  
-Add `.from(direct())` to the route if it should be callable, or dispatch to one that already is. `GET /ops/routes?dispatchable=true` lists exactly the routes that will accept the call, and `dispatchable` is on every route representation.
+For a route with no direct source, add `.from(direct())` if it should be callable, or dispatch to one that already is. For a route declared internal, dispatch the boundary route that fronts it; the internal route is only composable from another route. `GET /ops/routes?dispatchable=true` lists exactly the routes that will accept the call, and `dispatchable` is on every route representation.
 
 ## RC5061
 HTTP client response body exceeds maxBodySize

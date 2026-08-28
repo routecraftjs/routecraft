@@ -170,7 +170,7 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
       const challenge = parseBearerChallenge(
         response.headers.get("www-authenticate"),
       );
-      const discovery = await fetchDiscovery(challenge.resourceMetadata);
+      const discovery = await fetchDiscovery(challenge.resourceMetadata, base);
       throw new OpsClientError(
         "refused",
         refusalMessage(
@@ -367,9 +367,17 @@ interface Discovery {
  * can answer nonsense. Every failure resolves to `undefined` so the
  * refusal degrades to what the status line already proves, never to a
  * second error about the enrichment.
+ *
+ * The hint is followed only to the origin the operator addressed
+ * (RFC 9728 section 3.3): a `WWW-Authenticate` header is unvalidated
+ * input, and a refusing server that could point this process anywhere
+ * would hold an SSRF primitive aimed from the operator's network.
+ * Redirects are refused for the same reason: a 302 on the first hop
+ * would carry the fetch past the origin check.
  */
 async function fetchDiscovery(
   url: string | undefined,
+  base: string,
 ): Promise<Discovery | undefined> {
   if (url === undefined) return undefined;
   let parsed: URL;
@@ -382,7 +390,13 @@ async function fetchDiscovery(
     return undefined;
   }
   try {
+    if (parsed.origin !== new URL(base).origin) return undefined;
+  } catch {
+    return undefined;
+  }
+  try {
     const response = await fetch(url, {
+      redirect: "error",
       signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
     });
     if (!response.ok) return undefined;
@@ -392,7 +406,7 @@ async function fetchDiscovery(
     };
     const strings = (value: unknown): string[] | undefined =>
       Array.isArray(value) && value.every((entry) => typeof entry === "string")
-        ? (value as string[])
+        ? (value as string[]).map(printable)
         : undefined;
     const issuers = strings(doc.authorization_servers);
     const scopes = strings(doc.scopes_supported);
@@ -403,6 +417,17 @@ async function fetchDiscovery(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Strip control characters from a server-supplied string before it reaches
+ * the terminal, so a hostile document cannot smuggle ANSI escapes or fake
+ * extra lines into the refusal message. Bounded too: an issuer is a URL,
+ * not a page.
+ */
+function printable(value: string): string {
+  // eslint-disable-next-line no-control-regex -- removing control chars is the point
+  return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, "").slice(0, 256);
 }
 
 /**

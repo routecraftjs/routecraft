@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { bootServer, testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   cron,
@@ -7,10 +7,13 @@ import {
   getExchangeRoute,
   noop,
   opsPlugin,
+  registerCapability,
+  registerInternalEndpoint,
   type Exchange,
   type OpsPage,
   type OpsRouteSummary,
 } from "../src/index.ts";
+import { rcCodeOf } from "../src/brand.ts";
 
 /**
  * `direct({ internal: true })`: a trusting subroutine keeps its in-process
@@ -40,33 +43,29 @@ describe("direct({ internal: true })", () => {
    * the ops surface open. Returns the bound port.
    */
   async function start(): Promise<number> {
-    let port: number | undefined;
-    t = await testContext()
-      .with({
-        servers: { default: { port: 0, host: "127.0.0.1" } },
-        plugins: [
-          opsPlugin({ tiers: { introspection: true, dispatch: true } }),
-        ],
-      })
-      .routes([
-        craft()
-          .id("resolve-order")
-          .from(direct({ internal: true }))
-          .transform((body) => ({ resolved: true, input: body })),
-        craft().id("orders").from(direct()).to(direct("resolve-order")),
-        craft()
-          .id("orders-forwarding")
-          .from(direct())
-          .transform(forwardFrom("resolve-order")),
-        craft().id("nightly").from(cron("0 0 * * *")).to(noop()),
-      ])
-      .build();
-    t.ctx.on("server:listening", ({ details }) => {
-      port = details.port;
-    });
-    await t.startAndWaitReady();
-    if (port === undefined) throw new Error("no server reported a port");
-    return port;
+    const booted = await bootServer((builder) =>
+      builder
+        .with({
+          servers: { default: { port: 0, host: "127.0.0.1" } },
+          plugins: [
+            opsPlugin({ tiers: { introspection: true, dispatch: true } }),
+          ],
+        })
+        .routes([
+          craft()
+            .id("resolve-order")
+            .from(direct({ internal: true }))
+            .transform((body) => ({ resolved: true, input: body })),
+          craft().id("orders").from(direct()).to(direct("resolve-order")),
+          craft()
+            .id("orders-forwarding")
+            .from(direct())
+            .transform(forwardFrom("resolve-order")),
+          craft().id("nightly").from(cron("0 0 * * *")).to(noop()),
+        ]),
+    );
+    t = booted.ctx;
+    return booted.port;
   }
 
   async function call<T>(
@@ -167,5 +166,37 @@ describe("direct({ internal: true })", () => {
     expect(noDoor.body.code).toBe("RC5060");
     expect(noDoor.body.message).toMatch(/Add \.from\(direct\(\)\)/);
     expect(noDoor.body.message).not.toMatch(/declared internal/);
+  });
+
+  /**
+   * @case One endpoint declared both internal and a discoverable capability is refused loudly, in either order
+   * @preconditions A bare context; registerInternalEndpoint then registerCapability for one endpoint, and the reverse on a second endpoint
+   * @expectedResult RC5003 from whichever registration arrives second. Last-writer-wins would silently reopen the doors the internal declaration closed, on the unguarded subroutine the flag exists to protect
+   */
+  test("refuses a contradictory internal-and-capability declaration", async () => {
+    t = await testContext().build();
+    const ctx = t.ctx;
+
+    registerInternalEndpoint(ctx, "subroutine");
+    let secondCapability: unknown;
+    try {
+      registerCapability(ctx, { endpoint: "subroutine" });
+    } catch (error: unknown) {
+      secondCapability = error;
+    }
+    expect(rcCodeOf(secondCapability)).toBe("RC5003");
+    expect((secondCapability as Error).message).toMatch(/declared internal/);
+
+    registerCapability(ctx, { endpoint: "capability" });
+    let secondInternal: unknown;
+    try {
+      registerInternalEndpoint(ctx, "capability");
+    } catch (error: unknown) {
+      secondInternal = error;
+    }
+    expect(rcCodeOf(secondInternal)).toBe("RC5003");
+    expect((secondInternal as Error).message).toMatch(
+      /discoverable capability/,
+    );
   });
 });

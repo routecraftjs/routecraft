@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SignJWT } from "jose";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { bootServer, testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   direct,
@@ -68,14 +68,11 @@ async function boot(
   config: CraftConfig,
   routes: Parameters<ReturnType<typeof testContext>["routes"]>[0],
 ): Promise<string> {
-  let port: number | undefined;
-  context = await testContext().with(config).routes(routes).build();
-  context.ctx.on("server:listening", ({ details }) => {
-    port = details.port;
-  });
-  await context.startAndWaitReady();
-  if (port === undefined) throw new Error("no server reported a port");
-  return `http://127.0.0.1:${String(port)}`;
+  const booted = await bootServer((builder) =>
+    builder.with(config).routes(routes),
+  );
+  context = booted.ctx;
+  return `http://127.0.0.1:${String(booted.port)}`;
 }
 
 const greet = () =>

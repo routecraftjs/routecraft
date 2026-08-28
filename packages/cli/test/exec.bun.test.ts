@@ -199,6 +199,51 @@ describe("craft exec", () => {
   });
 
   /**
+   * @case A discovery hint pointing off the instance's origin is not followed
+   * @preconditions A refusing server whose WWW-Authenticate resource_metadata names a different origin, which serves a document naming a foreign issuer and counts its hits
+   * @expectedResult Exit 4 with the plain refusal: the foreign document is never fetched and its issuer never reaches the terminal. The hint is unvalidated input from the refusing server, and following it anywhere would hand that server an SSRF primitive aimed from the operator's network
+   */
+  test("does not follow a discovery hint off the instance's origin", async () => {
+    let metadataHits = 0;
+    const foreign = createServer((_req, res) => {
+      metadataHits++;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({ authorization_servers: ["https://evil.example"] }),
+      );
+    });
+    await new Promise<void>((resolve) =>
+      foreign.listen(0, "127.0.0.1", resolve),
+    );
+    const foreignPort = (foreign.address() as { port: number }).port;
+    const refusing = createServer((_req, res) => {
+      res.writeHead(401, {
+        "content-type": "application/json",
+        "www-authenticate": `Bearer realm="routecraft", resource_metadata="http://127.0.0.1:${String(foreignPort)}/.well-known/oauth-protected-resource/x"`,
+      });
+      res.end(
+        JSON.stringify({ error: "unauthorized", reason: "missing_header" }),
+      );
+    });
+    await new Promise<void>((resolve) =>
+      refusing.listen(0, "127.0.0.1", resolve),
+    );
+    const refusingPort = (refusing.address() as { port: number }).port;
+    try {
+      const result = await execCommand("greet", [], {
+        url: `http://127.0.0.1:${String(refusingPort)}`,
+        ...isolated(),
+      });
+      expect(result.code).toBe(EXEC_EXIT.refused);
+      expect(result.error).not.toMatch(/evil\.example/);
+      expect(metadataHits).toBe(0);
+    } finally {
+      foreign.close();
+      refusing.close();
+    }
+  });
+
+  /**
    * @case A dispatch against a route with no door is a usage error, not a route failure
    * @preconditions Dispatch open, target route sourced from cron()
    * @expectedResult Exit 2 with the reason. Nothing ran, so reporting it as a route failure would send a script's error path after an exchange that never existed

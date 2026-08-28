@@ -20,7 +20,7 @@ import {
   methodNotAllowed,
   missingCredentialResponse,
 } from "../http/response";
-import { resourceMetadataUrlFor } from "../server/protected-resource.ts";
+import { bearerChallenge } from "../server/protected-resource.ts";
 import { principalExpirySignal } from "../../auth/expiry.ts";
 import { anySignal } from "../../shared/abort.ts";
 import { sseResponse, type SseEvent } from "../http/sse";
@@ -121,7 +121,13 @@ function refuse(
   const headers =
     verdict.scheme === "bearer"
       ? {
-          "www-authenticate": `Bearer realm="routecraft", error="insufficient_scope", scope="${verdict.missing}", resource_metadata="${resourceMetadataUrlFor(requestUrl)}"`,
+          "www-authenticate": bearerChallenge({
+            requestUrl,
+            params: {
+              error: "insufficient_scope",
+              scope: verdict.missing,
+            },
+          }),
         }
       : undefined;
   return jsonResponse(

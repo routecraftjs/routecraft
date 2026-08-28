@@ -99,3 +99,32 @@ export function resourceMetadataUrlFor(requestUrl: string): string {
   const suffix = url.pathname === "/" ? "" : url.pathname;
   return `${url.origin}${PROTECTED_RESOURCE_METADATA_PATH}${suffix}`;
 }
+
+/**
+ * Build the RFC 6750 bearer challenge every routecraft-owned surface emits
+ * on a refusal.
+ *
+ * One builder rather than one string per call site, because the challenge
+ * is a single wire contract with a single consumer-side parser (the CLI's
+ * refusal enrichment): a parameter added in one copy and not another would
+ * still parse and silently say less. `realm` leads and `resource_metadata`
+ * trails, matching what the MCP mount already emits, so parsers keyed on
+ * either order hold.
+ *
+ * `requestUrl` is required, not optional: every bearer refusal hints
+ * (`.standards/security.md` section 6), and an optional parameter would let
+ * the next refusal path compile while quietly dropping the hint.
+ */
+export function bearerChallenge(options: {
+  requestUrl: string;
+  params?: Record<string, string>;
+}): string {
+  const attributes = [
+    `realm="routecraft"`,
+    ...Object.entries(options.params ?? {}).map(
+      ([key, value]) => `${key}="${value}"`,
+    ),
+    `resource_metadata="${resourceMetadataUrlFor(options.requestUrl)}"`,
+  ];
+  return `Bearer ${attributes.join(", ")}`;
+}
