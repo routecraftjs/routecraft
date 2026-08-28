@@ -1,12 +1,16 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { testContext, type TestContext } from "@routecraft/testing";
+import {
+  bootServer,
+  type BootedServer,
+  type TestContext,
+  type TestContextBuilder,
+} from "@routecraft/testing";
 import {
   apiKey,
   craft,
   http,
   noop,
   type CraftConfig,
-  type EventName,
   type HttpPluginOptions,
   type Principal,
 } from "@routecraft/routecraft";
@@ -23,31 +27,18 @@ import {
  */
 
 interface BootOptions {
-  routes: Parameters<ReturnType<typeof testContext>["routes"]>[0];
+  routes: Parameters<TestContextBuilder["routes"]>[0];
   server?: Record<string, unknown>;
   http?: HttpPluginOptions;
 }
 
-async function boot(
-  opts: BootOptions,
-): Promise<{ ctx: TestContext; port: number }> {
-  let port = 0;
-  const ctx = await testContext()
-    .on(
-      "server:listening" as EventName,
-      ((p: { details: unknown }) => {
-        port = (p.details as { port: number }).port;
-      }) as Parameters<ReturnType<typeof testContext>["on"]>[1],
-    )
-    .routes(opts.routes)
-    .with({
+async function boot(opts: BootOptions): Promise<BootedServer> {
+  return await bootServer((builder) =>
+    builder.routes(opts.routes).with({
       servers: { default: { port: 0, host: "127.0.0.1", ...opts.server } },
       http: opts.http ?? {},
-    } as CraftConfig)
-    .build();
-  await ctx.startAndWaitReady();
-  expect(port).toBeGreaterThan(0);
-  return { ctx, port };
+    } as CraftConfig),
+  );
 }
 
 /** An endless stream, so a slot stays taken until the caller lets go. */

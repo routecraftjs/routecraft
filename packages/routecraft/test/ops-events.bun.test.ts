@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { bootServer, type TestContext } from "@routecraft/testing";
 import {
   apiKey,
   craft,
@@ -90,26 +90,21 @@ describe("the ops event tail", () => {
     tiers?: OpsTiers;
     auth?: HttpAuth | false;
   }): Promise<number> {
-    const builder = testContext()
-      .with({
-        servers: { default: { port: 0, host: "127.0.0.1" } },
-        plugins: [
-          opsPlugin({
-            ...(options.tiers !== undefined ? { tiers: options.tiers } : {}),
-            ...(options.auth !== undefined ? { auth: options.auth } : {}),
-          }),
-        ],
-      })
-      .routes([craft().id("worker").from(direct()).to(noop())]);
-
-    t = await builder.build();
-    let port: number | undefined;
-    t.ctx.on("server:listening", ({ details }) => {
-      port = details.port;
-    });
-    await t.startAndWaitReady();
-    if (port === undefined) throw new Error("no server reported a port");
-    return port;
+    const booted = await bootServer((builder) =>
+      builder
+        .with({
+          servers: { default: { port: 0, host: "127.0.0.1" } },
+          plugins: [
+            opsPlugin({
+              ...(options.tiers !== undefined ? { tiers: options.tiers } : {}),
+              ...(options.auth !== undefined ? { auth: options.auth } : {}),
+            }),
+          ],
+        })
+        .routes([craft().id("worker").from(direct()).to(noop())]),
+    );
+    t = booted.ctx;
+    return booted.port;
   }
 
   /**

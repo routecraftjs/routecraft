@@ -1,5 +1,11 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { testContext, type TestContext } from "@routecraft/testing";
+import {
+  bootServer,
+  testContext,
+  waitFor,
+  type BootedServer,
+  type TestContext,
+} from "@routecraft/testing";
 import {
   craft,
   DefaultExchange,
@@ -24,32 +30,20 @@ interface BootOptions {
   events?: Partial<Record<EventName, (ev: { details: unknown }) => void>>;
 }
 
-async function boot(
-  opts: BootOptions,
-): Promise<{ ctx: TestContext; port: number }> {
-  let resolvedPort = 0;
-  const builder = testContext()
-    .on(
-      "server:listening" as EventName,
-      ((payload: { details: unknown }) => {
-        resolvedPort = (payload.details as { port: number }).port;
-      }) as Parameters<ReturnType<typeof testContext>["on"]>[1],
-    )
-    .routes(opts.routes)
-    .with({
+async function boot(opts: BootOptions): Promise<BootedServer> {
+  return await bootServer((builder) => {
+    builder.routes(opts.routes).with({
       servers: { default: { port: 0 } },
       http: opts.http ?? {},
     } as CraftConfig);
-  for (const [name, handler] of Object.entries(opts.events ?? {})) {
-    builder.on(
-      name as EventName,
-      handler as Parameters<ReturnType<typeof testContext>["on"]>[1],
-    );
-  }
-  const ctx = await builder.build();
-  await ctx.startAndWaitReady();
-  expect(resolvedPort).toBeGreaterThan(0);
-  return { ctx, port: resolvedPort };
+    for (const [name, handler] of Object.entries(opts.events ?? {})) {
+      builder.on(
+        name as EventName,
+        handler as Parameters<ReturnType<typeof testContext>["on"]>[1],
+      );
+    }
+    return builder;
+  });
 }
 
 /** Read a whole response body as text, for streams the route terminates itself. */
@@ -236,10 +230,7 @@ describe("stream body teardown", () => {
     await reader.read();
     controller.abort(new Error("client gone"));
 
-    const deadline = Date.now() + 1000;
-    while (reported === undefined && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
+    await waitFor(() => reported !== undefined, 1000);
     expect(reported).toBeInstanceOf(Error);
     expect((reported as Error).message).toBe("cleanup failed");
   });
@@ -385,11 +376,7 @@ describe("HTTP streaming responses", () => {
     expect(opening.startsWith(": open\n\n")).toBe(true);
     controller.abort();
 
-    const deadline = Date.now() + 2000;
-    while (!closed && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    expect(closed).toBe(true);
+    expect(await waitFor(() => closed)).toBe(true);
   });
 
   /**
@@ -459,10 +446,7 @@ describe("HTTP streaming responses", () => {
     const res = await fetch(`http://127.0.0.1:${bound.port}/breaks`);
     await res.body?.cancel().catch(() => {});
 
-    const deadline = Date.now() + 2000;
-    while (!events.some((e) => e.path === "/breaks") && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+    await waitFor(() => events.some((e) => e.path === "/breaks"));
     const completed = events.find((e) => e.path === "/breaks");
     expect(completed).toBeDefined();
     expect(completed!.error?.message).toBe("producer gave up");
@@ -509,10 +493,7 @@ describe("HTTP streaming responses", () => {
     const body = await readAll(res);
     expect(body).toBe(": open\n\ndata: one\n\ndata: two\n\n");
 
-    const deadline = Date.now() + 2000;
-    while (events.length === 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+    await waitFor(() => events.length > 0);
     const completed = events.find((e) => e.path === "/slow");
     expect(completed).toBeDefined();
     expect(completed!.status).toBe(200);
@@ -568,11 +549,7 @@ describe("HTTP streaming responses", () => {
     controller.abort();
 
     const abortedAt = Date.now();
-    const deadline = abortedAt + 2000;
-    while (!closed && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    expect(closed).toBe(true);
+    expect(await waitFor(() => closed, 2000)).toBe(true);
     // Bounded by the wake, not by the source: a generous ceiling that still
     // fails if the return has to wait on `nextEvent()`, which never settles.
     expect(Date.now() - abortedAt).toBeLessThan(1000);
