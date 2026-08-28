@@ -20,7 +20,7 @@ export function isAsyncIterable(
   value: unknown,
 ): value is AsyncIterable<unknown> {
   return (
-    typeof value === "object" &&
+    (typeof value === "object" || typeof value === "function") &&
     value !== null &&
     Symbol.asyncIterator in value &&
     typeof (value as { [Symbol.asyncIterator]: unknown })[

@@ -40,39 +40,45 @@ export function safeStringify(
 ): string {
   const seen = new WeakSet<object>();
   try {
-    return JSON.stringify(value, (key, val: unknown) => {
-      if (options.dropSnapshot === true && key === "_snapshot")
-        return undefined;
-      if (val instanceof Error) {
-        return {
-          name: val.name,
-          message: val.message,
-          ...(typeof val.stack === "string" ? { stack: val.stack } : {}),
-        };
-      }
-      // The framework's own brand guards, not a shape heuristic. The
-      // structural version misread any payload that happened to carry the
-      // same key names, and its unguarded read through `definition` threw
-      // inside the replacer for a nullish one, which collapsed the WHOLE
-      // value to a serialisation error rather than losing one field. These
-      // are the same guards `logger.ts` already discriminates these three
-      // types with, so the two readers cannot disagree about what an
-      // exchange looks like.
-      if (isExchange(val)) return { exchangeId: (val as { id: string }).id };
-      if (isRoute(val)) {
-        return {
-          routeId: (val as { definition: { id: string } }).definition.id,
-        };
-      }
-      if (isCraftContext(val)) {
-        return { contextId: (val as { contextId: string }).contextId };
-      }
-      if (val && typeof val === "object") {
-        if (seen.has(val as object)) return "[Circular]";
-        seen.add(val as object);
-      }
-      return val;
-    });
+    // `JSON.stringify` answers `undefined` for a top-level undefined, symbol
+    // or function, and every caller here is writing to a wire that needs a
+    // string. `null` is the honest JSON rendering of a value with no
+    // representation.
+    return (
+      JSON.stringify(value, (key, val: unknown) => {
+        if (options.dropSnapshot === true && key === "_snapshot")
+          return undefined;
+        if (val instanceof Error) {
+          return {
+            name: val.name,
+            message: val.message,
+            ...(typeof val.stack === "string" ? { stack: val.stack } : {}),
+          };
+        }
+        // The framework's own brand guards, not a shape heuristic. The
+        // structural version misread any payload that happened to carry the
+        // same key names, and its unguarded read through `definition` threw
+        // inside the replacer for a nullish one, which collapsed the WHOLE
+        // value to a serialisation error rather than losing one field. These
+        // are the same guards `logger.ts` already discriminates these three
+        // types with, so the two readers cannot disagree about what an
+        // exchange looks like.
+        if (isExchange(val)) return { exchangeId: (val as { id: string }).id };
+        if (isRoute(val)) {
+          return {
+            routeId: (val as { definition: { id: string } }).definition.id,
+          };
+        }
+        if (isCraftContext(val)) {
+          return { contextId: (val as { contextId: string }).contextId };
+        }
+        if (val && typeof val === "object") {
+          if (seen.has(val as object)) return "[Circular]";
+          seen.add(val as object);
+        }
+        return val;
+      }) ?? "null"
+    );
   } catch (err) {
     return JSON.stringify({ _serializationError: String(err) });
   }

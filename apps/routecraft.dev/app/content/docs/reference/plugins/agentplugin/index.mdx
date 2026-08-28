@@ -611,7 +611,7 @@ The durable form replaces the blocking await with `return ctx.suspend({ schema: 
 
 #### Observability: three channels
 
-Agents emit on two distinct channels with different shapes and use cases:
+Agents emit on three distinct channels with different shapes and use cases:
 
 **1. Context bus** (`ctx.on('route:agent:started', ...)` and friends): coarse decision events. Broadcast to every subscriber. Use for telemetry, dashboards, audit trails, TUIs. Always emitted; no opt-in needed.
 
@@ -652,9 +652,9 @@ craft()
   );
 ```
 
-The route stays declarative: the queue and the abort that closes it live inside the adapter. Iterating the stream is what drives the run, and abandoning it aborts one, so a client that disconnects mid-answer stops the model rather than paying for the rest of an answer nobody will read. An author who wants custom SSE event names maps the stream in one ordinary `.transform()` step; hand-rolling a queue and a wake loop in a transform is not the way to get there.
+The route stays declarative: the queue and the abort that closes it live inside the adapter. Iterating the stream is what drives the run, and abandoning it aborts that run, so a client that disconnects mid-answer stops the model rather than paying for the rest of an answer nobody will read. An author who wants custom SSE event names maps the stream in one ordinary `.transform()` step; hand-rolling a queue and a wake loop in a transform is not the way to get there.
 
-The trade is the result. `text`, `output`, `usage` and `toolCalls` are consolidated when a run finishes, and a stream is handed over before that, so a route that needs both streams for its reader and reads the coarse `route:agent:*` events for the record. Under `.enrich()` the stream merges like any other enrichment value.
+The trade is the result. `text`, `output`, `usage` and `toolCalls` are consolidated when a run finishes, and a stream is handed over before that. A route that needs both streams to its reader and reads the coarse `route:agent:*` events for the record. Under `.enrich()` the stream merges like any other enrichment value.
 
 **3. `onDelta` callback** (per-dispatch, opt-in): the push form of the same thing. Token-level deltas, directed delivery, back-pressure-aware. Use it when the sink is something other than the route's own output. Setting both `stream` and `onDelta` is refused at construction.
 

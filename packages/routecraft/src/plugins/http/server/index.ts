@@ -76,14 +76,15 @@ export async function startServer(
       const server = bun.serve({
         port: opts.port,
         hostname: opts.host,
-        // Ordinary connections are reaped after 255s idle (Bun's maximum;
-        // 0 would disable the reaper entirely, letting parked sockets
-        // accumulate to the fd limit and holding graceful close open).
-        // Long-lived quiet streams survive via the per-request exemption
-        // below, not by widening this default.
-        // Seconds on Bun's side. Streaming responses opt out per request,
-        // so this governs ordinary connections only.
-        idleTimeout: Math.round((opts.idleTimeoutMs ?? 255_000) / 1000),
+        // Seconds on Bun's side, and 0 is its "never reap" sentinel, which
+        // would let parked sockets accumulate to the fd limit and hold
+        // graceful close open. Hence the floor: a sub-second configured
+        // value rounds to 0. Long-lived quiet streams survive via the
+        // per-request exemption below, not by widening this.
+        idleTimeout: Math.max(
+          1,
+          Math.round((opts.idleTimeoutMs ?? 255_000) / 1000),
+        ),
         fetch: (req, bunServer) =>
           opts.fetch(req, {
             // Lift the idle timeout for one request only: mounts that

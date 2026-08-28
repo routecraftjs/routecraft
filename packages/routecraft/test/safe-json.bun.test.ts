@@ -65,4 +65,17 @@ describe("safeStringify", () => {
     expect(parsed["_snapshot"]).toBeUndefined();
     expect(parsed["routeId"]).toBe("r");
   });
+
+  /**
+   * @case A value with no JSON representation still yields a string
+   * @preconditions Top-level undefined, a function and a symbol, which JSON.stringify answers undefined for
+   * @expectedResult Each renders as "null", so a caller writing to a wire never handles a non-string
+   */
+  test("an unrepresentable top-level value renders as null", () => {
+    for (const value of [undefined, () => {}, Symbol("x")]) {
+      const out = safeStringify(value);
+      expect(typeof out).toBe("string");
+      expect(out).toBe("null");
+    }
+  });
 });

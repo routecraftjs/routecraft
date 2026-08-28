@@ -88,9 +88,20 @@ export async function readUntil(
   const deadline = Date.now() + timeout;
   let seen = "";
   try {
-    while (!seen.includes(marker) && Date.now() < deadline) {
-      const step = await reader.read();
-      if (step.done) break;
+    while (!seen.includes(marker)) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      // Raced against the deadline rather than checked between reads: a
+      // stream that goes quiet parks in `read()` forever, and the caller
+      // asked for a timeout, not for the runner's.
+      let expire: ReturnType<typeof setTimeout> | undefined;
+      const step = await Promise.race([
+        reader.read(),
+        new Promise<undefined>((resolve) => {
+          expire = setTimeout(() => resolve(undefined), remaining);
+        }),
+      ]).finally(() => clearTimeout(expire));
+      if (step === undefined || step.done) break;
       seen += decoder.decode(step.value, { stream: true });
     }
     return seen;

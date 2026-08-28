@@ -443,8 +443,11 @@ describe("HTTP streaming responses", () => {
     });
     t = bound.ctx;
 
+    // Drained, not cancelled: `end()` latches on the first terminator, so a
+    // client cancel racing the producer's throw would decide the recorded
+    // outcome. Letting the producer end the stream leaves one terminator.
     const res = await fetch(`http://127.0.0.1:${bound.port}/breaks`);
-    await res.body?.cancel().catch(() => {});
+    await res.text().catch(() => {});
 
     await waitFor(() => events.some((e) => e.path === "/breaks"));
     const completed = events.find((e) => e.path === "/breaks");
