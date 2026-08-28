@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { bootServer, testContext, type TestContext } from "@routecraft/testing";
+import {
+  bootServer,
+  readUntilClosed,
+  testContext,
+  type TestContext,
+} from "@routecraft/testing";
 import { createManagementApi } from "../src/plugins/ops/management.ts";
 import {
   apiKey,
@@ -268,17 +273,7 @@ describe("the ops event tail", () => {
     });
     expect(res.status).toBe(200);
 
-    const reader = res.body!.getReader();
-    const deadline = Date.now() + 5000;
-    let closed = false;
-    while (Date.now() < deadline) {
-      const step = await reader.read();
-      if (step.done) {
-        closed = true;
-        break;
-      }
-    }
-    expect(closed).toBe(true);
+    expect(await readUntilClosed(res)).toBe(true);
   });
 
   /**

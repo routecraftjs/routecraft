@@ -71,6 +71,34 @@ export async function waitFor(
 }
 
 /**
+ * One `read()` bounded by a deadline, resolving `undefined` when the deadline
+ * wins.
+ *
+ * A `while (Date.now() < deadline)` loop checks its bound between reads and
+ * never during one, so a stream that simply goes quiet parks in `read()` until
+ * the runner's own timeout fires. That reports as the whole file timing out
+ * rather than the one assertion that failed.
+ */
+type ReadStep = Awaited<
+  ReturnType<ReadableStreamDefaultReader<Uint8Array>["read"]>
+>;
+
+async function readBefore(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  deadline: number,
+): Promise<ReadStep | undefined> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return undefined;
+  let expire: ReturnType<typeof setTimeout> | undefined;
+  return await Promise.race([
+    reader.read(),
+    new Promise<undefined>((resolve) => {
+      expire = setTimeout(() => resolve(undefined), remaining);
+    }),
+  ]).finally(() => clearTimeout(expire));
+}
+
+/**
  * Read a response body until it contains `marker`, then stop and return
  * everything read so far.
  *
@@ -89,22 +117,36 @@ export async function readUntil(
   let seen = "";
   try {
     while (!seen.includes(marker)) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      // Raced against the deadline rather than checked between reads: a
-      // stream that goes quiet parks in `read()` forever, and the caller
-      // asked for a timeout, not for the runner's.
-      let expire: ReturnType<typeof setTimeout> | undefined;
-      const step = await Promise.race([
-        reader.read(),
-        new Promise<undefined>((resolve) => {
-          expire = setTimeout(() => resolve(undefined), remaining);
-        }),
-      ]).finally(() => clearTimeout(expire));
+      const step = await readBefore(reader, deadline);
       if (step === undefined || step.done) break;
       seen += decoder.decode(step.value, { stream: true });
     }
     return seen;
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+}
+
+/**
+ * Drain a response body until the server closes it, answering whether it
+ * closed within `timeout`.
+ *
+ * The assertion a test makes about a stream the server ends on its own, such
+ * as one closed by shutdown or by a credential expiring. Answering `false`
+ * rather than throwing keeps the failure on the test's own `expect`.
+ */
+export async function readUntilClosed(
+  response: Response,
+  timeout = 5000,
+): Promise<boolean> {
+  const reader = response.body!.getReader();
+  const deadline = Date.now() + timeout;
+  try {
+    for (;;) {
+      const step = await readBefore(reader, deadline);
+      if (step === undefined) return false;
+      if (step.done) return true;
+    }
   } finally {
     await reader.cancel().catch(() => {});
   }

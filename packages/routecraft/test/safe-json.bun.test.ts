@@ -78,4 +78,35 @@ describe("safeStringify", () => {
       expect(out).toBe("null");
     }
   });
+
+  /**
+   * @case A value referenced twice is rendered twice, not called a cycle
+   * @preconditions One object held under two keys, and once again after a deep subtree
+   * @expectedResult Every occurrence carries its fields; only a true self-reference is "[Circular]"
+   */
+  test("a shared reference is not a cycle", () => {
+    const shared = { id: "same" };
+    expect(JSON.parse(safeStringify({ a: shared, b: shared }))).toEqual({
+      a: { id: "same" },
+      b: { id: "same" },
+    });
+    expect(
+      JSON.parse(safeStringify({ deep: { x: { y: shared } }, again: shared })),
+    ).toEqual({ deep: { x: { y: { id: "same" } } }, again: { id: "same" } });
+  });
+
+  /**
+   * @case A genuine cycle is still cut, at any depth and through an array
+   * @preconditions An object reachable from itself two levels down, and an array holding its own container
+   * @expectedResult The back-reference renders as "[Circular]" and stringify does not throw
+   */
+  test("a true cycle is still cut", () => {
+    const a: Record<string, unknown> = { n: "a" };
+    a["b"] = { n: "b", a };
+    expect(safeStringify(a)).toBe('{"n":"a","b":{"n":"b","a":"[Circular]"}}');
+
+    const arr: unknown[] = [];
+    arr.push({ arr });
+    expect(safeStringify({ arr })).toBe('{"arr":[{"arr":"[Circular]"}]}');
+  });
 });

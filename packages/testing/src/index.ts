@@ -136,6 +136,7 @@ export { signHs256, type SignHs256Options } from "./jwt";
 export {
   bootServer,
   readUntil,
+  readUntilClosed,
   waitFor,
   type BootedServer,
 } from "./http-context";
