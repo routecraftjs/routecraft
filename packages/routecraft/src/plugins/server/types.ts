@@ -1,3 +1,4 @@
+import type { Duration } from "../../shared/duration.ts";
 import type { HttpAuth, HttpMethod } from "../../adapters/http/types.ts";
 import type { ValidatorAuthOptions } from "../../auth/types.ts";
 import type { AuthResult } from "../http/auth.ts";
@@ -15,9 +16,36 @@ export interface HttpServerDefinition {
   auth?: ValidatorAuthOptions;
   /**
    * How long a graceful close may drain in-flight work before the listener is
-   * force-closed, in milliseconds. Defaults to 30000.
+   * force-closed. Defaults to 30000.
    */
-  shutdownGraceMs?: number;
+  shutdownGrace?: Duration;
+  /**
+   * How long a connection may sit idle before the listener reaps it.
+   * Defaults to `"255s"`, which is Bun's maximum and so the ceiling on both
+   * runtimes: a larger value is refused at construction rather than silently
+   * clamped, because a config that means one thing on Bun and another on
+   * Node is worse than a config that will not start.
+   *
+   * Streaming responses are exempt from this per request, and bounded by
+   * {@link HttpServerDefinition.maxStreamingRequests} instead.
+   */
+  idleTimeout?: Duration;
+  /**
+   * How many streaming responses this listener will carry at once, past
+   * which it answers 503 with `Retry-After`. Defaults to 500.
+   *
+   * A backstop, not a capacity plan: a streaming response is exempt from the
+   * idle reaper, so without a ceiling a client that opens streams and never
+   * reads them takes the process to its file-descriptor limit and every
+   * in-flight request with it. The number is meant to sit below that cliff so
+   * an operator gets a clean refusal instead, the way `maxBodySize`'s 10 MB
+   * does. Per-route admission is a different tool: see `.concurrency()`.
+   *
+   * Deliberately not named for HTTP/2's `SETTINGS_MAX_CONCURRENT_STREAMS`,
+   * which counts multiplexed streams inside one connection and is a
+   * different thing entirely.
+   */
+  maxStreamingRequests?: number;
 }
 
 export type ServerDefinitions = Record<string, HttpServerDefinition>;
@@ -76,6 +104,17 @@ export interface HttpMount {
    * other connection keeps the bounded default.
    */
   readonly longLived?: boolean;
+  /**
+   * What the RFC 9728 metadata document for this mount's paths may say
+   * beyond the effective validator's issuer. Declared, never inferred: the
+   * ops mount passes its resolved tier scopes here, and a mount that
+   * declares nothing gets a document carrying only what the validator
+   * config states. Served by the ingress for any metadata path no mount
+   * claims itself (the MCP mount claims and serves its own).
+   */
+  readonly resourceMetadata?: {
+    readonly scopesSupported?: readonly string[];
+  };
   readonly handler: (
     request: Request,
     context: HttpMountContext,
@@ -132,6 +171,20 @@ export interface HttpMountContext {
   readonly authPolicy: HttpMountAuthPolicy | undefined;
   /** Resolved auth facts for this mount. */
   readonly auth: HttpMountAuth;
+  /**
+   * Claim a streaming slot for this one request.
+   *
+   * Two things at once, because they are the same decision: the request is
+   * exempted from the listener's idle reaper, and it is counted against
+   * `maxStreamingRequests`. The mount-level {@link HttpMount.longLived} flag
+   * says every request on a surface may stay quiet; this says one of them
+   * will, which is what a mount needs when the body type decides.
+   *
+   * Returns a release callback to call when the response ends, or
+   * `undefined` when the listener is already at its cap, in which case the
+   * caller must refuse rather than stream.
+   */
+  readonly claimStreamingSlot: () => (() => void) | undefined;
 }
 
 export interface WebIngress {

@@ -16,7 +16,7 @@ The simplest pattern: one capability fetches data, passes it to a processor, whi
 // capabilities/fetch-orders.ts
 export default craft()
   .id('orders.fetch')
-  .from(timer({ intervalMs: 300_000 }))
+  .from(timer({ interval: 300_000 }))
   .transform(fetchNewOrders)
   .to(direct('orders.process'))
 ```

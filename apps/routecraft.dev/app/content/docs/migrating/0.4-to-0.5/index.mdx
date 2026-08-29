@@ -418,7 +418,7 @@ This pattern is the foundation for future resilience operations (retry, cache, t
 ```ts
 craft()
   .id("resilient-pipeline")
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: 60_000 }))
   .transform(prepareRequest)
   .error((err, ex) => ({ fallback: true, reason: String(err) }))
   .to(http({ url: "https://flaky.api/endpoint" }))
@@ -433,7 +433,7 @@ If the `http()` call fails, the step-level handler returns the fallback object a
 craft()
   .id("with-safety-net")
   .error((err, ex, forward) => forward("errors.catchall", ex.body)) // route-level
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: 60_000 }))
   .transform(prepareRequest)
   .error((err) => ({ fallback: true })) // step-level
   .to(http({ url: "https://flaky.api/endpoint" }))

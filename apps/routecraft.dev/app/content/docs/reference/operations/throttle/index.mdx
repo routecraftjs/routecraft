@@ -9,7 +9,7 @@ title: throttle
 ```ts
 throttle(options: {
   rate: number
-  per?: 'second' | 'minute' | 'hour' | 'day'
+  per?: 'second' | 'minute' | 'hour' | 'day' | Duration
   mode?: 'delay' | 'reject'
   burst?: number
   key?: (exchange: Exchange) => string
@@ -32,7 +32,11 @@ craft()
 
 **Parameters:**
 - `rate` - allowed requests per `per` window. A finite number greater than 0.
-- `per` - the time window, one of `'second'` (default), `'minute'`, `'hour'`, `'day'`.
+- `per` - the time window. A unit word, one of `'second'` (default), `'minute'`, `'hour'`, `'day'`, or a [`Duration`](/docs/reference/configuration#durations) for a window no unit word names, such as `'90s'`.
+
+  <Callout type="warning">
+  A **bare number is milliseconds**, as everywhere else a `Duration` is accepted. `per: 60` is a 60ms window, not a minute. Write `per: '60s'` or `per: 'minute'` for that.
+  </Callout>
 - `mode` - what to do with an over-limit exchange: `'delay'` (default) paces it; `'reject'` fails it fast (see below). 
 - `burst` - bucket capacity: the most calls admitted back-to-back after an idle window before pacing kicks in. Defaults to `rate` (one window's worth). Set it lower for strict pacing, higher to tolerate spikes. Because it is independent of `per`, `{ rate: 600, per: 'minute' }` does not silently allow a 600-wide burst unless you also ask for `burst: 600`.
 - `key` - partition the limit per user / IP / tenant (see below). Omit for one shared bucket across the route.

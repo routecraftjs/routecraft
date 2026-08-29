@@ -163,10 +163,10 @@ Adjust the schema or coerce input; check data shapes. For Zod: use `z.object()`,
 Adapter misconfigured
 
 **Why it happens**  
-Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage.
+Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage. Also raised at `context.start()` when a `directTool` names a route declared [`direct({ internal: true })`](/docs/reference/adapters/direct), and when one endpoint declares itself both internal and a discoverable capability (e.g. two direct sources on one route, one internal and one not).
 
 **Suggestion**  
-Check required options and correct role usage (`.from()` vs `.to()`). Example: direct sources take no endpoint string (`.from(direct())` or `.from(direct(options))`); dynamic endpoints are only valid on destinations (`.to()`, `.tap()`).
+Check required options and correct role usage (`.from()` vs `.to()`). Example: direct sources take no endpoint string (`.from(direct())` or `.from(direct(options))`); dynamic endpoints are only valid on destinations (`.to()`, `.tap()`). For a `directTool` naming an internal route, expose a boundary route carrying `.input()`, `.description()` and `.authorize()`, and point the tool at that.
 
 ## RC5004
 No handler available
@@ -276,10 +276,10 @@ The error message names the adapter (`cron`, `html`, ...) and the missing packag
 HTTP source request rejected
 
 **Why it happens**  
-The HTTP source (`http({ path, method })` via `defineConfig({ http })`) could not service a request at the adapter boundary. It covers: an oversized request body (returned to the client as `413 Payload Too Large`), a body that cannot be parsed for its declared `Content-Type` (`400 Bad Request`, e.g. malformed JSON or multipart), and an unsupported response body shape (`ReadableStream` / `AsyncIterable`, since SSE/streaming is not yet implemented).
+The HTTP source (`http({ path, method })` via `defineConfig({ http })`) could not service a request at the adapter boundary. It covers an oversized request body (returned to the client as `413 Payload Too Large`) and a body that cannot be parsed for its declared `Content-Type` (`400 Bad Request`, e.g. malformed JSON or multipart).
 
 **Suggestion**  
-For 413, raise `http: { maxBodySize }` or have the client send a smaller payload. For 400, fix the request body so it matches the `Content-Type`. For streaming response bodies, return a buffered value for now (SSE support is tracked as a follow-up).
+For 413, raise `http: { maxBodySize }` or have the client send a smaller payload. For 400, fix the request body so it matches the `Content-Type`.
 
 ## RC5019
 HTTP server bind failed
@@ -369,9 +369,9 @@ Circuit breaker is open
 A route-scope or step-scope `.circuitBreaker()` exceeded its failure threshold and tripped open, so it is fast-failing subsequent calls without running the protected work until the cooldown elapses (then it admits a probe). Also raised when a half-open breaker is already at its probe capacity.
 
 **Suggestion**  
-- Wait for `cooldownMs` to elapse; the breaker then probes with a half-open call and closes on success.
+- Wait for `cooldown` to elapse; the breaker then probes with a half-open call and closes on success.
 - Configure a `fallback` to return a degraded result instead of throwing.
-- Raise `failureThreshold` or `cooldownMs` if the breaker is too sensitive.
+- Raise `failureThreshold` or `cooldown` if the breaker is too sensitive.
 - Not retryable: an immediate retry would hit the same open breaker.
 
 ## RC5026
@@ -843,7 +843,7 @@ Find what overwrote the header. The usual culprit is code that rebuilds a header
 Invalid shutdown configuration
 
 **Why it happens**  
-`shutdown.timeoutMs` was set to something that is not a positive, finite number of milliseconds: `0`, a negative, `NaN`, or `Infinity`. It is refused while the context is being built rather than when the context stops, because a shutdown is the worst possible moment to discover the value was never usable.
+`shutdown.timeout` was set to something that is not a positive, finite duration: `0`, a negative, `NaN`, or `Infinity`. It is refused while the context is being built rather than when the context stops, because a shutdown is the worst possible moment to discover the value was never usable.
 
 The refusal is deliberate rather than a clamp. The two plausible readings of `0` are opposites: it looks like "no bound", and a clamp would make it behave as "force immediately", abandoning in-flight work the instant a stop begins.
 
@@ -865,12 +865,14 @@ Send a `limit` that is a positive integer within the documented maximum. Pass `n
 Route is not dispatchable
 
 **Why it happens**  
-`POST /ops/routes/{id}/exchanges` targeted a route that exists but has no door for an exchange to arrive through. Only a `direct()` ingress makes a route id dispatchable; a route sourced from `cron()`, `mail()` or `http()` runs from its own trigger, and there is nothing for a dispatch to hand a message to.
+`POST /ops/routes/{id}/exchanges` targeted a route that exists but has no door for an exchange to arrive through. A `direct()` ingress is what makes a route id dispatchable; a route sourced from `cron()`, `mail()` or `http()` runs from its own trigger, and there is nothing for a dispatch to hand a message to.
+
+A route declared [`direct({ internal: true })`](/docs/reference/adapters/direct) raises the same code with a different message: it has a direct source and closed the door on purpose, so the refusal names the declaration instead of suggesting a source the route already carries.
 
 This is distinct from a 404, which means no route by that id is registered at all. The two need different answers, so they are told apart rather than collapsed.
 
 **Suggestion**  
-Add `.from(direct())` to the route if it should be callable, or dispatch to one that already is. `GET /ops/routes?dispatchable=true` lists exactly the routes that will accept the call, and `dispatchable` is on every route representation.
+For a route with no direct source, add `.from(direct())` if it should be callable, or dispatch to one that already is. For a route declared internal, dispatch the boundary route that fronts it; the internal route is only composable from another route. `GET /ops/routes?dispatchable=true` lists exactly the routes that will accept the call, and `dispatchable` is on every route representation.
 
 ## RC5061
 HTTP client response body exceeds maxBodySize

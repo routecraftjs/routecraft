@@ -1,3 +1,10 @@
+import { type Duration, parseDuration } from "./shared/duration.ts";
+import { rejectStaleOptions } from "./shared/stale-options.ts";
+import {
+  isLiveCadence,
+  RouteEnablementCoordinator,
+  type EnablementState,
+} from "./enablement.ts";
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
@@ -165,27 +172,50 @@ const ROUTE_READINESS_TIMEOUT_MS = 30_000;
  * `waiting` means the backstop fired before the route signalled, which is
  * a different operational problem from a route that failed outright.
  */
-type RouteBootOutcome = "started" | "failed" | "waiting";
+type RouteBootOutcome = "started" | "failed" | "waiting" | "disabled";
 
 /**
- * Validate `shutdown.timeoutMs` at construction.
+ * Validate `shutdown.timeout` at construction.
  *
  * Refused rather than clamped, and refused while the context is being built
  * rather than when it stops: a `0` reads as "no bound" and behaves as "force
  * immediately", and an operator discovering that during an outage is the worst
  * possible moment to learn the polarity.
  *
- * @throws RC1003 when the value is not a positive, finite number of milliseconds.
+ * @throws RC5058 when the value is not a positive, finite duration. The
+ *   shutdown-specific code is kept rather than letting `parseDuration`'s
+ *   generic RC5003 surface, because RC5058 carries the polarity warning an
+ *   operator needs and the docs page is written against that code.
  */
-function resolveShutdownTimeout(timeoutMs: number | undefined): number {
-  if (timeoutMs === undefined) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+function resolveShutdownTimeout(timeout: Duration | undefined): number {
+  if (timeout === undefined) return DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  try {
+    return parseDuration(timeout, "shutdown.timeout");
+  } catch {
     throw rcError("RC5058", undefined, {
-      message: `shutdown.timeoutMs must be a positive number of milliseconds. Received ${String(timeoutMs)}. Omit it to use the ${String(DEFAULT_SHUTDOWN_TIMEOUT_MS)}ms default.`,
+      message: `shutdown.timeout must be a positive number of milliseconds or a duration string like "30s". Received ${JSON.stringify(timeout)}. Omit it to use the ${String(DEFAULT_SHUTDOWN_TIMEOUT_MS)}ms default.`,
     });
   }
-  return timeoutMs;
 }
+
+/**
+ * Refuse pre-0.7 `Ms`-suffixed names on the config's authored durations.
+ *
+ * Checked here rather than in `defineConfig()`, which is an optional typing
+ * helper: a config object handed straight to the context would otherwise
+ * skip the guard entirely, and a `shutdown.timeoutMs` that means nothing is
+ * a 30-second default nobody asked for.
+ */
+function rejectStaleConfig(config: CraftConfig): void {
+  rejectStaleOptions(config.shutdown, "shutdown");
+  for (const [name, server] of Object.entries(config.servers ?? {})) {
+    rejectStaleOptions(server, `servers.${name}`);
+  }
+  rejectStaleOptions(config.telemetry?.sqlite, "telemetry.sqlite");
+}
+
+/** Shared empty set, so the no-predicate boot path allocates nothing. */
+const EMPTY_ROUTE_IDS: ReadonlySet<string> = new Set<string>();
 
 /** Rejection marker for the shutdown deadline, so it cannot be confused with a drain failure. */
 const SHUTDOWN_DEADLINE = Symbol("routecraft.shutdown.deadline");
@@ -264,7 +294,7 @@ export interface ShutdownConfig {
    * decides the outcome rather than the platform's: past that timer the
    * platform sends SIGKILL and whatever stage two was meant to do is lost.
    */
-  timeoutMs?: number;
+  timeout?: Duration;
 }
 
 /**
@@ -342,6 +372,31 @@ export class CraftContext {
   /** Abort controllers for each route */
   private controllers: Map<string, AbortController> = new Map();
 
+  /**
+   * Owns every route's `.enabled()` state, its refresh cadence, and the
+   * transitions between them. Built eagerly (it is a few maps) so the
+   * capability filter and ops can read it whether or not any route
+   * declares a predicate.
+   */
+  private readonly enablement = new RouteEnablementCoordinator<Route>({
+    logger: () => this.logger,
+    abortIntake: (routeId, reason) => {
+      // The route's INTAKE controller, the same one shutdown's stage one
+      // fires. Sources stop producing; in-flight exchanges are untouched.
+      this.controllers.get(routeId)?.abort(reason);
+    },
+    drainWithin: (route, graceMs) => this.drainRouteWithin(route, graceMs),
+    startRoute: (route) => this.restartRoute(route),
+    emitChanged: (route, state) => {
+      this.emit("route:enablement:changed", {
+        routeId: route.definition.id,
+        route,
+        enabled: state.enabled,
+        ...(state.enabled ? {} : { reason: state.reason }),
+      });
+    },
+  });
+
   /** Storage for adapter configuration and state */
   private store = new Map<
     keyof StoreRegistry,
@@ -408,10 +463,9 @@ export class CraftContext {
    */
   constructor(config?: CraftConfig) {
     setBrand(this, BRAND.CraftContext);
+    if (config !== undefined) rejectStaleConfig(config);
     if (config?.name !== undefined) this.name = config.name;
-    this.shutdownTimeoutMs = resolveShutdownTimeout(
-      config?.shutdown?.timeoutMs,
-    );
+    this.shutdownTimeoutMs = resolveShutdownTimeout(config?.shutdown?.timeout);
     this.logger = logger.child(childBindings(this));
     this.events = new EventBus(this.contextId, this.logger);
     if (config) {
@@ -650,21 +704,32 @@ export class CraftContext {
    *
    * @internal
    */
-  private awaitRoutesStarted(): {
+  private awaitRoutesStarted(disabled: ReadonlySet<string>): {
     ready: Promise<void>;
     settle: (routeId: string, outcome: RouteBootOutcome) => void;
     outcomes: Map<string, RouteBootOutcome>;
   } {
     const pending = new Map<string, { resolve: () => void }>();
     const outcomes = new Map<string, RouteBootOutcome>(
-      this.routes.map((route) => [route.definition.id, "waiting" as const]),
+      this.routes.map((route) => [
+        route.definition.id,
+        disabled.has(route.definition.id)
+          ? ("disabled" as const)
+          : ("waiting" as const),
+      ]),
     );
-    const waits = this.routes.map(
-      (route) =>
-        new Promise<void>((resolve) => {
-          pending.set(route.definition.id, { resolve });
-        }),
-    );
+    // A disabled route is settled before the gate is armed rather than left
+    // to time out: it is never going to emit `route:started`, and making
+    // every boot with one dormant capability wait out the readiness bound
+    // would turn a deliberate configuration state into a slow start.
+    const waits = this.routes
+      .filter((route) => !disabled.has(route.definition.id))
+      .map(
+        (route) =>
+          new Promise<void>((resolve) => {
+            pending.set(route.definition.id, { resolve });
+          }),
+      );
     const off = this.on("route:started", ({ details }) => {
       outcomes.set(details.routeId, "started");
       pending.get(details.routeId)?.resolve();
@@ -697,6 +762,7 @@ export class CraftContext {
       // connect looks like) did not come up, and the summary must not report
       // it as started just because `route:started` had already fired.
       settle: (routeId: string, outcome: RouteBootOutcome) => {
+        if (outcomes.get(routeId) === "disabled") return;
         if (outcome === "failed" || outcomes.get(routeId) !== "started") {
           outcomes.set(routeId, outcome);
         }
@@ -726,12 +792,17 @@ export class CraftContext {
     const started = by("started");
     const failed = by("failed");
     const waiting = by("waiting");
+    // Listed, never counted as a problem: a route held back by its own
+    // predicate is a configuration state the operator chose, so it belongs
+    // in the line without turning it into a warning.
+    const disabled = by("disabled");
     const total = outcomes.size;
     const summary = {
       started: started.length,
       total,
       ...(failed.length > 0 ? { failed } : {}),
       ...(waiting.length > 0 ? { waiting } : {}),
+      ...(disabled.length > 0 ? { disabled } : {}),
     };
     // Fixed message, counts in bindings: `.standards/error-and-logging-policy.md`
     // section 3, so the line stays countable in an aggregator.
@@ -1069,7 +1140,16 @@ export class CraftContext {
   capabilities(): Capability[] {
     const registry = this.getStore(CAPABILITY_REGISTRY);
     if (!registry) return [];
-    return [...registry.values()].map(snapshotCapability);
+    // Filtered by enablement, which is what makes "the agent cannot use
+    // this until I supply credentials" true by construction: the tool
+    // surface is derived from this list, so a disabled capability is never
+    // offered to the model rather than being offered and failing on call.
+    // A route disabled at boot never subscribed and so never registered
+    // here at all; this covers the route disabled AFTER it started, whose
+    // registry entry outlives the transition.
+    return [...registry.values()]
+      .filter((capability) => this.enablement.isEnabled(capability.endpoint))
+      .map(snapshotCapability);
   }
 
   /**
@@ -1207,11 +1287,51 @@ export class CraftContext {
     );
     this.emit("context:starting", {});
 
+    // Every predicate is evaluated here, as one batch, BEFORE any route
+    // starts. A disabled route must never subscribe even briefly: a mail
+    // source with no credentials would connect and fail, which is the
+    // failure this feature exists to prevent. Batched rather than folded
+    // into each route's start so one slow predicate delays the decision
+    // only, never an unrelated route coming up.
+    //
+    // Guarded rather than awaited unconditionally: every await here is a
+    // turn a concurrent `stop()` can land on, so a context whose routes
+    // declare no predicate must reach the start loop exactly as directly
+    // as it did before this feature existed.
+    let disabled: ReadonlySet<string> = EMPTY_ROUTE_IDS;
+    const declaring = this.routes.filter(
+      (route) => route.definition.enablement,
+    );
+    if (declaring.length > 0) {
+      disabled = await this.enablement.evaluateForBoot(declaring);
+      // Same re-check the post-readiness path makes: a stop() that landed
+      // while the predicates were running has already torn the plugins
+      // down, and starting routes now would announce boot progress for a
+      // context that is gone.
+      if (this.hasStopped) {
+        await this.shutdownPromise?.catch(() => undefined);
+        return;
+      }
+      for (const [routeId, reason] of this.enablement.disabled()) {
+        this.logger.info(
+          { route: routeId, reason },
+          "Route is disabled by its enabled() predicate; registered but not started",
+        );
+      }
+    }
+
     this.logger.debug({}, "Starting all routes");
     this.emit("context:started", {});
-    const routes = this.awaitRoutesStarted();
+    const routes = this.awaitRoutesStarted(disabled);
     const running = Promise.allSettled(
       this.routes.map(async (route) => {
+        // Registered and known to the context, not started and not
+        // intaking. The route object stays in `getRoutes()` so ops can
+        // report it: a missing route and a deliberately-off one must not
+        // look identical, since only one of them is an incident.
+        if (disabled.has(route.definition.id)) {
+          return { routeId: route.definition.id, success: true as const };
+        }
         try {
           this.logger.info({ route: route.definition.id }, "Starting route");
           this.emit("route:starting", {
@@ -1253,6 +1373,12 @@ export class CraftContext {
       // hook run now would begin work on a stopped context with nothing
       // left to ever tear it down.
       if (!this.hasStopped) await this.startPlugins();
+      // Armed only once the boot has settled: a cadence firing into a
+      // context that is still starting could transition a route the boot
+      // gate is still waiting on. Awaited, so a cadence that cannot be
+      // armed fails the boot instead of leaving the route silently without
+      // the refresh it declared.
+      if (!this.hasStopped) await this.enablement.startRefreshing(this.routes);
     } catch (err) {
       started.reject(err);
       try {
@@ -1292,7 +1418,26 @@ export class CraftContext {
 
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
-        if (allFulfilled && !this.plugins.some((plugin) => plugin.keepsAlive)) {
+        // A disabled route has not COMPLETED, it never ran, so it must not
+        // be counted as work that finished. But suppressing the auto-stop
+        // for EVERY disabled route strands the context: a route disabled
+        // under the default MANUAL cadence has no in-process path back to
+        // enabled, so nothing would ever re-evaluate it and the wait buys
+        // nothing while costing the whole shutdown (no plugin teardown, no
+        // `context:stopped`). Suppress only for a cadence that re-evaluates
+        // on its own; its timer is ref'd for the same reason, so the two
+        // decisions cannot disagree.
+        const awaitingCadence = [...this.enablement.disabled().keys()].some(
+          (routeId) =>
+            isLiveCadence(
+              this.getRouteById(routeId)?.definition.enablement?.refresh,
+            ),
+        );
+        if (
+          allFulfilled &&
+          !awaitingCadence &&
+          !this.plugins.some((plugin) => plugin.keepsAlive)
+        ) {
           this.logger.debug({}, "All routes have completed. Stopping context.");
           await this.stop();
           return;
@@ -1445,6 +1590,10 @@ export class CraftContext {
 
   private async performShutdown(): Promise<ShutdownOutcome> {
     this.logger.info({}, "Stopping Routecraft context");
+    // Before anything is torn down: a refresh firing mid-shutdown would
+    // start a route the shutdown has already walked past, leaving an
+    // ingress open behind the drain.
+    this.enablement.stop();
     this.emit("context:stopping", { reason: undefined });
 
     // STAGE ONE. Close intake: sources stop producing, no new exchange is
@@ -1506,6 +1655,160 @@ export class CraftContext {
   }
 
   /**
+   * Wait for ONE route to drain, bounded by the route's own grace or, when
+   * it declared none, by the same `shutdown.timeout` the whole-context
+   * shutdown uses.
+   *
+   * Enablement's disable transition is the caller: taking a route out of
+   * service is a per-route shutdown, so it defaults to the same
+   * operator-facing knob rather than a second timeout nobody knows to look
+   * for. A route that declared `.enabled({ drainGrace })` overrides it,
+   * because the author is the one who knows what this pipeline's in-flight
+   * work costs.
+   *
+   * @param graceMs - Milliseconds to allow; `undefined` for the context
+   *   default; `null` to wait indefinitely and never force.
+   * @returns True when the route drained; false when the deadline elapsed
+   *   first and the caller must force it.
+   */
+  private async drainRouteWithin(
+    route: Route,
+    graceMs?: number | null,
+  ): Promise<boolean> {
+    // A drain that threw is a route that is no longer working, which is
+    // what the caller wanted; the failure belongs to the route's own error
+    // path, not to the flag flip that asked it to stop.
+    const drained = route.drain().then(
+      () => true as const,
+      (err: unknown) => {
+        this.logger.warn(
+          { route: route.definition.id, err },
+          "Route drain threw while it was being disabled; treating it as drained",
+        );
+        return true as const;
+      },
+    );
+
+    // An unbounded wait has no deadline arm at all, so nothing can report
+    // `false` and the caller never forces.
+    if (graceMs === null) return drained;
+
+    const boundMs = graceMs ?? this.shutdownTimeoutMs;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), boundMs);
+      timer.unref?.();
+    });
+    try {
+      return await Promise.race([drained, deadline]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Re-arm a disabled route under a fresh controller and start it.
+   *
+   * The controller is minted HERE rather than inside the route so this map
+   * and the route never disagree about which controller a shutdown aborts:
+   * a route holding one controller while `controllers` held the previous,
+   * latched one would make `stop()` a silent no-op for that route.
+   */
+  private async restartRoute(route: Route): Promise<void> {
+    const controller = new AbortController();
+    this.controllers.set(route.definition.id, controller);
+    route.resetForRestart(controller);
+    this.emit("route:starting", { routeId: route.definition.id, route });
+
+    // Resolved on READINESS, not on `start()` settling, exactly as the boot
+    // path does. A server ingress (direct, http, mcp) holds its subscribe
+    // open until the route is aborted, so awaiting `start()` here would
+    // never return and the re-enable would hang forever on precisely the
+    // routes this feature is for. A finite source settles `start()` first
+    // and resolves through the other arm.
+    const ready = Promise.withResolvers<void>();
+    const off = this.on("route:started", ({ details }) => {
+      if (details.routeId === route.definition.id) ready.resolve();
+    });
+    const running = route.start().catch((err: unknown) => {
+      controller.abort(err);
+      route.abortExecution(err);
+      ready.reject(err);
+    });
+
+    // The same bound the boot applies, for the same reason: a source that
+    // never calls ready() and never emits would otherwise hold this open
+    // forever, and a server ingress never settles `running` either, so
+    // without it the caller of a re-enable can wait indefinitely while the
+    // cadence keeps queueing further transitions behind it.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const bound = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        this.logger.warn(
+          {
+            route: route.definition.id,
+            timeoutMs: ROUTE_READINESS_TIMEOUT_MS,
+          },
+          "Re-enabled route did not signal readiness in time; continuing.",
+        );
+        resolve();
+      }, ROUTE_READINESS_TIMEOUT_MS);
+      timer.unref?.();
+    });
+
+    try {
+      await Promise.race([ready.promise, running, bound]);
+    } finally {
+      off();
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Re-evaluate enablement predicates on demand and apply any transitions.
+   *
+   * The internal control surface behind the operator loop the deferred
+   * `/ops` re-evaluate endpoint will expose: set the secret, ask for a
+   * re-check, and a route whose predicate now passes starts without a
+   * process restart. The endpoint is wiring on top of this, not a redesign
+   * of it.
+   *
+   * @param routeId - Re-evaluate only this route. Omitted re-evaluates
+   *   every route that declared a predicate.
+   * @returns Each re-evaluated route's resulting state, by route id.
+   */
+  async reevaluateEnablement(
+    routeId?: string,
+  ): Promise<ReadonlyMap<string, EnablementState>> {
+    if (routeId === undefined) {
+      return this.enablement.refreshAll(this.routes);
+    }
+    const route = this.getRouteById(routeId);
+    if (!route) return new Map();
+    const state = await this.enablement.refresh(route);
+    return new Map([[routeId, state]]);
+  }
+
+  /**
+   * Whether a route is currently serving, as far as `.enabled()` is
+   * concerned. True for a route that never declared a predicate.
+   */
+  isRouteEnabled(routeId: string): boolean {
+    return this.enablement.isEnabled(routeId);
+  }
+
+  /**
+   * Every route currently disabled by its predicate, mapped to the reason.
+   *
+   * Read by the ops surface, which reports a disabled route distinctly from
+   * a failed one: a deliberate configuration state is not an open circuit
+   * and must not degrade the aggregate.
+   */
+  disabledRoutes(): ReadonlyMap<string, string> {
+    return this.enablement.disabled();
+  }
+
+  /**
    * Resolve when `drain` settles, or reject with {@link SHUTDOWN_DEADLINE}
    * once the configured bound elapses.
    */
@@ -1556,7 +1859,7 @@ export class CraftContext {
         : "Graceful shutdown did not complete in time; forcing shutdown.",
     );
     for (const route of this.routes) {
-      route.abortExecution("shutdown.timeoutMs elapsed");
+      route.abortExecution("shutdown.timeout elapsed");
     }
     return pending.map((entry) => entry.route);
   }

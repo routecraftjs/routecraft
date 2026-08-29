@@ -1,11 +1,73 @@
 import type { CraftContext, CraftPlugin } from "../../context.ts";
 import { rcError } from "../../error.ts";
+import { type Duration, parseDuration } from "../../shared/duration.ts";
 import { startServer, type HttpServerHandle } from "../http/server/index.ts";
 import { HttpMountRegistry, WEB_INGRESSES } from "./registry.ts";
 import type { ServerDefinitions } from "./types.ts";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_SHUTDOWN_GRACE_MS = 30_000;
+/**
+ * Bun's ceiling for a per-connection idle timeout, and therefore ours on
+ * every runtime: a value only one runtime can honour is a config that means
+ * different things depending on where it runs.
+ */
+const MAX_IDLE_TIMEOUT_MS = 255_000;
+
+/**
+ * Resolve one server's `shutdownGrace` to milliseconds, defaulting when it is
+ * unset. `0` is legal here (close the listener immediately), which is why the
+ * floor is 0 rather than the deadline default of 1.
+ *
+ * @param name - Server name, quoted in the refusal so a multi-server config
+ *   says which entry is wrong.
+ */
+function resolveShutdownGrace(
+  name: string,
+  grace: Duration | undefined,
+): number {
+  if (grace === undefined) return DEFAULT_SHUTDOWN_GRACE_MS;
+  return parseDuration(grace, `servers.${name}.shutdownGrace`, 0);
+}
+
+/**
+ * Resolve one server's `idleTimeout` to milliseconds.
+ *
+ * Refused above Bun's ceiling rather than clamped. Silently honouring 600s on
+ * Node while capping it at 255s on Bun would make the same config behave
+ * differently by runtime, which is the failure the never-degrade rule exists
+ * to prevent. The floor is 1: an idle timeout of zero would reap every
+ * connection the moment it went quiet.
+ */
+function resolveIdleTimeout(
+  name: string,
+  idleTimeout: Duration | undefined,
+): number {
+  if (idleTimeout === undefined) return MAX_IDLE_TIMEOUT_MS;
+  const ms = parseDuration(idleTimeout, `servers.${name}.idleTimeout`, 1);
+  if (ms > MAX_IDLE_TIMEOUT_MS) {
+    throw rcError("RC5003", undefined, {
+      message:
+        `servers.${name}.idleTimeout is ${ms}ms, above the ${MAX_IDLE_TIMEOUT_MS}ms (255s) ceiling Bun enforces on a per-connection idle timeout. ` +
+        `Streaming responses are exempt from the reaper and bounded by servers.${name}.maxStreamingRequests instead, so a longer idle timeout is rarely what is wanted.`,
+    });
+  }
+  return ms;
+}
+
+/** Refuse a cap that cannot bound anything. */
+function resolveMaxStreamingRequests(
+  name: string,
+  max: number | undefined,
+): number | undefined {
+  if (max === undefined) return undefined;
+  if (!Number.isInteger(max) || max < 1) {
+    throw rcError("RC5003", undefined, {
+      message: `servers.${name}.maxStreamingRequests must be a positive integer; received ${JSON.stringify(max)}.`,
+    });
+  }
+  return max;
+}
 
 async function closeServer(
   handle: HttpServerHandle,
@@ -56,7 +118,15 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
       for (const name of Object.keys(definitions)) {
         registries.set(
           name,
-          new HttpMountRegistry(name, ctx, definitions[name]?.auth),
+          new HttpMountRegistry(
+            name,
+            ctx,
+            definitions[name]?.auth,
+            resolveMaxStreamingRequests(
+              name,
+              definitions[name]?.maxStreamingRequests,
+            ),
+          ),
         );
       }
       states.set(ctx, { registries, handles: new Map(), closed: false });
@@ -81,7 +151,7 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
         try {
           await closeServer(
             handle,
-            definitions[name]?.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS,
+            resolveShutdownGrace(name, definitions[name]?.shutdownGrace),
           );
           ctx.logger.info({ server: name }, "Server closed");
           ctx.emit("server:closed", { server: name });
@@ -107,6 +177,7 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
         handle = await startServer({
           host,
           port: definition.port,
+          idleTimeoutMs: resolveIdleTimeout(name, definition.idleTimeout),
           fetch: (request, runtime) => registry.dispatch(request, runtime),
           logger: ctx.logger,
         });
@@ -122,7 +193,7 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
       if (state.closed) {
         await closeServer(
           handle,
-          definition.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS,
+          resolveShutdownGrace(name, definition.shutdownGrace),
         );
         return;
       }
@@ -207,15 +278,9 @@ function validateDefinitions(definitions: ServerDefinitions): void {
         message: `servers.${name}: invalid port ${String(definition.port)}`,
       });
     }
-    if (
-      definition.shutdownGraceMs !== undefined &&
-      (!Number.isInteger(definition.shutdownGraceMs) ||
-        definition.shutdownGraceMs < 0)
-    ) {
-      throw rcError("RC5003", undefined, {
-        message: `servers.${name}: invalid shutdownGraceMs ${String(definition.shutdownGraceMs)}. Pass a non-negative integer (milliseconds).`,
-      });
-    }
+    resolveShutdownGrace(name, definition.shutdownGrace);
+    resolveIdleTimeout(name, definition.idleTimeout);
+    resolveMaxStreamingRequests(name, definition.maxStreamingRequests);
     const host = (definition.host ?? DEFAULT_HOST).toLowerCase();
     const key = `${host}:${definition.port}`;
     const existing = binds.get(key);

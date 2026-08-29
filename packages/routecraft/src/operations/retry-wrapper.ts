@@ -4,11 +4,9 @@ import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
-import {
-  assertDurationMs,
-  cancellableSleep,
-  SleepAbortedError,
-} from "./cancellable-sleep.ts";
+import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
+import { type Duration, parseDuration } from "../shared/duration.ts";
+import { rejectStaleOptions } from "../shared/stale-options.ts";
 
 /**
  * Options for the `.retry()` wrapper (step scope and route scope).
@@ -21,12 +19,12 @@ export interface RetryOptions {
    */
   maxAttempts?: number;
   /**
-   * Base wait between attempts in milliseconds. Default: `1000`.
+   * Base wait between attempts. Default: `1000`.
    */
-  backoffMs?: number;
+  backoff?: Duration;
   /**
-   * Growth multiplier applied to `backoffMs` each attempt: the wait
-   * before attempt `n` is `backoffMs * factor^(n - 1)`. `1` (the default)
+   * Growth multiplier applied to `backoff` each attempt: the wait
+   * before attempt `n` is `backoff * factor^(n - 1)`. `1` (the default)
    * is fixed backoff; `2` doubles each time (`100, 200, 400, ...`); any
    * value `>= 1` is allowed for gentler or steeper curves. Replaces the
    * old `exponential` boolean (`exponential: true` is now `factor: 2`).
@@ -38,7 +36,7 @@ export interface RetryOptions {
    * wait is clamped to this BEFORE jitter is applied. Default: the
    * platform timer ceiling (`2_147_483_647`), i.e. effectively unbounded.
    */
-  maxBackoffMs?: number;
+  maxBackoff?: Duration;
   /**
    * Randomise each wait to avoid synchronized retry storms across many
    * exchanges hitting the same downstream:
@@ -48,7 +46,7 @@ export interface RetryOptions {
    *   `[computed * (1 - jitter), computed]` (`0.2` keeps 80-100% of the
    *   wait). `"full"` is `1`; `"none"` is `0`.
    *
-   * Jitter only ever reduces a wait, so it never exceeds `maxBackoffMs`.
+   * Jitter only ever reduces a wait, so it never exceeds `maxBackoff`.
    */
   jitter?: "none" | "full" | number;
   /**
@@ -103,15 +101,10 @@ export function defaultRetryOn(error: Error): boolean {
 export function resolveRetryOptions(
   options: RetryOptions = {},
 ): ResolvedRetryOptions {
-  // Loud failure for the removed `exponential` boolean (a clean pre-1.0
-  // break). TypeScript rejects it at compile time on object literals; this
-  // catches plain-JS / `as any` callers so they fail at build, not silently.
-  if ("exponential" in options) {
-    throw rcError("RC5003", undefined, {
-      message:
-        "retry({ exponential }) was removed; use factor (exponential: true -> factor: 2, exponential: false -> factor: 1).",
-    });
-  }
+  rejectStaleOptions(options, "retry", {
+    exponential:
+      "use factor (exponential: true -> factor: 2, exponential: false -> factor: 1).",
+  });
 
   const maxAttempts = options.maxAttempts ?? 3;
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
@@ -119,8 +112,10 @@ export function resolveRetryOptions(
       message: `retry({ maxAttempts }) must be an integer >= 1, got ${String(maxAttempts)}.`,
     });
   }
-  const backoffMs = options.backoffMs ?? 1000;
-  assertDurationMs("retry({ backoffMs })", backoffMs, 0);
+  const backoffMs =
+    options.backoff === undefined
+      ? 1000
+      : parseDuration(options.backoff, "retry({ backoff })", 0);
 
   const factor = options.factor ?? 1;
   if (!Number.isFinite(factor) || factor < 1) {
@@ -131,8 +126,10 @@ export function resolveRetryOptions(
   // Default the ceiling to the platform timer max: past it, setTimeout
   // coerces the delay (Node clamps to ~1ms, so a huge backoff would fire
   // instantly), which also bounds the `factor ** n` growth from overflowing.
-  const maxBackoffMs = options.maxBackoffMs ?? RETRY_TIMER_CEILING_MS;
-  assertDurationMs("retry({ maxBackoffMs })", maxBackoffMs, 1);
+  const maxBackoffMs =
+    options.maxBackoff === undefined
+      ? RETRY_TIMER_CEILING_MS
+      : parseDuration(options.maxBackoff, "retry({ maxBackoff })");
 
   return {
     maxAttempts,

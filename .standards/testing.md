@@ -6,7 +6,7 @@ Authoritative rules and conventions for tests in Routecraft.
 
 ## 1. Runners and layout
 
-Routecraft has completed its migration from vitest to `bun:test`. New tests must use `bun:test`. Exactly two vitest surfaces remain, both deliberate: the scaffolder integration test (`packages/create-routecraft/test/integration.test.ts`) and the cross-runtime suites (`packages/*/test/cross-runtime/*.cross.test.ts`, which must run under Node and therefore cannot use `bun:test`; see § 10). Any new vitest file beyond those requires a justification from the known-gaps table in § 1.2.
+Routecraft has completed its migration from vitest to `bun:test`. New tests must use `bun:test`. Exactly two vitest surfaces remain, both deliberate: the scaffolder integration test (`packages/create-routecraft/test/integration.test.ts`) and the cross-runtime suites (`packages/*/test/cross-runtime/*.cross.test.ts`, which must run under Node and therefore cannot use `bun:test`; see § 11). Any new vitest file beyond those requires a justification from the known-gaps table in § 1.2.
 
 ### 1.1. File placement and naming
 
@@ -79,7 +79,61 @@ The `test(...)` string itself is the searchable label. Keep it short and declara
 | `fixture(path)` | Load a JSON fixture file. `fixtureEach(path, test, run)` runs one test per array entry, using `entry.name` as the test name; pass your runner's `test` function as the second argument (e.g. `test` from `bun:test`). |
 | `createSpyLogger(fn?)` / `createNoopSpyLogger(fn?)` | Capture or silence log output. `testContext()` builds the spy logger internally; assert via `t.logger.warn.mock.calls`, or pass your runner's mock factory (`testContext({ fn: mock })` for bun:test, `{ fn: vi.fn }` for Vitest) for native matcher support. |
 
-## 4. Lifecycle pattern
+## 4. After a public option rename, the gate does not prove the sweep
+
+A green `bun run all` proves nothing about the places a renamed option can still
+appear, because several of them are never typechecked. The 0.7.0
+millisecond-to-`Duration` migration hit this five separate times in one lane, so
+the sweep is written down rather than rediscovered.
+
+After renaming any public option, the rename is not finished until all of these
+have been checked:
+
+| Surface | Why the compiler misses it |
+|---|---|
+| JSDoc `@example` and `@param` blocks | Comments. Never compiled, but they are what hover documentation and the published reference show. |
+| Package `README.md` files | Prose in every package, not just the one that owns the option. |
+| Docs site content under `apps/routecraft.dev/app/content/` | MDX. **Excludes `baseline/`, which is a frozen historical capture consumed by `compare-baseline.ts`; rewriting it corrupts the baseline.** |
+| ESLint `RuleTester` fixtures | The route code in those tests is a STRING. No compiler ever reads it, so a fixture happily teaches an API that no longer exists. |
+| Test JSDoc `@case` / `@preconditions` / `@expectedResult` | Section 2 makes these documentation. A tag naming a removed option is a wrong doc, not a cosmetic slip. |
+| **Any test helper that redeclares an options shape** | See below. This is the one that silently changes behaviour. |
+
+### A test helper takes the real exported option type, never a hand-copied shape
+
+This is the durable rule, and it is the only item above that can make a test pass
+for the wrong reason rather than merely read badly.
+
+A local helper that declares its own inline option type and spreads it into the
+real one defeats excess-property checking, so a renamed option passes straight
+through the compiler and is then dropped on the floor at runtime:
+
+```ts
+// WRONG: a hand-copied shape. After `eventFlushIntervalMs` was renamed to
+// `eventFlushInterval`, this still compiled, and `telemetry()` silently
+// ignored the option. Seven call sites went on asserting flush behaviour
+// against the 1000ms default instead of the 100ms they asked for.
+function sqliteTelemetry(
+  dbPath: string,
+  sqliteOpts?: { eventBatchSize?: number; eventFlushIntervalMs?: number },
+) {
+  return telemetry({ sqlite: { dbPath, ...sqliteOpts } });
+}
+
+// RIGHT: derive from the real type, so a rename breaks the build here.
+function sqliteTelemetry(
+  dbPath: string,
+  sqliteOpts?: Omit<NonNullable<TelemetryOptions["sqlite"]>, "dbPath">,
+) {
+  return telemetry({ sqlite: { dbPath, ...sqliteOpts } });
+}
+```
+
+The spread is what hides it: TypeScript applies excess-property checking to
+object literals, not to spread values, so the wrong key never surfaces. Deriving
+the parameter type from the exported one puts the failure back where it belongs,
+at the rename.
+
+## 5. Lifecycle pattern
 
 ```ts
 let t: TestContext | undefined;
@@ -101,8 +155,12 @@ Rules:
 - Always assign to a single `let t` declared in the `describe` scope; the `afterEach` then handles teardown unconditionally.
 - Always `await t.stop()`; not awaiting leaks timers, http servers, and background tasks across tests.
 - Prefer `t.test()` over `t.startAndWaitReady()` when you want the routes to actually run. Use `startAndWaitReady` for tests that drive interaction through direct endpoints or that assert on plugin-init side effects.
+- `startAndWaitReady()` rejects when a route or plugin fails to START, and not when an
+  exchange fails while running. A route with a startup-firing source can emit a failing
+  exchange before `route:started`, which waits on every source; that failure lands in
+  `t.errors` and is asserted on there, exactly as it would be after `t.test()`.
 
-## 5. Asserting on `RoutecraftError`
+## 6. Asserting on `RoutecraftError`
 
 Prefer structural matchers over regex. Routecraft errors carry stable `rc` codes; assert on those.
 
@@ -121,7 +179,7 @@ expect(t.errors[0]?.message).toMatch(/no "model"/i);
 
 Avoid full string equality on error messages; the wording is not part of the API and small changes will churn tests.
 
-## 6. Asserting on dispatch errors
+## 7. Asserting on dispatch errors
 
 Errors thrown inside route handlers are caught by the runtime, logged at the boundary, and surfaced on `TestContext.errors` rather than rejecting `t.test()`. The pattern is:
 
@@ -132,11 +190,11 @@ expect(t.errors[0]?.message).toMatch(/.../);
 
 Errors thrown at construction (e.g. `validateAgentOptions` running inside `agent({...})`) DO reject the `await ... .build()` call. Use `await expect(builder).rejects.toThrow(...)` for those.
 
-## 7. Negative-path logging is expected
+## 8. Negative-path logging is expected
 
 Tests that exercise an error path through the framework boundary will produce error-level log output. This is deliberate: the framework's own logger ran. Do not treat such output as a test failure or filter it from CI logs. If a test produces noisy output but passes, leave it: the noise is the framework working as designed.
 
-## 8. Snapshots
+## 9. Snapshots
 
 Avoid snapshot tests as a default. They make refactors painful and tend to be rubber-stamped on update. Use them only when:
 
@@ -145,7 +203,7 @@ Avoid snapshot tests as a default. They make refactors painful and tend to be ru
 
 If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a separate `__snapshots__` file so the expected value lives next to the test.
 
-## 9. Mocking guidance
+## 10. Mocking guidance
 
 - **Mock at the boundary.** Mock `mock.module("../src/llm/providers/index.ts", ...)` to stub `callLlm` rather than mocking the Vercel AI SDK; the boundary is more stable than the dependency's API.
 - **Mock the SDK only when testing the boundary itself.** E.g. `stream-llm.bun.test.ts` mocks `ai`'s `streamText` to exercise the real `streamLlm` containment behaviour.
@@ -154,7 +212,7 @@ If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a se
 - **`mock.module()` is process-global in bun 1.3.11.** The module registry is shared across all test files in a single `bun test` run -- there is no per-file isolation. If two test files mock the same path, the last registration wins and may break the other file. Authors must ensure test files mock non-overlapping paths, OR add an `afterAll` that restores the original module. To restore, call `mock.module(path, factory)` again with a factory that returns the real module (capture the real module before the mock takes effect using a sibling file or separate export). See `packages/ai/src/llm/providers/stream-llm.ts` for an example of structuring production code to avoid cross-file mock collisions.
 - **Reset mock state between tests with `mock.clearAllMocks()`, not `mock.restore()`.** `mock.restore()` tears down spy implementations (those set by `spyOn` or `mock.mockImplementation`); use it in `afterAll` for spies on shared singletons. `mock.clearAllMocks()` resets call counts and recorded arguments without removing implementations -- use it in `beforeEach` when you have top-level `mock()` instances that need fresh counts each test (see `stdio-client-manager.bun.test.ts`). `mock.module()` has no automatic restore; manage it manually as described above.
 
-## 10. Cross-runtime adapter tests
+## 11. Cross-runtime adapter tests
 
 Some adapters have runtime-specific code paths -- for example, a Postgres source might use `Bun.sql` under Bun and the `pg` driver under Node, or an S3 destination might use `Bun.s3` under Bun and `@aws-sdk/client-s3` under Node. The cross-runtime test suite verifies that the observable behaviour is identical on both runtimes.
 
@@ -178,7 +236,7 @@ The `:node` script resolves to `node node_modules/vitest/vitest.mjs run --passWi
 
 **Reference.** The first live entry is `packages/routecraft/test/cross-runtime/http-signature.cross.test.ts`, which proves byte-for-byte raw-body fidelity and identical webhook-signature decisions on the `Bun.serve` path and the `node:http` shim. The upcoming Postgres ([#294](https://github.com/routecraftjs/routecraft/issues/294)) and S3 ([#295](https://github.com/routecraftjs/routecraft/issues/295)) adapters will add further entries (`Bun.sql` vs `pg`, `Bun.s3` vs `@aws-sdk/client-s3`). Packages without a cross-runtime directory still pass thanks to `--passWithNoTests`.
 
-## 11. What runs in CI
+## 12. What runs in CI
 
 - The main `test` job runs `bun run test:coverage` (which excludes `**/integration.test.ts` and `**/test/cross-runtime/**`, and uploads a `coverage-report` artifact). Locally, `bun run test` runs the same exclusions without the coverage instrumentation.
 - `scaffolder-smoke` runs `bun run test:integration` twice -- once with `TEST_PACKAGE_MANAGER=bun` (full scaffold + `craft run` dispatch) and once with `TEST_PACKAGE_MANAGER=npm` (install + typecheck only; the dispatch test skips because the CLI is Bun-only).

@@ -18,6 +18,12 @@
     "description": "Free-text description for the route."
   },
   {
+    "name": "enabled",
+    "category": "Route",
+    "signature": ".enabled(predicate, { refresh? })",
+    "description": "Gate the route on a predicate; a false route is registered but not started, and not offered as a tool."
+  },
+  {
     "name": "input",
     "category": "Route",
     "signature": ".input({ body, headers })",
@@ -123,7 +129,7 @@
     "name": "delegate",
     "category": "Transform",
     "signature": ".delegate(resolver)",
-    "description": "Mark the principal as exercised by an actor (an agent) on the subject’s behalf."
+    "description": "Mark the principal as exercised by an actor (an agent) on the subject\u2019s behalf."
   },
   {
     "name": "map",
@@ -207,13 +213,13 @@
   {
     "name": "sample",
     "category": "Flow Control",
-    "signature": ".sample({ every } | { intervalMs })",
+    "signature": ".sample({ every } | { interval })",
     "description": "Pass every Nth exchange, or the first per time window."
   },
   {
     "name": "debounce",
     "category": "Flow Control",
-    "signature": ".debounce({ waitMs })",
+    "signature": ".debounce({ wait })",
     "description": "Release only the last exchange in a burst after a quiet period."
   },
   {

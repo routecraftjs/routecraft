@@ -92,7 +92,7 @@ import { direct, timer } from '@routecraft/routecraft';
 // Call a capability in the same process on a schedule
 craft()
   .id('orchestrator')
-  .from(timer({ intervalMs: 60_000 }))
+  .from(timer({ interval: "1m" }))
   .to(direct('fetch-webpage'));
 ```
 

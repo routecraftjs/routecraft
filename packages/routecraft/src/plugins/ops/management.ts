@@ -11,6 +11,7 @@
  */
 
 import { CraftClient } from "../../client";
+import { isInternalEndpoint } from "../../capabilities";
 import type { CraftContext } from "../../context";
 import { rcError } from "../../error";
 import { HeadersKeys } from "../../exchange";
@@ -27,9 +28,11 @@ import {
   standardExtensionOf,
 } from "../../shared/standard-schema";
 import { decodeCursor, takePage } from "./pagination";
+import { safeStringify } from "../../shared/safe-json.ts";
 import { compareCodeUnits } from "../../shared/compare";
 import type {
   OpsDispatchOutcome,
+  OpsEventTailItem,
   OpsPage,
   OpsRouteDetail,
   OpsRouteFilter,
@@ -58,6 +61,51 @@ export interface ManagementApi {
     body: unknown,
     principal: Principal | undefined,
   ): Promise<OpsDispatchOutcome>;
+  tailEvents(signal: AbortSignal): AsyncIterable<OpsEventTailItem>;
+}
+
+/**
+ * How many events the tail holds for a reader that has fallen behind.
+ *
+ * The bus emits synchronously on the route's own hot path, so the tail can
+ * never block it: it buffers and moves on. A bound is what keeps a reader
+ * that stopped reading from growing that buffer until the process dies,
+ * and dropping the oldest is the right end to lose, because a live tail is
+ * watched for what is happening now.
+ */
+const TAIL_BUFFER = 256;
+
+/**
+ * How many bytes of rendered frames the tail holds for the same reader.
+ *
+ * The count bound alone bounds nothing about size: an event whose details
+ * carry a large error or a large body renders to a large frame, and a few
+ * hundred of those is a few hundred times whatever the largest one is.
+ * Streaming slots are per-server, so that ceiling multiplies by every tail
+ * an operator has open. Bytes and count are both evicted oldest-first, and
+ * both feed the same dropped marker the reader already sees.
+ */
+const TAIL_BUFFER_BYTES = 1_048_576;
+
+/**
+ * How long the tail stays silent before putting a comment on the wire.
+ *
+ * An idle app emits nothing, and a proxy between the operator and the
+ * process reaps a connection that says nothing for long enough. The comment
+ * is the SSE spec's own no-op, ignored by every conforming client.
+ */
+const TAIL_HEARTBEAT_MS = 30_000;
+
+/**
+ * What one queued frame costs the byte budget.
+ *
+ * UTF-16 code units rather than encoded bytes: the frame is not encoded
+ * until the reader takes it, and an exact count would mean encoding every
+ * event on the bus's hot path to bound a buffer. The two agree for ASCII
+ * and stay within a small factor otherwise, which is all a ceiling needs.
+ */
+function frameBytes(item: OpsEventTailItem): number {
+  return item.kind === "event" ? item.data.length : 0;
 }
 
 /**
@@ -86,7 +134,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
     const capabilities = capabilityIndex();
     return ctx
       .getRoutes()
-      .map((route) => summarise(route.definition, capabilities))
+      .map((route) => summarise(ctx, route.definition, capabilities))
       .sort((left, right) => compareCodeUnits(left.id, right.id));
   };
 
@@ -110,13 +158,108 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
         : { items: page.items, nextCursor: page.nextCursor };
     },
 
+    /**
+     * Tail every event the context emits until the caller goes away.
+     *
+     * Subscribes to the bus catch-all and hands items over a bounded
+     * buffer, because `emit` runs on the caller's stack: a tail that awaited
+     * its reader there would put an operator's network back-pressure inside
+     * a route step.
+     *
+     * The generator parks on a promise rather than polling, and the signal
+     * resolves it. Cancelling the response is not enough on its own: an
+     * async generator delivers a queued `return()` only after the pending
+     * `next()` settles, so a tail with nothing to yield would sit on that
+     * promise forever with its subscription still live.
+     */
+    async *tailEvents(signal: AbortSignal): AsyncIterable<OpsEventTailItem> {
+      const queue: OpsEventTailItem[] = [];
+      let queuedBytes = 0;
+      let dropped = 0;
+      let wake: (() => void) | undefined;
+
+      // The tail is in-flight work for as long as it runs, and a graceful
+      // close would otherwise wait out its whole window on a stream that
+      // ends the moment it is asked to. `context:stopping` arrives on the
+      // bus this is already reading, so it needs no second channel: the
+      // event is delivered, and then the tail closes behind it.
+      let stopping = false;
+      const unsubscribe = ctx.on("*", (payload) => {
+        const item: OpsEventTailItem = {
+          kind: "event",
+          name: payload._event,
+          // Rendered here, on the emit, rather than held by reference until
+          // the reader takes it: see OpsEventTailItem.data. `_snapshot`
+          // sub-payloads go with it, because they exist so a surface that was
+          // not asked to capture payloads does not, and a tail an operator
+          // opened is not that asking.
+          data: safeStringify(
+            {
+              event: payload._event,
+              ts: payload.ts,
+              contextId: payload.contextId,
+              details: payload.details,
+            },
+            { dropSnapshot: true },
+          ),
+        };
+        const size = frameBytes(item);
+        // An oversized frame still goes on: evicting the whole buffer and
+        // then refusing it would leave the reader nothing at all. It is the
+        // next push that evicts it.
+        while (
+          queue.length > 0 &&
+          (queue.length >= TAIL_BUFFER ||
+            queuedBytes + size > TAIL_BUFFER_BYTES)
+        ) {
+          queuedBytes -= frameBytes(queue.shift()!);
+          dropped++;
+        }
+        queue.push(item);
+        queuedBytes += size;
+        if (payload._event === "context:stopping") stopping = true;
+        wake?.();
+      });
+      const onAbort = (): void => wake?.();
+      signal.addEventListener("abort", onAbort);
+
+      try {
+        while (!signal.aborted) {
+          if (queue.length === 0) {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            await new Promise<void>((resolve) => {
+              wake = resolve;
+              timer = setTimeout(resolve, TAIL_HEARTBEAT_MS);
+            });
+            if (timer !== undefined) clearTimeout(timer);
+            wake = undefined;
+            if (queue.length === 0 && !signal.aborted)
+              yield { kind: "heartbeat" };
+            continue;
+          }
+          if (dropped > 0) {
+            const count = dropped;
+            dropped = 0;
+            yield { kind: "dropped", count };
+          }
+          const next = queue.shift()!;
+          queuedBytes -= frameBytes(next);
+          yield next;
+          if (stopping && queue.length === 0) return;
+        }
+      } finally {
+        signal.removeEventListener("abort", onAbort);
+        unsubscribe();
+      }
+    },
+
     describeRoute(id: string): OpsRouteDetail | undefined {
       const capabilities = capabilityIndex();
       const route = ctx
         .getRoutes()
         .find((candidate) => candidate.definition.id === id);
       if (!route) return undefined;
-      return detail(route.definition, capabilities);
+      return detail(ctx, route.definition, capabilities);
     },
 
     async dispatch(
@@ -134,6 +277,15 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
         });
       }
       if (!capabilities.has(id)) {
+        // Two different refusals behind one absence: a route that declared
+        // `direct({ internal: true })` HAS a direct source, so telling its
+        // caller to add one would be wrong advice. The internal registry is
+        // what remembers the difference.
+        if (isInternalEndpoint(ctx, id)) {
+          throw rcError("RC5060", undefined, {
+            message: `Route "${id}" is declared internal (direct({ internal: true })) and not dispatchable. It is only composable from another route; dispatch to a boundary route that fronts it instead.`,
+          });
+        }
         throw rcError("RC5060", undefined, {
           message: `Route "${id}" has no dispatch door: its sources are ${
             sourceKinds(route.definition).join(", ") || "(none)"
@@ -181,6 +333,7 @@ function sourceKinds(definition: RouteDefinition): string[] {
 }
 
 function summarise(
+  ctx: CraftContext,
   definition: RouteDefinition,
   capabilities: Map<string, Capability>,
 ): OpsRouteSummary {
@@ -192,6 +345,7 @@ function summarise(
   return {
     id: definition.id,
     dispatchable: capabilities.has(definition.id),
+    enabled: ctx.isRouteEnabled(definition.id),
     sources: sourceKinds(definition),
     requiresPrincipal: definition.requiresPrincipal === true,
     ...(title !== undefined ? { title } : {}),
@@ -201,6 +355,7 @@ function summarise(
 }
 
 function detail(
+  ctx: CraftContext,
   definition: RouteDefinition,
   capabilities: Map<string, Capability>,
 ): OpsRouteDetail {
@@ -212,7 +367,7 @@ function detail(
     "output",
   );
   return {
-    ...summarise(definition, capabilities),
+    ...summarise(ctx, definition, capabilities),
     ...(input !== undefined ? { input } : {}),
     ...(output !== undefined ? { output } : {}),
   };

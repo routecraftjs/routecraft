@@ -11,7 +11,7 @@ import type { CraftContext } from "./context.ts";
  * **Second signal** (Ctrl+C again): forces an immediate exit for when
  * graceful shutdown is stuck or taking too long.
  *
- * Stage one is bounded by `shutdown: { timeoutMs }` even without a second
+ * Stage one is bounded by `shutdown: { timeout }` even without a second
  * signal, which is what an orchestrator needs: it sends one SIGTERM and then
  * SIGKILLs, so there is no second Ctrl-C coming. On that deadline in-flight
  * execution is abandoned and the process exits 1, so exit-code-sensitive

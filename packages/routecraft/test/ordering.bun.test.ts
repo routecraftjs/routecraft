@@ -33,7 +33,7 @@ describe("Route and Wrapper semantics - ordering", () => {
    */
   test("batch applies to entire next route and is cleared afterwards", () => {
     const defs: RouteDefinition[] = craft()
-      .batch({ size: 5, flushIntervalMs: 2000 })
+      .batch({ size: 5, flushInterval: 2000 })
       .id("batched")
       .from(simple("x"))
       // No batch staged here, so second route should use SimpleConsumer

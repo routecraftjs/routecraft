@@ -61,9 +61,25 @@ The second part is which failures may also refuse traffic, which is decided by f
 | Source gave up producing | `down` | The route is not running, so nothing it exists to serve is being served |
 | Circuit breaker open or half-open | `degraded` | Live, but holding calls off, and expected to close again on its own |
 | Route deliberately taken offline | `degraded` | Deliberate reduced capability, visible without paging |
+| Route disabled by its [`.enabled()`](/docs/reference/operations/enabled) predicate | `inactive` | A capability whose credentials were never supplied is a configuration state the operator chose, not an incident. Listed with its reason, excluded from aggregation |
 | Route running normally | `up` | |
 | One-shot finished, or route stopped cleanly | `inactive` | Excluded from aggregation entirely |
 | An exchange failed | no change | A refused caller, a validation error, or a business rule saying no is a healthy route behaving correctly |
+
+**Disabled is not offline, and neither is failed.** The three are separate readings of separate situations: `failed` is a route that should be running and is not, `offline` is a running deployment having capability taken away from it, and `disabled` is capability that was never configured. Collapsing any pair would either page on a dormant route or stop paging on a derotated one. A disabled route reports its reason in `details.reason`, so an operator reading `/ops` sees
+
+```json
+"mail-inbound": {
+  "status": "inactive",
+  "domain": "deployment",
+  "details": {
+    "lifecycle": "disabled",
+    "reason": "MAIL_USER and MAIL_APP_PASSWORD are not set"
+  }
+}
+```
+
+and knows immediately that nothing is broken. Overall health is unaffected: a deliberate configuration state is not an open circuit.
 
 That last row is the rule the surface is built around. **Exchange errors are route issues, not health issues.** A failing exchange never changes any status, whatever the streak, because many errors are entirely expected and paging on them turns every scope gap and every malformed request into an incident. Repeated failure reaches health through exactly two doors, both deliberate: a circuit breaker, which knows which errors it counts and actually stops the route serving, or the app catching the error and pushing an indicator down itself. The consecutive-failure count still appears in `details` as context for a human; it is never an input to status.
 
@@ -87,6 +103,7 @@ Routes are always `deployment`. Indicators declare their own domain, and default
 | `health.details` | `'always' \| 'when-authenticated' \| 'never'` | `'when-authenticated'` | Exposure of per-component `details`. |
 | `tiers.introspection` | `false \| true \| string` | `false` | Admission to `GET /ops/routes` and `GET /ops/routes/{id}`. See [Management API](#management-api). |
 | `tiers.dispatch` | `false \| true \| string` | `false` | Admission to `POST /ops/routes/{id}/exchanges`. |
+| `tiers.events` | `false \| true \| string` | `false` | Admission to `GET /ops/events`, the live event tail. See [Tailing events](#tailing-events). |
 | `indicators` | `Indicator[]` | `[]` | Indicators to register. See [`defineIndicator`](#define-indicator). |
 
 The mount claims the `/health` and `/ops` prefixes on its server, so a collision with another surface fails at start rather than being decided by dispatch order.
@@ -144,13 +161,14 @@ One component with its own status code: 503 when it is `down`, 200 otherwise, 40
 
 ## Management API
 
-Three resources on the same mount, under `/ops`, for driving a running instance: list its routes, describe one, and dispatch work to one. [`craft exec`](/docs/reference/cli#exec) and the route commands in [`craft ops`](/docs/reference/cli#ops) are clients of exactly this API, and so is anything you point at it with `curl`. The rest of that family (`health`, `ready`, `indicators`) reads the `/health` resources above instead, which is the group-by-task split the CLI reference explains.
+Four resources on the same mount, under `/ops`, for driving a running instance: list its routes, describe one, dispatch work to one, and watch what it is doing. [`craft exec`](/docs/reference/cli#exec) and the route commands in [`craft ops`](/docs/reference/cli#ops) are clients of exactly this API, and so is anything you point at it with `curl`. The rest of that family (`health`, `ready`, `indicators`) reads the `/health` resources above instead, which is the group-by-task split the CLI reference explains.
 
 | Method and path | Tier | What |
 | --- | --- | --- |
 | `GET /ops/routes` | `introspection` | List routes, filtered and paginated |
 | `GET /ops/routes/{id}` | `introspection` | Describe one route |
 | `POST /ops/routes/{id}/exchanges` | `dispatch` | Dispatch work and return the outcome |
+| `GET /ops/events` | `events` | Tail the context event bus as Server-Sent Events |
 
 Dispatching creates an exchange, so the exchange is a sub-resource of the route it runs on rather than a verb of its own.
 
@@ -170,11 +188,12 @@ ops: {
   tiers: {
     introspection: 'ops:introspection',
     dispatch: 'ops:dispatch',
+    events: 'ops:events',
   },
 }
 ```
 
-`ops:introspection` and `ops:dispatch` are the names this project documents, not defaults: every tier defaults to `false`, and the value is any string your tokens carry. `ops:operations` is reserved for the operations tier when it ships. **Dispatch is always its own scope** and never rides along with introspection: a dashboard token that reads the route inventory must not also be able to run work.
+`ops:introspection`, `ops:dispatch` and `ops:events` are the names this project documents, not defaults: every tier defaults to `false`, and the value is any string your tokens carry. `ops:operations` is reserved for the operations tier when it ships. **Dispatch is always its own scope** and never rides along with introspection: a dashboard token that reads the route inventory must not also be able to run work.
 
 The mount's `auth` decides **who** the caller is (its own validator, else the named server's, per [mount auth inheritance](/docs/reference/plugins/serversplugin)); the tier value decides **what that identity must carry**. Because tiers are path-and-method rules, an operator can enforce the same split at a proxy that the framework enforces internally.
 
@@ -184,9 +203,34 @@ The refusal on a missing scope is `403` with `insufficient_scope`, and it carrie
 
 <Callout type="warning" title="`true` is an open door">
 
-A tier set to `true` needs no credential, and the ops surface mounts on the `default` server unless told otherwise, which on a typical app is the public listener. `dispatch: true` on a publicly bound server lets anyone who can reach the port run any dispatchable route. Use it on a listener the public cannot reach, or give the tier a scope.
+A tier set to `true` needs no credential, and the ops surface mounts on the `default` server unless told otherwise, which on a typical app is the public listener. `dispatch: true` on a publicly bound server lets anyone who can reach the port run any dispatchable route. `events: true` is the quieter version of the same hazard: the tail carries failure events with their messages and stack traces, so filesystem paths, internal hostnames and upstream response text reach anyone who can reach the port. Use either on a listener the public cannot reach, or give the tier a scope.
 
 </Callout>
+
+### Tailing events
+
+`GET /ops/events` streams the context event bus as [Server-Sent Events](/docs/reference/adapters/http#streaming-responses-sse): every event the app emits, as it emits it. It is the live counterpart to the route listing, which is why it is its own tier rather than a corner of introspection. A route inventory describes an app's shape; the tail carries exchange failures, auth decisions and health transitions as they happen, and an operator who wants one is not thereby asking for the other.
+
+```bash
+curl -N -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/events'
+```
+
+```
+: open
+
+event: route:exchange:failed
+data: {"event":"route:exchange:failed","ts":"2026-08-27T21:04:11.522Z","contextId":"...","details":{"routeId":"orders","error":{"name":"Error","message":"upstream refused"}}}
+
+: keep-alive
+```
+
+The bus event name rides the SSE `event` field, so an `EventSource` can subscribe to one kind, and repeats inside `data` so a reader consuming the body with `fetch` gets it without parsing fields. Payloads are rendered defensively: errors keep their name, message and stack, and an exchange, route or context collapses to its identifier rather than dragging its object graph onto the wire.
+
+**The tail omits `_snapshot` payloads.** Several events, the [agent events](/docs/reference/events#agent-operations) among them, carry request and response bodies under that key; the telemetry sink already gates them behind `captureSnapshots` because they are payload data rather than metadata. Opening a tail is not that opt-in, so a watcher of `route:agent:tool:result` sees the event without `_snapshot.output`. Read payloads through telemetry, which was asked for them.
+
+Two frames are the tail's own and not bus events. `: keep-alive` is an SSE comment sent when the app has been quiet, so an intermediary does not reap a healthy connection. `ops:events:dropped` reports how many events a reader missed: the bus emits on the route's own hot path and can never wait for a network, so the tail buffers a bounded backlog and drops the oldest past that, then says so rather than leaving a silent gap. The backlog is bounded twice, by count (256 events) and by size (1 MiB of rendered frames), because one event carrying a large error or body is worth many small ones.
+
+The tail closes when the context begins stopping, so a shutdown is not held open by a watcher.
 
 ### Listing routes
 
@@ -200,18 +244,29 @@ curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/routes'
     {
       "id": "greet",
       "dispatchable": true,
+      "enabled": true,
       "sources": ["direct"],
       "requiresPrincipal": false,
       "title": "Greeter",
       "description": "Says hello to whoever asks"
     },
-    { "id": "nightly", "dispatchable": false, "sources": ["cron"], "requiresPrincipal": false }
+    {
+      "id": "nightly",
+      "dispatchable": false,
+      "enabled": false,
+      "sources": ["cron"],
+      "requiresPrincipal": false
+    }
   ],
   "nextCursor": "eyJhZnRlciI6Im5pZ2h0bHkiLCJmaWx0ZXIiOiJbbnVsbCxudWxsLG51bGxdIn0"
 }
 ```
 
+**`dispatchable` and `enabled` are different questions.** `dispatchable` asks whether the route has a door at all; `enabled` asks whether its [`.enabled()`](/docs/reference/operations/enabled) predicate currently says yes. A disabled route stays in this listing, is absent from the agent tool surface, and reports `disabled` on the health endpoint rather than `failed`, so an operator can tell "switched off on purpose" from "broken".
+
 **Not every route is dispatchable.** A `direct()` ingress makes the route id into a door; a cron-, mail- or http-sourced route runs from its own trigger and has none. That is a fact about the route, so it rides on the representation rather than splitting the collection in two, and a dispatch against a route without a door is refused distinguishably with [`RC5060`](/docs/reference/errors#rc-5060).
+
+**A route can close its door on purpose.** [`direct({ internal: true })`](/docs/reference/adapters/direct) keeps the in-process endpoint (other routes compose against it unchanged) and skips the capability registry, so the route shows `dispatchable: false` here and a dispatch refuses with `RC5060` naming the declaration rather than advising a direct source the route already has. It is the opt-out for a trusting subroutine whose boundary route carries `.input()`, `.description()` and `.authorize()`; dispatch the boundary route instead.
 
 Query parameters narrow the one collection:
 
@@ -271,7 +326,7 @@ import { defineIndicator } from '@routecraft/routecraft'
 
 export const mailHealth = defineIndicator({
   name: 'mail',
-  maxAgeMs: 15 * 60_000,
+  maxAge: 15 * 60_000,
   domain: 'deployment',
   route: 'probe-mail',
 })
@@ -280,7 +335,7 @@ export const mailHealth = defineIndicator({
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `name` | `string` | required | Unique name. Becomes the report key and the path segment. |
-| `maxAgeMs` | `number` | none | No report inside this window makes the indicator `down` (stale). Omit it for an indicator with no cadence. |
+| `maxAge` | `Duration` | none | No report inside this window makes the indicator `down` (stale). Omit it for an indicator with no cadence. |
 | `domain` | `'instance' \| 'deployment'` | `'deployment'` | Whether readiness may carry this failure. |
 | `route` | `string` | none | Bind to a route's exchange outcomes. |
 
@@ -295,7 +350,7 @@ export const craftConfig = defineConfig({
 
 ### Route-bound: no code in the route
 
-With `route` set, a completed exchange on that route reports up, a failed exchange reports down, and no exchange inside `maxAgeMs` goes stale. The probe route carries no health code at all:
+With `route` set, a completed exchange on that route reports up, a failed exchange reports down, and no exchange inside `maxAge` goes stale. The probe route carries no health code at all:
 
 ```ts
 export default craft()
@@ -325,7 +380,7 @@ A bound indicator and its route are separate components that move on different r
 | Exchange dropped | no change | `up` | 200 |
 | Breaker open, no `fallback` | `down` | `degraded` | 503 |
 | Breaker open, with `fallback` | `up` | `degraded` | 200 |
-| No exchange within `maxAgeMs` | `down`, `reason: 'stale'` | no change | 503 |
+| No exchange within `maxAge` | `down`, `reason: 'stale'` | no change | 503 |
 | Source gave up producing | no change until stale | `down` | 503 |
 
 Three rows earn an explanation.
@@ -373,6 +428,19 @@ ops: {
   health: { details: 'when-authenticated' },
 }
 ```
+
+### The credential ladder
+
+Four rungs, one decision. Every rung verifies through the same `auth` options this page already described; none of them makes Routecraft mint or store anything. The full recipes, each a complete `craft.config.ts`, live on [Securing capabilities](/docs/advanced/securing-capabilities#the-credential-ladder).
+
+1. **No auth.** Nothing configured, tiers set to `true`. `craft exec` needs no flags. For local work and trusted-network listeners.
+2. **A static key.** A `{ validator }` comparing one secret from the environment with `timingSafeStringEqual` (exported from `@routecraft/routecraft`; never `===`, which leaks timing). Scope-gate the tiers and put the scopes on the principal the validator returns.
+3. **A self-signed JWT.** `jwt({ secret, issuer, audience })` on the server; mint tokens with your own tooling (any HS256 signer). Buys expiry and per-token scopes without an IdP.
+4. **A real IdP.** `jwks()` at the IdP's keys. Discovery tells a refused caller where to go.
+
+### Discovery on refusals (RFC 9728)
+
+A caller refused at the management door can find out what would satisfy it. Every bearer 401 carries a `resource_metadata` hint in its `WWW-Authenticate` challenge, and the `insufficient_scope` 403 carries the same hint alongside the `scope` it already names. The hint points at the server's RFC 9728 protected-resource metadata document (`/.well-known/oauth-protected-resource`, path-suffixed per resource), which names the issuer from the effective validator and, for the ops paths, lists the scope-gated tiers in `scopes_supported`. [`craft exec`](/docs/reference/cli#exec) and `craft ops` follow the hint automatically and fold scope, issuer, and remedy into their refusal message. A disabled tier still answers 404 and discloses nothing.
 
 ## Wiring the probes
 

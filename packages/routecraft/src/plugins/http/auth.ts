@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { rcError } from "../../error";
+import { bearerChallenge } from "../server/protected-resource.ts";
 import { classifyRejectionReason } from "../../auth/error-classification";
 import { isPrincipalExpired } from "../../auth/expiry";
 import { markAuthentic } from "../../auth/authentic";
@@ -38,6 +39,15 @@ export type AuthResult =
        * in an error, or persist it outside the request lifetime.
        */
       credential: string;
+      /**
+       * Clock skew the verification that admitted this credential allowed.
+       *
+       * Carried on the verdict rather than re-derived from config by each
+       * consumer, because anything re-checking the same credential later (a
+       * stream that outlives its admission) must apply the same boundary.
+       * Two resolutions of one setting can drift; an inherited value cannot.
+       */
+      clockToleranceSec: number;
     }
   | { kind: "absent"; scheme: string }
   | {
@@ -135,7 +145,12 @@ export function missingCredentialReason(scheme: string): string {
   return scheme === "apiKey" ? "missing api key" : "missing_header";
 }
 
-function reject(reason: string, scheme: string, cause?: unknown): AuthResult {
+function reject(
+  reason: string,
+  scheme: string,
+  requestUrl: string,
+  cause?: unknown,
+): AuthResult {
   // An infrastructure failure (JWKS unreachable, userinfo fetch failed) is a
   // server-side fault, never the caller's credential: it maps to 500 so the
   // client retries later instead of discarding a valid cached token and
@@ -150,8 +165,11 @@ function reject(reason: string, scheme: string, cause?: unknown): AuthResult {
   // emit it for the bearer scheme; sending `Bearer` on an api-key rejection
   // mis-signals the protocol (RFC 7235) and confuses auto-refreshing clients.
   // A 500 carries no challenge at all: the credential was never judged.
+  // `resource_metadata` (RFC 9728 section 5.1) points a refused caller at
+  // the document naming who issues acceptable tokens; the ingress serves it
+  // for every mount, so the hint goes on every bearer challenge.
   if (scheme === "bearer" && !infrastructure) {
-    headers["www-authenticate"] = 'Bearer realm="routecraft"';
+    headers["www-authenticate"] = bearerChallenge({ requestUrl });
   }
   const response = new Response(
     JSON.stringify(
@@ -277,30 +295,34 @@ export function createAuthMiddleware(
         return { kind: "absent", scheme: "apiKey" };
       }
       if (raw.trim() === "") {
-        return reject("invalid api key", "apiKey");
+        return reject("invalid api key", "apiKey", req.url);
       }
       if (allowedSet) {
         if (!allowedSet.has(raw)) {
-          return reject("invalid api key", "apiKey");
+          return reject("invalid api key", "apiKey", req.url);
         }
         return {
           kind: "admit",
           principal: markAuthentic(syntheticApiKeyPrincipal(raw, auth.scopes)),
           credential: raw,
+          // An api key is compared, never dated: this path applies no
+          // tolerance, so anything inheriting the verdict applies none either.
+          clockToleranceSec: 0,
         };
       }
       try {
         const principal = await verify!(raw);
         if (!principal) {
-          return reject("invalid api key", "apiKey");
+          return reject("invalid api key", "apiKey", req.url);
         }
         return {
           kind: "admit",
           principal: markAuthentic(principal),
           credential: raw,
+          clockToleranceSec: 0,
         };
       } catch {
-        return reject("invalid api key", "apiKey");
+        return reject("invalid api key", "apiKey", req.url);
       }
     };
   }
@@ -324,30 +346,31 @@ export function createAuthMiddleware(
         return { kind: "absent", scheme: "bearer" };
       }
       if (!header.toLowerCase().startsWith("bearer ")) {
-        return reject("unsupported_scheme", "bearer");
+        return reject("unsupported_scheme", "bearer", req.url);
       }
       const token = header.slice(7).trim();
       if (!token) {
-        return reject("invalid_token", "bearer");
+        return reject("invalid_token", "bearer", req.url);
       }
       try {
         const principal = await validator(token);
         if (!principal) {
-          return reject("invalid_token", "bearer");
+          return reject("invalid_token", "bearer", req.url);
         }
         // Defense in depth for custom validators that return an already
         // elapsed `expiresAt` instead of throwing: the built-in verifiers
         // enforce `exp` themselves, but a hand-rolled one may not.
         if (isPrincipalExpired(principal, clockToleranceSec)) {
-          return reject("expired", "bearer");
+          return reject("expired", "bearer", req.url);
         }
         return {
           kind: "admit",
           principal: markAuthentic(principal),
           credential: token,
+          clockToleranceSec,
         };
       } catch (error) {
-        return reject(classifyRejectionReason(error), "bearer", error);
+        return reject(classifyRejectionReason(error), "bearer", req.url, error);
       }
     };
   }

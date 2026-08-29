@@ -517,4 +517,87 @@ describe("the health ledger", () => {
     expect(state.report().indicators["ghost"]).toBeUndefined();
     expect(state.report().status).toBe("up");
   });
+
+  /**
+   * @case A route held back by its predicate reports disabled, with its reason, and does not degrade health
+   * @preconditions A started context with one running route and one disabled by its enabled() predicate
+   * @expectedResult The disabled route is listed as inactive carrying its reason, and the overall report stays up. This is the point of the feature: a capability whose credentials were never supplied is a configuration state, not an incident, and must never page
+   */
+  test("reports a disabled route without degrading the aggregate", () => {
+    const { state } = ledgerAt();
+    state.contextStarted();
+    state.routeStarted("triage");
+    state.setRouteDisabled(
+      "mail-inbound",
+      "MAIL_USER and MAIL_APP_PASSWORD are not set",
+    );
+
+    const report = state.report();
+    const disabled = report.routes["mail-inbound"];
+
+    expect(disabled?.status).toBe("inactive");
+    expect(disabled?.details?.["lifecycle"]).toBe("disabled");
+    expect(disabled?.details?.["reason"]).toBe(
+      "MAIL_USER and MAIL_APP_PASSWORD are not set",
+    );
+    expect(report.status).toBe("up");
+  });
+
+  /**
+   * @case Disabled is distinct from failed and from offline
+   * @preconditions Three routes in the same ledger: one disabled, one whose source died, one taken offline
+   * @expectedResult Each maps to its own status, so an operator can tell a deliberate configuration state from a dead source and from a derotated capability
+   */
+  test("keeps disabled distinct from failed and offline", () => {
+    const { state } = ledgerAt();
+    state.contextStarted();
+    state.routeStarted("derotated");
+    state.setRouteDisabled("dormant", "no credentials");
+    state.sourceDied("dead");
+    state.setRouteOffline("derotated", true);
+
+    const report = state.report();
+
+    expect(report.routes["dormant"]?.status).toBe("inactive");
+    expect(report.routes["dead"]?.status).toBe("down");
+    expect(report.routes["derotated"]?.status).toBe("degraded");
+    // The dead source is the only thing that should be able to do this.
+    expect(report.status).toBe("down");
+  });
+
+  /**
+   * @case An exchange draining out of a route that was just disabled does not report it running again
+   * @preconditions A disabled route whose in-flight exchange completes after the flip
+   * @expectedResult The route stays disabled with its reason, because a drain settling is not evidence the route is serving
+   */
+  test("keeps a draining disabled route disabled", () => {
+    const { state } = ledgerAt();
+    state.contextStarted();
+    state.routeStarted("draining");
+    state.setRouteDisabled("draining", "switched off");
+    state.exchangeCompleted("draining");
+
+    const component = state.routeComponentOf("draining");
+
+    expect(component?.details?.["lifecycle"]).toBe("disabled");
+    expect(component?.details?.["reason"]).toBe("switched off");
+  });
+
+  /**
+   * @case A re-enabled route reports running once it starts
+   * @preconditions A disabled route whose predicate passes, then starts
+   * @expectedResult The disabled reason is gone and the route reports up
+   */
+  test("clears the disabled reason when a route is re-enabled", () => {
+    const { state } = ledgerAt();
+    state.contextStarted();
+    state.setRouteDisabled("late", "TOKEN is not set");
+    state.clearRouteDisabled("late");
+    state.routeStarted("late");
+
+    const component = state.routeComponentOf("late");
+
+    expect(component?.status).toBe("up");
+    expect(component?.details?.["reason"]).toBeUndefined();
+  });
 });

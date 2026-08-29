@@ -399,6 +399,33 @@ describe("the ops management API", () => {
   });
 
   /**
+   * @case A disabled route stays listed, and says so distinguishably
+   * @preconditions Two dispatchable routes, one carrying an .enabled() predicate that returns a reason string
+   * @expectedResult Both routes appear, both report dispatchable true, and only the disabled one reports enabled false. dispatchable answers whether the route has a door; enabled answers whether the predicate says yes, and an operator needs both to tell "switched off on purpose" from "broken"
+   */
+  test("reports enablement separately from dispatchability", async () => {
+    const port = await start({
+      tiers: { introspection: true },
+      routes: [
+        craft().id("live").from(direct()).to(noop()),
+        craft()
+          .id("switched-off")
+          .enabled(() => "off for this deployment")
+          .from(direct())
+          .to(noop()),
+      ],
+    });
+    const { body } = await call<OpsPage<OpsRouteSummary>>(port, "/ops/routes");
+    const byId = new Map(body.items.map((route) => [route.id, route]));
+
+    expect(byId.size).toBe(2);
+    expect(byId.get("live")?.dispatchable).toBe(true);
+    expect(byId.get("live")?.enabled).toBe(true);
+    expect(byId.get("switched-off")?.dispatchable).toBe(false);
+    expect(byId.get("switched-off")?.enabled).toBe(false);
+  });
+
+  /**
    * @case The documented filters narrow the one collection
    * @preconditions A dispatchable and a non-dispatchable route
    * @expectedResult Unfiltered returns both, dispatchable=true returns one, an exact id returns one, and source=cron returns the cron route. One collection with query parameters, so the two clients differ in the query they send rather than the resource they address

@@ -24,7 +24,7 @@ const entered = (): { signal: Promise<void>; enter: () => void } => {
  *
  * Stage one closes intake and drains: sources stop producing, and an
  * exchange already in the pipeline runs to its natural end. Stage two is
- * forced, either by a second signal or by `shutdown.timeoutMs` elapsing, and
+ * forced, either by a second signal or by `shutdown.timeout` elapsing, and
  * abandons in-flight execution.
  *
  * The bound exists because an unbounded stage one hands the outcome to the
@@ -50,7 +50,7 @@ describe("bounded graceful shutdown", () => {
     let completed = false;
 
     t = await testContext()
-      .with({ shutdown: { timeoutMs: 5_000 } })
+      .with({ shutdown: { timeout: 5_000 } })
       .routes(
         craft()
           .id("slow")
@@ -80,7 +80,7 @@ describe("bounded graceful shutdown", () => {
 
   /**
    * @case The deadline forces stage two and names what it abandoned
-   * @preconditions A step that never settles, and a short shutdown.timeoutMs
+   * @preconditions A step that never settles, and a short shutdown.timeout
    * @expectedResult stop() resolves forced, pending names the route, and the route's execution signal has fired
    */
   test("forces stage two at the deadline and names the pending route", async () => {
@@ -88,7 +88,7 @@ describe("bounded graceful shutdown", () => {
     let sawExecutionAbort = false;
 
     t = await testContext()
-      .with({ shutdown: { timeoutMs: 250 } })
+      .with({ shutdown: { timeout: 250 } })
       .routes(
         craft()
           .id("wedged")
@@ -149,19 +149,17 @@ describe("bounded graceful shutdown", () => {
   });
 
   /**
-   * @case shutdown.timeoutMs is refused at construction when it cannot bound anything
+   * @case shutdown.timeout is refused at construction when it cannot bound anything
    * @preconditions Contexts configured with 0, a negative, NaN and Infinity
    * @expectedResult Each refuses with RC5058 while the context is being built. Refused rather than clamped: `0` reads as "no bound" and a clamp would make it mean "force immediately", which is its opposite
    */
   test("refuses a shutdown timeout that cannot bound anything", () => {
-    for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(() => new CraftContext({ shutdown: { timeoutMs } })).toThrow(
-        /shutdown\.timeoutMs must be a positive number/,
+    for (const timeout of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new CraftContext({ shutdown: { timeout } })).toThrow(
+        /shutdown\.timeout must be a positive number/,
       );
     }
-    expect(
-      () => new CraftContext({ shutdown: { timeoutMs: 1 } }),
-    ).not.toThrow();
+    expect(() => new CraftContext({ shutdown: { timeout: 1 } })).not.toThrow();
     expect(() => new CraftContext({})).not.toThrow();
   });
 
@@ -251,7 +249,7 @@ describe("bounded graceful shutdown", () => {
 
   /**
    * @case A forced shutdown is visible to a subscriber, not only to the caller holding the return value
-   * @preconditions A step that never settles, and a short shutdown.timeoutMs
+   * @preconditions A step that never settles, and a short shutdown.timeout
    * @expectedResult context:stopped carries forced true and names the abandoned route, matching what stop() resolves with
    */
   test("context:stopped reports a forced outcome", async () => {
@@ -259,7 +257,7 @@ describe("bounded graceful shutdown", () => {
     const inStep = entered();
 
     t = await testContext()
-      .with({ shutdown: { timeoutMs: 250 } })
+      .with({ shutdown: { timeout: 250 } })
       .routes(
         craft()
           .id("wedged")

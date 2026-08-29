@@ -1,5 +1,7 @@
 import type { Enricher } from "../../operations/enrich.ts";
+import { anySignal } from "../../shared/abort.ts";
 import type { Exchange } from "../../exchange";
+import { parseDuration } from "../../shared/duration.ts";
 import { rcError } from "../../error";
 import {
   declaredLengthOver,
@@ -95,7 +97,10 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     const query = this.resolve(this.options.query, exchange);
     const resolvedBody = this.resolve(this.options.body, exchange);
     const throwOnHttpError = this.options.throwOnHttpError ?? true;
-    const timeoutMs = this.options.timeoutMs ?? undefined;
+    const timeoutMs =
+      this.options.timeout === undefined
+        ? undefined
+        : parseDuration(this.options.timeout, "http({ timeout })");
 
     const finalUrl = this.appendQuery(url, query ?? {});
 
@@ -118,14 +123,10 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     const timeout = timeoutMs
       ? setTimeout(() => controller!.abort(), timeoutMs)
       : undefined;
-    // Combine the adapter's own timeoutMs controller with the step's
+    // Combine the adapter's own timeout controller with the step's
     // signal (an enclosing `.timeout()` deadline): whichever fires
     // first aborts the request.
-    const signals = [controller?.signal, stepSignal].filter(
-      (s): s is AbortSignal => s !== undefined,
-    );
-    const signal =
-      signals.length > 1 ? AbortSignal.any(signals) : (signals[0] ?? undefined);
+    const signal = anySignal(controller?.signal, stepSignal);
 
     try {
       const res = (await globalThis.fetch(finalUrl, {

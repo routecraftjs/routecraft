@@ -1,3 +1,4 @@
+import type { Duration } from "../../shared/duration.ts";
 /**
  * Cron expression with autocomplete for nicknames and common patterns.
  * Accepts any valid cron string (5-field or 6-field) as well.
@@ -39,13 +40,14 @@ export interface CronOptions {
   maxFires?: number;
 
   /**
-   * Random delay in milliseconds added to each trigger to prevent
-   * synchronized spikes in distributed deployments.
-   * Recommended: 1000-30000 for production workloads.
+   * Upper bound on a random delay added to each trigger, to prevent
+   * synchronized spikes in distributed deployments. Each delay is drawn
+   * uniformly from `[0, maxJitter)`.
+   * Recommended: "1s" to "30s" for production workloads.
    * Can be set globally via `ADAPTER_CRON_OPTIONS` in the context store.
    * @default 0
    */
-  jitterMs?: number;
+  maxJitter?: Duration;
 
   /**
    * Human-readable name for the cron job, used in headers for observability

@@ -1,3 +1,4 @@
+import type { Duration } from "../../shared/duration.ts";
 import type { Exchange } from "../../exchange";
 import type {
   OAuthValidatorAuthOptions,
@@ -54,7 +55,8 @@ export interface HttpClientOptions<T = unknown> {
     | ((exchange: Exchange<T>) => Record<string, string>);
   query?: QueryParams | ((exchange: Exchange<T>) => QueryParams);
   body?: unknown | ((exchange: Exchange<T>) => unknown);
-  timeoutMs?: number;
+  /** Abandon the request after this long. No deadline when unset. */
+  timeout?: Duration;
   throwOnHttpError?: boolean;
   /**
    * Maximum response body size in bytes. Defaults to 10 MB, the same name

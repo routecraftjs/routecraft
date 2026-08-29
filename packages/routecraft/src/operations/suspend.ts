@@ -2,8 +2,8 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { rcError } from "../error.ts";
 import { type Exchange, OperationType } from "../exchange.ts";
 import type { Adapter, StepOutcome } from "../types.ts";
-import type { Duration } from "../suspension/duration.ts";
-import { parseDuration } from "../suspension/duration.ts";
+import type { Duration } from "../shared/duration.ts";
+import { parseDuration } from "../shared/duration.ts";
 import type { SuspendSite, SuspendableStep } from "../suspension/sites.ts";
 
 /**

@@ -289,7 +289,7 @@ describe("forward() header propagation", () => {
           .from(direct())
           .circuitBreaker({
             failureThreshold: 1,
-            cooldownMs: 10_000,
+            cooldown: 10_000,
             fallback: (_ex, forward) => forward("cb-recovery" as never, {}),
           })
           .transform(() => {

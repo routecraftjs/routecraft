@@ -26,7 +26,7 @@ When the route declares `.input()` with a body schema before `.from()`, `T` defa
 
 ```ts
 .id('timer-route')
-.from(timer({ intervalMs: 1000 }))
+.from(timer({ interval: 1000 }))
 
 // Generator source: each yield becomes one exchange
 .id('data-fetcher')

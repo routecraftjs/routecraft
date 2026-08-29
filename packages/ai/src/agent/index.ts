@@ -4,6 +4,7 @@ export {
   type AgentBinding,
   type AgentByNameOverrides,
 } from "./enricher.ts";
+export type { AgentStream } from "./delta-stream.ts";
 export type { AgentDelta, AgentDeltaListener } from "./events.ts";
 export { agents, type AgentMarkdownOverride } from "./loader.ts";
 export { agentPlugin, type AgentPluginOptions } from "./plugin.ts";

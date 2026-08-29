@@ -148,6 +148,7 @@ export type {
   AgentRegisteredOptions,
   AgentResult,
   AgentStepState,
+  AgentStream,
   AgentSuspendOptions,
   AgentSuspendSentinel,
   AgentToolCallSummary,

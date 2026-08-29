@@ -1802,11 +1802,11 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case Only the path-suffixed RFC 9728 metadata URL is claimed by the MCP mount
+       * @case The MCP mount claims the path-suffixed RFC 9728 metadata URL; the root falls to the ingress
        * @preconditions Default cors policy; GET /.well-known/oauth-protected-resource and /.well-known/oauth-protected-resource/mcp
-       * @expectedResult The suffixed variant (the RFC 9728 section 3 probe for a resource at /mcp) returns 200; the bare root belongs to the / mount and 404s here
+       * @expectedResult The suffixed variant (the RFC 9728 section 3 probe for a resource at /mcp) returns 200 under the MCP mount's CORS policy; the bare root is served by the core ingress as the server-level document, without MCP's CORS headers, and carries no MCP resource_name
        */
-      test("path-suffixed metadata URL is served; bare root is not claimed", async () => {
+      test("path-suffixed metadata URL is served; bare root falls to the ingress", async () => {
         const { get } = await startHttpServer([]);
         const rootRes = await get("/.well-known/oauth-protected-resource", {
           Origin: LOOPBACK_ORIGIN,
@@ -1814,7 +1814,14 @@ describe("McpServer", () => {
         const suffRes = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
-        expect(rootRes.statusCode).toBe(404);
+        expect(rootRes.statusCode).toBe(200);
+        const rootDoc = JSON.parse(rootRes.body) as {
+          resource_name?: string;
+          bearer_methods_supported?: string[];
+        };
+        expect(rootDoc.bearer_methods_supported).toEqual(["header"]);
+        expect(rootDoc.resource_name).toBeUndefined();
+        expect(rootRes.headers["access-control-allow-origin"]).toBeUndefined();
         expect(suffRes.statusCode).toBe(200);
         expect(suffRes.headers["access-control-allow-origin"]).toBe(
           LOOPBACK_ORIGIN,
@@ -2206,9 +2213,9 @@ describe("McpServer", () => {
       });
 
       /**
-       * @case OAuth-proxy mode: the suffixed metadata URL serves the framework document, the bare root is unclaimed
+       * @case OAuth-proxy mode: the suffixed metadata URL serves the framework document, the bare root falls to the ingress
        * @preconditions oauth() auth; GET the bare root and the path-suffixed metadata URL from loopback Origin
-       * @expectedResult The suffixed URL returns 200 with `bearer_methods_supported` (proving our handler wins over the SDK's doc); the bare root 404s
+       * @expectedResult The suffixed URL returns 200 with `bearer_methods_supported` (proving our handler wins over the SDK's doc); the bare root is the core ingress's server-level document without MCP's resource_name
        */
       test("OAuth-proxy mode serves framework metadata at the suffixed URL only", async () => {
         const auth = await buildOAuthAuth();
@@ -2222,7 +2229,11 @@ describe("McpServer", () => {
         const suffRes = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: LOOPBACK_ORIGIN,
         });
-        expect(rootRes.statusCode).toBe(404);
+        expect(rootRes.statusCode).toBe(200);
+        expect(
+          (JSON.parse(rootRes.body) as { resource_name?: string })
+            .resource_name,
+        ).toBeUndefined();
         expect(suffRes.statusCode).toBe(200);
         const doc = JSON.parse(suffRes.body) as {
           bearer_methods_supported?: string[];

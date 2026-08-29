@@ -24,6 +24,7 @@ export {
 } from "./auth/error-classification.ts";
 export { isPrincipalExpired } from "./auth/expiry.ts";
 export { isRestored, markRestored } from "./auth/restored.ts";
+export { timingSafeStringEqual } from "./auth/timing-safe.ts";
 export type {
   ActorMatcher,
   ClaimMappers,
@@ -65,7 +66,12 @@ export {
   type ShutdownOutcome,
   type TeardownInfo,
 } from "./context.ts";
-export { type Capability, registerCapability } from "./capabilities.ts";
+export {
+  type Capability,
+  isInternalEndpoint,
+  registerCapability,
+  registerInternalEndpoint,
+} from "./capabilities.ts";
 export { defineConfig } from "./define-config.ts";
 export { registerConfigApplier, type ConfigApplier } from "./config-applier.ts";
 export {
@@ -109,6 +115,22 @@ export type {
   WebIngress,
 } from "./plugins/server/types.ts";
 export { apiKey } from "./plugins/http/auth.ts";
+export type { SseEvent } from "./plugins/http/sse.ts";
+export {
+  bearerChallenge,
+  buildProtectedResourceMetadata,
+  PROTECTED_RESOURCE_METADATA_PATH,
+  resourceMetadataUrlFor,
+  type ProtectedResourceMetadata,
+  type ProtectedResourceMetadataInput,
+} from "./plugins/server/protected-resource.ts";
+export {
+  buildCorsHeaders,
+  defaultLoopbackOriginResolver,
+  resolveCorsOptions,
+  type HttpCorsOptions,
+  type HttpCorsOriginResolver,
+} from "./plugins/server/cors.ts";
 
 export { opsPlugin } from "./plugins/ops/plugin.ts";
 export { defineIndicator } from "./plugins/ops/indicator.ts";
@@ -142,6 +164,7 @@ export type {
   OpsRouteFilter,
   OpsRouteQuery,
   OpsRouteSchemas,
+  OpsEventTailItem,
   OpsRouteSummary,
   OpsTier,
   OpsTiers,
@@ -149,6 +172,7 @@ export type {
 } from "./plugins/ops/types.ts";
 export {
   OPS_SCOPE_DISPATCH,
+  OPS_SCOPE_EVENTS,
   OPS_SCOPE_INTROSPECTION,
 } from "./plugins/ops/types.ts";
 /** @deprecated Use `CraftConfig.direct` instead. Will be removed in next major version. */
@@ -388,6 +412,19 @@ export {
 
 export { validateAgainst } from "./pipeline/validation.ts";
 export { isStandardSchema } from "./shared/standard-schema.ts";
+export { parseDuration } from "./shared/duration.ts";
+export { rejectStaleOptions } from "./shared/stale-options.ts";
+export { anySignal } from "./shared/abort.ts";
+export { MANUAL_REFRESH, NEVER_FORCE } from "./enablement.ts";
+export type {
+  EnablementOptions,
+  EnablementPredicate,
+  EnablementState,
+  EnablementVerdict,
+  RefreshCadence,
+  RouteEnablement,
+} from "./enablement.ts";
+export type { Duration, DurationUnit } from "./shared/duration.ts";
 
 export {
   isCraftContext,
@@ -612,15 +649,12 @@ export {
   isSuspendSignal,
   isSuspended,
   markSuspendCapable,
-  parseDuration,
   routeCanSuspend,
   stepStateFingerprint,
   suspendedSchema,
   suspensionPlugin,
 } from "./suspension/index.ts";
 export type {
-  Duration,
-  DurationUnit,
   ExpiredScanCursor,
   NewSuspension,
   SuspendSignalRequest,

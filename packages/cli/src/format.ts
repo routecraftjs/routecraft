@@ -81,13 +81,26 @@ export function renderRoutes(
   }
   if (routes.length === 0) return "No routes.";
 
+  // The ENABLED column only appears when something is actually disabled.
+  // On the common all-enabled listing it would be a column of "yes".
+  const anyDisabled = routes.some((route) => route.enabled === false);
   const rows = routes.map((route) => [
     route.id,
     route.dispatchable ? "yes" : "no",
+    ...(anyDisabled ? [route.enabled ? "yes" : "no"] : []),
     route.sources.join(", "),
     route.title ?? route.description ?? "",
   ]);
-  return table(["ROUTE", "DISPATCHABLE", "SOURCES", ""], rows);
+  return table(
+    [
+      "ROUTE",
+      "DISPATCHABLE",
+      ...(anyDisabled ? ["ENABLED"] : []),
+      "SOURCES",
+      "",
+    ],
+    rows,
+  );
 }
 
 /** Render one route, optionally alongside its health component. */
@@ -112,6 +125,7 @@ export function renderRouteDetail(
       lines.push(`Description  ${route.description}`);
     }
     lines.push(`Dispatchable ${route.dispatchable ? "yes" : "no"}`);
+    lines.push(`Enabled      ${route.enabled ? "yes" : "no"}`);
     lines.push(`Sources      ${route.sources.join(", ")}`);
     if (route.requiresPrincipal) {
       lines.push(`Authorize    route entry requires a principal`);

@@ -277,7 +277,7 @@ describe("agent durable suspension (ctx.suspend)", () => {
         // cancels the resumed run: graceful stage one drains rather than
         // cancels. A short deadline keeps the test honest about which stage
         // does the cancelling.
-        shutdown: { timeoutMs: 300 },
+        shutdown: { timeout: 300 },
         plugins: plugins({ ask: askFn, hang }),
       })
       .routes([
@@ -755,7 +755,9 @@ describe("agent durable suspension (ctx.suspend)", () => {
       options: { model: MODEL, system: "x", tools: tools(["ask"]) },
     });
     const exchange = new DefaultExchange(t.ctx, { body: "go", headers: {} });
-    const result = await adapter.fetch(exchange);
+    // The adapter's declared output widened to include the delta stream
+    // that `stream: true` produces; this dispatch is the consolidated arm.
+    const result = (await adapter.fetch(exchange)) as AgentResult;
 
     expect(result.text).toBe("recovered without suspending");
     expect(result.toolCalls).toHaveLength(1);

@@ -207,6 +207,72 @@ describe("CLI settings resolution", () => {
   });
 
   /**
+   * @case An empty environment variable is not a credential
+   * @preconditions CRAFT_TOKEN exported empty, as an unset variable in a shell profile leaves it, with a token in the project file
+   * @expectedResult The file's token wins. Read as present, the empty value makes the client present a bearer with nothing after it, and the operator is told their credential was rejected when they never supplied one
+   */
+  test("ignores a blank environment value", () => {
+    const root = scratch("token: from_file\n");
+
+    const settings = resolveSettings({
+      home,
+      cwd: root,
+      env: { CRAFT_TOKEN: "" },
+    });
+
+    expect(settings.token?.value).toBe("from_file");
+    expect(settings.token?.source).toBe("project file");
+  });
+
+  /**
+   * @case An empty flag is not a value either
+   * @preconditions --token and --url given as empty strings, which is what `--token "$UNSET"` expands to
+   * @expectedResult Both fall through: no credential at all, and the default address rather than an empty one
+   */
+  test("ignores a blank flag", () => {
+    const root = mkdtempSync(join(tmpdir(), "craft-settings-blank-"));
+    roots.push(root);
+
+    const settings = resolveSettings({
+      home,
+      cwd: root,
+      env: {},
+      token: "",
+      url: "   ",
+    });
+
+    expect(settings.token).toBeUndefined();
+    expect(settings.url.value).toBe(DEFAULT_URL);
+    expect(settings.url.source).toBe("default");
+  });
+
+  /**
+   * @case A blank value written into a file is still an error
+   * @preconditions A settings file carrying `url:` with nothing after it
+   * @expectedResult SettingsError. Somebody typed it and left it, so quietly using the default would hide the mistake rather than explain it, which is the opposite of what the blank-flag rule is for
+   */
+  test("still refuses a blank url in a settings file", () => {
+    const root = scratch("url: ''\n");
+
+    expect(() => resolveSettings({ home, cwd: root, env: {} })).toThrow(
+      SettingsError,
+    );
+  });
+
+  /**
+   * @case A blank token written into a file is refused, not presented
+   * @preconditions A settings file carrying an empty token string
+   * @expectedResult SettingsError. It is the one source a blank can only reach by hand, and presenting it makes the client send a bearer with nothing after it, which is the misdiagnosis this whole rule exists to remove
+   */
+  test("refuses a blank token in a settings file", () => {
+    const root = scratch('token: ""\n');
+
+    expect(() => resolveSettings({ home, cwd: root, env: {} })).toThrow(
+      SettingsError,
+    );
+  });
+
+  /**
    * @case A missing settings file is the normal case and says nothing
    * @preconditions A working directory with no .routecraft directory at all
    * @expectedResult Defaults, with no error: not having a personal settings file is how most invocations run
@@ -216,5 +282,49 @@ describe("CLI settings resolution", () => {
     roots.push(root);
     const settings = resolveSettings({ home, cwd: root, env: {} });
     expect(settings.url.value).toBe(DEFAULT_URL);
+  });
+
+  /**
+   * @case The .yml spelling is read exactly like .yaml
+   * @preconditions A working directory carrying only .routecraft/settings.yml
+   * @expectedResult Values resolve from it with the file's own path as provenance, so an operator who typed the shorter extension is not silently on defaults
+   */
+  test("accepts settings.yml as an alternate spelling", () => {
+    const root = mkdtempSync(join(tmpdir(), "craft-settings-yml-"));
+    roots.push(root);
+    mkdirSync(join(root, ".routecraft"), { recursive: true });
+    writeFileSync(
+      join(root, ".routecraft", "settings.yml"),
+      "url: http://10.0.0.7:9090\n",
+      "utf8",
+    );
+    const settings = resolveSettings({ home, cwd: root, env: {} });
+    expect(settings.url.value).toBe("http://10.0.0.7:9090");
+    expect(settings.url.source).toBe("project file");
+    expect(settings.url.path).toContain("settings.yml");
+  });
+
+  /**
+   * @case Both spellings in one location refuse with both paths named
+   * @preconditions .routecraft/settings.yaml and .routecraft/settings.yml both present in the working directory
+   * @expectedResult SettingsError naming both files. A silent preference would leave edits to the unread file unexplained, which is a debugging trap
+   */
+  test("refuses when both settings.yaml and settings.yml exist", () => {
+    const root = scratch("url: http://from-yaml:8080\n");
+    writeFileSync(
+      join(root, ".routecraft", "settings.yml"),
+      "url: http://from-yml:8080\n",
+      "utf8",
+    );
+    let thrown: unknown;
+    try {
+      resolveSettings({ home, cwd: root, env: {} });
+    } catch (error: unknown) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(SettingsError);
+    const message = (thrown as Error).message;
+    expect(message).toContain("settings.yaml");
+    expect(message).toContain("settings.yml");
   });
 });

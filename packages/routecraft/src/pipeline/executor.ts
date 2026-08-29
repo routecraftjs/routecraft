@@ -1,4 +1,5 @@
 import type { CraftContext } from "../context.ts";
+import { anySignal } from "../shared/abort.ts";
 import {
   type Exchange,
   HeadersKeys,
@@ -1203,9 +1204,7 @@ function buildRetrySegmentStep(
           // abandonment that emits no terminal event at all. An abandoned
           // run must also stop sleeping between attempts, hence `abandon`:
           // a backoff outlives the deadline that abandoned it.
-          signal: abandon
-            ? AbortSignal.any([deps.route.intakeSignal, abandon])
-            : deps.route.intakeSignal,
+          signal: anySignal(deps.route.intakeSignal, abandon),
           onStarted: () => {
             deps.context.emit("route:retry:started", {
               ...scoped,
@@ -1374,9 +1373,7 @@ function buildConcurrencySegmentStep(
           // that will never free. Also cancelled when an outer segment
           // abandons this attempt (e.g. a route-scope timeout firing while
           // this exchange is still parked in the bulkhead queue).
-          signal: abandon
-            ? AbortSignal.any([deps.route.intakeSignal, abandon])
-            : deps.route.intakeSignal,
+          signal: anySignal(deps.route.intakeSignal, abandon),
           ...concurrencyEmitHooks(deps.context, scoped, true),
         },
         async () =>

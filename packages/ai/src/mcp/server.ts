@@ -1,11 +1,13 @@
 import type { CraftContext } from "@routecraft/routecraft";
 import {
+  buildProtectedResourceMetadata,
   DefaultExchange,
   HeadersKeys,
   isRoutecraftError,
   isSuspended,
   markAuthentic,
   requireWebIngress,
+  type ProtectedResourceMetadata,
 } from "@routecraft/routecraft";
 import type { PathClaim, WebIngress } from "@routecraft/routecraft";
 import type {
@@ -178,22 +180,6 @@ type SdkServerOptions = {
   capabilities: { tools: Record<string, unknown> };
   instructions?: string;
 };
-
-/**
- * RFC 9728 OAuth 2.0 Protected Resource Metadata payload returned by
- * `GET /.well-known/oauth-protected-resource`. Optional fields are omitted
- * from the JSON when unset.
- *
- * @internal
- */
-interface ProtectedResourceMetadata {
-  resource: string;
-  resource_name?: string;
-  authorization_servers?: string[];
-  bearer_methods_supported: ["header"];
-  scopes_supported?: string[];
-  resource_documentation?: string;
-}
 
 /**
  * McpServer wraps the MCP SDK and bridges it to Routecraft's DirectChannel
@@ -622,7 +608,7 @@ export class McpServer {
     issuer: string | string[] | undefined,
     corsHeaders: Record<string, string>,
   ): Response {
-    const metadata = this.buildProtectedResourceMetadata(
+    const metadata = this.buildMcpResourceMetadata(
       this.resourceUrlFor(ingress, path),
       issuer,
     );
@@ -905,7 +891,8 @@ export class McpServer {
   }
 
   /**
-   * Build the RFC 9728 protected-resource metadata document.
+   * Build the RFC 9728 protected-resource metadata document for this MCP
+   * server, through the shared core builder.
    *
    * `resourceUrl` is a required parameter rather than a default the caller
    * patches afterwards: the resolved identity depends on the bound address,
@@ -918,31 +905,22 @@ export class McpServer {
    *
    * @internal
    */
-  private buildProtectedResourceMetadata(
+  private buildMcpResourceMetadata(
     resourceUrl: string,
     issuer: string | string[] | undefined,
   ): ProtectedResourceMetadata {
-    const metadata: ProtectedResourceMetadata = {
-      resource: resourceUrl,
-      bearer_methods_supported: ["header"],
-    };
-    metadata.resource_name = this.resolveResourceName();
-
-    if (issuer !== undefined) {
-      metadata.authorization_servers = Array.isArray(issuer)
-        ? issuer
-        : [issuer];
-    }
-
     const resource = this.options.resource;
-    if (resource?.scopesSupported && resource.scopesSupported.length > 0) {
-      metadata.scopes_supported = resource.scopesSupported;
-    }
-    if (resource?.documentationUrl !== undefined) {
-      metadata.resource_documentation = resource.documentationUrl.toString();
-    }
-
-    return metadata;
+    return buildProtectedResourceMetadata({
+      resource: resourceUrl,
+      resourceName: this.resolveResourceName(),
+      ...(issuer !== undefined ? { issuer } : {}),
+      ...(resource?.scopesSupported !== undefined
+        ? { scopesSupported: resource.scopesSupported }
+        : {}),
+      ...(resource?.documentationUrl !== undefined
+        ? { documentationUrl: resource.documentationUrl.toString() }
+        : {}),
+    });
   }
 
   /**

@@ -20,10 +20,14 @@ import {
   methodNotAllowed,
   missingCredentialResponse,
 } from "../http/response";
+import { bearerChallenge } from "../server/protected-resource.ts";
+import { principalExpirySignal } from "../../auth/expiry.ts";
+import { anySignal } from "../../shared/abort.ts";
+import { sseResponse, type SseEvent } from "../http/sse";
 import type { HttpMountContext } from "../server/types";
 import type { ManagementApi } from "./management";
 import { admitToTier, type TierVerdict } from "./tier";
-import type { OpsRouteQuery, OpsTiers } from "./types";
+import type { OpsEventTailItem, OpsRouteQuery, OpsTiers } from "./types";
 
 export interface ManagementHandlerOptions {
   api: ManagementApi;
@@ -49,6 +53,8 @@ export interface ManagementHandlerOptions {
 const ROUTES_COLLECTION = "/ops/routes";
 const ROUTE_DETAIL = /^\/ops\/routes\/([^/]+)$/;
 const ROUTE_EXCHANGES = /^\/ops\/routes\/([^/]+)\/exchanges$/;
+/** `GET /ops/events`. */
+const EVENTS = "/ops/events";
 
 /**
  * Percent-decode a path segment, or `undefined` when the escape is
@@ -68,6 +74,19 @@ const notFound = (): Response =>
   jsonResponse({ error: "not found" }, { status: 404 });
 
 /**
+ * The listener is already carrying its full complement of streams.
+ *
+ * 503 rather than 429: nothing about this caller is wrong, and the condition
+ * clears as other streams end, which is what `Retry-After` says. The delay is
+ * a hint rather than a promise, since no one can know when a slot frees.
+ */
+const listenerFull = (): Response =>
+  jsonResponse(
+    { error: "service unavailable", reason: "streaming_capacity" },
+    { status: 503, headers: { "retry-after": "5" } },
+  );
+
+/**
  * Turn a refusal into its wire form.
  *
  * A disabled tier answers 404 rather than 403 so an instance discloses
@@ -79,6 +98,7 @@ const notFound = (): Response =>
 function refuse(
   verdict: Exclude<TierVerdict, { kind: "admit" }>,
   onRefused: ManagementHandlerOptions["onRefused"],
+  requestUrl: string,
 ): Response {
   // A disabled tier is not an auth decision: it answers 404 to everyone, so
   // reporting it as a rejection would count configuration as probing.
@@ -90,15 +110,24 @@ function refuse(
       reason: missingCredentialReason(verdict.scheme),
       scheme: verdict.scheme,
     });
-    return missingCredentialResponse(verdict.scheme);
+    return missingCredentialResponse(verdict.scheme, requestUrl);
   }
   onRefused?.({ reason: "insufficient_scope", scheme: verdict.scheme });
   // Bearer-only challenge: announcing `Bearer` to an api-key client points it
   // at a ceremony it cannot perform (same rule as missingCredentialResponse).
+  // The RFC 9728 `resource_metadata` hint rides the 403 too: the identity
+  // was fine and the credential was not, and the document names the issuer
+  // a caller must go back to for one carrying the missing scope.
   const headers =
     verdict.scheme === "bearer"
       ? {
-          "www-authenticate": `Bearer realm="routecraft", error="insufficient_scope", scope="${verdict.missing}"`,
+          "www-authenticate": bearerChallenge({
+            requestUrl,
+            params: {
+              error: "insufficient_scope",
+              scope: verdict.missing,
+            },
+          }),
         }
       : undefined;
   return jsonResponse(
@@ -154,7 +183,7 @@ export function createManagementHandler(
 
     if (pathname === ROUTES_COLLECTION || detailMatch) {
       const verdict = await admitToTier(tiers.introspection, context);
-      if (verdict.kind !== "admit") return refuse(verdict, onRefused);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused, req.url);
       if (req.method !== "GET" && req.method !== "HEAD") {
         return methodNotAllowed("GET, HEAD");
       }
@@ -163,9 +192,41 @@ export function createManagementHandler(
         : describeRoute(api, detailMatch![1]!);
     }
 
+    if (pathname === EVENTS) {
+      const verdict = await admitToTier(tiers.events, context);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused, req.url);
+      if (req.method !== "GET") {
+        return methodNotAllowed("GET");
+      }
+      // A tail may say nothing for hours, which is exactly what the
+      // listener's idle reaper exists to cut. The rest of this mount is
+      // ordinary request/response, so the slot is claimed for this request
+      // rather than declared for the whole surface.
+      const release = context.claimStreamingSlot();
+      if (release === undefined) return listenerFull();
+      // Admission is checked once, and this tail may outlive the credential
+      // that passed it by hours. The rule is the http source's, and it bites
+      // hardest here: this is the surface that streams failure events with
+      // their messages and stack traces, so it is the last one that should
+      // keep serving on lapsed authority. Closing is the whole remedy, since
+      // a 401 cannot follow the 200 already on the wire and an EventSource
+      // reconnects into ordinary admission.
+      // No event and no wire message: the close IS the signal, and inventing
+      // an auth:rejected reason for it would put a value outside the bounded
+      // vocabulary onto a surface an operator counts refusals from.
+      const expiry = principalExpirySignal(verdict.principal, {
+        clockToleranceSec: verdict.clockToleranceSec,
+      });
+      const closes = anySignal(req.signal, expiry?.signal);
+      return sseResponse(tailEvents(api, closes), closes, () => {
+        expiry?.cancel();
+        release();
+      });
+    }
+
     if (exchangesMatch) {
       const verdict = await admitToTier(tiers.dispatch, context);
-      if (verdict.kind !== "admit") return refuse(verdict, onRefused);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused, req.url);
       if (req.method !== "POST") {
         return methodNotAllowed("POST");
       }
@@ -265,8 +326,11 @@ async function dispatchExchange(
     // whatever its steps threw, and `rcError` messages routinely interpolate
     // the cause: adapter failures carry hostnames, file paths and upstream
     // response text. On an open dispatch tier that is reconnaissance for
-    // anyone who can reach the port, and it would contradict the same
-    // surface's rule that no response body carries an error message. The code
+    // anyone who can reach the port, and it would contradict the health
+    // surface's rule that no response body carries an error message. That
+    // rule governs dispatch and health; the event tail is a separately
+    // scope-gated observation surface and does carry messages, on purpose,
+    // because a failure event without one is not diagnostic. The code
     // is enough to tell an authorize refusal from a broken step; the message
     // is in the logs, where the error policy already routes it.
     return jsonResponse({ error: "dispatch failed", code }, { status: 500 });
@@ -275,4 +339,34 @@ async function dispatchExchange(
 
 function badRequest(message: string): Response {
   return jsonResponse({ error: "bad request", message }, { status: 400 });
+}
+
+/**
+ * Map the tail's items onto the wire.
+ *
+ * The bus event name rides the SSE `event` field so a client can subscribe
+ * to one kind, and repeats inside `data` because a reader consuming the
+ * body with `fetch` rather than `EventSource` sees the payload and not the
+ * fields. The tail's own signals are not bus events and do not borrow a
+ * bus name: a drop is named for what it is, and a heartbeat is the spec's
+ * comment, which every client already ignores.
+ */
+async function* tailEvents(
+  api: ManagementApi,
+  signal: AbortSignal,
+): AsyncIterable<SseEvent | string> {
+  for await (const item of api.tailEvents(signal)) {
+    yield frameOf(item);
+  }
+}
+
+function frameOf(item: OpsEventTailItem): SseEvent | string {
+  if (item.kind === "heartbeat") return ": keep-alive\n\n";
+  if (item.kind === "dropped") {
+    return { event: "ops:events:dropped", data: { count: item.count } };
+  }
+  // Already rendered at emission, so it passes through untouched: sending it
+  // back through the serialiser would escape it a second time and hand the
+  // reader a JSON string where it expects an object.
+  return { event: item.name, data: item.data };
 }

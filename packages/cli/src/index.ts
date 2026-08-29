@@ -136,8 +136,8 @@ program
     "Shut down after the first exchange reaches a terminal outcome",
   )
   .option(
-    "--timeout <ms>",
-    "With --once, give up and exit non-zero after this many milliseconds",
+    "--timeout <duration>",
+    'With --once, give up and exit non-zero after this long (milliseconds, or a duration string like "30s")',
   )
   .action(
     async (
@@ -155,18 +155,25 @@ program
       loadEnvFile(options.env, projectRoot);
 
       const { startCommand } = await import("./start.js");
-      const timeoutMs =
-        options.timeout === undefined ? undefined : Number(options.timeout);
-      if (
-        timeoutMs !== undefined &&
-        (!Number.isFinite(timeoutMs) || timeoutMs < 1)
-      ) {
-        // eslint-disable-next-line no-console
-        console.error(
-          `--timeout must be a number of milliseconds, at least 1. Received "${String(options.timeout)}".`,
-        );
-        setImmediate(() => process.exit(1));
-        return;
+      // A bare number stays milliseconds, so every existing invocation keeps
+      // working; anything else goes through the framework's duration grammar
+      // so `--timeout 30s` means what it reads as.
+      let timeoutMs: number | undefined;
+      if (options.timeout !== undefined) {
+        const { parseDuration } = await import("@routecraft/routecraft");
+        const raw = /^\d+(\.\d+)?$/.test(options.timeout.trim())
+          ? Number(options.timeout)
+          : (options.timeout as `${number}s`);
+        try {
+          timeoutMs = parseDuration(raw, "--timeout");
+        } catch {
+          // eslint-disable-next-line no-console
+          console.error(
+            `--timeout must be a number of milliseconds (at least 1) or a duration string like "30s". Received "${String(options.timeout)}".`,
+          );
+          setImmediate(() => process.exit(1));
+          return;
+        }
       }
       if (timeoutMs !== undefined && options.once !== true) {
         // eslint-disable-next-line no-console

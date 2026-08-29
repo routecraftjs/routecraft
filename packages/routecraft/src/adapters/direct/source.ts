@@ -1,6 +1,7 @@
 import type { Exchange } from "../../exchange";
 import type { Source, Subscription } from "../../operations/from";
 import { rcError } from "../../error";
+import { registerInternalEndpoint } from "../../capabilities";
 import type { DirectServerOptions } from "./types";
 import { getDirectChannel, registerRoute, sanitizeEndpoint } from "./shared";
 
@@ -39,8 +40,15 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
     const endpoint = sanitizeEndpoint(meta.routeId);
 
     // Discovery speaks raw route ids; the sanitised key is only for the
-    // channel map.
-    registerRoute(context, meta.routeId, meta.discovery);
+    // channel map. An internal route registers its internal-ness INSTEAD
+    // of a capability: the in-process endpoint below works unchanged,
+    // while ops dispatch and directTool resolution find no capability and
+    // can refuse by name.
+    if (this.options.internal === true) {
+      registerInternalEndpoint(context, meta.routeId);
+    } else {
+      registerRoute(context, meta.routeId, meta.discovery);
+    }
 
     context.logger.debug(
       { endpoint, adapter: "direct" },
