@@ -240,7 +240,7 @@ export function createOpsClient(settings: ResolvedSettings): OpsClient {
       lines.push(
         discovery.issuers !== undefined && discovery.issuers.length > 0
           ? `Tokens are issued by ${discovery.issuers.join(", ")}.`
-          : "The instance advertises no authorization server: its credential is configured locally (a static key or a self-signed JWT), so ask whoever operates it.",
+          : "The instance advertises no authorization server, so discovery cannot say who issues. Ask whoever operates the instance how to obtain a credential.",
       );
       if (discovery.scopes !== undefined && discovery.scopes.length > 0) {
         lines.push(
