@@ -20,6 +20,7 @@ import {
   methodNotAllowed,
   missingCredentialResponse,
 } from "../http/response";
+import { bearerChallenge } from "../server/protected-resource.ts";
 import { principalExpirySignal } from "../../auth/expiry.ts";
 import { anySignal } from "../../shared/abort.ts";
 import { sseResponse, type SseEvent } from "../http/sse";
@@ -97,6 +98,7 @@ const listenerFull = (): Response =>
 function refuse(
   verdict: Exclude<TierVerdict, { kind: "admit" }>,
   onRefused: ManagementHandlerOptions["onRefused"],
+  requestUrl: string,
 ): Response {
   // A disabled tier is not an auth decision: it answers 404 to everyone, so
   // reporting it as a rejection would count configuration as probing.
@@ -108,15 +110,24 @@ function refuse(
       reason: missingCredentialReason(verdict.scheme),
       scheme: verdict.scheme,
     });
-    return missingCredentialResponse(verdict.scheme);
+    return missingCredentialResponse(verdict.scheme, requestUrl);
   }
   onRefused?.({ reason: "insufficient_scope", scheme: verdict.scheme });
   // Bearer-only challenge: announcing `Bearer` to an api-key client points it
   // at a ceremony it cannot perform (same rule as missingCredentialResponse).
+  // The RFC 9728 `resource_metadata` hint rides the 403 too: the identity
+  // was fine and the credential was not, and the document names the issuer
+  // a caller must go back to for one carrying the missing scope.
   const headers =
     verdict.scheme === "bearer"
       ? {
-          "www-authenticate": `Bearer realm="routecraft", error="insufficient_scope", scope="${verdict.missing}"`,
+          "www-authenticate": bearerChallenge({
+            requestUrl,
+            params: {
+              error: "insufficient_scope",
+              scope: verdict.missing,
+            },
+          }),
         }
       : undefined;
   return jsonResponse(
@@ -172,7 +183,7 @@ export function createManagementHandler(
 
     if (pathname === ROUTES_COLLECTION || detailMatch) {
       const verdict = await admitToTier(tiers.introspection, context);
-      if (verdict.kind !== "admit") return refuse(verdict, onRefused);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused, req.url);
       if (req.method !== "GET" && req.method !== "HEAD") {
         return methodNotAllowed("GET, HEAD");
       }
@@ -183,7 +194,7 @@ export function createManagementHandler(
 
     if (pathname === EVENTS) {
       const verdict = await admitToTier(tiers.events, context);
-      if (verdict.kind !== "admit") return refuse(verdict, onRefused);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused, req.url);
       if (req.method !== "GET") {
         return methodNotAllowed("GET");
       }
@@ -215,7 +226,7 @@ export function createManagementHandler(
 
     if (exchangesMatch) {
       const verdict = await admitToTier(tiers.dispatch, context);
-      if (verdict.kind !== "admit") return refuse(verdict, onRefused);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused, req.url);
       if (req.method !== "POST") {
         return methodNotAllowed("POST");
       }

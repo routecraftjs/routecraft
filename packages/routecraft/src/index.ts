@@ -66,7 +66,12 @@ export {
   type ShutdownOutcome,
   type TeardownInfo,
 } from "./context.ts";
-export { type Capability, registerCapability } from "./capabilities.ts";
+export {
+  type Capability,
+  isInternalEndpoint,
+  registerCapability,
+  registerInternalEndpoint,
+} from "./capabilities.ts";
 export { defineConfig } from "./define-config.ts";
 export { registerConfigApplier, type ConfigApplier } from "./config-applier.ts";
 export {
@@ -111,6 +116,21 @@ export type {
 } from "./plugins/server/types.ts";
 export { apiKey } from "./plugins/http/auth.ts";
 export type { SseEvent } from "./plugins/http/sse.ts";
+export {
+  bearerChallenge,
+  buildProtectedResourceMetadata,
+  PROTECTED_RESOURCE_METADATA_PATH,
+  resourceMetadataUrlFor,
+  type ProtectedResourceMetadata,
+  type ProtectedResourceMetadataInput,
+} from "./plugins/server/protected-resource.ts";
+export {
+  buildCorsHeaders,
+  defaultLoopbackOriginResolver,
+  resolveCorsOptions,
+  type HttpCorsOptions,
+  type HttpCorsOriginResolver,
+} from "./plugins/server/cors.ts";
 
 export { opsPlugin } from "./plugins/ops/plugin.ts";
 export { defineIndicator } from "./plugins/ops/indicator.ts";

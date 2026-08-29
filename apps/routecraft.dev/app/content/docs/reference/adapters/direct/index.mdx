@@ -100,6 +100,23 @@ craft()
 
 **Source options (adapter-specific only):**
 - `channelType` - Custom direct channel implementation (default: in-memory). Per-route override of the context-level default.
+- `internal` - Close the route's external doors (default: `false`). An internal route keeps its in-process endpoint, so `direct('id')` enrichers and `forward()` compose against it unchanged, but it skips the capability registry: it is not dispatchable through the [ops management API](/docs/reference/plugins/opsplugin#management-api) (the listing shows `dispatchable: false`, a dispatch refuses with [`RC5060`](/docs/reference/errors#rc-5060) naming the declaration) and a `directTool` naming it fails `context.start()` with the remedy. Declare it on a trusting subroutine whose boundary route carries `.input()`, `.description()` and `.authorize()` for it:
+
+```ts
+// The boundary owns validation and authorization; the subroutine trusts it.
+craft()
+  .id('resolve-order')
+  .from(direct({ internal: true }))
+  .process(resolveOrder)
+
+craft()
+  .id('orders')
+  .description('Resolve an order')
+  .input({ body: z.object({ orderId: z.string() }) })
+  .authorize({ scopes: ['orders:resolve'] })
+  .from(direct())
+  .to(direct('resolve-order'))
+```
 
 Route-level metadata lives on the builder: `.title('...')`, `.description('...')`, `.input({ body, headers })`, `.output({ body, headers })`. `.input()` and `.output()` also accept a bare Standard Schema as a body-only shorthand.
 

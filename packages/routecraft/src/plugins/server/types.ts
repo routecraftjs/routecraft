@@ -104,6 +104,17 @@ export interface HttpMount {
    * other connection keeps the bounded default.
    */
   readonly longLived?: boolean;
+  /**
+   * What the RFC 9728 metadata document for this mount's paths may say
+   * beyond the effective validator's issuer. Declared, never inferred: the
+   * ops mount passes its resolved tier scopes here, and a mount that
+   * declares nothing gets a document carrying only what the validator
+   * config states. Served by the ingress for any metadata path no mount
+   * claims itself (the MCP mount claims and serves its own).
+   */
+  readonly resourceMetadata?: {
+    readonly scopesSupported?: readonly string[];
+  };
   readonly handler: (
     request: Request,
     context: HttpMountContext,

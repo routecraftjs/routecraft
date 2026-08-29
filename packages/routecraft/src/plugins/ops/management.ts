@@ -11,6 +11,7 @@
  */
 
 import { CraftClient } from "../../client";
+import { isInternalEndpoint } from "../../capabilities";
 import type { CraftContext } from "../../context";
 import { rcError } from "../../error";
 import { HeadersKeys } from "../../exchange";
@@ -276,6 +277,15 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
         });
       }
       if (!capabilities.has(id)) {
+        // Two different refusals behind one absence: a route that declared
+        // `direct({ internal: true })` HAS a direct source, so telling its
+        // caller to add one would be wrong advice. The internal registry is
+        // what remembers the difference.
+        if (isInternalEndpoint(ctx, id)) {
+          throw rcError("RC5060", undefined, {
+            message: `Route "${id}" is declared internal (direct({ internal: true })) and not dispatchable. It is only composable from another route; dispatch to a boundary route that fronts it instead.`,
+          });
+        }
         throw rcError("RC5060", undefined, {
           message: `Route "${id}" has no dispatch door: its sources are ${
             sourceKinds(route.definition).join(", ") || "(none)"

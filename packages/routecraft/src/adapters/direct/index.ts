@@ -14,10 +14,13 @@ import { tagAdapter, factoryArgs } from "../shared/factory-tag";
 /**
  * Creates a direct adapter for synchronous, in-process inter-route messaging.
  *
- * - **Source (for `.from()`):** Call with channel options (currently only
- *   `channelType`) or with no arguments. The endpoint is always the route id;
+ * - **Source (for `.from()`):** Call with channel options (`channelType`,
+ *   `internal`) or with no arguments. The endpoint is always the route id;
  *   discoverable metadata (title, description, input, output) lives on the
  *   route via `.title()`, `.description()`, `.input()`, `.output()`.
+ *   `direct({ internal: true })` keeps the in-process endpoint and closes
+ *   the external doors: not dispatchable through ops, not resolvable as an
+ *   agent `directTool`; only composable from another route.
  * - **Enricher (for `.to()` / `.enrich()` / `.tap()`):** Call with a string
  *   or function naming the target route: `direct("fetch-order")` or
  *   `direct((exchange) => exchange.headers["x-endpoint"] as string)`. The

@@ -45,12 +45,22 @@ export interface DirectBaseOptions {
 /**
  * Options when using direct adapter as a Server (`.from()`).
  *
- * The direct source exposes only channel-level mechanism today; the shared
- * discovery metadata (title, description, input, output) lives on the
- * route via `.title()` / `.description()` / `.input()` / `.output()` and is
- * enforced by the framework regardless of adapter.
+ * The shared discovery metadata (title, description, input, output) lives
+ * on the route via `.title()` / `.description()` / `.input()` / `.output()`
+ * and is enforced by the framework regardless of adapter.
  */
-export type DirectServerOptions = DirectBaseOptions;
+export interface DirectServerOptions extends DirectBaseOptions {
+  /**
+   * Close the route's external doors: it stays composable in-process
+   * (`direct("id")` enrichers, `forward`) but is neither dispatchable
+   * through the ops management API nor resolvable as an agent
+   * `directTool`. For a subroutine that trusts its caller because a
+   * boundary route carries `.input()`, `.description()` and
+   * `.authorize()` for it. Defaults to false: a `direct()` route is a
+   * capability, and capabilities are what `craft exec` runs.
+   */
+  internal?: boolean;
+}
 
 /**
  * Options when using direct adapter as a Client (`.to()`, `.tap()`).

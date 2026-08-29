@@ -1,7 +1,7 @@
 import type { CraftContext } from "../../context.ts";
 import { rcError } from "../../error.ts";
 import type { HttpServerRuntime } from "../http/server/index.ts";
-import type { HttpMethod } from "../../adapters/http/types.ts";
+import type { HttpAuth, HttpMethod } from "../../adapters/http/types.ts";
 import type {
   HttpMount,
   HttpMountAuth,
@@ -15,6 +15,10 @@ import {
   type AuthResult,
   type HttpAuthMiddleware,
 } from "../http/auth.ts";
+import {
+  buildProtectedResourceMetadata,
+  PROTECTED_RESOURCE_METADATA_PATH,
+} from "./protected-resource.ts";
 
 export const WEB_INGRESSES: unique symbol = Symbol.for(
   "routecraft.plugin.server.web-ingresses",
@@ -145,6 +149,20 @@ function scoreClaim(claim: PathClaim, path: string): number | undefined {
 /** Streaming responses one listener carries before it refuses more. */
 const DEFAULT_MAX_STREAMING_REQUESTS = 500;
 
+/**
+ * The issuer an auth config advertises, when it has one. `jwt()` and
+ * `jwks()` surface it; a bare `{ validator }` and an api-key config do not,
+ * and RFC 9728 allows the resulting document to omit the field.
+ */
+function issuerOf(
+  auth: HttpMount["auth"] | ValidatorAuthOptions | undefined,
+): string | string[] | undefined {
+  if (auth === undefined || auth === false) return undefined;
+  return "issuer" in auth
+    ? (auth as { issuer?: string | string[] }).issuer
+    : undefined;
+}
+
 export class HttpMountRegistry implements WebIngress {
   readonly serverName: string;
   boundAddress: { readonly host: string; readonly port: number } | undefined;
@@ -270,15 +288,9 @@ export class HttpMountRegistry implements WebIngress {
       // the exposure.
       const inherited =
         facts.walled && !facts.own && mount.enforcesWall !== false;
-      const auth =
-        mount.auth === false || mount.auth === undefined
-          ? this.serverAuth
-          : mount.auth;
+      const auth = this.effectiveAuthOf(mount);
       this.authByMount.set(mount.id, createAuthMiddleware(auth));
-      const issuer =
-        auth !== undefined && "issuer" in auth
-          ? (auth as { issuer?: string | string[] }).issuer
-          : undefined;
+      const issuer = issuerOf(auth);
       this.authPolicyByMount.set(
         mount.id,
         issuer !== undefined ? { issuer } : undefined,
@@ -330,6 +342,105 @@ export class HttpMountRegistry implements WebIngress {
     return this.mounts.has(id);
   }
 
+  /**
+   * The auth a mount effectively verifies with: its own when it declares
+   * one, else the server's. `false` and unset both resolve the inherited
+   * validator, per the mount option contract. The single derivation both
+   * `validate()` (the enforced policy) and the metadata serving (the
+   * advertised policy) read, so the two cannot drift.
+   */
+  private effectiveAuthOf(mount: HttpMount | undefined): HttpAuth | undefined {
+    if (mount === undefined) return this.serverAuth;
+    return mount.auth === false || mount.auth === undefined
+      ? this.serverAuth
+      : mount.auth;
+  }
+
+  /**
+   * The mount that owns a resource path, ignoring methods.
+   *
+   * Method-blind on purpose: the metadata document describes a resource,
+   * and a path served only for POST (a dispatch endpoint) still has
+   * exactly one owning mount whose auth the document must state.
+   */
+  private resolveOwningMount(path: string): HttpMount | undefined {
+    let best: { mount: HttpMount; score: number } | undefined;
+    for (const { mount, claims } of this.evaluatedClaims) {
+      for (const claim of claims) {
+        const score = scoreClaim(claim, path);
+        if (score === undefined) continue;
+        if (best === undefined || score > best.score) {
+          best = { mount, score };
+        }
+      }
+    }
+    return best?.mount;
+  }
+
+  /**
+   * Serve the RFC 9728 document for a metadata path no mount claims.
+   *
+   * The suffix mirrors the resource path per RFC 9728 section 3.1, so the
+   * document for `/ops/routes` is looked up by resolving which mount owns
+   * `/ops/routes` and reading its effective auth: issuer from the same
+   * resolved policy the mount enforces with, scopes from what the mount
+   * declared. A suffixed path no mount owns gets no document at all: a 200
+   * would assert a protected-resource identity for a resource the server
+   * does not serve, and a spec-following client would then request a token
+   * for it. Only the root document (the server itself) is served without
+   * an owning mount, from the server-level validator, and a server with no
+   * auth still answers it with the honest minimum: the resource identity
+   * and nothing more.
+   *
+   * Identical for every credential state and served before any
+   * verification, so a caller with a stale or malformed token can still
+   * learn where to re-authenticate. `no-cache` because the body derives
+   * from live configuration and from the caller's own Host: an hour-stale
+   * copy misdirects the one caller who reads it to find the current way
+   * in, and a shared cache with a normalised key could hand one host's
+   * identity to another. No CORS headers: this fallback serves surfaces
+   * that never declared a browser policy, and the craft CLI (no Origin
+   * header) is unaffected. The MCP mount keeps serving its own document
+   * under its own CORS policy.
+   */
+  private serveResourceMetadata(
+    request: Request,
+    path: string,
+    method: HttpMethod,
+  ): Response | undefined {
+    const isMetadataPath =
+      path === PROTECTED_RESOURCE_METADATA_PATH ||
+      path.startsWith(`${PROTECTED_RESOURCE_METADATA_PATH}/`);
+    if (!isMetadataPath) return undefined;
+    if (method !== "GET" && method !== "HEAD") return undefined;
+
+    const suffix = path.slice(PROTECTED_RESOURCE_METADATA_PATH.length);
+    const resourcePath = suffix === "" ? "/" : suffix;
+    const mount = this.resolveOwningMount(resourcePath);
+    if (mount === undefined && suffix !== "") return undefined;
+    const issuer =
+      mount !== undefined
+        ? this.authPolicyByMount.get(mount.id)?.issuer
+        : issuerOf(this.serverAuth);
+    const origin = new URL(request.url).origin;
+    const body = JSON.stringify(
+      buildProtectedResourceMetadata({
+        resource: `${origin}${suffix}`,
+        ...(issuer !== undefined ? { issuer } : {}),
+        ...(mount?.resourceMetadata?.scopesSupported !== undefined
+          ? { scopesSupported: mount.resourceMetadata.scopesSupported }
+          : {}),
+      }),
+    );
+    return new Response(method === "HEAD" ? null : body, {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "no-cache",
+      },
+    });
+  }
+
   async dispatch(
     request: Request,
     runtime?: import("../http/server/index.ts").HttpServerRuntime,
@@ -349,6 +460,16 @@ export class HttpMountRegistry implements WebIngress {
         // path+method claims, so no other claim can outscore it.
         if (claim.kind === "exact") break search;
       }
+    }
+    // RFC 9728 discovery: the ingress owns the well-known namespace unless
+    // a mount claims the specific path (exact or pattern), the way the MCP
+    // mount claims and serves its own suffixed document under its own CORS
+    // policy and resource identity. A prefix claim (notably the "/"
+    // catch-all of a default http mount) does not take a metadata path: it
+    // would only 404 a document the ingress can answer truthfully.
+    if (best === undefined || best.claim.kind === "prefix") {
+      const metadata = this.serveResourceMetadata(request, path, method);
+      if (metadata) return metadata;
     }
     if (!best) {
       return Response.json({ error: "not found", path }, { status: 404 });

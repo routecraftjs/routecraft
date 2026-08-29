@@ -206,7 +206,7 @@ export function createDispatcher(
         if (result?.kind === "reject") return result.response;
         if (result?.kind === "absent") {
           safeNotify(() => opts.onAuthAbsent?.(result.scheme));
-          return missingCredentialResponse(result.scheme);
+          return missingCredentialResponse(result.scheme, req.url);
         }
         const gatedRes = await opts.gatedBuiltins.handler(req, pathname);
         if (gatedRes) return gatedRes;
@@ -270,7 +270,7 @@ export function createDispatcher(
         return result.response;
       } else if (result.kind === "absent") {
         safeNotify(() => opts.onAuthAbsent?.(result.scheme));
-        const response = missingCredentialResponse(result.scheme);
+        const response = missingCredentialResponse(result.scheme, req.url);
         emitCompleted(opts, {
           method,
           path: entry.matcher.pattern,
