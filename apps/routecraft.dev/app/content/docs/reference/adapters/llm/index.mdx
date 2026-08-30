@@ -58,11 +58,13 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 | `system` | `string \| (exchange) => string` | -- | System prompt (static or derived from exchange) |
 | `user` | `string \| (exchange) => string` | -- | User prompt (static or derived from exchange) |
 | `output` | `StandardSchemaV1` | -- | Zod/Valibot/ArkType schema for structured output |
-| `temperature` | `number` | -- | Sampling temperature |
-| `maxTokens` | `number` | -- | Maximum tokens to generate |
+| `temperature` | `number` | `0` | Sampling temperature |
+| `maxTokens` | `number` | `1024` | Maximum tokens to generate |
 | `topP` | `number` | -- | Top-p sampling |
 | `frequencyPenalty` | `number` | -- | Frequency penalty |
 | `presencePenalty` | `number` | -- | Presence penalty |
+| `reasoning` | `'none' \| 'low' \| 'medium' \| 'high'` | -- | How much the model should reason about this call, mapped to each provider's own control. See [Reasoning effort](#reasoning-effort) |
+| `providerOptions` | `Record<string, Record<string, unknown>>` | -- | Raw provider settings forwarded to the SDK. The escape hatch for what `reasoning` cannot express. See [Reaching a provider directly](#reaching-a-provider-directly) |
 
 **Result shape (replaces the body in bare `.enrich()` / `.to()`; pass an aggregator such as `only()` to merge):**
 
@@ -75,3 +77,78 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 | `usage.totalTokens` | `number` | Total token count |
 
 Provider credentials are configured once in `llmPlugin()` and shared across all `llm()` calls. See [Plugins reference](/docs/reference/plugins).
+
+#### Reasoning effort
+
+Reasoning effort is the main cost and latency dial on a current model, and it belongs per call rather than per deployment: a narrow classifier and a hard agent turn want opposite settings against the same model id.
+
+```ts
+craft()
+  .id('classify')
+  .from(source)
+  .enrich(llm('gemini:gemini-3-flash-preview', {
+    system: 'Answer yes or no.',
+    reasoning: 'none',
+  }))
+  .to(log())
+```
+
+`reasoning` is normalised, so the same route survives a provider swap. Each level maps to the provider's own control:
+
+| Provider | Control it maps to | `none` | `low` / `medium` / `high` |
+|----------|--------------------|--------|---------------------------|
+| `openai` | `reasoningEffort` | `'none'` | the level verbatim |
+| `anthropic` | `thinking`, `effort` | `thinking: { type: 'disabled' }` | `effort: <level>` |
+| `gemini` | `thinkingConfig.thinkingLevel` | `'minimal'` | the level verbatim |
+| `openrouter` | `reasoning.effort` | `'none'` | the level verbatim |
+| `ollama` | `think` | `false` | `true` |
+| `lmstudio` | `reasoningEffort` | the level verbatim | the level verbatim |
+| `custom` | none | not mapped | not mapped |
+
+A level a provider cannot express maps to the nearest one it supports rather than throwing, because an option that refuses on some providers is not portable and portability is the point. Three rows are lossy, and it is worth knowing which:
+
+- **Gemini has no way to turn thinking off.** `none` reaches it as `minimal`, its lowest level. A Gemini model still thinks a little.
+- **Ollama's control is a boolean.** `low`, `medium` and `high` are one value there.
+- **LM Studio forwards the string to whatever server is behind it**, so the level only means something when the loaded model reads it.
+- **`custom` maps nothing.** The model handle is yours, so the framework cannot know which namespace its settings belong under. Use `providerOptions`.
+
+Anthropic's `effort` is sent as an `output_config` field, so it needs a model new enough to accept one; older models will refuse it at the API rather than at the call site.
+
+Leave `reasoning` unset and nothing is sent, so the provider's own default applies.
+
+#### Reaching a provider directly
+
+`providerOptions` is forwarded to the SDK verbatim, keyed by the SDK's provider namespace. Use it for anything the normalised options cannot say, such as Anthropic's thinking token budget:
+
+```ts
+.enrich(llm('anthropic:claude-sonnet-4-6', {
+  providerOptions: {
+    anthropic: { thinking: { type: 'enabled', budgetTokens: 8192 } },
+  },
+}))
+```
+
+The namespace is the SDK's, which is not always the Routecraft provider id: `gemini` reaches the SDK as `google`.
+
+**`providerOptions` wins over `reasoning` for the settings it names.** The two merge per namespace and per setting inside it, so naming one setting replaces the mapped one and leaves the rest:
+
+```ts
+.enrich(llm('gemini:gemini-3-pro-preview', {
+  reasoning: 'high',              // maps to thinkingConfig.thinkingLevel: 'high'
+  providerOptions: {
+    google: {
+      thinkingConfig: { thinkingBudget: 2048 },  // sent instead
+      cachedContent: 'my-cache',                 // sent as well
+    },
+  },
+}))
+```
+
+Values nested deeper than a setting are replaced whole rather than deep-merged, so what you write for a setting is what is sent.
+
+Two consequences worth stating outright:
+
+- **`providerOptions` wins over `reasoning` whichever level each came from.** The two are folded together at dispatch, after context defaults and call-site options have merged, so a `providerOptions` set once in `llmPlugin({ defaultOptions })` overrides the `reasoning` a specific call asks for, for the settings it names. If you want a house default that a call can still override, set `reasoning` in `defaultOptions` rather than `providerOptions`.
+- **Between the two levels, `providerOptions` is one value.** [Context defaults](/docs/advanced/merged-options) merge per option, so a call that sets `providerOptions` replaces the context's whole record rather than merging namespaces into it. The per-namespace, per-setting merge described above happens between `reasoning` and `providerOptions`, not between the two levels.
+
+`providerOptions` is typed as raw records and the SDK is what validates it, so a namespace the SDK does not recognise is not an error: it is ignored, silently. That includes writing the Routecraft provider id where the SDK's namespace differs (`gemini` rather than `google`), which is the easiest way to get a setting that appears to be set and does nothing.

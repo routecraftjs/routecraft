@@ -39,6 +39,7 @@
     "@types/mailparser": "^3.4.6",
     "@types/nodemailer": "^6.4.24",
     "@types/papaparse": "^5.5.2",
+    "@types/semver": "^7.8.0",
     "@types/sinonjs__fake-timers": "^15.0.1",
     "arktype": "^2.2.3",
     "better-sqlite3": "^11.10.0",
@@ -50,6 +51,7 @@
     "mailparser": "^3.9.15",
     "nodemailer": "^6.10.1",
     "papaparse": "^5.5.4",
+    "semver": "^7.8.5",
     "tsdav": "^2.3.1",
     "vitest": "^4.1.10",
     "zod": "^4.4.3"

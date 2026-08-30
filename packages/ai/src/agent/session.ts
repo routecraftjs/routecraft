@@ -8,10 +8,15 @@ import {
 } from "@routecraft/routecraft";
 import { isBlockLoaderCall, summariseBlockLoads } from "../block/resolve.ts";
 import { callLlm, streamLlm } from "../llm/providers/index.ts";
-import { resolvePrompt, resolveUserPromptDefault } from "../llm/shared.ts";
+import {
+  resolvePrompt,
+  resolveSampling,
+  resolveUserPromptDefault,
+} from "../llm/shared.ts";
 import type {
   LlmModelConfig,
   LlmResult,
+  LlmSamplingOptionsMerged,
   LlmToolCallSummary,
   LlmUsage,
 } from "../llm/types.ts";
@@ -70,9 +75,6 @@ export function dispatchIdentityFrom(
   };
 }
 
-/** Default sampling settings; aligned with the LLM destination defaults. */
-const DEFAULT_TEMPERATURE = 0;
-const DEFAULT_MAX_TOKENS = 1024;
 const DEFAULT_MAX_TURNS = 20;
 
 /**
@@ -662,13 +664,7 @@ export class AgentSession {
   private async prepare(
     abortSignal: AbortSignal,
     signals: AgentSuspendSignalRecord[],
-  ): Promise<{
-    modelConfig: LlmModelConfig;
-    modelName: string;
-    system: string;
-    output?: unknown;
-    vercelTools: Record<string, unknown>;
-  }> {
+  ): Promise<PreparedSession> {
     const {
       options,
       modelConfig,
@@ -697,7 +693,13 @@ export class AgentSession {
       exchange.principal,
       bridge,
     );
-    const base = { modelConfig, modelName, system, vercelTools };
+    const base = {
+      modelConfig,
+      modelName,
+      system,
+      vercelTools,
+      sampling: resolveSampling(options),
+    };
     return options.output !== undefined
       ? { ...base, output: toAiOutputSpec(options.output) }
       : base;
@@ -710,6 +712,11 @@ interface PreparedSession {
   system: string;
   output?: unknown;
   vercelTools: Record<string, unknown>;
+  /**
+   * The agent's sampling block after defaults, resolved once for the dispatch
+   * so a validate retry asks for the same thing the first turn did.
+   */
+  sampling: LlmSamplingOptionsMerged;
 }
 
 /**
@@ -738,10 +745,7 @@ async function callOnce(
   const base = {
     config: prepared.modelConfig,
     modelId: prepared.modelName,
-    options: {
-      temperature: DEFAULT_TEMPERATURE,
-      maxTokens: DEFAULT_MAX_TOKENS,
-    },
+    options: prepared.sampling,
     system: prepared.system,
     user,
     abortSignal,

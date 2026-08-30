@@ -17,7 +17,7 @@ No symbol is tagged `@experimental`, `@beta`, or `@stable` in 0.x.
 
 The same v0 posture governs changeset bump levels: **only `minor` and `patch` are used while in 0.x**. Breaking changes ship as `minor` (the whole 0.x line is the breaking window), and a conventional-commit `!` does not translate to a `major` changeset. `major` is reserved for the deliberate 1.0.0 release and requires an explicit maintainer decision recorded in the PR; a stray `major` recomputes the next version as 1.0.0 and stamps every canary `1.0.0-canary-*` (this has happened and the releases had to be deprecated). See [CI/CD](./ci-cd.md) section 9 for the release mechanics.
 
-One mechanism looks like an exception but is not: changesets auto-major-bumps peer dependents when a core bump leaves their declared peer range (`onlyUpdatePeerDependentsWhenOutOfRange`). That cascade never fires pre-1.0 because the mandated peer-range form is `>=0.5.0 <1.0.0` (CI/CD section 5), which every 0.x core minor stays inside. The only way to a 1.0.0 computation therefore remains a human-authored `major` changeset, which this policy forbids until the deliberate 1.0.0 release.
+One mechanism looks like an exception but is not: changesets auto-major-bumps peer dependents when a core bump leaves their declared peer range (`onlyUpdatePeerDependentsWhenOutOfRange`). That cascade never fires pre-1.0 because the mandated peer-range form (CI/CD section 5, which is where the exact form lives) keeps every 0.x core minor inside the declared range. The only way to a 1.0.0 computation therefore remains a human-authored `major` changeset, which this policy forbids until the deliberate 1.0.0 release.
 
 ## When we reach v1
 

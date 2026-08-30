@@ -68,6 +68,17 @@ Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be
 | `output` | `StandardSchemaV1` | -- | No | Schema for structured output. The agent requests provider-level structured output, validates the response, and parses it onto `AgentResult.output` |
 | `stream` | `boolean` | `false` | No | Produce the token deltas instead of the consolidated `AgentResult`. See [Streaming the reply](#streaming-the-reply) |
 | `onDelta` | `(delta) => void \| Promise<void>` | -- | No | Push form of the same streaming run: each token delta goes to this listener and the consolidated result is still returned. Refused alongside `stream` |
+| `temperature` | `number` | `0` | No | Sampling temperature |
+| `maxTokens` | `number` | `1024` | No | Maximum tokens per model call |
+| `topP` | `number` | -- | No | Top-p sampling |
+| `frequencyPenalty` | `number` | -- | No | Frequency penalty |
+| `presencePenalty` | `number` | -- | No | Presence penalty |
+| `reasoning` | `'none' \| 'low' \| 'medium' \| 'high'` | -- | No | How much the model should reason per turn, mapped to each provider's own control. Same option and same [mapping table](/docs/reference/adapters/llm#reasoning-effort) as `llm()` |
+| `providerOptions` | `Record<string, Record<string, unknown>>` | -- | No | Raw provider settings forwarded to the SDK, winning over `reasoning` for the settings they name. See [Reaching a provider directly](/docs/reference/adapters/llm#reaching-a-provider-directly) |
+
+The last seven are the same sampling block `llm()` takes, and they mean the same thing here: one agent can run a narrow classification at `reasoning: 'none'` while another names the same model and asks for `'high'`. An agent that sets none of them behaves exactly as it did before they existed. They can be set once for every agent in a context via `agentPlugin({ defaultOptions })`, where a per-agent value wins per key, and markdown agents declare them in frontmatter like any other field.
+
+They apply to every model call in a run: the first turn, each tool-calling turn, and each `validate` retry. A run that suspends and resumes resolves them again from the context it resumes in rather than replaying what was resolved before it parked, so a changed `defaultOptions` takes effect on the resumed turns.
 
 **`AgentRegisteredOptions` (entries in `agentPlugin({ agents: {...} })`, for by-name reuse):** same as `AgentOptions` plus:
 

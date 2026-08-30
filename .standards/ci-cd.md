@@ -91,7 +91,7 @@ Publishable manifests never use the `workspace:` protocol. An ecosystem package 
 
 ```jsonc
 "peerDependencies": {
-  "@routecraft/routecraft": ">=0.5.0 <1.0.0"   // published contract: real semver range
+  "@routecraft/routecraft": ">=0.7.0-0 <1.0.0"   // published contract: real semver range
 },
 "devDependencies": {
   "@routecraft/routecraft": "workspace:*"  // local dev: always the in-tree copy
@@ -101,11 +101,28 @@ Publishable manifests never use the `workspace:` protocol. An ecosystem package 
 Why this shape:
 
 - The `peerDependencies` range is what users see after publish. Bundling or hard-depending on core would cause duplicate-instance bugs (two `RoutecraftError` classes, two adapter registries); the peer forces a single instance, and the real range documents compatibility.
-- The range form is version-era specific. Pre-1.0 it must be `>=0.5.0 <1.0.0`: in 0.x semver, `^0.5.0` excludes 0.6.0, so every core minor would leave the range and changesets major-bumps peer dependents whose range is left (`onlyUpdatePeerDependentsWhenOutOfRange` controls WHEN that cascade fires, not its size). At v1, tighten to `^1.0.0`; minors then stay in range and the cascade only fires on real majors.
-- The `devDependencies` `workspace:*` keeps local development synced: Bun resolves it to the in-tree package, so editing core is immediately visible. `workspace:*` (not `workspace:^x.y.z`) so version bumps never touch devDependencies.
-- The CLI is the one exception: it keeps core in `dependencies` with a plain `^` range, because `craft` needs core at runtime and users install the CLI standalone.
+- The range form is version-era specific. Pre-1.0 it must be `>=<current minor>.0-0 <1.0.0`: in 0.x semver, `^0.7.0` excludes 0.8.0, so every core minor would leave the range and changesets major-bumps peer dependents whose range is left (`onlyUpdatePeerDependentsWhenOutOfRange` controls WHEN that cascade fires, not its size). At v1, tighten to `^1.0.0`; minors then stay in range and the cascade only fires on real majors.
+- **The `-0` suffix is load-bearing, and the lower bound names the version the NEXT release will publish rather than the last one.** A prerelease satisfies a range only when some comparator carries a prerelease on the same `major.minor.patch`, and the suffix reaches no further than that one version. Executed:
 
-This is enforced informally by review. When adding a new internal package that other packages depend on, mirror this pattern.
+```
+>=0.7.0 <1.0.0     satisfies 0.7.0-canary-20260830132156   false
+>=0.6.0-0 <1.0.0   satisfies 0.7.0-canary-20260830132156   false
+>=0.7.0-0 <1.0.0   satisfies 0.7.0-canary-20260830132156   true
+>=0.7.0-0 <1.0.0   satisfies 0.7.1-canary-20260901120000   false
+>=0.7.0-0 <1.0.0   satisfies 0.8.0-canary-1                false
+```
+
+  A range that refuses the version being published is rewritten by changesets to that exact snapshot version, which is only coherent inside the batch that produced it, so `ai` and `os` (which publish in their own batches, per the pipeline table in section 9) end up pinned to a core canary that has already moved.
+
+  The last two rows are the maintenance cost, and it is **one edit per released version, not per minor**: once 0.7.0 ships, `>=0.7.0-0` refuses the canaries of 0.7.1 just as it refuses 0.8.0's. The edit belongs to the change that proposes the next version, because that is the first moment the right bound is known: a tree with no pending changeset has no proposed next version, and no bound can be chosen for one.
+
+  `packages/routecraft/test/core-version-range-contract.bun.test.ts` is the gate. It asserts the canary form only while a changeset actually proposes a release, so it fails the change that moves the line and never the "Version Packages" PR, and it names the manifest, the declared range and the version refused.
+
+  This is a chore, and the durable fix is to have the canary job rewrite the ranges for the snapshot it is about to publish rather than have contributors keep the committed ranges ahead of the line; that is tracked separately.
+- The `devDependencies` `workspace:*` keeps local development synced: Bun resolves it to the in-tree package, so editing core is immediately visible. `workspace:*` (not `workspace:^x.y.z`) so version bumps never touch devDependencies.
+- The CLI is the one exception: it keeps core in `dependencies` with a plain `^` range on the LAST RELEASED version (`^0.6.0` while 0.6.0 is out), because `craft` needs core at runtime and users install the CLI standalone. A regular dependency is a different contract from a peer in both directions. Changesets rewrites it on every release rather than only when it leaves the range (`updateInternalDependencies` is `patch`), so it never reaches npm stale and never needs the `-0` a peer needs. And `bun install` resolves it against the workspace, so a range that names the NEXT version instead (`^0.7.0-0` against a 0.6.0 workspace) stops matching the in-tree core and silently links a published canary into `packages/cli/node_modules` instead. Leave it naming the released line; the release moves it.
+
+The range itself is enforced by `packages/routecraft/test/core-version-range-contract.bun.test.ts`; the rest of the shape is enforced by review. When adding a new internal package that other packages depend on, mirror this pattern.
 
 ## 6. Optional peer dependencies (provider SDKs)
 
@@ -157,7 +174,7 @@ Every PR with a user-facing change adds a changeset: run `bunx changeset`, pick 
 - `routecraft.dev` rides the train PASSIVELY: it is private (never published; `privatePackages` versions it and publish skips it) and sits in the group only so its manifest version tracks releases, because the docs site reads it as a fallback version source at runtime. Never name `routecraft.dev` in a changeset: a changeset naming any fixed-group member bumps the whole train, so a docs-site changeset would force an empty release of every core package. Docs-site changes ship on the main cadence with no changeset at all. (`fixed` is the only changesets mechanism that moves a changeset-less member with the train; the app has no `@routecraft/*` dependency edge, so plain versioning would never move it.)
 - Everything else (`@routecraft/ai`, `@routecraft/os`, future vendor packages) versions independently.
 - `examples` is under `ignore`, so changesets neither versions nor publishes it. Its version is hand-set in its own `package.json` and never moves with a release, which is the point: it stands in for a user's own project, and `craft.config.ts` reads that version as what its MCP server advertises. Note that this is a different arrangement from the bullet above: those packages are versioned independently BY changesets, while `examples` is versioned by hand.
-- `onlyUpdatePeerDependentsWhenOutOfRange` is on, so a core bump that stays inside ecosystem peer ranges does not cascade at all. When a bump DOES leave the range, changesets major-bumps the dependents, which is why the pre-1.0 peer range form is `>=0.5.0 <1.0.0` (see section 5). The flag lives under changesets' `___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH` key, so re-check the changesets release notes for it whenever bumping `@changesets/cli`.
+- `onlyUpdatePeerDependentsWhenOutOfRange` is on, so a core bump that stays inside ecosystem peer ranges does not cascade at all. When a bump DOES leave the range, changesets major-bumps the dependents, which is why the pre-1.0 peer range form is `>=<current minor>.0-0 <1.0.0` (see section 5). The flag lives under changesets' `___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH` key, so re-check the changesets release notes for it whenever bumping `@changesets/cli`.
 
 ### Pipeline
 

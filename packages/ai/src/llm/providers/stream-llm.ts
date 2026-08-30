@@ -8,7 +8,7 @@ import {
   collectToolCalls,
   toLlmUsage,
   type CallLlmParams,
-  type ProviderExtras,
+  type SdkParamsInput,
 } from "./llm-utils.ts";
 import { resolveLanguageModel } from "./resolve.ts";
 
@@ -33,11 +33,14 @@ export async function streamLlm(
   const { config, modelId, options, system, user, onDelta } = params;
   const model = await resolveLanguageModel(config, modelId);
   return runStreamGenerate(
-    model,
-    options,
-    system,
-    user,
-    buildExtras(params),
+    {
+      model,
+      provider: config.provider,
+      options,
+      system,
+      user,
+      extras: buildExtras(params),
+    },
     onDelta,
   );
 }
@@ -50,15 +53,11 @@ export async function streamLlm(
  * Listener errors are caught and logged; they do not abort the dispatch.
  */
 export async function runStreamGenerate(
-  model: unknown,
-  options: CallLlmParams["options"],
-  system: string,
-  user: string | unknown[],
-  extras: ProviderExtras,
+  input: SdkParamsInput,
   onDelta: AgentDeltaListener,
 ): Promise<LlmResult> {
   const { streamText } = await import("ai");
-  const params = buildSdkParams(model, options, system, user, extras);
+  const params = buildSdkParams(input);
   const result = streamText(params as Parameters<typeof streamText>[0]);
 
   for await (const part of result.fullStream) {
