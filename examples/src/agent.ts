@@ -25,7 +25,7 @@ export default craft()
   .debug()
   .to(
     agent({
-      model: "gemini:gemini-3.1-pro-preview",
+      model: "gemini:gemini-3.7-flash",
       system: "Format time and date at 5 June 2026 08:30",
       user: () => "What is the current time?",
       tools: tools(["currentTime"]),

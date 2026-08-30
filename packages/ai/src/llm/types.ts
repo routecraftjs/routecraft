@@ -416,7 +416,8 @@ export type LlmModelId =
   | "openrouter:deepseek/deepseek-v3.2"
   | "openrouter:deepseek/deepseek-r1"
   | "openrouter:meta-llama/llama-3.3-70b-instruct"
-  // Gemini (2026: 2.5 + 3.x preview)
+  // Gemini (2026: 2.5 + 3.x)
+  | "gemini:gemini-3.7-flash"
   | "gemini:gemini-2.5-pro"
   | "gemini:gemini-2.5-flash"
   | "gemini:gemini-2.5-flash-lite"
