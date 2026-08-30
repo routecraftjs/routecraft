@@ -96,10 +96,16 @@ export function mergeProviderOptions(
   mapped: LlmRawProviderOptions | undefined,
   authored: LlmRawProviderOptions | undefined,
 ): LlmRawProviderOptions | undefined {
-  if (mapped === undefined) return authored;
-  if (authored === undefined) return mapped;
-  const out: LlmRawProviderOptions = { ...mapped };
-  for (const [namespace, settings] of Object.entries(authored)) {
+  if (mapped === undefined && authored === undefined) return undefined;
+  // Null-prototype accumulator so a namespace named `__proto__`, which a
+  // config loaded from JSON or YAML can carry, lands as an own key instead of
+  // reassigning the prototype of the object handed to the SDK. Same guard as
+  // `mergeBlocks` in the agent enricher.
+  const out = Object.assign(
+    Object.create(null) as LlmRawProviderOptions,
+    mapped,
+  );
+  for (const [namespace, settings] of Object.entries(authored ?? {})) {
     out[namespace] = { ...out[namespace], ...settings };
   }
   return out;

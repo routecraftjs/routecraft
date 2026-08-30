@@ -1,7 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import semver from "semver";
+
+import {
+  fixedGroupOf,
+  maxBump,
+  pendingBumps,
+} from "../../../scripts/lib/changeset-bumps.mjs";
 
 /**
  * Guards the compatibility contract described in `.standards/ci-cd.md`
@@ -33,13 +47,21 @@ import semver from "semver";
  * `0.7.0-canary-*`. So a peer range's lower bound has to move with the line,
  * and this test is what fails when it has not.
  *
- * The pending-changeset scan below mirrors the one in
- * `scripts/prepare-canary-snapshot.mjs`; both have to read the same bump
- * intent out of `.changeset/*.md` for this check to describe what that script
- * will actually publish. Range satisfaction is asked of `semver` rather than
- * `Bun.semver` because node-semver is the engine changesets itself uses to
- * decide whether a declared range is out of range, and this check only means
- * something if it agrees with the code doing the rewriting.
+ * The bump intent is read through `scripts/lib/changeset-bumps.mjs`, the same
+ * module `scripts/prepare-canary-snapshot.mjs` uses, because this check only
+ * describes what that script will publish for as long as the two agree about
+ * the front matter. Range satisfaction is asked of `semver` rather than
+ * `Bun.semver` for the same reason: node-semver is the engine changesets
+ * itself uses to decide whether a declared range is out of range.
+ *
+ * The canary form is only asserted while a release is actually proposed. A
+ * tree with no pending changesets (a "Version Packages" branch, or main
+ * straight after a release) has no next version anyone has asked for, and no
+ * static range can admit the prerelease of a version that has not been
+ * proposed: `>=0.7.0-0` refuses `0.7.1-canary-*`, so asserting it there would
+ * fail the release PR itself and demand an edit against a version nobody has
+ * chosen yet. The obligation lands on the change that proposes the next
+ * version, which is the change that can satisfy it.
  */
 
 const REPO_ROOT = join(import.meta.dir, "../../..");
@@ -64,9 +86,6 @@ const LOCAL_PROTOCOLS = ["workspace:", "link:", "file:", "portal:", "catalog:"];
 
 /** Stand-in canary suffix; `snapshot.prereleaseTemplate` is `{tag}-{datetime}`. */
 const SAMPLE_CANARY_SUFFIX = "canary-20260830132156";
-
-type Bump = "patch" | "minor" | "major";
-const BUMP_ORDER: Bump[] = ["patch", "minor", "major"];
 
 interface Manifest {
   name?: string;
@@ -112,56 +131,31 @@ function workspaceManifestPaths(): string[] {
   return paths;
 }
 
-/** Highest bump each package carries across the pending changesets. */
-function pendingBumps(): Map<string, Bump> {
-  const dir = join(REPO_ROOT, ".changeset");
-  const bumps = new Map<string, Bump>();
-  for (const file of readdirSync(dir)) {
-    if (!file.endsWith(".md") || file === "README.md") continue;
-    const frontMatter = readFileSync(join(dir, file), "utf8").match(
-      /^---\r?\n([\s\S]*?)\r?\n---/,
-    );
-    if (!frontMatter?.[1]) continue;
-    for (const line of frontMatter[1].split(/\r?\n/)) {
-      const release = line.match(
-        /^\s*["']?([^"':\s]+)["']?\s*:\s*(patch|minor|major)\s*$/,
-      );
-      if (!release?.[1] || !release[2]) continue;
-      const name = release[1];
-      const bump = release[2] as Bump;
-      const current = bumps.get(name);
-      if (
-        current === undefined ||
-        BUMP_ORDER.indexOf(bump) > BUMP_ORDER.indexOf(current)
-      ) {
-        bumps.set(name, bump);
-      }
-    }
-  }
-  return bumps;
-}
-
-/** Names sharing core's `fixed` group, which always version in lockstep. */
-function coreFixedGroup(): string[] {
-  const config = JSON.parse(
-    readFileSync(join(REPO_ROOT, ".changeset", "config.json"), "utf8"),
-  ) as { fixed?: string[][] };
-  return (config.fixed ?? []).find((group) => group.includes(CORE)) ?? [CORE];
-}
-
 /**
- * The version a release cut from this tree would publish for core. The
- * manifest holds the last released version (`.standards/ci-cd.md` section 9),
- * so the next one is that version plus the highest bump any member of core's
- * fixed group carries. No pending changeset means a patch, which is what the
- * canary job's synthetic changeset falls back to.
+ * The version a release cut from this tree would publish for core, and whether
+ * any changeset actually proposes it.
+ *
+ * The manifest holds the last released version (`.standards/ci-cd.md` section
+ * 9), so the next one is that version plus the highest bump any member of
+ * core's fixed group carries. With nothing pending the canary job's synthetic
+ * changeset falls back to a patch, which is the version named here, but
+ * `proposed` is false because no change in the tree asked for it.
+ *
+ * Returns null on a tree whose version is already a prerelease. That is a
+ * `changeset version --snapshot` working tree, where the ranges have been
+ * rewritten for the snapshot already and there is nothing left to assert; a
+ * throw there would report a manifest defect for a version the release step
+ * wrote seconds earlier.
  */
-function nextCoreVersion(): string {
-  const current = readManifest(
-    join(REPO_ROOT, "packages", "routecraft", "package.json"),
-  ).version;
+function nextCoreRelease(
+  current: string | undefined,
+  changesetDir: string,
+): { version: string; proposed: boolean } | null {
   const parts = current?.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!parts) {
+    if (current !== undefined && semver.prerelease(current) !== null) {
+      return null;
+    }
     throw new Error(
       `${CORE} version "${current}" is not a released stable version; ` +
         `package.json must hold the last released version.`,
@@ -172,17 +166,31 @@ function nextCoreVersion(): string {
     number,
     number,
   ];
-  const bumps = pendingBumps();
-  let bump: Bump = "patch";
-  for (const name of coreFixedGroup()) {
+  const config = JSON.parse(
+    readFileSync(join(REPO_ROOT, ".changeset", "config.json"), "utf8"),
+  ) as { fixed?: string[][] };
+  const bumps = pendingBumps(changesetDir);
+  let bump: string | undefined;
+  for (const name of fixedGroupOf(config, CORE)) {
     const pending = bumps.get(name);
-    if (pending && BUMP_ORDER.indexOf(pending) > BUMP_ORDER.indexOf(bump)) {
-      bump = pending;
-    }
+    if (pending) bump = maxBump(pending, bump ?? "patch");
   }
-  if (bump === "major") return `${major + 1}.0.0`;
-  if (bump === "minor") return `${major}.${minor + 1}.0`;
-  return `${major}.${minor}.${patch + 1}`;
+  const version =
+    bump === "major"
+      ? `${major + 1}.0.0`
+      : bump === "minor"
+        ? `${major}.${minor + 1}.0`
+        : `${major}.${minor}.${patch + 1}`;
+  return { version, proposed: bump !== undefined };
+}
+
+/** Core's version as the tree holds it, and the release it proposes. */
+function coreRelease(): ReturnType<typeof nextCoreRelease> {
+  return nextCoreRelease(
+    readManifest(join(REPO_ROOT, "packages", "routecraft", "package.json"))
+      .version,
+    join(REPO_ROOT, ".changeset"),
+  );
 }
 
 /** Declared ranges on core across the workspace, in reporting order. */
@@ -222,10 +230,14 @@ describe("core version-range contract (ci-cd.md section 5)", () => {
     const workspaceVersion = readManifest(
       join(REPO_ROOT, "packages", "routecraft", "package.json"),
     ).version;
-    const next = nextCoreVersion();
+    const release = coreRelease();
+    if (release === null) return;
+    const next = release.version;
     const targets = {
       local: [workspaceVersion!],
-      published: [next, `${next}-${SAMPLE_CANARY_SUFFIX}`],
+      published: release.proposed
+        ? [next, `${next}-${SAMPLE_CANARY_SUFFIX}`]
+        : [next],
     };
     const ranges = declaredCoreRanges();
     expect(ranges.length).toBeGreaterThan(0);
@@ -252,12 +264,80 @@ describe("core version-range contract (ci-cd.md section 5)", () => {
   });
 
   /**
+   * @case A tree that proposes no release does not demand a range for a version nobody asked for
+   * @preconditions An empty changeset directory, which is what a "Version Packages" branch and main straight after a release both look like
+   * @expectedResult The next version is still computed as a patch, but it is reported as not proposed, so the canary form is not asserted and the release PR is not failed by a bound that cannot be chosen yet
+   */
+  test("an empty changeset directory proposes no release", () => {
+    const dir = mkdtempSync(join(tmpdir(), "changesets-"));
+    try {
+      expect(nextCoreRelease("0.7.0", dir)).toEqual({
+        version: "0.7.1",
+        proposed: false,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * @case A pending bump on any member of core's fixed group proposes that release
+   * @preconditions A changeset directory holding one minor bump on a fixed-group sibling rather than on core itself
+   * @expectedResult Core's next version follows the group, and the release counts as proposed so the canary form is asserted
+   */
+  test("a fixed-group sibling's bump proposes core's next version", () => {
+    const dir = mkdtempSync(join(tmpdir(), "changesets-"));
+    try {
+      writeFileSync(
+        join(dir, "sibling.md"),
+        '---\n"@routecraft/cli": minor\n---\n\nSomething.\n',
+      );
+      expect(nextCoreRelease("0.7.0", dir)).toEqual({
+        version: "0.8.0",
+        proposed: true,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * @case A snapshot working tree has nothing left to assert
+   * @preconditions Core's version is a canary prerelease, which is what `changeset version --snapshot` leaves in the tree
+   * @expectedResult No release is returned, so the contract skips rather than reporting a manifest defect for a version the release step just wrote
+   */
+  test("a snapshot tree yields no release to check", () => {
+    const dir = mkdtempSync(join(tmpdir(), "changesets-"));
+    try {
+      expect(nextCoreRelease("0.7.0-canary-20260830132156", dir)).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * @case A version that is neither released nor a snapshot is a real defect
+   * @preconditions Core's version is malformed
+   * @expectedResult The computation throws naming the invariant, rather than silently skipping the contract
+   */
+  test("a malformed core version throws", () => {
+    const dir = mkdtempSync(join(tmpdir(), "changesets-"));
+    try {
+      expect(() => nextCoreRelease("not-a-version", dir)).toThrow(
+        /last released version/i,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
    * @case The peer check is sensitive to the prerelease form, not only the stable one
    * @preconditions A range whose lower bound carries no prerelease comparator, checked against a canary version on the same major.minor.patch
    * @expectedResult The bare range refuses the canary while the `-0` form admits it, which is the defect the contract above exists to catch
    */
   test("a lower bound without -0 refuses a canary on the same version", () => {
-    const next = nextCoreVersion();
+    const next = coreRelease()?.version ?? "0.7.0";
     const canary = `${next}-${SAMPLE_CANARY_SUFFIX}`;
     expect(semver.satisfies(canary, `>=${next} <1.0.0`)).toBe(false);
     expect(semver.satisfies(canary, `>=${next}-0 <1.0.0`)).toBe(true);

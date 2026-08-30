@@ -76,7 +76,9 @@ Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be
 | `reasoning` | `'none' \| 'low' \| 'medium' \| 'high'` | -- | No | How much the model should reason per turn, mapped to each provider's own control. Same option and same [mapping table](/docs/reference/adapters/llm#reasoning-effort) as `llm()` |
 | `providerOptions` | `Record<string, Record<string, unknown>>` | -- | No | Raw provider settings forwarded to the SDK, winning over `reasoning` for the settings they name. See [Reaching a provider directly](/docs/reference/adapters/llm#reaching-a-provider-directly) |
 
-The last seven are the same sampling block `llm()` takes, and they mean the same thing here: one agent can run a narrow classification at `reasoning: 'none'` while another names the same model and asks for `'high'`. An agent that sets none of them behaves exactly as it did before they existed. They can be set once for every agent in a context via `agentPlugin({ defaultOptions })`, where a per-agent value wins per key.
+The last seven are the same sampling block `llm()` takes, and they mean the same thing here: one agent can run a narrow classification at `reasoning: 'none'` while another names the same model and asks for `'high'`. An agent that sets none of them behaves exactly as it did before they existed. They can be set once for every agent in a context via `agentPlugin({ defaultOptions })`, where a per-agent value wins per key, and markdown agents declare them in frontmatter like any other field.
+
+They apply to every model call in a run: the first turn, each tool-calling turn, and each `validate` retry. A run that suspends and resumes resolves them again from the context it resumes in rather than replaying what was resolved before it parked, so a changed `defaultOptions` takes effect on the resumed turns.
 
 **`AgentRegisteredOptions` (entries in `agentPlugin({ agents: {...} })`, for by-name reuse):** same as `AgentOptions` plus:
 

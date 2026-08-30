@@ -8,6 +8,7 @@ import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
   ADAPTER_AGENT_TOOL_POLICIES,
+  AGENT_DEFAULT_OPTION_KEYS,
 } from "./store.ts";
 import { AGENT_TOOL_POLICY_KINDS } from "./tools/policy.ts";
 import type {
@@ -463,28 +464,6 @@ function validateToolPolicy(
 }
 
 /**
- * Every single-valued default, exhaustive by construction: `blocks` is the
- * one field that composes across installs, so a key added to
- * `AgentDefaultOptions` and not listed here fails to compile.
- */
-const SINGLE_VALUED_DEFAULTS = Object.keys({
-  model: true,
-  tools: true,
-  maxTurns: true,
-  principal: true,
-  temperature: true,
-  maxTokens: true,
-  topP: true,
-  frequencyPenalty: true,
-  presencePenalty: true,
-  reasoning: true,
-  providerOptions: true,
-} satisfies Record<
-  Exclude<keyof AgentDefaultOptions, "blocks">,
-  true
->) as Array<Exclude<keyof AgentDefaultOptions, "blocks">>;
-
-/**
  * Merge a freshly-supplied `defaultOptions` into the value already
  * stored by a previous `agentPlugin` install. Per-field conflicts
  * throw so a context cannot accidentally end up with two competing
@@ -527,12 +506,10 @@ function mergePluginDefaults(
     }
   }
   const merged: AgentDefaultOptions = { ...existing };
-  for (const key of SINGLE_VALUED_DEFAULTS) {
+  for (const key of AGENT_DEFAULT_OPTION_KEYS) {
     const value = next[key];
     if (value === undefined) continue;
-    // `model` and `tools` already threw above with their own wording; every
-    // other single-valued default gets the same treatment rather than being
-    // dropped on the floor, which is what a spread of the named fields did.
+    // `model` and `tools` already threw above with their own wording.
     if (existing[key] !== undefined) {
       throw rcError("RC5003", undefined, {
         message: `agentPlugin: "defaultOptions.${key}" is already set on this context. A context can have only one default for it.`,

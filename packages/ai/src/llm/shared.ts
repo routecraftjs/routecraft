@@ -69,26 +69,6 @@ export function resolveSampling(
   return out;
 }
 
-/**
- * Fold context-level sampling defaults into an authored options object: the
- * authored value wins per key, and a key the author left unset takes the
- * default. Mirrors how the LLM destination merges its own store defaults.
- *
- * @internal
- */
-export function mergeSampling<T extends LlmSamplingOptions>(
-  defaults: LlmSamplingOptions,
-  authored: T,
-): T {
-  const out = { ...authored };
-  for (const key of SAMPLING_OPTION_KEYS) {
-    if (out[key] !== undefined) continue;
-    const value = defaults[key];
-    if (value !== undefined) Object.assign(out, { [key]: value });
-  }
-  return out;
-}
-
 /** Parses a "providerId:modelName" id string into its parts. Throws when malformed. */
 export function parseProviderModel(id: string): {
   providerId: string;

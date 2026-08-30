@@ -102,7 +102,23 @@ Why this shape:
 
 - The `peerDependencies` range is what users see after publish. Bundling or hard-depending on core would cause duplicate-instance bugs (two `RoutecraftError` classes, two adapter registries); the peer forces a single instance, and the real range documents compatibility.
 - The range form is version-era specific. Pre-1.0 it must be `>=<current minor>.0-0 <1.0.0`: in 0.x semver, `^0.7.0` excludes 0.8.0, so every core minor would leave the range and changesets major-bumps peer dependents whose range is left (`onlyUpdatePeerDependentsWhenOutOfRange` controls WHEN that cascade fires, not its size). At v1, tighten to `^1.0.0`; minors then stay in range and the cascade only fires on real majors.
-- The `-0` suffix is load-bearing and costs one edit per minor. A prerelease satisfies a range only when some comparator carries a prerelease on the same `major.minor.patch`, so `>=0.7.0 <1.0.0` refuses `0.7.0-canary-20260830132156` and `>=0.6.0-0 <1.0.0` refuses it too: the suffix does not reach forward to a later minor. A range that refuses the version being published is rewritten by changesets to that exact snapshot version, which is only coherent inside the batch that produced it, so `ai` and `os` (which publish in their own batches, per the pipeline table in section 9) end up pinned to a core canary that has already moved. When the line moves to a new minor, every declared peer range's lower bound moves with it, at the same point compatibility is being restated anyway. `packages/routecraft/test/core-version-range-contract.bun.test.ts` fails the gate when one has not, naming the manifest, the declared range and the version it refuses.
+- **The `-0` suffix is load-bearing, and the lower bound names the version the NEXT release will publish rather than the last one.** A prerelease satisfies a range only when some comparator carries a prerelease on the same `major.minor.patch`, and the suffix reaches no further than that one version. Executed:
+
+```
+>=0.7.0 <1.0.0     satisfies 0.7.0-canary-20260830132156   false
+>=0.6.0-0 <1.0.0   satisfies 0.7.0-canary-20260830132156   false
+>=0.7.0-0 <1.0.0   satisfies 0.7.0-canary-20260830132156   true
+>=0.7.0-0 <1.0.0   satisfies 0.7.1-canary-20260901120000   false
+>=0.7.0-0 <1.0.0   satisfies 0.8.0-canary-1                false
+```
+
+  A range that refuses the version being published is rewritten by changesets to that exact snapshot version, which is only coherent inside the batch that produced it, so `ai` and `os` (which publish in their own batches, per the pipeline table in section 9) end up pinned to a core canary that has already moved.
+
+  The last two rows are the maintenance cost, and it is **one edit per released version, not per minor**: once 0.7.0 ships, `>=0.7.0-0` refuses the canaries of 0.7.1 just as it refuses 0.8.0's. The edit belongs to the change that proposes the next version, because that is the first moment the right bound is known: a tree with no pending changeset has no proposed next version, and no bound can be chosen for one.
+
+  `packages/routecraft/test/core-version-range-contract.bun.test.ts` is the gate. It asserts the canary form only while a changeset actually proposes a release, so it fails the change that moves the line and never the "Version Packages" PR, and it names the manifest, the declared range and the version refused.
+
+  This is a chore, and the durable fix is to have the canary job rewrite the ranges for the snapshot it is about to publish rather than have contributors keep the committed ranges ahead of the line; that is tracked separately.
 - The `devDependencies` `workspace:*` keeps local development synced: Bun resolves it to the in-tree package, so editing core is immediately visible. `workspace:*` (not `workspace:^x.y.z`) so version bumps never touch devDependencies.
 - The CLI is the one exception: it keeps core in `dependencies` with a plain `^` range on the LAST RELEASED version (`^0.6.0` while 0.6.0 is out), because `craft` needs core at runtime and users install the CLI standalone. A regular dependency is a different contract from a peer in both directions. Changesets rewrites it on every release rather than only when it leaves the range (`updateInternalDependencies` is `patch`), so it never reaches npm stale and never needs the `-0` a peer needs. And `bun install` resolves it against the workspace, so a range that names the NEXT version instead (`^0.7.0-0` against a 0.6.0 workspace) stops matching the in-tree core and silently links a published canary into `packages/cli/node_modules` instead. Leave it naming the released line; the release moves it.
 

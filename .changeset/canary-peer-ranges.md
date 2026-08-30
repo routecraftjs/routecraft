@@ -19,8 +19,11 @@ install of both at the `canary` tag resolved a second copy of core whose
 
 All three now read `>=0.7.0-0 <1.0.0`.
 
-The lower bound has to move when the line moves to a new minor, because `-0`
-does not reach forward: `>=0.7.0-0` refuses `0.8.0-canary-1`. A contract test
-now fails the gate when a declared range no longer admits the version that
-governs it, naming the manifest, the range and the version it refuses, so the
-maintenance is caught here rather than downstream.
+The lower bound names the version the next release will publish, and has to
+move whenever that version changes, because `-0` reaches no further than the
+one version it sits on: `>=0.7.0-0` refuses `0.7.1-canary-1` as surely as it
+refuses `0.8.0-canary-1`. That is one edit per released version, and it belongs
+to the change that proposes the next one. A contract test now fails the gate
+when a declared range no longer admits the version that governs it, naming the
+manifest, the range and the version it refuses, so the maintenance is caught
+here rather than downstream.

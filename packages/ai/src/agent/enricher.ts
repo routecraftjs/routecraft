@@ -12,7 +12,7 @@ import {
 } from "@routecraft/routecraft";
 import { BLOCK_RESERVED_PREFIX, resolveBlocks } from "../block/resolve.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
-import { mergeSampling, resolveModel, resolvePrompt } from "../llm/shared.ts";
+import { resolveModel, resolvePrompt } from "../llm/shared.ts";
 import {
   AgentSession,
   buildUserPrompt,
@@ -26,6 +26,7 @@ import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
   ADAPTER_AGENT_TOOL_POLICIES,
+  AGENT_DEFAULT_OPTION_KEYS,
 } from "./store.ts";
 import { isGovernableToolKind, policiesAdmit } from "./tools/policy.ts";
 import type {
@@ -332,18 +333,11 @@ function mergeWithDefaults(
 ): AgentOptions | AgentRegisteredOptions {
   const defaults = context?.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
   if (!defaults) return base;
-  const out = mergeSampling(defaults, base);
-  if (out.model === undefined && defaults.model !== undefined) {
-    out.model = defaults.model;
-  }
-  if (out.tools === undefined && defaults.tools !== undefined) {
-    out.tools = defaults.tools;
-  }
-  if (out.maxTurns === undefined && defaults.maxTurns !== undefined) {
-    out.maxTurns = defaults.maxTurns;
-  }
-  if (out.principal === undefined && defaults.principal !== undefined) {
-    out.principal = defaults.principal;
+  const out = { ...base };
+  for (const key of AGENT_DEFAULT_OPTION_KEYS) {
+    if (out[key] !== undefined) continue;
+    const value = defaults[key];
+    if (value !== undefined) Object.assign(out, { [key]: value });
   }
   if (defaults.blocks !== undefined) {
     out.blocks = mergeBlocks(defaults.blocks, base.blocks);

@@ -226,22 +226,38 @@ export function buildExtras(
 }
 
 /**
+ * Everything one dispatch hands the SDK. A named bag rather than a positional
+ * list because the first slot is an opaque model handle and several of the
+ * rest are strings, so a shuffled argument would not reliably be a type error.
+ */
+export interface SdkParamsInput {
+  /** Resolved language model handle; opaque to the framework. */
+  model: unknown;
+  /**
+   * Needed because the reasoning mapping is per provider and the resolved
+   * model handle carries no provider identity by the time it gets here.
+   */
+  provider: LlmProviderType;
+  options: LlmSamplingOptionsMerged;
+  system: string;
+  user: string | unknown[];
+  extras: ProviderExtras;
+}
+
+/**
  * Assemble the arguments for `generateText` / `streamText`. The one place
  * where an authored option becomes an SDK parameter, for both the sync and
  * streaming paths, so `reasoning` is mapped here and the authored
  * `providerOptions` folded over the result.
- *
- * `provider` is needed because the reasoning mapping is per provider and the
- * resolved model handle is opaque by the time it gets here.
  */
-export function buildSdkParams(
-  model: unknown,
-  provider: LlmProviderType,
-  options: LlmSamplingOptionsMerged,
-  system: string,
-  user: string | unknown[],
-  extras: ProviderExtras,
-): Record<string, unknown> {
+export function buildSdkParams({
+  model,
+  provider,
+  options,
+  system,
+  user,
+  extras,
+}: SdkParamsInput): Record<string, unknown> {
   const params: Record<string, unknown> = {
     model,
     prompt: user,

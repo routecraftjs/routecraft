@@ -30,7 +30,14 @@ function paramsFor(
   provider: LlmProviderType,
   extra: Partial<LlmSamplingOptionsMerged>,
 ): Record<string, unknown> {
-  return buildSdkParams({}, provider, sampling(extra), "", "hi", {});
+  return buildSdkParams({
+    model: {},
+    provider,
+    options: sampling(extra),
+    system: "",
+    user: "hi",
+    extras: {},
+  });
 }
 
 function providerOptionsFor(
@@ -216,6 +223,44 @@ describe("providerOptions passthrough and precedence", () => {
   });
 
   /**
+   * @case A passthrough with no reasoning still reaches the SDK as a copy
+   * @preconditions providerOptions authored on the sampling block with reasoning unset, which is the plain passthrough path
+   * @expectedResult The object in the SDK params is not the authored object, so a provider or middleware that writes into what it was handed cannot leak a setting into the next dispatch on the same route
+   */
+  test("the authored object is never handed to the SDK by reference", () => {
+    const authored: LlmRawProviderOptions = {
+      anthropic: { thinking: { type: "enabled", budgetTokens: 4096 } },
+    };
+    const sent = providerOptionsFor("anthropic", {
+      providerOptions: authored,
+    });
+    expect(sent).toEqual(authored);
+    expect(sent).not.toBe(authored);
+    expect(sent?.["anthropic"]).not.toBe(authored["anthropic"]);
+  });
+
+  /**
+   * @case A namespace named __proto__ is an own key rather than a prototype assignment
+   * @preconditions providerOptions carrying a `__proto__` namespace, which a config parsed from JSON or YAML can produce and a TypeScript object literal cannot
+   * @expectedResult The setting survives as an own key and Object.prototype is untouched, so the object handed to the SDK has no attacker-controlled prototype
+   */
+  test("a __proto__ namespace lands as an own key", () => {
+    const authored = JSON.parse(
+      '{"__proto__": {"polluted": true}}',
+    ) as LlmRawProviderOptions;
+    const sent = providerOptionsFor("openai", {
+      reasoning: "low",
+      providerOptions: authored,
+    });
+    expect(Object.hasOwn(sent as object, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(sent)).toBeNull();
+    expect(
+      (Object.prototype as unknown as { polluted?: unknown }).polluted,
+    ).toBeUndefined();
+    expect(sent?.["openai"]).toEqual({ reasoningEffort: "low" });
+  });
+
+  /**
    * @case The merge does not mutate the mapped or authored objects
    * @preconditions An authored providerOptions object reused across two calls
    * @expectedResult The authored object is unchanged after merging, so a shared options object cannot accumulate mapped settings
@@ -238,10 +283,10 @@ describe("buildSdkParams carries the whole sampling block", () => {
    * @expectedResult Each field appears under the SDK's own name, and providerOptions sits beside them
    */
   test("every sampling field reaches the SDK params", () => {
-    const params = buildSdkParams(
-      { id: "model" },
-      "openai",
-      {
+    const params = buildSdkParams({
+      model: { id: "model" },
+      provider: "openai",
+      options: {
         temperature: 0.7,
         maxTokens: 512,
         topP: 0.9,
@@ -249,10 +294,10 @@ describe("buildSdkParams carries the whole sampling block", () => {
         presencePenalty: 0.2,
         reasoning: "high",
       },
-      "be brief",
-      "hello",
-      {},
-    );
+      system: "be brief",
+      user: "hello",
+      extras: {},
+    });
     expect(params).toMatchObject({
       temperature: 0.7,
       maxOutputTokens: 512,

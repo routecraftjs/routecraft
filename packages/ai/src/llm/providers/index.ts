@@ -1,4 +1,4 @@
-import type { LlmModelConfig, LlmResult } from "../types.ts";
+import type { LlmResult } from "../types.ts";
 import {
   buildExtras,
   buildSdkParams,
@@ -7,7 +7,7 @@ import {
   readReasoning,
   toLlmUsage,
   type CallLlmParams,
-  type ProviderExtras,
+  type SdkParamsInput,
 } from "./llm-utils.ts";
 import { resolveLanguageModel } from "./resolve.ts";
 import { streamLlm as _streamLlm } from "./stream-llm.ts";
@@ -37,26 +37,19 @@ export async function streamLlm(
 export async function callLlm(params: CallLlmParams): Promise<LlmResult> {
   const { config, modelId, options, system, user } = params;
   const model = await resolveLanguageModel(config, modelId);
-  return runGenerate(
+  return runGenerate({
     model,
-    config.provider,
+    provider: config.provider,
     options,
     system,
     user,
-    buildExtras(params),
-  );
+    extras: buildExtras(params),
+  });
 }
 
-async function runGenerate(
-  model: unknown,
-  provider: LlmModelConfig["provider"],
-  options: CallLlmParams["options"],
-  system: string,
-  user: string | unknown[],
-  extras: ProviderExtras,
-): Promise<LlmResult> {
+async function runGenerate(input: SdkParamsInput): Promise<LlmResult> {
   const { generateText } = await import("ai");
-  const params = buildSdkParams(model, provider, options, system, user, extras);
+  const params = buildSdkParams(input);
   const result = await generateText(
     params as Parameters<typeof generateText>[0],
   );

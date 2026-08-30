@@ -146,4 +146,9 @@ The namespace is the SDK's, which is not always the Routecraft provider id: `gem
 
 Values nested deeper than a setting are replaced whole rather than deep-merged, so what you write for a setting is what is sent.
 
-Both options are unstable in the sense every provider setting is: `providerOptions` is typed as raw records, and the SDK is what validates it.
+Two consequences worth stating outright:
+
+- **`providerOptions` wins over `reasoning` whichever level each came from.** The two are folded together at dispatch, after context defaults and call-site options have merged, so a `providerOptions` set once in `llmPlugin({ defaultOptions })` overrides the `reasoning` a specific call asks for, for the settings it names. If you want a house default that a call can still override, set `reasoning` in `defaultOptions` rather than `providerOptions`.
+- **Between the two levels, `providerOptions` is one value.** [Context defaults](/docs/advanced/merged-options) merge per option, so a call that sets `providerOptions` replaces the context's whole record rather than merging namespaces into it. The per-namespace, per-setting merge described above happens between `reasoning` and `providerOptions`, not between the two levels.
+
+`providerOptions` is typed as raw records and the SDK is what validates it, so a namespace the SDK does not recognise is not an error: it is ignored, silently. That includes writing the Routecraft provider id where the SDK's namespace differs (`gemini` rather than `google`), which is the easiest way to get a setting that appears to be set and does nothing.
