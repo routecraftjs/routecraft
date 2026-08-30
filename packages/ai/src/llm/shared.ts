@@ -3,8 +3,91 @@ import {
   type CraftContext,
   type Exchange,
 } from "@routecraft/routecraft";
-import type { LlmModelConfig, LlmPromptSource } from "./types.ts";
+import type {
+  LlmModelConfig,
+  LlmPromptSource,
+  LlmSamplingOptions,
+  LlmSamplingOptionsMerged,
+} from "./types.ts";
 import { ADAPTER_LLM_PROVIDERS } from "./types.ts";
+
+/**
+ * Sampling defaults for every model call the framework makes, `llm()` and
+ * `agent()` alike. One source: an agent and an llm step that name the same
+ * model behave the same when neither says otherwise.
+ *
+ * @internal
+ */
+export const DEFAULT_TEMPERATURE = 0;
+
+/** @internal See {@link DEFAULT_TEMPERATURE}. */
+export const DEFAULT_MAX_TOKENS = 1024;
+
+/**
+ * Every key of the sampling block, exhaustive by construction: the `satisfies`
+ * fails to compile when a key is added to `LlmSamplingOptions` and not listed
+ * here, and when a key listed here is not on it.
+ *
+ * The exhaustiveness is the point. Both paths from an authored option to the
+ * provider call used to copy the block field by field, so an option that
+ * typechecked could still be dropped on the floor by a copy written before it
+ * existed. Everything that copies the block now walks this list.
+ *
+ * @internal
+ */
+export const SAMPLING_OPTION_KEYS = Object.keys({
+  temperature: true,
+  maxTokens: true,
+  topP: true,
+  frequencyPenalty: true,
+  presencePenalty: true,
+  reasoning: true,
+  providerOptions: true,
+} satisfies Record<keyof LlmSamplingOptions, true>) as Array<
+  keyof LlmSamplingOptions
+>;
+
+/**
+ * The sampling block an options object asks for, with the framework defaults
+ * filling `temperature` and `maxTokens` when it does not. Keys the author left
+ * unset stay absent so the provider's own default applies rather than a value
+ * the framework invented.
+ *
+ * @internal
+ */
+export function resolveSampling(
+  options: LlmSamplingOptions,
+): LlmSamplingOptionsMerged {
+  const out: LlmSamplingOptionsMerged = {
+    temperature: options.temperature ?? DEFAULT_TEMPERATURE,
+    maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+  };
+  for (const key of SAMPLING_OPTION_KEYS) {
+    const value = options[key];
+    if (value !== undefined) Object.assign(out, { [key]: value });
+  }
+  return out;
+}
+
+/**
+ * Fold context-level sampling defaults into an authored options object: the
+ * authored value wins per key, and a key the author left unset takes the
+ * default. Mirrors how the LLM destination merges its own store defaults.
+ *
+ * @internal
+ */
+export function mergeSampling<T extends LlmSamplingOptions>(
+  defaults: LlmSamplingOptions,
+  authored: T,
+): T {
+  const out = { ...authored };
+  for (const key of SAMPLING_OPTION_KEYS) {
+    if (out[key] !== undefined) continue;
+    const value = defaults[key];
+    if (value !== undefined) Object.assign(out, { [key]: value });
+  }
+  return out;
+}
 
 /** Parses a "providerId:modelName" id string into its parts. Throws when malformed. */
 export function parseProviderModel(id: string): {

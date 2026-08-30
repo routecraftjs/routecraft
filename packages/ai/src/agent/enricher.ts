@@ -12,7 +12,7 @@ import {
 } from "@routecraft/routecraft";
 import { BLOCK_RESERVED_PREFIX, resolveBlocks } from "../block/resolve.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
-import { resolveModel, resolvePrompt } from "../llm/shared.ts";
+import { mergeSampling, resolveModel, resolvePrompt } from "../llm/shared.ts";
 import {
   AgentSession,
   buildUserPrompt,
@@ -332,7 +332,7 @@ function mergeWithDefaults(
 ): AgentOptions | AgentRegisteredOptions {
   const defaults = context?.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
   if (!defaults) return base;
-  const out = { ...base } as AgentOptions | AgentRegisteredOptions;
+  const out = mergeSampling(defaults, base);
   if (out.model === undefined && defaults.model !== undefined) {
     out.model = defaults.model;
   }

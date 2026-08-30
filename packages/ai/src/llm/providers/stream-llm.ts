@@ -1,7 +1,7 @@
 import { logger as frameworkLogger } from "@routecraft/routecraft";
 import type { AgentDeltaListener } from "../../agent/events.ts";
 import { normalizeStreamDelta } from "../../agent/events.ts";
-import type { LlmResult } from "../types.ts";
+import type { LlmModelConfig, LlmResult } from "../types.ts";
 import {
   buildExtras,
   buildSdkParams,
@@ -34,6 +34,7 @@ export async function streamLlm(
   const model = await resolveLanguageModel(config, modelId);
   return runStreamGenerate(
     model,
+    config.provider,
     options,
     system,
     user,
@@ -51,6 +52,7 @@ export async function streamLlm(
  */
 export async function runStreamGenerate(
   model: unknown,
+  provider: LlmModelConfig["provider"],
   options: CallLlmParams["options"],
   system: string,
   user: string | unknown[],
@@ -58,7 +60,7 @@ export async function runStreamGenerate(
   onDelta: AgentDeltaListener,
 ): Promise<LlmResult> {
   const { streamText } = await import("ai");
-  const params = buildSdkParams(model, options, system, user, extras);
+  const params = buildSdkParams(model, provider, options, system, user, extras);
   const result = streamText(params as Parameters<typeof streamText>[0]);
 
   for await (const part of result.fullStream) {

@@ -26,7 +26,10 @@ export type {
   LlmPluginProviders,
   LlmPromptSource,
   LlmProviderType,
+  LlmRawProviderOptions,
+  LlmReasoningEffort,
   LlmResult,
+  LlmSamplingOptions,
   LlmToolCallSummary,
   LlmUsage,
 } from "./types.ts";

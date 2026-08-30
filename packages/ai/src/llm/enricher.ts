@@ -10,9 +10,12 @@ import {
 } from "@routecraft/routecraft";
 import { callLlm } from "./providers/index.ts";
 import {
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_TEMPERATURE,
   parseProviderModel,
   resolveModel,
   resolvePrompt,
+  resolveSampling,
   resolveUserPromptDefault,
 } from "./shared.ts";
 import { toAiOutputSpec } from "./structured-output.ts";
@@ -47,9 +50,6 @@ async function parseStructuredTextFallback(
   const result = await validateAgainst(schema, parsed);
   return result.ok ? result.value : undefined;
 }
-
-const DEFAULT_TEMPERATURE = 0;
-const DEFAULT_MAX_TOKENS = 1024;
 
 /**
  * LLM destination adapter. Expects model id as "providerId:modelName" (e.g. ollama:lfm2.5-thinking),
@@ -96,23 +96,13 @@ export class LlmEnricherAdapter<
       resolvePrompt(merged.user, exchange) ||
       resolveUserPromptDefault(exchange);
 
-    const opts: Parameters<typeof callLlm>[0]["options"] = {
-      temperature: merged.temperature,
-      maxTokens: merged.maxTokens,
-    };
-    if (merged.topP !== undefined) opts.topP = merged.topP;
-    if (merged.frequencyPenalty !== undefined)
-      opts.frequencyPenalty = merged.frequencyPenalty;
-    if (merged.presencePenalty !== undefined)
-      opts.presencePenalty = merged.presencePenalty;
-
     const output =
       merged.output !== undefined ? toAiOutputSpec(merged.output) : undefined;
 
     const result = await callLlm({
       config,
       modelId: modelName,
-      options: opts,
+      options: resolveSampling(merged),
       system,
       user,
       output,

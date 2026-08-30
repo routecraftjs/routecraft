@@ -5,7 +5,12 @@ import type {
   BlockBody,
   Blocks,
 } from "../block/types.ts";
-import type { LlmModelId, LlmPromptSource, LlmUsage } from "../llm/types.ts";
+import type {
+  LlmModelId,
+  LlmPromptSource,
+  LlmSamplingOptions,
+  LlmUsage,
+} from "../llm/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ToolSelection } from "./tools/selection.ts";
 
@@ -44,9 +49,11 @@ export type AgentPrincipalRenderer = (
  * win over these.
  *
  * Mirrors the `llmPlugin({ defaultOptions })` shape so the same mental
- * model carries across.
+ * model carries across, including the sampling block it inherits from
+ * {@link LlmSamplingOptions}: a context can set `temperature` or `reasoning`
+ * once for every agent it hosts, and an agent that sets its own wins per key.
  */
-export interface AgentDefaultOptions {
+export interface AgentDefaultOptions extends LlmSamplingOptions {
   /**
    * Default model reference. Format: "providerId:modelName". The
    * provider must be registered via `llmPlugin({ providers })`.
@@ -121,8 +128,13 @@ export interface AgentDefaultOptions {
  * `.id()` is the agent's callable identity and `.description()` is its
  * human-readable description. `AgentOptions` only carries LLM-specific
  * config.
+ *
+ * The sampling block ({@link LlmSamplingOptions}: `temperature`, `maxTokens`,
+ * `topP`, the penalties and `reasoning`) is the same one `llm()` takes and
+ * means the same thing here. Unset, it resolves to the framework defaults an
+ * `llm()` step gets, so an agent that says nothing behaves as it always has.
  */
-export interface AgentOptions {
+export interface AgentOptions extends LlmSamplingOptions {
   /**
    * Model reference of the form "providerId:modelName". The provider
    * must be registered via `llmPlugin({ providers })`. Optional when

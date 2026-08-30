@@ -463,6 +463,28 @@ function validateToolPolicy(
 }
 
 /**
+ * Every single-valued default, exhaustive by construction: `blocks` is the
+ * one field that composes across installs, so a key added to
+ * `AgentDefaultOptions` and not listed here fails to compile.
+ */
+const SINGLE_VALUED_DEFAULTS = Object.keys({
+  model: true,
+  tools: true,
+  maxTurns: true,
+  principal: true,
+  temperature: true,
+  maxTokens: true,
+  topP: true,
+  frequencyPenalty: true,
+  presencePenalty: true,
+  reasoning: true,
+  providerOptions: true,
+} satisfies Record<
+  Exclude<keyof AgentDefaultOptions, "blocks">,
+  true
+>) as Array<Exclude<keyof AgentDefaultOptions, "blocks">>;
+
+/**
  * Merge a freshly-supplied `defaultOptions` into the value already
  * stored by a previous `agentPlugin` install. Per-field conflicts
  * throw so a context cannot accidentally end up with two competing
@@ -504,10 +526,20 @@ function mergePluginDefaults(
       }
     }
   }
-  return {
-    ...existing,
-    ...(next.model !== undefined ? { model: next.model } : {}),
-    ...(next.tools !== undefined ? { tools: next.tools } : {}),
-    ...(mergedBlocks !== undefined ? { blocks: mergedBlocks } : {}),
-  };
+  const merged: AgentDefaultOptions = { ...existing };
+  for (const key of SINGLE_VALUED_DEFAULTS) {
+    const value = next[key];
+    if (value === undefined) continue;
+    // `model` and `tools` already threw above with their own wording; every
+    // other single-valued default gets the same treatment rather than being
+    // dropped on the floor, which is what a spread of the named fields did.
+    if (existing[key] !== undefined) {
+      throw rcError("RC5003", undefined, {
+        message: `agentPlugin: "defaultOptions.${key}" is already set on this context. A context can have only one default for it.`,
+      });
+    }
+    Object.assign(merged, { [key]: value });
+  }
+  if (mergedBlocks !== undefined) merged.blocks = mergedBlocks;
+  return merged;
 }
