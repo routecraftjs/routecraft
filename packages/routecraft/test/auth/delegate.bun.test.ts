@@ -682,6 +682,122 @@ describe("authorize() delegation awareness", () => {
   });
 
   /**
+   * @case effective: true satisfies a scope check from the outermost actor's ring
+   * @preconditions Subject holds mail:send and employees:read but never kb:read; zoe (the actor) holds kb:read; route requires kb:read with actor 'any'
+   * @expectedResult The call is admitted with effective: true and refused with RC5038 without it, so the widening is what admits it and the default stays subject-only
+   */
+  test("effective reads the outermost actor's scopes", async () => {
+    const options = { scopes: ["kb:read"], actor: "any" as const };
+
+    expect((await run(viaZoe, { ...options, effective: true })).delivered).toBe(
+      1,
+    );
+
+    const off = await run(viaZoe, options);
+    expect(off.delivered).toBe(0);
+    expect(off.failure).toContain("RC5038");
+    expect(off.failure).toContain("kb:read");
+  });
+
+  /**
+   * @case An actor carrying no scopes leaves an effective check refusing
+   * @preconditions Chain user->max, where max is minted without scopes, which is the shape a token-borne actor always has: an RFC 8693 `act` claim has no scope member, so actorFromActClaim cannot populate one
+   * @expectedResult RC5038. The flag widens the ring to an empty set and nothing is added, so a deployment doing token-borne delegation must map its IdP's own actor scopes with ClaimMappers.actor rather than expect the standard claim to carry them
+   */
+  test("widens to an empty ring when the actor carries no scopes", async () => {
+    expect(maxClaims.scopes).toBeUndefined();
+
+    const res = await run([maxClaims], {
+      scopes: ["kb:read"],
+      effective: true,
+      actor: "any",
+    });
+    expect(res.delivered).toBe(0);
+    expect(res.failure).toContain("RC5038");
+  });
+
+  /**
+   * @case A SECOND-level actor's scopes never satisfy an effective check
+   * @preconditions Chain user->zoe->max on a route raising maxDelegationDepth to 2 so RC5036 does not refuse it first; kb:read is held ONLY by zoe, who is now the nested prior actor, while max drives and holds nothing
+   * @expectedResult RC5038 naming kb:read. The identical route admits the same scope when zoe is the outermost actor, so depth is the only difference: effective reads one ring out and never walks the chain, which is what keeps authority from accumulating with delegation depth and what stops it undoing delegate()'s intersection one line later
+   */
+  test("stops at the outermost actor and never walks the chain", async () => {
+    const options = {
+      scopes: ["kb:read"],
+      effective: true,
+      actor: "any" as const,
+      maxDelegationDepth: 2,
+    };
+
+    // Control: one hop out, the same scope on the same agent is reachable.
+    expect((await run(viaZoe, options)).delivered).toBe(1);
+
+    const deeper = await run(viaMaxViaZoe, options);
+    expect(deeper.delivered).toBe(0);
+    expect(deeper.failure).toContain("RC5038");
+    expect(deeper.failure).toContain("kb:read");
+  });
+
+  /**
+   * @case effective has no influence on a role check under any combination
+   * @preconditions zoe carries the role "agent" and the subject does not; route requires roles ["agent"] with effective: true and actor 'any'
+   * @expectedResult RC5015: a role is what the principal IS and only a keyring is inheritable, so the actor's roles stay unreachable even where its scopes are not
+   */
+  test("never widens a role check to the actor", async () => {
+    expect(zoeClaims.roles).toContain("agent");
+
+    const res = await run(viaZoe, {
+      roles: ["agent"],
+      effective: true,
+      actor: "any",
+    });
+    expect(res.delivered).toBe(0);
+    expect(res.failure).toContain("RC5015");
+    expect(res.failure).toContain("agent");
+  });
+
+  /**
+   * @case effective: true under the default actor 'none' is a documented no-op
+   * @preconditions Direct call with no actor at all, run once with effective: true and once without, against a scope the subject holds and one it does not
+   * @expectedResult Identical outcomes both ways. The default admits no actor for the flag to read, so the combination is harmless rather than a build-time refusal
+   */
+  test("is a no-op when no actor can be present", async () => {
+    const held = { scopes: ["employees:read"] };
+    expect((await run(direct, held)).delivered).toBe(1);
+    expect((await run(direct, { ...held, effective: true })).delivered).toBe(1);
+
+    const absent = { scopes: ["kb:read"] };
+    const off = await run(direct, absent);
+    const on = await run(direct, { ...absent, effective: true });
+    expect(on.delivered).toBe(off.delivered);
+    expect(on.delivered).toBe(0);
+    expect(on.failure).toContain("RC5038");
+    expect(off.failure).toContain("RC5038");
+  });
+
+  /**
+   * @case anyScope composes with effective, satisfied from the actor's ring
+   * @preconditions Route accepts either kb:read or kb:write, neither held by the subject and kb:read held by zoe
+   * @expectedResult Admitted with effective: true; without it RC5038 names the whole accepted set so a consent flow can offer the choice
+   */
+  test("widens anyScope to the actor's ring too", async () => {
+    const options = {
+      anyScope: ["kb:read", "kb:write"],
+      actor: "any" as const,
+    };
+
+    expect((await run(viaZoe, { ...options, effective: true })).delivered).toBe(
+      1,
+    );
+
+    const off = await run(viaZoe, options);
+    expect(off.delivered).toBe(0);
+    expect(off.failure).toContain("RC5038");
+    expect(off.failure).toContain("kb:read");
+    expect(off.failure).toContain("kb:write");
+  });
+
+  /**
    * @case A predicate actor spec receives both actor and subject
    * @preconditions actor spec is a function requiring an ai_agent actor for an admin subject
    * @expectedResult Delegated principal passes; direct call is rejected with RC5034

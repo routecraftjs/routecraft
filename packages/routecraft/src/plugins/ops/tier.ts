@@ -54,8 +54,12 @@ export type TierVerdict =
  * presenting a credential must never leave a caller worse off than silence.
  *
  * On a scope-gated tier the scope check is exact membership against
- * `principal.scopes`, the same comparison `authorize()` makes, so an
- * operator reasons about one scope model rather than two.
+ * `principal.scopes`, through the same `missingScopes` that backs
+ * `authorize({ scopes })`, so an operator reasons about one scope model
+ * rather than two. A tier reads the subject's own ring and nothing else:
+ * `authorize({ effective })` can widen a ROUTE's check to the outermost
+ * actor's scopes, and that widening is a property of that gate, never of
+ * this one.
  */
 export async function admitToTier(
   tier: OpsTier | undefined,

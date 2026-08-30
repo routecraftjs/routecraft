@@ -611,10 +611,10 @@ Obtain the subject's consent through your grant flow, which adds the matching `m
 Insufficient authority (recoverable)
 
 **Why it happens**  
-The principal is authentic and admitted, but lacks one or more scopes the route requires. Unlike a role failure (RC5015, permanent: no ceremony changes who the subject is), a missing scope is the one recoverable authorization failure: a consent or grant flow could add the scope and the call could be retried. This mirrors the RFC 9470 / RFC 6750 `insufficient_scope` challenge shape. For delegated principals, remember that scopes are intersected at every hop, so the missing scope may have been narrowed away by the delegation ceiling rather than absent from the subject.
+The principal is authentic and admitted, but lacks one or more scopes the route requires. Unlike a role failure (RC5015, permanent: no ceremony changes who the subject is), a missing scope is the one recoverable authorization failure: a consent or grant flow could add the scope and the call could be retried. This mirrors the RFC 9470 / RFC 6750 `insufficient_scope` challenge shape. For delegated principals, remember that scopes are intersected at every hop, so the missing scope may have been narrowed away by the delegation ceiling rather than absent from the subject. A route using `authorize({ effective: true })` reads the subject's ring plus the outermost actor's, so a refusal there means neither ring carried the scope.
 
 **Suggestion**  
-The cause error carries a machine-readable `missing.scopes` array listing exactly what is absent. Feed it to your consent flow (request a grant for those scopes), or grant them at the IdP, then retry.
+The cause error carries a machine-readable `missing.scopes` array and a `missing.mode` saying how to read it. With `mode: "all"` the array lists exactly the required scopes that are absent, and every one is needed. With `mode: "any"` it lists the whole accepted set of an `anyScope` check, of which any ONE would have opened the door, so a consent flow offers the caller the choice rather than requesting all of them. Feed it to your consent flow, or grant at the IdP, then retry. `mode` is optional on the type so an application that throws this shape itself keeps compiling; `authorize()` always sets it, and an absent value means `"all"`.
 
 ## RC5039
 HTTP webhook signature verification failed

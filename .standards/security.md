@@ -115,6 +115,10 @@ When you add a new default that affects authentication, authorization, network e
 
 - **Scope failures are RC5038, not RC5015.** Per § 9 this is a deliberate change in check semantics, and the rationale is the recoverable / permanent split: a role or predicate failure states something about who the subject *is*, which no ceremony changes, while a missing scope states something about what the *credential* carries, which a consent flow can widen. Collapsing them would force every consent implementation to parse error text to tell "ask the user" from "give up". The structured detail rides on the cause (`InsufficientAuthority`), not on the RC metadata, so it is in-process only: `RoutecraftError.toJSON()` serialises the cause's message and stack, not its own fields.
 
+- **An empty accepted set is refused, not read.** `authorize({ anyScope: [] })` throws RC2001 when the validator is built. It is the one list-valued option whose empty form is not vacuously satisfied: a requirement of no scopes admits everyone and is harmless, while an accepted set naming nobody admits nobody, so reading it as "no check" would take the permissive branch of an ambiguity. A set computed empty (a tenant lookup that missed, an unset environment variable) would otherwise remove a route's only scope gate in silence, which is the same failure the non-finite `maxDelegationDepth` guard exists to prevent. `scopes: []` keeps its vacuous-truth reading, because there the two readings are not opposites.
+
+- **The RC5038 cause says how to read its scope list.** `missing.mode` is `"all"` for a `scopes` refusal, where every listed scope is required and absent, and `"any"` for an `anyScope` refusal, where the list is the whole accepted set and one entry suffices. Without it a consent flow acting on `missing.scopes` would request every member of an interchangeable family, granting a wider ring than the route ever required. The field is optional on the type so an application that throws the shape itself still compiles; `authorize()` always sets it.
+
 - **Fail closed on non-finite inputs.** `Number.isFinite(principal.expiresAt) && Number.isFinite(clockToleranceSec)` is checked before comparison. A `NaN` would otherwise silently bypass the guard.
 
 ## 8. `loadOptionalPeer` for cryptographic peers
@@ -220,6 +224,39 @@ surface of `authorize()`. Grounded in RFC 8693 (`act` / `may_act`), RFC 9068
   not agent-reachable unless it says so. `maxDelegationDepth` defaults to `1`
   and its walk is bounded, so a hand-assembled cyclic chain fails rather than
   hanging the check.
+- **Scope checks read the subject's ring unless the route opts in, and then
+  one ring out and no further.** `authorize({ effective: true })` satisfies
+  `scopes` and `anyScope` from the subject's scopes plus the OUTERMOST
+  actor's, which is how an agent exercises its own standing authority on a
+  caller's behalf. It stops there deliberately: walking the chain would read
+  authority from parties the `actor` matcher never considers, undo the
+  intersection `delegate()` applies at every hop, and let authority
+  accumulate with delegation depth, which fails open where missing authority
+  fails closed. A route raising `maxDelegationDepth` gets deeper delegation
+  but no deeper scope reading; that limitation is accepted, and the recorded
+  alternative if it ever bites is to let `maxDelegationDepth` bound how far
+  `effective` walks. Under the default `actor: 'none'` the flag is a
+  documented no-op rather than a build-time error, since no actor is admitted
+  for it to read.
+- **Widening a check to the actor's ring ADDS to it. The agent bounds what it
+  lends, not what the caller can reach.** With `effective: true` the check
+  reads the union of the subject's ring and the outermost actor's, so a caller
+  passes on their own scopes or on the agent's. The agent is not a cap
+  anywhere: `delegate()` deliberately does not intersect delegated scopes with
+  the actor's own, and this flag does not either. What an agent's standing
+  grant bounds is the ADDITIONAL authority a caller gains by going through it,
+  and that is where this moves the control: keeping that grant narrow stops
+  being tidiness and becomes the limit on what the agent can lend. It is
+  therefore opt-in per route and never a context-wide default, so a scope that
+  cannot be lent across principals (one meaning "the holder's own rows", which
+  the agent has no rows to resolve against) can keep reading the subject's ring
+  alone.
+- **`effective` never applies to `roles`.** A role is what the principal IS;
+  scopes are what a keyring CARRIES, and only keyrings are inheritable. An
+  agent driving a request does not become the subject, so no flag combination
+  may make a role check read the actor's roles. The two are checked from
+  different rings for the same reason `delegate()` passes roles through
+  unchanged and intersects scopes.
 - **Agent-ness is structural, never a role.** `subjectProfile` and `actor` are
   set by the framework at trusted boundaries. Roles come from the IdP and are
   a namespace we do not control, so an "is an agent" role would be forgeable

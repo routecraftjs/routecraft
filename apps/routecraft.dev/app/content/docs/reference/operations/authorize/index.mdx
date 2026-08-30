@@ -23,7 +23,9 @@ For mid-pipeline checks (rare, for example after a `.process()` swaps the princi
 | Field | Type | Description |
 |-------|------|-------------|
 | `roles` | `string[]` | Required roles, checked on the SUBJECT (roles pass through delegation unchanged). The principal must carry every listed role. AND-combined. |
-| `scopes` | `string[]` | Required scopes, checked on the effective set (delegation intersects scopes at every hop). The principal must carry every listed scope. AND-combined. |
+| `scopes` | `string[]` | Required scopes, checked on the subject's own scopes as narrowed by delegation (intersected at every hop). The principal must carry every listed scope. AND-combined. |
+| `anyScope` | `string[]` | Accepted scopes, any ONE of which admits the principal (OR), where `scopes` requires every one (AND). Given both, they compose as an AND of the two conditions. An empty array is refused with [`RC2001`](/docs/reference/errors#rc-2001) when the validator is built, since an accepted set naming nobody admits nobody. |
+| `effective` | `boolean` | Whether `scopes` and `anyScope` may also be satisfied from the OUTERMOST actor's scopes. Default `false`. Never applies to `roles`. A no-op under the default `actor: 'none'`. |
 | `subject` | `SubjectMatcher \| (p: Principal) => boolean` | Constrain whose authority is exercised: subject id(s), `issuer`, and/or entity `profile` (`user` / `service` / `ai_agent`). |
 | `actor` | `ActorSpec` | Constrain who is driving. Default `'none'`: any delegated principal is rejected until the route admits an actor. `'any'`, an `ActorMatcher`, an array (OR, may include `'none'`), or a predicate `(actor, subject) => boolean`. Matches the OUTERMOST actor only (RFC 8693 section 4.1); nested prior actors are audit data. |
 | `maxDelegationDepth` | `number` | Maximum actor-chain length once an actor is admitted at all. Default `1` (one hop; agent-to-sub-agent chains rejected). |
@@ -31,6 +33,64 @@ For mid-pipeline checks (rare, for example after a `.process()` swaps the princi
 | `clockToleranceSec` | `number` | Clock skew tolerance for the `expiresAt` check. Default `0`. |
 
 Match actors by the `(issuer, subject)` pair: a bare `subject` matches a same-named actor from any issuer, which is ambiguous the moment two issuers exist.
+
+## Any one of several scopes
+
+`scopes` is an AND over exact strings. Where a scope family has narrowing variants that are interchangeable at the door, `anyScope` is the OR:
+
+```ts
+craft()
+  .id('read-leave')
+  .authorize({ anyScope: ['leave:read', 'leave:read:self', 'leave:read:base'] })
+  .from(http({ path: '/leave', method: 'GET' }))
+  .to(leaveDestination)
+```
+
+Any one of the three admits the caller, and the exact variants held select rows and fields further down the pipeline. Reaching for `predicate` instead would cost the recoverable refusal: a failing predicate throws `RC5015`, which carries no `missing.scopes`, so exactly the routes that most need to name what would have worked lose the ability to. An `anyScope` refusal throws `RC5038` naming the whole accepted set, because any one entry would have opened the door and a consent flow should be able to offer the caller the choice.
+
+Given both, `scopes` and `anyScope` compose as an AND of the two conditions: every entry of `scopes`, and at least one entry of `anyScope`.
+
+## Reading the actor's scopes
+
+`scopes` and `anyScope` read the subject's ring. On a delegated call, `effective: true` widens them to the subject's ring plus the OUTERMOST actor's:
+
+```ts
+// Zoe may read the restricted mailbox under her own standing authority.
+// The caller she is acting for need not hold that scope themselves.
+craft()
+  .id('summarise-mailbox')
+  .authorize({
+    scopes: ['mail:read:admin'],
+    effective: true,
+    actor: { subject: 'agent:zoe', issuer: 'https://agents.example.com' },
+  })
+  .from(direct())
+  .to(summarise)
+```
+
+This is the normal shape of delegation rather than an edge case. An agent legitimately holds standing scopes its caller does not, because that is its job. A gate reading only the subject's ring means the agent can never exercise its own authority on anyone's behalf, and it cannot delegate to itself to recover it.
+
+Three rules bound what the flag does.
+
+**Only the outermost actor is read.** Prior actors in a nested chain stay audit data, never a policy input (RFC 8693 section 4.1), which is the rule `actor` already follows. Walking the chain would undo the intersection [`delegate()`](/docs/reference/operations/delegate) applies at every hop and let authority accumulate with delegation depth, and accumulating authority fails open where missing authority fails closed. A route raising `maxDelegationDepth` to 2 or more therefore gets deeper delegation but still reads only the outermost actor's scopes; the intermediate agents' rings are deliberately unreachable.
+
+**It never applies to `roles`.** A role is what the principal IS; scopes are what a keyring CARRIES, and only keyrings are inheritable. An agent driving a request does not become the subject, so no flag combination makes a role check read the actor's roles.
+
+**The actor has to carry scopes.** An actor minted by [`delegate()`](/docs/reference/operations/delegate) does. An actor parsed from a token's RFC 8693 `act` claim does not: the claim has no scope member, and the parser will not invent authority from an unstandardised one. For token-borne delegation, map whatever your IdP emits onto the actor with `ClaimMappers.actor`, or the check reads an empty ring and refuses.
+
+**With `actor: 'none'` it does nothing.** That default admits no actor, so the flag has nothing to read. The combination is a documented no-op rather than a build-time error: it is a harmless misconfiguration, and a route that means to admit an agent has to say so on `actor` anyway.
+
+<Callout type="warning" title="What the agent lends">
+
+Widening a check to the actor's ring **adds** the agent's standing scopes to the subject's: the check reads the union, so a caller passes on their own scopes or on the agent's. The agent is not a cap, here or in [`delegate()`](/docs/reference/operations/delegate), which deliberately does not intersect delegated scopes with the actor's own.
+
+What an agent's grant does bound is the **additional authority a caller gains by going through it**, and that is where this moves the control: keeping an agent's own grant narrow stops being tidiness and becomes the limit on what it can lend.
+
+It also means `effective: true` belongs with a named actor matcher rather than `actor: 'any'`. Paired with `'any'`, every agent that can reach the route lends its ring to whoever drives through it, so what can be lent becomes the widest grant among them rather than one agent's.
+
+This is why `effective` is opt-in per route rather than a context-wide default. A scope meaning "the holder's own rows" cannot be lent across principals, since the agent has no rows for it to resolve against, so that variant must keep reading the subject's ring alone even where its siblings read both.
+
+</Callout>
 
 Failure modes:
 
@@ -40,7 +100,8 @@ Failure modes:
 - **Subject constraint failed:** throws [`RC5035`](/docs/reference/errors#rc-5035).
 - **Delegation chain deeper than `maxDelegationDepth`:** throws [`RC5036`](/docs/reference/errors#rc-5036).
 - **Missing role or failed predicate:** throws [`RC5015`](/docs/reference/errors#rc-5015). Permanent: no ceremony changes who the subject is.
-- **Missing scope:** throws [`RC5038`](/docs/reference/errors#rc-5038). Recoverable: the cause carries `missing.scopes` so a consent flow can request exactly what is absent.
+- **Missing scope:** throws [`RC5038`](/docs/reference/errors#rc-5038). Recoverable: the cause carries `missing.scopes` so a consent flow can request exactly what is absent, and `missing.mode` says how to read it. `"all"` lists required scopes that are absent, every one needed; `"any"` lists the whole accepted set of an `anyScope` check, of which one suffices, so a consent flow offers the choice instead of requesting all of them.
+- **An empty `anyScope`:** throws [`RC2001`](/docs/reference/errors#rc-2001) when the validator is built, before any request. An accepted set naming nobody admits nobody, so it is refused rather than read as no check.
 
 All codes flow through the route's normal error path: `.error()` handles them like any other validation failure; without `.error()`, `exchange:failed` fires.
 
