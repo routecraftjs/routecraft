@@ -8,8 +8,10 @@ import {
 } from "bun:test";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
+  authenticate,
   authorize,
   craft,
+  delegate,
   markAuthentic,
   noop,
   simple,
@@ -17,6 +19,7 @@ import {
   type Source,
   type RouteBuilder,
 } from "../../src/index.ts";
+import { missingScopes } from "../../src/auth/authorize.ts";
 
 type FailedEventDetails = { details: { error: unknown } };
 
@@ -1101,6 +1104,140 @@ describe("authorize() expiresAt enforcement", () => {
     const msg = String(failures[0]);
     expect(msg).toContain("RC5020");
     expect(msg).not.toContain("RC5015");
+  });
+});
+
+describe("authorize() anyScope", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
+
+  /** What `options` threw for `principal`, or undefined when it passed. */
+  function refusalOf(
+    options: Parameters<typeof authorize>[0],
+    principal: Principal,
+  ): unknown {
+    const check = authorize(options);
+    try {
+      check({ body: "x", principal } as unknown as Parameters<typeof check>[0]);
+      return undefined;
+    } catch (err) {
+      return err;
+    }
+  }
+
+  /** The `missing.scopes` a refusal carries for a consent flow to act on. */
+  function missingFromCause(refusal: unknown): string[] | undefined {
+    return (refusal as { cause?: { missing?: { scopes?: string[] } } }).cause
+      ?.missing?.scopes;
+  }
+
+  const family = ["leave:read", "leave:read:self", "leave:read:base"];
+
+  /**
+   * @case A route declaring anyScope admits a principal holding one variant
+   * @preconditions Pre-from .authorize({ anyScope }) naming three interchangeable variants; principal holds the middle one only
+   * @expectedResult The exchange reaches the destination, so the OR is wired through the route-entry guard and not only through the validator
+   */
+  test("admits a principal holding one of the accepted scopes", async () => {
+    const s = spy<string>();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("any-scope")
+          .from(simple("hello"))
+          .authenticate(() => ({
+            subject: "user-1",
+            scopes: ["leave:read:self"],
+          }))
+          .validate(authorize({ anyScope: family }))
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual(["hello"]);
+  });
+
+  /**
+   * @case An anyScope refusal names the whole accepted set, not one entry
+   * @preconditions Principal holds an unrelated scope; authorize() accepts any of three variants
+   * @expectedResult RC5038 whose cause carries every accepted scope on missing.scopes, so a consent flow can offer the caller the choice
+   */
+  test("refuses with RC5038 naming every accepted scope", () => {
+    const principal = authenticate({
+      subject: "user-1",
+      scopes: ["leave:write"],
+    });
+
+    const refusal = refusalOf({ anyScope: family }, principal);
+
+    expect(String(refusal)).toContain("RC5038");
+    expect(missingFromCause(refusal)).toEqual(family);
+    for (const scope of family) expect(String(refusal)).toContain(scope);
+  });
+
+  /**
+   * @case scopes and anyScope compose as an AND of the two conditions
+   * @preconditions Route requires scopes ["leave:list"] AND any of the read family; principal built three ways
+   * @expectedResult Passes only when both hold; each half alone is refused with RC5038 naming what that half wanted
+   */
+  test("ANDs the two conditions when both are given", () => {
+    const options = { scopes: ["leave:list"], anyScope: family };
+    const holder = (scopes: string[]) =>
+      authenticate({ subject: "user-1", scopes });
+
+    expect(
+      refusalOf(options, holder(["leave:list", "leave:read:base"])),
+    ).toBeUndefined();
+
+    const noAnd = refusalOf(options, holder(["leave:read:base"]));
+    expect(String(noAnd)).toContain("RC5038");
+    expect(missingFromCause(noAnd)).toEqual(["leave:list"]);
+
+    const noOr = refusalOf(options, holder(["leave:list"]));
+    expect(String(noOr)).toContain("RC5038");
+    expect(missingFromCause(noOr)).toEqual(family);
+  });
+
+  /**
+   * @case An empty anyScope is no check, exactly as an empty scopes is
+   * @preconditions Principal carries no scopes at all; authorize() given anyScope [] and scopes []
+   * @expectedResult Neither list refuses, so one rule covers every list-valued option rather than the empty array meaning the opposite thing on each
+   */
+  test("treats an empty accepted set as no check", () => {
+    const principal = authenticate({ subject: "user-1" });
+
+    expect(refusalOf({ anyScope: [] }, principal)).toBeUndefined();
+    expect(refusalOf({ scopes: [] }, principal)).toBeUndefined();
+  });
+
+  /**
+   * @case missingScopes keeps AND semantics and reads the subject's ring only
+   * @preconditions The shared helper called with two required scopes of which one is held, then with a delegated principal whose actor holds the absent scope
+   * @expectedResult Both absent entries are reported and the actor's ring is ignored, which is what the scope-gated ops tier at plugins/ops/tier.ts depends on
+   */
+  test("missingScopes stays an AND over the subject's own scopes", () => {
+    const principal = authenticate({
+      subject: "user-1",
+      scopes: ["ops:introspection"],
+    });
+
+    expect(
+      missingScopes(principal, ["ops:introspection", "ops:dispatch"]),
+    ).toEqual(["ops:dispatch"]);
+    expect(missingScopes(principal, ["ops:introspection"])).toEqual([]);
+
+    const delegated = delegate(principal, {
+      subject: "agent:zoe",
+      scopes: ["ops:dispatch"],
+    });
+    expect(missingScopes(delegated, ["ops:dispatch"])).toEqual([
+      "ops:dispatch",
+    ]);
   });
 });
 

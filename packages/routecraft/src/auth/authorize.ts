@@ -1,5 +1,5 @@
 import type { Exchange } from "../exchange.ts";
-import { rcError } from "../error.ts";
+import { rcError, type RoutecraftError } from "../error.ts";
 import type { CallableValidator } from "../operations/validate.ts";
 import { isAuthentic } from "./authentic.ts";
 import { isPrincipalExpired } from "./expiry.ts";
@@ -16,6 +16,10 @@ import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
  * const missing = (err.cause as InsufficientAuthority | undefined)?.missing
  * if (missing?.scopes) requestGrant(missing.scopes)
  * ```
+ *
+ * Carries the scopes the principal lacked for a `scopes` refusal, and the
+ * whole accepted set for an `anyScope` one, where any single entry would
+ * have opened the door.
  *
  * In-process only: `RoutecraftError.toJSON()` serialises the cause's message
  * and stack, not its own properties, so a consumer reading the failure from
@@ -79,6 +83,47 @@ export interface AuthorizeOptions {
    * set. Defaults to no scope check.
    */
   scopes?: string[];
+  /**
+   * Required scopes, any ONE of which admits the principal, where `scopes`
+   * requires every one. For a scope family whose variants are
+   * interchangeable at the door (`leave:read`, `leave:read:self`,
+   * `leave:read:base`): any of them opens it, and the exact variant held
+   * narrows what the pipeline returns further down.
+   *
+   * Refuses with RC5038 naming the whole accepted set rather than one
+   * entry, because no single entry was required and a consent flow should
+   * be able to offer the caller the choice.
+   *
+   * Composes with `scopes` as an AND of the two conditions: every entry of
+   * `scopes`, and at least one entry of `anyScope`. An empty array is no
+   * check, exactly as `scopes: []` is. Defaults to no check.
+   */
+  anyScope?: string[];
+  /**
+   * Whether `scopes` and `anyScope` may also be satisfied from the ACTOR's
+   * scopes. Defaults to `false`, so a route that does not ask is unchanged.
+   *
+   * With `true` the scope checks read the subject's ring plus the OUTERMOST
+   * actor's, which is how an agent exercises its own standing authority on
+   * a caller's behalf: an agent legitimately holds scopes nobody who asks
+   * it for something holds. Only the outermost actor is read, matching the
+   * rule `actor` already follows (RFC 8693 section 4.1); prior actors in a
+   * nested chain stay audit data.
+   *
+   * Never applies to `roles` under any combination. A role is what the
+   * principal IS; scopes are what a keyring CARRIES, and only keyrings are
+   * inheritable. An agent driving a request does not become the subject.
+   *
+   * A no-op under the default `actor: 'none'`, which admits no actor for
+   * the flag to read. That combination is a harmless misconfiguration
+   * rather than an error.
+   *
+   * Widening a check this way makes the agent's standing scopes the ceiling
+   * of what any caller can reach through it, which is why it is opt-in per
+   * route rather than a context-wide setting: a gate that must stay on the
+   * subject's own ring simply does not set it.
+   */
+  effective?: boolean;
   /**
    * Custom predicate for advanced checks. Return `false` to reject. Runs
    * after the built-in checks.
@@ -193,6 +238,12 @@ function actorAllowed(
  * audit data. The default `actor: 'none'` means a route is not reachable
  * through delegation unless it says so.
  *
+ * Scope checks read the subject's ring alone unless `effective: true`
+ * widens them to the outermost actor's as well, which is how an agent
+ * exercises its own standing authority on a caller's behalf. Roles are
+ * never widened that way: a role is what the principal IS, and only a
+ * keyring is inheritable.
+ *
  * Throws `RC5012` when no principal is present, `RC5043` when the
  * principal was restored from a suspension rather than verified live,
  * `RC5023` when a principal is present but was not established by a
@@ -201,7 +252,8 @@ function actorAllowed(
  * subject is not admitted, `RC5036` when the delegation chain exceeds
  * `maxDelegationDepth`, `RC5015` when the principal fails the role or
  * predicate check, and `RC5038` when a required scope is missing
- * (recoverable; the cause carries `missing.scopes`).
+ * (recoverable; the cause carries `missing.scopes`, naming the whole
+ * accepted set for an `anyScope` refusal).
  *
  * Most routes should declare authorization at the route boundary using the
  * pre-from `.authorize()` builder method, which wires this validator as a
@@ -230,6 +282,19 @@ function actorAllowed(
  *   .to(smtp())
  * ```
  *
+ * @example Any one of a scope family, satisfiable by the agent's own ring
+ * ```ts
+ * craft()
+ *   .id("read-leave")
+ *   .authorize({
+ *     anyScope: ["leave:read", "leave:read:self", "leave:read:base"],
+ *     effective: true,
+ *     actor: ["none", { subject: "agent:zoe", issuer: "https://agents.example" }],
+ *   })
+ *   .from(direct())
+ *   .to(leaveDestination)
+ * ```
+ *
  * @example Mid-pipeline check (escape hatch)
  * ```ts
  * import { authorize } from "@routecraft/routecraft";
@@ -247,6 +312,8 @@ export function authorize(
   const {
     roles,
     scopes,
+    anyScope,
+    effective = false,
     predicate,
     clockToleranceSec = 0,
     subject: subjectSpec,
@@ -380,28 +447,18 @@ export function authorize(
       }
     }
 
-    if (scopes && scopes.length > 0) {
-      const missing = missingScopes(principal, scopes);
-      if (missing.length > 0) {
-        // RC5038, not RC5015: a missing scope is the one recoverable
-        // failure (RFC 9470 / RFC 6750 insufficient_scope shape). The
-        // identity is valid; a consent flow could add the scope and the
-        // call could be retried. Role and predicate failures stay RC5015
-        // because no ceremony changes who the subject is. The cause error
-        // carries a machine-readable `missing` field so a consent flow can
-        // request exactly what is absent.
-        throw rcError(
-          "RC5038",
-          Object.assign(
-            new Error(`Missing required scopes: ${missing.join(", ")}`),
-            { missing: { scopes: missing } },
-          ) satisfies InsufficientAuthority,
-          {
-            message: `Authorization failed: principal is missing required scope(s): ${missing.join(", ")}`,
-            suggestion:
-              "The identity is valid but lacks scope. Obtain the missing scope(s) via your consent/grant flow (the cause's `missing.scopes` lists them), or grant them at the IdP, then retry.",
-          },
-        );
+    if ((scopes && scopes.length > 0) || (anyScope && anyScope.length > 0)) {
+      const granted = grantedScopes(principal, effective);
+      if (scopes && scopes.length > 0) {
+        const missing = scopes.filter((scope) => !granted.has(scope));
+        if (missing.length > 0) throw insufficientScope(missing, "all");
+      }
+      if (
+        anyScope &&
+        anyScope.length > 0 &&
+        !anyScope.some((scope) => granted.has(scope))
+      ) {
+        throw insufficientScope([...anyScope], "any");
       }
     }
 
@@ -418,17 +475,81 @@ export function authorize(
 }
 
 /**
- * Scopes in `required` the principal does not carry.
+ * The scopes a check may draw on: the principal's own, plus the outermost
+ * actor's when `effective` widens the ring.
+ *
+ * The bound is `principal.actor` and nothing deeper, deliberately. Walking
+ * the chain would read authority from parties `authorize({ actor })` never
+ * considers (RFC 8693 section 4.1), undo the intersection `delegate()`
+ * applies at every hop, and let authority accumulate with delegation depth,
+ * which fails open where missing authority fails closed.
+ */
+function grantedScopes(principal: Principal, effective: boolean): Set<string> {
+  const granted = new Set(principal.scopes ?? []);
+  if (effective) {
+    for (const scope of principal.actor?.scopes ?? []) granted.add(scope);
+  }
+  return granted;
+}
+
+/**
+ * The RC5038 refusal, carrying `missing.scopes` for a consent flow.
+ *
+ * RC5038 rather than RC5015: a missing scope is the one recoverable failure
+ * (RFC 9470 / RFC 6750 insufficient_scope shape). The identity is valid, so
+ * a consent flow could add the scope and the call could be retried. Role and
+ * predicate failures stay RC5015 because no ceremony changes who the subject
+ * is.
+ *
+ * `mode` decides what the scope list means. `"all"` names the entries the
+ * principal lacked, since every one was required. `"any"` names the whole
+ * accepted set, since no single entry was required and any one of them would
+ * have opened the door.
+ */
+function insufficientScope(
+  scopes: string[],
+  mode: "all" | "any",
+): RoutecraftError {
+  const detail =
+    mode === "all"
+      ? `missing required scope(s): ${scopes.join(", ")}`
+      : `holding none of the accepted scope(s): ${scopes.join(", ")}`;
+  return rcError(
+    "RC5038",
+    Object.assign(
+      new Error(
+        mode === "all"
+          ? `Missing required scopes: ${scopes.join(", ")}`
+          : `Missing any of the accepted scopes: ${scopes.join(", ")}`,
+      ),
+      { missing: { scopes } },
+    ) satisfies InsufficientAuthority,
+    {
+      message: `Authorization failed: principal is ${detail}`,
+      suggestion:
+        mode === "all"
+          ? "The identity is valid but lacks scope. Obtain the missing scope(s) via your consent/grant flow (the cause's `missing.scopes` lists them), or grant them at the IdP, then retry."
+          : "The identity is valid but carries none of the accepted scopes. Obtain any ONE of them via your consent/grant flow (the cause's `missing.scopes` lists the full accepted set, so a consent flow can offer the choice), or grant one at the IdP, then retry.",
+    },
+  );
+}
+
+/**
+ * Scopes in `required` the principal does not carry on its own ring.
  *
  * The one scope comparison in the framework. `authorize()` and the ops
  * management tiers both gate on it, and the property an operator is promised,
  * that there is a single scope model rather than two, is only true while they
  * share this function rather than a comment saying they agree.
+ *
+ * Reads the principal's own scopes only. `authorize({ effective: true })`
+ * widens the ring it compares against before comparing, which is a property
+ * of that one gate rather than of the scope model.
  */
 export function missingScopes(
   principal: Principal,
   required: readonly string[],
 ): string[] {
-  const granted = new Set(principal.scopes ?? []);
+  const granted = grantedScopes(principal, false);
   return required.filter((scope) => !granted.has(scope));
 }

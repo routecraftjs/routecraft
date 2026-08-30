@@ -220,6 +220,34 @@ surface of `authorize()`. Grounded in RFC 8693 (`act` / `may_act`), RFC 9068
   not agent-reachable unless it says so. `maxDelegationDepth` defaults to `1`
   and its walk is bounded, so a hand-assembled cyclic chain fails rather than
   hanging the check.
+- **Scope checks read the subject's ring unless the route opts in, and then
+  one ring out and no further.** `authorize({ effective: true })` satisfies
+  `scopes` and `anyScope` from the subject's scopes plus the OUTERMOST
+  actor's, which is how an agent exercises its own standing authority on a
+  caller's behalf. It stops there deliberately: walking the chain would read
+  authority from parties the `actor` matcher never considers, undo the
+  intersection `delegate()` applies at every hop, and let authority
+  accumulate with delegation depth, which fails open where missing authority
+  fails closed. A route raising `maxDelegationDepth` gets deeper delegation
+  but no deeper scope reading; that limitation is accepted, and the recorded
+  alternative if it ever bites is to let `maxDelegationDepth` bound how far
+  `effective` walks. Under the default `actor: 'none'` the flag is a
+  documented no-op rather than a build-time error, since no actor is admitted
+  for it to read.
+- **Widening a check to the actor's ring makes the agent the ceiling.** With
+  `effective: true`, the agent's standing scopes bound what any caller can
+  reach through that agent. This is intended, and it moves where the control
+  lives: an agent's own grant stops being tidiness and becomes the bound on
+  every caller who goes through it. It is therefore opt-in per route and
+  never a context-wide default, so a scope that cannot be lent across
+  principals (one meaning "the holder's own rows", which the agent has no
+  rows to resolve against) can keep reading the subject's ring alone.
+- **`effective` never applies to `roles`.** A role is what the principal IS;
+  scopes are what a keyring CARRIES, and only keyrings are inheritable. An
+  agent driving a request does not become the subject, so no flag combination
+  may make a role check read the actor's roles. The two are checked from
+  different rings for the same reason `delegate()` passes roles through
+  unchanged and intersects scopes.
 - **Agent-ness is structural, never a role.** `subjectProfile` and `actor` are
   set by the framework at trusted boundaries. Roles come from the IdP and are
   a namespace we do not control, so an "is an agent" role would be forgeable
