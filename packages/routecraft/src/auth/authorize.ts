@@ -14,7 +14,8 @@ import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
  *
  * ```ts
  * const missing = (err.cause as InsufficientAuthority | undefined)?.missing
- * if (missing?.scopes) requestGrant(missing.scopes)
+ * if (missing?.mode === "any") offerChoice(missing.scopes)
+ * else if (missing?.scopes) requestGrant(missing.scopes)
  * ```
  *
  * Carries the scopes the principal lacked for a `scopes` refusal, and the
@@ -27,7 +28,20 @@ import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
  * this structured field.
  */
 export interface InsufficientAuthority extends Error {
-  missing: { scopes: string[] };
+  missing: {
+    scopes: string[];
+    /**
+     * How to read `scopes`. `"all"` lists the required scopes the
+     * principal lacked, every one of them needed. `"any"` lists the whole
+     * accepted set of an `anyScope` check, of which ONE suffices, so a
+     * consent flow can offer the choice rather than requesting all of them.
+     *
+     * Optional because an application throwing this shape itself (the
+     * documented workaround before `anyScope` existed) predates the field;
+     * `authorize()` always sets it. Absent means `"all"`.
+     */
+    mode?: "all" | "any";
+  };
 }
 
 /**
@@ -95,8 +109,14 @@ export interface AuthorizeOptions {
    * be able to offer the caller the choice.
    *
    * Composes with `scopes` as an AND of the two conditions: every entry of
-   * `scopes`, and at least one entry of `anyScope`. An empty array is no
-   * check, exactly as `scopes: []` is. Defaults to no check.
+   * `scopes`, and at least one entry of `anyScope`. Defaults to no check.
+   *
+   * An empty array is refused with RC2001 when the validator is built,
+   * rather than read as no check. It is the one list on these options whose
+   * empty form is not vacuously satisfied: a requirement of no scopes admits
+   * everyone, while an accepted set naming nobody admits nobody, and a set
+   * computed empty would otherwise remove a route's only scope gate in
+   * silence. Omit the option to mean no check.
    */
   anyScope?: string[];
   /**
@@ -117,6 +137,13 @@ export interface AuthorizeOptions {
    * A no-op under the default `actor: 'none'`, which admits no actor for
    * the flag to read. That combination is a harmless misconfiguration
    * rather than an error.
+   *
+   * It reads `actor.scopes`, so the actor has to carry some. An actor minted
+   * by `delegate()` does. An actor parsed from a token's RFC 8693 `act`
+   * claim does NOT: the claim has no scope member, and the parser will not
+   * invent authority from an unstandardised one. For token-borne delegation,
+   * map whatever your IdP emits with `ClaimMappers.actor`, or the check sees
+   * an empty ring and refuses.
    *
    * Widening a check this way makes the agent's standing scopes the ceiling
    * of what any caller can reach through it, which is why it is opt-in per
@@ -255,6 +282,9 @@ function actorAllowed(
  * (recoverable; the cause carries `missing.scopes`, naming the whole
  * accepted set for an `anyScope` refusal).
  *
+ * Throws `RC2001` when the validator is built with an empty `anyScope`,
+ * which would name an accepted set that admits nobody.
+ *
  * Most routes should declare authorization at the route boundary using the
  * pre-from `.authorize()` builder method, which wires this validator as a
  * route-entry guard. Use this function directly with `.validate(...)` only
@@ -320,6 +350,14 @@ export function authorize(
     actor: actorSpec = "none",
     maxDelegationDepth = 1,
   } = options;
+  if (anyScope !== undefined && anyScope.length === 0) {
+    throw rcError("RC2001", new Error("Empty anyScope"), {
+      message:
+        "authorize({ anyScope: [] }) names an accepted set that admits nobody",
+      suggestion:
+        "Omit anyScope for no scope check, or list the scopes that admit the caller. An empty accepted set is refused rather than read either way: unlike scopes: [], which is a requirement of nothing and vacuously satisfied, an empty any-of list is satisfiable by nobody, and a set computed empty (a tenant lookup that missed, an unset environment variable) would otherwise remove the route's only scope gate in silence.",
+    });
+  }
   return (exchange: Exchange<unknown>) => {
     const principal = exchange.principal;
     if (!principal) {
@@ -447,15 +485,14 @@ export function authorize(
       }
     }
 
-    if ((scopes && scopes.length > 0) || (anyScope && anyScope.length > 0)) {
+    if ((scopes && scopes.length > 0) || anyScope !== undefined) {
       const granted = grantedScopes(principal, effective);
       if (scopes && scopes.length > 0) {
         const missing = scopes.filter((scope) => !granted.has(scope));
         if (missing.length > 0) throw insufficientScope(missing, "all");
       }
       if (
-        anyScope &&
-        anyScope.length > 0 &&
+        anyScope !== undefined &&
         !anyScope.some((scope) => granted.has(scope))
       ) {
         throw insufficientScope([...anyScope], "any");
@@ -522,7 +559,7 @@ function insufficientScope(
           ? `Missing required scopes: ${scopes.join(", ")}`
           : `Missing any of the accepted scopes: ${scopes.join(", ")}`,
       ),
-      { missing: { scopes } },
+      { missing: { scopes, mode } },
     ) satisfies InsufficientAuthority,
     {
       message: `Authorization failed: principal is ${detail}`,
@@ -542,9 +579,12 @@ function insufficientScope(
  * that there is a single scope model rather than two, is only true while they
  * share this function rather than a comment saying they agree.
  *
- * Reads the principal's own scopes only. `authorize({ effective: true })`
- * widens the ring it compares against before comparing, which is a property
- * of that one gate rather than of the scope model.
+ * Reads the principal's own scopes only, which is the ring the ops tiers
+ * gate on. `authorize()` compares against a ring it builds itself through
+ * the shared {@link grantedScopes}, because `effective: true` may widen that
+ * ring to the outermost actor's; the widening is a property of that one gate
+ * rather than of the scope model, and membership is decided the same way on
+ * both paths.
  */
 export function missingScopes(
   principal: Principal,

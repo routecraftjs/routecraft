@@ -700,6 +700,23 @@ describe("authorize() delegation awareness", () => {
   });
 
   /**
+   * @case An actor carrying no scopes leaves an effective check refusing
+   * @preconditions Chain user->max, where max is minted without scopes, which is the shape a token-borne actor always has: an RFC 8693 `act` claim has no scope member, so actorFromActClaim cannot populate one
+   * @expectedResult RC5038. The flag widens the ring to an empty set and nothing is added, so a deployment doing token-borne delegation must map its IdP's own actor scopes with ClaimMappers.actor rather than expect the standard claim to carry them
+   */
+  test("widens to an empty ring when the actor carries no scopes", async () => {
+    expect(maxClaims.scopes).toBeUndefined();
+
+    const res = await run([maxClaims], {
+      scopes: ["kb:read"],
+      effective: true,
+      actor: "any",
+    });
+    expect(res.delivered).toBe(0);
+    expect(res.failure).toContain("RC5038");
+  });
+
+  /**
    * @case A SECOND-level actor's scopes never satisfy an effective check
    * @preconditions Chain user->zoe->max on a route raising maxDelegationDepth to 2 so RC5036 does not refuse it first; kb:read is held ONLY by zoe, who is now the nested prior actor, while max drives and holds nothing
    * @expectedResult RC5038 naming kb:read. The identical route admits the same scope when zoe is the outermost actor, so depth is the only difference: effective reads one ring out and never walks the chain, which is what keeps authority from accumulating with delegation depth and what stops it undoing delegate()'s intersection one line later

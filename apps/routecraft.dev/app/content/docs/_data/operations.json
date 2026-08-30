@@ -56,8 +56,8 @@
   {
     "name": "authorize",
     "category": "Route",
-    "signature": ".authorize({ roles, scopes })",
-    "description": "Require an authenticated principal with optional roles or scopes."
+    "signature": ".authorize({ roles, scopes, anyScope, effective })",
+    "description": "Require an authenticated principal with optional roles, all-of or any-of scopes, and an opt-in read of the actor's scopes."
   },
   {
     "name": "from",

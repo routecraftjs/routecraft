@@ -12,6 +12,7 @@ import {
   authorize,
   craft,
   delegate,
+  type InsufficientAuthority,
   markAuthentic,
   noop,
   simple,
@@ -1128,10 +1129,11 @@ describe("authorize() anyScope", () => {
     }
   }
 
-  /** The `missing.scopes` a refusal carries for a consent flow to act on. */
-  function missingFromCause(refusal: unknown): string[] | undefined {
-    return (refusal as { cause?: { missing?: { scopes?: string[] } } }).cause
-      ?.missing?.scopes;
+  /** The `missing` detail a refusal carries for a consent flow to act on. */
+  function missingFromCause(
+    refusal: unknown,
+  ): InsufficientAuthority["missing"] | undefined {
+    return (refusal as { cause?: InsufficientAuthority }).cause?.missing;
   }
 
   const family = ["leave:read", "leave:read:self", "leave:read:base"];
@@ -1176,7 +1178,7 @@ describe("authorize() anyScope", () => {
     const refusal = refusalOf({ anyScope: family }, principal);
 
     expect(String(refusal)).toContain("RC5038");
-    expect(missingFromCause(refusal)).toEqual(family);
+    expect(missingFromCause(refusal)).toEqual({ scopes: family, mode: "any" });
     for (const scope of family) expect(String(refusal)).toContain(scope);
   });
 
@@ -1196,23 +1198,66 @@ describe("authorize() anyScope", () => {
 
     const noAnd = refusalOf(options, holder(["leave:read:base"]));
     expect(String(noAnd)).toContain("RC5038");
-    expect(missingFromCause(noAnd)).toEqual(["leave:list"]);
+    expect(missingFromCause(noAnd)).toEqual({
+      scopes: ["leave:list"],
+      mode: "all",
+    });
 
     const noOr = refusalOf(options, holder(["leave:list"]));
     expect(String(noOr)).toContain("RC5038");
-    expect(missingFromCause(noOr)).toEqual(family);
+    expect(missingFromCause(noOr)).toEqual({ scopes: family, mode: "any" });
   });
 
   /**
-   * @case An empty anyScope is no check, exactly as an empty scopes is
-   * @preconditions Principal carries no scopes at all; authorize() given anyScope [] and scopes []
-   * @expectedResult Neither list refuses, so one rule covers every list-valued option rather than the empty array meaning the opposite thing on each
+   * @case An empty accepted set is refused when the validator is built
+   * @preconditions authorize({ anyScope: [] }), the shape a tenant lookup that missed or an unset environment variable produces
+   * @expectedResult RC2001 at construction, before any request. An empty any-of list is satisfiable by nobody, so reading it as no check would remove a route's only scope gate in silence, where the empty AND list next to it is a requirement of nothing and stays vacuously satisfied
    */
-  test("treats an empty accepted set as no check", () => {
-    const principal = authenticate({ subject: "user-1" });
+  test("refuses an empty accepted set when the validator is built", () => {
+    let caught: unknown;
+    try {
+      authorize({ anyScope: [] });
+    } catch (err) {
+      caught = err;
+    }
+    expect(String(caught)).toContain("RC2001");
 
-    expect(refusalOf({ anyScope: [] }, principal)).toBeUndefined();
+    const principal = authenticate({ subject: "user-1" });
     expect(refusalOf({ scopes: [] }, principal)).toBeUndefined();
+  });
+
+  /**
+   * @case Holding more than one of the accepted scopes still admits
+   * @preconditions Principal holds two of the three accepted variants
+   * @expectedResult Admitted. The check is "at least one", never "exactly one", so a caller whose grant grew cannot be locked out by it
+   */
+  test("admits a principal holding several of the accepted scopes", () => {
+    const principal = authenticate({
+      subject: "user-1",
+      scopes: ["leave:read", "leave:read:self"],
+    });
+
+    expect(refusalOf({ anyScope: family }, principal)).toBeUndefined();
+  });
+
+  /**
+   * @case Identity checks still win before either new option is consulted
+   * @preconditions A self-asserted (never minted) principal that WOULD satisfy an anyScope + effective check on its scopes
+   * @expectedResult RC5023, not RC5038 or an admission: the new options widen what counts as sufficient authority, never what counts as an authentic identity
+   */
+  test("rejects a self-asserted principal before reading any scope", () => {
+    const selfAsserted = {
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      scopes: ["leave:read"],
+    } as Principal;
+
+    const refusal = refusalOf(
+      { anyScope: family, effective: true, actor: "any" },
+      selfAsserted,
+    );
+    expect(String(refusal)).toContain("RC5023");
   });
 
   /**
