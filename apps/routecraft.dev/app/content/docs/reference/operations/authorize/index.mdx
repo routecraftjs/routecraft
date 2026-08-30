@@ -80,11 +80,13 @@ Three rules bound what the flag does.
 
 **With `actor: 'none'` it does nothing.** That default admits no actor, so the flag has nothing to read. The combination is a documented no-op rather than a build-time error: it is a harmless misconfiguration, and a route that means to admit an agent has to say so on `actor` anyway.
 
-<Callout type="warning" title="The agent becomes the ceiling">
+<Callout type="warning" title="What the agent lends">
 
-Widening a check to the actor's ring makes the agent's standing scopes the **ceiling of what any caller can reach through that agent**. That is the intended consequence, and it moves where the control lives: keeping an agent's own grant narrow stops being tidiness and becomes the thing bounding every caller who goes through it.
+Widening a check to the actor's ring **adds** the agent's standing scopes to the subject's: the check reads the union, so a caller passes on their own scopes or on the agent's. The agent is not a cap, here or in [`delegate()`](/docs/reference/operations/delegate), which deliberately does not intersect delegated scopes with the actor's own.
 
-It also means `effective: true` belongs with a named actor matcher rather than `actor: 'any'`. Paired with `'any'`, every agent that can reach the route lends its ring to whoever drives through it, so the ceiling becomes the widest grant among them rather than one agent's.
+What an agent's grant does bound is the **additional authority a caller gains by going through it**, and that is where this moves the control: keeping an agent's own grant narrow stops being tidiness and becomes the limit on what it can lend.
+
+It also means `effective: true` belongs with a named actor matcher rather than `actor: 'any'`. Paired with `'any'`, every agent that can reach the route lends its ring to whoever drives through it, so what can be lent becomes the widest grant among them rather than one agent's.
 
 This is why `effective` is opt-in per route rather than a context-wide default. A scope meaning "the holder's own rows" cannot be lent across principals, since the agent has no rows for it to resolve against, so that variant must keep reading the subject's ring alone even where its siblings read both.
 

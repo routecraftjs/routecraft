@@ -145,10 +145,13 @@ export interface AuthorizeOptions {
    * map whatever your IdP emits with `ClaimMappers.actor`, or the check sees
    * an empty ring and refuses.
    *
-   * Widening a check this way makes the agent's standing scopes the ceiling
-   * of what any caller can reach through it, which is why it is opt-in per
-   * route rather than a context-wide setting: a gate that must stay on the
-   * subject's own ring simply does not set it.
+   * The check reads the UNION of the two rings, so a caller passes on their
+   * own scopes or on the agent's. The agent is not a cap: `delegate()`
+   * deliberately does not intersect delegated scopes with the actor's own,
+   * and this flag does not either. What an agent's grant bounds is the
+   * additional authority a caller gains by going through it, which is why
+   * this is opt-in per route rather than a context-wide setting: a gate that
+   * must stay on the subject's own ring simply does not set it.
    */
   effective?: boolean;
   /**

@@ -238,14 +238,19 @@ surface of `authorize()`. Grounded in RFC 8693 (`act` / `may_act`), RFC 9068
   `effective` walks. Under the default `actor: 'none'` the flag is a
   documented no-op rather than a build-time error, since no actor is admitted
   for it to read.
-- **Widening a check to the actor's ring makes the agent the ceiling.** With
-  `effective: true`, the agent's standing scopes bound what any caller can
-  reach through that agent. This is intended, and it moves where the control
-  lives: an agent's own grant stops being tidiness and becomes the bound on
-  every caller who goes through it. It is therefore opt-in per route and
-  never a context-wide default, so a scope that cannot be lent across
-  principals (one meaning "the holder's own rows", which the agent has no
-  rows to resolve against) can keep reading the subject's ring alone.
+- **Widening a check to the actor's ring ADDS to it. The agent bounds what it
+  lends, not what the caller can reach.** With `effective: true` the check
+  reads the union of the subject's ring and the outermost actor's, so a caller
+  passes on their own scopes or on the agent's. The agent is not a cap
+  anywhere: `delegate()` deliberately does not intersect delegated scopes with
+  the actor's own, and this flag does not either. What an agent's standing
+  grant bounds is the ADDITIONAL authority a caller gains by going through it,
+  and that is where this moves the control: keeping that grant narrow stops
+  being tidiness and becomes the limit on what the agent can lend. It is
+  therefore opt-in per route and never a context-wide default, so a scope that
+  cannot be lent across principals (one meaning "the holder's own rows", which
+  the agent has no rows to resolve against) can keep reading the subject's ring
+  alone.
 - **`effective` never applies to `roles`.** A role is what the principal IS;
   scopes are what a keyring CARRIES, and only keyrings are inheritable. An
   agent driving a request does not become the subject, so no flag combination

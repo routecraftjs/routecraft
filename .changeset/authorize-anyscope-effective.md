@@ -18,6 +18,6 @@ Three bounds on that flag, each deliberate:
 - **Never applies to `roles`.** A role is what the principal IS; scopes are what a keyring CARRIES, and only keyrings are inheritable.
 - **A documented no-op under the default `actor: 'none'`**, which admits no actor for the flag to read. It reads `actor.scopes`, so the actor has to carry some: an actor minted by `delegate()` does, one parsed from a token's RFC 8693 `act` claim does not, since that claim has no scope member. Map your IdP's own shape with `ClaimMappers.actor` for token-borne delegation.
 
-Widening a check this way makes the agent's standing scopes the ceiling of what any caller can reach through that agent. That is the intended consequence and it moves where the control lives, which is why the flag is opt-in per route rather than a context-wide default.
+Widening a check this way ADDS the agent's standing scopes to the subject's rather than capping the caller by them: the check reads the union, and `delegate()` does not intersect delegated scopes with the actor's own either. What an agent's grant bounds is the additional authority a caller gains by going through it, which is the control this moves and why the flag is opt-in per route rather than a context-wide default.
 
 Existing routes are unaffected: `effective` defaults to `false`, `anyScope` defaults to absent, and the shared `missingScopes` helper the scope-gated ops tiers depend on keeps its AND semantics over the subject's own ring.
