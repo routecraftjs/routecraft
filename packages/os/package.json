@@ -25,14 +25,14 @@
   "devDependencies": {
     "@routecraft/routecraft": "workspace:*",
     "@routecraft/testing": "workspace:*",
-    "agent-browser": "^0.17.1",
-    "vitest": "^4.1.10",
+    "agent-browser": "^0.34.0",
+    "vitest": "^4.1.11",
     "execa": "^9.6.0",
     "shescape": "^3.0.2"
   },
   "peerDependencies": {
     "@routecraft/routecraft": ">=0.7.0-0 <1.0.0",
-    "agent-browser": "^0.17.1",
+    "agent-browser": "^0.34.0",
     "execa": "^9.6.0",
     "shescape": "^3.0.2"
   },
