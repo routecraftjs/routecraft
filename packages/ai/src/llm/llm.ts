@@ -15,8 +15,8 @@ import type { RegisteredLlmModelId } from "../registry.ts";
  * @param options - Optional overrides (system, user, temperature, maxTokens, output, etc.). User prompt defaults to exchange.body.
  */
 export function llm<
-  T = unknown,
   S extends StandardSchemaV1 | undefined = undefined,
+  T = unknown,
 >(
   modelId: RegisteredLlmModelId,
   options?: LlmOptions<T> & { output?: S },

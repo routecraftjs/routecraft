@@ -40,11 +40,23 @@ describe("LLM adapter type safety", () => {
   });
 
   /**
-   * @case A route input schema types the exchange passed to AI callbacks
-   * @preconditions `.input({ body })` precedes llm(), agent(), and embedding() callbacks
+   * @case The legacy schema type parameter remains the first llm() generic
+   * @preconditions llm<typeof schema>(modelId, { output: schema })
+   * @expectedResult The output schema narrows the result without changing the body type
+   */
+  test("llm preserves the legacy output schema type parameter", () => {
+    const schema = z.object({ answer: z.string() });
+    expectTypeOf(
+      llm<typeof schema>("ollama:x", { output: schema }),
+    ).toMatchTypeOf<Enricher<unknown, LlmResultWithOutput<typeof schema>>>();
+  });
+
+  /**
+   * @case An explicit body type parameter types the exchange passed to AI callbacks
+   * @preconditions llm<undefined, Body>(), agent<Body>(), and embedding<Body>() supply the body type
    * @expectedResult Each callback can read the declared body fields without a cast
    */
-  test("route input type flows into llm, agent, and embedding callbacks", () => {
+  test("explicit body type flows into llm, agent, and embedding callbacks", () => {
     const body = z.object({ content: z.string(), text: z.string() });
     type Body = z.infer<typeof body>;
     const source = simple({ content: "hello", text: "hello" });
@@ -53,7 +65,7 @@ describe("LLM adapter type safety", () => {
       .input({ body })
       .from(source)
       .to(
-        llm<Body>("ollama:my-model", {
+        llm<undefined, Body>("ollama:my-model", {
           user: (exchange) => exchange.body.content,
         }),
       );
