@@ -1,5 +1,8 @@
 import { describe, expectTypeOf, test } from "bun:test";
 import { z } from "zod";
+import { craft, simple } from "@routecraft/routecraft";
+import { agent } from "../src/agent/agent.ts";
+import { embedding } from "../src/embedding/embedding.ts";
 import { llm } from "../src/llm/llm.ts";
 import type { LlmResult, LlmResultWithOutput } from "../src/llm/types.ts";
 import type { Enricher } from "@routecraft/routecraft";
@@ -34,5 +37,45 @@ describe("LLM adapter type safety", () => {
     expectTypeOf<Expected["output"]>().toMatchTypeOf<
       { answer: string } | undefined
     >();
+  });
+
+  /**
+   * @case A route input schema types the exchange passed to AI callbacks
+   * @preconditions `.input({ body })` precedes llm(), agent(), and embedding() callbacks
+   * @expectedResult Each callback can read the declared body fields without a cast
+   */
+  test("route input type flows into llm, agent, and embedding callbacks", () => {
+    const body = z.object({ content: z.string(), text: z.string() });
+    type Body = z.infer<typeof body>;
+    const source = simple({ content: "hello", text: "hello" });
+
+    craft()
+      .input({ body })
+      .from(source)
+      .to(
+        llm<Body>("ollama:my-model", {
+          user: (exchange) => exchange.body.content,
+        }),
+      );
+
+    craft()
+      .input({ body })
+      .from(source)
+      .to(
+        agent<Body>({
+          model: "ollama:my-model",
+          system: (exchange) => `Summarise ${exchange.body.text}`,
+          user: (exchange) => exchange.body.content,
+        }),
+      );
+
+    craft()
+      .input({ body })
+      .from(source)
+      .enrich(
+        embedding<Body>("openai:text-embedding-3-small", {
+          using: (exchange) => exchange.body.content,
+        }),
+      );
   });
 });

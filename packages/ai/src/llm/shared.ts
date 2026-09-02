@@ -138,9 +138,9 @@ export function resolveModel(
 }
 
 /** Resolves a prompt source (string or function) against an exchange. Empty source returns "". */
-export function resolvePrompt(
-  source: LlmPromptSource | undefined,
-  exchange: Exchange<unknown>,
+export function resolvePrompt<T = unknown>(
+  source: LlmPromptSource<T> | undefined,
+  exchange: Exchange<T>,
 ): string {
   if (source === undefined || source === "") return "";
   if (typeof source === "function") return source(exchange);
@@ -148,7 +148,9 @@ export function resolvePrompt(
 }
 
 /** Default user-prompt derivation: string body as-is, JSON for objects, String() otherwise. */
-export function resolveUserPromptDefault(exchange: Exchange<unknown>): string {
+export function resolveUserPromptDefault<T = unknown>(
+  exchange: Exchange<T>,
+): string {
   const body = exchange.body;
   if (typeof body === "string") return body;
   if (body === null || body === undefined) return "";

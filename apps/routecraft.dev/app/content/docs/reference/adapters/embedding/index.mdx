@@ -15,10 +15,12 @@ Generate vector embeddings from text. Requires `embeddingPlugin()` in your conte
 ```ts
 import { embedding } from '@routecraft/ai'
 
+type Document = { content: string; title: string; description: string }
+
 craft()
   .id('embed-document')
-  .from(source)
-  .enrich(embedding('openai:text-embedding-3-small', {
+  .from<Document>(source)
+  .enrich(embedding<Document>('openai:text-embedding-3-small', {
     using: (ex) => ex.body.content,
   }))
   .to(vectorStore)
@@ -26,7 +28,7 @@ craft()
 // (use only() to keep the document, e.g. only((r) => r.embedding, 'embedding'))
 
 // Embed a combination of fields
-.enrich(embedding('ollama:nomic-embed-text', {
+.enrich(embedding<Document>('ollama:nomic-embed-text', {
   using: (ex) => `${ex.body.title} ${ex.body.description}`,
 }))
 ```
