@@ -64,18 +64,20 @@ are the only tools the model can call.
 import { craft, mail } from '@routecraft/routecraft'
 import { agent, tools } from '@routecraft/ai'
 
+type SupportEmail = { text?: string }
+
 export default craft()
   .id('triage-support')
   .description('Triage an incoming support email')
   .from(mail('INBOX', { unseen: true, markSeen: true }))
   .to(
-    agent({
+    agent<SupportEmail>({
       model: 'anthropic:claude-sonnet-4-6',
       system:
         'You are a support triage assistant. Look the sender up, decide a priority (P1 urgent, P2 normal, P3 low), and post one concise internal brief. Do not reply to the customer.',
       user: (ex) =>
         `From: ${ex.headers['routecraft.mail.from']}\n` +
-        `Subject: ${ex.headers['routecraft.mail.subject']}\n\n${ex.body.text}`,
+        `Subject: ${ex.headers['routecraft.mail.subject']}\n\n${ex.body.text ?? ''}`,
       tools: tools(['Direct(lookup-customer)', 'Direct(post-brief)']),
     }),
   )

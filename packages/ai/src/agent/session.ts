@@ -85,9 +85,9 @@ const DEFAULT_MAX_TURNS = 20;
  *
  * @internal
  */
-export interface AgentSessionInput {
+export interface AgentSessionInput<T = unknown> {
   /** Agent options after merging with `defaultOptions`. `model` resolved. */
-  readonly options: AgentOptions | AgentRegisteredOptions;
+  readonly options: AgentOptions<T> | AgentRegisteredOptions<T>;
   /** Provider config for the resolved model. */
   readonly modelConfig: LlmModelConfig;
   /** Provider-specific model name (after `parseProviderModel`). */
@@ -119,7 +119,7 @@ export interface AgentSessionInput {
    * model's output with request-scoped state (headers, principal,
    * correlation id) when deciding whether to accept or retry.
    */
-  readonly exchange: Exchange<unknown>;
+  readonly exchange: Exchange<T>;
   /**
    * Dispatch identity used to emit `route:<routeId>:agent:*` events
    * on the context bus. Undefined for synthetic exchanges with no
@@ -244,8 +244,8 @@ export class AgentCancellationCause extends Error {
  *
  * @internal
  */
-export class AgentSession {
-  constructor(public readonly input: AgentSessionInput) {}
+export class AgentSession<T = unknown> {
+  constructor(public readonly input: AgentSessionInput<T>) {}
 
   /**
    * Run the synchronous tool-calling loop until the model emits a
@@ -859,9 +859,9 @@ function toAgentResult(
  *
  * @internal
  */
-export function buildUserPrompt(
-  options: AgentOptions | AgentRegisteredOptions,
-  exchange: Exchange<unknown>,
+export function buildUserPrompt<T>(
+  options: AgentOptions<T> | AgentRegisteredOptions<T>,
+  exchange: Exchange<T>,
 ): string {
   return options.user !== undefined
     ? resolvePrompt(options.user, exchange)

@@ -185,9 +185,11 @@ export type LlmProviderOptionsMap = Required<LlmPluginProviders>;
 
 /**
  * Resolve system or user prompt from exchange (string or function).
+ *
+ * @template T - Body type available to the prompt callback
  */
-export type LlmPromptSource =
-  string | ((exchange: Exchange<unknown>) => string);
+export type LlmPromptSource<T = unknown> =
+  string | ((exchange: Exchange<T>) => string);
 
 /**
  * Normalised reasoning effort, the portable way to ask a model to think more
@@ -245,9 +247,14 @@ export interface LlmSamplingOptions {
   providerOptions?: LlmRawProviderOptions;
 }
 
-export interface LlmOptions extends LlmSamplingOptions {
-  system?: LlmPromptSource;
-  user?: LlmPromptSource;
+/**
+ * Options for an LLM call.
+ *
+ * @template T - Body type available to system and user prompt callbacks.
+ */
+export interface LlmOptions<T = unknown> extends LlmSamplingOptions {
+  system?: LlmPromptSource<T>;
+  user?: LlmPromptSource<T>;
   /**
    * Optional output schema (Standard Schema). When set, the adapter requests
    * provider-level structured output and validates the result. Supported by
@@ -271,8 +278,8 @@ export type LlmSamplingOptionsMerged = Required<
   Omit<LlmSamplingOptions, "temperature" | "maxTokens">;
 
 /** Internal merged type for adapter and store. */
-export type LlmOptionsMerged = LlmSamplingOptionsMerged &
-  Omit<LlmOptions, keyof LlmSamplingOptions>;
+export type LlmOptionsMerged<T = unknown> = LlmSamplingOptionsMerged &
+  Omit<LlmOptions<T>, keyof LlmSamplingOptions>;
 
 /**
  * Token usage reported by the provider. Mirrors the Vercel AI SDK

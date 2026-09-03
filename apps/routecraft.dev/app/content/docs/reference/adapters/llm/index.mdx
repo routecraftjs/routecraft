@@ -15,10 +15,12 @@ Call a language model and get text or structured output. Requires `llmPlugin()` 
 ```ts
 import { llm } from '@routecraft/ai'
 
+type Document = { content: string; text: string }
+
 // Text output
 craft()
   .id('summarise')
-  .from(source)
+  .from<Document>(source)
   .enrich(llm('anthropic:claude-haiku-4-5-20251001', {
     system: 'Summarise the following in one sentence.',
     user: (ex) => ex.body.content,
@@ -37,7 +39,7 @@ const sentimentSchema = z.object({
 
 craft()
   .id('classify')
-  .from(source)
+  .from<Document>(source)
   .enrich(llm('openai:gpt-4o', {
     system: 'Classify the sentiment of the text.',
     user: (ex) => ex.body.text,
