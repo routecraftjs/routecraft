@@ -22,7 +22,7 @@ A user prompt can now be an array of typed parts instead of a string, so a route
 
 **`system` stays string-only.** No provider takes content parts there.
 
-**A string prompt behaves exactly as before.** `user` as a string, a callback returning a string, and an omitted `user` all resolve as they always have; an empty parts array is treated as an empty prompt, matching what an empty string already does.
+**A string prompt behaves exactly as before.** `user` as a string, a callback returning a string, and an omitted `user` all resolve as they always have; an empty parts array is treated as an empty prompt, matching what an empty string already does. Note that the two destinations already differed on an empty prompt and still do: `llm()` falls back to the body, `agent()` sends it as given. The reference page now says so, because a callback that maps attachments to parts returns an empty array on an exchange carrying none.
 
 Two limits worth knowing, both documented on the reference page. A part carrying a `URL` is downloaded by the SDK from your process unless the provider declares it can fetch the URL itself. And raw bytes cannot cross a suspension boundary: an agent that parks persists its thread as JSON data, so a `Uint8Array` in a part is refused at park time with a message naming the exact part, and a route that can park must pass base64 or a URL.
 
