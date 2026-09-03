@@ -620,10 +620,10 @@ The cause error carries a machine-readable `missing.scopes` array and a `missing
 HTTP webhook signature verification failed
 
 **Why it happens**  
-A route configured with `http({ signature: {...} })` received a request whose signature header was missing, did not match the raw body, or (for the `stripe-timestamped` scheme) carried a timestamp outside the tolerance window. The request was rejected with 401 before any route step ran.
+A route configured with `http({ signature: {...} })` received a request whose signature header was missing, did not match the raw body, or (for the `stripe-timestamped` and `standard-webhooks` schemes) carried a timestamp outside the tolerance window. The request was rejected with 401 before any route step ran.
 
 **Suggestion**  
-Check that the `secret` matches the provider's signing secret, the `header` name matches what the provider sends (e.g. `x-hub-signature-256`), and the `prefix` matches the provider's format (e.g. `"sha256="` for GitHub). If deliveries pass through a proxy or middleware that re-encodes the body, the signed bytes no longer match; verification must see the exact wire bytes.
+Check that the `secret` matches the provider's signing secret, the `header` name matches what the provider sends (e.g. `x-hub-signature-256`), and the `prefix` matches the provider's format (e.g. `"sha256="` for GitHub). On `standard-webhooks` there is no header to check (the specification fixes all three names) and no prefix to match, so a rejection there is the secret, the tolerance, or a sender that is not on the specification: a delivery missing `webhook-id` or `webhook-timestamp` rejects as `missing signature header`. If deliveries pass through a proxy or middleware that re-encodes the body, the signed bytes no longer match; verification must see the exact wire bytes.
 
 This error is not retryable: the same delivery fails verification the same way every time.
 
