@@ -105,10 +105,12 @@ const MODEL_ALIASES: Record<string, LlmModelId> = {
  * is still a hard error, because that is a typo or a missing
  * registration rather than a known gap.
  *
- * The check runs against the live catalog, so the moment Routecraft
- * registers a fn under one of these names (`WebFetch` in #341,
- * `WebSearch` in #342, `Bash` in #343) it resolves normally and no
- * entry has to be removed from this list.
+ * The check runs against the live catalog, so the moment an app, or
+ * the `craft-harness` template (#588), registers a route under one of
+ * these names it resolves normally and no entry has to be removed
+ * from this list. Routecraft ships none of them itself: a tool an
+ * agent reaches for is composed per `.standards/package-boundaries.md`
+ * section 6.1, not built into the framework.
  */
 const CLAUDE_BUILTIN_TOOLS = new Set([
   "Bash",
