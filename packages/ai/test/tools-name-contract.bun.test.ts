@@ -214,7 +214,7 @@ describe("MCP client tool-name validation", () => {
     const resolved = tools(["MCP(github)"]).resolve(t.ctx);
     expect(resolved.map((r) => r.name)).toEqual(["mcp__github__list_issues"]);
 
-    const warned = t.logger.warn.mock.calls.some(
+    const warned = t.contextLogger.warn.mock.calls.some(
       (c: unknown[]) =>
         typeof c[1] === "string" &&
         c[1].includes("not usable as a provider tool name"),
@@ -257,7 +257,7 @@ describe("MCP client tool-name validation", () => {
     t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
 
     const warnCount = () =>
-      t!.logger.warn.mock.calls.filter(
+      t!.contextLogger.warn.mock.calls.filter(
         (c: unknown[]) =>
           typeof c[1] === "string" &&
           c[1].includes("not usable as a provider tool name"),
@@ -302,7 +302,7 @@ describe("MCP client tool-name validation", () => {
     t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
 
     expect(tools(["MCP(a__b)"]).resolve(t.ctx)).toEqual([]);
-    const warned = t.logger.warn.mock.calls.some(
+    const warned = t.contextLogger.warn.mock.calls.some(
       (c: unknown[]) =>
         typeof c[1] === "string" &&
         c[1].includes("makes the generated tool name ambiguous"),
@@ -349,7 +349,7 @@ describe("MCP client tool-name validation", () => {
     t.ctx.setStore(MCP_TOOL_REGISTRY, registry);
 
     expect(tools(["MCP(github)"]).resolve(t.ctx)).toEqual([]);
-    const warned = t.logger.warn.mock.calls.some(
+    const warned = t.contextLogger.warn.mock.calls.some(
       (c: unknown[]) =>
         typeof c[1] === "string" &&
         c[1].includes(`over the provider limit of ${TOOL_NAME_MAX_LENGTH}`),
