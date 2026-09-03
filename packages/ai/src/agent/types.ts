@@ -23,8 +23,10 @@ import type { ToolSelection } from "./tools/selection.ts";
  * applies to both the `agent` and `llm` destinations: pass a static
  * string for fixed prompts, or a function that derives the prompt from
  * the incoming exchange.
+ *
+ * @template T - Body type available to the prompt callback
  */
-export type AgentUserPromptSource = LlmPromptSource;
+export type AgentUserPromptSource<T = unknown> = LlmPromptSource<T>;
 
 /**
  * Custom renderer for the agent's `## Caller` section. Receives the
@@ -37,10 +39,12 @@ export type AgentUserPromptSource = LlmPromptSource;
  * renderer owns its own escaping and MUST NOT surface `claims`,
  * `userinfoClaims`, or anything bearer-derived (see
  * `.standards/security.md` § 3a).
+ *
+ * @template T - Body type available to the renderer
  */
-export type AgentPrincipalRenderer = (
+export type AgentPrincipalRenderer<T = unknown> = (
   principal: Principal | undefined,
-  exchange: Exchange<unknown>,
+  exchange: Exchange<T>,
 ) => string;
 
 /**
@@ -133,8 +137,10 @@ export interface AgentDefaultOptions extends LlmSamplingOptions {
  * `topP`, the penalties and `reasoning`) is the same one `llm()` takes and
  * means the same thing here. Unset, it resolves to the framework defaults an
  * `llm()` step gets, so an agent that says nothing behaves as it always has.
+ *
+ * @template T - Body type available to callbacks in this option object
  */
-export interface AgentOptions extends LlmSamplingOptions {
+export interface AgentOptions<T = unknown> extends LlmSamplingOptions {
   /**
    * Model reference of the form "providerId:modelName". The provider
    * must be registered via `llmPlugin({ providers })`. Optional when
@@ -150,7 +156,7 @@ export interface AgentOptions extends LlmSamplingOptions {
    * Load from disk yourself when you want to source the static form
    * from a file (e.g. `readFileSync("./prompt.md", "utf-8")`).
    */
-  system: LlmPromptSource;
+  system: LlmPromptSource<T>;
 
   /**
    * Optional override for the user prompt. Either a static string or
@@ -158,7 +164,7 @@ export interface AgentOptions extends LlmSamplingOptions {
    * (mirrors `llm({ user })`). Defaults to the exchange body (string
    * as-is, JSON for objects, `String()` otherwise) when omitted.
    */
-  user?: LlmPromptSource;
+  user?: LlmPromptSource<T>;
 
   /**
    * Tools the agent is allowed to call. Build via
@@ -234,7 +240,7 @@ export interface AgentOptions extends LlmSamplingOptions {
    * still enforced by `.authorize()` and guards; this block is
    * informational context for the model, not an authorization gate.
    */
-  principal?: boolean | AgentPrincipalRenderer;
+  principal?: boolean | AgentPrincipalRenderer<T>;
 
   /**
    * Cap on tool-calling turns for the Vercel AI SDK loop. Each turn
@@ -283,7 +289,7 @@ export interface AgentOptions extends LlmSamplingOptions {
    */
   validate?: (
     result: AgentResult,
-    ctx: { exchange: Exchange<unknown>; turnsUsed: number },
+    ctx: { exchange: Exchange<T>; turnsUsed: number },
   ) => void | string | Promise<void | string>;
 
   /**
@@ -353,7 +359,7 @@ export interface AgentOptions extends LlmSamplingOptions {
  * by-name reuse. Registered agents carry their own description because they
  * are not backed by a route. The id is the record key in the plugin config.
  */
-export interface AgentRegisteredOptions extends AgentOptions {
+export interface AgentRegisteredOptions<T = unknown> extends AgentOptions<T> {
   /**
    * Human-readable description. Surfaces in observability and is used as the
    * tool description when the agent is exposed to other agents.

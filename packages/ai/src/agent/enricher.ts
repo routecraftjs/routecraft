@@ -68,8 +68,8 @@ export interface AgentByNameOverrides {
  * Discriminated state: inline options or a registry name.
  * @internal
  */
-export type AgentBinding =
-  | { kind: "inline"; options: AgentOptions }
+export type AgentBinding<T = unknown> =
+  | { kind: "inline"; options: AgentOptions<T> }
   | {
       kind: "by-name";
       name: string;
@@ -92,13 +92,13 @@ export type AgentBinding =
  * store (`ADAPTER_AGENT_REGISTRY`) at dispatch time, throwing a clear
  * error if the name is unknown.
  */
-export class AgentEnricherAdapter implements Enricher<
-  unknown,
+export class AgentEnricherAdapter<T = unknown> implements Enricher<
+  T,
   AgentResult | AgentStream
 > {
   readonly adapterId = "routecraft.adapter.agent";
 
-  constructor(public readonly binding: AgentBinding) {
+  constructor(public readonly binding: AgentBinding<T>) {
     // A tool handler may park the run (ctx.suspend / SuspendError), so the
     // suspend-site walk assigns this adapter's hosting step a re-entrant
     // site at build time. Routes that never suspend pay nothing for it.
@@ -106,7 +106,7 @@ export class AgentEnricherAdapter implements Enricher<
   }
 
   async fetch(
-    exchange: Exchange<unknown>,
+    exchange: Exchange<T>,
     stepCtx?: StepSignalContext,
   ): Promise<AgentResult | AgentStream> {
     const context = getExchangeContext(exchange);
@@ -210,7 +210,7 @@ export class AgentEnricherAdapter implements Enricher<
       exchange,
     );
 
-    const session = new AgentSession({
+    const session = new AgentSession<T>({
       options: merged,
       modelConfig: config,
       modelName,
@@ -268,7 +268,7 @@ export class AgentEnricherAdapter implements Enricher<
   /** Pull the agent options for this dispatch, either inline or from the registry. */
   private resolveOptions(
     context: CraftContext | undefined,
-  ): AgentOptions | AgentRegisteredOptions {
+  ): AgentOptions<T> | AgentRegisteredOptions<T> {
     if (this.binding.kind === "inline") return this.binding.options;
 
     if (!context) {
@@ -294,7 +294,7 @@ export class AgentEnricherAdapter implements Enricher<
         message: `Agent "${this.binding.name}" not found in registry. Known agents: ${known}.`,
       });
     }
-    return found;
+    return found as AgentRegisteredOptions<T>;
   }
 
   /**
@@ -327,10 +327,10 @@ export class AgentEnricherAdapter implements Enricher<
  *
  * @internal
  */
-function mergeWithDefaults(
-  base: AgentOptions | AgentRegisteredOptions,
+function mergeWithDefaults<T>(
+  base: AgentOptions<T> | AgentRegisteredOptions<T>,
   context: CraftContext | undefined,
-): AgentOptions | AgentRegisteredOptions {
+): AgentOptions<T> | AgentRegisteredOptions<T> {
   const defaults = context?.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
   if (!defaults) return base;
   const out = { ...base };
@@ -432,8 +432,8 @@ function mergeUserAndLoaderTools(
  *
  * @internal
  */
-function resolveAgentTools(
-  options: AgentOptions | AgentRegisteredOptions,
+function resolveAgentTools<T>(
+  options: AgentOptions<T> | AgentRegisteredOptions<T>,
   context: CraftContext | undefined,
   agentId: string | undefined,
   dispatchIdentity: AgentDispatchIdentity | undefined,
@@ -669,11 +669,11 @@ function toDescriptor(tool: ResolvedTool): AgentToolDescriptor | undefined {
  *
  * @internal
  */
-function appendPrincipalToSystem(
+function appendPrincipalToSystem<T>(
   baseSystem: string,
-  principalOption: boolean | AgentPrincipalRenderer | undefined,
+  principalOption: boolean | AgentPrincipalRenderer<T> | undefined,
   principal: Principal | undefined,
-  exchange: Exchange<unknown>,
+  exchange: Exchange<T>,
 ): string {
   if (principalOption === undefined || principalOption === false) {
     return baseSystem;

@@ -270,7 +270,7 @@ describe("agentPlugin({ toolPolicy }): admission control", () => {
       registerAgent: true,
     });
     await registeredAgentTools(t);
-    const denials = t.logger.warn.mock.calls.filter(
+    const denials = t.contextLogger.warn.mock.calls.filter(
       (c: unknown[]) =>
         typeof c[1] === "string" && c[1].includes("denied by agentPlugin"),
     );
@@ -294,7 +294,7 @@ describe("agentPlugin({ toolPolicy }): admission control", () => {
   test("an inline agent's denial is still attributable", async () => {
     t = await buildCtx({ policies: [{ fn: true, direct: true, mcp: false }] });
     await inlineAgentTools(t);
-    const denial = t.logger.warn.mock.calls.find(
+    const denial = t.contextLogger.warn.mock.calls.find(
       (c: unknown[]) =>
         typeof c[1] === "string" && c[1].includes("denied by agentPlugin"),
     );
@@ -453,7 +453,7 @@ describe("agentPlugin({ toolPolicy }): predicates and composition", () => {
     // Per the boundary convention in .standards/error-and-logging-policy.md
     // the thrown message becomes the log message, so match on that
     // rather than on a framework-authored string.
-    const errors = t.logger.error.mock.calls.filter(
+    const errors = t.contextLogger.error.mock.calls.filter(
       (c: unknown[]) => c[1] === "policy predicate blew up",
     );
     expect(errors.length).toBe(2);
@@ -509,7 +509,7 @@ describe("agentPlugin({ toolPolicy }): predicates and composition", () => {
       ],
     });
     await inlineAgentTools(t);
-    const warns = t.logger.warn.mock.calls.filter(
+    const warns = t.contextLogger.warn.mock.calls.filter(
       (c: unknown[]) =>
         typeof c[1] === "string" && c[1].includes("denied by agentPlugin"),
     );

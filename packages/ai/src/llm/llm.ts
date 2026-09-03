@@ -14,12 +14,15 @@ import type { RegisteredLlmModelId } from "../registry.ts";
  * @param modelId - "providerId:modelName"; the provider is resolved from the plugin, the model name is sent to the provider.
  * @param options - Optional overrides (system, user, temperature, maxTokens, output, etc.). User prompt defaults to exchange.body.
  */
-export function llm<S extends StandardSchemaV1 | undefined = undefined>(
+export function llm<
+  S extends StandardSchemaV1 | undefined = undefined,
+  T = unknown,
+>(
   modelId: RegisteredLlmModelId,
-  options?: LlmOptions & { output?: S },
-): Enricher<unknown, LlmResultWithOutput<S>> {
+  options?: LlmOptions<T> & { output?: S },
+): Enricher<T, LlmResultWithOutput<S>> {
   return tagAdapter(
-    new LlmEnricherAdapter<S>(modelId, options),
+    new LlmEnricherAdapter<S, T>(modelId, options),
     llm,
     factoryArgs(modelId, options),
   );

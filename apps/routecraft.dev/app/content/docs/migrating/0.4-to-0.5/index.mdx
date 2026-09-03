@@ -310,7 +310,9 @@ embedding("openai:text-embedding-3-small", {})
 **After (0.5.0):**
 
 ```ts
-embedding("openai:text-embedding-3-small", {
+type Message = { text: string }
+
+embedding<Message>("openai:text-embedding-3-small", {
   using: (ex) => ex.body.text,
 })
 ```

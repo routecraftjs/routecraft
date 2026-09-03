@@ -56,37 +56,39 @@ async function parseStructuredTextFallback(
  * resolves the provider from the plugin store, merges options, and calls the provider with the model name.
  * Use with .enrich(llm("providerId:modelName", options)) or .to(llm(...)).
  *
+ * @template T - Body type available to prompt callbacks.
  * @template S - Output schema type when an `output` schema is provided; narrows result.output for downstream typing.
  */
 export class LlmEnricherAdapter<
   S extends StandardSchemaV1 | undefined = undefined,
+  T = unknown,
 >
   implements
-    Enricher<unknown, LlmResultWithOutput<S>>,
-    MergedOptions<LlmOptionsMerged>
+    Enricher<T, LlmResultWithOutput<S>>,
+    MergedOptions<LlmOptionsMerged<T>>
 {
   readonly adapterId = "routecraft.adapter.llm";
 
   constructor(
     private readonly modelId: string,
-    options: LlmOptions = {},
+    options: LlmOptions<T> = {},
   ) {
-    this.options = options as Partial<LlmOptionsMerged>;
+    this.options = options as Partial<LlmOptionsMerged<T>>;
   }
 
-  public options: Partial<LlmOptionsMerged>;
+  public options: Partial<LlmOptionsMerged<T>>;
 
-  mergedOptions(context: CraftContext): LlmOptionsMerged {
+  mergedOptions(context: CraftContext): LlmOptionsMerged<T> {
     const store = context.getStore(ADAPTER_LLM_OPTIONS);
     return {
       temperature: DEFAULT_TEMPERATURE,
       maxTokens: DEFAULT_MAX_TOKENS,
       ...store,
       ...this.options,
-    } as LlmOptionsMerged;
+    } as LlmOptionsMerged<T>;
   }
 
-  async fetch(exchange: Exchange<unknown>): Promise<LlmResultWithOutput<S>> {
+  async fetch(exchange: Exchange<T>): Promise<LlmResultWithOutput<S>> {
     const context = getExchangeContext(exchange);
     const { config, modelName } = resolveModel(this.modelId, context);
     const merged = this.mergedOptions(context!);

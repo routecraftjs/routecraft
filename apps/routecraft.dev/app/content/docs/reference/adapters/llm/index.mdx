@@ -15,10 +15,12 @@ Call a language model and get text or structured output. Requires `llmPlugin()` 
 ```ts
 import { llm } from '@routecraft/ai'
 
+type Document = { content: string; text: string }
+
 // Text output
 craft()
   .id('summarise')
-  .from(source)
+  .from<Document>(source)
   .enrich(llm('anthropic:claude-haiku-4-5-20251001', {
     system: 'Summarise the following in one sentence.',
     user: (ex) => ex.body.content,
@@ -37,7 +39,7 @@ const sentimentSchema = z.object({
 
 craft()
   .id('classify')
-  .from(source)
+  .from<Document>(source)
   .enrich(llm('openai:gpt-4o', {
     system: 'Classify the sentiment of the text.',
     user: (ex) => ex.body.text,
@@ -105,14 +107,14 @@ craft()
 | `lmstudio` | `reasoningEffort` | the level verbatim | the level verbatim |
 | `custom` | none | not mapped | not mapped |
 
-A level a provider cannot express maps to the nearest one it supports rather than throwing, because an option that refuses on some providers is not portable and portability is the point. Three rows are lossy, and it is worth knowing which:
+A level a provider cannot express maps to the nearest one it supports rather than throwing, because an option that refuses on some providers is not portable and portability is the point. Three rows are lossy, and one maps nothing at all:
 
-- **Gemini has no way to turn thinking off.** `none` reaches it as `minimal`, its lowest level. A Gemini model still thinks a little.
+- **Gemini's `thinkingLevel` has no off position.** `none` reaches it as `minimal`, its lowest level. A Gemini model still thinks a little.
 - **Ollama's control is a boolean.** `low`, `medium` and `high` are one value there.
 - **LM Studio forwards the string to whatever server is behind it**, so the level only means something when the loaded model reads it.
 - **`custom` maps nothing.** The model handle is yours, so the framework cannot know which namespace its settings belong under. Use `providerOptions`.
 
-Anthropic's `effort` is sent as an `output_config` field, so it needs a model new enough to accept one; older models will refuse it at the API rather than at the call site.
+Mapping is where the framework's part ends. Each level is forwarded as the provider's own reasoning-effort setting, and which values a given model accepts is the provider's contract rather than ours: a model that will not take the value it is sent refuses at the API rather than at the call site. Anthropic's `effort` is the clearest case, sent as an `output_config` field that needs a model new enough to accept one. The same holds for `none` where it is forwarded verbatim. The table says what is sent, not what every model behind a provider id does with it.
 
 Leave `reasoning` unset and nothing is sent, so the provider's own default applies.
 
